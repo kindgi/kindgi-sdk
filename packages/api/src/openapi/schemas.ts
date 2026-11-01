@@ -95,7 +95,7 @@ export type JsonSchema = Record<string, unknown>;
 // (`hasHiddenCharacters` in `@kindgi/types`). JSON Schema can't say which
 // characters those are, so each field says it in words.
 const NO_HIDDEN_CHARACTERS =
-  'No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.';
+  "Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one.";
 
 export const WireErrorSchema: JsonSchema = {
   type: 'object',

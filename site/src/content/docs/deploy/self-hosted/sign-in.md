@@ -538,8 +538,10 @@ as it is.
 At most 8 links. A label is 1 to 40 characters once trimmed, isn't only
 digits, and isn't another link's label once trimmed. It can't hold a
 control, format or invisible character, such as a bidirectional override,
-a zero-width space or a filler, since those can disguise what a label
-says. The zero-width joiner and non-joiner are allowed. Each URL is
+a zero-width space or a Hangul filler, since those can disguise what a
+label says. The zero-width joiner and non-joiner, the variation selectors
+and the flags of England, Scotland and Wales are allowed, since some
+names and emoji are written with them. Each URL is
 an absolute `https` URL with no username or password in it. With anything
 else, the runtime doesn't start, and says why. Unset, the console
 shows none.

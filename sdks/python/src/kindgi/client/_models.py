@@ -1655,7 +1655,7 @@ class TrustSigningKeyBody(BaseModel):
     """
     label: Annotated[str | None, Field(max_length=200)] = None
     """
-    No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one.
     """
 
 
@@ -1893,7 +1893,7 @@ class RegisterReviewerBody(BaseModel):
     """
     display_name: Annotated[str | None, Field(alias="displayName", min_length=1)] = None
     """
-    No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one.
     """
 
 
@@ -5898,7 +5898,7 @@ class UploadArtifactBody(BaseModel):
     file: bytes
     name: str | None = None
     """
-    Default: the file part's filename, which is checked the same way. No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    Default: the file part's filename, which is checked the same way. Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one.
     """
     content_type: Annotated[str | None, Field(alias="contentType")] = None
     tags: str | None = None
@@ -7916,7 +7916,7 @@ class OidcIdentityProviderConfig(BaseModel):
     provider_id: Annotated[str, Field(alias="providerId", min_length=1)]
     display_name: Annotated[str | None, Field(alias="displayName", min_length=1)] = None
     """
-    The name a sign-in page shows ("Sign in with …"). Default: `providerId`. No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    The name a sign-in page shows ("Sign in with …"). Default: `providerId`. Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one.
     """
     domains: list[Domain] | None = None
     """
@@ -7981,7 +7981,7 @@ class SamlIdentityProviderConfig(BaseModel):
     provider_id: Annotated[str, Field(alias="providerId", min_length=1)]
     display_name: Annotated[str | None, Field(alias="displayName", min_length=1)] = None
     """
-    The name a sign-in page shows ("Sign in with …"). Default: `providerId`. No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    The name a sign-in page shows ("Sign in with …"). Default: `providerId`. Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one.
     """
     domains: list[Domain] | None = None
     """
@@ -8585,7 +8585,7 @@ class CreateUserBody(BaseModel):
     )
     display_name: Annotated[str, Field(alias="displayName", max_length=200, min_length=1)]
     """
-    No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one.
     """
     primary_email: Annotated[str | None, Field(alias="primaryEmail")] = None
     """
@@ -8667,7 +8667,7 @@ class QueueRuleSpec(BaseModel):
     )
     name: Annotated[str, Field(max_length=200, min_length=1)]
     """
-    No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one.
     """
     when: QueueRuleWhen
     sample: Annotated[float | None, Field(gt=0.0, le=1.0)] = None
@@ -8699,7 +8699,7 @@ class QueueRulePatch(BaseModel):
     )
     name: Annotated[str | None, Field(max_length=200, min_length=1)] = None
     """
-    No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one.
     """
     when: QueueRuleWhen | None = None
     sample: Annotated[float | None, Field(gt=0.0, le=1.0)] = None
@@ -8734,7 +8734,7 @@ class QueueRule(BaseModel):
     version: Annotated[int, Field(ge=1)]
     name: Annotated[str, Field(max_length=200, min_length=1)]
     """
-    No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one.
     """
     when: QueueRuleWhen
     sample: Annotated[float, Field(gt=0.0, le=1.0)]
@@ -12122,7 +12122,7 @@ class CreateConnectionAppBody(BaseModel):
     """
     label: Annotated[str | None, Field(max_length=200)] = None
     """
-    No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one.
     """
     oauth2: ConnectionOAuth2App | None = None
     github_app: Annotated[ConnectionGitHubApp | None, Field(alias="githubApp")] = None
@@ -12680,7 +12680,7 @@ class RegisterSiteBody(BaseModel):
     )
     display_name: Annotated[str, Field(alias="displayName", max_length=100, min_length=1)]
     """
-    No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one.
     """
     origin: str
     """
@@ -12733,7 +12733,7 @@ class UpdateSiteBody(BaseModel):
         str | None, Field(alias="displayName", max_length=100, min_length=1)
     ] = None
     """
-    No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one.
     """
     origin: str | None = None
     """
@@ -15687,7 +15687,7 @@ class CreateCorrectorGroupBody(BaseModel):
     """
     name: Annotated[str, Field(max_length=100, min_length=1)]
     """
-    No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one.
     """
     weight: Annotated[float, Field(ge=0.0)]
     description: str | None = None
@@ -19286,11 +19286,11 @@ class RegisterMCPEndpointBody(BaseModel):
     )
     endpoint_id: Annotated[str, Field(alias="endpointId", min_length=1, pattern="^[^.]+$")]
     """
-    No `.`: an MCP tool's id is `<endpointId>.<tool name>`, so it splits at its first `.`. An endpoint registered with one before keeps it. No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    No `.`: an MCP tool's id is `<endpointId>.<tool name>`, so it splits at its first `.`. An endpoint registered with one before keeps it. Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one.
     """
     name: Annotated[str, Field(min_length=1)]
     """
-    Human-readable display name. No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    Human-readable display name. Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one.
     """
     transport: Annotated[Literal["stdio", "http-sse", "streamable-http"] | str, _open.OPEN]
     """

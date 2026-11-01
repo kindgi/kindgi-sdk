@@ -3,7 +3,7 @@
   "info": {
     "title": "Kindgi Platform API",
     "version": "0.1.0",
-    "description": "REST + SSE API for Kindgi: runs, agents, flows, human-in-the-loop approvals and the admin control plane. Generated from the route and schema registrations in `@kindgi/api` and drift-checked against the mounted routes. `info[\"x-kindgi-capabilities\"]` names what this API does that an earlier one didn't: an open list of strings, which a client checks before a request an earlier runtime would take differently, and whose names it doesn't know it ignores.\n\n**Names.** A name or a label a request sets, such as a person's `displayName` or an app's `label`, is refused with `400` when it holds a hidden character, by Unicode class: a control character (Cc), a line break or a tab among them; the line and paragraph separators (U+2028, U+2029); a lone surrogate (Cs), half a pair, which a JSON string can hold; a format character (Cf) other than the zero-width non-joiner and joiner (U+200C, U+200D); or another default-ignorable code point other than a variation selector, such as the filler U+3164. Tag characters are kept only in the flags of England, Scotland and Wales. The classes follow the Unicode data of the server's Node, so a later Unicode can add to them. The refusal says \"`<field>` must not contain control, format or invisible characters\".",
+    "description": "REST + SSE API for Kindgi: runs, agents, flows, human-in-the-loop approvals and the admin control plane. Generated from the route and schema registrations in `@kindgi/api` and drift-checked against the mounted routes. `info[\"x-kindgi-capabilities\"]` names what this API does that an earlier one didn't: an open list of strings, which a client checks before a request an earlier runtime would take differently, and whose names it doesn't know it ignores.\n\n**Names.** A name or a label a request sets, such as a person's `displayName` or an app's `label`, is refused with `400` when it holds a hidden character, by Unicode class: a control character (Cc), a line break or a tab among them; the line and paragraph separators (U+2028, U+2029); a lone surrogate (Cs), half a pair, which a JSON string can hold; a format character (Cf) other than the zero-width non-joiner and joiner (U+200C, U+200D); or another default-ignorable code point other than a variation selector, such as the filler U+3164. Tag characters are allowed only in the flags of England, Scotland and Wales. The classes follow the Unicode data of the server's Node, so a later Unicode can add to them. The refusal says \"`<field>` must not contain control, format or invisible characters\".",
     "x-kindgi-capabilities": [
       "deploy-publishes-pack-blocks"
     ]
@@ -5056,7 +5056,7 @@
           "label": {
             "type": "string",
             "maxLength": 200,
-            "description": "No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
+            "description": "Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one."
           }
         }
       },
@@ -5694,7 +5694,7 @@
           "displayName": {
             "type": "string",
             "minLength": 1,
-            "description": "No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
+            "description": "Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one."
           }
         }
       },
@@ -6376,7 +6376,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 100,
-            "description": "No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
+            "description": "Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one."
           },
           "weight": {
             "type": "number",
@@ -13763,7 +13763,7 @@
           },
           "name": {
             "type": "string",
-            "description": "Default: the file part's filename, which is checked the same way. No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
+            "description": "Default: the file part's filename, which is checked the same way. Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one."
           },
           "contentType": {
             "type": "string"
@@ -14704,12 +14704,12 @@
             "type": "string",
             "minLength": 1,
             "pattern": "^[^.]+$",
-            "description": "No `.`: an MCP tool's id is `<endpointId>.<tool name>`, so it splits at its first `.`. An endpoint registered with one before keeps it. No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
+            "description": "No `.`: an MCP tool's id is `<endpointId>.<tool name>`, so it splits at its first `.`. An endpoint registered with one before keeps it. Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one."
           },
           "name": {
             "type": "string",
             "minLength": 1,
-            "description": "Human-readable display name. No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
+            "description": "Human-readable display name. Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one."
           },
           "transport": {
             "$ref": "#/components/schemas/MCPTransport"
@@ -18205,7 +18205,7 @@
           "displayName": {
             "type": "string",
             "minLength": 1,
-            "description": "The name a sign-in page shows (\"Sign in with …\"). Default: `providerId`. No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
+            "description": "The name a sign-in page shows (\"Sign in with …\"). Default: `providerId`. Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one."
           },
           "domains": {
             "type": "array",
@@ -18291,7 +18291,7 @@
           "displayName": {
             "type": "string",
             "minLength": 1,
-            "description": "The name a sign-in page shows (\"Sign in with …\"). Default: `providerId`. No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
+            "description": "The name a sign-in page shows (\"Sign in with …\"). Default: `providerId`. Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one."
           },
           "domains": {
             "type": "array",
@@ -19475,7 +19475,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 200,
-            "description": "No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
+            "description": "Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one."
           },
           "primaryEmail": {
             "type": "string",
@@ -19666,7 +19666,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 200,
-            "description": "No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
+            "description": "Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one."
           },
           "when": {
             "$ref": "#/components/schemas/QueueRuleWhen"
@@ -19702,7 +19702,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 200,
-            "description": "No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
+            "description": "Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one."
           },
           "when": {
             "$ref": "#/components/schemas/QueueRuleWhen"
@@ -19764,7 +19764,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 200,
-            "description": "No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
+            "description": "Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one."
           },
           "when": {
             "$ref": "#/components/schemas/QueueRuleWhen"
@@ -27988,7 +27988,7 @@
           "label": {
             "type": "string",
             "maxLength": 200,
-            "description": "No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
+            "description": "Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one."
           },
           "oauth2": {
             "$ref": "#/components/schemas/ConnectionOAuth2App"
@@ -29309,7 +29309,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 100,
-            "description": "No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
+            "description": "Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one."
           },
           "origin": {
             "type": "string",
@@ -29372,7 +29372,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 100,
-            "description": "No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
+            "description": "Refused where it's written if it holds a control, format or invisible character, such as a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are allowed. A name stored earlier can still hold one."
           },
           "origin": {
             "type": "string",
