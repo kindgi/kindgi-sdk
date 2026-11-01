@@ -682,6 +682,8 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/projects/{projectId}/pinned-versions': 'the same records as agent-pinned-versions',
   '/v1/environment-orders/tenant': 'the same records as environment-orders',
   '/v1/environment-orders/orgs/{orgId}': 'the same records as environment-orders',
+  '/v1/tool-files/{artifactId}':
+    "the same bytes as artifacts, read by a pack tool's call with the call's own token",
   '/v1/providers/{providerId}/check': "a live check of a provider's settings",
   '/v1/deployments/{deploymentId}/values':
     'computed from deployments, tools, agents, providers, secrets and env values',
