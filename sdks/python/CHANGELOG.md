@@ -13,6 +13,12 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **an HTTP tool's placeholder names are ASCII, as the runtime fills them.**
+  `http_tool` read `{name}` in `url_template` (and a `text` body's `template`) with any
+  Unicode letter, so a name outside ASCII was checked as a field although the runtime leaves
+  it as text: refused when the input had no such field, and passed, then sent unfilled, when it
+  had one. It now reads ASCII letters, digits and `_`, as the runtime and Java's check do.
+
 ## 0.3.1
 
 - `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",
