@@ -96,6 +96,8 @@ Within about a lease plus a sweep:
   A run that can't be resumed at all (its flow or agent is gone, or its
   flow's version changed, say) fails at the first attempt instead:
   `Interrupted: the run was ready to continue, but it can't be resumed: <why>`
+  Before runtime <x>, an agent's run that waited through an upgrade
+  changing its turn fails only after the three attempts.
 - **A flow waiting on a child run that already ended is woken**, and goes on.
 - **A run whose parent run ended is ended too:** cancelled when the parent
   was cancelled, otherwise failed:
