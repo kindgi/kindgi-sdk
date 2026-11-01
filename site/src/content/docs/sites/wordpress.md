@@ -42,7 +42,11 @@ the plugin, through the store's own API and its webhooks:
 - **The `woocommerce` template:** `kindgi init --template=woocommerce`
   makes agents for a WooCommerce store, where a larger refund, a price
   change and publishing a product each wait for a person. A WooCommerce
-  webhook starts its order review.
+  webhook starts its order review. Its `pnpm connect-store <store>`
+  connects the store: one of the store's administrators approves Kindgi in
+  wp-admin, and nobody copies a password. That approval needs WordPress 7.0
+  or later, or a site whose environment type is `local`; the template's
+  README says how to connect an older store by hand.
 - **The store's actions as an MCP server's tools,** as
   [Give the agent the store's actions](#give-the-agent-the-stores-actions)
   shows. On Kindgi Cloud, that's an MCP server the store serves on the

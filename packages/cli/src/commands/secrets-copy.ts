@@ -12,8 +12,6 @@
  * Output names keys and files, never a value.
  */
 
-import { execFile } from 'node:child_process';
-
 import {
   type CopyToKindgiFileResult,
   LOCAL_ENV_NAME,
@@ -31,18 +29,16 @@ import {
   providerKeyNamesFromRuntime,
   readProviderKeysRecord,
 } from '../env/provider-keys.js';
+import { gitOutput } from '../git.js';
 import { renderJson } from '../output.js';
 import { type SaidLine, note, renderLines, warning } from '../progress-lines.js';
 import { loadProviderPresets } from '../providers/preset-loader.js';
 import type { CommandResult, LeafCommand } from './types.js';
 
 /** Whether git tracks `file` (`git ls-files --error-unmatch`); `false` outside a repository or without git. */
-const gitTracked = (file: string, cwd: string): Promise<boolean> =>
-  new Promise((resolvePromise) => {
-    execFile('git', ['ls-files', '--error-unmatch', '--', file], { cwd, timeout: 5000 }, (err) =>
-      resolvePromise(err === null),
-    );
-  });
+const gitTracked = async (file: string, cwd: string): Promise<boolean> =>
+  (await gitOutput(cwd, ['ls-files', '--error-unmatch', '--', file], { timeout: 5000 })) !==
+  undefined;
 
 export const secretsCopyCmd: LeafCommand = {
   kind: 'leaf',

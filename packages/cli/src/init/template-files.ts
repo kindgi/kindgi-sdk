@@ -41,24 +41,28 @@ export interface Substitutions {
   /** build.sbt's line(s) for kindgi-pack from a Kindgi checkout's local Maven repository; empty from Maven Central. */
   readonly SCALA_LOCAL_RESOLVER?: string;
   /**
-   * The commands a README shows, as `kindgi init`'s Next steps print them:
-   * the install (`pnpm install`), the typecheck script, and how the project
-   * runs its `kindgi` (`pnpm exec kindgi`, `npx --no -- kindgi`, `uv run
-   * kindgi`). Left as placeholders when absent, for a second pass
-   * (`fillRunnerPlaceholders`) once the package manager is known.
+   * The commands a starter's files show, as `kindgi init`'s Next steps
+   * print them: the install (`pnpm install`), the typecheck script, how the
+   * project runs its `kindgi` (`pnpm exec kindgi`, `npx --no -- kindgi`,
+   * `uv run kindgi`), and how it runs one of its package.json scripts
+   * (`pnpm`, `npm run`). Left as placeholders when absent, for a second
+   * pass (`fillRunnerPlaceholders`) once the package manager is known.
    */
   readonly INSTALL?: string;
   readonly TYPECHECK?: string;
   readonly KINDGI?: string;
+  readonly RUN?: string;
 }
 
-/** The README placeholders filled from the project's runner. */
-export type RunnerPlaceholders = Required<Pick<Substitutions, 'INSTALL' | 'TYPECHECK' | 'KINDGI'>>;
+/** The placeholders filled from the project's runner. */
+export type RunnerPlaceholders = Required<
+  Pick<Substitutions, 'INSTALL' | 'TYPECHECK' | 'KINDGI' | 'RUN'>
+>;
 
 /** Fill the runner placeholders a first pass left (`substitute` without them). */
 export function fillRunnerPlaceholders(raw: string, runner: Partial<RunnerPlaceholders>): string {
   let out = raw;
-  for (const key of ['INSTALL', 'TYPECHECK', 'KINDGI'] as const) {
+  for (const key of ['INSTALL', 'TYPECHECK', 'KINDGI', 'RUN'] as const) {
     const value = runner[key];
     if (value !== undefined) out = out.replaceAll(`{{${key}}}`, value);
   }

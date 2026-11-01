@@ -12118,7 +12118,12 @@
             "items": {
               "type": "string"
             },
-            "description": "The corrections it fixes, by id."
+            "description": "The corrections it fixes, by id: the first 100 at most. `correctionCount` says how many in all."
+          },
+          "correctionCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "How many corrections it fixes in all, those `fixes` names and any past its first 100. Absent from older servers: there, take the length of `fixes`."
           },
           "check": {
             "$ref": "#/components/schemas/SuggestedChangeCheck"
