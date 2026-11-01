@@ -256,35 +256,26 @@
 
   /** The Inbox's lists, as WordPress's own list screens have them ("All (3) | Mine (1)"). */
   function filters(counts) {
-    return el(
-      'ul',
-      { className: 'subsubsub' },
-      FILTERS.map(([filter, label], at) =>
-        el(
-          'li',
-          {},
-          inPage(
-            filterUrl(filter),
-            () => {
-              state.filter = filter;
-              renderInbox();
-            },
-            el(
-              'span',
-              {
-                className: filter === state.filter ? 'current' : null,
-                'aria-current': filter === state.filter ? 'page' : null,
-              },
-              label,
-            ),
-            counts[filter] === null
-              ? null
-              : [' ', el('span', { className: 'count' }, `(${counts[filter]})`)],
-          ),
-          at < FILTERS.length - 1 ? ' |' : null,
-        ),
-      ),
-    );
+    const item = ([filter, label], at) => {
+      const link = inPage(
+        filterUrl(filter),
+        () => {
+          state.filter = filter;
+          renderInbox();
+        },
+        label,
+        counts[filter] === null
+          ? null
+          : [' ', el('span', { className: 'count' }, `(${counts[filter]})`)],
+      );
+      if (filter === state.filter) {
+        link.className = 'current';
+        link.setAttribute('aria-current', 'page');
+      }
+      // The space after the bar is the one WordPress's own markup leaves between items.
+      return el('li', {}, link, at < FILTERS.length - 1 ? ' | ' : null);
+    };
+    return el('ul', { className: 'subsubsub' }, FILTERS.map(item));
   }
 
   function emptyWords() {

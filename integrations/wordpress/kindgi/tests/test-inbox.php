@@ -239,6 +239,33 @@ function test_activity_a_persons_run_and_its_answer(): void {
 	kindgi_assert_same( 'c-2', $row['conversationId'], 'its conversation' );
 	kindgi_assert_same( 'unknown', Kindgi_Activity::started_by( array(), 'u-me', kindgi_test_names() )['kind'], 'a run from before runs recorded it' );
 	kindgi_assert_same( 'Order ID 26', Kindgi_Activity::summary( array( 'orderId' => 26 ) ), 'a field in words' );
+	kindgi_assert_same(
+		'Order 26 is for 6 mugs.',
+		Kindgi_Activity::summary(
+			array(
+				'flags'  => array( 'many-of-one-item' ),
+				'review' => "Order 26 is for 6 mugs.\nCheck the **address**.",
+			)
+		),
+		'a flow that answers in words, in a field of its own'
+	);
+	$turn = array(
+		'runId'    => 'r-2',
+		'appended' => array(
+			array(
+				'role'    => 'user',
+				'content' => 'Refund order 18',
+			),
+		),
+		'response' => array(
+			'role'    => 'agent',
+			'content' => 'I refunded 210.00 on order 18.',
+		),
+		'usage'    => array( 'steps' => 4 ),
+	);
+	kindgi_assert_same( 'I refunded 210.00 on order 18.', Kindgi_Activity::summary( $turn ), "an agent's turn: its answer, not its usage" );
+	kindgi_assert_same( 'The many-of-one-item flag', Kindgi_Activity::summary( 'The **`many-of-one-item`** flag' ), "Markdown's marks left out" );
+	kindgi_assert_same( 'I refunded 210.00 on order 18.', Kindgi_Activity::output( $turn ), 'and its output is the answer, whole' );
 	kindgi_assert_same( null, Kindgi_Activity::summary( array( 1, 2 ) ), 'a list has nothing to say' );
 	kindgi_assert_same( null, Kindgi_Activity::summary( null ), 'no output' );
 	kindgi_assert_same( null, Kindgi_Activity::summary( "\n\n" ), 'an empty answer' );

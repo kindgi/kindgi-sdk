@@ -68,30 +68,38 @@ final class Kindgi_Activity {
 		return Kindgi_Inbox::asked( is_string( $run['actsFor'] ?? null ) ? $run['actsFor'] : null, $me, $who );
 	}
 
-	/** The run's output as text (an object's as indented JSON), cut short, or null for none. */
+	/**
+	 * The run's output as text, cut short, or null for none: an agent's
+	 * turn as its answer, anything else as indented JSON.
+	 */
 	public static function output( $output ): ?string {
 		if ( null === $output ) {
 			return null;
 		}
-		$text = is_string( $output ) ? $output : (string) wp_json_encode( $output, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+		$answer = self::answer( $output );
+		if ( null !== $answer ) {
+			$text = $answer;
+		} else {
+			$text = is_string( $output ) ? $output : (string) wp_json_encode( $output, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+		}
 		return mb_strlen( $text ) > self::OUTPUT_MAX ? mb_substr( $text, 0, self::OUTPUT_MAX - 1 ) . '…' : $text;
 	}
 
+	/** An agent's turn's answer: the words of the message it ended with, or null. */
+	public static function answer( $output ): ?string {
+		$content = is_array( $output ) && is_array( $output['response'] ?? null ) ? ( $output['response']['content'] ?? null ) : null;
+		return is_string( $content ) && '' !== trim( $content ) ? $content : null;
+	}
+
 	/**
-	 * A run's output in one line: its text (or a text field's), else its
-	 * first few fields as "Label value", else nothing.
+	 * A run's output in one line: its text, a text field's, an agent's
+	 * answer, or the first field that holds words; else its first few
+	 * fields as "Label value"; else nothing.
 	 */
 	public static function summary( $output ): ?string {
-		$text = null;
-		if ( is_string( $output ) ) {
-			$text = $output;
-		} elseif ( is_array( $output ) ) {
-			foreach ( self::TEXT_FIELDS as $field ) {
-				if ( is_string( $output[ $field ] ?? null ) && '' !== trim( $output[ $field ] ) ) {
-					$text = $output[ $field ];
-					break;
-				}
-			}
+		$text = is_string( $output ) ? $output : null;
+		if ( is_array( $output ) ) {
+			$text = self::words_in( $output ) ?? self::answer( $output );
 			if ( null === $text ) {
 				$parts = array();
 				foreach ( array_slice( Kindgi_Inbox::facts( $output ), 0, self::SUMMARY_FIELDS ) as $fact ) {
@@ -104,7 +112,23 @@ final class Kindgi_Activity {
 		if ( '' === $text ) {
 			return null;
 		}
-		$line = trim( explode( "\n", $text, 2 )[0] );
+		// One line of plain words: Markdown's bold and code marks left out.
+		$line = trim( str_replace( array( '**', '`' ), '', explode( "\n", $text, 2 )[0] ) );
 		return mb_strlen( $line ) > self::SUMMARY_MAX ? mb_substr( $line, 0, self::SUMMARY_MAX - 1 ) . '…' : $line;
+	}
+
+	/** An output's words: a text field's, else the first field that holds a sentence. */
+	private static function words_in( array $output ): ?string {
+		foreach ( self::TEXT_FIELDS as $field ) {
+			if ( is_string( $output[ $field ] ?? null ) && '' !== trim( $output[ $field ] ) ) {
+				return $output[ $field ];
+			}
+		}
+		foreach ( $output as $value ) {
+			if ( is_string( $value ) && 1 === preg_match( '/\S\s+\S/', trim( $value ) ) ) {
+				return $value;
+			}
+		}
+		return null;
 	}
 }

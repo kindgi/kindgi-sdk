@@ -462,6 +462,8 @@ final class Kindgi_Rest {
 			'scopeId'   => $project,
 			'topLevel'  => 'true',
 			'limit'     => self::ACTIVITY_PAGE,
+			// A list leaves each run's output out unless asked: a row's summary is its first line.
+			'include'   => 'output',
 		);
 		if ( null !== $request['cursor'] && '' !== $request['cursor'] ) {
 			$query['cursor'] = $request['cursor'];
