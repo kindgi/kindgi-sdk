@@ -109,8 +109,11 @@ export function gitCaller(env: Readonly<Record<string, string | undefined>>): Gi
 /** `gitCaller` on this process's environment, as it is at each call. */
 export const callGit: GitCall = gitCaller(process.env);
 
-/** `env` without git's repository variables, with git's messages in English. */
-function gitEnv(env: Readonly<Record<string, string | undefined>>): NodeJS.ProcessEnv {
+/**
+ * `env` without git's repository variables, with git's messages in English:
+ * for any git command on the pack's folder, so it reads that repository.
+ */
+export function gitEnv(env: Readonly<Record<string, string | undefined>>): NodeJS.ProcessEnv {
   const kept = Object.fromEntries(
     Object.entries(env).filter(([name]) => !REPOSITORY_VARS.has(name)),
   );
