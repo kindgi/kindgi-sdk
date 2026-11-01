@@ -16,7 +16,8 @@ Each person acts as themselves. A decision names Jane, shown as "Jane, via
 Acme store", never "the store".
 
 This page sets it up:
-- site sign-in, on a runtime you run (Kindgi Cloud has it on);
+- site sign-in, which a runtime you run needs turned on (Kindgi Cloud's is
+  coming);
 - the site in Kindgi;
 - the plugin.
 
@@ -24,9 +25,10 @@ It also covers what the site's people can and can't do in Kindgi.
 
 ## On Kindgi Cloud
 
-Site sign-in is on for every Kindgi Cloud workspace, so there's nothing to
-turn on: skip
-[Self-hosted: turn site sign-in on](#self-hosted-turn-site-sign-in-on).
+Kindgi Cloud's site sign-in is coming. Until then, the plugin connects a
+site only to a runtime you run; an agent on Kindgi Cloud can still work
+with a store without it (below). When it's on, there's nothing to turn on:
+skip [Self-hosted: turn site sign-in on](#self-hosted-turn-site-sign-in-on).
 The steps after it are the same, with two differences:
 - **Register the site with the CLI signed in to Kindgi Cloud**
   ([Sign the CLI in](../../hosted/deploy-your-agent/#sign-the-cli-in)).
