@@ -84,7 +84,7 @@ One correction taken through the loop: [worked-example.md](worked-example.md).
 |---|---|---|
 | "Never refund shipping", "final sale: no refund", "over 50 on a first order, ask a person" | a rule in **code**: the tool checks it every time | change the tool, with a test, through the repo |
 | "Our return window is 14 days, not 30" | a **setting** the owner can change | a suggested change to the settings block |
-| "Always have a person approve a refund" | an **approval rule**: a tenant policy that makes a tool always ask | a person sets it: point them to it |
+| "Always have a person approve a refund" | an **approval rule**: a workspace policy that makes a tool always ask | a person sets it: point them to it |
 | "Store credit before cash", "too stiff", "say when the money arrives" | the agent's **wording**, in its prompt block | an Improve run, or a suggested change when the person said exactly what to say |
 
 Kindgi sorts each correction as it's saved (`sortedTo`): one that says the

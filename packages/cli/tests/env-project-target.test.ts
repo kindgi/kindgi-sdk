@@ -353,7 +353,7 @@ describe('kindgi secrets: --env naming a pack environment, on a runtime that kee
     ]);
     expect(missing.exitCode).toBe(2);
     expect(missing.stderr).toBe(
-      'The pack\'s environment staging-1: No project of this tenant has the slug "acme-staging-1". `kindgi projects list` shows them; pass a project id instead.\n',
+      'The pack\'s environment staging-1: No project of this workspace has the slug "acme-staging-1". `kindgi projects list` shows them; pass a project id instead.\n',
     );
     expect(sentTo(none, 'secrets.set')).toEqual([]);
     const two = runtime(REFUSES, [

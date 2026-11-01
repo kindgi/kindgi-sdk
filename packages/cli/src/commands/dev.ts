@@ -204,7 +204,7 @@ export const devCommand: LeafCommand = {
     tenant: {
       type: 'string',
       description:
-        "Pin the tenant. Default: with the bundled Postgres, the project's own (the same for every pack and restart of the project); else the previous run's (from `.kindgirc.json`), else a new one.",
+        "Pin the workspace. Default: with the bundled Postgres, the project's own (the same for every pack and restart of the project); else the previous run's (from `.kindgirc.json`), else a new one.",
     },
     // Named `dev-token` to avoid clobbering the global `--token`
     // (which is the caller's bearer token to a remote API). In dev

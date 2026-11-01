@@ -317,7 +317,7 @@ async function listScopedAt(ctx: CommandContext, target: ScopedTarget): Promise<
           ]
         : []),
       '',
-      "  A tool gets the project's value, else its org's, else the tenant's.",
+      "  A tool gets the project's value, else its org's, else the workspace's.",
       '',
     ].map(note);
     return ok(
@@ -382,8 +382,8 @@ const TENANT_LIST_NONE: ReadonlySet<string> = new Set([
 
 /** What a call sees once a scope's value is gone. */
 const FALLBACK: Readonly<Record<ScopeRef['kind'], string>> = {
-  project: "its org's value, else the tenant's, else its schema's default",
-  org: "the tenant's value, else its schema's default (a project's own value still wins)",
+  project: "its org's value, else the workspace's, else its schema's default",
+  org: "the workspace's value, else its schema's default (a project's own value still wins)",
   tenant:
     "its schema's default, or fails before it runs (an org's or a project's own value still wins)",
 };

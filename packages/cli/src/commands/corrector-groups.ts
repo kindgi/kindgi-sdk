@@ -9,7 +9,7 @@ import { integerFlag, listFlag, requiredPositional, runSdk, stringFlag } from '.
 import type { Command, LeafCommand } from './types.js';
 
 const SCOPE_FLAGS = {
-  tenant: { type: 'boolean', description: 'The whole tenant.' },
+  tenant: { type: 'boolean', description: 'The whole workspace (scope `tenant`).' },
   project: {
     type: 'string',
     description: 'A project, by id. With `--agent`, the project the agent is in.',
@@ -127,7 +127,7 @@ const add: LeafCommand = {
   kind: 'leaf',
   name: 'add',
   description:
-    'Add a corrector group: a named kind of person who corrects with a weight, for the tenant, a project, or an agent. The restriction flags limit who may assert it; without them, anyone who may correct the run may.',
+    'Add a corrector group: a named kind of person who corrects with a weight, for the workspace, a project, or an agent. The restriction flags limit who may assert it; without them, anyone who may correct the run may.',
   usage: `kindgi corrector-groups add --name=<name> --weight=<w> (--tenant | --project=<id> | --agent=<id> --project=<id>) [--description=<text>] ${ASSERTABLE_USAGE}`,
   optionSpec: {
     name: { type: 'string', description: 'The group name, e.g. `expert`. Required.' },

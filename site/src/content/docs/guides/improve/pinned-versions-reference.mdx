@@ -25,7 +25,7 @@ A run's `agent.via` says how it got its version:
 | `conversation` | the one its conversation started with, as [Conversations keep their version](#conversations-keep-their-version) describes |
 
 The most specific pinned version wins: a **segment** path in a project, then
-the **project**, the project's **org**, the **tenant**, and then the
+the **project**, the project's **org**, the **workspace**, and then the
 project's Latest. Without `--project`, a run is in its agent's own project,
 which is the default project for what `kindgi deploy` registers.
 
@@ -50,7 +50,7 @@ deployment ships it here. When two versions became Latest at the same time,
 the higher one is. A version published before the runtime recorded Latest also
 counts from when it was published, in the project it was made in. A version
 that's unregistered drops out, and the one with the newest time of those left
-is Latest. For a tenant or org scope, which has no project, every version that
+is Latest. For a workspace or org scope, which has no project, every version that
 can be Latest counts, wherever it was made or shipped: its Latest is the one
 with the newest time.
 
@@ -64,7 +64,7 @@ suspended). Deploy or publish a version into the project first; into a
 later environment, promote a build that ships one.
 
 A pin that would take a project that follows Latest off it asks first. A
-project or segment pin of such a project, or a tenant or org pin over one, is
+project or segment pin of such a project, or a workspace or org pin over one, is
 refused with `409 pin-stops-latest`, whether or not the version changes, and
 nothing is recorded. `details.projects` lists each project with the version it
 runs now. Send `stopFollowingLatest: true` to pin anyway (`kindgi agents pin
@@ -85,7 +85,7 @@ project runs.
 A follow-up turn in a conversation keeps the version the conversation started
 with, even after another version is pinned, so the conversation stays
 consistent. Here a
-conversation started on 1.2.0. Then 1.0.0 was pinned for the tenant, and the
+conversation started on 1.2.0. Then 1.0.0 was pinned for the workspace, and the
 conversation's next turn still ran 1.2.0:
 
 ```json excerpt
@@ -105,11 +105,11 @@ A published flow version holds the agent versions it was published with.
 Each agent step runs the version its node names, `config.version`. Otherwise
 it runs the one a run in the flow's project would get when the flow version
 is published: the pinned version, from the project, then the org, then the
-tenant, or the project's Latest when none is pinned. Its turns say
+workspace, or the project's Latest when none is pinned. Its turns say
 `"via": "flow-pin"`, and pinning another version doesn't change them.
 
 Here `acme.order-flow` 1.0.0 was published while 1.3.0 was pinned. After the
-tenant pinned 1.0.0, its step still ran 1.3.0:
+workspace pinned 1.0.0, its step still ran 1.3.0:
 
 ```json excerpt
   "agent": {
@@ -146,7 +146,7 @@ What a request to pin or unpin refuses:
 
 - a version that isn't registered:
   `Version 9.9.9 is not registered (or was unregistered)`;
-- a pin for the tenant or an org, for an agent with a project in an
+- a pin for the workspace or an org, for an agent with a project in an
   environment order, since it would act in every environment of the order
   at once: `409 pin-scope-spans-environments`. Pin it in one project at a
   time, or in a segment of one;
@@ -197,7 +197,7 @@ ea4e7c15-7990-41b6-b153-0847a83f2e9d  pin       pinned    tenant                
 ## Every pin that covers a project
 
 `GET /v1/projects/<project-id>/pinned-versions` lists every agent's pins
-that cover a project: the tenant's, the project's org's, the project's own
+that cover a project: the workspace's, the project's org's, the project's own
 and its segments'. They're ordered by agent, then by scope, and each one is
 as an agent's own list of pinned versions shows it:
 
@@ -273,9 +273,9 @@ version:
 - **`kindgi agents release-gate acme.order-desk --tenant`** shows the release
   gate that applies to a scope.
 - **With [authorization](../../../deploy/authorization/) on,** publishing a
-  release gate takes `admin` on the tenant. Reading one takes `read`
-  on its scope: its project, a segment's too, its org, or the tenant for a
-  tenant-wide one. A release gate you can't read is left out of lists,
+  release gate takes `admin` on the workspace. Reading one takes `read`
+  on its scope: its project, a segment's too, its org, or the workspace for a
+  workspace-wide one. A release gate you can't read is left out of lists,
   and answers `404 release-gate-not-found`, as if it weren't there.
 
 ### A scope with a release gate needs a pinned version of its own

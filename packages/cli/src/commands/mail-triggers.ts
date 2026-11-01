@@ -125,7 +125,7 @@ function allowUnattendedFlag(on: 'register' | 'update'): Record<string, ParseArg
     'allow-unattended': {
       type: 'string',
       multiple: true,
-      description: `A tool, by id, whose calls in this trigger's runs needn't wait for a person's yes (repeatable; only tools its agent or flow calls, no wildcard). In a run a mail started, every call that changes something, or uses the run's own mailbox, waits for one otherwise. Needs \`admin\` on the trigger's project. The tenant's and the agent's approval rules still apply.${on === 'update' ? " Replaces the list; `none` clears it; left out, the list is kept, and a new --agent, --flow or mailbox must name it again (or `none`, which the owner of a person's trigger may give with their own change)." : ''}`,
+      description: `A tool, by id, whose calls in this trigger's runs needn't wait for a person's yes (repeatable; only tools its agent or flow calls, no wildcard). In a run a mail started, every call that changes something, or uses the run's own mailbox, waits for one otherwise. Needs \`admin\` on the trigger's project. The workspace's and the agent's approval rules still apply.${on === 'update' ? " Replaces the list; `none` clears it; left out, the list is kept, and a new --agent, --flow or mailbox must name it again (or `none`, which the owner of a person's trigger may give with their own change)." : ''}`,
     },
   };
 }
@@ -232,7 +232,7 @@ const create: LeafCommand = {
     ...mailFlags('register'),
     project: {
       type: 'string',
-      description: "The trigger's project, by id (default: the tenant's default project).",
+      description: "The trigger's project, by id (default: the workspace's default project).",
     },
     ...RUN_AS_FLAG,
     ...allowUnattendedFlag('register'),

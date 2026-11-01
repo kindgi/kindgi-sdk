@@ -191,7 +191,7 @@ function allowUnattendedFlag(on: 'register' | 'update'): Record<string, ParseArg
     'allow-unattended': {
       type: 'string',
       multiple: true,
-      description: `A tool, by id, whose calls in this trigger's runs needn't wait for a person's yes, though the tool asks for one when no person started the run (repeatable; only tools its flow calls, no wildcard). Needs \`admin\` on the trigger's project. The tenant's and the agent's approval rules still apply.${on === 'update' ? ' Replaces the list; `none` clears it; left out, the list is kept.' : ''}`,
+      description: `A tool, by id, whose calls in this trigger's runs needn't wait for a person's yes, though the tool asks for one when no person started the run (repeatable; only tools its flow calls, no wildcard). Needs \`admin\` on the trigger's project. The workspace's and the agent's approval rules still apply.${on === 'update' ? ' Replaces the list; `none` clears it; left out, the list is kept.' : ''}`,
     },
   };
 }
@@ -283,7 +283,7 @@ const register: LeafCommand = {
     secret: {
       type: 'string',
       description:
-        "The signing secret's name: one written with `kindgi secrets set` in the env the runtime serves (it's read at the trigger's project, its org or the tenant, whichever you administer that has it), or the name --generate-secret stores it under. Never a model provider's key. Under `kindgi dev`, --generate-secret writes it to an env file, so the name is capital letters, digits and underscores, not starting with a digit (`ACME_WOO_ORDERS`).",
+        "The signing secret's name: one written with `kindgi secrets set` in the env the runtime serves (it's read at the trigger's project, its org or the workspace, whichever you administer that has it), or the name --generate-secret stores it under. Never a model provider's key. Under `kindgi dev`, --generate-secret writes it to an env file, so the name is capital letters, digits and underscores, not starting with a digit (`ACME_WOO_ORDERS`).",
     },
     'generate-secret': {
       type: 'boolean',
@@ -297,7 +297,7 @@ const register: LeafCommand = {
     },
     project: {
       type: 'string',
-      description: "The trigger's project, by id (default: the tenant's default project).",
+      description: "The trigger's project, by id (default: the workspace's default project).",
     },
     ...SIGNATURE_FLAGS,
     ...RUN_AS_FLAG,

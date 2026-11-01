@@ -322,7 +322,7 @@ function allowUnattendedFlag(on: 'register' | 'update'): Record<string, ParseArg
     'allow-unattended': {
       type: 'string',
       multiple: true,
-      description: `A tool, by id, whose calls in this schedule's runs needn't wait for a person's yes, though the tool asks for one when no person started the run (repeatable; only tools its agent or flow calls, no wildcard). Needs \`admin\` on the schedule's project. The tenant's and the agent's approval rules still apply.${on === 'update' ? ' Replaces the list; `none` clears it; left out, the list is kept, and a new --agent or --flow must name it again (or `none`).' : ''}`,
+      description: `A tool, by id, whose calls in this schedule's runs needn't wait for a person's yes, though the tool asks for one when no person started the run (repeatable; only tools its agent or flow calls, no wildcard). Needs \`admin\` on the schedule's project. The workspace's and the agent's approval rules still apply.${on === 'update' ? ' Replaces the list; `none` clears it; left out, the list is kept, and a new --agent or --flow must name it again (or `none`).' : ''}`,
     },
   };
 }
@@ -340,7 +340,7 @@ const create: LeafCommand = {
     project: {
       type: 'string',
       description:
-        "The schedule's project, by id (default: the tenant's default project). With --improve, the project it improves, which it needs.",
+        "The schedule's project, by id (default: the workspace's default project). With --improve, the project it improves, which it needs.",
     },
     ...RUN_AS_FLAG,
     ...allowUnattendedFlag('register'),

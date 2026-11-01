@@ -18,18 +18,18 @@ import type { DeployedVersionRecord, DeploymentRecord, PostDeploymentResult } fr
  */
 const WIRE_ERROR_HINTS: Readonly<Record<string, string>> = {
   'signature-invalid':
-    'Check that --tenant matches the tenant your token authenticates as. ' +
+    'Check that --tenant matches the workspace your token authenticates as. ' +
     "The server re-canonicalises the envelope using the token's tenantId; " +
     'a mismatch fails signature verification.',
   'signer-not-trusted':
-    "The runtime doesn't trust the signing key {signerKeyId}: it isn't on this tenant's " +
+    "The runtime doesn't trust the signing key {signerKeyId}: it isn't on this workspace's " +
     'trust list, or it was revoked. Trust it (with a token that has signing-keys:write), ' +
     'then deploy again. A revoked key stays revoked: make a new one with ' +
     '`kindgi key create <newId>`.',
   'image-unverifiable':
     'The server could not pull the image or the extracted /app/index.json ' +
     'sha256 did not match the signed indexHash. Verify the build server ' +
-    'pushed to the same registry the deployment tenant can pull from, and ' +
+    'pushed to the same registry the deployment workspace can pull from, and ' +
     'that the imageRef in the envelope is digest-pinned.',
   'deployment-validation-failed':
     'One or more primitives in the pack failed server-side validation. ' +
@@ -76,7 +76,7 @@ const IMAGE_LIMIT_HINTS: Readonly<Record<string, string>> = {
  */
 const RATE_LIMIT_HINTS: Readonly<Record<string, string>> = {
   'tenant-unpack-hour':
-    "This tenant's image reads unpacked as much as the server allows in an hour. " +
+    "This workspace's image reads unpacked as much as the server allows in an hour. " +
     'Deploy again after the wait the message names; an image `kindgi build` made unpacks ' +
     'only its small top layer.',
 };

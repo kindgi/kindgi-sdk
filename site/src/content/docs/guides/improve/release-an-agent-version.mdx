@@ -1,6 +1,6 @@
 ---
 title: Release an agent version
-description: Pin a version for the whole tenant, an org, a project or a segment of its runs, see which version a run gets and why, unpin, and read the pin history.
+description: Pin a version for the whole workspace, an org, a project or a segment of its runs, see which version a run gets and why, unpin, and read the pin history.
 sidebar:
   order: 5
 ---
@@ -16,7 +16,7 @@ published there in full, whichever came last. A version derived from an edit
 to its prompts or settings isn't Latest by itself, and neither is a higher
 number. Once a new version has done better on your test cases, as
 [Try a version on the test cases](../compare-an-agent-version/) shows, you
-can **pin** it where you choose: the whole tenant, an org, a project, or
+can **pin** it where you choose: the whole workspace, an org, a project, or
 a segment of a project's runs, such as one company's. Runs there use it from
 the next run, nothing changes anywhere else, and you can unpin at once.
 [Pinned versions reference](../pinned-versions-reference/) has every rule,
@@ -38,7 +38,7 @@ refusal and console page.
 
 A pinned version is what a run that names no version gets.
 
-Pin 1.0.0 for the whole tenant:
+Pin 1.0.0 for the whole workspace:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -72,7 +72,7 @@ uv run kindgi agents pin acme.order-desk 1.0.0 --tenant --reason="1.0.0 is the v
 </Tabs>
 
 - `acme.order-desk 1.0.0` is the agent and the version.
-- `--tenant` is the scope: the whole tenant.
+- `--tenant` is the scope: the whole workspace.
 - `--reason` is kept on the record.
 
 It prints the pin request:
@@ -142,9 +142,9 @@ version doesn't change what a scope with a pinned version runs.
 **For an agency,** with a project for each client, pin in the client's
 project instead, with `--project=<project-id>`, as in
 [Pin it for some runs only](#pin-it-for-some-runs-only) but without
-`--segment`. A tenant pin changes the agent at once for every client without
+`--segment`. A workspace pin changes the agent at once for every client without
 a pin of its own. When a [release gate](#gate-a-pin) holds a pin for an
-approval, the approval is in the pin's project: a tenant or org pin's is in
+approval, the approval is in the pin's project: a workspace or org pin's is in
 no project, so people who review only their project's approvals don't
 see it.
 
@@ -152,7 +152,7 @@ see it.
 
 A narrower scope tries a version with some runs first. The most specific
 pinned version wins: a **segment** path in a project, then the **project**, the
-project's **org**, the **tenant**, and then the project's Latest. A segment
+project's **org**, the **workspace**, and then the project's Latest. A segment
 path is one or more `key:value` steps, coarse to fine, that a run is started
 with: `company:acme`, or `company:acme` then `role:counsel`.
 
@@ -243,7 +243,7 @@ uv run kindgi runs start --agent=acme.order-desk --project=<project-id> --segmen
 ```
 
 A run with `--segment=company:globex` has no pinned version of its own, so it
-gets the tenant's, 1.0.0. Without `--project`, a run is in its agent's own
+gets the workspace's, 1.0.0. Without `--project`, a run is in its agent's own
 project, which is the default project for what `kindgi deploy` registers.
 
 ## See which version a run would get
@@ -446,7 +446,7 @@ its scope, at its latest version.
 ### Set a release gate
 
 A scope with a release gate needs a pinned version of its own, so give
-the tenant one first:
+the workspace one first:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -547,7 +547,7 @@ uv run kindgi release-gates publish acme.order-desk-release --release-gate-versi
 - `--agent` and `--tenant` are the agent and the scope it gates.
 - `--spec=@gate.json` reads the release gate from the file.
 
-Requests to pin `acme.order-desk` anywhere in the tenant now go
+Requests to pin `acme.order-desk` anywhere in the workspace now go
 through the release gate, unless a narrower scope has one of its own.
 An approval it asks for is in the project of the pin it holds: a pin in a
 client's project waits among that project's approvals.

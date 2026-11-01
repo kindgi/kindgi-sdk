@@ -163,14 +163,14 @@ One command runs the whole loop on your machine:
   and run `kindgi dev` again.
 - **A database per project, and per git worktree.** In the bundled Postgres,
   each project gets its own database, `kindgi_<project>`, with its own dev
-  tenant and user. A linked git worktree gets `kindgi_<project>__<worktree>`,
+  workspace and user. A linked git worktree gets `kindgi_<project>__<worktree>`,
   so branches on different Kindgi versions never share a schema. The project
   is named by `project` in the Kindgi config (`kindgi.config.ts`, or `project`
   under `[tool.kindgi]` in `pyproject.toml`), else by the git repository, the
   workspace root or the pack's folder. The boot log says which. A database
   belongs to the folder that made it: another folder whose project has the
   same name is refused until you give it its own `project`. Every pack of one
-  project shares the database and the tenant. Each pack still has its own
+  project shares the database and the workspace. Each pack still has its own
   tools, its own pack service and its own env files: a flow in one pack
   can't call another pack's tools under `kindgi dev`. The shared `kindgi`
   database that earlier releases used is left as it is.
@@ -183,8 +183,8 @@ One command runs the whole loop on your machine:
 |---|---|
 | `--port=<n>` | The port the API is reached on, on `127.0.0.1`. Default `4000`, or the next free port when it's taken (another `kindgi dev`, say). A `--port` that's taken is refused. |
 | `--database-url=<url>` | The Postgres to use. Falls back to `KINDGI_DATABASE_URL` (the shell's, then the env files'). Without either, the bundled Postgres. |
-| `--tenant=<id>` | Pin the tenant. Default: the project's dev tenant in the bundled Postgres; with `--database-url`, the previous run's (from `.kindgirc.json`), else a new one. The pack's primitives and registered providers stay with it. |
-| `--dev-token=<token>` | Pin the API token. Default: the previous run's, else a new one. Each flag overrides only its own value: `--dev-token` alone keeps the tenant. |
+| `--tenant=<id>` | Pin the workspace. Default: the project's dev workspace in the bundled Postgres; with `--database-url`, the previous run's (from `.kindgirc.json`), else a new one. The pack's primitives and registered providers stay with it. |
+| `--dev-token=<token>` | Pin the API token. Default: the previous run's, else a new one. Each flag overrides only its own value: `--dev-token` alone keeps the workspace. |
 | `--path=<dir>` | The pack root. Default: the current directory. It must have a `kindgi.config.ts`, or a `pyproject.toml` with a `[tool.kindgi]` table. |
 | `--no-watch` | Start, index once, and exit. For smoke tests and CI. |
 | `--reset` | Start the project fresh: drops its database in the bundled Postgres (every pack's dev data in it: runs, approvals, providers, secrets stored there), after asking, and makes a new token. Without a terminal to ask on it refuses, unless `--yes`. A database you pass with `--database-url` is never dropped: only the token is new. (To wipe every project's dev data: `docker compose -p kindgi-dev down -v`; without compose, `docker rm -f kindgi-dev_postgres`, then `docker volume rm kindgi-dev_postgres-data`.) |
@@ -264,7 +264,7 @@ names it lacks. A deployment injects exactly the declared names.
 
 ### Model providers
 
-A tenant with no providers gets `dev-echo`, a fallback provider (scripted
+A workspace with no providers gets `dev-echo`, a fallback provider (scripted
 replies, no key, no network) that answers only while no other provider fits.
 Agent turns run before you register a model, and registering one takes over
 with nothing to switch off:
@@ -321,7 +321,7 @@ On each boot, `kindgi dev`:
   settings or its key's name, so a difference only there gets the plain line.
 
 It records which providers it registered in `.kindgi/dev/providers.json`, per
-database and tenant. That file is `kindgi dev`'s local record, under the
+database and workspace. That file is `kindgi dev`'s local record, under the
 gitignored `.kindgi/`; a provider is declared in the config, which you commit.
 
 **Any OpenAI-compatible endpoint** — an open-source model you serve yourself
@@ -474,7 +474,7 @@ Builds a signed pack image with a Kindgi build server, and writes
 `deploy-envelope.json` for `kindgi deploy`:
 
 1. **Config:** reads `kindgi.config.ts` and the `--env` block (default
-   `staging`): the build server, the tenant and the signing key.
+   `staging`): the build server, the workspace and the signing key.
 2. **Bundle:** bundles every primitive and the config with esbuild, each
    `.mjs` with a sourcemap. The pack's own code, and the app code it imports,
    is bundled; the app's installed dependencies stay external, imported by
@@ -653,7 +653,7 @@ image: {
 **`--local`:** builds the image of a TypeScript or Python pack with this
 machine's Docker (`docker buildx build --load`) into its image store, as
 `kindgi-pack/<packId>:<artifactVersion>`, with the same integrity gate. There
-is no build server, signature or envelope, and no tenant or signing key
+is no build server, signature or envelope, and no workspace or signing key
 needed. It prints a `docker run` line.
 
 **`--local --push`:** publishes from this machine, for `kindgi deploy`:
@@ -701,7 +701,7 @@ and `--published-at`: the same inputs then give the same image.
 | `--platform=<os/arch>` | The image's platform. Default: `linux/amd64` when pushing, else this machine's. |
 | `--endpoint=<url>` | The build server. Default: the env block's `build`. |
 | `--out=<dir>` | Where the build writes `dist/`, the `Containerfile`, `context/` and `deploy-envelope.json`. Default: `.kindgi/build`, under the pack. It cannot be the pack root or a directory that contains it; for a TypeScript pack it must stay under the pack root, where the pack's `node_modules` resolves the bundled indexer's imports. |
-| `--tenant=<id>` | The tenant the signature names. Default: the env block's `tenantId`, else `KINDGI_TENANT_ID`. |
+| `--tenant=<id>` | The workspace the signature names. Default: the env block's `tenantId`, else `KINDGI_TENANT_ID`. |
 | `--signing-key=<path>` | The Ed25519 private key (PEM). Default: the env block's `signingKey`. |
 | `--skip-integrity-gate` | Sign without re-checking the image's index. Prints a warning. |
 | `--skip-sign` | Write an unsigned envelope (for CI that signs elsewhere); `kindgi deploy` refuses it, and `kindgi deploy --dry-run` shows what it would send, less the signature and, unless you pass `--idempotency-key`, the Idempotency-Key. |
@@ -728,7 +728,7 @@ deployment. The envelope is `--from-envelope`, else
   an earlier request with the same key, the deploy says "Nothing new was
   deployed" in place of "Deploy complete.", and the JSON on stdout adds
   `idempotentReplay: true`.
-- **`--tenant`** must match the envelope's tenant, checked before anything
+- **`--tenant`** must match the envelope's workspace, checked before anything
   is sent.
 - **`--dry-run`** prints the equivalent `curl` command and sends nothing.
   On an unsigned envelope, it shows the body without the signature's
@@ -933,7 +933,7 @@ Inside a pack that `kindgi dev` runs, they find it on their own (see
 | `service-accounts` | `create <name>` (with `--tenant-admin`, `--project=<id>:<role>`), `list`, `get`, `grant`, `ungrant`, `unregister` |
 | `people` | `add --name [--email]` (tenant admins), `list`, `get`, `grants <id>`, `grant`/`ungrant <id> --tenant-admin` (tenant admins) |
 | `connections` | Accounts at other apps that tools act with: `list` (`--project`, `--app`, `--mine`, `--include-removed`), `get`, `connect <app>` (prints the link; at a terminal, waits and says whose account; `--for-company` for tenant admins), `disconnect <id>` (asks first, or `--yes`) |
-| `connection-apps` | The tenant's registrations at other apps (tenant admins): `list` (`--include-removed`), `get`, `add google` / `add microsoft` (`--tenant`) / `add github` / `add linkedin` (secrets by reference, `<env>/<name>`), `remove <id>` (`--with-connections`; asks first, or `--yes`) |
+| `connection-apps` | The workspace's registrations at other apps (tenant admins): `list` (`--include-removed`), `get`, `add google` / `add microsoft` (`--tenant`) / `add github` / `add linkedin` (secrets by reference, `<env>/<name>`), `remove <id>` (`--with-connections`; asks first, or `--yes`) |
 | `runs` | `list`, `get`, `cancel`, `journal`, `stream` (one JSON event per line), `start`, `resume` |
 | `agents` | `list`, `get <agent-id> [<version>]`, `publish`, `derive`, `unregister <agent-id> <version>`, `versions`; which version runs where: `pinned`, `pinned-versions`, `pin`, `unpin`, `pin-history` |
 | `tools` | `list`, `get`, `publish`, `unregister`, `versions`, `get-version`, `reinstate` |
@@ -951,7 +951,7 @@ Inside a pack that `kindgi dev` runs, they find it on their own (see
 `kindgi runs start` starts a run for an agent (`--agent=<id>`) or a flow
 (`--flow=<id>`), at its latest version or the one `--agent-version=<v>` /
 `--flow-version=<v>` names (a turn in a conversation needs the version the
-conversation was opened with), in the tenant's default project or the one
+conversation was opened with), in the workspace's default project or the one
 `--project=<project-id>` names (`kindgi projects list`), and waits until it
 finishes, or until it waits on an approval. It follows the run rather than holding the start request open, so
 a long run doesn't time it out. Stopped (Ctrl+C), the wait ends and the run

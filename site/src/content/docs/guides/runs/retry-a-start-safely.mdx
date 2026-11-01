@@ -284,7 +284,7 @@ refused, and nothing started.
 - **Only an answer that succeeded is kept.** A refused start isn't kept, such
   as one for a flow that isn't registered (`404 flow-not-found`). Once you've
   fixed the cause, the same start with the same key runs.
-- **Keys are kept for 24 hours, per tenant and per caller.** The same key from
+- **Keys are kept for 24 hours, per workspace and per caller.** The same key from
   another person or another API key is their own request, and never gets
   your response.
 - **A response that carries a secret isn't kept.** That's a new API key, a

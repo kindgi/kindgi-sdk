@@ -12,7 +12,7 @@ flows call its tools like your own.
 
 An MCP server you run, or one a vendor runs, can give your agents its tools.
 Register its endpoint with the runtime. Kindgi lists the server's tools and
-registers each one as a tool of your tenant, named
+registers each one as a tool of your workspace, named
 `<endpoint id>.<tool name>`. An endpoint id can't contain `.`, so that
 name splits one way only; a tool name can. Agents and flow steps then call
 it like a tool of your pack.
@@ -101,7 +101,7 @@ uv add 'mcp<2'
 
 ## Register the endpoint
 
-Registering the endpoint makes its tools your tenant's. Register it from
+Registering the endpoint makes its tools your workspace's. Register it from
 your app's code. Ask your coding agent: "Register my inventory MCP server
 with the Kindgi runtime, so my agents can use its tools." For reference, the
 code looks like this. This guide's endpoint id is `inventory`:
@@ -132,7 +132,7 @@ console.log(page.data.map((e) => `${e.endpointId} (${e.transport})`));
 [ 'inventory (streamable-http)' ]
 ```
 
-`KINDGI_TENANT_ID` is the id of the tenant your runtime serves.
+`KINDGI_TENANT_ID` is the id of the workspace your runtime serves.
 
 </TabItem>
 <TabItem label="Python">
@@ -258,7 +258,7 @@ The runtime connects, lists the server's tools and registers them. The
     [runtime] <time> INFO  [mcp] MCP endpoint "inventory" synced — 2 published, 0 reinstated, 0 unchanged, 0 retired
 ```
 
-The tools are now your tenant's:
+The tools are now your workspace's:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -328,23 +328,23 @@ tool answers `"Echo: hi"`.
 ## Give some projects its tools
 
 The endpoint's scope decides which projects' runs can call its tools.
-Registered for the tenant, as above, the runs in every project can.
+Registered for the workspace, as above, the runs in every project can.
 Register it for one org, and only the runs in that org's projects can; for
 one project, only that project's runs can. In TypeScript, the scope is
 `{ kind: 'org', orgId: '<org-id>' }` or
 `{ kind: 'project', projectId: '<project-id>' }`. In the other languages
 and the API, `scopeKind` is `org` or `project`, and `scopeId` its id.
 
-- **Registering needs admin on that scope:** a tenant admin for the tenant,
+- **Registering needs admin on that scope:** a tenant admin for the workspace,
   an admin of the org or of the project for theirs.
-- **An endpoint id is unique in the tenant,** whatever its scope, so two
+- **An endpoint id is unique in the workspace,** whatever its scope, so two
   orgs' endpoints need two ids, such as `inventory-acme`.
 - **A run in another project** that names one of its tools is refused with
   `reference-out-of-scope`, as
   [What a project's runs can use](../../../concepts/projects-packs-values/#what-a-projects-runs-can-use)
   shows.
 
-One MCP server registered for an org or the tenant gives all their projects
+One MCP server registered for an org or the workspace gives all their projects
 the same tool, where a pack's own tool serves only its project
 ([One tool for several clients](../../../concepts/projects-packs-values/#one-tool-for-several-clients)).
 
@@ -466,7 +466,7 @@ Kindgi reads the secret when it connects, at the scope recorded when the
 endpoint was registered
 ([Where values live](../../../concepts/projects-packs-values/#where-values-live)),
 and sends it as `Authorization: Bearer <value>`. For an endpoint registered
-for the tenant, that's the tenant's secrets:
+for the workspace, that's the workspace's secrets:
 
 ```json excerpt
 "secretRef": { "envName": "local", "name": "INVENTORY_TOKEN" }
@@ -510,7 +510,7 @@ registration:
 ```
 
 Kindgi sends `Authorization: Basic <base64 of username:password>`, the password
-resolved from the tenant's secrets when it connects. Give the agent its own
+resolved from the workspace's secrets when it connects. Give the agent its own
 WordPress user, with a role that allows only what it should do, and create
 the Application Password on that user's profile.
 
@@ -601,7 +601,7 @@ reference, it adds this to the registration:
 ```
 
 Kindgi sends each header as `<name>: <prefix><secret>` on every request, the
-secrets resolved from the tenant's secrets when it connects. Reading the
+secrets resolved from the workspace's secrets when it connects. Reading the
 endpoint back shows the references only:
 
 ```json excerpt
@@ -904,7 +904,7 @@ reconnects:
 
 ## When a tool id is taken
 
-An endpoint's tools are filed in your tenant's default project, whatever
+An endpoint's tools are filed in your workspace's default project, whatever
 the endpoint's scope. A tool id there is one kind or the other (runtime
 0.1.9 or later): an endpoint's tool, or a tool published to the runtime, by
 `kindgi tools publish` or by a pack's deploy. Only active versions count:

@@ -358,7 +358,7 @@ const connect: LeafCommand = {
   optionSpec: {
     'app-id': {
       type: 'string',
-      description: 'Which registration, when the tenant has more than one for the app.',
+      description: 'Which registration, when the workspace has more than one for the app.',
     },
     project: {
       type: 'string',

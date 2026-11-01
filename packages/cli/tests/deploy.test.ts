@@ -1037,7 +1037,7 @@ describe("kindgi deploy — the server's rate limit", () => {
     expect(past.keys).toHaveLength(1);
     expect(past.lines).toEqual([]);
     expect(past.out.stderr.replaceAll(/\s+/g, ' ')).toContain(
-      "This tenant's image reads unpacked as much as the server allows in an hour.",
+      "This workspace's image reads unpacked as much as the server allows in an hour.",
     );
   });
 
@@ -1763,7 +1763,7 @@ describe('kindgi deploy --project: one project per client', () => {
     const out = await deploy(fixtures, '--project=initech-shop');
     expect(out.exitCode).not.toBe(0);
     expect(out.stderr).toContain(
-      '--project initech-shop: no project of this tenant has that slug. `kindgi projects list` shows them; `kindgi projects create --name=<name> --slug=initech-shop` makes one.',
+      '--project initech-shop: no project of this workspace has that slug. `kindgi projects list` shows them; `kindgi projects create --name=<name> --slug=initech-shop` makes one.',
     );
     expect(fixtures.state.postCalls).toBe(0);
     // A slug `projects create` wouldn't take isn't offered as one.
@@ -1778,7 +1778,7 @@ describe('kindgi deploy --project: one project per client', () => {
     const fixtures = makeFixtures({ projects });
     const out = await deploy(fixtures, '--project=shop');
     expect(out.exitCode).not.toBe(0);
-    expect(out.stderr).toContain('2 projects of this tenant have that slug');
+    expect(out.stderr).toContain('2 projects of this workspace have that slug');
     expect(out.stderr).toContain('11111111-2222-4333-8444-555555555555');
     expect(out.stderr).toContain('66666666-7777-4888-8999-aaaaaaaaaaaa');
     expect(out.stderr).toContain('Pass the id.');
@@ -2448,7 +2448,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
       const out = await deployTo(run.fixtures, 'staging-1');
       expect(out.exitCode).toBe(1);
       expect(out.stderr).toContain(
-        'environments.staging-1.project acme-staging-1: no project of this tenant has that slug.',
+        'environments.staging-1.project acme-staging-1: no project of this workspace has that slug.',
       );
       expect(run.fixtures.state.buildCalls).toBe(0);
     });
@@ -2487,7 +2487,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     });
     const out = await deploy(run.fixtures, '--hosted', '--project=initech-shop');
     expect(out.exitCode).not.toBe(0);
-    expect(out.stderr).toContain('no project of this tenant has that slug');
+    expect(out.stderr).toContain('no project of this workspace has that slug');
     expect(run.fixtures.state.buildCalls).toBe(0);
   });
 

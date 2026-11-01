@@ -268,7 +268,7 @@ object StatusAgent {
   every tool that can change something. Here `acme-ops.greet`, which is
   read-only, never asks.
 
-An agent without `hitl.tools` has no tool gates, unless your tenant has
+An agent without `hitl.tools` has no tool gates, unless your workspace has
 [approval rules](../approval-rules-for-every-agent/).
 
 ### Someone other than whoever asked
@@ -339,7 +339,7 @@ that moves money or changes something people rely on. Then, in a run no
 person started:
 
 - **An agent's call of the tool waits** for a reviewer, as `always_ask`
-  does. The agent's `hitl` can't lift it, nor can your tenant's
+  does. The agent's `hitl` can't lift it, nor can your workspace's
   [approval rules](../approval-rules-for-every-agent/): agents are reused,
   and the tool's author knows what it does. Only the schedule, webhook
   trigger or mail trigger that started the run can, by listing the tool
@@ -431,7 +431,7 @@ pnpm exec kindgi schedules update <schedule-id> --allow-unattended=acme-ops.post
 ```
 
 - **It lifts only the wait for a person.** In the trigger's runs, a listed
-  tool's call goes as the agent's own `hitl` and your tenant's
+  tool's call goes as the agent's own `hitl` and your workspace's
   [approval rules](../approval-rules-for-every-agent/) say, as in a run a
   person started: a rule that asks before the tool runs still asks. The
   run still acts as the trigger's owner, so the call is checked against
@@ -524,7 +524,7 @@ uv run kindgi reviewers register --spec='{"role":"standard","displayName":"Ada L
 `--spec` is the reviewer: its `role` and, optionally, a `displayName`.
 It prints the registered reviewer, as JSON.
 
-With authorization on, registering needs `admin` on the tenant
+With authorization on, registering needs `admin` on the workspace
 ([Who can do what](../../../deploy/people-and-keys/#who-can-do-what)): if
 you aren't a tenant admin, a tenant admin registers you, with your `userId`.
 

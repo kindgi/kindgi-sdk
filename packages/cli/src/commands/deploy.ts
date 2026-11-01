@@ -137,12 +137,12 @@ export const deployCommand: LeafCommand = {
     tenant: {
       type: 'string',
       description:
-        'Refuse unless the envelope was signed for this tenant (checked before sending). Also passed to an inline build.',
+        'Refuse unless the envelope was signed for this workspace (checked before sending). Also passed to an inline build.',
     },
     project: {
       type: 'string',
       description:
-        "The project to deploy into, one per client: its id, or its slug. A slug two orgs share is refused: pass the id. Default: a tenant-wide deploy, into the tenant's default project.",
+        "The project to deploy into, one per client: its id, or its slug. A slug two orgs share is refused: pass the id. Default: a workspace-wide deploy, into the workspace's default project.",
     },
     'idempotency-key': {
       type: 'string',
@@ -1283,14 +1283,14 @@ async function resolveProject(
   if (found.kind === 'error') {
     return {
       kind: 'error',
-      message: `${where} ${ref}: couldn't list the tenant's projects: ${found.message}\n`,
+      message: `${where} ${ref}: couldn't list the workspace's projects: ${found.message}\n`,
     };
   }
   const [only, ...more] = found.projects;
   if (only === undefined) {
     return {
       kind: 'error',
-      message: `${where} ${ref}: no project of this tenant has that slug. \`kindgi projects list\` shows them; \`kindgi projects create --name=<name> --slug=${SLUG.test(ref) ? ref : '<slug>'}\` makes one.\n`,
+      message: `${where} ${ref}: no project of this workspace has that slug. \`kindgi projects list\` shows them; \`kindgi projects create --name=<name> --slug=${SLUG.test(ref) ? ref : '<slug>'}\` makes one.\n`,
     };
   }
   if (more.length > 0) {
@@ -1299,7 +1299,7 @@ async function resolveProject(
     );
     return {
       kind: 'error',
-      message: `${where} ${ref}: ${found.projects.length} projects of this tenant have that slug, in different orgs: ${ids.join(', ')}. Pass the id.\n`,
+      message: `${where} ${ref}: ${found.projects.length} projects of this workspace have that slug, in different orgs: ${ids.join(', ')}. Pass the id.\n`,
     };
   }
   return { kind: 'ok', id: only.id };

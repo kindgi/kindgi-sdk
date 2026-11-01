@@ -140,7 +140,7 @@ const publish: LeafCommand = {
     project: {
       type: 'string',
       description:
-        "The project to register the agent in, by id (default: the tenant's default project).",
+        "The project to register the agent in, by id (default: the workspace's default project).",
     },
   },
   run: (ctx) =>
@@ -233,7 +233,7 @@ const SEGMENT_FLAG: ParseArgsOption = {
 
 /** The flags that name a scope: one of `--tenant`, `--org`, `--project` (with `--segment`s). */
 export const SCOPE_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
-  tenant: { type: 'boolean', description: 'The whole tenant.' },
+  tenant: { type: 'boolean', description: 'The whole workspace (scope `tenant`).' },
   org: { type: 'string', description: 'An org, by id.' },
   project: {
     type: 'string',

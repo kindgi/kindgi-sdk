@@ -73,7 +73,7 @@
 
 7. **Forgetting to restart `kindgi dev` after registering a provider.**
    You don't need to — provider registrations go to the running runtime
-   over HTTP (`POST /v1/providers`), which invalidates the tenant's
+   over HTTP (`POST /v1/providers`), which invalidates the workspace's
    cached provider set. The next `kindgi runs start` sees the new
    provider.
 
@@ -90,7 +90,7 @@
    answers only when no registered provider satisfies the agent. So your
    provider doesn't — check its models' `features` against the agent's
    `capabilities.needs` (mistake 2), a `models` / `providers` allow-list
-   that names nothing registered, and the tenant's policy. `kindgi
+   that names nothing registered, and the workspace's policy. `kindgi
    providers list` shows what is registered.
 
 10. **A setting the adapter can't use.** Registering checks the spec

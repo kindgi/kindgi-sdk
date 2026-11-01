@@ -71,7 +71,7 @@ describe('renderResponse: a refused deploy', () => {
       },
     });
     expect(banner(limited('tenant-unpack-hour')).replaceAll(/\s+/g, ' ')).toContain(
-      "This tenant's image reads unpacked as much as the server allows in an hour. Deploy again after the wait the message names",
+      "This workspace's image reads unpacked as much as the server allows in an hour. Deploy again after the wait the message names",
     );
     for (const limit of ['schema-compile-time', 'constructor', undefined]) {
       expect(banner(limited(limit))).not.toContain('Hint:');

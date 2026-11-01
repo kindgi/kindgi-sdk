@@ -184,7 +184,7 @@ const factsWrite: LeafCommand = {
     input: {
       type: 'string',
       description:
-        'The fact as inline JSON or `@<file>`: its `type` and `content`, and optionally `scope` (default: your tenant; narrow it with `userId`, `orgId`, `projectId`, `threadId`, `sessionId`, or an app\'s end user with `projectId` and `participantId`), `retention` (`keepDays`, `keepUntil`, `legalHold`), `subjects` (whom it is about: `[{"kind":"participant","id":"…"}]`) and `validFrom`/`validUntil`/`observedAt`. Required.',
+        'The fact as inline JSON or `@<file>`: its `type` and `content`, and optionally `scope` (default: your workspace; narrow it with `userId`, `orgId`, `projectId`, `threadId`, `sessionId`, or an app\'s end user with `projectId` and `participantId`), `retention` (`keepDays`, `keepUntil`, `legalHold`), `subjects` (whom it is about: `[{"kind":"participant","id":"…"}]`) and `validFrom`/`validUntil`/`observedAt`. Required.',
     },
   },
   run: (ctx) =>
@@ -455,7 +455,7 @@ const erasuresReplay: LeafCommand = {
   kind: 'leaf',
   name: 'replay',
   description:
-    'After restoring a backup: put the exported ledger back, and erase again whoever the tenant holds again.',
+    'After restoring a backup: put the exported ledger back, and erase again whoever the workspace holds again.',
   usage: 'kindgi memory erasures replay <export-file>',
   run: (ctx) =>
     runSdk(ctx, 'memory erasures replay', async () => {

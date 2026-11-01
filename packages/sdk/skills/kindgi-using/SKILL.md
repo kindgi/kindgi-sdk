@@ -70,13 +70,13 @@ Build every link from three CLI answers:
 | What | Command | Field |
 |---|---|---|
 | The console | `kindgi console --no-open` | the URL it prints, `<runtime>/console/` |
-| The tenant | `kindgi auth whoami` | `identity.tenantId` |
+| The workspace | `kindgi auth whoami` | `identity.tenantId` |
 | The project | `kindgi projects get-default` (or `kindgi projects list`) | `id` |
 
 A project page is `<console>tenants/<tenantId>/projects/<projectId>/<page>`;
-a tenant page is `<console>tenants/<tenantId>/<page>`. (The console itself
-writes the tenant's short name there; the id opens the same pages.) If the
-console asks the person to sign in first, they sign in and open the link
+a workspace page is `<console>tenants/<tenantId>/<page>`. (The console
+writes the workspace's short name there; the id opens the same pages.) If the
+console asks the person to sign in, they sign in and open the link
 again.
 
 An approval also has a short link, `<console>approvals/<approvalId>`: one
@@ -115,7 +115,7 @@ agent finished in the last day. The cost page takes `range=` one of `7d`,
 `30d`, `90d`, `12m`, `agent=<agentId>` and `by=` one of `agent`, `model`,
 `flow`, `kind`.
 
-### Tenant pages
+### Workspace pages
 
 | Page | `<page>` | Shows |
 |---|---|---|
@@ -143,8 +143,8 @@ say there were none.
 - In the CLI: `kindgi console --no-open`, `kindgi auth whoami` and
   `kindgi projects get-default` give the address and the ids.
 - In the console: the project's dashboard link, then the sections they
-  will use: Runs, Approvals, Tools, Guardrails, Schedules, Cost, and the
-  tenant's People.
+  use: Runs, Approvals, Tools, Guardrails, Schedules, Cost, and the
+  workspace's People.
 
 **"Which tools are there, and what may each do?"**
 - In the CLI: `kindgi tools list`: each tool's `id`, `description`, and
@@ -247,7 +247,7 @@ say there were none.
 - In the CLI: `kindgi people list`, and `kindgi people grants <userId>`
   for what each may do; `kindgi service-accounts list`; `kindgi tokens
   list` for the API keys.
-- In the console: the tenant's `people`, `service-accounts` and
+- In the console: the workspace's `people`, `service-accounts` and
   `api-keys`, and a project's `members`.
 
 **"Show me the answers I rated."**

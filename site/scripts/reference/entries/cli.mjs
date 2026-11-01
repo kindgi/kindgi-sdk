@@ -12,7 +12,7 @@
 /**
  * Each string flag's default, by command path and flag name, as the
  * reference shows it: a value in backticks, or words ("none", "required",
- * "the tenant's default project"). A boolean flag is `off` unless it's
+ * "the workspace's default project"). A boolean flag is `off` unless it's
  * listed.
  */
 export const CLI_DEFAULTS = {
@@ -44,7 +44,7 @@ export const CLI_DEFAULTS = {
     'runtime-image': 'the image this CLI release pins',
     'runtime-url': 'none',
     tenant:
-      "the project database's tenant if any, else the previous run's (from `.kindgirc.json`), else a new one",
+      "the project database's workspace if any, else the previous run's (from `.kindgirc.json`), else a new one",
     watch: 'on',
   },
   build: {
@@ -63,7 +63,7 @@ export const CLI_DEFAULTS = {
     'signing-key': "the env block's `signingKey`; required to sign (unless `--skip-sign`)",
     target: "the env block's `buildTarget`, else the env name",
     tenant:
-      "the env block's `tenantId`, else `KINDGI_TENANT_ID`, else with `--hosted` the API key's own tenant; required unless `--local` without `--push`",
+      "the env block's `tenantId`, else `KINDGI_TENANT_ID`, else with `--hosted` the API key's own workspace; required unless `--local` without `--push`",
   },
   deploy: {
     'artifact-version': 'for an inline build: the build time, as `YYYYMMDD.HHMMSS` (UTC)',
@@ -75,7 +75,7 @@ export const CLI_DEFAULTS = {
     'idempotency-key': 'a hash of the request body',
     out: '`.kindgi/build` under the pack root',
     path: 'the current directory',
-    project: "none: a tenant-wide deploy, into the tenant's default project",
+    project: "none: a workspace-wide deploy, into the workspace's default project",
     'published-at': 'for an inline build: the build time',
     reason: 'none; required with `--replace`, and only with it',
     'registry-push-creds': 'none',
@@ -137,16 +137,16 @@ export const CLI_DEFAULTS = {
     path: 'the current directory',
   },
   'environments list': {
-    org: "none (the tenant's order)",
+    org: "none (the workspace's order)",
     path: 'the current directory',
   },
   'environments set': {
-    org: "none (the tenant's order)",
+    org: "none (the workspace's order)",
     path: 'the current directory',
     projects: 'none (the environment names are used, resolved through the pack config)',
   },
   'environments clear': {
-    org: "none (the tenant's order)",
+    org: "none (the workspace's order)",
   },
   promote: {
     from: 'required',
@@ -311,7 +311,7 @@ export const CLI_DEFAULTS = {
     'idempotency-key': 'none',
     input: 'required',
     'no-wait': 'off (the command waits for the run to finish or wait on an approval)',
-    project: "the tenant's default project",
+    project: "the workspace's default project",
     segment: 'none',
   },
   'runs resume': {
@@ -324,7 +324,7 @@ export const CLI_DEFAULTS = {
     name: 'none',
   },
   'agents publish': {
-    project: "the tenant's default project",
+    project: "the workspace's default project",
     spec: 'required',
   },
   'agents owner': {
@@ -379,7 +379,7 @@ export const CLI_DEFAULTS = {
   },
   'conversations open': {
     participant: 'none',
-    project: "the tenant's default project",
+    project: "the workspace's default project",
     title: '`Untitled conversation`',
   },
   'conversations messages': {
@@ -393,7 +393,7 @@ export const CLI_DEFAULTS = {
   },
   'tools publish': {
     manifest: 'required',
-    project: "the tenant's default project",
+    project: "the workspace's default project",
   },
   'tools versions': {
     cursor: 'none',
@@ -427,7 +427,7 @@ export const CLI_DEFAULTS = {
     name: 'none',
   },
   'guardrails register': {
-    project: "the tenant's default project",
+    project: "the workspace's default project",
     spec: 'required',
   },
   'memory facts list': {
@@ -509,7 +509,7 @@ export const CLI_DEFAULTS = {
   'improve runs start': {
     agent: 'required',
     'group-weights':
-      'none (counts everyone until the project, its tenant, or the agent in the project has an expert group, then only those)',
+      'none (counts everyone until the project, its workspace, or the agent in the project has an expert group, then only those)',
     drafts: '`3` (`1` to `5`; with `--tier=prompt` only)',
     'idempotency-key': 'none',
     'max-candidates': '`30`',
@@ -560,7 +560,7 @@ export const CLI_DEFAULTS = {
   'artifacts upload': {
     'content-type': '`application/octet-stream`',
     name: "the file's name",
-    project: "with `--run`, the run's project; else the tenant's default project",
+    project: "with `--run`, the run's project; else the workspace's default project",
     run: 'none',
     tag: 'none',
   },
@@ -573,7 +573,7 @@ export const CLI_DEFAULTS = {
     name: 'none',
   },
   'flows publish': {
-    project: "the tenant's default project",
+    project: "the workspace's default project",
     spec: 'required',
   },
   'flows versions': {
@@ -623,7 +623,7 @@ export const CLI_DEFAULTS = {
     input: '`{}`',
     label: 'none',
     overlap: '`skip`',
-    project: "the tenant's default project; required with `--improve`, the project it improves",
+    project: "the workspace's default project; required with `--improve`, the project it improves",
     'run-as': 'none (you own the schedule)',
     'starting-deadline': '`600` (seconds)',
     timezone: '`UTC`',
@@ -666,7 +666,7 @@ export const CLI_DEFAULTS = {
     input: 'none (the flow gets the event)',
     label: 'none',
     preset: 'none (with no `--signature-header` either: a hex HMAC-SHA256 in `X-Kindgi-Signature`)',
-    project: "the tenant's default project",
+    project: "the workspace's default project",
     'rate-limit': '`600` a minute',
     'run-as': 'none (you own the trigger)',
     secret: 'required',
@@ -722,7 +722,7 @@ export const CLI_DEFAULTS = {
     label: 'none',
     mailbox: 'required',
     poll: '`60` (seconds)',
-    project: "the tenant's default project",
+    project: "the workspace's default project",
     'run-as': 'none (you own the trigger)',
     'runs-per-hour': '`60`',
   },
@@ -758,22 +758,22 @@ export const CLI_DEFAULTS = {
     'new-people-per-day': '`20`',
     origin: 'required',
     'people-cap': '`50`',
-    project: "the tenant's default project",
+    project: "the workspace's default project",
     'reviewer-ceiling': '`standard`',
     'role-map':
       'both default roles may ask, and decide as `standard` reviewers; with `--allowed-role` alone, the entries of the roles it allows',
     vouching: '`on`',
   },
   'sites code': {
-    project: "the tenant's default project",
+    project: "the workspace's default project",
   },
   'sites list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
-    project: "the tenant's default project",
+    project: "the workspace's default project",
   },
   'sites get': {
-    project: "the tenant's default project",
+    project: "the workspace's default project",
   },
   'sites update': {
     'allowed-role': 'unchanged',
@@ -782,25 +782,25 @@ export const CLI_DEFAULTS = {
     'new-people-per-day': 'unchanged',
     origin: 'unchanged',
     'people-cap': 'unchanged',
-    project: "the tenant's default project",
+    project: "the workspace's default project",
     'reviewer-ceiling': 'unchanged',
     'role-map': 'unchanged; with `--allowed-role` alone, the entries of the roles still allowed',
     vouching: 'unchanged',
   },
   'sites pause': {
-    project: "the tenant's default project",
+    project: "the workspace's default project",
   },
   'sites resume': {
-    project: "the tenant's default project",
+    project: "the workspace's default project",
   },
   'sites revoke-key': {
-    project: "the tenant's default project",
+    project: "the workspace's default project",
   },
   'sites restore-person': {
-    project: "the tenant's default project",
+    project: "the workspace's default project",
   },
   'sites unregister': {
-    project: "the tenant's default project",
+    project: "the workspace's default project",
   },
   'approvals list': {
     'assigned-to': 'none (all approvals your role can see)',
@@ -899,7 +899,7 @@ export const CLI_DEFAULTS = {
     weight: 'unchanged',
   },
   'queue-rules create': {
-    project: "the tenant's default project",
+    project: "the workspace's default project",
     name: 'required',
     agent: 'none (runs of any agent)',
     flow: 'none (runs of any flow)',
@@ -913,15 +913,15 @@ export const CLI_DEFAULTS = {
     'queue-since': 'none',
   },
   'queue-rules list': {
-    project: "the tenant's default project",
+    project: "the workspace's default project",
     limit: '`25` (at most `100`)',
     cursor: 'none',
   },
   'queue-rules show': {
-    project: "the tenant's default project",
+    project: "the workspace's default project",
   },
   'queue-rules update': {
-    project: "the tenant's default project",
+    project: "the workspace's default project",
     name: 'unchanged',
     agent: 'unchanged (any match flag replaces `when` whole)',
     flow: 'unchanged (any match flag replaces `when` whole)',
@@ -932,19 +932,19 @@ export const CLI_DEFAULTS = {
     group: 'unchanged',
   },
   'queue-rules remove': {
-    project: "the tenant's default project",
+    project: "the workspace's default project",
   },
   'queue-rules versions': {
-    project: "the tenant's default project",
+    project: "the workspace's default project",
     limit: '`25` (at most `100`)',
     cursor: 'none',
   },
   'queue-rules results': {
-    project: "the tenant's default project",
+    project: "the workspace's default project",
     since: 'none (every result)',
   },
   'queue-rules preview': {
-    project: "the tenant's default project",
+    project: "the workspace's default project",
     agent: 'none (runs of any agent)',
     flow: 'none (runs of any flow)',
     'agent-version': 'none (any version)',
@@ -954,12 +954,12 @@ export const CLI_DEFAULTS = {
     rule: 'none (preview the given flags, not an existing rule)',
   },
   'queue-rules queue-recent': {
-    project: "the tenant's default project",
+    project: "the workspace's default project",
     last: 'none (give `--last` and/or `--since`)',
     since: 'none (give `--last` and/or `--since`)',
   },
   'expert-queue list': {
-    project: "the tenant's default project",
+    project: "the workspace's default project",
     state: 'none (every state)',
     agent: 'none',
     rule: 'none',
@@ -970,11 +970,11 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
   },
   'expert-queue dismiss': {
-    project: "the tenant's default project",
+    project: "the workspace's default project",
     reason: 'none',
   },
   'expert-queue reopen': {
-    project: "the tenant's default project",
+    project: "the workspace's default project",
   },
   'test-runs start': {
     project: 'required',
@@ -1302,7 +1302,7 @@ export const CLI_EXAMPLES = {
       line: 'kindgi env unset ORDERS_API_URL --env=staging',
     },
     {
-      purpose: "Remove a key from the runtime's tenant-wide values.",
+      purpose: "Remove a key from the runtime's workspace-wide values.",
       line: 'kindgi env unset ORDERS_REGION --scope=tenant --env=local',
     },
   ],
@@ -1312,7 +1312,7 @@ export const CLI_EXAMPLES = {
       line: 'kindgi env pull --env=staging --scope=project:<project-id>',
     },
     {
-      purpose: "Pull the tenant's values and replace keys the file already sets.",
+      purpose: "Pull the workspace's values and replace keys the file already sets.",
       line: 'kindgi env pull --env=staging --scope=tenant --overwrite-existing',
     },
   ],
@@ -1332,7 +1332,7 @@ export const CLI_EXAMPLES = {
       line: 'kindgi environments list --table',
     },
     {
-      purpose: "List an org's own order instead of the tenant's.",
+      purpose: "List an org's own order instead of the workspace's.",
       line: 'kindgi environments list --org=<org-id>',
     },
   ],
@@ -1373,7 +1373,7 @@ export const CLI_EXAMPLES = {
   ],
   'secrets list': [
     {
-      purpose: "List the tenant's secrets for the local env.",
+      purpose: "List the workspace's secrets for the local env.",
       line: 'kindgi secrets list --env=local --scope=tenant',
     },
     {
@@ -1407,7 +1407,7 @@ export const CLI_EXAMPLES = {
   ],
   'secrets pull': [
     {
-      purpose: "Write the tenant's secret metadata to .secrets/production/manifest.json.",
+      purpose: "Write the workspace's secret metadata to .secrets/production/manifest.json.",
       line: 'kindgi secrets pull --env=production --scope=tenant',
     },
     {
@@ -1482,7 +1482,7 @@ export const CLI_EXAMPLES = {
   ],
   'projects list': [
     {
-      purpose: "List the tenant's projects.",
+      purpose: "List the workspace's projects.",
       line: 'kindgi projects list',
     },
     {
@@ -1492,7 +1492,7 @@ export const CLI_EXAMPLES = {
   ],
   'projects get-default': [
     {
-      purpose: "Show the tenant's default project, the one used when no --project is given.",
+      purpose: "Show the workspace's default project, the one used when no --project is given.",
       line: 'kindgi projects get-default',
     },
   ],
@@ -1602,7 +1602,7 @@ export const CLI_EXAMPLES = {
   ],
   'agents release-gate': [
     {
-      purpose: 'Show the release gate for the whole tenant.',
+      purpose: 'Show the release gate for the whole workspace.',
       line: 'kindgi agents release-gate acme.order-desk --tenant',
     },
     {
@@ -2094,7 +2094,7 @@ export const CLI_EXAMPLES = {
   ],
   'corrector-groups list': [
     {
-      purpose: 'List the corrector groups of the whole tenant.',
+      purpose: 'List the corrector groups of the whole workspace.',
       line: 'kindgi corrector-groups list --tenant',
     },
     {
@@ -2335,7 +2335,7 @@ export const CLI_EXAMPLES = {
       line: 'kindgi release-gates list --agent=acme.order-desk --table',
     },
     {
-      purpose: 'List the release gates set for the whole tenant.',
+      purpose: 'List the release gates set for the whole workspace.',
       line: 'kindgi release-gates list --tenant',
     },
   ],
@@ -2401,7 +2401,7 @@ export const CLI_EXAMPLES = {
       line: 'kindgi service-accounts grant <service-account-id> --project=<project-id> --role=editor',
     },
     {
-      purpose: "Let a service account read the tenant's settings.",
+      purpose: "Let a service account read the workspace's settings.",
       line: 'kindgi service-accounts grant <service-account-id> --tenant-member',
     },
   ],
@@ -2459,7 +2459,7 @@ export const CLI_EXAMPLES = {
   ],
   'connection-apps list': [
     {
-      purpose: "List the tenant's registrations, as a table.",
+      purpose: "List the workspace's registrations, as a table.",
       line: 'kindgi connection-apps list --table',
     },
     {

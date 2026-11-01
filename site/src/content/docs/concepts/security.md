@@ -198,7 +198,7 @@ controls that:
   instead. It also refuses connections to the runtime's own host (a loopback
   address) and the cloud metadata endpoints, wherever configuration names a
   host: an image registry, a model provider, an HTTP tool, an MCP server,
-  and a tenant's SSO identity provider. An identity provider
+  and a workspace's SSO identity provider. An identity provider
   whose origin the operator allows in `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`
   connects all the same ([Set up SSO](../../guides/sso/)).
 - **`isolated`** is for a runtime whose tenants don't trust one another. It
@@ -273,7 +273,7 @@ can:
 
 - a model provider's API key, an MCP endpoint's credentials and a webhook
   endpoint's signing secret are each a `secretRef`, a name resolved in the
-  tenant's own secrets when it's needed;
+  workspace's own secrets when it's needed;
 - a tool's code receives the secrets it declares, through its context
   (`ctx.secrets`). In development only, the pack's process also sees the
   values in your env files, since `kindgi dev` reads them for it;

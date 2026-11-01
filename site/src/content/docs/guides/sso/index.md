@@ -181,7 +181,7 @@ npx --yes @kindgi/cli@0.2 sso providers test acme-kc
 `--email=<someone@your-domain>` makes it a link for that person instead.
 
 ```text
-Open this in a browser and sign in as a person who's been added to this tenant:
+Open this in a browser and sign in as a person who's been added to this workspace:
   http://localhost:18096/auth/start/idp-ibhu3tdkkrjjjfllbjpu2uk3gm
 
 Afterwards, the console shows who you are signed in as.

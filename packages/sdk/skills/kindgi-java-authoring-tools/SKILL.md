@@ -159,7 +159,7 @@ final class Citator {
 
 ## `ToolContext`
 
-- `ctx.tenantId()`: the tenant the call is for. Key per-tenant state by it.
+- `ctx.tenantId()`: the workspace the call is for. Key per-workspace state by it.
 - `ctx.runId()`: the run (an agent turn or a flow step) the call belongs to.
 - `ctx.requestId()`: this call, such as the model's tool-call id. For logs:
   a model's call id is only unique within one of its answers, so don't
@@ -183,7 +183,7 @@ final class Citator {
   context shows their names, never their values.
 - `ctx.env()`: the env values the tool declares (`set("needsSpec",
   Map.of("env", …))`), resolved for the call: its project's value, else its
-  org's, else the tenant's (`kindgi env set NAME <value>
+  org's, else the workspace's (`kindgi env set NAME <value>
   --scope=project:<id> --env=<env>`), with a declared `default` filled in.
   Strings, and not secret.
 - `ctx.config()`: **reserved, empty today**.
@@ -197,7 +197,7 @@ stop runs on, and its result goes nowhere.
 - In an agent, the turn fails, unless the agent's `toolErrors`
   (`set("toolErrors", …)`) lists `tool-error` in `retryOn`. The list
   replaces the default, so keep `invalid-arguments` and `unknown-tool` in
-  it; the tenant's `tool-errors` policy can narrow it further.
+  it; the workspace's `tool-errors` policy can narrow it further.
 - In a flow, the step fails. An edge's `retry` may run it again while the
   first handler still runs, with the same `ctx.idempotencyKey()`: pass the
   key on. An edge's `timeoutMs` can only fail it sooner.
@@ -214,10 +214,10 @@ Docs: https://docs.kindgi.com/v0.3/guides/tools/write-a-tool/#work-that-takes-lo
 
 ## Configuration and secrets
 
-A secret that belongs to the tenant, such as an API key a customer gives
+A workspace's secret, such as an API key a customer gives
 you, is declared with `set("needsSpec", …)` and read from `ctx.secrets()`, as
 above. The runtime resolves every declared secret on every call, for the
-call's tenant, in its env (`KINDGI_ENV`; under `kindgi dev`, `local`: the
+call's workspace, in its env (`KINDGI_ENV`; under `kindgi dev`, `local`: the
 pack's `.env` and `.env.local`, then Kindgi's own `.kindgi/secrets.env`, where
 `./kindgiw secrets set` writes). It checks each against its schema, and fails
 the call, naming the secret, when one is missing or doesn't match. A
@@ -364,7 +364,7 @@ the same way, with the same `HttpToolSpec`.
 
 - **An agent's call waits** for a person's yes, whatever the agent's `conversationPolicy.hitl.tools` says. The agent's rules can't lift it: agents are reused, and the tool's author knows what it does.
 - **A flow's tool step that calls it is refused.** Put the tool behind an agent step instead, whose call waits.
-- **A trigger can lift both, for its own runs only.** A project admin names the tool in a webhook trigger's, a schedule's or a mail trigger's `toolsAllowedUnattended` (`--allow-unattended=<tool-id>` on `kindgi webhooks`, `kindgi schedules` and `kindgi mail-triggers`). In that trigger's runs, the tool is then as in a run a person started. The tenant's approval rules still apply.
+- **A trigger can lift both, for its own runs only.** A project admin names the tool in a webhook trigger's, a schedule's or a mail trigger's `toolsAllowedUnattended` (`--allow-unattended=<tool-id>` on `kindgi webhooks`, `kindgi schedules` and `kindgi mail-triggers`). In that trigger's runs, the tool is then as in a run a person started. The workspace's approval rules still apply.
 
 In a run a person started (signed in, or with their own API key), the agent's rules decide, as for any tool. Left unset, it counts as `false`. Declare it on a tool that moves money or changes something people rely on:
 
@@ -383,8 +383,8 @@ Docs: https://docs.kindgi.com/v0.3/guides/approvals/ask-before-a-tool-runs/#when
 ## Testing
 
 `Tool.call(input, ctx)` runs the handler with the input as given (no schema
-check). `ToolContext.forTest()` is a context with a test tenant and run and
-nothing else. `ToolContext.forTest(tool, env, secrets)` adds the env values
+check). `ToolContext.forTest()` is a context with only a test workspace and
+run. `ToolContext.forTest(tool, env, secrets)` adds the env values
 the tool declares in `needsSpec`, decided as a run decides them (a schema
 `default` fills a name the test doesn't set, each value is checked, and a
 missing or invalid one throws `IllegalArgumentException`), and the secrets as

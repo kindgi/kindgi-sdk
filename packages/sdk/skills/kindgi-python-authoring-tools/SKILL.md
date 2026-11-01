@@ -102,7 +102,7 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
 
 ## `ToolContext`
 
-- `ctx.tenant_id` — the tenant the call is for. Key any per-tenant
+- `ctx.tenant_id` — the workspace the call is for. Key per-workspace
   state by it.
 - `ctx.run_id` — the run (an agent turn or a flow step) the call belongs to.
 - `ctx.request_id` — this call, e.g. the model's tool-call id; for logs.
@@ -125,9 +125,9 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
   `ctx.cancellation.cancelled`, call `ctx.cancellation.raise_if_cancelled()`,
   or wait with `ctx.cancellation.wait(timeout)` between slow steps.
 - `ctx.secrets` — the secrets the tool declares in `needs_spec`,
-  resolved for the call's tenant (below).
+  resolved for the call's workspace (below).
 - `ctx.env` — the env values the tool declares in `needs_spec`, resolved
-  for the call: its project's value, else its org's, else the tenant's
+  for the call: its project's value, else its org's, else the workspace's
   (`kindgi env set NAME <value> --scope=project:<id> --env=<env>`).
   Strings, and not secret. Empty from an older runtime.
 - `ctx.config` — **reserved, empty today**.
@@ -151,7 +151,7 @@ its next `await`; a `def` handler runs on unless it checks `ctx.cancellation`.
   `"tool-error"` in `retryOn`. The list replaces the default, so keep
   `"invalid-arguments"` and `"unknown-tool"` in it:
   `tool_errors={"maxRetries": 1, "retryOn": ["invalid-arguments", "unknown-tool", "tool-error"]}`.
-  The keys inside stay camelCase: never `retry_on`. The tenant's
+  The keys inside stay camelCase: never `retry_on`. The workspace's
   `tool-errors` policy can narrow it further.
 - In a flow, the step fails. An edge's `retry` may run it again while the
   first handler still runs, with the same `ctx.idempotency_key`: pass the
@@ -180,7 +180,7 @@ and https://docs.kindgi.com/v0.3/guides/tools/wait-for-another-system/
 
 ## Configuration and secrets
 
-A secret that belongs to the tenant — an API key a customer gives you —
+A workspace's secret — an API key a customer gives you —
 is declared, and read from `ctx.secrets`:
 
 ```python
@@ -194,7 +194,7 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
 ```
 
 The runtime resolves every declared secret on every call — for the
-call's tenant, in its env (`KINDGI_ENV`; in `kindgi dev`, `local`: the
+call's workspace, in its env (`KINDGI_ENV`; in `kindgi dev`, `local`: the
 pack's `.env` and `.env.local`, then Kindgi's own `.kindgi/secrets.env`, where
 `kindgi secrets set` writes) — checks it against its schema, and
 fails the call, naming the secret, when it is missing or doesn't match.
@@ -204,7 +204,7 @@ has empty, is absent from `ctx.secrets` (read it with `.get`), and the call
 goes on (runtime 0.1.6 or later; an older runtime requires it). In a test, pass them:
 `ToolContext.for_test(secrets={"CITATOR_KEY": "…"})`.
 
-A value that differs per tenant, org or project but isn't secret (a base URL, a region, an account id) is an **env value**: declared in `needs_spec`, read from `ctx.env`:
+A value that differs per workspace, org or project but isn't secret (a base URL, region or account id) is an **env value**: declared in `needs_spec`, read from `ctx.env`:
 
 ```python
 @tool(
@@ -222,7 +222,7 @@ def find_order(lookup: Lookup, ctx: ToolContext) -> Found:
     return Found(url=f"{ctx.env['ORDERS_BASE_URL']}/{ctx.env['ORDERS_REGION']}/orders/{lookup.order_id}")
 ```
 
-- **Which value a call gets:** its project's, else its org's, else the tenant's, in the runtime's env; a schema `default` makes a name optional. The values a call used are recorded with it, so a retry or a resume sees the same ones.
+- **Which value a call gets:** its project's, else its org's, else the workspace's, in the runtime's env; a schema `default` makes a name optional. The values a call used are recorded with it, so a retry or a resume sees the same ones.
 - **Setting them:** `kindgi env set ORDERS_REGION us --scope=project:<project-id> --env=local` (or `--scope=tenant`, for every project). Changing a value that's already set takes `--force`.
 - **A declared value nobody set** stops the call before the tool runs. For a tool `acme-orders.needs-account` that declares `ACME_ACCOUNT_ID`, the message reads:
   ```text
@@ -333,7 +333,7 @@ policy and review; declare what the tool really does.
 
 - **An agent's call waits** for a person's yes, whatever the agent's `conversation_policy` says in `hitl["tools"]`. The agent's rules can't lift it: agents are reused, and the tool's author knows what it does.
 - **A flow's tool step that calls it is refused.** Put the tool behind an agent step instead, whose call waits.
-- **A trigger can lift both, for its own runs only.** A project admin names the tool in a webhook trigger's, a schedule's or a mail trigger's `toolsAllowedUnattended` (`--allow-unattended=<tool-id>` on `kindgi webhooks`, `kindgi schedules` and `kindgi mail-triggers`). In that trigger's runs, the tool is then as in a run a person started. The tenant's approval rules still apply.
+- **A trigger can lift both, for its own runs only.** A project admin names the tool in a webhook trigger's, a schedule's or a mail trigger's `toolsAllowedUnattended` (`--allow-unattended=<tool-id>` on `kindgi webhooks`, `kindgi schedules` and `kindgi mail-triggers`). In that trigger's runs, the tool is as in a run a person started. The workspace's approval rules still apply.
 
 In a run a person started (signed in, or with their own API key), the agent's rules decide, as for any tool. Left out, it counts as `False`. Declare it on a tool that moves money or changes something people rely on:
 

@@ -12,7 +12,7 @@ their work by project or org, and deletes an org.
 
 A **project** holds runs, conversations, approvals and what they cost. An
 **org** groups projects: one org per customer, for example, with a project
-for each part of their work. Every tenant has a default project. A run that
+for each part of their work. Every workspace has a default project. A run that
 names no project runs in its agent's or flow's own project: the one it was
 published in. For what `kindgi deploy` registers, that's the project the
 deploy named (`--project`), else the default project. A turn in a conversation stays in
@@ -203,14 +203,14 @@ the CLI:
 - `kindgi projects list` lists the projects with their ids.
 - `kindgi runs start … --project=<project-id>` runs in a customer's project.
 
-In the console, a tenant admin makes one with **New project** on the tenant
+In the console, a tenant admin makes one with **New project** on the workspace
 dashboard's **Projects** card: a name, a slug made from the name until you
-edit it, an org if the tenant has any, and what it's for. The new project then
+edit it, an org if the workspace has any, and what it's for. The new project then
 opens. A project's admins (an admin of its org, or a tenant admin, is one)
 rename it with **Rename** in its **Dashboard**'s header. Its id stays; what
 a new slug changes is under **Changing a project's slug**, below.
 
-**Slugs.** An org's slug is unique in the tenant. A project's slug is unique
+**Slugs.** An org's slug is unique in the workspace. A project's slug is unique
 in its org, so every customer can have a `support` project. A project with
 no org has a slug unique among the projects with none. A taken slug is
 refused with `409 slug-conflict`:
@@ -232,14 +232,14 @@ the project that way looks it up: `kindgi deploy`, `kindgi promote`,
 `kindgi environments set`, and `kindgi secrets` and `kindgi env` under a
 pack environment (`--env`). Before you next run one, change the old slug to
 the new one there. Until you do, such a command is refused, since the slug
-names no project, unless another project in the tenant has it: one in
+names no project, unless another project in the workspace has it: one in
 another org may have it already, or take it later. Then the command acts on
 that project: a deploy goes into it without a word, and a secret or value
 is set on it. So if you change a project's slug, name the project by its id
 in scripts and pack configs, or change them to the new slug before anyone
 runs one of those commands again.
 
-A tenant has one default project. Asking for a second one answers
+A workspace has one default project. Asking for a second one answers
 `409 project-default-already-exists`, "The tenant already has a default
 project".
 
@@ -260,7 +260,7 @@ pnpm exec kindgi deploy --project acme-shop
 `--project` takes the project's id or its slug. A slug is unique within an
 org, so if two orgs each have a project with that slug, the CLI refuses it
 and names both ids: pass the id instead. Without `--project`, a deploy is
-tenant-wide and registers into the default project, as before.
+workspace-wide and registers into the default project, as before.
 
 What a deploy into a project does, with the runtime 0.1.8 or later:
 
@@ -268,16 +268,16 @@ What a deploy into a project does, with the runtime 0.1.8 or later:
   project, and the deployment records it (`projectId` on
   `GET /v1/deployments/{deploymentId}`).
 - **`kindgi deploy --sync-secrets`** writes the secrets into that project,
-  so one client's credentials stay in its own project. A tenant-wide
-  deploy writes them tenant-wide. A secret a tool names that's set nowhere
+  so one client's credentials stay in its own project. A workspace-wide
+  deploy writes them workspace-wide. A secret a tool names that's set nowhere
   yet when it's deployed is read where the sync writes it (runtime 0.1.9
   or later). So after a deploy into a project, set it later in that project
   (`kindgi secrets set <name> --env=<env> --scope=project:<project-id>`),
-  not tenant-wide.
-- **It needs admin on that project** (a tenant-wide deploy needs admin on
-  the tenant). An API key limited to another project is refused with
+  not workspace-wide.
+- **It needs admin on that project** (a workspace-wide deploy needs admin on
+  the workspace). An API key limited to another project is refused with
   `403 key-project-mismatch`.
-- **A project of another tenant, or none,** is `404 project-not-found`.
+- **A project of another workspace, or none,** is `404 project-not-found`.
 - **A suspended project** takes no deploy, where the runtime suspends
   projects: `409 project-suspended`, before anything is written. No run
   starts in it either: `POST /v1/runs` answers the same, as do a test run
@@ -305,7 +305,7 @@ deployment as a service of its own.
 
 A run uses its own project's tools, agents, flows, guardrails, data blocks
 and test cases, and the tools of an MCP server registered for its project,
-its org or the tenant. Anything else is refused with
+its org or the workspace. Anything else is refused with
 `reference-out-of-scope`: a publish, a deploy or a run start that names it
 answers `400` before anything is written, and a tool call from the run
 isn't run.
@@ -313,7 +313,7 @@ isn't run.
 has the rule and its messages.
 
 To give several clients' projects one tool, run it as an MCP server and
-register it for their org or the tenant
+register it for their org or the workspace
 ([Give some projects its tools](../../tools/mcp-servers/#give-some-projects-its-tools)).
 
 ## Read a customer's work
@@ -418,11 +418,11 @@ In the console, a project's **Dashboard** says at the top whether it's in
 production: **Live**, by a green dot, or **Testing mode**, by a gray one.
 Choosing it says since when it's been live, or "Kindgi counts its runs as
 testing. Once it's live, they count as live use.", and gives a tenant admin
-the switch: **Go live**, or **Move back to testing**. While the tenant may
+the switch: **Go live**, or **Move back to testing**. While the workspace may
 not put projects in production, it says "Going live isn't turned on for this
 tenant yet.", and gives a tenant admin **See how to go live** when the
 runtime names where to go. A refused switch says why in the console's
-words: at the tenant's limit of live projects, "Move one back to testing
+words: at the workspace's limit of live projects, "Move one back to testing
 first", with a link to get more when the runtime names one, or "Going live
 isn't turned on for this tenant yet."
 
@@ -430,13 +430,13 @@ isn't turned on for this tenant yet."
   `403 permission-denied`.
 - **Setting what's already set changes nothing,** and keeps the first
   `productionSince`. Reading the project shows it while it's in production.
-- **The production gate:** a runtime may require the tenant to be allowed
+- **The production gate:** a runtime may require the workspace to be allowed
   to put projects in production, for example once it has paid
   (`KINDGI_PRODUCTION_GATE=on`). Until then, putting one in production is
   refused with `403 production-not-allowed`, and the error's `details.next`
   says where to go when the runtime names it
   (`KINDGI_PRODUCTION_NEXT_URL`). A project already in production stays so,
-  and staging keeps working. `GET /v1/tenant` says where the tenant stands:
+  and staging keeps working. `GET /v1/tenant` says where the workspace stands:
   `productionAllowed`, and `productionNext` while it isn't allowed.
 
   ```json
@@ -453,7 +453,7 @@ isn't turned on for this tenant yet."
   }
   ```
 - **A limit on projects in production:** whoever runs the server can set
-  the tenant's `projectsInProduction` limit
+  the workspace's `projectsInProduction` limit
   (`PUT /v1/system/tenants/{tenantId}/limits`). With that many of its
   projects in production, putting another one in is refused with
   `403 production-limit-reached`. Its `details` give the limit

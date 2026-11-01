@@ -67,7 +67,7 @@ pnpm exec kindgi mail-triggers create --agent=acme.support-desk --mailbox=google
   runs: staff handle it in the mailbox
   ([See what each mail did](#see-what-each-mail-did)).
 - **Where:** `--project=<project-id>` is its project. Without it, it's the
-  tenant's default project.
+  workspace's default project.
 - **`--label`** names it, for lists and the console.
 - **`--allow-unattended=<tool-id>`** names a tool whose calls in its runs
   needn't wait for a person's yes, once for each tool. It takes `admin` on
@@ -226,7 +226,7 @@ pnpm exec kindgi mail-triggers update <trigger-id> --allow-unattended=acme-shop.
   the mailbox writes those runs' input. List a tool only if it's safe for
   any sender to make the agent call it, and keep refunds and changes to
   your store off the list.
-- **It lifts only the wait for a person.** Your tenant's
+- **It lifts only the wait for a person.** Your workspace's
   [approval rules](../../approvals/approval-rules-for-every-agent/) and the
   agent's own `hitl` still apply to a listed tool, so you can list a tool
   and keep an agent rule that asks before it runs. The call is still
@@ -390,7 +390,7 @@ person's yes:
 - **`refused`:** the note says why, such as: it's over the hourly limit
   (`over-limit:`), the mailbox's connection was missing
   (`connection-missing:`), the app gave it no thread (`no-thread-id:`),
-  too many of the tenant's runs were waiting (`rate-limited:`), the
+  too many of the workspace's runs were waiting (`rate-limited:`), the
   database was busy (`database-busy:`), the owner may no longer run the
   agent or flow, or the trigger was paused or removed before the run
   started. **Such a mail never runs,** then or later: staff handle it in
@@ -408,7 +408,7 @@ A trigger's `statusReason` says why it isn't reading mail:
   admin for the company's mailbox, connects again, it reads on from where
   it stopped, so mail that came meanwhile runs then. A mail it had already
   found when the connection went is `refused`, and never runs.
-- **`owner-refused`:** its owner was removed from the tenant, it's a
+- **`owner-refused`:** its owner was removed from the workspace, it's a
   service account that's no longer registered, or the owner may no longer
   run its agent or flow. Nothing more is read, and its looks don't pause
   it, but mail it had already found is `refused` when its run would
@@ -589,7 +589,7 @@ unattended, the dialog adds that its runs still call them, with the new
 owner's access.
 
 A tenant admin gets **Change owner…** instead, on a trigger on the
-company's mailbox, whenever the tenant has a registered service account
+company's mailbox, whenever the workspace has a registered service account
 the trigger doesn't already run as. Its **Runs as** list has each
 registered service account and, when the trigger isn't already yours,
 "You — with your access". The dialog says what changes before anything

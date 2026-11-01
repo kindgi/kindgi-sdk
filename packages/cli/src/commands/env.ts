@@ -258,7 +258,7 @@ const listCmd: LeafCommand = {
     if (ctx.options.tenant !== undefined) {
       return {
         kind: 'error',
-        stderr: '--tenant goes with --cloud-secret: env values are listed in your own tenant.\n',
+        stderr: '--tenant goes with --cloud-secret: env values are listed in your own workspace.\n',
         exitCode: 2,
       };
     }
@@ -518,7 +518,7 @@ function operatorSet(
     if (ctx.options.tenant === undefined) return undefined;
     return {
       kind: 'error',
-      stderr: '--tenant goes with --cloud-secret: an env value is set in your own tenant.\n',
+      stderr: '--tenant goes with --cloud-secret: an env value is set in your own workspace.\n',
       exitCode: 2,
     };
   }
@@ -648,7 +648,7 @@ const unsetCmd: LeafCommand = {
     if (ctx.options.tenant !== undefined) {
       return {
         kind: 'error',
-        stderr: '--tenant goes with --cloud-secret: an env value is removed in your own tenant.\n',
+        stderr: '--tenant goes with --cloud-secret: an env value is removed in your own workspace.\n',
         exitCode: 2,
       };
     }
@@ -1218,7 +1218,7 @@ export const envCommand: Command = {
   kind: 'group',
   name: 'env',
   description:
-    "The values in one environment — a value set: the pack's local env files, and with --scope the runtime's (a tool's `ctx.env`, per project, org or tenant). For the order projects go live through, see `kindgi environments`.",
+    "The values in one environment — a value set: the pack's local env files, and with --scope the runtime's (a tool's `ctx.env`, per project, org or workspace). For the order projects go live through, see `kindgi environments`.",
   subcommands: [listCmd, setCmd, unsetCmd, pullCmd, initCmd, planCmd],
 };
 

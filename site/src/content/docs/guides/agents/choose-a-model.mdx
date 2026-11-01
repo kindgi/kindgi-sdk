@@ -12,13 +12,13 @@ provider or a model, and shows which one answered.
 
 An agent doesn't name a model. Its `capabilities` say what the model must
 support. When a turn starts, Kindgi picks one from the providers registered
-for your tenant. You can prefer a provider or a model, or require one.
+for your workspace. You can prefer a provider or a model, or require one.
 
 ## Before you start
 
 - **An agent,** in a pack on a runtime such as `kindgi dev`, with Kindgi
   0.1's CLI. This guide uses `acme.order-desk`.
-- **Providers registered for your tenant,** as [Models](../../models/)
+- **Providers registered for your workspace,** as [Models](../../models/)
   shows. Without one, `dev-echo` answers.
 
 ## What the model must support
@@ -304,7 +304,7 @@ JSON that `kindgi runs start` prints. For `models: { allow: ['gpt-5'] }`:
 }
 ```
 
-A provider registered for the tenant that the runtime couldn't set up, such as
+A provider registered for the workspace that the runtime couldn't set up, such as
 one whose
 [settings the deployment no longer allows](../../../concepts/security/#what-a-tenant-cant-make-the-server-do),
 is never a candidate. The reasons name it under `provider set up`, by its
@@ -366,7 +366,7 @@ Anthropic models.
 
 ## `dev-echo`, the fallback
 
-`kindgi dev` gives your tenant `dev-echo`, a stand-in that needs no key. It
+`kindgi dev` gives your workspace `dev-echo`, a stand-in that needs no key. It
 calls the agent's first tool with `{"message": <the user message>}`, and
 answers `Tool responded: <the result>`. An agent with no tools gets its user
 message back. Its text answers start with a line that says what it is:

@@ -289,7 +289,7 @@ preset, where to paste them. With the WooCommerce preset, the secret left out:
   `--secret`. To use a secret you already stored with
   [`kindgi secrets set`](../../secrets/), leave out `--generate-secret`. The
   trigger records where the secret is (`hmacSecretScope`): the first of its
-  project, that project's org and the tenant that has it, among the scopes
+  project, that project's org and the workspace that has it, among the scopes
   you administer. The receiver reads it there only, so store the secret
   before you register the trigger. To move it, name the secret again:
   `kindgi webhooks update <trigger-id> --secret=<name>`. A model provider's
@@ -300,7 +300,7 @@ preset, where to paste them. With the WooCommerce preset, the secret left out:
   it's set. The URL isn't a secret: the signature is what each request is
   checked by.
 - **`--project=<id>`** puts the trigger and its runs in a project (by default,
-  the tenant's default project). Registering needs `write` on the project and
+  the workspace's default project). Registering needs `write` on the project and
   `execute` on the flow.
 - **`--run-as=project`** makes the trigger shared: its runs act as the
   project's own service account, made when a trigger is first set to run
@@ -323,7 +323,7 @@ preset, where to paste them. With the WooCommerce preset, the secret left out:
   has the steps). Naming it needs `act_as` on it, which tenant admins hold.
   Anyone else is answered `403 permission-denied`, "You can't name that
   service account as the trigger's owner.", whether or not the account
-  exists. A tenant admin is told when no service account in the tenant has
+  exists. A tenant admin is told when no service account in the workspace has
   that id (`404 service-account-not-found`), it was unregistered (`409
   service-account-unregistered`), or it's a project's own account (`409
   service-account-project-owned`). With an authorization store, the account
@@ -561,7 +561,7 @@ A run an event trigger starts reads the same, with `startedBy: "event"`.
 - **`kindgi webhooks take-ownership <trigger-id>`:** for a trigger whose owner
   left, or to make a trigger shared or yours
   ([Shared or personal](#shared-or-personal)). Once its owner is removed
-  from the tenant, or the service account it runs as is unregistered, its
+  from the workspace, or the service account it runs as is unregistered, its
   deliveries are refused (runtime 0.1.9 or later).
   After 5 deliveries in a row whose run was refused or failed to start, a
   trigger pauses itself, with the reason in its `statusReason`. A run refused
@@ -716,7 +716,7 @@ call them, with the new owner's access. The webhook's page lists them
 under **Tools allowed unattended**.
 
 A tenant admin gets **Change owner…** instead (runtime 0.1.9 or later),
-whenever the tenant has a registered service account the webhook doesn't
+whenever the workspace has a registered service account the webhook doesn't
 already run as. Its **Runs
 as** list has "You — with your access", which takes it over, and each
 registered service account, such as "nightly-bot — a service account, with

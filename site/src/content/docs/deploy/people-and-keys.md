@@ -125,7 +125,7 @@ With sign-in off, nobody is [invited](#their-invitation):
   "displayName": "Sam Rivera",
   "email": "sam@acme.example"
 }
-Added to the tenant: they can read its settings. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then their first key: kindgi tokens create --for=user:002ee784-0b05-47fb-918e-34d192be94c1
+Added to the workspace: they can read its settings. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then their first key: kindgi tokens create --for=user:002ee784-0b05-47fb-918e-34d192be94c1
 ```
 
 An email another person already has is refused with
@@ -212,7 +212,7 @@ stderr whether it went out:
     "sent": true
   }
 }
-Added to the tenant: they can read its settings. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then their first key: kindgi tokens create --for=user:f9054f5f-3a4b-40af-8aa9-317c32eead7c
+Added to the workspace: they can read its settings. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then their first key: kindgi tokens create --for=user:f9054f5f-3a4b-40af-8aa9-317c32eead7c
 The invitation went to ann@acme.test: they sign in with it before it expires (2026-10-24T15:06:45.522Z).
 ```
 

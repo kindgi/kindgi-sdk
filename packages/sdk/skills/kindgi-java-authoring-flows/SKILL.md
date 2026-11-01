@@ -40,7 +40,7 @@ is **data**, not code: a `public static final Flow` field of a class in a
 `flows` package. The runtime runs it step by step, journals every step, and
 can resume a run that was interrupted. A run keeps the flow version it
 started on. A run that names no version takes the version pinned for its
-project (or its org, or the tenant), else the newest version the project
+project (or its org or workspace), else the newest version the project
 reaches.
 
 Use a flow when the order of the work is known: parse, then classify, then
@@ -294,7 +294,7 @@ edge; a node with several ignores it):
 - `"retry": {"maxAttempts", "delayMs"?, "backoff"?, "maxDelayMs"?}`, up to 10
   attempts in all;
 - `"timeoutMs"`: a step that takes longer fails with `reason: timeout`;
-- `"concurrencyKey"`: at most one such step at a time in the tenant;
+- `"concurrencyKey"`: at most one such step at a time in the workspace;
 - `"priority"`: −100 to 100.
 
 ## Inputs and the output
@@ -338,7 +338,7 @@ From a Java app, the client starts one the same way:
 `client.runs().start(StartRunBody.WithFlow.builder().flow("acme.triage-ticket").input(…).build())`.
 
 - **A refusal before the run exists:** `422 flow-unbound` names the nodes a
-  run can't bind: a tool or agent id the tenant doesn't have, or a
+  run can't bind: a tool or agent id the workspace lacks, or a
   sub-flow. Fix the ids; nothing ran.
 - **A failed step fails the run**, and `failureMessage` says which step and
   why. Retry it on its edge with `policy.retry`, but only if running the

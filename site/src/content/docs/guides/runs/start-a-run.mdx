@@ -139,7 +139,7 @@ uv run kindgi runs start --agent=acme.order-desk --agent-version=0.1.0 --project
 </TabItem>
 </Tabs>
 
-A `--project` that isn't a project in your tenant stops before anything runs,
+A `--project` that isn't a project in your workspace stops before anything runs,
 with `No project with id "<project-id>" in this tenant` (the API answers 404
 `project-not-found`). One that isn't an id at all, like `--project=support`,
 gets `` `projectId` must be a project id (a UUID) ``.

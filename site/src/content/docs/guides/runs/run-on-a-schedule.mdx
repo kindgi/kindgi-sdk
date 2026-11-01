@@ -49,7 +49,7 @@ pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" -
   name, UTC by default. The shortest interval is a minute, except under
   `kindgi dev`.
 - **Where:** `--project=<project-id>` is its project. Without it, it's the
-  tenant's default project.
+  workspace's default project.
 - **`--label`** names it, for lists and the console.
 - **`--allow-unattended=<tool-id>`** names a tool whose calls in its runs
   needn't wait for a person's yes, though no person started them, once for
@@ -119,7 +119,7 @@ pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" -
   well as what creating the schedule needs. Anyone else is answered `403
   permission-denied`, "You can't name that service account as the trigger's
   owner.", whether or not the account exists. A tenant admin is told when
-  no service account in the tenant has that id (`404
+  no service account in the workspace has that id (`404
   service-account-not-found`), it was unregistered (`409
   service-account-unregistered`), or it's a project's own account (`409
   service-account-project-owned`, "That's a project's own account: run a
@@ -222,7 +222,7 @@ each time still fires once.
   `--catch-up=skip` fires none of them. A time is missed when the fire would
   start more than `--starting-deadline` seconds late, 600 by default.
 - **Its owner may no longer run it,** such as when they lost their role on
-  the project, or were removed from the tenant, or it's a service account
+  the project, or were removed from the workspace, or it's a service account
   that was unregistered (runtime 0.1.9 or later).
   The fire is `refused`, with why. Whoever holds `admin` on the project can
   make themselves its owner: `kindgi schedules take-ownership <schedule-id>`,
@@ -255,7 +255,7 @@ history is newest first, kept for 30 days. Each row has:
   `refused`, `failed`, or `pending` while a fire is starting. A fire is
   `skipped` when an Improve schedule has too few new corrections since its
   last Improve run or its month's cap is reached, when its project is
-  suspended, or when its tenant is suspended
+  suspended, or when its workspace is suspended
   or starts closing before its run or Improve run has started. `NOTE` says
   which.
 - **`STARTED`:** a run's id, or `Improve run <id>` for an
@@ -432,7 +432,7 @@ schedule stays paused:
 ![The weekly report's page after Take over: Paused, with Resume, Run now, Change owner… and Remove, "Starts the flow Refunds 1.0.0. Paused.", When: "Mondays at 9:00 AM UTC", 0 9 * * 1 and "It doesn’t fire while paused.", "Runs as you, with your access.", and What it fired: "It hasn’t fired yet. Runs it started →".](../../../../assets/schedules/schedule-page.png)
 
 A tenant admin gets **Change owner…** instead (runtime 0.1.9 or later),
-whenever the tenant has a registered service account the schedule doesn't
+whenever the workspace has a registered service account the schedule doesn't
 already run as. Its **Runs
 as** list has "You — with your access", the take-over above, and each
 registered service account, such as "nightly-bot — a service account, with

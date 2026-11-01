@@ -165,7 +165,7 @@ function clientOf(
           : a === b;
     if (!same) {
       throw new UsageError(
-        `environments.${from}.${field} is ${a ?? 'unset'}, and environments.${to}.${field} is ${b ?? 'unset'}: an environment order lives in one tenant on one runtime, and a promotion stays there. Give both the same ${field}.`,
+        `environments.${from}.${field} is ${a ?? 'unset'}, and environments.${to}.${field} is ${b ?? 'unset'}: an environment order lives in one workspace on one runtime, and a promotion stays there. Give both the same ${field}.`,
       );
     }
   }

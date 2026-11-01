@@ -1,6 +1,6 @@
 ---
 title: Give a tool per-project values
-description: Declare the env values a tool needs, set them for a tenant, an org or a project, and read them from the call's context.
+description: Declare the env values a tool needs, set them for a workspace, an org or a project, and read them from the call's context.
 sidebar:
   order: 4
 ---
@@ -22,7 +22,7 @@ or a region, and reads them in the tool's code.
 Some of what a tool needs differs from one customer or project to the next,
 without being secret: a base URL, an account or region id, a queue name. A
 tool declares these **env values** by name. You set them for the whole
-tenant, an org or a single project. On every call, Kindgi hands the tool
+workspace, an org or a single project. On every call, Kindgi hands the tool
 the most specific value in the call's context.
 
 Ask your coding agent: "I want a tool that looks up an order in our order
@@ -190,7 +190,7 @@ where no scope sets one.
   Tool "my-pack.find-order": the schema for needsSpec.env.ORDERS_REGION doesn't compile: strict mode: unknown keyword: "enmu"
   ```
 - **On every call**, Kindgi resolves each declared name for the call: the
-  project's value, else its org's, else the tenant's. It reads them in the
+  project's value, else its org's, else the workspace's. It reads them in the
   env the runtime serves, which `KINDGI_ENV` names. Under `kindgi dev`, the
   env is `local`. A name no scope sets gets its `default`. A required name
   with no value, or a value that doesn't fit its schema, fails the call
@@ -206,7 +206,7 @@ where no scope sets one.
 ## Set the values
 
 `kindgi env set` with `--scope` stores a value in the runtime, for a scope
-and an env. Set a value for the whole tenant, and override one for a single
+and an env. Set a value for the whole workspace, and override one for a single
 project:
 
 <Tabs syncKey="lang">
@@ -428,7 +428,7 @@ A pack's code gets four kinds of values. Pick by what the value is:
 | The value… | Use | The code reads |
 |---|---|---|
 | should change only with a new agent version, evaluated before it is pinned (a threshold, a prompt parameter) | a [settings block](../../improve/change-a-prompt-or-setting/) | `ctx.settings` |
-| differs per tenant, org or project, and isn't secret (a base URL, a region) | an env value | `ctx.env` |
+| differs per workspace, org or project, and isn't secret (a base URL, a region) | an env value | `ctx.env` |
 | is a credential (an API key, a signing key) | a secret | `ctx.secrets` |
 | is the pack service's own setup (its database, its SDK's config) | the pack's environment | `process.env` / `os.environ` |
 

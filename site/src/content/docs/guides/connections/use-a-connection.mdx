@@ -71,7 +71,7 @@ import { gmailSend } from '@kindgi/connections/google/tools';
 export default gmailSend({ id: 'acme.gmail.send' });
 ```
 
-There's no default id: a tool id is your tenant's, filed under the first
+There's no default id: a tool id is your workspace's, filed under the first
 project that publishes it, so each pack picks one under its own name. An
 agent lists the tool by that id, as `{ id: 'acme.gmail.send', version:
 '^1.0.0' }`, and its approval settings name it the same way.

@@ -716,7 +716,7 @@ describe('kindgi deployments list', () => {
         projects: async () => PROJECTS,
       });
       expect(none.out.exitCode).toBe(2);
-      expect(none.out.stderr).toContain('No project of this tenant has the slug "prod"');
+      expect(none.out.stderr).toContain('No project of this workspace has the slug "prod"');
       expect(none.asked.list).toEqual([]);
 
       const two = await run(['deployments', 'list', '--project=shop'], {

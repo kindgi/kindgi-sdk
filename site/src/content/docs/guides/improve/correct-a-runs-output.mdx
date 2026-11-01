@@ -528,7 +528,7 @@ To list the ones behind a count, `corrections.list` takes `status`, such as
 ## Weight corrections by corrector group
 
 Without a group, every correction counts once. A **corrector group** counts some
-people's corrections more, for the tenant, a project, or an agent in a
+people's corrections more, for the workspace, a project, or an agent in a
 project.
 
 Add a group, then correct as it:
@@ -616,7 +616,7 @@ uv run kindgi corrector-groups add --name=expert --weight=3 --tenant --min-revie
 </TabItem>
 </Tabs>
 
-- `--tenant` makes it the tenant's group.
+- `--tenant` makes it the workspace's group.
 - `--min-reviewer-role=senior` lets only a
   [reviewer](../../approvals/decide-an-approval/#reviewers-and-roles) of that
   role or above correct as it: `standard`, `senior` or `admin`.

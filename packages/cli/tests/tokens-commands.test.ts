@@ -357,7 +357,7 @@ describe('kindgi people', () => {
     // whether the runtime checks roles, so it says both. A runtime that
     // doesn't invite says nothing about an invitation.
     expect(out.stderr).toBe(
-      'Added to the tenant: they can read its settings. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then their first key: kindgi tokens create --for=user:u-9\n',
+      'Added to the workspace: they can read its settings. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then their first key: kindgi tokens create --for=user:u-9\n',
     );
     const quiet = await run(['people', 'add', '--name=Dana', '--quiet']);
     expect([quiet.out.stdout, quiet.out.stderr]).toEqual(['', '']);
@@ -409,7 +409,7 @@ describe('kindgi people', () => {
     ],
     [
       'capped',
-      "Invited, but the tenant's invitations for today are used up: send it later (kindgi people invite u-9), or tell them to sign in before it expires (2026-10-13T12:00:00Z).\n",
+      "Invited, but the workspace's invitations for today are used up: send it later (kindgi people invite u-9), or tell them to sign in before it expires (2026-10-13T12:00:00Z).\n",
     ],
   ])('add says why the invitation was not emailed: %s', async (reason, line) => {
     const { out } = await run(['people', 'add', '--name=Carol', '--email=carol@acme.test'], {

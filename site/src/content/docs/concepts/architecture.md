@@ -44,7 +44,7 @@ your code when they need it, and records every step.
   flows step by step, the journal of every step in Postgres, the secrets
   your tools use, and the calls to model providers. It ships as a container
   image.
-- **Model providers** are registered per tenant. A provider is a vendor's
+- **Model providers** are registered per workspace. A provider is a vendor's
   API, or a model you serve inside your own network. An agent states what it
   needs, and Kindgi picks a model that fits.
 - **The console**, at `/console/` on any runtime, shows each run on one page:

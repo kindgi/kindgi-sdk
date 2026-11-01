@@ -912,7 +912,7 @@ Test files aren't indexed: they never become tools.
 <TabItem label="Java">
 
 `TOOL.call` runs the handler with an input and a context, as a unit test
-wants it. `ToolContext.forTest()` is a context with a test tenant and run,
+wants it. `ToolContext.forTest()` is a context with a test workspace and run,
 whose logger writes nothing. The pack service checks the input and the output
 against their schemas on every call; `call` doesn't.
 

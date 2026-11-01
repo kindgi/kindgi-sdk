@@ -39,16 +39,16 @@ const WORDS: Readonly<
   flows: {
     noun: 'flow',
     pinned:
-      'Show the version of this flow that a run naming none would use in a project (or an org, or with neither the tenant), and why: a pinned version (with its scope) or the latest.',
-    pin: "Pin a version of this flow for a scope, or move the scope's pin to it: its runs that name no version use it, from the next run. Pinning the version already pinned there changes nothing. A tenant- or org-wide pin of a flow in an environment order is refused (`409 pin-scope-spans-environments`): pin it per project.",
+      'Show the version of this flow that a run naming none would use in a project (or an org, or with neither the workspace), and why: a pinned version (with its scope) or the latest.',
+    pin: "Pin a version of this flow for a scope, or move the scope's pin to it: its runs that name no version use it, from the next run. Pinning the version already pinned there changes nothing. A workspace- or org-wide pin of a flow in an environment order is refused (`409 pin-scope-spans-environments`): pin it per project.",
     unpin:
       "Remove a scope's own pin of this flow: its runs use the next scope up's pin, or the latest when nothing is pinned.",
   },
   tools: {
     noun: 'tool',
     pinned:
-      'Show the version of this tool that the next flow version made in a project (or an org, or with neither the tenant) would lock, and why: a pinned version (with its scope) or the latest. An agent version locks a pinned version only when its range allows it.',
-    pin: "Pin a version of this tool for a scope, or move the scope's pin to it: the flow versions made there next lock it, and the agent versions too when their range allows it; versions already made keep theirs. Pinning the version already pinned there changes nothing. Refused: a catalog tool or one the runtime ships (`400 tool-not-pinnable`: reference it with a range); a project that's a later environment of an order (`409 environment-takes-promotions`: pin it in the order's first environment); a tenant- or org-wide pin of a tool in an environment order (`409 pin-scope-spans-environments`).",
+      'Show the version of this tool that the next flow version made in a project (or an org, or with neither the workspace) would lock, and why: a pinned version (with its scope) or the latest. An agent version locks a pinned version only when its range allows it.',
+    pin: "Pin a version of this tool for a scope, or move the scope's pin to it: the flow versions made there next lock it, and the agent versions too when their range allows it; versions already made keep theirs. Pinning the version already pinned there changes nothing. Refused: a catalog tool or one the runtime ships (`400 tool-not-pinnable`: reference it with a range); a project that's a later environment of an order (`409 environment-takes-promotions`: pin it in the order's first environment); a workspace- or org-wide pin of a tool in an environment order (`409 pin-scope-spans-environments`).",
     unpin:
       "Remove a scope's own pin of this tool: the agent and flow versions made there next lock the next scope up's pin, or the latest when nothing is pinned.",
   },
@@ -56,7 +56,7 @@ const WORDS: Readonly<
 
 /** The flags that name a scope: one of `--tenant`, `--org`, `--project`. */
 const SCOPE_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
-  tenant: { type: 'boolean', description: 'The whole tenant.' },
+  tenant: { type: 'boolean', description: 'The whole workspace (scope `tenant`).' },
   org: { type: 'string', description: 'An org, by id.' },
   project: { type: 'string', description: 'A project, by id.' },
 };
@@ -150,9 +150,9 @@ export function pinnedVersionCommands(group: PinnedGroup): readonly Command[] {
     optionSpec: {
       project: {
         type: 'string',
-        description: "A project, by id: its pin, else its org's, else the tenant's.",
+        description: "A project, by id: its pin, else its org's, else the workspace's.",
       },
-      org: { type: 'string', description: "An org, by id: its pin, else the tenant's." },
+      org: { type: 'string', description: "An org, by id: its pin, else the workspace's." },
     },
     run: (ctx) =>
       runSdk(ctx, `${group} pinned`, async () => {

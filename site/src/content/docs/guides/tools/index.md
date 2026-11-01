@@ -20,7 +20,7 @@ and the output after it returns, so neither side gets malformed data.
 - [Give a tool a secret](give-a-tool-a-secret/): declare the secret, read it
   from the call's context, keep it out of your code.
 - [Give a tool per-project values](give-a-tool-env-values/): env values set
-  for a tenant, an org or a project, read from the call's context.
+  for a workspace, an org or a project, read from the call's context.
 - [Mark a tool read-only](read-only-tools/): what `mutating: false` changes
   for dry runs and approval gates.
 - [Use an MCP server's tools](mcp-servers/): register an MCP server, and its

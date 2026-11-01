@@ -96,7 +96,7 @@ const publish: LeafCommand = {
   kind: 'leaf',
   name: 'publish',
   description:
-    'Publish a release gate, or a new version of one: what pinning a version of the agent for the scope must show (the keys of the spec: comparison, evidence, metrics, replay, cases, approvals, onlyExpertGroups). Needs admin on the tenant.',
+    'Publish a release gate, or a new version of one: what pinning a version of the agent for the scope must show (the keys of the spec: comparison, evidence, metrics, replay, cases, approvals, onlyExpertGroups). Needs admin on the workspace.',
   usage: `kindgi release-gates publish <release-gate-id> --release-gate-version=<semver> --agent=<agent-id> ${SCOPE_USAGE} --spec='<json>'|@<file> [--description=<text>]`,
   optionSpec: {
     'release-gate-version': { type: 'string', description: 'The version to publish (semver).' },

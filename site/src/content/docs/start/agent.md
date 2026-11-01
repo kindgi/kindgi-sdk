@@ -354,7 +354,7 @@ user**, which needs no token: don't print the token in the chat.
    - `--env=local` is the environment the secret belongs to. Under
      `kindgi dev`, `local` is the pack's env files, `.kindgi/secrets.env`
      among them.
-   - `--scope=tenant` is where the secret lives: the tenant, rather than one
+   - `--scope=tenant` is where the secret lives: the workspace, rather than one
      org or project.
    - `--preset=openai` registers OpenAI's models from Kindgi's built-in
      preset, which reads the key from that provider's secret in the table,

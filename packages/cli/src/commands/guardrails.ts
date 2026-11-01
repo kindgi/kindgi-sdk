@@ -91,7 +91,7 @@ const register: LeafCommand = {
     project: {
       type: 'string',
       description:
-        "The project to register the guardrail in, by id (default: the tenant's default project).",
+        "The project to register the guardrail in, by id (default: the workspace's default project).",
     },
   },
   run: (ctx) =>

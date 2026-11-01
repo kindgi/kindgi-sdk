@@ -165,7 +165,7 @@ public final class BriefWriter {
   `Map.of("needs", List.of(Map.of("feature", "tool-use"), Map.of("models", Map.of("allow", List.of("claude-haiku-5-5")))))`.
 - **`set("conversationPolicy", …)`:** `historyLimit` caps the prior messages
   loaded, and `hitl` configures approval gates. Absent, the turn loads the
-  full history with no gates. A tenant's `hitl` policy can tighten the gates
+  full history with no gates. A workspace's `hitl` policy can tighten the gates
   (a shorter timeout, a higher reviewer role, stricter per tool), never
   loosen them. `"separateApprover"` in `hitl` (`true`, or
   `Map.of("overrides", Map.of("<tool id>", true))`) makes a tool's approval
@@ -261,7 +261,7 @@ fix: a setting or wording as a suggested change, a rule in code.
    isn't a budget: the keys are the wire's camelCase (`maxSteps`,
    `historyLimit`, `maxRetries`).
 4. **An unregistered guardrail id.** Pass the `Guardrail` field, or make sure
-   the id is one the tenant has.
+   the workspace has that id.
 5. **`{{ variable }}` not in `parameters`.** The turn fails when the
    instructions render.
 6. **An agent that isn't a `static final` field.** Only static fields are

@@ -547,7 +547,7 @@ describe('kindgi promote', () => {
     });
     expect(split.out.exitCode).not.toBe(0);
     expect(split.out.stderr).toContain(
-      'environments.staging.endpoint is https://a.acme.example, and environments.prod.endpoint is https://b.acme.example: an environment order lives in one tenant on one runtime',
+      'environments.staging.endpoint is https://a.acme.example, and environments.prod.endpoint is https://b.acme.example: an environment order lives in one workspace on one runtime',
     );
     expect(split.calls).toEqual([]);
 

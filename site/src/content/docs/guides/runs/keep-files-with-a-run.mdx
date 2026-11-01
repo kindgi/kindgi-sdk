@@ -39,7 +39,7 @@ pnpm exec kindgi artifacts upload report.pdf --run=<run-id> --content-type=appli
 It prints the artifact's record, with its `blobId`.
 
 - **Its project:** with `--run`, it's the run's project. Without `--run`,
-  it's `--project`'s, or else the tenant's default project. A `--project`
+  it's `--project`'s, or else the workspace's default project. A `--project`
   that isn't the run's is refused, and so is a run that doesn't exist, with
   `404 run-not-found`. With an API key limited to a project, an upload that
   names no project goes to the key's project. One whose project, named or its
@@ -91,7 +91,7 @@ before the last of its `Content-Length` bytes. `download` then fails with
 no file. In TypeScript, reading `download`'s body throws. The runtime logs
 each one at `ERROR`, as
 `Artifact <blob-id>'s stored bytes aren't the ones put; the read was stopped`,
-with its tenant, where its bytes are kept, the sha256 and size kept for it,
+with its workspace, where its bytes are kept, the sha256 and size kept for it,
 and what was read. The log line never holds the file's content.
 
 With [authorization](../../../deploy/authorization/) on, listing and

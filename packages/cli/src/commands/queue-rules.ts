@@ -21,7 +21,7 @@ const RUN_STATUSES = ['completed'] as const;
 const PROJECT_OPTION: Readonly<Record<string, ParseArgsOption>> = {
   project: {
     type: 'string',
-    description: "The project the rule is in. Without it, the tenant's default project.",
+    description: "The project the rule is in. Without it, the workspace's default project.",
   },
 };
 

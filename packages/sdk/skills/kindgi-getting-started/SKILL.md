@@ -136,11 +136,11 @@ terminal, say), `kindgi dev` exits with code 3 and prints where it is
 and don't stop theirs.
 
 Each linked git worktree runs its own `kindgi dev`, side by side, with its
-own dev tenant, user and token. In the bundled Postgres it has its own
-database too, `kindgi_<project>__<worktree>`, and its tenant and user are
+own workspace, user and token. In the bundled Postgres it has its own
+database too, `kindgi_<project>__<worktree>`, and its workspace and user are
 named from it; with your own (`--database-url` or `KINDGI_DATABASE_URL`),
 it uses that one. Its `.kindgirc.json`, which `kindgi init` keeps out of
-git, keeps the token, the tenant and the user. When port 4000 is taken
+git, keeps the token, workspace and user. When port 4000 is taken
 (another worktree's `kindgi dev`), it takes the next free one and says so,
 `⚠ port 4000 is in use (another kindgi dev?): using 4001`; that
 worktree's `.kindgirc.json` records it, so the CLI there follows. Read the
@@ -152,8 +152,8 @@ to one worktree, and so does an env file git doesn't track, such as
 
 Give the person the console's address as the banner prints it (its
 `Console` line). Never guess a console URL: an approval's own link is
-`/console/approvals/<approval id>`, which finds its tenant and project by
-itself, and every other page's address starts with the tenant and the
+`/console/approvals/<approval id>`, which finds its workspace and project by
+itself, and every other page's address starts with the workspace and
 project, `/console/tenants/<tenant>/projects/<project id>/…`, both taken
 from the CLI's answers (`kindgi auth whoami`'s `identity.tenantId`,
 `kindgi projects get-default`'s `id`), never made up.

@@ -765,7 +765,7 @@ describe('kindgi exports create', () => {
     const nameless = await cli(server({ '/v1/identity/whoami': { scopes: ['tenant-admin'] } }));
     expect(nameless.exitCode).toBe(1);
     expect(nameless.stderr).toContain(
-      'GET /v1/identity/whoami answered no tenantId, so the export has no tenant to name.',
+      'GET /v1/identity/whoami answered no tenantId, so the export has no workspace to name.',
     );
     await expect(readdir(out)).rejects.toThrow();
   });
@@ -793,7 +793,7 @@ describe('kindgi exports create', () => {
     await rm(out, { recursive: true, force: true });
     expect((await cli(server(answers))).exitCode).toBe(0);
     expect((await manifest()).consistency).toBe(
-      'The tenant is closing: nothing in it changes but deletes, revocations and erasures, so the files agree with each other, but for one of those made while the export ran.',
+      'The workspace is closing: nothing in it changes but deletes, revocations and erasures, so the files agree with each other, but for one of those made while the export ran.',
     );
 
     // Suspended when it started, active again by the end.
