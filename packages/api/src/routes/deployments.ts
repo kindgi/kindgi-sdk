@@ -2891,8 +2891,7 @@ function validatePrimitives(
     const { modulePath, ...definition } = raw as Record<string, unknown>;
     const r = validateBlock(definition);
     if (r.kind === 'err') {
-      const idBase: Partial<ValidationDetail> =
-        typeof definition.id === 'string' ? { id: definition.id } : {};
+      const idBase = detailId(definition.id);
       const issues =
         r.error.issues.length > 0 ? r.error.issues : [{ path: '', message: r.error.message }];
       for (const issue of issues) {

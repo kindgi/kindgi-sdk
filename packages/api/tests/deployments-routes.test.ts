@@ -8357,6 +8357,25 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
     expect(written).toEqual([]);
   });
 
+  test('a block whose id has a hidden character is a 400 at /id, and its issue names no id; nothing is deployed', async () => {
+    const { deploy, written } = setup();
+    const res = await deploy(pack([{ ...REPLY, id: 'acme.re\u{200b}ply' }, STYLE]));
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('deployment-validation-failed');
+    const blockIssues = (res.body.error.details.issues as { primitive: string }[]).filter(
+      (issue) => issue.primitive === 'block',
+    );
+    expect(blockIssues).toEqual([
+      {
+        primitive: 'block',
+        index: 0,
+        path: '/id',
+        message: 'id must be a dotted lowercase id, e.g. "acme.intake-prompt"',
+      },
+    ]);
+    expect(written).toEqual([]);
+  });
+
   test('a block whose versions live in another project is refused, even unchanged; nothing stays published', async () => {
     const { blocks, deploy, written } = setup();
     await blocks.publish({
