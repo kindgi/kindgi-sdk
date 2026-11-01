@@ -187,14 +187,21 @@ export type DeploymentEndpointStatus = 'pending' | 'ready' | 'cleared';
 
 /**
  * Why a deployment's pack service should go:
- * - `superseded`: nothing a call can still ask for needs it. Each tool
- *   version, pack check, agent and flow version it serves is unregistered
- *   and not held (a check: no registered guardrail runs it), or a newer
- *   deployment into its project serves it. Registering one of its versions
- *   again makes it needed again (from runtime 0.4.0; before, it was for good:
- *   newer deployments shipped every tool version and check it does). A tool
- *   call a step made on it still goes back to it when the step runs again,
- *   and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared;
+ * - `superseded`: nothing a call can still ask for needs it. For each tool
+ *   version, pack check, agent and flow version it serves, a newer
+ *   deployment into its project serves it too, or it's unregistered and not
+ *   held (a check: no registered guardrail runs it in its project). A tool
+ *   deployed without a version keeps it until a newer deployment into its
+ *   project serves that tool. It's needed again once something it's still
+ *   the newest into its project for is registered or held again, or, for a
+ *   check, a guardrail that runs it in its project is registered (from
+ *   runtime 0.4.0; before, it was for good: newer deployments into its
+ *   project shipped every tool version and check it does). One whose
+ *   endpoint an earlier runtime made or last set also goes once newer
+ *   deployments into its project ship every tool version and check it does,
+ *   as before runtime 0.4.0, and then for good. A tool call a step made on
+ *   it still goes back to it when the step runs again, and fails closed
+ *   (`pack-endpoint-cleared`) once its endpoint is cleared;
  * - `tenant-closing`, `tenant-suspended`: every deployment of the tenant,
  *   routed or not, since nothing of it runs;
  * - `project-suspended`, `pack-suspended`: every deployment of the project,
@@ -298,9 +305,10 @@ export interface DeploymentEndpoint {
   /**
    * `cleared` only: why no pack service is wanted for it now, as the
    * orchestrator is told to retire one. `superseded`: nothing a call can
-   * still ask for needs it, until one of its versions is registered again
-   * (see {@link SYSTEM_DEPLOYMENT_RETIRE_REASONS}); a tool call a step made on
-   * it still goes back to it when the step runs again, and fails closed
+   * still ask for needs it, until something it's still the newest into its
+   * project for is registered or held again, unless it's gone for good (see
+   * {@link SYSTEM_DEPLOYMENT_RETIRE_REASONS}); a tool call a step made on it
+   * still goes back to it when the step runs again, and fails closed
    * (`pack-endpoint-cleared`). The others last until the tenant, project or
    * pack is restored.
    */

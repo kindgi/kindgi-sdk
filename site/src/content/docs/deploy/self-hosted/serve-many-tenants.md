@@ -265,18 +265,21 @@ that don't an installation each
 
 1. **List the deployments that need a service:**
    `GET /v1/system/deployments?endpoint=missing`, oldest first across tenants.
-   A deployment needs one while something a call can still ask for needs it:
-   it serves a tool, agent or flow version that's registered or used by a pin
-   or an unfinished run, a tool deployed without a version, or a pack check a
-   registered guardrail runs, and no newer deployment in its project serves
-   it (runtime 0.4.0 or later; before, while it was the newest in its project
-   with routes for some tool version or pack check). It also has no endpoint
-   or a cleared one, and nothing about it is closing or suspended. Each entry
-   has the tenant's id, the deployment's id, its pack and project (the one it
-   named, else the tenant's Default), and its image: the digest-pinned
-   `imageRef`, its digest, the artifact version and when it went live, and
-   whether to start its service `warm` (step 7). It has nothing else of the
-   tenant.
+   A deployment needs one while it serves something a call can still ask for
+   that no newer deployment in its project serves: a tool, agent or flow
+   version that's registered, pinned by a flow or agent version a run can
+   reach, or used by an unfinished run; a tool deployed without a version; or
+   a pack check a registered guardrail runs in its project (runtime 0.4.0 or
+   later; before, while it was the newest in its project with routes for some
+   tool version or pack check). One whose endpoint an earlier runtime made or
+   last set also needs the earlier rule: once newer deployments in its
+   project ship every tool version and check it does, it's retired for good.
+   It also has no endpoint or a cleared one, and nothing about it is closing
+   or suspended. Each entry has the tenant's id, the deployment's id, its
+   pack and project (the one it named, else the tenant's Default), and its
+   image: the digest-pinned `imageRef`, its digest, the artifact version and
+   when it went live, and whether to start its service `warm` (step 7). It
+   has nothing else of the tenant.
 
    A deployment that ships no tools and no guardrail checks of its own, such
    as one of agents and flows whose guardrails use only built-in checks, has
@@ -374,14 +377,18 @@ that don't an installation each
    lists deployments with an endpoint whose service should go, each with its
    `reason`. Clear the endpoint first, with `DELETE …/endpoint`, then delete
    the service. Nothing a call can still ask for needs a `superseded`
-   deployment. Each tool version, check, agent and flow version it serves is
+   deployment. For each tool version, check, agent and flow version it
+   serves, a newer deployment in its project serves it too, or it's
    unregistered and not used by a pin or an unfinished run (a check: no
-   registered guardrail runs it), or a newer deployment in its project
-   serves it (runtime 0.4.0 or later; before, `superseded` meant newer
-   deployments in its project shipped every tool version and check it
-   does). Registering one of its versions again lists it as needing a
-   service again. A tenant sees what keeps each one in its endpoint's
-   `keptFor`.
+   registered guardrail runs it in its project). A tool deployed without a
+   version keeps it until a newer deployment in its project serves that tool
+   (runtime 0.4.0 or later; before, `superseded` meant newer deployments in
+   its project shipped every tool version and check it does). Registering
+   again a version it's still the newest in its project for lists it as
+   needing a service again, unless an earlier runtime made or last set its
+   endpoint and newer deployments in its project ship every tool version and
+   check it does (step 1). A tenant sees what keeps each one in its
+   endpoint's `keptFor`.
 7. **Keep the warm ones up:** `GET /v1/system/deployments?endpoint=ready`
    lists deployments whose service is ready and stays, oldest first across
    tenants. Here and in `endpoint=missing`, `warm: true` means calls in its
