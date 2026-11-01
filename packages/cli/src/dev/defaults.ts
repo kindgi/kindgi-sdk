@@ -29,11 +29,13 @@ import {
   PACK_ENV_FILTER_VAR,
   createGlobMatcher,
   discoveryRoots,
+  packBlockFiles,
   runIndexer as runIndexerReal,
   writePackBlock,
 } from '@kindgi/handler-runtime';
 import { createPackServiceSupervisor } from '@kindgi/handler-runtime/pack-service';
 
+import { uncommittedFiles } from '../uncommitted-files.js';
 import { type DockerReach, dockerReach, dockerUnreachable } from './blocked.js';
 import { createDevPackBuilder } from './bundler.js';
 import { createJavaPackBuilder } from './java-builder.js';
@@ -187,6 +189,9 @@ export function createPackServiceReal(opts: DevPackServiceOptions): DevPackServi
       if (outcome.kind === 'ok') opts.blocks.onWritten(write, outcome);
       return outcome;
     },
+    // And before it's written, which of those files git hasn't committed.
+    blockFilesState: async (ids) =>
+      uncommittedFiles(opts.packDir, await packBlockFiles(opts.packDir, opts.blocks.pattern, ids)),
     ...(opts.port !== undefined && { port: opts.port }),
     ...(opts.token !== undefined && { token: opts.token }),
   });

@@ -3271,7 +3271,7 @@ class AgentsPinnedResource:
     ) -> _models.PinCheck:
         """Check a pin against its gate. `POST /v1/agents/{agentId}/pinned/check`
 
-        What `POST …/pinned/pin` with the same body would do, with nothing recorded: `would-pin`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, pin. Needs `read` on the agent.
+        What `POST …/pinned/pin` with the same body would do, with nothing recorded: `would-pin`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, pin. Under `kindgi dev`, where a pin writes the version into the pack's files, it also warns about the files it would write over that git hasn't committed (`uncommittedFiles`), or that the pack isn't in git (`notInGit`). Needs `read` on the agent.
         """
         return self._client._request(
             _OPERATIONS["agents.pinned.check"],
@@ -13406,7 +13406,7 @@ class AsyncAgentsPinnedResource:
     ) -> _models.PinCheck:
         """Check a pin against its gate. `POST /v1/agents/{agentId}/pinned/check`
 
-        What `POST …/pinned/pin` with the same body would do, with nothing recorded: `would-pin`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, pin. Needs `read` on the agent.
+        What `POST …/pinned/pin` with the same body would do, with nothing recorded: `would-pin`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, pin. Under `kindgi dev`, where a pin writes the version into the pack's files, it also warns about the files it would write over that git hasn't committed (`uncommittedFiles`), or that the pack isn't in git (`notInGit`). Needs `read` on the agent.
         """
         return await self._client._request(
             _OPERATIONS["agents.pinned.check"],

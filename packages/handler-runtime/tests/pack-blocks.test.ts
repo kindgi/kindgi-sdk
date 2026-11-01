@@ -19,7 +19,7 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { runIndexer } from '../src/kindgi-index.js';
-import { blockFileText, readPackBlocks, writePackBlock } from '../src/pack-blocks.js';
+import { blockFileText, packBlockFiles, readPackBlocks, writePackBlock } from '../src/pack-blocks.js';
 
 const addFormats = ((addFormatsModule as { default?: unknown }).default ??
   addFormatsModule) as unknown as (ajv: Ajv2020) => void;
@@ -366,6 +366,23 @@ async function index(
   }
   return { outcome, written };
 }
+
+describe('packBlockFiles: what writing some blocks touches', () => {
+  test("each block's file, and a prompt's template file, sorted; an id the pack lacks has none", async () => {
+    await write({
+      'blocks/style.json': json(settings()),
+      'blocks/support/reply.json': json(
+        prompt({ content: { templateFile: '../templates/reply.liquid', parameters: [] } }),
+      ),
+      'blocks/templates/reply.liquid': 'Reply.\n',
+      'blocks/other.json': json(settings({ id: 'acme.other' })),
+    });
+    expect(
+      await packBlockFiles(packDir, BLOCKS, ['acme.reply-style', 'acme.reply-prompt', 'acme.gone']),
+    ).toEqual(['blocks/style.json', 'blocks/support/reply.json', 'blocks/templates/reply.liquid']);
+    expect(await packBlockFiles(packDir, BLOCKS, [])).toEqual([]);
+  });
+});
 
 describe('runIndexer — blocks', () => {
   test("the index carries the pack's blocks, and the report counts them", async () => {

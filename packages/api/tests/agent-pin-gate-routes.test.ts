@@ -27,6 +27,7 @@ import type {
   LatestAnswer,
   Pin,
   PinError,
+  PinFilesWarnings,
   PinRequestInput,
   ReleaseGate,
   ReleaseGateSpec,
@@ -116,7 +117,12 @@ const FAILING: ReleaseGateSpec = { metrics: [{ name: 'passRate', minCandidate: 0
  * these. Absent: none is wired.
  */
 function setup(
-  opts: { request?: boolean; releaseGates?: boolean; fixed?: readonly string[] } = {},
+  opts: {
+    request?: boolean;
+    releaseGates?: boolean;
+    fixed?: readonly string[];
+    pinFiles?: PinFilesWarnings;
+  } = {},
 ) {
   const calls: { method: string; input: unknown }[] = [];
   const state: {
@@ -281,6 +287,7 @@ function setup(
       record('projectSuspended', projectId);
       return state.suspended;
     },
+    ...(opts.pinFiles !== undefined && { pinFiles: opts.pinFiles }),
     projectBinding: {
       get: async (_t: TenantId, projectId: ProjectId) => {
         record('projects.get', projectId);
@@ -658,6 +665,69 @@ describe('POST /v1/agents/:agentId/pinned/check', () => {
     const { app } = setup();
     const res = await app.request(`/v1/agents/${AGENT}/pinned/check`, pinBody());
     expect(await res.json()).toEqual({ outcome: 'would-pin', releaseGate: null, checks: [] });
+  });
+});
+
+describe("POST /v1/agents/:agentId/pinned/check: under kindgi dev, the files git hasn't committed", () => {
+  /** A `pinFiles` that answers `warning` and records what it was asked. */
+  const reading = (warning: Awaited<ReturnType<PinFilesWarnings>>) => {
+    const asked: Parameters<PinFilesWarnings>[0][] = [];
+    const pinFiles: PinFilesWarnings = async (q) => {
+      asked.push(q);
+      return warning;
+    };
+    return { asked, pinFiles };
+  };
+
+  test('the files the pin would write over, read for the version asked', async () => {
+    const { asked, pinFiles } = reading({
+      uncommittedFiles: ['blocks/reply.liquid', 'blocks/tone.json'],
+    });
+    const { app } = setup({ pinFiles });
+    const res = await app.request(`/v1/agents/${AGENT}/pinned/check`, pinBody());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      outcome: 'would-pin',
+      releaseGate: null,
+      checks: [],
+      uncommittedFiles: ['blocks/reply.liquid', 'blocks/tone.json'],
+    });
+    expect(asked).toEqual([{ tenantId: expect.any(String), agentId: AGENT, version: '1.2.0' }]);
+  });
+
+  test("the pack isn't in git", async () => {
+    const { app } = setup({ pinFiles: reading({ notInGit: true }).pinFiles });
+    const res = await app.request(`/v1/agents/${AGENT}/pinned/check`, pinBody());
+    expect(await res.json()).toMatchObject({ outcome: 'would-pin', notInGit: true });
+  });
+
+  test('a pin waiting for an approval is warned too: the approval writes the files', async () => {
+    const { app, state } = setup({ pinFiles: reading({ notInGit: true }).pinFiles });
+    state.releaseGate = releaseGate({ ...PASSING, approvals: {} });
+    state.testRun = testRun(summary());
+    const res = await app.request(`/v1/agents/${AGENT}/pinned/check`, pinBody());
+    expect(await res.json()).toMatchObject({ outcome: 'needs-approval', notInGit: true });
+  });
+
+  test.each([
+    ['nothing to warn about', undefined],
+    ['no file listed', { uncommittedFiles: [] }],
+  ] as const)('%s: neither field', async (_, warning) => {
+    const { app } = setup({ pinFiles: reading(warning).pinFiles });
+    const res = await app.request(`/v1/agents/${AGENT}/pinned/check`, pinBody());
+    expect(await res.json()).toEqual({ outcome: 'would-pin', releaseGate: null, checks: [] });
+  });
+
+  test("a gate that fails: the pin doesn't go, so nothing is read", async () => {
+    const { asked, pinFiles } = reading({ uncommittedFiles: ['blocks/tone.json'] });
+    const { app, state } = setup({ pinFiles });
+    state.releaseGate = releaseGate(FAILING);
+    state.testRun = testRun(summary());
+    const res = await app.request(`/v1/agents/${AGENT}/pinned/check`, pinBody());
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.outcome).toBe('gate-failed');
+    expect(body).not.toHaveProperty('uncommittedFiles');
+    expect(asked).toEqual([]);
   });
 });
 
