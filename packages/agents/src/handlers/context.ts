@@ -283,9 +283,12 @@ export interface TurnContext {
 }
 
 /**
- * Iteration output shape produced by the loop body's `budget-check`
- * node (and by extension, the loop's `$loop-end` output). Mirrors the
- * `iterationOutputSchema` declared in `agent-turn-flow.ts`.
+ * One iteration's output, as the loop body's steps pass it on.
+ * `model-call` and `dispatch-tools` give parts of it, and `budget-check`
+ * returns it whole as the loop's `$loop-end` output, which
+ * `iterationOutputSchema` in `agent-turn-flow.ts` validates. `warnings`
+ * rides only `model-call`'s part: the schema has no such field, so
+ * `budget-check` leaves it off.
  */
 export interface AgentTurnIterationOutput {
   readonly finishReason: 'stop' | 'length' | 'tool-use' | 'content-filter' | 'error';
@@ -301,22 +304,6 @@ export interface AgentTurnIterationOutput {
   readonly warnings?: readonly { readonly code: string; readonly message: string }[];
   readonly finishedTurn: boolean;
   readonly nextMessages: readonly ModelMessage[];
-  /**
-   * Set by `dispatch-tools` when a tool invocation surfaces an
-   * `unresolved-tool` / `tool-invocation-failed`, or by
-   * `budget-check` when the cost cap is exceeded. `compose-result`
-   * inspects it and short-circuits the run into an error result.
-   */
-  readonly errorPayload?: {
-    readonly code:
-      | 'unresolved-tool'
-      | 'tool-invocation-failed'
-      | 'budget-exceeded'
-      | 'agent-turn-aborted'
-      | 'model-invocation-failed';
-    readonly message: string;
-    readonly extra?: Readonly<Record<string, unknown>>;
-  };
 }
 
 /**

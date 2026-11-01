@@ -106,7 +106,12 @@ const iterationOutputSchema = {
     },
     finishedTurn: { type: 'boolean' },
     nextMessages: { type: 'array' },
-    /** Populated when finishReason='error' from budget-check or dispatch failure. */
+    /**
+     * Never set: a turn's failures are thrown (`throwAgentTurnFailure`)
+     * and reach the caller as the run's failure. Kept so `agent.turn`
+     * 1.1.0 keeps one schema; it goes with the next change that bumps
+     * `AGENT_TURN_FLOW_VERSION`.
+     */
     errorPayload: { type: 'object' },
   },
 } as const;
