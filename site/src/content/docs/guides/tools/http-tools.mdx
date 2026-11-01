@@ -192,8 +192,9 @@ object AddOrderNote {
   the URL didn't use, as JSON: here `{"text": …}`. A `GET` sends no body.
   For another shape, set the request body. `input-passthrough` sends the
   whole input. `text` sends a template's result as `text/plain`; its
-  `{name}`s are filled the same way, and the braces of JSON, or of GraphQL
-  with spaces inside them (`{ name }`), are sent as they are.
+  `{name}`s are filled from the input fields with those wire names, as
+  they are, not URL-encoded. The braces of JSON, or of GraphQL with spaces
+  inside them (`{ name }`), are sent unchanged.
 - **The answer.** The response's JSON is the tool's output, checked against
   the output schema. A Zod `z.object` rejects fields it doesn't list, and
   most APIs return more than you need. So in TypeScript, use

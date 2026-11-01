@@ -151,7 +151,7 @@ def test_an_http_tools_model_schema_compiles_as_the_runtime_compiles_it() -> Non
         "https://cases.example.com/{court}/{größe}",
     ],
 )
-def test_a_brace_in_the_url_that_isnt_a_placeholders_is_refused(url: str) -> None:
+def test_a_brace_in_the_url_that_isnt_part_of_a_placeholder_is_refused(url: str) -> None:
     with pytest.raises(DefinitionError) as raised:
         lookup(url_template=url)
     assert str(raised.value) == (
