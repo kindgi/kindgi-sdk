@@ -151,6 +151,8 @@ interface Store {
   readonly users: WpUser[];
   /** The users WooCommerce answered, by the password they signed in with. */
   readonly wooSignIns: string[];
+  /** What the store refuses from now on: deleting a user's Application Password. */
+  readonly refuse: { agentDeletes: boolean };
   close(): Promise<void>;
 }
 
@@ -183,6 +185,7 @@ async function startStore(
     { id: 1, slug: 'owner', email: 'owner@example.com', roles: ['administrator'], passwords: [] },
   ];
   const wooSignIns: string[] = [];
+  const refuse = { agentDeletes: false };
   const shown = (p: AppPassword) => ({ uuid: p.uuid, app_id: p.app_id, name: p.name });
   const isAdmin = (u: WpUser) => u.roles.includes('administrator');
   const remove = (list: AppPassword[], uuid: string | undefined): Answer => {
@@ -283,7 +286,19 @@ async function startStore(
     [
       'DELETE',
       /^wp\/v2\/users\/(\d+)\/application-passwords\/([\w-]+)$/,
-      (r) => (isAdmin(r.who.user) ? remove(ofUser(r)!.passwords, r.match[2]) : NOT_ALLOWED),
+      (r) => {
+        if (!isAdmin(r.who.user)) return NOT_ALLOWED;
+        if (refuse.agentDeletes) {
+          return [
+            500,
+            {
+              code: 'rest_cannot_delete_application_password',
+              message: 'Could not delete the application password.',
+            },
+          ];
+        }
+        return remove(ofUser(r)!.passwords, r.match[2]);
+      },
     ],
   ];
 
@@ -341,6 +356,7 @@ async function startStore(
     url: `http://127.0.0.1:${port}`,
     users,
     wooSignIns,
+    refuse,
     close: () => new Promise((resolve) => server.close(() => resolve())),
   };
 }
@@ -514,6 +530,10 @@ describe("the woocommerce starter's connect-store", () => {
     );
     expect(out.stdout).toContain(
       "✓ Revoked the agent's password from the connect before (Kindgi (acme-shop, local)).",
+    );
+    // Another address may be another store, whose password only its owner can revoke.
+    expect(out.stdout).toContain(
+      `! WOO_STORE_URL named ${shop.url} before. If that's another store, this pack's password there still signs in: remove "Kindgi (acme-shop, local)" there, under Users → All Users → kindgi-agent → Application Passwords.`,
     );
     expect(agent.passwords).toHaveLength(1);
     expect(agent.passwords[0]!.uuid).not.toBe(first.uuid);
@@ -696,6 +716,36 @@ describe("the woocommerce starter's connect-store", () => {
     expect((await kindgiState()).secrets['tenant in env local WOO_APP_PASSWORD']!.at(-1)).toBe(
       agent.passwords[0]!.password,
     );
+  });
+
+  test("an agent's password the store won't revoke is said, for the person to remove", async () => {
+    const shop = await store();
+    let run = connectStore([shop.url, '--no-browser']);
+    await approve(shop, await run.link);
+    expect((await run.done).code).toBe(0);
+    const agent = shop.users.find((u) => u.slug === 'kindgi-agent')!;
+    shop.refuse.agentDeletes = true;
+
+    // Kindgi refuses the password, so the new one goes, or would.
+    run = connectStore([shop.url, '--no-browser'], { FAKE_KINDGI_REFUSES: 'secrets set' });
+    await approve(shop, await run.link);
+    let out = await run.done;
+    expect(out.code).toBe(1);
+    expect(out.stdout).toContain(
+      `! Couldn't revoke the agent's new password, the newest "Kindgi (acme-shop, local)" (HTTP 500). Remove it under Users → All Users → kindgi-agent → Application Passwords.`,
+    );
+    expect(agent.passwords).toHaveLength(2);
+
+    // A connect that works can't revoke the ones before it, and says so for each.
+    run = connectStore([shop.url, '--no-browser']);
+    await approve(shop, await run.link);
+    out = await run.done;
+    expect(out.code, out.stderr).toBe(0);
+    const left = `! Couldn't revoke the agent's password from the connect before, an older "Kindgi (acme-shop, local)" (HTTP 500). Remove it under Users → All Users → kindgi-agent → Application Passwords.`;
+    expect(out.stdout.split('\n').filter((l) => l === left)).toHaveLength(2);
+    expect(agent.passwords).toHaveLength(3);
+    // The approver's own still goes.
+    expect(shop.users[0]!.passwords).toEqual([]);
   });
 
   test("a stop after the approval still revokes the approver's password", async () => {

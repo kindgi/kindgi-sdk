@@ -345,6 +345,7 @@ async function savePassword(bin, password, target) {
  */
 async function saveStore(bin, store, target) {
   const replaced = [];
+  let storeWas;
   for (const [name, value] of [
     ['WOO_STORE_URL', store],
     ['WOO_USER', AGENT_USER],
@@ -355,6 +356,7 @@ async function saveStore(bin, store, target) {
       was = /already set .*? to "(.*)"\. Re-run with --force/.exec(res.out)?.[1];
       res = await kindgi(bin, ['env', 'set', name, value, ...target, '--force']);
       if (res.code === 0) replaced.push(was === undefined ? `${name} replaced` : `${name} was "${was}"`);
+      if (res.code === 0 && name === 'WOO_STORE_URL') storeWas = was;
     }
     if (res.code !== 0) {
       const still = was === undefined ? '' : `, while ${name} still says "${was}"`;
@@ -363,7 +365,23 @@ async function saveStore(bin, store, target) {
       );
     }
   }
-  return replaced;
+  return { replaced, storeWas };
+}
+
+/** Revokes one of the agent's passwords; one that won't go is said, for the person to remove. */
+async function revokeAgentPassword(api, owner, agentId, uuid, { done, left }) {
+  let why;
+  try {
+    const gone = await call(api(`wp/v2/users/${agentId}/application-passwords/${uuid}`), { method: 'DELETE', auth: owner });
+    if (gone.ok) {
+      if (done !== undefined) say(done);
+      return;
+    }
+    why = `HTTP ${gone.status}`;
+  } catch (err) {
+    why = err.message;
+  }
+  say(`! Couldn't revoke ${left} (${why}). Remove it under Users → All Users → ${AGENT_USER} → Application Passwords.`);
 }
 
 function agentEmail(ownerEmail) {
@@ -419,6 +437,7 @@ async function connect(api, approval, { bin, store, target, app }) {
   if (!created.ok) throw wpError("Making the agent's Application Password", created);
 
   let held = false;
+  let storeWas;
   try {
     const check = await call(api('wc/v3/orders', { per_page: 1 }), { auth: basic(AGENT_USER, created.json.password) });
     if (!check.ok) {
@@ -429,22 +448,34 @@ async function connect(api, approval, { bin, store, target, app }) {
     say('✓ Its Application Password signs in to WooCommerce.');
     const secret = await savePassword(bin, created.json.password, target);
     held = true;
-    const replaced = [...(await saveStore(bin, store, target)), ...secret];
+    const saved = await saveStore(bin, store, target);
+    storeWas = saved.storeWas;
+    const replaced = [...saved.replaced, ...secret];
     say(`✓ Saved in Kindgi (${target.join(' ')}): WOO_STORE_URL, WOO_USER, and the secret WOO_APP_PASSWORD.`);
     if (replaced.length > 0) say(`  Replaced: ${replaced.join('; ')}.`);
   } catch (err) {
     // Until Kindgi holds the new password, nobody else has it: it goes,
     // and the one before stays.
     if (!held) {
-      await call(api(`wp/v2/users/${agent.id}/application-passwords/${created.json.uuid}`), { method: 'DELETE', auth: owner }).catch(() => {});
+      await revokeAgentPassword(api, owner, agent.id, created.json.uuid, {
+        left: `the agent's new password, the newest "${app.name}"`,
+      });
     }
     throw err;
   }
 
   for (const old of before.json ?? []) {
     if (old.app_id !== app.id) continue;
-    const gone = await call(api(`wp/v2/users/${agent.id}/application-passwords/${old.uuid}`), { method: 'DELETE', auth: owner });
-    if (gone.ok) say(`✓ Revoked the agent's password from the connect before (${app.name}).`);
+    await revokeAgentPassword(api, owner, agent.id, old.uuid, {
+      done: `✓ Revoked the agent's password from the connect before (${app.name}).`,
+      left: `the agent's password from the connect before, an older "${app.name}"`,
+    });
+  }
+  // Only the store before can revoke its own: Kindgi no longer signs in there.
+  if (storeWas !== undefined) {
+    say(
+      `! WOO_STORE_URL named ${storeWas} before. If that's another store, this pack's password there still signs in: remove "${app.name}" there, under Users → All Users → ${AGENT_USER} → Application Passwords.`,
+    );
   }
 }
 
@@ -460,7 +491,11 @@ async function revokeApproval(api, { login, password }, app) {
     for (const left of all?.ok ? all.json : []) {
       if (left.app_id !== app.id || left.uuid === mine.json.uuid) continue;
       const gone = await call(api(`wp/v2/users/me/application-passwords/${left.uuid}`), { method: 'DELETE', auth });
-      if (gone.ok) say(`✓ Revoked an approval password an earlier connect left on ${login}.`);
+      say(
+        gone.ok
+          ? `✓ Revoked an approval password an earlier connect left on ${login}.`
+          : `! Couldn't revoke an approval password an earlier connect left on ${login} (HTTP ${gone.status}). Remove "${app.name}" under Users → Profile → Application Passwords.`,
+      );
     }
     const gone = mine.ok
       ? await call(api(`wp/v2/users/me/application-passwords/${mine.json.uuid}`), { method: 'DELETE', auth })
