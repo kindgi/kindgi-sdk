@@ -24,6 +24,7 @@ import { KindgiApiError, type KindgiClient, type SuggestedChange } from '@kindgi
 import { type IndexedBlock, writePackBlock } from '@kindgi/handler-runtime';
 import semver from 'semver';
 
+import { stableStringify } from '../build/envelope.js';
 import type { CommandContext } from '../context.js';
 import { repoOf } from '../deploy/source.js';
 import { UsageError } from '../errors.js';
@@ -45,6 +46,8 @@ interface Pull {
   readonly block: IndexedBlock;
   /** The block's file and, for a prompt that keeps one, its template file: relative to the pack. */
   readonly files: readonly string[];
+  /** When the file is at the version the change is built on: that version's content, which the file must still hold. */
+  readonly expected?: Readonly<Record<string, unknown>>;
 }
 
 /** The statuses whose version can be pulled: checked, and not withdrawn. */
@@ -89,10 +92,11 @@ function blockChangesOf(s: SuggestedChange): readonly (BlockChange & { readonly 
 /**
  * The pack's block for a change. Refused when the pack has none, when its
  * file isn't older than the change's version, and when it holds a version
- * newer than the one the change is built on: writing would drop that
- * version's edits.
+ * newer than the one the change is built on, or that version with other
+ * content: writing would drop those edits.
  */
 async function pullOf(
+  client: KindgiClient,
   packDir: string,
   pattern: string,
   blocks: readonly IndexedBlock[],
@@ -115,12 +119,32 @@ async function pullOf(
     );
   }
   const template = await templateFileOf(packDir, block);
-  return {
-    blockId: block.id,
-    to: change.to,
-    block,
-    files: template === undefined ? [block.modulePath] : [block.modulePath, template],
-  };
+  const files = template === undefined ? [block.modulePath] : [block.modulePath, template];
+  const pull = { blockId: block.id, to: change.to, block, files };
+  if (semver.lt(block.version, change.from)) return pull;
+  return { ...pull, expected: await unchangedSince(client, pull, change.from) };
+}
+
+/** The content of the version the change is built on, refused when the pack's files hold other content at it. */
+async function unchangedSince(
+  client: KindgiClient,
+  pull: Pick<Pull, 'block' | 'files'>,
+  from: string,
+): Promise<Readonly<Record<string, unknown>>> {
+  const { block, files } = pull;
+  const expected = (await client.blocks.versions.get(block.id, from)).content as Readonly<
+    Record<string, unknown>
+  >;
+  if (stableStringify(block.content) !== stableStringify(expected)) {
+    const held =
+      files.length === 1
+        ? `${block.modulePath} holds`
+        : `${block.modulePath} and its template ${files[1]} hold`;
+    throw new Error(
+      `${held} ${block.id} ${block.version} with edits that aren't in the ${from} the suggested change is built on: pulling it would drop them. Make the change again on what the pack holds, or undo the edits.`,
+    );
+  }
+  return expected;
 }
 
 /** A prompt's template file, where `readPackBlocks` reads it: relative to its block's file. */
@@ -151,6 +175,7 @@ async function writeAll(
       id: p.blockId,
       version: p.to,
       content: contents[i] as Readonly<Record<string, unknown>>,
+      ...(p.expected !== undefined && { expected: p.expected }),
     });
     if (outcome.kind === 'err') {
       throw new Error(
@@ -608,7 +633,7 @@ async function pullsFor(
   if (!PULLABLE.has(suggested.status)) throw new Error(notPullable(suggested));
   const pulls: Pull[] = [];
   for (const change of blockChangesOf(suggested)) {
-    pulls.push(await pullOf(packDir, pattern, blocks, change));
+    pulls.push(await pullOf(client, packDir, pattern, blocks, change));
   }
   return { suggested, pattern, pulls };
 }

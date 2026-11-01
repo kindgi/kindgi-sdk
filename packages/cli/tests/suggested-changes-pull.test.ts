@@ -156,7 +156,7 @@ const SUGGESTED = {
   updatedAt: '2026-11-01T10:00:00.000Z',
 };
 
-/** A stub client: the suggested change, its block version, and corrections in these statuses. */
+/** A stub client: the suggested change, its block versions (1.0.0 is the pack's), and corrections in these statuses. */
 function client(
   over: Record<string, unknown> = {},
   statuses: Record<string, string> = { 'c-1': 'open', 'c-2': 'with-owner' },
@@ -176,7 +176,12 @@ function client(
         versions: {
           get: async (blockId: string, version: string) => {
             sdk.push(['blocks.versions.get', blockId, version]);
-            return { content: { template: 'Be brief, and offer a call back.' } };
+            return {
+              content:
+                version === TONE.version
+                  ? TONE.content
+                  : { template: 'Be brief, and offer a call back.' },
+            };
           },
         },
       },
@@ -246,6 +251,7 @@ describe('kindgi suggested-changes pull', () => {
     });
     expect(stub.sdk).toEqual([
       ['suggestedChanges.get', 'sc-1'],
+      ['blocks.versions.get', 'acme.tone', '1.0.0'],
       ['blocks.versions.get', 'acme.tone', '1.1.0'],
     ]);
     expect(await calls(gitLog)).toEqual([]);
@@ -325,6 +331,7 @@ describe('kindgi suggested-changes pull', () => {
     expect(BODY).not.toContain('call me back');
     expect(stub.sdk).toEqual([
       ['suggestedChanges.get', 'sc-1'],
+      ['blocks.versions.get', 'acme.tone', '1.0.0'],
       ['blocks.versions.get', 'acme.tone', '1.1.0'],
       ['corrections.get', 'c-1'],
       ['corrections.change', 'c-1', { status: 'being-fixed', link: PR_URL }],
@@ -388,9 +395,10 @@ describe('kindgi suggested-changes pull', () => {
   test('a changed template file refuses --pr, and nothing is written', async () => {
     await pack();
     await writeFile(join(cwd, 'blocks/tone.liquid'), 'Be brief.');
+    // Older than the 1.0.0 the suggested change is built on: only git sees the edit.
     await writeFile(
       join(cwd, 'blocks/tone.json'),
-      `${JSON.stringify({ ...TONE, content: { templateFile: 'tone.liquid' } }, null, 2)}\n`,
+      `${JSON.stringify({ ...TONE, version: '0.9.0', content: { templateFile: 'tone.liquid' } }, null, 2)}\n`,
     );
     inPack('add', '.');
     inPack('commit', '-q', '-m', 'The template in its own file');
@@ -489,6 +497,47 @@ describe('kindgi suggested-changes pull', () => {
     expect(await calls(ghLog)).toEqual([]);
   });
 
+  describe('a file edited at the version the suggested change is built on: refused with or without --pr, before any git', () => {
+    test.each<[string, () => Promise<void>, string]>([
+      [
+        'the block file',
+        async () => {
+          await writeFile(
+            join(cwd, 'blocks/tone.json'),
+            `${JSON.stringify({ ...TONE, content: { template: 'Be brief, and kind.' } }, null, 2)}\n`,
+          );
+        },
+        "blocks/tone.json holds acme.tone 1.0.0 with edits that aren't in the 1.0.0 the suggested change is built on: pulling it would drop them. Make the change again on what the pack holds, or undo the edits.",
+      ],
+      [
+        'its template file',
+        async () => {
+          await writeFile(join(cwd, 'blocks/tone.liquid'), 'Be brief, and kind.');
+          await writeFile(
+            join(cwd, 'blocks/tone.json'),
+            `${JSON.stringify({ ...TONE, content: { templateFile: 'tone.liquid' } }, null, 2)}\n`,
+          );
+        },
+        "blocks/tone.json and its template blocks/tone.liquid hold acme.tone 1.0.0 with edits that aren't in the 1.0.0 the suggested change is built on: pulling it would drop them.",
+      ],
+    ])('%s', async (_name, edit, said) => {
+      await pack();
+      await edit();
+      inPack('add', '.');
+      inPack('commit', '-q', '-m', 'Edited at the same version');
+      const before = await readFile(join(cwd, 'blocks/tone.json'), 'utf8');
+      for (const argv of [['sc-1'], ['sc-1', '--pr']]) {
+        const out = await pull(argv, client());
+        expect(out.exitCode).toBe(1);
+        expect(out.stderr).toContain(said);
+        expect(await readFile(join(cwd, 'blocks/tone.json'), 'utf8')).toBe(before);
+      }
+      expect(inPack('status', '--porcelain')).toBe('');
+      expect(inPack('branch', '--list', '--format=%(refname:short)').trim()).toBe('main');
+      expect(await calls(gitLog)).toEqual([]);
+    });
+  });
+
   describe('--pr refuses before anything is written', () => {
     test.each<[string, () => Promise<void>, string]>([
       [
@@ -581,7 +630,10 @@ describe('kindgi suggested-changes pull', () => {
       expect(out.stderr).toContain(said);
       expect(await readFile(join(cwd, 'blocks/tone.json'), 'utf8')).toBe(before);
       expect(await calls(ghLog)).toEqual([]);
-      expect(stub.sdk).toEqual([['suggestedChanges.get', 'sc-1']]);
+      expect(stub.sdk).toEqual([
+        ['suggestedChanges.get', 'sc-1'],
+        ['blocks.versions.get', 'acme.tone', '1.0.0'],
+      ]);
     });
   });
 
