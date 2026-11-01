@@ -379,18 +379,19 @@ that don't an installation each
    the service. A deployment is `superseded` when nothing a call can still
    ask for needs it: for each tool version, check, agent and flow version it
    serves, a newer deployment in its project serves it too, or it's
-   unregistered and not used by a pin or an unfinished run (a check: no
-   registered guardrail runs it in its project); and each tool it deployed
-   without a version, a newer deployment in its project deploys without one
-   too (runtime 0.4.0 or later; before, `superseded` meant newer deployments
-   in its project shipped every tool version and check it does). One whose
-   endpoint an earlier runtime made or last set is `superseded` as well once
-   newer deployments in its project ship every tool version and check it
-   does, and stays so (step 1). Otherwise it's listed as needing a service
-   again once something it serves that no newer deployment in its project
-   serves is registered again or used by a pin, or a guardrail that runs one
-   of its checks there is registered. A tenant sees what keeps each one in
-   its endpoint's `keptFor`.
+   unregistered, not pinned by a flow or agent version a run can reach and
+   not used by an unfinished run (a check: no registered guardrail runs it in
+   its project); and each tool it deployed without a version, a newer
+   deployment in its project deploys without one too (runtime 0.4.0 or later;
+   before, `superseded` meant newer deployments in its project shipped every
+   tool version and check it does). One whose endpoint an earlier runtime
+   made or last set is `superseded` as well once newer deployments in its
+   project ship every tool version and check it does, and stays so (step 1).
+   Otherwise it's listed as needing a service again once something it serves
+   that no newer deployment in its project serves is registered again, pinned
+   by a flow or agent version a run can reach or used by an unfinished run,
+   or once a guardrail that runs one of its checks there is registered. A
+   tenant sees what keeps each one in its endpoint's `keptFor`.
 7. **Keep the warm ones up:** `GET /v1/system/deployments?endpoint=ready`
    lists deployments whose service is ready and stays, oldest first across
    tenants. Here and in `endpoint=missing`, `warm: true` means calls in its
