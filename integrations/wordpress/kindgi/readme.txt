@@ -84,7 +84,20 @@ This plugin connects the site to Kindgi, which runs the AI agents the site's sta
 
 Kindgi uses this so each person asks and approves as themselves, with what their roles on the site allow. Each request also carries the site's address and its WordPress version, which WordPress sends with every request it makes.
 
-<!-- HELD: the store-data item, and the end of this section (where the agents send what they work on, who processes the data, and the terms and privacy links), go here in a commit of their own. -->
+= Store data that reaches Kindgi outside this plugin =
+
+This plugin doesn't send orders or customer records. A store can send them to Kindgi in two ways, each set up by the store's own staff outside this plugin:
+
+* **WooCommerce webhooks.** A webhook added in WooCommerce → Settings → Advanced → Webhooks with a Kindgi receive URL sends Kindgi each event of its topic. For orders and customers, the event carries the record as WooCommerce's REST API returns it. An order holds the customer's name, email address, phone number, billing and shipping addresses, the items bought, any note left at checkout, and the IP address and browser the order was placed from.
+* **Store tools for agents.** Abilities the store exposes through WordPress's Abilities API and the MCP Adapter, and registers in Kindgi, can be called by the store's agents. Kindgi receives what each call returns, for example an order an agent looked up.
+
+Staff may also mention a customer in a message to an agent. That message goes to Kindgi like any other.
+
+When WooCommerce turns off a webhook to Kindgi after refused deliveries, **Kindgi → Settings** lists it for the site's administrators, and **Turn it on again**, for one who can also manage WooCommerce, restarts its deliveries. Events from while it was off aren't resent.
+
+The agents send what they work on to the AI model provider they're set up with, and to the tools they call.
+
+With Kindgi Cloud, Kindgi Inc. processes this data for the store, only to run the store's agents: see the [Kindgi Cloud terms](<terms URL>) and the [privacy policy](<privacy URL>). With a Kindgi server the site's owner runs, the data goes to that server.
 
 == Changelog ==
 
