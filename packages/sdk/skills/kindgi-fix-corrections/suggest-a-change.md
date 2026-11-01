@@ -74,9 +74,22 @@ take is withdrawn with `kindgi suggested-changes withdraw <id> --reason=…`.
 
 Once it's pinned or added, the project runs a block version your pack's
 `blocks/` folder doesn't have yet. Bring the block's file up to it, through
-the repo: its `version` and content as `get` shows them (`changes[].to` and
-`after`). Under `kindgi dev` the pin writes them itself. Making one by hand
-or checking one again is 409 `registry-read-only`: edit the file, or run Improve.
+the repo:
+
+```sh
+kindgi suggested-changes pull <suggested-change-id> --pr
+```
+
+It writes the block's `version` and content (and its template file) on a new
+branch, `kindgi/<block>-<version>`, from the one checked out; commits those
+files alone, pushes, and opens a pull request with `gh` (without `gh`, it
+prints the URL that opens one). The corrections it fixes that are still
+`open` are then `being-fixed`, linked to the pull request. Without `--pr`, it
+only writes the files. It refuses a block file that holds a newer version
+than the one the suggested change is built on, and, with `--pr`, block files
+with changes that aren't committed. Under `kindgi dev` the pin writes them
+itself. Making one by hand or checking one again is 409
+`registry-read-only`: edit the file, or run Improve.
 
 ## Wording, with Improve
 
