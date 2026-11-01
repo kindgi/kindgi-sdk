@@ -71,7 +71,8 @@ export const CLI_DEFAULTS = {
     endpoint:
       "the env block's `endpoint`, else the CLI's API URL (`--url`, `KINDGI_API_URL`, config files); required when none. A stored API key goes only to the address stored with it, and the key stored with the endpoint's address is the one used (`--token` or `KINDGI_API_TOKEN` gives another server's key); with `--hosted`, the endpoint can only be the CLI's API URL, and the `.kindgirc.json` that `kindgi dev` writes isn't read",
     env: '`staging`',
-    'from-envelope': '`deploy-envelope.json` in `--out`; an inline build runs when it is missing',
+    'from-envelope':
+      '`deploy-envelope.json` in `--out`; an inline build runs when it is missing, or when its `build-inputs.json` says the pack changed since',
     'idempotency-key': 'a hash of the request body',
     out: '`.kindgi/build` under the pack root',
     path: 'the current directory',

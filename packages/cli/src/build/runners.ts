@@ -79,6 +79,12 @@ export interface EsbuildBundleResult {
   readonly computedImports?: readonly ComputedImport[];
   /** Each primitive's source path → its bundle, under `outputDir` (`bundle-map.json`). */
   readonly bundleMap: Readonly<Record<string, string>>;
+  /**
+   * The pack's own files the pack's bundles were built from, the config's
+   * included, absolute (`localSourceInputs`): what `build-inputs.json`
+   * hashes in place of the bundles.
+   */
+  readonly sources: readonly string[];
 }
 
 import type { ComputedImport } from './computed-imports.js';

@@ -25,6 +25,7 @@
  *   - `signEnvelope` — returns a canned signature.
  */
 
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -271,6 +272,7 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
         totalBytes: 2048,
         externals: [],
         bundleMap: { 'tools/echo/index.ts': 'tools/echo/index.mjs' },
+        sources: [],
       };
       return res;
     },
@@ -1728,6 +1730,12 @@ describe('kindgi build — a Python pack', () => {
     expect(calls.uvImages).toEqual([DEFAULT_UV_IMAGE_REF]);
     expect(calls.files).toEqual([['pyproject.toml', 'tools/echo.py', 'uv.lock']]);
     expect(calls.contextDirs).toEqual([join(packDir, '.kindgi/build/context')]);
+    // build-inputs.json: the pack files the context copies; a Python pack has no bundles.
+    const inputs = JSON.parse(
+      await readFile(join(packDir, '.kindgi/build/build-inputs.json'), 'utf8'),
+    );
+    expect(Object.keys(inputs.files)).toEqual(['pyproject.toml', 'tools/echo.py', 'uv.lock']);
+    expect(inputs.sources).toEqual([]);
     expect(fixtures.state.esbuildCalls).toBe(0);
     // Its context is tarred as a TypeScript pack's is.
     expect(fixtures.state.tarCalls).toBe(1);
@@ -2834,5 +2842,85 @@ describe('kindgi build — the artifact version and publish time', () => {
     expect(loose.exitCode).toBe(2);
     expect(loose.stderr).toContain('--published-at must be an ISO 8601 time with a zone');
     expect(refused.state.dockerBuilds).toEqual([]);
+  });
+});
+
+describe('kindgi build — build-inputs.json beside the envelope', () => {
+  const sha = (text: string): string => `sha256:${createHash('sha256').update(text).digest('hex')}`;
+
+  /** A TypeScript pack whose bundle read a tool, a file it imports and the config. */
+  async function stamped(argv: readonly string[] = []) {
+    await mkdir(join(packDir, 'tools', 'echo'), { recursive: true });
+    await mkdir(join(packDir, 'lib'), { recursive: true });
+    await writeFile(
+      join(packDir, 'tools', 'echo', 'index.ts'),
+      "export { greet } from '../../lib/greet.js';\n",
+      'utf8',
+    );
+    await writeFile(join(packDir, 'lib', 'greet.ts'), "export const greet = 'hi';\n", 'utf8');
+    await writeFile(
+      join(packDir, 'tsconfig.json'),
+      '{\n  // the pack\'s own\n  "extends": "./tsconfig.base.json",\n}\n',
+      'utf8',
+    );
+    await writeFile(join(packDir, 'tsconfig.base.json'), '{ "compilerOptions": {} }\n', 'utf8');
+    const fixtures = makeFixtures();
+    const bundle = fixtures.runners.esbuildBundle;
+    fixtures.runners = {
+      ...fixtures.runners,
+      esbuildBundle: async (o) => ({
+        ...(await bundle(o)),
+        sources: ['kindgi.config.ts', 'lib/greet.ts', 'tools/echo/index.ts'].map((rel) =>
+          join(packDir, rel),
+        ),
+      }),
+    };
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['build', '--env=staging', `--path=${packDir}`, ...argv],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    const dir = join(packDir, '.kindgi', 'build');
+    return {
+      envelope: await readFile(join(dir, 'deploy-envelope.json'), 'utf8'),
+      inputs: JSON.parse(await readFile(join(dir, 'build-inputs.json'), 'utf8')),
+    };
+  }
+
+  test('names each file the image was made from, the tsconfigs esbuild finds, and the envelope it is for', async () => {
+    const { envelope, inputs } = await stamped();
+    expect(inputs.cliVersion).toBe(CLI_VERSION);
+    expect(inputs.envelopeSha256).toBe(sha(envelope));
+    // The bundle's sources, the install's files, and the tsconfig with what it extends.
+    expect(Object.keys(inputs.files)).toEqual([
+      'kindgi.config.ts',
+      'lib/greet.ts',
+      'package-lock.json',
+      'package.json',
+      'tools/echo/index.ts',
+      'tsconfig.base.json',
+      'tsconfig.json',
+    ]);
+    expect(inputs.files['lib/greet.ts']).toBe(sha("export const greet = 'hi';\n"));
+    expect(inputs.sources).toEqual(['kindgi.config.ts', 'lib/greet.ts', 'tools/echo/index.ts']);
+  });
+
+  test("records the options the envelope depends on, the key id from before the key file's name", async () => {
+    const { envelope, inputs } = await stamped();
+    const resolved = {
+      env: 'staging',
+      target: 'staging',
+      hosted: false,
+      skipSign: false,
+      tenantId: 'tenant-acme-staging',
+    };
+    expect(inputs.options).toEqual(resolved);
+    expect(JSON.parse(envelope).signerKeyId).toBe('signing-key');
+    const pinned = await stamped(['--signer-key-id=release-2026', '--artifact-version=20261101.1']);
+    expect(pinned.inputs.options).toEqual({
+      ...resolved,
+      signerKeyId: 'release-2026',
+      artifactVersion: '20261101.1',
+    });
   });
 });

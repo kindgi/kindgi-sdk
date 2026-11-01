@@ -700,7 +700,7 @@ and `--published-at`: the same inputs then give the same image.
 | `--push[=<repository>]` | With `--local`: push the image, sign it, and write the envelope. Default repository: the env block's `registry` + `/<packId>`. |
 | `--platform=<os/arch>` | The image's platform. Default: `linux/amd64` when pushing, else this machine's. |
 | `--endpoint=<url>` | The build server. Default: the env block's `build`. |
-| `--out=<dir>` | Where the build writes `dist/`, the `Containerfile`, `context/` and `deploy-envelope.json`. Default: `.kindgi/build`, under the pack. It cannot be the pack root or a directory that contains it; for a TypeScript pack it must stay under the pack root, where the pack's `node_modules` resolves the bundled indexer's imports. |
+| `--out=<dir>` | Where the build writes `dist/`, the `Containerfile`, `context/`, `deploy-envelope.json` and `build-inputs.json`. Default: `.kindgi/build`, under the pack. It cannot be the pack root or a directory that contains it; for a TypeScript pack it must stay under the pack root, where the pack's `node_modules` resolves the bundled indexer's imports. |
 | `--tenant=<id>` | The tenant the signature names. Default: the env block's `tenantId`, else `KINDGI_TENANT_ID`. |
 | `--signing-key=<path>` | The Ed25519 private key (PEM). Default: the env block's `signingKey`. |
 | `--skip-integrity-gate` | Sign without re-checking the image's index. Prints a warning. |
@@ -715,10 +715,25 @@ kindgi deploy [--env <name>] [--from-envelope <path>] [--endpoint <url>] [--toke
 ```
 
 Sends the signed envelope to `POST /v1/deployments` and prints the
-deployment. The envelope is `--from-envelope`, else
-`.kindgi/build/deploy-envelope.json`, else `kindgi deploy` runs
-`kindgi build` first (`--build-endpoint` is the build server there, since
-`--endpoint` is the API).
+deployment. The envelope is `--from-envelope`, sent as it is, else
+`.kindgi/build/deploy-envelope.json`. `kindgi deploy` runs `kindgi build`
+first when there is none, or when the pack changed since that envelope was
+built (`--build-endpoint` is the build server there, since `--endpoint` is
+the API).
+
+- **Changed since:** `kindgi build` writes `build-inputs.json` beside the
+  envelope: the CLI's version, the options the envelope depends on, and the
+  sha256 of each file the image was made from (the config, the tools'
+  sources and what they import from the pack, the tsconfigs, the package
+  and lock files, the block files, a Python or JVM pack's build context).
+  A deploy builds again when any of them differs now, and names the first:
+  `` (`tools/lookup/index.ts` is new, and 1 more) ``,
+  `` (it was built for `--env=staging`) ``. So an envelope built for one
+  env is rebuilt for another; `kindgi promote` is what carries one build
+  across environments. With no `build-inputs.json` from the envelope's
+  build, the deploy sends it as before, and says it can't tell whether the
+  pack changed. With `--from-envelope`, it sends that file as it is, and
+  warns when the pack changed since.
 
 - **The API:** `--endpoint`, else the env block's `endpoint`, else
   `--url` / `KINDGI_API_URL`.

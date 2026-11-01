@@ -33,12 +33,20 @@ import {
   type PackLanguage,
   codePatterns,
   findKindgiConfig,
+  readPackBlocks,
   resolveDiscovery,
   resolvePackEnv,
 } from '@kindgi/handler-runtime';
 
 import { hostedApiAddress } from '../api-address.js';
 import { checkAptPackages } from '../build/apt.js';
+import {
+  type BuildInputOptions,
+  hashInputs,
+  packRelative,
+  writeBuildInputs,
+} from '../build/build-inputs.js';
+import { collectPackEntries } from '../build/bundle.js';
 import type { ComputedImport } from '../build/computed-imports.js';
 import { PACK_SERVICE_COMMAND } from '../build/containerfile.js';
 import { collectIncludeFiles, readBundleConfig } from '../build/context-files.js';
@@ -92,6 +100,7 @@ import type { IndexedCounts } from '../dev/runners.js';
 import { renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
 import { isPackageVersion } from '../package-manager.js';
+import type { OptionValue } from '../parse.js';
 import { type ProgressLines, progressLines } from '../progress-lines.js';
 import { isWait, sendWaitingOutRateLimits } from '../rate-limit-wait.js';
 import { CLI_VERSION } from '../version-info.js';
@@ -294,6 +303,8 @@ interface ResolvedBuildArgs {
   /** The image's platform: `--platform`, else `linux/amd64` when pushing, else this machine's. */
   readonly platform: string | undefined;
   readonly config: PackConfig;
+  /** The options the envelope depends on, as `build-inputs.json` records them. */
+  readonly inputOptions: BuildInputOptions;
 }
 
 /**
@@ -346,7 +357,7 @@ export async function runBuild(
   if (prepared.kind === 'error') return withBanner(prepared, out);
   const stopped = await hooks.indexed?.(expectedIndexPath);
   if (stopped !== undefined) return stopped;
-  const { tarball, tarballHash, counts } = prepared;
+  const { tarball, tarballHash, counts, inputs } = prepared;
   lines('');
 
   // ---- 6. POST /v1/build + SSE stream ---------------------------------
@@ -503,13 +514,19 @@ export async function runBuild(
   lines('');
 
   // ---- 8. Sign + 9. emit deploy-envelope.json ------------------------------
-  const written = await signAndWriteEnvelope(runners, args, out, {
-    imageRef: terminal.imageRef,
-    imageDigest: terminal.imageDigest,
-    index: terminal.indexJson,
-    indexHash: terminal.indexHash,
-    ...(terminal.buildLogsUrl !== undefined && { buildLogsUrl: terminal.buildLogsUrl }),
-  });
+  const written = await signAndWriteEnvelope(
+    runners,
+    args,
+    out,
+    {
+      imageRef: terminal.imageRef,
+      imageDigest: terminal.imageDigest,
+      index: terminal.indexJson,
+      indexHash: terminal.indexHash,
+      ...(terminal.buildLogsUrl !== undefined && { buildLogsUrl: terminal.buildLogsUrl }),
+    },
+    inputs,
+  );
   if (written.kind === 'error') return withBanner(written, out);
   const { envelopePath, signature } = written;
 
@@ -637,12 +654,18 @@ async function runLocalBuild(
   lines('');
 
   if (pushTo !== undefined && built.digest !== undefined) {
-    const written = await signAndWriteEnvelope(runners, args, out, {
-      imageRef,
-      imageDigest: built.digest,
-      index: JSON.parse(new TextDecoder().decode(expectedBytes)) as Record<string, unknown>,
-      indexHash: expectedHash,
-    });
+    const written = await signAndWriteEnvelope(
+      runners,
+      args,
+      out,
+      {
+        imageRef,
+        imageDigest: built.digest,
+        index: JSON.parse(new TextDecoder().decode(expectedBytes)) as Record<string, unknown>,
+        indexHash: expectedHash,
+      },
+      context.inputs,
+    );
     if (written.kind === 'error') return withBanner(written, out);
     const rendered = renderJson(
       {
@@ -713,12 +736,14 @@ type Signature = {
  * Sign the image (Ed25519 over imageDigest, artifactVersion, indexHash,
  * tenantId, publishedAt) and write `deploy-envelope.json` for
  * `kindgi deploy`: the build service's path and `--local --push` alike.
+ * `build-inputs.json` goes beside it, for that envelope only.
  */
 async function signAndWriteEnvelope(
   runners: BuildRunners,
   args: ResolvedBuildArgs,
   out: ProgressLines,
   image: BuiltImage,
+  inputs: PackInputs,
 ): Promise<
   | {
       readonly kind: 'ok';
@@ -766,7 +791,14 @@ async function signAndWriteEnvelope(
     ...(signature !== undefined && { signature }),
   });
   const envelopePath = join(args.outDir, 'deploy-envelope.json');
-  await writeFile(envelopePath, `${JSON.stringify(envelope, null, 2)}\n`, 'utf8');
+  const envelopeText = `${JSON.stringify(envelope, null, 2)}\n`;
+  await writeFile(envelopePath, envelopeText, 'utf8');
+  await writeBuildInputs(args.outDir, {
+    cliVersion: CLI_VERSION,
+    envelopeSha256: await sha256Hex(new TextEncoder().encode(envelopeText)),
+    options: args.inputOptions,
+    ...inputs,
+  });
   lines('');
   lines(`  Deploy envelope written to ${envelopePath}`);
   lines(`  Run \`kindgi deploy --env=${args.envName}\` to POST it.`);
@@ -796,8 +828,16 @@ type PreparedContext =
       readonly tarball: TarPackResult;
       readonly tarballHash: string;
       readonly counts: IndexedCounts;
+      readonly inputs: PackInputs;
     }
   | (CommandResult & { readonly kind: 'error' });
+
+/** What the image is made from, hashed as its context is written: `build-inputs.json`'s files. */
+interface PackInputs {
+  readonly files: Readonly<Record<string, string>>;
+  /** A TypeScript pack's bundle sources, relative to the pack. */
+  readonly sources: readonly string[];
+}
 
 /** A file the image's install reads as a BuildKit secret; never in the image. */
 interface BuildSecret {
@@ -811,7 +851,7 @@ interface BuildSecret {
 /**
  * A pack's image, ready to build or to tar for the build service: its
  * context (`<out>/context`), the local index's counts, the install's build
- * secrets.
+ * secrets, and what it's made from.
  */
 type PackContext =
   | {
@@ -819,22 +859,127 @@ type PackContext =
       readonly contextDir: string;
       readonly counts: IndexedCounts;
       readonly secrets: readonly BuildSecret[];
+      readonly inputs: PackInputs;
     }
   | (CommandResult & { readonly kind: 'error' });
 
-/** The pack's image context, by the pack's language. */
-function preparePackContext(
+/** One language's context: a TypeScript pack's also says what its bundles were built from. */
+type LanguageContext =
+  | {
+      readonly kind: 'ok';
+      readonly contextDir: string;
+      readonly counts: IndexedCounts;
+      readonly secrets: readonly BuildSecret[];
+      /** Absolute; none for a pack that isn't bundled. */
+      readonly sources: readonly string[];
+    }
+  | (CommandResult & { readonly kind: 'error' });
+
+/** The pack's image context, by the pack's language, and its inputs hashed. */
+async function preparePackContext(
   ctx: CommandContext,
   runners: BuildRunners,
   args: ResolvedBuildArgs,
   expectedIndexPath: string,
   out: ProgressLines,
 ): Promise<PackContext> {
-  if (args.language === 'java' || args.language === 'scala')
-    return prepareJvmContext(ctx, runners, args, args.language, expectedIndexPath, out);
-  return args.language === 'python'
-    ? preparePythonContext(ctx, runners, args, expectedIndexPath, out)
-    : prepareNodeContext(runners, args, expectedIndexPath, out);
+  const context =
+    args.language === 'java' || args.language === 'scala'
+      ? await prepareJvmContext(ctx, runners, args, args.language, expectedIndexPath, out)
+      : args.language === 'python'
+        ? await preparePythonContext(ctx, runners, args, expectedIndexPath, out)
+        : await prepareNodeContext(runners, args, expectedIndexPath, out);
+  if (context.kind === 'error') return context;
+  const walked = await packInputFiles(args.packDir, args.language, args.config, args.outDir);
+  if (walked.kind === 'error') return failure(`${walked.message}\n`);
+  const { sources, ...rest } = context;
+  return {
+    ...rest,
+    inputs: {
+      files: await hashInputs(args.packDir, walked.files, sources),
+      sources: sources.map((source) => packRelative(args.packDir, source)),
+    },
+  };
+}
+
+/**
+ * The files a pack's build context is made of, absolute, as they are now:
+ * what `build-inputs.json` hashes, with a TypeScript pack's bundles left
+ * to their sources, which only a bundle finds. For a TypeScript pack:
+ * every file discovery matches, the config, the `bundle.include` matches,
+ * the extensions' files, the block files, and the install's files (the
+ * manifests, the lockfile, the workspace file, patches, local packages).
+ * For a Python or JVM pack: the pack files its context copies. The
+ * build's own output (`outDir`) is never one. `kindgi deploy` walks them
+ * again to tell whether the pack changed since.
+ */
+export async function packInputFiles(
+  packDir: string,
+  language: PackLanguage,
+  config: PackConfig,
+  outDir: string,
+): Promise<
+  | { readonly kind: 'ok'; readonly files: readonly string[] }
+  | { readonly kind: 'error'; readonly message: string }
+> {
+  const walked = await packFilesWalked(packDir, language, config);
+  if (walked.kind === 'error') return walked;
+  // Where `outDir` is in the pack, by real paths: `--out` may name it
+  // through a link.
+  const outInPack = relative(
+    await realpathUnderExisting(packDir),
+    await realpathUnderExisting(outDir),
+  );
+  if (outInPack === '..' || outInPack.startsWith(`..${sep}`) || isAbsolute(outInPack)) {
+    return { kind: 'ok', files: walked.files };
+  }
+  const outside = (file: string): boolean => {
+    const rel = relative(packDir, file);
+    return rel !== outInPack && !rel.startsWith(`${outInPack}${sep}`);
+  };
+  return { kind: 'ok', files: walked.files.filter(outside) };
+}
+
+async function packFilesWalked(
+  packDir: string,
+  language: PackLanguage,
+  config: PackConfig,
+): Promise<
+  | { readonly kind: 'ok'; readonly files: readonly string[] }
+  | { readonly kind: 'error'; readonly message: string }
+> {
+  if (language !== 'node') {
+    const copied =
+      language === 'python'
+        ? await collectPythonContextFiles(packDir)
+        : language === 'java'
+          ? await collectJavaContextFiles(packDir)
+          : await collectScalaContextFiles(packDir);
+    if (copied.kind === 'error') return copied;
+    return { kind: 'ok', files: copied.files.map((file) => join(packDir, file)) };
+  }
+  const includes = readBundleConfig(config);
+  if (includes.kind === 'invalid') return { kind: 'error', message: includes.message };
+  const included = await collectIncludeFiles(packDir, includes.bundle.include);
+  if (included.kind === 'error') return included;
+  const image = readImageConfig(config);
+  if (image.kind === 'invalid') return { kind: 'error', message: image.message };
+  const install = await resolveHostInstall(packDir);
+  if (install.kind === 'err') return { kind: 'error', message: install.message };
+  const configFile = await findKindgiConfig(packDir);
+  const entries = await collectPackEntries(packDir, discoveryPatternsOf(config));
+  const blocks = await readPackBlocks(packDir, discoveryOf(config, language).blocks);
+  return {
+    kind: 'ok',
+    files: [
+      ...(configFile !== undefined ? [configFile.path] : []),
+      ...entries.map((entry) => entry.abs),
+      ...[...included.files, ...image.image.contextFiles, ...blocks.files].map((file) =>
+        join(packDir, file),
+      ),
+      ...install.install.files.map((file) => join(install.install.root, file)),
+    ],
+  };
 }
 
 /**
@@ -881,7 +1026,7 @@ async function prepareNodeContext(
   args: ResolvedBuildArgs,
   expectedIndexPath: string,
   out: ProgressLines,
-): Promise<PackContext> {
+): Promise<LanguageContext> {
   const lines = out.line;
   const hostInstall = await resolveHostInstall(args.packDir);
   if (hostInstall.kind === 'err') return failure(`${hostInstall.message}\n`);
@@ -1033,7 +1178,7 @@ async function prepareNodeContext(
     src: join(install.root, secret.file),
     file: secret.file,
   }));
-  return { kind: 'ok', contextDir, counts: localIndex.counts, secrets };
+  return { kind: 'ok', contextDir, counts: localIndex.counts, secrets, sources: bundle.sources };
 }
 
 /**
@@ -1113,7 +1258,7 @@ async function prepareTarball(
   out.line(
     `    ✓ Emitted ${tarballPath} (${humanBytes(tarball.size)}, ${tarballHash.slice(0, 14)}…)`,
   );
-  return { kind: 'ok', tarball, tarballHash, counts: context.counts };
+  return { kind: 'ok', tarball, tarballHash, counts: context.counts, inputs: context.inputs };
 }
 
 /**
@@ -1127,7 +1272,7 @@ async function preparePythonContext(
   args: ResolvedBuildArgs,
   expectedIndexPath: string,
   out: ProgressLines,
-): Promise<PackContext> {
+): Promise<LanguageContext> {
   const lines = out.line;
   const python = runners.python;
   if (python === undefined)
@@ -1201,7 +1346,7 @@ async function preparePythonContext(
   lines(
     `    ✓ ${packFiles.files.length} pack file(s) in the image (the pack root, minus caches, virtualenvs and secrets); dependencies from ${PYTHON_LOCKFILES[packFiles.installer]}${system.packages.length > 0 ? `; Debian packages: ${system.packages.join(', ')}` : ''}`,
   );
-  return { kind: 'ok', contextDir, counts: localIndex.counts, secrets: [] };
+  return { kind: 'ok', contextDir, counts: localIndex.counts, secrets: [], sources: [] };
 }
 
 /**
@@ -1217,7 +1362,7 @@ async function prepareJvmContext(
   language: 'java' | 'scala',
   expectedIndexPath: string,
   out: ProgressLines,
-): Promise<PackContext> {
+): Promise<LanguageContext> {
   const lines = out.line;
   const java = runners.jvm;
   const name = language === 'java' ? 'Java' : 'Scala';
@@ -1317,7 +1462,7 @@ async function prepareJvmContext(
   lines(
     `    ✓ ${packFiles.files.length} pack file(s) in the image (the pack root, minus build output, IDE files and secrets); classes and dependencies from ${language === 'java' ? 'pom.xml' : 'build.sbt'}${system.packages.length > 0 ? `; Debian packages: ${system.packages.join(', ')}` : ''}`,
   );
-  return { kind: 'ok', contextDir, counts: localIndex.counts, secrets: [] };
+  return { kind: 'ok', contextDir, counts: localIndex.counts, secrets: [], sources: [] };
 }
 
 // Resolve a path to its real location, following symlinks, even when the
@@ -1400,18 +1545,14 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
 
   // --env — resolves an env block; default 'staging'.
   const envFlag = ctx.options.env;
-  const envName = typeof envFlag === 'string' && envFlag !== '' ? envFlag : 'staging';
+  const envName = buildEnvName(ctx.options);
   const envBlock =
     config.environments?.[envName] !== undefined
       ? ((config.environments as Record<string, EnvironmentConfig>)[envName] as EnvironmentConfig)
       : undefined;
 
   // --target — falls back to the env name.
-  const targetFlag = ctx.options.target;
-  const buildTarget =
-    typeof targetFlag === 'string' && targetFlag !== ''
-      ? targetFlag
-      : (envBlock?.buildTarget ?? envName);
+  const buildTarget = buildTargetOf(ctx.options, envBlock, envName);
 
   // --hosted, or the env block's `build: 'hosted'` without --endpoint
   // (main.ts, `hostedRun`): the hosted build service at the API's
@@ -1541,14 +1682,7 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
 
   // --tenant — flag > env block > KINDGI_TENANT_ID env var > (hosted) the
   // key's own tenant > error.
-  const tenantFlag = ctx.options.tenant;
-  let tenantId =
-    typeof tenantFlag === 'string' && tenantFlag !== ''
-      ? tenantFlag
-      : (envBlock?.tenantId ??
-        (typeof ctx.env.KINDGI_TENANT_ID === 'string'
-          ? (ctx.env.KINDGI_TENANT_ID as string)
-          : undefined));
+  let tenantId = configuredTenant(ctx.options, envBlock, ctx.env);
   if ((tenantId === undefined || tenantId === '') && hostedService !== undefined) {
     try {
       tenantId = (await ctx.clientFor(hostedService.apiUrl, hostedService.token).identity.whoami())
@@ -1586,9 +1720,7 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
 
   // --signer-key-id — flag > env block; signing falls back to the key
   // file's name. With no key there's no signature to name a key.
-  const keyIdFlag = ctx.options['signer-key-id'];
-  const signerKeyId =
-    typeof keyIdFlag === 'string' && keyIdFlag !== '' ? keyIdFlag : envBlock?.signerKeyId;
+  const signerKeyId = configuredSignerKeyId(ctx.options, envBlock);
 
   // --push — the repository: the flag's, else the env block's registry
   // plus the pack id.
@@ -1661,8 +1793,93 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       pushRepository,
       platform,
       config,
+      inputOptions: buildInputOptionsOf(ctx.options, hosted, config, ctx.env),
     },
   };
+}
+
+/** `--env`, else `staging`. */
+function buildEnvName(options: Readonly<Record<string, OptionValue>>): string {
+  const flag = options.env;
+  return typeof flag === 'string' && flag !== '' ? flag : 'staging';
+}
+
+/** `--target`, else the env block's `buildTarget`, else the env's name. */
+function buildTargetOf(
+  options: Readonly<Record<string, OptionValue>>,
+  envBlock: EnvironmentConfig | undefined,
+  envName: string,
+): string {
+  const flag = options.target;
+  return typeof flag === 'string' && flag !== '' ? flag : (envBlock?.buildTarget ?? envName);
+}
+
+/** `--tenant`, else the env block's, else `KINDGI_TENANT_ID`; a hosted build may then ask its key's. */
+function configuredTenant(
+  options: Readonly<Record<string, OptionValue>>,
+  envBlock: EnvironmentConfig | undefined,
+  env: Readonly<Record<string, string | undefined>>,
+): string | undefined {
+  const flag = options.tenant;
+  return typeof flag === 'string' && flag !== ''
+    ? flag
+    : (envBlock?.tenantId ??
+        (typeof env.KINDGI_TENANT_ID === 'string' ? env.KINDGI_TENANT_ID : undefined));
+}
+
+/** `--signer-key-id`, else the env block's; signing falls back to the key file's name. */
+function configuredSignerKeyId(
+  options: Readonly<Record<string, OptionValue>>,
+  envBlock: EnvironmentConfig | undefined,
+): string | undefined {
+  const flag = options['signer-key-id'];
+  return typeof flag === 'string' && flag !== '' ? flag : envBlock?.signerKeyId;
+}
+
+/**
+ * The options a build's envelope depends on, from its flags, its env block
+ * and the environment, as `resolveBuildArgs` resolves them: the build
+ * records them in `build-inputs.json`, and `kindgi deploy` resolves them
+ * again for the build it would run. Left out, since the envelope doesn't
+ * depend on them: `--project` (a label), `--endpoint` and
+ * `--registry-push-creds` (where the image is built and pushed, not what's
+ * in it), `--skip-integrity-gate` and `--skip-image-pull` (how it's
+ * checked), and `--signing-key` (a deploy needn't repeat the key; the key
+ * id it signs with is here). A default artifact version or publish time is
+ * the build's time, so only a pinned one is.
+ */
+export function buildInputOptionsOf(
+  options: Readonly<Record<string, OptionValue>>,
+  hosted: boolean,
+  config: PackConfig,
+  env: Readonly<Record<string, string | undefined>>,
+): BuildInputOptions {
+  const envName = buildEnvName(options);
+  const envBlock = config.environments?.[envName];
+  const tenantId = configuredTenant(options, envBlock, env);
+  const signerKeyId = configuredSignerKeyId(options, envBlock);
+  const artifactVersion = options['artifact-version'];
+  const publishedAt = options['published-at'];
+  return {
+    env: envName,
+    target: buildTargetOf(options, envBlock, envName),
+    hosted,
+    skipSign: options['skip-sign'] === true,
+    ...(tenantId !== undefined && { tenantId }),
+    ...(signerKeyId !== undefined && { signerKeyId }),
+    ...(typeof artifactVersion === 'string' && artifactVersion !== '' && { artifactVersion }),
+    ...(typeof publishedAt === 'string' &&
+      publishedAt !== '' && { publishedAt: pinnedTime(publishedAt) }),
+  };
+}
+
+/** A `--published-at` as the build signs it; one that isn't a time, as given (the build refuses it). */
+function pinnedTime(value: string): string {
+  try {
+    return timeFlagValue(value, 'published-at');
+  } catch {
+    return value;
+  }
 }
 
 /**

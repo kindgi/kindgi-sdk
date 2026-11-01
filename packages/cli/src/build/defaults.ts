@@ -27,6 +27,7 @@ import { createScalaPackBuilder } from '../dev/scala-builder.js';
 import {
   REQUIRE_BANNER,
   collectPackEntries,
+  localSourceInputs,
   nodeModulesExternalPlugin,
 } from './bundle.js';
 import { COMPUTED_IMPORT_LOG_OVERRIDE, computedImportsFrom } from './computed-imports.js';
@@ -242,6 +243,7 @@ export async function esbuildBundleReal(
     externals: [...externalPackages].sort(),
     computedImports: loaded ? computedImportsFrom(pack.warnings, opts.packDir) : [],
     bundleMap,
+    sources: await localSourceInputs(opts.packDir, pack.metafile?.inputs ?? {}),
   };
 }
 

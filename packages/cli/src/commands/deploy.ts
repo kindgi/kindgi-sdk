@@ -30,14 +30,24 @@
  */
 
 import { readFile, stat } from 'node:fs/promises';
-import { isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 import { createClient } from '@kindgi/client';
 import { type DiscoveryConfig, readPackBlocks, resolveDiscovery } from '@kindgi/handler-runtime';
 import { LOCAL_ENV_NAME, type PackEnv, packValues, readPackEnv } from '@kindgi/secrets-dotenv';
 
 import { deployApiAddress, hostedApiAddress } from '../api-address.js';
+import {
+  BUILD_INPUTS_FILE,
+  type BuildInputs,
+  changedSince,
+  fromPack,
+  hashInputs,
+  readBuildInputs,
+} from '../build/build-inputs.js';
+import { sha256Hex } from '../build/envelope.js';
 import { describeFiles } from '../build/pack-blocks.js';
+import { resolvePackRoots } from '../build/pack-root.js';
 import type { CommandContext } from '../context.js';
 import { isEnvelopeSigned } from '../deploy/envelope-loader.js';
 import { packBlocksRefusal } from '../deploy/pack-blocks-gate.js';
@@ -94,7 +104,7 @@ import { type RateLimitRefusal, isWait, sendWaitingOutRateLimits } from '../rate
 import { SLUG } from '../slug.js';
 import { type PackEnvironments, environmentsOf, resolveValueTarget } from '../value-target.js';
 import { CLI_VERSION } from '../version-info.js';
-import { runBuild } from './build.js';
+import { buildInputOptionsOf, packInputFiles, runBuild } from './build.js';
 import type { BuildHooks, EnvironmentConfig, PackConfig } from './build.js';
 import { listFlag, stringFlag } from './helpers.js';
 import type { CommandResult, LeafCommand } from './types.js';
@@ -127,7 +137,7 @@ export const deployCommand: LeafCommand = {
     'from-envelope': {
       type: 'string',
       description:
-        'The envelope to deploy. Default: `deploy-envelope.json` in `--out`; when there is none, `kindgi build` runs first.',
+        'The envelope to deploy, as it is. Default: `deploy-envelope.json` in `--out`; `kindgi build` runs first when there is none, or when the `build-inputs.json` its build wrote says the pack changed since.',
     },
     endpoint: {
       type: 'string',
@@ -277,6 +287,8 @@ interface ResolvedDeployArgs {
   readonly blocksPattern: string;
   /** `--replace` and `--reason`: the blocks put back on purpose, and why. */
   readonly replace: ReplaceFlags;
+  /** The pack's config, for the files and the options a build would read now. */
+  readonly config: PackConfig;
 }
 
 // ---------------------------------------------------------------------
@@ -391,7 +403,10 @@ async function deployWith(
       release: CLI_VERSION,
     });
   };
-  if (!args.explicitEnvelope && !(await pathExists(args.envelopePath))) {
+  // Step 2's plan, made once: an envelope the pack changed since is built
+  // again, as a missing one is, so its blocks are checked here too.
+  const plan = await planEnvelope(ctx, args, project.id);
+  if (!args.explicitEnvelope && plan.kind !== 'reuse') {
     const read = await readPackBlocks(args.packDir, args.blocksPattern);
     const found = new Set([...read.files, ...read.errors.map((e) => e.filePath)]).size;
     const refused =
@@ -413,6 +428,7 @@ async function deployWith(
     out,
     project.id,
     runsCheck.hooks,
+    plan,
   );
   if (envelopeReady.kind === 'error') return envelopeReady;
 
@@ -794,6 +810,149 @@ function refuseHostedConfigEnv(
 // Envelope existence — either read from disk or inline-build
 // ---------------------------------------------------------------------
 
+/**
+ * What step 2 does with the envelope: send the one on disk, or build one.
+ * With no `--from-envelope`, an envelope is sent again only while the
+ * `build-inputs.json` its build wrote beside it says nothing changed: not
+ * the pack's files, the options a build would get now, or the CLI. With
+ * no such stamp (an older CLI's envelope, or one copied alone), it's sent
+ * as before, and the line says so. `--from-envelope` always sends its
+ * file, and warns when the stamp beside it says the pack changed.
+ */
+type EnvelopePlan =
+  | { readonly kind: 'missing' }
+  | { readonly kind: 'stale'; readonly changed: string }
+  | {
+      readonly kind: 'reuse';
+      /** `2026-11-01 17:02Z, artifactVersion 20261101.170200`, from the envelope, if it says. */
+      readonly built: string | undefined;
+      readonly stamp: 'matches' | 'none' | { readonly changed: string };
+    };
+
+async function planEnvelope(
+  ctx: CommandContext,
+  args: ResolvedDeployArgs,
+  projectId: string | undefined,
+): Promise<EnvelopePlan> {
+  if (!(await pathExists(args.envelopePath))) return { kind: 'missing' };
+  let bytes: Uint8Array;
+  try {
+    bytes = new Uint8Array(await readFile(args.envelopePath));
+  } catch {
+    return { kind: 'reuse', built: undefined, stamp: 'none' };
+  }
+  const built = builtFrom(bytes);
+  const stamp = await readBuildInputs(dirname(args.envelopePath));
+  if (stamp === undefined || stamp.envelopeSha256 !== (await sha256Hex(bytes))) {
+    return { kind: 'reuse', built, stamp: 'none' };
+  }
+  const changed = await changedSinceBuild(ctx, args, projectId, stamp);
+  if (changed === undefined) return { kind: 'reuse', built, stamp: 'matches' };
+  return args.explicitEnvelope
+    ? { kind: 'reuse', built, stamp: { changed } }
+    : { kind: 'stale', changed };
+}
+
+/**
+ * What changed since the stamp's build: the pack's files walked as the
+ * build walks them, the stamp's own files hashed again, and the options
+ * this deploy's inline build would get, resolved as the build resolves
+ * them. A pack whose files can't be read now (its lockfile gone, say)
+ * has changed, and the inline build says how.
+ */
+async function changedSinceBuild(
+  ctx: CommandContext,
+  args: ResolvedDeployArgs,
+  projectId: string | undefined,
+  stamp: BuildInputs,
+): Promise<string | undefined> {
+  const unread = "its files can't be read as the build reads them";
+  const roots = await resolvePackRoots({ cwd: ctx.cwd, pathFlag: args.packDir });
+  if (roots.kind === 'err') return unread;
+  const { packDir, language } = roots.roots;
+  const walked = await packInputFiles(packDir, language, args.config, args.outDir);
+  if (walked.kind === 'error') return unread;
+  return changedSince(stamp, {
+    cliVersion: CLI_VERSION,
+    options: buildInputOptionsOf(
+      buildInlineOptions(ctx, args, projectId),
+      args.hosted,
+      args.config,
+      ctx.env,
+    ),
+    files: await hashInputs(
+      packDir,
+      walked.files,
+      fromPack(packDir, stamp.sources),
+      fromPack(packDir, Object.keys(stamp.files)),
+    ),
+  });
+}
+
+/** When the envelope says it was built, and its version; `undefined` when it doesn't say. */
+function builtFrom(bytes: Uint8Array): string | undefined {
+  let envelope: unknown;
+  try {
+    envelope = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    return undefined;
+  }
+  if (typeof envelope !== 'object' || envelope === null) return undefined;
+  const { publishedAt, artifactVersion } = envelope as {
+    readonly publishedAt?: unknown;
+    readonly artifactVersion?: unknown;
+  };
+  if (typeof publishedAt !== 'string' || typeof artifactVersion !== 'string') return undefined;
+  const utc = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})[\d:.]*Z$/.exec(publishedAt);
+  return `${utc !== null ? `${utc[1]} ${utc[2]}Z` : publishedAt}, artifactVersion ${artifactVersion}`;
+}
+
+/** The envelope's path as the lines show it: from the pack, when it's in it. */
+function shownPath(packDir: string, path: string): string {
+  const rel = relative(packDir, path);
+  return rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel) ? path : rel;
+}
+
+/** The lines for an envelope sent as it is: when it was built, and what its stamp says. */
+function sayReused(
+  args: ResolvedDeployArgs,
+  out: ProgressLines,
+  shown: string,
+  plan: Extract<EnvelopePlan, { readonly kind: 'reuse' }>,
+): void {
+  if (plan.built !== undefined) {
+    const since =
+      plan.stamp === 'matches'
+        ? "; the pack hasn't changed since"
+        : plan.stamp === 'none' && !args.explicitEnvelope
+          ? `; no ${BUILD_INPUTS_FILE} from this build, so whether the pack changed since can't be told: \`kindgi build --env=${args.envName}\` first to be sure`
+          : '';
+    out.line(`  Envelope: ${shown} (built ${plan.built}${since}).`);
+  }
+  if (typeof plan.stamp === 'object') {
+    out.problem(
+      `  ⚠ The pack changed since ${shown} was built (${plan.stamp.changed}); --from-envelope sends it as it is.`,
+    );
+  }
+}
+
+/** The line before an inline build: the envelope is missing, or the pack changed since. */
+function sayBuilding(
+  args: ResolvedDeployArgs,
+  out: ProgressLines,
+  shown: string,
+  plan: Exclude<EnvelopePlan, { readonly kind: 'reuse' }>,
+): void {
+  if (plan.kind === 'missing') {
+    out.line(`  Envelope missing — running \`kindgi build --env=${args.envName}\` inline...`);
+    return;
+  }
+  out.line(
+    `  The pack changed since ${shown} was built (${plan.changed}): running \`kindgi build --env=${args.envName}\` inline...`,
+  );
+  out.line(`  (\`--from-envelope ${shown}\` sends the envelope there as it is, with no build.)`);
+}
+
 async function ensureEnvelopeExists(
   ctx: CommandContext,
   args: ResolvedDeployArgs,
@@ -801,10 +960,14 @@ async function ensureEnvelopeExists(
   out: ProgressLines,
   projectId: string | undefined,
   hooks: BuildHooks,
+  plan: EnvelopePlan,
 ): Promise<{ readonly kind: 'ok' } | (CommandResult & { readonly kind: 'error' })> {
   const { line } = out;
-  const exists = await pathExists(args.envelopePath);
-  if (exists) return { kind: 'ok' };
+  const shown = shownPath(args.packDir, args.envelopePath);
+  if (plan.kind === 'reuse') {
+    sayReused(args, out, shown, plan);
+    return { kind: 'ok' };
+  }
 
   if (args.explicitEnvelope) {
     return failure(
@@ -812,8 +975,8 @@ async function ensureEnvelopeExists(
     );
   }
 
-  // Auto-detect path is missing → run build inline.
-  line(`  Envelope missing — running \`kindgi build --env=${args.envName}\` inline...`);
+  // Missing, or the pack changed since it was built → run build inline.
+  sayBuilding(args, out, shown, plan);
   if (runners.runBuild !== undefined) {
     line('');
     const buildArgv = buildInlineArgv(ctx, args, projectId);
@@ -1466,6 +1629,7 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       allowMissingEnv: ctx.options['allow-missing-env'] === true,
       blocksPattern: resolveDiscovery(cfg.discovery as DiscoveryConfig | undefined).blocks,
       replace,
+      config: cfg,
     },
   };
 }

@@ -24,13 +24,15 @@
  */
 
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { DEPLOY_ENVELOPE_SCHEMA } from '../src/build/envelope.js';
+import { type BuildInputOptions, hashInputs, writeBuildInputs } from '../src/build/build-inputs.js';
+import { DEPLOY_ENVELOPE_SCHEMA, sha256Hex } from '../src/build/envelope.js';
+import { packInputFiles } from '../src/commands/build.js';
 import { postDeploymentReal } from '../src/deploy/post.js';
 import type {
   CountKeptBuildsOptions,
@@ -324,6 +326,42 @@ async function writeAutoEnvelope(overrides: Record<string, unknown> = {}): Promi
   const path = join(dir, 'deploy-envelope.json');
   await writeFile(path, JSON.stringify(makeEnvelope(overrides), null, 2), 'utf8');
   return path;
+}
+
+/**
+ * A TypeScript pack, its envelope at the auto-detect location, and the
+ * `build-inputs.json` its build would have written beside it: the pack's
+ * files as the build walks them, and the options this file's deploys
+ * resolve to (`options` changes them).
+ */
+async function stampedPack(options: Partial<BuildInputOptions> = {}): Promise<string> {
+  await writeFile(join(packDir, 'package.json'), '{"name": "sample-pack"}\n', 'utf8');
+  await writeFile(join(packDir, 'package-lock.json'), '{"lockfileVersion": 3}\n', 'utf8');
+  await mkdir(join(packDir, 'tools', 'echo'), { recursive: true });
+  await writeFile(join(packDir, 'tools', 'echo', 'index.ts'), 'export const echo = 1;\n', 'utf8');
+  const envelopePath = await writeAutoEnvelope();
+  const walked = await packInputFiles(
+    packDir,
+    'node',
+    testConfig(),
+    join(packDir, '.kindgi', 'build'),
+  );
+  if (walked.kind === 'error') throw new Error(walked.message);
+  await writeBuildInputs(dirname(envelopePath), {
+    cliVersion: CLI_VERSION,
+    envelopeSha256: await sha256Hex(new Uint8Array(await readFile(envelopePath))),
+    options: {
+      env: 'staging',
+      target: 'staging',
+      hosted: false,
+      skipSign: false,
+      tenantId: 'tenant-acme-staging',
+      ...options,
+    },
+    files: await hashInputs(packDir, walked.files, []),
+    sources: [],
+  });
+  return envelopePath;
 }
 
 // ---------- tests ----------
@@ -3218,6 +3256,25 @@ describe('kindgi deploy — a pack with blocks goes only to a runtime that publi
     expect(fixtures.state.buildCalls).toBe(0);
     expect(fixtures.state.postCalls).toBe(0);
   });
+
+  test("with an envelope the pack changed since, the pack's block files are checked before the build", async () => {
+    await stampedPack();
+    // The block files are new since the envelope was built.
+    await mkdir(join(packDir, 'blocks'), { recursive: true });
+    await writeFile(join(packDir, 'blocks', 'reply.json'), JSON.stringify(BLOCKS[0]), 'utf8');
+    await writeFile(join(packDir, 'blocks', 'style.json'), JSON.stringify(BLOCKS[1]), 'utf8');
+    const { fetchImpl } = runtime();
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`],
+      fetchImpl,
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain("doesn't publish a pack's blocks (blocks/: 2 files)");
+    expect(fixtures.state.buildCalls).toBe(0);
+    expect(fixtures.state.postCalls).toBe(0);
+  });
 });
 
 describe("kindgi deploy — the pack's blocks against what runs", () => {
@@ -3444,5 +3501,99 @@ describe("kindgi deploy — the pack's blocks against what runs", () => {
       "Couldn't check the pack's blocks against what runs (POST /v1/deployments/check): bad-input: `blocks` must be a list",
     );
     expect(fixtures.state.postCalls).toBe(0);
+  });
+});
+
+describe('kindgi deploy — an envelope on disk, against the pack as it is now', () => {
+  const AUTO = '.kindgi/build/deploy-envelope.json';
+  const BUILT = 'built 1970-01-01 00:00Z, artifactVersion 20260921.1';
+
+  async function deployNow(argv: readonly string[] = []) {
+    const fixtures = makeFixtures({ writeEnvelopeAt: join(packDir, AUTO) });
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`, ...argv],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    return { out, fixtures };
+  }
+
+  test('sends the envelope again while its build-inputs.json matches the pack, and says so', async () => {
+    await stampedPack();
+    const { out, fixtures } = await deployNow();
+    expect(fixtures.state.buildCalls).toBe(0);
+    expect(fixtures.state.postCalls).toBe(1);
+    expect(out.stderr).toContain(
+      `  Envelope: ${AUTO} (${BUILT}; the pack hasn't changed since).\n`,
+    );
+  });
+
+  test('builds again when a file the image was made from changed, and names it', async () => {
+    await stampedPack();
+    await writeFile(join(packDir, 'tools', 'echo', 'index.ts'), 'export const echo = 2;\n', 'utf8');
+    const { out, fixtures } = await deployNow();
+    expect(fixtures.state.buildCalls).toBe(1);
+    expect(fixtures.state.postCalls).toBe(1);
+    expect(out.stderr).toContain(
+      `  The pack changed since ${AUTO} was built (\`tools/echo/index.ts\` changed): running \`kindgi build --env=staging\` inline...\n` +
+        `  (\`--from-envelope ${AUTO}\` sends the envelope there as it is, with no build.)\n`,
+    );
+    expect(out.stderr).not.toContain("the pack hasn't changed since");
+  });
+
+  test('a new tool counts, and so does the lockfile: the first is named, with how many more', async () => {
+    await stampedPack();
+    await mkdir(join(packDir, 'tools', 'lookup'), { recursive: true });
+    await writeFile(
+      join(packDir, 'tools', 'lookup', 'index.ts'),
+      'export const lookup = 1;\n',
+      'utf8',
+    );
+    await writeFile(join(packDir, 'package-lock.json'), '{"lockfileVersion": 3, "packages": {}}\n');
+    const { out, fixtures } = await deployNow();
+    expect(fixtures.state.buildCalls).toBe(1);
+    expect(out.stderr).toContain('(`package-lock.json` changed, and 1 more): running');
+  });
+
+  test('builds again for an option the build would get differently now', async () => {
+    await stampedPack();
+    const { out, fixtures } = await deployNow(['--signer-key-id=release-2026']);
+    expect(fixtures.state.buildCalls).toBe(1);
+    expect(fixtures.state.capturedBuild?.buildArgv).toContain('--signer-key-id=release-2026');
+    expect(out.stderr).toContain('(it was built with no `--signer-key-id`): running');
+  });
+
+  test("with no build-inputs.json from the envelope's build, sends it as before, and says it can't tell", async () => {
+    const said = `  Envelope: ${AUTO} (${BUILT}; no build-inputs.json from this build, so whether the pack changed since can't be told: \`kindgi build --env=staging\` first to be sure).\n`;
+    await writeAutoEnvelope();
+    const none = await deployNow();
+    expect(none.fixtures.state.buildCalls).toBe(0);
+    expect(none.out.stderr).toContain(said);
+    // A stamp from another build, the envelope written over since, vouches for nothing.
+    await stampedPack();
+    await writeAutoEnvelope({
+      artifactVersion: '20260921.1',
+      imageRef: 'ghcr.io/acme/other@sha256:0',
+    });
+    await writeFile(join(packDir, 'tools', 'echo', 'index.ts'), 'export const echo = 2;\n', 'utf8');
+    const other = await deployNow();
+    expect(other.fixtures.state.buildCalls).toBe(0);
+    expect(other.out.stderr).toContain(said);
+  });
+
+  test('--from-envelope sends its file as it is, and warns when the pack changed since', async () => {
+    await stampedPack();
+    const matched = await deployNow([`--from-envelope=${join(packDir, AUTO)}`]);
+    expect(matched.out.stderr).toContain(
+      `  Envelope: ${AUTO} (${BUILT}; the pack hasn't changed since).\n`,
+    );
+    await writeFile(join(packDir, 'tools', 'echo', 'index.ts'), 'export const echo = 2;\n', 'utf8');
+    const { out, fixtures } = await deployNow([`--from-envelope=${join(packDir, AUTO)}`]);
+    expect(fixtures.state.buildCalls).toBe(0);
+    expect(fixtures.state.postCalls).toBe(1);
+    expect(out.stderr).toContain(`  Envelope: ${AUTO} (${BUILT}).\n`);
+    expect(out.stderr).toContain(
+      `  ⚠ The pack changed since ${AUTO} was built (\`tools/echo/index.ts\` changed); --from-envelope sends it as it is.\n`,
+    );
   });
 });

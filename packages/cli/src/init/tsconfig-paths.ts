@@ -140,7 +140,7 @@ async function collectLevels(
 }
 
 /** Where an `extends` entry points: a path from the config's folder, or a package's tsconfig. */
-function resolveExtends(spec: string, from: string): string | undefined {
+export function resolveExtends(spec: string, from: string): string | undefined {
   if (spec.startsWith('./') || spec.startsWith('../') || isAbsolute(spec)) {
     const path = resolve(dirname(from), spec);
     return path.endsWith('.json') ? path : `${path}.json`;
