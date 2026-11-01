@@ -81,6 +81,7 @@ export {
   DEPLOY_PUBLISHES_PACK_BLOCKS,
   blockFileText,
   blocksFolder,
+  holdsContent,
   packBlockFiles,
   readPackBlocks,
   writePackBlock,
