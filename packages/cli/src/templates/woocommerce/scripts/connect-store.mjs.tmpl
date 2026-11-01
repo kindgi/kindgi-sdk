@@ -353,9 +353,10 @@ async function connect(api, approval, { bin, store, target, app }) {
   if (!found.ok) throw wpError("Looking for the agent's user", found);
   let agent = found.json[0];
   if (agent) {
-    if (!agent.roles?.includes('shop_manager')) {
+    // Only a Shop Manager and nothing more: never one that's also an administrator.
+    if (agent.roles?.length !== 1 || agent.roles[0] !== 'shop_manager') {
       throw new Failure(
-        `There's already a user named ${AGENT_USER}, as ${agent.roles?.join(', ') || 'no role'}. Kindgi uses that name for its own Shop Manager; rename that user in wp-admin, then run this again.`,
+        `There's already a user named ${AGENT_USER}, as ${agent.roles?.join(', ') || 'no role'}. Kindgi signs in as its own user of that name, a Shop Manager and nothing more, and wp-admin can't change a username. If it's Kindgi's, give it the Shop Manager role alone (Users → All Users → ${AGENT_USER} → Role); if not, delete it there. Then run this again.`,
       );
     }
     say(`✓ Kindgi signs in as its own user, ${AGENT_USER} (Shop Manager), made before.`);

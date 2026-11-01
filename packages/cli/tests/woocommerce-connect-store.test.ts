@@ -556,26 +556,33 @@ describe("the woocommerce starter's connect-store", () => {
     expect(await kindgiCalls()).toEqual([]);
   });
 
-  test("a kindgi-agent the store already has in another role is left alone, and the approval's password still goes", async () => {
-    const shop = await store();
-    shop.users.push({
-      id: 2,
-      slug: 'kindgi-agent',
-      email: 'k@example.com',
-      roles: ['editor'],
-      passwords: [],
-    });
-    const run = connectStore([shop.url, '--no-browser']);
-    const page = await approve(shop, await run.link);
-    const { code, stdout, stderr } = await run.done;
-    expect(code).toBe(1);
-    expect(stderr).toContain("There's already a user named kindgi-agent, as editor.");
-    expect(page).toContain('Not connected');
-    expect(shop.users[1]!.roles).toEqual(['editor']);
-    expect(shop.users[0]!.passwords).toEqual([]);
-    expect(stdout).toContain("✓ Revoked owner's approval password");
-    expect(await kindgiCalls()).toEqual([]);
-  });
+  test.each([[['editor']], [['shop_manager', 'administrator']]])(
+    "a kindgi-agent the store already has as %j is left alone, and the approval's password still goes",
+    async (roles) => {
+      const shop = await store();
+      shop.users.push({
+        id: 2,
+        slug: 'kindgi-agent',
+        email: 'k@example.com',
+        roles: [...roles],
+        passwords: [],
+      });
+      const run = connectStore([shop.url, '--no-browser']);
+      const page = await approve(shop, await run.link);
+      const { code, stdout, stderr } = await run.done;
+      expect(code).toBe(1);
+      // What can be done in wp-admin: a user's name can't be changed there.
+      expect(stderr).toContain(
+        `There's already a user named kindgi-agent, as ${roles.join(', ')}. Kindgi signs in as its own user of that name, a Shop Manager and nothing more, and wp-admin can't change a username. If it's Kindgi's, give it the Shop Manager role alone (Users → All Users → kindgi-agent → Role); if not, delete it there. Then run this again.`,
+      );
+      expect(page).toContain('Not connected');
+      expect(shop.users[1]!.roles).toEqual(roles);
+      expect(shop.users[1]!.passwords).toEqual([]);
+      expect(shop.users[0]!.passwords).toEqual([]);
+      expect(stdout).toContain("✓ Revoked owner's approval password");
+      expect(await kindgiCalls()).toEqual([]);
+    },
+  );
 
   test("when Kindgi refuses the save, the agent's new password goes and the one before stays", async () => {
     const shop = await store();
