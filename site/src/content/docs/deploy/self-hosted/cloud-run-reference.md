@@ -178,8 +178,8 @@ every call:
 - **Cloud Run checks a Google ID token.** The runtime mints one for the
   service's URL from its own service account. That account has
   `roles/run.servicesInvoker` on the project, so it may invoke each pack
-  service the orchestrator makes, and run none of the project's Jobs. The pack
-  services require IAM, so nothing without the role reaches them.
+  service the orchestrator makes. The pack services require IAM, so nothing
+  without the role reaches them.
 - **The pack service checks its own token,** the one the runtime unsealed.
 
 A tool call the runtime can't route answers with a code of its own:
