@@ -737,6 +737,281 @@
   font-style: italic;
 }
 
+/* ---------- Settings: the connection at a glance, the agents offered, and connecting ---------- */
+
+.kindgi-settings h2 {
+  margin-top: var(--kindgi-space-5);
+}
+
+.kindgi-settings .kindgi-settings-text {
+  max-width: 760px;
+  font-size: 14px;
+}
+
+.kindgi .kindgi-status,
+.kindgi .kindgi-offer-list,
+.kindgi .kindgi-connect {
+  max-width: 760px;
+  background: var(--kindgi-surface);
+  border: 1px solid var(--kindgi-border);
+  border-radius: var(--kindgi-radius);
+  box-shadow: var(--kindgi-shadow);
+}
+
+.kindgi .kindgi-status {
+  margin: var(--kindgi-space-4) 0 var(--kindgi-space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.kindgi .kindgi-status-row {
+  display: flex;
+  gap: var(--kindgi-space-3);
+  align-items: flex-start;
+  margin: 0;
+  padding: var(--kindgi-space-3) var(--kindgi-space-4);
+  border-top: 1px solid var(--kindgi-border);
+}
+
+.kindgi .kindgi-status-row:first-child {
+  border-top: 0;
+}
+
+.kindgi .kindgi-dot {
+  flex: none;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--kindgi-muted);
+}
+
+.kindgi .kindgi-status-ok .kindgi-dot {
+  background: var(--kindgi-ok);
+}
+
+.kindgi .kindgi-status-warn .kindgi-dot {
+  background: var(--kindgi-warn);
+}
+
+.kindgi .kindgi-status-err .kindgi-dot {
+  background: var(--kindgi-err);
+}
+
+.kindgi .kindgi-status-none .kindgi-dot {
+  background: transparent;
+  border: 2px solid var(--kindgi-muted);
+}
+
+.kindgi .kindgi-status-checking .kindgi-dot {
+  background: var(--kindgi-border);
+  animation: kindgi-blink 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kindgi .kindgi-status-checking .kindgi-dot {
+    animation: none;
+  }
+}
+
+.kindgi .kindgi-status-words {
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.kindgi .kindgi-status-title {
+  display: block;
+  color: var(--kindgi-text);
+}
+
+.kindgi .kindgi-status-text {
+  color: var(--kindgi-muted);
+  overflow-wrap: anywhere;
+}
+
+.kindgi .kindgi-status-err .kindgi-status-text {
+  color: var(--kindgi-text);
+}
+
+.kindgi-settings .kindgi-offer-list {
+  margin: var(--kindgi-space-3) 0;
+}
+
+.kindgi .kindgi-offer-list > p {
+  margin: 0;
+  padding: var(--kindgi-space-3) var(--kindgi-space-4);
+}
+
+.kindgi .kindgi-offer-row {
+  display: flex;
+  gap: var(--kindgi-space-3);
+  align-items: flex-start;
+  padding: var(--kindgi-space-3) var(--kindgi-space-4);
+  border-top: 1px solid var(--kindgi-border);
+}
+
+.kindgi .kindgi-offer-row:first-child {
+  border-top: 0;
+}
+
+.kindgi .kindgi-offer-row input[type="checkbox"] {
+  flex: none;
+  margin: 2px 0 0;
+}
+
+.kindgi .kindgi-offer-row label {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.kindgi .kindgi-offer-row .description {
+  display: block;
+  margin-top: 2px;
+}
+
+.kindgi .kindgi-connect {
+  padding: var(--kindgi-space-4) var(--kindgi-space-5);
+}
+
+.kindgi .kindgi-connect > h2 {
+  margin: var(--kindgi-space-2) 0;
+  font-size: 18px;
+}
+
+.kindgi .kindgi-steps {
+  margin: var(--kindgi-space-4) 0 var(--kindgi-space-2);
+  padding: 0;
+  list-style: none;
+  counter-reset: kindgi-step;
+}
+
+.kindgi .kindgi-steps > li {
+  position: relative;
+  margin: 0;
+  padding: 0 0 var(--kindgi-space-4) 40px;
+  counter-increment: kindgi-step;
+}
+
+.kindgi .kindgi-steps > li::before {
+  content: counter(kindgi-step);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--kindgi-accent);
+  color: #fff;
+  font-weight: 600;
+  line-height: 26px;
+  text-align: center;
+}
+
+.kindgi .kindgi-steps h3 {
+  margin: 3px 0 var(--kindgi-space-2);
+  font-size: 14px;
+}
+
+.kindgi .kindgi-steps p {
+  margin: 0 0 var(--kindgi-space-2);
+}
+
+/* In a step, a field's label sits above it, as on a narrow screen. */
+.kindgi .kindgi-steps .form-table,
+.kindgi .kindgi-steps .form-table tbody,
+.kindgi .kindgi-steps .form-table tr,
+.kindgi .kindgi-steps .form-table th,
+.kindgi .kindgi-steps .form-table td {
+  display: block;
+  width: auto;
+}
+
+.kindgi .kindgi-steps .form-table {
+  margin-top: 0;
+}
+
+.kindgi .kindgi-steps .form-table th {
+  padding: var(--kindgi-space-2) 0 var(--kindgi-space-1);
+}
+
+.kindgi .kindgi-steps .form-table td {
+  margin: 0;
+  padding: 0 0 var(--kindgi-space-2);
+}
+
+.kindgi .kindgi-steps .submit {
+  margin: 0;
+  padding: var(--kindgi-space-2) 0 0;
+}
+
+.kindgi .kindgi-addresses {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--kindgi-space-2) var(--kindgi-space-3);
+  align-items: center;
+  margin: 0;
+}
+
+.kindgi .kindgi-addresses dt {
+  font-weight: 600;
+}
+
+.kindgi .kindgi-addresses dd {
+  margin: 0;
+}
+
+.kindgi .kindgi-addresses code {
+  overflow-wrap: anywhere;
+}
+
+.kindgi .kindgi-copy {
+  margin-left: var(--kindgi-space-1);
+  vertical-align: middle;
+}
+
+.kindgi-settings .kindgi-advanced {
+  max-width: 760px;
+  margin-top: var(--kindgi-space-5);
+}
+
+.kindgi-settings .kindgi-advanced summary {
+  color: var(--kindgi-muted);
+  cursor: pointer;
+}
+
+.kindgi .kindgi-connect .kindgi-advanced {
+  margin-top: 0;
+}
+
+@media (max-width: 782px) {
+  .kindgi .kindgi-connect {
+    padding: var(--kindgi-space-3) var(--kindgi-space-4);
+  }
+
+  .kindgi .kindgi-steps > li {
+    padding-left: 0;
+  }
+
+  .kindgi .kindgi-steps > li::before {
+    position: static;
+    display: inline-block;
+    margin-bottom: var(--kindgi-space-2);
+  }
+
+  .kindgi .kindgi-addresses {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--kindgi-space-1);
+  }
+
+  .kindgi .kindgi-addresses dd {
+    margin-bottom: var(--kindgi-space-2);
+  }
+}
+
 /* ---------- Activity ---------- */
 
 .kindgi .kindgi-activity td {
