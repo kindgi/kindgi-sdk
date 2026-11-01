@@ -600,6 +600,8 @@ export type { DeployCheckBindings } from './routes/deploy-check-deps.js';
 export type { RegistryReadOnly } from './registry-read-only.js';
 // A pack agent's block pins where the pack's own versions are the only ones (`kindgi dev`).
 export { type BlockPins, type BlockVersionReads, resolveBlockPins } from './block-pins.js';
+// Two agent versions with the same key (and pins digest) are the same definition: which one runs under `kindgi dev`.
+export { definitionKey } from './deploy-versions.js';
 export type {
   FlowGetInput,
   FlowGetVersionInput,

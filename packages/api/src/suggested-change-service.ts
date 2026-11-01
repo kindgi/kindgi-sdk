@@ -676,15 +676,34 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
   }
 
   /**
-   * A registry that takes no writes makes no suggested change, nor checks
-   * one: under `kindgi dev`, the pack's files serve every project, and a
-   * suggested change is for one. Even one that takes Improve's candidates.
+   * A registry that takes no writes makes no suggested change by hand,
+   * checks none again and adds none as Latest, even one that takes
+   * Improve's candidates: under `kindgi dev`, only an Improve run makes
+   * one, for the whole tenant, and the pack's files are what runs. Its
+   * reason, or the one it gives for the action (`byHandReason`,
+   * `latestReason`).
    */
-  function cardReadOnly(): SuggestedChangeServiceError | undefined {
+  function cardReadOnly(
+    action: 'by-hand' | 'add-as-latest' = 'by-hand',
+  ): SuggestedChangeServiceError | undefined {
     const readOnly = deps.agents.readOnly;
-    return readOnly === undefined
-      ? undefined
-      : { code: 'registry-read-only', message: readOnly.reason };
+    if (readOnly === undefined) return undefined;
+    const takes = readOnly.takesCandidates;
+    const why = action === 'add-as-latest' ? takes?.latestReason : takes?.byHandReason;
+    return { code: 'registry-read-only', message: why ?? readOnly.reason };
+  }
+
+  /**
+   * The project a suggested change is pinned through: its scope's, or,
+   * for one for the whole tenant where the registry takes Improve's
+   * candidates (under `kindgi dev`), the project its version was made in.
+   * `undefined` for one from before suggested changes were for a project.
+   */
+  function projectToPinIn(suggestedChange: StoredSuggestedChange): ProjectId | undefined {
+    const own = projectOfCard(suggestedChange);
+    if (own !== undefined) return own;
+    const takes = deps.agents.readOnly?.takesCandidates !== undefined;
+    return takes && suggestedChange.scope.kind === 'tenant' ? suggestedChange.projectId : undefined;
   }
 
   /** Why the registry takes no candidate for the suggested change; `undefined` when it does. */
@@ -848,6 +867,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       ...change,
       fromVersion: pinned,
       content: content.value,
+      before: changedContentOf(now),
     } as ProposedChange['change'];
     return { kind: 'ok', value: carried };
   }
@@ -883,11 +903,31 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
   }
 
   /**
+   * Why it isn't rebuilt on `now` here: where only an Improve run makes
+   * and checks one (under `kindgi dev`), it's out of date, and a new run
+   * drafts on what runs now; else a registry that takes no writes.
+   */
+  function notRebuilt(
+    suggestedChange: StoredSuggestedChange,
+    now: string,
+  ): SuggestedChangeServiceError | undefined {
+    if (deps.agents.readOnly?.takesCandidates !== undefined) {
+      return outOfDate(
+        suggestedChange,
+        now,
+        'here only an Improve run makes and checks one, so run Improve again',
+      );
+    }
+    return cardReadOnly();
+  }
+
+  /**
    * Rebuild it on what its project runs now (`runs`), when that moved
    * since it was built: its block change carried onto that version
    * (`carriedOnto`), a new candidate, and a new check on the project's
    * test set, frozen now. `undefined` when it's built on what runs, or
-   * its project runs its own version.
+   * its project runs its own version. Where the registry takes Improve's
+   * candidates, it's out of date instead (`suggested-change-out-of-date`).
    */
   async function rebuildIfMoved(
     suggestedChange: StoredSuggestedChange,
@@ -897,8 +937,8 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
   ): Promise<SuggestedChangeOutcome<StoredSuggestedChange> | undefined> {
     if (runs === null || !moved(suggestedChange, runs)) return undefined;
     const now = runs.version as unknown as string;
-    const readOnly = cardReadOnly();
-    if (readOnly !== undefined) return err(readOnly);
+    const refused = notRebuilt(suggestedChange, now);
+    if (refused !== undefined) return err(refused);
     if (deps.testSets === undefined) return err(checkUnsupported());
     const { tenantId, agentId } = suggestedChange;
     const base = await activeVersion(tenantId, agentId, runs.version, projectId);
@@ -1179,7 +1219,8 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
         fromVersion: input.fromVersion,
         scope: input.scope,
         tier: input.tier,
-        change,
+        // Kept with what the block held then; the fingerprint is the change's alone.
+        change: { ...change, before: changedContentOf(pinned.block) } as ProposedChange['change'],
         why: input.why,
         ...(input.evidence !== undefined && { evidence: input.evidence }),
         drafter: input.drafter,
@@ -1271,10 +1312,10 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       const { tenantId, suggestedChange } = input;
       const refused = await refuseStatus('check', suggestedChange);
       if (refused !== undefined) return err(refused);
-      const projectId = projectOfCard(suggestedChange);
-      if (projectId === undefined) return err(notForAProject(suggestedChange, 'check'));
       const readOnly = cardReadOnly();
       if (readOnly !== undefined) return err(readOnly);
+      const projectId = projectOfCard(suggestedChange);
+      if (projectId === undefined) return err(notForAProject(suggestedChange, 'check'));
       if (deps.testSets === undefined) return err(checkUnsupported());
       // Its project moved first: checked again means rebuilt on what runs.
       const runs = await whatRuns(deps.agentPins, {
@@ -1442,7 +1483,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       const { tenantId, suggestedChange } = input;
       const refused = await refuseStatus('pin', suggestedChange);
       if (refused !== undefined) return err(refused);
-      const projectId = projectOfCard(suggestedChange);
+      const projectId = projectToPinIn(suggestedChange);
       if (projectId === undefined) return err(notForAProject(suggestedChange, 'pin'));
       // A project on Latest is pinned only when the caller asks to take it
       // off Latest; else it takes the change as its Latest (`add-as-latest`).
@@ -1536,10 +1577,10 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       const { tenantId, suggestedChange } = input;
       const refused = await refuseStatus('add-as-latest', suggestedChange);
       if (refused !== undefined) return err(refused);
+      const readOnly = cardReadOnly('add-as-latest');
+      if (readOnly !== undefined) return err(readOnly);
       const projectId = projectOfCard(suggestedChange);
       if (projectId === undefined) return err(notForAProject(suggestedChange, 'add-as-latest'));
-      const readOnly = cardReadOnly();
-      if (readOnly !== undefined) return err(readOnly);
       const id = suggestedChange.id as unknown as string;
       const agentId = suggestedChange.agentId as unknown as string;
       const runs = await whatRuns(deps.agentPins, { tenantId, agentId, projectId });
@@ -1949,6 +1990,13 @@ function editOf(
   return tier === 'settings-block'
     ? { kind: 'settings', values: (content as { values: Record<string, unknown> }).values }
     : { kind: 'prompt', template: (content as { template: string }).template };
+}
+
+/** What a suggested change of `block` changes, as the block holds it: its values or its template. */
+function changedContentOf(block: BlockRecord): ProposedChange['change']['content'] {
+  return block.kind === 'settings'
+    ? { values: block.content.values as Record<string, unknown> }
+    : { template: block.content.template as string };
 }
 
 function sameContent(pinned: BlockRecord, edit: BlockEdit): boolean {

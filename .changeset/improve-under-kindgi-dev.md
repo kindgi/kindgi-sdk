@@ -1,0 +1,10 @@
+---
+"@kindgi/api": patch
+"@kindgi/handler-runtime": patch
+---
+
+**Improve runs under `kindgi dev`.** Where the agent registry is read-only but takes Improve's candidates (`RegistryReadOnly.takesCandidates`), `POST /v1/improve-runs` and `POST /v1/improve-runs/check` go through: the run counts in its project, and its suggested change is for the whole tenant. Pinning that change (`POST /v1/suggested-changes/{suggestedChangeId}/pin`) pins it for the whole tenant, through the project its version was made in. One built on a version that no longer runs is `409 suggested-change-out-of-date`, and isn't rebuilt. A suggested change made by hand, and a check again, are refused there with the new optional `takesCandidates.byHandReason`, and an add as Latest with `latestReason`; without them, with the registry's `reason`. Either comes before any `suggested-change-not-for-a-project`.
+
+A suggested change now keeps what its block held as it was drafted, and on a rebuild what it held then (`ProposedChange`'s optional `change.before`). `GET /v1/suggested-changes/{suggestedChangeId}` reads `changes[].before` from it, and from `fromVersion` for one kept without it, as before.
+
+`PackBlockWrite` gains an optional `expected`: what the block's file must hold for the write to go. A file edited since, even at the same version, is refused with the new reason `changed`, naming the file, and the pack service's `POST /v1/blocks` answers `409` for it. `definitionKey` is exported from `@kindgi/api`.

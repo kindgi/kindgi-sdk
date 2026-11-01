@@ -29,14 +29,21 @@ export interface RegistryReadOnly {
    * pinned version, and what undoes a change is where it was written. And
    * only the whole tenant is improved: a suggested change's draft or its
    * evaluation for a narrower scope is refused with `scopeReason`, as the
-   * binding refuses pinning a version there. An Improve run, and any other
-   * suggested change, is for one project, so it's refused with `reason`.
+   * binding refuses pinning a version there. So an Improve run drafts its
+   * change for the whole tenant, and its pin goes through the project its
+   * version was made in. A suggested change made by hand, and a check
+   * again, are refused with `byHandReason`; an add as Latest with
+   * `latestReason` (each, when absent, with `reason`).
    */
   readonly takesCandidates?: {
     /** Why an unpin is refused, and what to do instead. */
     readonly undoReason: string;
     /** Why a scope narrower than the whole tenant is refused, and what to do instead. */
     readonly scopeReason: string;
+    /** Why a suggested change isn't made by hand, or checked again, here, and what to do instead. */
+    readonly byHandReason?: string;
+    /** Why a suggested change isn't added as Latest here, and what to do instead. */
+    readonly latestReason?: string;
   };
 }
 
