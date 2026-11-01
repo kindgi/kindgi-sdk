@@ -274,7 +274,7 @@ answer again, for 24 hours, and deploys nothing.
   Registering deployment
     ✗ POST /v1/deployments  →  HTTP 403
       code:    signer-not-trusted
-      message: Signer key "acme-selfhost" is not on this tenant's trust list
+      message: Signer key "acme-selfhost" is not on this workspace's trust list
 …
 ```
 

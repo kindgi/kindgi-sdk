@@ -266,7 +266,13 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
       const tenantId = c.get('tenantId') as TenantId;
       const patch = await readTenantPatch(c);
       if (patch instanceof Response) return patch;
-      return renameAnswer(c, await renameTenant({ tenantId, ...patch }), tenantId, patch);
+      return renameAnswer(
+        c,
+        await renameTenant({ tenantId, ...patch }),
+        tenantId,
+        patch,
+        'workspace',
+      );
     });
   }
 

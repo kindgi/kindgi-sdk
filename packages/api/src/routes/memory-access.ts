@@ -156,5 +156,5 @@ export async function memoryWriteProblem(
       : `Writing org-wide memory needs admin on org "${scope.orgId as unknown as string}".`;
   }
   if (scope.userId !== undefined) return undefined;
-  return 'Writing tenant-wide memory needs admin on the tenant.';
+  return 'Writing workspace-wide memory needs admin on the workspace.';
 }

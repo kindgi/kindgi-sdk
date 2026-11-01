@@ -544,7 +544,7 @@ export function deploymentsRouter(
         toWireError(
           {
             code: 'deployment-not-found',
-            message: `No deployment with id "${deploymentId}" under this tenant`,
+            message: `No deployment with id "${deploymentId}" under this workspace`,
             deploymentId,
           },
           requestId,
@@ -583,7 +583,7 @@ export function deploymentsRouter(
         toWireError(
           {
             code: 'deployment-not-found',
-            message: `No deployment with id "${deploymentId}" under this tenant`,
+            message: `No deployment with id "${deploymentId}" under this workspace`,
             deploymentId,
           },
           requestId,
@@ -641,7 +641,7 @@ export function deploymentsRouter(
         toWireError(
           {
             code: 'deployment-not-found',
-            message: `No deployment with id "${deploymentId}" under this tenant`,
+            message: `No deployment with id "${deploymentId}" under this workspace`,
             deploymentId,
           },
           requestId,
@@ -671,7 +671,7 @@ export function deploymentsRouter(
         toWireError(
           {
             code: 'project-not-found',
-            message: `\`projectId\` "${named}" names no project of this tenant`,
+            message: `\`projectId\` "${named}" names no project of this workspace`,
           },
           requestId,
         ),
@@ -841,7 +841,7 @@ export function deploymentsRouter(
         toWireError(
           {
             code: 'signer-not-trusted',
-            message: `Signer key "${wire.signerKeyId as unknown as string}" is not on this tenant's trust list`,
+            message: `Signer key "${wire.signerKeyId as unknown as string}" is not on this workspace's trust list`,
             signerKeyId: wire.signerKeyId as unknown as string,
           },
           requestId,
@@ -1115,7 +1115,7 @@ export function deploymentsRouter(
             {
               code: 'internal-server-error',
               message:
-                'no default project exists for this tenant; deployment blocked. Every tenant should auto-seed a default project at creation.',
+                'no default project exists for this workspace; deployment blocked. Every workspace should auto-seed a default project at creation.',
             },
             requestId,
           ),
@@ -1664,7 +1664,7 @@ export function deploymentsRouter(
         toWireError(
           {
             code: 'deployment-not-found',
-            message: `No deployment with id "${deploymentId}" under this tenant`,
+            message: `No deployment with id "${deploymentId}" under this workspace`,
             deploymentId,
           },
           requestId,
@@ -2219,7 +2219,7 @@ async function imagePrefixRefusal(
     return {
       code: 'image-prefix-unset',
       message:
-        "This tenant has no image repository set, so it can't register a deployment yet: its operator sets one.",
+        "This workspace has no image repository set, so it can't register a deployment yet: its operator sets one.",
     };
   }
   const ref = parseImageRef(imageRef);
@@ -2229,7 +2229,7 @@ async function imagePrefixRefusal(
   if (imageRefWithin(ref.value, prefix.value)) return undefined;
   return {
     code: 'image-not-allowed',
-    message: `This tenant deploys only images at or under ${raw}.`,
+    message: `This workspace deploys only images at or under ${raw}.`,
     imagePrefix: raw,
   };
 }

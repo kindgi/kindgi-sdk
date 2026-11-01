@@ -83,11 +83,11 @@ describe('the helpers', () => {
     expect(refused?.code).toBe('reference-out-of-scope');
     expect(refused?.issues.map((i) => i.path)).toEqual(['/nodes/a', '/nodes/b']);
     expect(refused?.issues[0]?.message).toBe(
-      `tool "acme.other-tool" isn't registered in this project, its org or the tenant`,
+      `tool "acme.other-tool" isn't registered in this project, its org or the workspace`,
     );
     // With no version named, the refusal says nothing about deploying one.
     expect(refused?.message).toBe(
-      `This project can't reference 2 of the items named (tool "acme.other-tool", tool "acme.other-tool"): none is registered in this project, its org or the tenant`,
+      `This project can't reference 2 of the items named (tool "acme.other-tool", tool "acme.other-tool"): none is registered in this project, its org or the workspace`,
     );
   });
 
@@ -113,10 +113,10 @@ describe('the helpers', () => {
     expect(refused?.issues.map((i) => i.path)).toEqual(['/pins/1', '/pins/2']);
     // The refusal names the version: the item may be in reach at another.
     expect(refused?.issues[0]?.message).toBe(
-      `agent "acme.agent" 1.1.0 isn't a version this project runs (not registered in this project, its org or the tenant, nor deployed to it)`,
+      `agent "acme.agent" 1.1.0 isn't a version this project runs (not registered in this project, its org or the workspace, nor deployed to it)`,
     );
     expect(refused?.message).toBe(
-      `This project can't reference 2 of the items named (agent "acme.agent" 1.1.0, agent "acme.agent" 1.1.0): none is registered in this project, its org or the tenant, and no version named is deployed to it`,
+      `This project can't reference 2 of the items named (agent "acme.agent" 1.1.0, agent "acme.agent" 1.1.0): none is registered in this project, its org or the workspace, and no version named is deployed to it`,
     );
   });
 
@@ -529,7 +529,7 @@ describe('a version named at open or registration: refused there when the projec
   /** 400 `reference-out-of-scope`, one issue at `path`, each message naming the version. */
   function expectRefused(res: Answer, path: string, kind: string, id: string, version: string) {
     const named = `${kind} "${id}" ${version}`;
-    const why = `isn't a version this project runs (not registered in this project, its org or the tenant, nor deployed to it)`;
+    const why = `isn't a version this project runs (not registered in this project, its org or the workspace, nor deployed to it)`;
     expect(res.status).toBe(400);
     expect(res.body.error?.code).toBe('reference-out-of-scope');
     expect(res.body.error?.message).toBe(`This project can't reference ${named}: it ${why}`);

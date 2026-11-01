@@ -1093,9 +1093,9 @@ function suspendedRefusal(
 ): Response {
   const side = environment === 'source' ? "the deployment's environment" : 'the target environment';
   const message = {
-    'tenant-closing': 'The tenant is closing, so nothing is promoted. Nothing was promoted.',
+    'tenant-closing': 'The workspace is closing, so nothing is promoted. Nothing was promoted.',
     'tenant-suspended':
-      "The tenant is suspended, so nothing is promoted until it's restored. Nothing was promoted.",
+      "The workspace is suspended, so nothing is promoted until it's restored. Nothing was promoted.",
     'project-suspended': `${side[0]?.toUpperCase()}${side.slice(1)} is suspended, so nothing is promoted until it's restored. Nothing was promoted.`,
     'pack-suspended': `The pack is suspended in ${side}, so its builds aren't promoted until it's restored. Nothing was promoted.`,
   }[reason];
@@ -1157,7 +1157,7 @@ async function signerRefusal(
   }
   if (!trusted.value) {
     return refusal(c, 'signer-not-trusted', {
-      message: `Signer key "${source.signerKeyId as unknown as string}" is no longer on this tenant's trust list, so the builds it signed aren't promoted. Nothing was promoted.`,
+      message: `Signer key "${source.signerKeyId as unknown as string}" is no longer on this workspace's trust list, so the builds it signed aren't promoted. Nothing was promoted.`,
       signerKeyId: source.signerKeyId as unknown as string,
     });
   }

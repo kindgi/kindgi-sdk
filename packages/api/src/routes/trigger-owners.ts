@@ -175,7 +175,7 @@ export async function resolveTriggerOwner(
             c,
             requestId,
             'service-account-not-found',
-            `No service account with id "${serviceAccountId}" in this tenant`,
+            `No service account with id "${serviceAccountId}" in this workspace`,
           )
         : forbidden(),
     };

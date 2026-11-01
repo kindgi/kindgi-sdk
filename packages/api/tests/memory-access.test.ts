@@ -243,7 +243,7 @@ describe('API — memory write checks', () => {
   });
 
   test.each([
-    ['a tenant-wide fact', {}, 'needs admin on the tenant'],
+    ['a tenant-wide fact', {}, 'needs admin on the workspace'],
     [
       'another user’s fact',
       { userId: 'user-2' },

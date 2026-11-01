@@ -32,7 +32,7 @@ export function tenantResourceAccess(
     const reading = c.req.method === 'GET' || c.req.method === 'HEAD';
     if (authorizer === undefined) {
       if (reading || (await isTenantAdmin(c, undefined))) return next();
-      return withoutStoreRefusal(c, 'Only a tenant admin changes a tenant-wide setting.');
+      return withoutStoreRefusal(c, 'Only a tenant admin changes a workspace-wide setting.');
     }
     return authorizer.authorize(reading ? 'read' : 'admin', (ctx) =>
       ref('tenant', ctx.get('tenantId') as unknown as string),
@@ -50,7 +50,7 @@ export function tenantAdminAccess(authorizer: Authorizer | undefined): Middlewar
       if (await isTenantAdmin(c, undefined)) return next();
       return withoutStoreRefusal(
         c,
-        'Only a tenant admin reads or changes this tenant-wide setting.',
+        'Only a tenant admin reads or changes this workspace-wide setting.',
       );
     }
     return authorizer.authorize('admin', (ctx) =>

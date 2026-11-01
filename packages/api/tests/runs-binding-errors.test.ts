@@ -93,7 +93,7 @@ describe('POST /v1/runs — binding failures on the wire', () => {
     const { status, retryAfter, body } = await startRun(
       appFailingWith({
         code: 'rate-limit-exceeded',
-        message: 'Templates rendered for this tenant took its budget',
+        message: 'Templates rendered for this workspace took its budget',
         details: {
           limit: 'template-render-time',
           budgetMs: 5000,

@@ -229,7 +229,7 @@ describe.each([
       expect(second.body.error?.message).toBe(
         resource === 'project'
           ? 'Another project in its org has the slug "acme" (for a project without an org: another project without one)'
-          : `Another ${resource} in the tenant has the slug "acme"`,
+          : `Another ${resource} in the workspace has the slug "acme"`,
       );
       expect(second.body.error?.details).toEqual({ resource, slug: 'acme' });
     });

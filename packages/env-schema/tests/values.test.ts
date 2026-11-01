@@ -203,14 +203,14 @@ describe('parsePackTenantId', () => {
     ['4fc847d595b44c68bf9d618a241c9771'],
   ])('refuses %j at startup: not a tenant id, so it would refuse every call', (raw) => {
     expect(() => parsePackTenantId(raw)).toThrow(
-      "KINDGI_PACK_TENANT_ID must be the tenant's id, a UUID",
+      "KINDGI_PACK_TENANT_ID must be the workspace's id, a UUID",
     );
   });
 
   test.each([['00000000-0000-4000-8000-000000000000'], [' 00000000-0000-4000-8000-000000000000 ']])(
     'refuses %j, the id no tenant has',
     (raw) => {
-      expect(() => parsePackTenantId(raw)).toThrow('the id no tenant has');
+      expect(() => parsePackTenantId(raw)).toThrow('the id no workspace has');
     },
   );
 });

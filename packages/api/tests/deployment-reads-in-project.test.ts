@@ -257,7 +257,7 @@ function expectRefused(out: { status: number; body: Record<string, any> }, who: 
 
 const notFound = (id: string) => ({
   code: 'deployment-not-found',
-  message: `No deployment with id "${id}" under this tenant`,
+  message: `No deployment with id "${id}" under this workspace`,
 });
 
 describe('GET /v1/deployments: the rows whose project the caller reads', () => {

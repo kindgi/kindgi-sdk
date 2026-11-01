@@ -188,7 +188,7 @@ describe.each([false, true])(
         });
         expect(res.status, JSON.stringify(named)).toBe(404);
         expect(res.body.error?.code).toBe('identity-user-not-found');
-        expect(res.body.error?.message).toContain('a member of this tenant');
+        expect(res.body.error?.message).toContain('a member of this workspace');
       }
       expect(await a.members(a.theirs)).toEqual([]);
     });

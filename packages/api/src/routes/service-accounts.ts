@@ -159,7 +159,7 @@ function fail(c: Context<AppEnv>, error: WireError): Response {
 function notFound(serviceAccountId: string): WireError {
   return {
     code: 'service-account-not-found',
-    message: `No service account with id "${serviceAccountId}" in this tenant`,
+    message: `No service account with id "${serviceAccountId}" in this workspace`,
   };
 }
 

@@ -136,7 +136,7 @@ export function tenantLimitReached(
     toWireError(
       {
         code: 'rate-limit-exceeded',
-        message: `This tenant's limit on ${WHAT[name]} a minute is reached: try again in ${seconds} s.`,
+        message: `This workspace's limit on ${WHAT[name]} a minute is reached: try again in ${seconds} s.`,
         limit: name,
       },
       c.get('requestId'),
@@ -168,7 +168,7 @@ export function tenantS3RequestLimit(limiter: TenantLimiter): MiddlewareHandler<
     return c.body(
       errorXml(
         'SlowDown',
-        `This tenant's limit on ${WHAT['api-requests']} a minute is reached: try again in ${seconds} s.`,
+        `This workspace's limit on ${WHAT['api-requests']} a minute is reached: try again in ${seconds} s.`,
       ),
       503,
       { 'Content-Type': 'application/xml' },

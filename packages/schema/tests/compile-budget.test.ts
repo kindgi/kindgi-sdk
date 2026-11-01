@@ -102,7 +102,7 @@ describe('CompileBudget', () => {
     expect(refused?.budgetMs).toBe(2_000);
     expect(refused?.code).toBe('schema-compile-budget-exceeded');
     expect(refused?.message).toBe(
-      'Schemas compiled for this tenant took its budget of 2000 ms in the last 60 seconds: try again in 40 s.',
+      'Schemas compiled for this workspace took its budget of 2000 ms in the last 60 seconds: try again in 40 s.',
     );
     later(39_999);
     expect(refusedWith(() => budget.run(all, 'c', taking(1)))).toBeDefined();

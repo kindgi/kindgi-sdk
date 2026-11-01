@@ -409,7 +409,7 @@ describe("letting a site's person removed in Kindgi back in (tenant admins)", ()
     ],
     [
       'linked-elsewhere',
-      "This person also signs in another way (through another site, or the tenant's own sign-in), and letting them back in would let them in there too. Add them again instead, as a new person: with an email, they're invited",
+      "This person also signs in another way (through another site, or the workspace's own sign-in), and letting them back in would let them in there too. Add them again instead, as a new person: with an email, they're invited",
     ],
   ] as const)('refused as %s: a 409 that says why, with the person', async (reason, message) => {
     const h = makeApp({ restore: { kind: 'refused', reason } });

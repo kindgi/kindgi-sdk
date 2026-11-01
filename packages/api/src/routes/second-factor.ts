@@ -258,7 +258,7 @@ export function secondFactorIdentityRouter(options: SecondFactorRouterOptions): 
           toWireError(
             {
               code: 'identity-user-not-found',
-              message: `No user with id "${userId}" under this tenant`,
+              message: `No user with id "${userId}" under this workspace`,
               userId,
             },
             c.get('requestId'),

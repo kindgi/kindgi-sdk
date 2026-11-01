@@ -307,7 +307,13 @@ export function systemTenantsRouter(options: {
         async (t) => {
           const patch = await readTenantPatch(c);
           if (patch instanceof Response) return patch;
-          return renameAnswer(c, await renameTenant({ tenantId: t.id, ...patch }), t.id, patch);
+          return renameAnswer(
+            c,
+            await renameTenant({ tenantId: t.id, ...patch }),
+            t.id,
+            patch,
+            'tenant',
+          );
         },
       ),
     );

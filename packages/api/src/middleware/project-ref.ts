@@ -85,7 +85,7 @@ export function refuseBadProjectId(
           toWireError(
             {
               code: 'project-not-found',
-              message: `No project with id "${projectId}" in this tenant`,
+              message: `No project with id "${projectId}" in this workspace`,
               projectId,
             },
             c.get('requestId'),

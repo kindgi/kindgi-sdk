@@ -1971,7 +1971,7 @@ function startError(
     case 'project-not-found':
       return {
         code: 'bad-input',
-        message: `The candidate's project "${outcome.projectId as unknown as string}" isn't in this tenant`,
+        message: `The candidate's project "${outcome.projectId as unknown as string}" isn't in this workspace`,
       };
   }
 }

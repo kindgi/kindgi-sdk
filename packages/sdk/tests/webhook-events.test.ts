@@ -32,7 +32,7 @@ const RUN_IN_FULL = {
   failureMessage: 'budget-exceeded',
   failure: {
     code: 'rate-limit-exceeded',
-    message: 'Template render budget reached for this tenant',
+    message: 'Template render budget reached for this workspace',
     cause: { code: 'upstream', reasons: ['any JSON'] },
     details: { limit: 'template-render-time', budgetMs: 5_000 },
   },

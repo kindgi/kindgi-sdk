@@ -27,7 +27,7 @@ import { testNodeContext } from './node-context.js';
 
 const refusal = () =>
   Object.assign(
-    new Error("This tenant's limit on approvals waiting for a decision (3) is reached."),
+    new Error("This workspace's limit on approvals waiting for a decision (3) is reached."),
     { code: 'approvals-pending-limit', approvalsPending: 3 },
   );
 
@@ -160,7 +160,7 @@ describe('a tool gate past the tenant’s limit on approvals waiting', () => {
     expect(outcome).toBeInstanceOf(AgentTurnFailure);
     expect((outcome as AgentTurnFailure).payload).toEqual({
       code: 'approvals-pending-limit',
-      message: "This tenant's limit on approvals waiting for a decision (3) is reached.",
+      message: "This workspace's limit on approvals waiting for a decision (3) is reached.",
       approvalsPending: 3,
     });
     expect(waits).toEqual([]);
@@ -203,7 +203,7 @@ describe('approvalsPendingLimitOf', () => {
     expect(approvalsPendingLimitOf(refusal())).toMatchObject({ approvalsPending: 3 });
     expect(approvalsPendingLimitOf({ code: 'approvals-pending-limit' })).toEqual({
       code: 'approvals-pending-limit',
-      message: "This tenant's limit on approvals waiting for a decision is reached.",
+      message: "This workspace's limit on approvals waiting for a decision is reached.",
     });
     expect(approvalsPendingLimitOf(new Error('other'))).toBeUndefined();
     expect(approvalsPendingLimitOf('approvals-pending-limit')).toBeUndefined();

@@ -366,7 +366,7 @@ describe('API — projects /default', () => {
     // getDefault's 404 says "Tenant has no default project"; the
     // :projectId 404 says "No project with id 'default'". Distinct
     // messages confirm the /default route handled the request.
-    expect(body.error.message).toBe('Tenant has no default project');
+    expect(body.error.message).toBe('Workspace has no default project');
   });
 });
 

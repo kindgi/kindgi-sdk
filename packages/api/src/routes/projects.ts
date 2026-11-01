@@ -165,7 +165,7 @@ export function projectsRouter(
         kind: 'refused',
         error: {
           code: 'identity-user-not-found',
-          message: `User "${named.userId as unknown as string}" is not a member of this tenant`,
+          message: `User "${named.userId as unknown as string}" is not a member of this workspace`,
           userId: named.userId as unknown as string,
         },
       };
@@ -187,7 +187,7 @@ export function projectsRouter(
       kind: 'refused',
       error: {
         code: 'identity-user-not-found',
-        message: `No one with email "${named.email}" is a member of this tenant`,
+        message: `No one with email "${named.email}" is a member of this workspace`,
       },
     };
   }
@@ -215,7 +215,7 @@ export function projectsRouter(
         toWireError(
           {
             code: 'project-not-found',
-            message: 'Tenant has no default project',
+            message: 'Workspace has no default project',
           },
           requestId,
         ),

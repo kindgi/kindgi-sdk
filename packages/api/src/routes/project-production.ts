@@ -136,8 +136,8 @@ export function projectProductionRouter(options: ProjectProductionRouterOptions)
       code: 'production-not-allowed',
       message:
         next !== undefined
-          ? `This tenant can't put projects in production yet. To be allowed: ${next}. Projects not in production keep working as staging.`
-          : "This tenant can't put projects in production yet: ask whoever runs this Kindgi to allow it. Projects not in production keep working as staging.",
+          ? `This workspace can't put projects in production yet. To be allowed: ${next}. Projects not in production keep working as staging.`
+          : "This workspace can't put projects in production yet: ask whoever runs this Kindgi to allow it. Projects not in production keep working as staging.",
       projectId: projectId as unknown as string,
       ...(next !== undefined && { next }),
     };
@@ -152,7 +152,7 @@ export function projectProductionRouter(options: ProjectProductionRouterOptions)
     // Over a limit lowered below the count, more than one has to come out.
     const over = inProduction - projectsInProduction + 1;
     const takeOut = over === 1 ? 'one' : String(over);
-    const at = `This tenant's limit is ${projectsInProduction} ${projectsInProduction === 1 ? 'project' : 'projects'} in production, and it has ${inProduction}`;
+    const at = `This workspace's limit is ${projectsInProduction} ${projectsInProduction === 1 ? 'project' : 'projects'} in production, and it has ${inProduction}`;
     return {
       code: 'production-limit-reached',
       message:

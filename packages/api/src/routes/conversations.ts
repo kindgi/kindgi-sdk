@@ -299,7 +299,7 @@ export function conversationsRouter(
         toWireError(
           {
             code: 'bad-input',
-            message: `\`projectId\` "${supplied as unknown as string}" does not resolve to a project in this tenant`,
+            message: `\`projectId\` "${supplied as unknown as string}" does not resolve to a project in this workspace`,
           },
           requestId,
         ),

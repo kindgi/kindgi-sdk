@@ -134,7 +134,7 @@ describe('createTransport', () => {
           body: JSON.stringify({
             error: {
               code: 'rate-limit-exceeded',
-              message: 'Schemas compiled for this tenant took its budget',
+              message: 'Schemas compiled for this workspace took its budget',
               details: { limit: 'schema-compile-time', budgetMs: 2000 },
               requestId: 'req-test',
             },
@@ -166,7 +166,7 @@ describe('createTransport', () => {
         body: JSON.stringify({
           error: {
             code: 'rate-limit-exceeded',
-            message: 'Templates rendered for this tenant took its budget',
+            message: 'Templates rendered for this workspace took its budget',
             details: { limit: 'template-render-time', budgetMs: 5000, runId: 'run-1' },
             requestId: 'req-test',
           },

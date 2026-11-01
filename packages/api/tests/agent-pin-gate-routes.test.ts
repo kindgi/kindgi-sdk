@@ -575,7 +575,7 @@ describe('POST /v1/agents/:agentId/pinned/pin, through the gate', () => {
     state.testRun = testRun(summary());
     state.requestError = {
       code: 'approvals-pending-limit',
-      message: "This tenant's limit on approvals waiting for a decision (5) is reached.",
+      message: "This workspace's limit on approvals waiting for a decision (5) is reached.",
     };
     const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody());
     expect(res.status).toBe(429);

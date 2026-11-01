@@ -325,7 +325,7 @@ export function mcpRouter(
         toWireError(
           {
             code: 'scope-invalid',
-            message: `Project "${outcome.projectId as unknown as string}" not found for tenant`,
+            message: `Project "${outcome.projectId as unknown as string}" not found in this workspace`,
             projectId: outcome.projectId as unknown as string,
           },
           requestId,
@@ -338,7 +338,7 @@ export function mcpRouter(
         toWireError(
           {
             code: 'scope-invalid',
-            message: `Org "${outcome.orgId as unknown as string}" not found for tenant`,
+            message: `Org "${outcome.orgId as unknown as string}" not found in this workspace`,
             orgId: outcome.orgId as unknown as string,
           },
           requestId,

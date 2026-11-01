@@ -76,10 +76,10 @@ project holds:
   doesn't reach answers `400 reference-out-of-scope`, with each one in
   `details.issues`. So does starting a run, in a project, of an agent or
   flow that project doesn't reach. For one tool, the message is:
-  `This project can't reference tool "<id>": it isn't registered in this project, its org or the tenant`.
+  `This project can't reference tool "<id>": it isn't registered in this project, its org or the workspace`.
 - **When it runs.** A tool call from a run whose project doesn't reach the
   tool isn't run: `reference-out-of-scope`,
-  `tool "<id>" isn't registered in this project, its org or the tenant`.
+  `tool "<id>" isn't registered in this project, its org or the workspace`.
 
 ## One tool for several clients
 

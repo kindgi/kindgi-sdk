@@ -65,7 +65,7 @@ export function sitesRouter(
       c.status(statusFor('project-not-found') as never);
       return c.json(
         toWireError(
-          { code: 'project-not-found', message: 'No project with that id in this tenant' },
+          { code: 'project-not-found', message: 'No project with that id in this workspace' },
           c.get('requestId'),
         ),
       );
@@ -217,7 +217,7 @@ function restoreRefusedText(reason: SitePersonRestoreRefusal): string {
     case 'left':
       return 'Their site said they left it, and forgot them: if they come back, it signs them in as a new person';
     case 'linked-elsewhere':
-      return "This person also signs in another way (through another site, or the tenant's own sign-in), and letting them back in would let them in there too. Add them again instead, as a new person: with an email, they're invited";
+      return "This person also signs in another way (through another site, or the workspace's own sign-in), and letting them back in would let them in there too. Add them again instead, as a new person: with an email, they're invited";
   }
 }
 
@@ -558,7 +558,7 @@ function adminOnly(authorizer: Authorizer | undefined) {
         {
           code: 'permission-denied',
           message:
-            "Only a tenant admin manages a project's sites: a site creates people in the tenant",
+            "Only a tenant admin manages a project's sites: a site creates people in the workspace",
         },
         c.get('requestId'),
       ),

@@ -44,7 +44,7 @@ how long to wait in `Retry-After`, and which limit in `details.limit`
 ```text
 HTTP 429
 retry-after: 33
-{"error":{"code":"rate-limit-exceeded","message":"This tenant's limit on API requests a minute is reached: try again in 33 s.","details":{"limit":"api-requests"},"requestId":"req-…"}}
+{"error":{"code":"rate-limit-exceeded","message":"This workspace's limit on API requests a minute is reached: try again in 33 s.","details":{"limit":"api-requests"},"requestId":"req-…"}}
 ```
 
 ### Webhook receives
@@ -68,7 +68,7 @@ Past your workspace's limit, a delivery is refused with
 ```text
 HTTP 429
 retry-after: 38
-{"error":{"code":"rate-limit-exceeded","message":"This tenant's limit on webhook deliveries a minute is reached: try again in 38 s.","details":{"limit":"webhook-receives"},"requestId":"req-…"}}
+{"error":{"code":"rate-limit-exceeded","message":"This workspace's limit on webhook deliveries a minute is reached: try again in 38 s.","details":{"limit":"webhook-receives"},"requestId":"req-…"}}
 ```
 
 Whether the sender tries again is up to the sender. WooCommerce never
@@ -90,7 +90,7 @@ Past the limit of waiting runs, a new run is refused with
 
 ```text
 HTTP 429
-{"error":{"code":"rate-limit-exceeded","message":"This tenant's limit on runs waiting to start (2000) is reached: try again once some have started.","details":{"limit":"runs-pending","runsPending":2000},"requestId":"req-…"}}
+{"error":{"code":"rate-limit-exceeded","message":"This workspace's limit on runs waiting to start (2000) is reached: try again once some have started.","details":{"limit":"runs-pending","runsPending":2000},"requestId":"req-…"}}
 ```
 
 A webhook delivery or a schedule past it starts no run. The fire is recorded
@@ -106,7 +106,7 @@ trigger. A delivery is still answered `202`, with the fire's id.
       "triggerId": "…",
       "firedAt": "2026-10-13T11:18:47.529Z",
       "outcome": "refused",
-      "detail": "rate-limited: flow acme.order-review@1.0.0 didn't start: rate-limit-exceeded: This tenant's limit on runs waiting to start (2000) is reached: try again once some have started.",
+      "detail": "rate-limited: flow acme.order-review@1.0.0 didn't start: rate-limit-exceeded: This workspace's limit on runs waiting to start (2000) is reached: try again once some have started.",
       "countsTowardPause": false
     }
   ],
@@ -123,7 +123,7 @@ Here an agent's tool call waited out the minute, and its run failed with
 [`tool-invocation-failed`](../../reference/errors/#tool-invocation-failed):
 
 ```text
-{"id":"…","tenantId":"…","projectId":"…","flowId":"agent.turn","flowVersion":"1.1.0","status":"failed",…,"createdAt":"2026-10-13T11:43:56.569Z",…,"completedAt":"2026-10-13T11:44:56.689Z",…,"failure":{"code":"tool-invocation-failed","message":"Tool \"acme.lookup-order\" was not run: deadline-exceeded: This tenant's limit on tool calls in flight (50) was reached, and no call finished before this one's deadline.","cause":{"code":"precondition-failed","message":"…","toolId":"acme.lookup-order","reason":"deadline-exceeded",…}},…}
+{"id":"…","tenantId":"…","projectId":"…","flowId":"agent.turn","flowVersion":"1.1.0","status":"failed",…,"createdAt":"2026-10-13T11:43:56.569Z",…,"completedAt":"2026-10-13T11:44:56.689Z",…,"failure":{"code":"tool-invocation-failed","message":"Tool \"acme.lookup-order\" was not run: deadline-exceeded: This workspace's limit on tool calls in flight (50) was reached, and no call finished before this one's deadline.","cause":{"code":"precondition-failed","message":"…","toolId":"acme.lookup-order","reason":"deadline-exceeded",…}},…}
 ```
 
 A run cancelled while its tool call waits stops waiting.
@@ -134,7 +134,7 @@ Past the limit, a step that would ask for an approval asks nothing. No
 approval is recorded, and the step fails with `approvals-pending-limit`:
 
 ```text
-{"id":"…","tenantId":"…","projectId":"…","flowId":"agent.turn","flowVersion":"1.1.0","status":"failed",…,"failure":{"code":"approvals-pending-limit","message":"This tenant's limit on approvals waiting for a decision (500) is reached: decide some before asking for more."},…}
+{"id":"…","tenantId":"…","projectId":"…","flowId":"agent.turn","flowVersion":"1.1.0","status":"failed",…,"failure":{"code":"approvals-pending-limit","message":"This workspace's limit on approvals waiting for a decision (500) is reached: decide some before asking for more."},…}
 ```
 
 `POST /v1/runs` that waits for the run answers
@@ -145,7 +145,7 @@ version past it is also `429 approvals-pending-limit`.
 
 ```text
 HTTP 429
-{"error":{"code":"approvals-pending-limit","message":"This tenant's limit on approvals waiting for a decision (500) is reached: decide some before asking for more.","details":{"approvalsPending":500,"runId":"…"},"requestId":"req-…"}}
+{"error":{"code":"approvals-pending-limit","message":"This workspace's limit on approvals waiting for a decision (500) is reached: decide some before asking for more.","details":{"approvalsPending":500,"runId":"…"},"requestId":"req-…"}}
 ```
 
 ### Projects in production
@@ -158,7 +158,7 @@ working as staging
 
 ```text
 HTTP 403
-{"error":{"code":"production-limit-reached","message":"This tenant's limit is 1 project in production, and it has 1. To put another in production: https://platform.kindgi.com/cloud/account/billing, or take one out of production first.","details":{"projectId":"…","limit":"projects-in-production","projectsInProduction":1,"inProduction":1,"next":"https://platform.kindgi.com/cloud/account/billing"},"requestId":"req-…"}}
+{"error":{"code":"production-limit-reached","message":"This workspace's limit is 1 project in production, and it has 1. To put another in production: https://platform.kindgi.com/cloud/account/billing, or take one out of production first.","details":{"projectId":"…","limit":"projects-in-production","projectsInProduction":1,"inProduction":1,"next":"https://platform.kindgi.com/cloud/account/billing"},"requestId":"req-…"}}
 ```
 
 `details` gives the limit (`projectsInProduction`), how many are in
@@ -193,7 +193,7 @@ A turn that would go past either limit fails before the model is called,
 with `429 turn-memory-limit-reached`:
 
 ```text
-{"error":{"code":"turn-memory-limit-reached","message":"The turn needs more memory than the tenant's share of turn memory has left (0.0 of … MiB held). Retry later, or use a smaller conversation.","details":{"limit":"tenant","heldBytes":0,"limitBytes":…,"runId":"…"},"requestId":"…"}}
+{"error":{"code":"turn-memory-limit-reached","message":"The turn needs more memory than the workspace's share of turn memory has left (0.0 of … MiB held). Retry later, or use a smaller conversation.","details":{"limit":"tenant","heldBytes":0,"limitBytes":…,"runId":"…"},"requestId":"…"}}
 ```
 
 `details.limit` says which limit refused it: `tenant` for your workspace's,

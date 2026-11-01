@@ -39,7 +39,7 @@ export class SchemaCompileBudgetError extends TenantBudgetError {
 
   constructor(budgetMs: number, retryAfterMs: number) {
     super(
-      `Schemas compiled for this tenant took its budget of ${budgetMs} ms in the last 60 seconds: try again in ${Math.max(1, Math.ceil(retryAfterMs / 1000))} s.`,
+      `Schemas compiled for this workspace took its budget of ${budgetMs} ms in the last 60 seconds: try again in ${Math.max(1, Math.ceil(retryAfterMs / 1000))} s.`,
       'schema-compile-time',
       budgetMs,
       retryAfterMs,

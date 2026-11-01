@@ -35,7 +35,7 @@ const NEXT = 'https://platform.acme.example/account/billing';
 const NOT_ALLOWED = fromWire(
   {
     code: 'production-not-allowed',
-    message: `This tenant can't put projects in production yet. To be allowed: ${NEXT}. Projects not in production keep working as staging.`,
+    message: `This workspace can't put projects in production yet. To be allowed: ${NEXT}. Projects not in production keep working as staging.`,
     details: { projectId: 'p-shop', next: NEXT },
   },
   403,
@@ -131,7 +131,7 @@ describe('kindgi projects production', () => {
     expect(out.exitCode).toBe(1);
     expect(out.stdout).toBe('');
     expect(out.stderr).toBe(
-      `Error [production-not-allowed]: This tenant can't put projects in production yet. To be allowed: ${NEXT}. Projects not in production keep working as staging.\n`,
+      `Error [production-not-allowed]: This workspace can't put projects in production yet. To be allowed: ${NEXT}. Projects not in production keep working as staging.\n`,
     );
   });
 

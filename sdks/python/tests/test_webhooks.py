@@ -218,7 +218,7 @@ def test_parse_event_reads_a_run_finished_failure_and_its_details() -> None:
         **RUN_FINISHED["data"]["run"],
         "failure": {
             "code": "rate-limit-exceeded",
-            "message": "Template render budget reached for this tenant",
+            "message": "Template render budget reached for this workspace",
             "details": {"limit": "template-render-time", "budgetMs": 5000},
         },
     }

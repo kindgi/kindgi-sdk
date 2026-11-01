@@ -375,7 +375,7 @@ export function teamsRouter(
           toWireError(
             {
               code: 'identity-user-not-found',
-              message: `User "${b.userId}" is not a member of this tenant`,
+              message: `User "${b.userId}" is not a member of this workspace`,
               userId: b.userId,
             },
             requestId,

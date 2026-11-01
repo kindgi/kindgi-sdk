@@ -124,7 +124,7 @@ describe('a projectId the route cannot use (T247)', () => {
       expect(missing.status).toBe(404);
       expect(missing.error).toMatchObject({
         code: 'project-not-found',
-        message: `No project with id "${unknown}" in this tenant`,
+        message: `No project with id "${unknown}" in this workspace`,
         details: { projectId: unknown },
       });
 
@@ -163,6 +163,6 @@ describe('a projectId the route cannot use (T247)', () => {
     });
     expect(answer.status).toBe(400);
     expect(answer.error?.code).toBe('bad-input');
-    expect(answer.error?.message).toContain('does not resolve to a project in this tenant');
+    expect(answer.error?.message).toContain('does not resolve to a project in this workspace');
   });
 });

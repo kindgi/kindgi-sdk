@@ -731,7 +731,7 @@ export function agentsRouter(
         toWireError(
           {
             code: 'bad-input',
-            message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this tenant`,
+            message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this workspace`,
           },
           requestId,
         ),
@@ -878,7 +878,7 @@ export function agentsRouter(
         toWireError(
           {
             code: 'identity-user-not-found',
-            message: `No person "${userId as unknown as string}" in this tenant to own the agent`,
+            message: `No person "${userId as unknown as string}" in this workspace to own the agent`,
             userId: userId as unknown as string,
           },
           requestId,

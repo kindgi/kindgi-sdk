@@ -386,7 +386,7 @@ export function guardrailsRouter(
         toWireError(
           {
             code: 'bad-input',
-            message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this tenant`,
+            message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this workspace`,
           },
           requestId,
         ),

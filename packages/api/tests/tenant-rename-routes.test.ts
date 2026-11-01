@@ -183,7 +183,7 @@ describe('PATCH /v1/tenant', () => {
     const taken = await tenantApp(renamer({ kind: 'slug-taken' }).renameTenant)({
       slug: 'acme-store',
     });
-    expect(taken.error?.message).toBe('Another tenant has the slug "acme-store".');
+    expect(taken.error?.message).toBe('Another workspace has the slug "acme-store".');
   });
 
   test('an empty body still meets the tenant’s state: closing and setup-pending answer their 409s', async () => {
@@ -212,7 +212,7 @@ describe('PATCH /v1/tenant', () => {
     expect([r.status, r.error?.code]).toEqual([409, 'tenant-slug-in-config']);
     expect(r.error?.details).toEqual({ slug: 'acme', domains: ['acme.com', 'acme.co.uk'] });
     expect(r.error?.message).toBe(
-      `The server's KINDGI_AUTH_VERIFIED_DOMAINS names this tenant by its slug (acme.com:acme, acme.co.uk:acme), so its slug can't change yet: the server would find no tenant by it when it next starts. The server's operator names it there by its id (${ACME as unknown as string}) instead and restarts the server; then rename it.`,
+      `The server's KINDGI_AUTH_VERIFIED_DOMAINS names this workspace by its slug (acme.com:acme, acme.co.uk:acme), so its slug can't change yet: the server would find no workspace by it when it next starts. The server's operator names it there by its id (${ACME as unknown as string}) instead and restarts the server; then rename it.`,
     );
   });
 
@@ -223,7 +223,7 @@ describe('PATCH /v1/tenant', () => {
     expect([r.status, r.error?.code]).toEqual([409, 'tenant-slug-in-config']);
     expect(r.error?.details).toEqual({ slug: 'globex' });
     expect(r.error?.message).toBe(
-      `The server's KINDGI_AUTH_VERIFIED_DOMAINS names the slug "globex", so no tenant can be renamed to it. Choose another.`,
+      `The server's KINDGI_AUTH_VERIFIED_DOMAINS names the slug "globex", so no workspace can be renamed to it. Choose another.`,
     );
   });
 

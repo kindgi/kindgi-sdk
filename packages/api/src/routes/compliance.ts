@@ -165,7 +165,7 @@ export function complianceRouter(
         toWireError(
           {
             code: 'compliance-evidence-not-found',
-            message: `No evidence record with id "${evidenceId}" under this tenant.`,
+            message: `No evidence record with id "${evidenceId}" under this workspace.`,
             evidenceId,
           },
           requestId,

@@ -231,7 +231,7 @@ function systemCapabilityRefusal(
   const refusal: Refusal = {
     action: 'admin',
     resource: ref('tenant', c.get('tenantId') as unknown as string),
-    message: `A tenant's key can't carry ${notMintable.join(', ')}: the operator's powers are system keys' (/v1/system/keys)`,
+    message: `A workspace's key can't carry ${notMintable.join(', ')}: the operator's powers are system keys' (/v1/system/keys)`,
     failing: 'scope',
     code: 'capability-not-mintable',
     details: { capabilities: notMintable },

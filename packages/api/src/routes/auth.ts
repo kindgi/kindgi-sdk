@@ -136,7 +136,7 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
         toWireError(
           {
             code: 'identity-provider-already-registered',
-            message: `Identity provider "${parsed.value.providerId}" is already registered for this tenant`,
+            message: `Identity provider "${parsed.value.providerId}" is already registered for this workspace`,
             providerId: parsed.value.providerId,
           },
           requestId,

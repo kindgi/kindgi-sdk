@@ -6007,14 +6007,14 @@ describe('POST /v1/deployments — a redeploy after a rolled-back deploy, its ag
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('reference-out-of-scope');
     expect(res.body.error.message).toBe(
-      `This project can't reference tool "acme.elsewhere": it isn't registered in this project, its org or the tenant`,
+      `This project can't reference tool "acme.elsewhere": it isn't registered in this project, its org or the workspace`,
     );
     expect(res.body.error.details.issues).toEqual([
       {
         path: '/agents/0',
         kind: 'tool',
         id: 'acme.elsewhere',
-        message: `version 1.0.0 of this agent is unregistered and can't be reinstated: tool "acme.elsewhere" isn't registered in this project, its org or the tenant. Publish the agent under a new version`,
+        message: `version 1.0.0 of this agent is unregistered and can't be reinstated: tool "acme.elsewhere" isn't registered in this project, its org or the workspace. Publish the agent under a new version`,
       },
     ]);
     expect(agents.reinstated).toEqual([]);
@@ -6040,7 +6040,7 @@ describe('POST /v1/deployments — a redeploy after a rolled-back deploy, its ag
         path: '/flows/0',
         kind: 'tool',
         id: 'acme.elsewhere',
-        message: `version 1.0.0 of this flow is unregistered and can't be reinstated: tool "acme.elsewhere" isn't registered in this project, its org or the tenant. Publish the flow under a new version`,
+        message: `version 1.0.0 of this flow is unregistered and can't be reinstated: tool "acme.elsewhere" isn't registered in this project, its org or the workspace. Publish the flow under a new version`,
       },
     ]);
     expect(flows.reinstated).toEqual([]);

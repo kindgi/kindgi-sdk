@@ -679,7 +679,7 @@ export function approvalsRouter(
       return refused(c, authorizer, {
         action: 'admin',
         resource: ref('tenant', c.get('tenantId') as unknown as string),
-        message: 'No reviewer row registered for this user under this tenant.',
+        message: 'No reviewer row registered for this user under this workspace.',
         failing: 'actor',
       });
     }

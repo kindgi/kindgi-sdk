@@ -355,7 +355,7 @@ describe('GET /v1/runs/:runId: why a failed run failed', () => {
       status: 'failed',
       failureMessage: turnFailureMessage({
         code: 'rate-limit-exceeded',
-        message: 'Template render budget reached for this tenant (5000 ms a minute)',
+        message: 'Template render budget reached for this workspace (5000 ms a minute)',
         limit: 'template-render-time',
         budgetMs: 5_000,
         retryAfterMs: 2_500,
@@ -364,7 +364,7 @@ describe('GET /v1/runs/:runId: why a failed run failed', () => {
     const h = harness([refused]);
     const expected = {
       code: 'rate-limit-exceeded',
-      message: 'Template render budget reached for this tenant (5000 ms a minute)',
+      message: 'Template render budget reached for this workspace (5000 ms a minute)',
       details: { limit: 'template-render-time', budgetMs: 5_000 },
     };
     expect((await call(h, `/v1/runs/${refused.runId}`)).body.failure).toEqual(expected);
