@@ -169,19 +169,32 @@ export async function readBuildInputs(dir: string): Promise<BuildInputs | undefi
  */
 export function changedSince(stamp: BuildInputs, now: CurrentInputs): string | undefined {
   if (stamp.cliVersion !== now.cliVersion) return `it was built with kindgi ${stamp.cliVersion}`;
+  return optionChange(stamp.options, now.options) ?? fileChanges(stamp.files, now.files);
+}
+
+/** The first option, in `OPTION_FLAGS` order, that the deploy would build again for. */
+function optionChange(stamp: BuildInputOptions, now: BuildInputOptions): string | undefined {
   for (const [key, flag, ifSet] of OPTION_FLAGS) {
-    const was = stamp.options[key];
-    const is = now.options[key];
+    const was = stamp[key];
+    const is = now[key];
     if (was === is || (ifSet && (is === undefined || is === false))) continue;
     if (typeof was === 'boolean') return `it was built ${was ? 'with' : 'without'} \`${flag}\``;
     return was === undefined
       ? `it was built with no \`${flag}\``
       : `it was built for \`${flag}=${was}\``;
   }
+  return undefined;
+}
+
+/** The files that differ: the first in sort order, and how many more. */
+function fileChanges(
+  stamp: Readonly<Record<string, string>>,
+  now: Readonly<Record<string, string>>,
+): string | undefined {
   const changes: string[] = [];
-  for (const path of new Set([...Object.keys(stamp.files), ...Object.keys(now.files)])) {
-    const was = stamp.files[path];
-    const is = now.files[path];
+  for (const path of new Set([...Object.keys(stamp), ...Object.keys(now)])) {
+    const was = stamp[path];
+    const is = now[path];
     if (was === is) continue;
     changes.push(
       `\`${path}\` ${was === undefined ? 'is new' : is === undefined ? 'is gone' : 'changed'}`,
