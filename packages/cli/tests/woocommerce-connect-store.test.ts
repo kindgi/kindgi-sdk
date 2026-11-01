@@ -11,7 +11,7 @@
 
 import { type ChildProcess, spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { type IncomingMessage, type Server, createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -614,6 +614,40 @@ describe("the woocommerce starter's connect-store", () => {
       ['env', 'list', '--env=local', '--scope=tenant'],
     ]);
   });
+
+  // A copy of the opener in the pack's folder, and an empty entry and `.`
+  // ahead of the real one on PATH: a bare name would run the copy, as a
+  // bare name on Windows runs one in the folder.
+  test.skipIf(process.platform === 'win32')(
+    "the approval page opens with the opener on PATH, never a copy in the pack's folder; with none, the link is still printed",
+    async () => {
+      const opener = process.platform === 'darwin' ? 'open' : 'xdg-open';
+      const bin = await realpath(await mkdtemp(join(tmpdir(), 'kindgi-cli-bin-')));
+      const opened = join(cwd, 'opened');
+      try {
+        for (const [dir, kind] of [
+          [bin, 'found'],
+          [root, 'planted'],
+        ] as const) {
+          await writeFile(join(dir, opener), `#!/bin/sh\necho ${kind} >> '${opened}'\n`);
+          await chmod(join(dir, opener), 0o755);
+        }
+        const shop = await store();
+        let run = connectStore([shop.url], { PATH: ['', '.', bin].join(':') });
+        await decline(await run.link);
+        expect((await run.done).code).toBe(1);
+        // Detached: it runs on its own.
+        await vi.waitFor(async () => expect(await readFile(opened, 'utf8')).toBe('found\n'));
+
+        run = connectStore([shop.url], { PATH: ['', '.'].join(':') });
+        await decline(await run.link);
+        expect((await run.done).code).toBe(1);
+        expect(await readFile(opened, 'utf8')).toBe('found\n');
+      } finally {
+        await rm(bin, { recursive: true, force: true });
+      }
+    },
+  );
 
   test.each([[['editor']], [['shop_manager', 'administrator']]])(
     "a kindgi-agent the store already has as %j is left alone, and the approval's password still goes",

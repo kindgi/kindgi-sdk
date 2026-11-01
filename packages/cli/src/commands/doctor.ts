@@ -82,6 +82,7 @@ import {
   pythonBinRunner,
   usablePackageManager,
 } from '../package-manager.js';
+import { programPath } from '../program-path.js';
 import {
   type ProviderPreset,
   loadProviderPresets,
@@ -1665,12 +1666,21 @@ function installedPackageManager(
   });
 }
 
-/** Run a tool to completion; `code: null` when it isn't installed. Gives up after 15 s. */
-function runTool(command: string, args: readonly string[]): Promise<ToolOutcome> {
+/**
+ * Run a tool to completion, the one on `PATH` (`programPath`); `code:
+ * null` when it isn't installed. Gives up after 15 s.
+ */
+export async function runTool(command: string, args: readonly string[]): Promise<ToolOutcome> {
+  let file: string;
+  try {
+    file = await programPath(command);
+  } catch (err) {
+    return { code: null, stdout: '', stderr: (err as Error).message };
+  }
   return new Promise((done) => {
     let stdout = '';
     let stderr = '';
-    const child = spawn(command, [...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(file, [...args], { stdio: ['ignore', 'pipe', 'pipe'] });
     const timer = setTimeout(() => child.kill(), 15_000);
     child.stdout?.on('data', (c: Buffer) => {
       stdout += c.toString('utf8');

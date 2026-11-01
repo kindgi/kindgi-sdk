@@ -50,6 +50,7 @@ import { parseArgs as nodeParseArgs } from 'node:util';
 import { type PackEnv, displayEnvPath, packValues, readPackEnv } from '@kindgi/secrets-dotenv';
 
 import { type LocalEnvSettings, loadLocalEnvSettings } from '../env/project-env.js';
+import { type Env, programPath } from '../program-path.js';
 
 // ---------------------------------------------------------------------
 // Types
@@ -372,6 +373,8 @@ export interface RunLauncherDeps {
   readonly readFile: (path: string) => Promise<string>;
   /** `dev.envFiles` from the pack's `kindgi.config.ts`. */
   readonly localEnvSettings: (packDir: string) => Promise<LocalEnvSettings>;
+  /** The file the child runs for its command (`npx`, `docker`) under its env: `programPath`. */
+  readonly programPath: (command: string, env: Env) => Promise<string>;
   readonly spawn: typeof nodeSpawn;
   readonly stderr: (msg: string) => void;
   readonly onSignal: (handler: (sig: NodeJS.Signals) => void) => () => void;
@@ -380,6 +383,7 @@ export interface RunLauncherDeps {
 const DEFAULT_DEPS: RunLauncherDeps = {
   readFile: (path) => nodeReadFile(path, 'utf8'),
   localEnvSettings: (packDir) => loadLocalEnvSettings({ buildConfigLoader: undefined }, packDir),
+  programPath,
   spawn: nodeSpawn,
   stderr: (msg) => process.stderr.write(msg),
   onSignal: (handler) => {
@@ -423,11 +427,21 @@ export async function runLauncher(
   }
 
   const child = buildChildCommand(parsed.args, resolved.env);
+  const env = { ...process.env, ...child.extraEnv };
+
+  // The runner on PATH, never one in the folder the MCP client started this in.
+  let program: string;
+  try {
+    program = await deps.programPath(child.cmd, env);
+  } catch (err) {
+    deps.stderr(`kindgi mcp-launch: child error: ${(err as Error).message}\n`);
+    return 4;
+  }
 
   let subprocess: ReturnType<typeof nodeSpawn>;
   try {
-    subprocess = deps.spawn(child.cmd, [...child.args], {
-      env: { ...process.env, ...child.extraEnv },
+    subprocess = deps.spawn(program, [...child.args], {
+      env,
       stdio: 'inherit',
     });
   } catch (err) {

@@ -15,6 +15,7 @@ import { dirname, join } from 'node:path';
 
 import { type PackLanguage, isJvmLanguage } from '@kindgi/handler-runtime';
 
+import { programPath } from './program-path.js';
 import { CLI_VERSION } from './version-info.js';
 
 export type PackageManager = 'pnpm' | 'npm' | 'yarn' | 'bun';
@@ -84,24 +85,29 @@ const probed = new Map<PackageManager, Promise<boolean>>();
 function managerRuns(pm: PackageManager): Promise<boolean> {
   let known = probed.get(pm);
   if (known === undefined) {
-    known = new Promise<boolean>((done) => {
-      const child = spawn(pm, ['--version'], {
-        env: { ...process.env, COREPACK_ENABLE_DOWNLOAD_PROMPT: '0' },
-        stdio: 'ignore',
-      });
-      const timer = setTimeout(() => child.kill(), 15_000);
-      child.on('error', () => {
-        clearTimeout(timer);
-        done(false);
-      });
-      child.on('close', (code) => {
-        clearTimeout(timer);
-        done(code === 0);
-      });
-    });
+    known = versionRuns(pm);
     probed.set(pm, known);
   }
   return known;
+}
+
+/** Whether `<pm> --version` runs and exits 0: the `pm` on `PATH` (`programPath`). */
+async function versionRuns(pm: PackageManager): Promise<boolean> {
+  const env = { ...process.env, COREPACK_ENABLE_DOWNLOAD_PROMPT: '0' };
+  const file = await programPath(pm, env).catch(() => undefined);
+  if (file === undefined) return false;
+  return new Promise<boolean>((done) => {
+    const child = spawn(file, ['--version'], { env, stdio: 'ignore' });
+    const timer = setTimeout(() => child.kill(), 15_000);
+    child.on('error', () => {
+      clearTimeout(timer);
+      done(false);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      done(code === 0);
+    });
+  });
 }
 
 /** The real file reads and the real `<pm> --version` probe. */
@@ -167,14 +173,17 @@ export function isPackageVersion(text: string): boolean {
 
 /**
  * `pnpm --version` in `dir`: the pnpm the host runs there (a corepack pin
- * included). Corepack never prompts (it would wait on no terminal), and
- * the read gives up after 15 s. Rejects with the reason.
+ * included), the one on `PATH` (`programPath`), never one in `dir`.
+ * Corepack never prompts (it would wait on no terminal), and the read
+ * gives up after 15 s. Rejects with the reason.
  */
-export function readPnpmVersion(dir: string): Promise<string> {
+export async function readPnpmVersion(dir: string): Promise<string> {
+  const env = { ...process.env, COREPACK_ENABLE_DOWNLOAD_PROMPT: '0' };
+  const pnpm = await programPath('pnpm', env);
   return new Promise((resolve, reject) => {
-    const child = spawn('pnpm', ['--version'], {
+    const child = spawn(pnpm, ['--version'], {
       cwd: dir,
-      env: { ...process.env, COREPACK_ENABLE_DOWNLOAD_PROMPT: '0' },
+      env,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';

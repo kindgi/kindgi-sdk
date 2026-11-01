@@ -21,6 +21,7 @@ import { spawn } from 'node:child_process';
 
 import { docsUrl } from '@kindgi/client/sso-handoff';
 
+import { programPath } from '../../program-path.js';
 import { CLI_VERSION } from '../../version-info.js';
 
 /** The page that says how to set the sandbox up, and what it does, on this CLI's release line. */
@@ -50,23 +51,35 @@ export type ProbeRunner = (program: string, args: readonly string[]) => Promise<
 
 export const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
 
-/** Run a probe to its end: its exit code and stderr, or why it didn't start. */
-export function probeReal(program: string, args: readonly string[]): Promise<ProbeResult> {
+/**
+ * Run a probe to its end, `program` the one on `PATH` (`programPath`): its
+ * exit code and stderr, or why it didn't start.
+ */
+export async function probeReal(program: string, args: readonly string[]): Promise<ProbeResult> {
+  let file: string;
+  try {
+    file = await programPath(program);
+  } catch (err) {
+    return notStarted(err as NodeJS.ErrnoException);
+  }
   return new Promise((resolve) => {
-    const child = spawn(program, [...args], { stdio: ['ignore', 'ignore', 'pipe'] });
+    const child = spawn(file, [...args], { stdio: ['ignore', 'ignore', 'pipe'] });
     let stderr = '';
     child.stderr?.on('data', (chunk: Buffer) => {
       stderr += chunk.toString('utf8');
     });
-    child.once('error', (err: NodeJS.ErrnoException) =>
-      resolve({
-        code: null,
-        stderr: err.message,
-        ...(err.code !== undefined && { errorCode: err.code }),
-      }),
-    );
+    child.once('error', (err: NodeJS.ErrnoException) => resolve(notStarted(err)));
     child.once('close', (code) => resolve({ code, stderr }));
   });
+}
+
+/** A probe that didn't start, or isn't on `PATH`: no exit code, and why. */
+function notStarted(err: NodeJS.ErrnoException): ProbeResult {
+  return {
+    code: null,
+    stderr: err.message,
+    ...(err.code !== undefined && { errorCode: err.code }),
+  };
 }
 
 export async function detectDevSandbox(
