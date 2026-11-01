@@ -684,6 +684,48 @@ describe('writePackBlock', () => {
       expect(await read('blocks/style.json')).toBe(json(settings()));
     });
 
+    test('going back: an older version is written when the file holds what `expected` says', async () => {
+      await write({ 'blocks/reply.json': json(prompt()) });
+      const earlier = { template: 'Reply to {{ customer_name }}, as before.', parameters: [] };
+      const out = await writePackBlock(packDir, BLOCKS, {
+        id: 'acme.reply-prompt',
+        version: '1.1.0',
+        content: earlier,
+        expected: { template: 'Reply to {{ customer_name }}.', parameters: [] },
+      });
+      expect(out).toMatchObject({ kind: 'ok', replaced: '1.2.0' });
+      const file = JSON.parse(await read('blocks/reply.json'));
+      expect(file.version).toBe('1.1.0');
+      expect(file.content).toEqual(earlier);
+    });
+
+    test('going back over a file edited since is refused as changed, and nothing is written', async () => {
+      const edited = prompt({
+        content: { template: 'Reply to {{ customer_name }}, kindly.', parameters: [] },
+      });
+      await write({ 'blocks/reply.json': json(edited) });
+      const out = await writePackBlock(packDir, BLOCKS, {
+        id: 'acme.reply-prompt',
+        version: '1.1.0',
+        content: made,
+        expected: { template: 'Reply to {{ customer_name }}.', parameters: [] },
+      });
+      expect(out).toMatchObject({ kind: 'err', reason: 'changed' });
+      expect(await read('blocks/reply.json')).toBe(json(edited));
+    });
+
+    test("the file's own version is refused as not newer, `expected` or not", async () => {
+      await write({ 'blocks/reply.json': json(prompt()) });
+      const out = await writePackBlock(packDir, BLOCKS, {
+        id: 'acme.reply-prompt',
+        version: '1.2.0',
+        content: made,
+        expected: { template: 'Reply to {{ customer_name }}.', parameters: [] },
+      });
+      expect(out).toMatchObject({ kind: 'err', reason: 'not-newer' });
+      expect(await read('blocks/reply.json')).toBe(json(prompt()));
+    });
+
     test('an `expected` that is not an object is refused as invalid', async () => {
       await write({ 'blocks/reply.json': json(prompt()) });
       const out = await writePackBlock(packDir, BLOCKS, {
@@ -743,6 +785,20 @@ describe('blockFileText: the same write, without the disk', () => {
     const text = json(prompt());
     const write = { id: 'acme.reply-prompt', version: '1.3.0', content: { template: 'Hi.' } };
     expect(blockFileText(text, 'prompt', { ...write, version: '1.2.0' })).toMatchObject({
+      kind: 'err',
+      reason: 'not-newer',
+    });
+    expect(blockFileText(text, 'prompt', { ...write, version: '1.1.0' })).toMatchObject({
+      kind: 'err',
+      reason: 'not-newer',
+    });
+    // With `expected`, which its caller checks against the file: older goes, the file's own doesn't.
+    const expected = { template: 'Reply to {{ customer_name }}.', parameters: [] };
+    expect(blockFileText(text, 'prompt', { ...write, version: '1.1.0', expected })).toMatchObject({
+      kind: 'ok',
+      replaced: '1.2.0',
+    });
+    expect(blockFileText(text, 'prompt', { ...write, version: '1.2.0', expected })).toMatchObject({
       kind: 'err',
       reason: 'not-newer',
     });
