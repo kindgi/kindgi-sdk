@@ -730,7 +730,7 @@ kindgi-runtime tenants repair --all
 ```
 
 ```text
-tenant 5b52fd42-bd2b-4597-b324-84ec1a7033a4 (tenant-1792242381807-ed3afb): Default project kept; authorization store kept; 0 tuples added; 0 memberships and 0 service account grants put back; 0 removals finished and 0 grants taken away; adapters: 6 kept up to date, 0 removed; sign-in providers reconciled
+tenant 5b52fd42-bd2b-4597-b324-84ec1a7033a4 (workspace-1792242381807-ed3afb): Default project kept; authorization store kept; 0 tuples added; 0 memberships and 0 service account grants put back; 0 removals finished and 0 grants taken away; adapters: 6 kept up to date, 0 removed; sign-in providers reconciled
 1 tenant repaired.
 ```
 
