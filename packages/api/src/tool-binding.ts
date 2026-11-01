@@ -226,7 +226,7 @@ export interface ToolPublishInput {
    * Project the tool is registered into. REQUIRED. Callers
    * that don't naturally know a projectId (deployment
    * route, boot-time dev-echo seed, MCP bridge) resolve the tenant's
-   * Default via `projectBinding.getDefault(tenantId)` at THEIR layer.
+   * default via `projectBinding.getDefault(tenantId)` at THEIR layer.
    */
   readonly projectId: ProjectId;
   readonly tool: ToolManifest;

@@ -586,7 +586,7 @@ describe('what each route asks the authorizer', () => {
     expect(checked).toEqual([`write project:${PROJECT}`, 'execute flow:acme.nightly']);
   });
 
-  test("registering with no project: write on the tenant's Default project, and it's stored there", async () => {
+  test("registering with no project: write on the tenant's default project, and it's stored there", async () => {
     const DEFAULT = randomUUID();
     for (const [projects, expected] of [
       [{ getDefault: async () => ({ id: DEFAULT }) as never }, `write project:${DEFAULT}`],

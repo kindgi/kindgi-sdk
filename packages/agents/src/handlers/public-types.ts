@@ -55,7 +55,7 @@ export interface InvokeAgentInput {
    * Content-scope anchor. REQUIRED — every
    * agent turn is a run bound to exactly one project inside the
    * tenant. Callers without a natural project id resolve to the tenant's
-   * Default via `projectBinding.getDefault(tenantId)` (`@kindgi/api`)
+   * default via `projectBinding.getDefault(tenantId)` (`@kindgi/api`)
    * at the caller layer.
    */
   readonly projectId: ProjectId;

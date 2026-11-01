@@ -74,7 +74,7 @@ export interface ListDeploymentsFilter {
   readonly cursor?: string;
   readonly imageRefPrefix?: string;
   readonly signerKeyId?: string;
-  /** One environment's deployments; the Default project also finds those that name no project. */
+  /** One environment's deployments; the default project also finds those that name no project. */
   readonly projectId?: string;
   /** One pack's deployments. */
   readonly packId?: string;

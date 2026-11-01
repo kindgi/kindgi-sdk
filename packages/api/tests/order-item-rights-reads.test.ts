@@ -55,7 +55,7 @@ type Kind = (typeof KINDS)[number];
 /** The item an order carries (`acme.desk`), and one in a single project (`acme.solo`). */
 const SERVED = 'acme.desk';
 const SOLO = 'acme.solo';
-/** An agent from before the order, adopted into it: first published in the Default project. */
+/** An agent from before the order, adopted into it: first published in the default project. */
 const ADOPTED = 'acme.adopted';
 
 /**
@@ -180,7 +180,7 @@ const resolveToken: TokenResolver = async (token) => {
 /**
  * The app over every kind's records: the order's item at its three
  * versions (all filed under staging, its first project), the one-project
- * item in `other`, and the adopted agent in Default. Without `served`, no
+ * item in `other`, and the adopted agent in the default. Without `served`, no
  * item-projects binding: every item has one project. Without `authorized`,
  * no authorizer. With `projectless`, no record names a project, as
  * `kindgi dev`'s pack read from disk.

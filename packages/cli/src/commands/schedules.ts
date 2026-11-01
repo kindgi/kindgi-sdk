@@ -340,7 +340,7 @@ const create: LeafCommand = {
     project: {
       type: 'string',
       description:
-        "The schedule's project, by id (default: the tenant's Default project). With --improve, the project it improves, which it needs.",
+        "The schedule's project, by id (default: the tenant's default project). With --improve, the project it improves, which it needs.",
     },
     ...RUN_AS_FLAG,
     ...allowUnattendedFlag('register'),

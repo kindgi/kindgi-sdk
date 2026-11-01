@@ -664,7 +664,7 @@ describe('kindgi deployments list', () => {
       expect(JSON.parse(out.stdout)).toEqual({ data, hasMore: false, projectId: STAGING_ID });
     });
 
-    test("the Default project's id: its deployments and those that name no project, as the API answers them", async () => {
+    test("the default project's id: its deployments and those that name no project, as the API answers them", async () => {
       const data = [
         { ...DEPLOYMENT, deploymentId: 'dep-acme-d', projectId: DEFAULT_ID },
         (({ projectId: _p, ...rest }) => ({ ...rest, deploymentId: 'dep-acme-n' }))(DEPLOYMENT),

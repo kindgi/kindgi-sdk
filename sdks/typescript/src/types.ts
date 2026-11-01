@@ -992,7 +992,7 @@ export interface Conversation {
   /**
    * The project the conversation is in: the project of the run that
    * opened it, or `projectId` on open (when omitted, the agent's own
-   * project, or the tenant's Default project for an agent filed under
+   * project, or the tenant's default project for an agent filed under
    * none). Absent on conversations from before 0.1.3.
    */
   readonly projectId?: string;
@@ -2248,7 +2248,7 @@ export interface OrgPatch {
 }
 
 /**
- * Project primitive. Each tenant has exactly one Default project.
+ * Project primitive. Each tenant has at most one default project.
  *
  * Mirrors `@kindgi/platform`'s `Project` shape. Vertical-agnostic on
  * the wire (packs alias it — `Matter` in legal, `Case` in HR,
@@ -2266,7 +2266,7 @@ export interface Project {
   readonly name: string;
   readonly slug: string;
   /**
-   * `true` for the tenant's auto-created "Default" project. Exactly
+   * `true` for the tenant's default project (a new tenant gets one). At most
    * one row per tenant carries `isDefault = true`.
    */
   readonly isDefault: boolean;
@@ -2289,7 +2289,7 @@ export interface ProjectSpec {
   readonly description?: string;
   readonly orgId?: import('@kindgi/types').OrgId;
   /**
-   * Optional at spec time — the tenant's Default project is
+   * Optional at spec time — the tenant's default project is
    * created by the server when the tenant is created, not by a caller.
    */
   readonly isDefault?: boolean;

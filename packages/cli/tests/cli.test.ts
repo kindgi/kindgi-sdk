@@ -1164,7 +1164,7 @@ describe('commands that write into a project', () => {
     ['agents', 'publish', 'agents.define'],
     ['guardrails', 'register', 'guardrails.author'],
   ])(
-    '%s %s writes into the Default project unless --project names one',
+    '%s %s writes into the default project unless --project names one',
     async (group, verb, call) => {
       const calls: string[] = [];
       const run = (extra: readonly string[]) =>

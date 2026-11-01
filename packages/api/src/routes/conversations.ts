@@ -58,7 +58,7 @@ export function conversationsRouter(
   /**
    * When wired, a `projectId` given to `POST /` must be one of the
    * tenant's projects; an omitted one is the agent's own project, or the
-   * tenant's Default for an agent `agentRegistry` doesn't place.
+   * tenant's default for an agent `agentRegistry` doesn't place.
    */
   projectBinding?: ProjectBinding,
   /**
@@ -275,8 +275,8 @@ export function conversationsRouter(
       }
     }
     // Omitted: the agent's own project, as for a run. An agent the registry
-    // doesn't place (or from before projects): the tenant's Default. No
-    // Default (or no project binding): no project, never a refusal.
+    // doesn't place (or from before projects): the tenant's default. No
+    // default (or no project binding): no project, never a refusal.
     const own = async () =>
       (
         await agentRegistry?.getVersion({

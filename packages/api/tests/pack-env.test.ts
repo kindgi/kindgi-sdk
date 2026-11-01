@@ -269,7 +269,7 @@ describe('packEnvCheck: where each declared name is set', () => {
     expect(check.problem).toBe('pack-env-missing');
   });
 
-  test("a tenant-wide deployment reads at the tenant's Default project", async () => {
+  test("a tenant-wide deployment reads at the tenant's default project", async () => {
     const s = stores();
     s.setEnv(projectScope(defaultProject), 'API_BASE', 'https://default.acme.test');
     const read = await served(s.deps, {
@@ -619,7 +619,7 @@ describe('packEnvValues with secret values', () => {
     expect(JSON.stringify(read.check)).not.toContain('given-value');
   });
 
-  test("a deployment that names no project: each secret's row is the Default project's, the one its names were read for", async () => {
+  test("a deployment that names no project: each secret's row is the default project's, the one its names were read for", async () => {
     const s = stores();
     s.setSecret(projectScope(defaultProject), 'ACME_API_KEY', false, 'sk-default-given-value');
     s.setSecret(tenantScope, 'SHOP_TOKEN', false, 'sk-shop-given-value');
@@ -641,7 +641,7 @@ describe('packEnvValues with secret values', () => {
     ]);
   });
 
-  test('a tenant with no Default project: its secret rows name no project', async () => {
+  test('a tenant with no default project: its secret rows name no project', async () => {
     const s = stores();
     s.setSecret(tenantScope, 'ACME_API_KEY', false, 'sk-acme-given-value');
     const deps: PackEnvDeps = {

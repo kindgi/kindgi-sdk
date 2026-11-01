@@ -35,7 +35,7 @@ export interface RunningApiServer {
    * Default project id for the boot tenant. Required for POST-body
    * primitive-registration routes. `kindgi dev`
    * threads this into `registerFromIndex` so scaffolded packs land
-   * under the tenant's Default project.
+   * under the tenant's default project.
    */
   readonly defaultProjectId: string;
   readonly token: string;
