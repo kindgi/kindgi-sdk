@@ -210,9 +210,9 @@ final class Kindgi_Admin {
 		);
 	}
 
-	/** The count as shown: "12", or "12+" when there may be more. */
+	/** The count as shown: "12", or "12+" when there may be more; never "0+". */
 	private static function count_text( ?array $count ): string {
-		return null === $count ? '0' : number_format_i18n( $count['n'] ) . ( $count['more'] ? '+' : '' );
+		return null === $count ? '0' : number_format_i18n( $count['n'] ) . ( $count['more'] && $count['n'] > 0 ? '+' : '' );
 	}
 
 	/** "2 wait for you", for a screen reader. */

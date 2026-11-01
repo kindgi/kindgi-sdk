@@ -54,17 +54,17 @@ final class Kindgi_Inbox {
 		$asked_by = is_string( $a['requestedBy'] ?? null ) ? $a['requestedBy'] : null;
 		$pending  = in_array( $a['status'] ?? null, self::WAITING, true );
 		$not_mine = $pending ? self::not_yours( $a, $me, $reviewer ) : null;
-		$words    = null === $tool ? array() : self::words_of( $ref['arguments'] ?? null );
+		$prose    = null === $tool ? array() : self::prose_of( $ref['arguments'] ?? null );
 		$summary  = self::summary( $a );
 		$card     = array(
 			'id'             => (string) ( $a['id'] ?? '' ),
 			'heading'        => self::heading( $a, $tool ),
-			// A summary that's one of the agent's own fields shows once, as its words.
-			'summary'        => in_array( $summary, array_column( $words, 'text' ), true ) ? '' : $summary,
+			// A summary that's one of the agent's own fields shows once, as its words (compared whole, before either is cut).
+			'summary'        => in_array( $summary, $prose, true ) ? '' : $summary,
 			// What would run, always shown: a title can leave a field out.
 			'facts'          => null === $tool ? array() : self::facts( $ref['arguments'] ?? null ),
 			// The agent's own words among them (a reason, a note): quoted, apart from the facts.
-			'words'          => $words,
+			'words'          => self::words_of( $ref['arguments'] ?? null, $prose ),
 			'status'         => (string) ( $a['status'] ?? '' ),
 			'createdAt'      => (string) ( $a['createdAt'] ?? '' ),
 			'expiresAt'      => is_string( $a['expiresAt'] ?? null ) ? $a['expiresAt'] : null,
@@ -244,20 +244,34 @@ final class Kindgi_Inbox {
 	 * A call's fields that are words someone wrote, the agent that asked:
 	 * a reason, a note to the customer. Shown as theirs, never as a fact.
 	 *
+	 * @param mixed                      $arguments The call's fields.
+	 * @param array<string, string>|null $prose     Its `prose_of`, when the caller has it.
 	 * @return array<int, array{label: string, text: string}>
 	 */
-	public static function words_of( $arguments ): array {
+	public static function words_of( $arguments, ?array $prose = null ): array {
 		$words = array();
-		foreach ( self::fields( $arguments ) as $key => $value ) {
-			if ( self::is_prose( $value ) ) {
-				$text    = trim( $value );
-				$words[] = array(
-					'label' => self::words( (string) $key ),
-					'text'  => mb_strlen( $text ) > self::VALUE_MAX ? mb_substr( $text, 0, self::VALUE_MAX - 1 ) . '…' : $text,
-				);
-			}
+		foreach ( $prose ?? self::prose_of( $arguments ) as $key => $text ) {
+			$words[] = array(
+				'label' => self::words( (string) $key ),
+				'text'  => self::cut( $text ),
+			);
 		}
 		return $words;
+	}
+
+	/**
+	 * The call's fields that are someone's words (`is_prose`), whole, by name.
+	 *
+	 * @return array<string, string>
+	 */
+	private static function prose_of( $arguments ): array {
+		$prose = array();
+		foreach ( self::fields( $arguments ) as $key => $value ) {
+			if ( self::is_prose( $value ) ) {
+				$prose[ (string) $key ] = trim( $value );
+			}
+		}
+		return $prose;
 	}
 
 	/**
@@ -302,6 +316,11 @@ final class Kindgi_Inbox {
 		} else {
 			$text = (string) wp_json_encode( $value );
 		}
+		return self::cut( $text );
+	}
+
+	/** A text cut to `VALUE_MAX` characters, the last an ellipsis. */
+	private static function cut( string $text ): string {
 		return mb_strlen( $text ) > self::VALUE_MAX ? mb_substr( $text, 0, self::VALUE_MAX - 1 ) . '…' : $text;
 	}
 

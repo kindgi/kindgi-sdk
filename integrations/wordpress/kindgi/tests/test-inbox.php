@@ -118,6 +118,23 @@ function test_inbox_the_tools_own_words_for_a_call_read_first(): void {
 	kindgi_assert_same( 'Large refund: 210 on order #18', $card['heading'], "the tool's title, filled in" );
 	kindgi_assert_same( '', $card['summary'], 'a summary that is the agent\'s reason shows once' );
 	kindgi_assert_same( 'Reason', $card['words'][0]['label'], 'as its words, quoted and theirs' );
+	$long = 'The customer wrote that both vases arrived broken. ' . str_repeat( 'The box was crushed on one side. ', 10 );
+	$card = Kindgi_Inbox::card(
+		kindgi_test_approval(
+			array(
+				'subjectRef' => array(
+					'toolId'    => 'acme-desk.woo.refund-large',
+					'arguments' => array( 'reason' => $long ),
+				),
+				'context'    => array( 'text' => array( 'summary' => $long ) ),
+			)
+		),
+		'u-me',
+		kindgi_test_reviewer(),
+		kindgi_test_names()
+	);
+	kindgi_assert_same( '', $card['summary'], 'a long reason that is also the summary shows once: compared whole, before the quote is cut' );
+	kindgi_assert_same( Kindgi_Inbox::VALUE_MAX, mb_strlen( $card['words'][0]['text'] ), 'the quote, cut' );
 	$own = kindgi_test_approval(
 		array(
 			'context' => array(

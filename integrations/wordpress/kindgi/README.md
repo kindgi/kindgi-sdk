@@ -66,11 +66,11 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
 
 ## Who sees the pages
 
-- **The pages need `manage_woocommerce` when WooCommerce is active** (shop managers and administrators), and `edit_others_posts` otherwise (editors and administrators). Authors, contributors and customers never see it. Change it with the `kindgi_capability` filter.
+- **The pages need `manage_woocommerce` when WooCommerce is active** (shop managers and administrators), and `edit_others_posts` otherwise (editors and administrators). Authors, contributors and customers never see them. Change it with the `kindgi_capability` filter.
 - **Kindgi decides the rest from the person's roles on this site.** A role the site wasn't registered to allow is refused there.
 - **The Inbox** shows everyone what waits for them and what waits for others. Approve and Reject show only for someone who may decide: their roles give a reviewer role, and they have a row on Kindgi's reviewer roster.
 - **Each person reads their own.** A conversation opens for the person it's with, and for an approval's reviewer through that approval. In **Activity**, someone else's run is one line: who, which agent, when and its state. A run no person started (a webhook, a schedule) shows what it found; with WooCommerce, only to someone who can edit orders.
-- **The count** of what waits for a person shows on the Kindgi menu and in the admin bar. It's asked of Kindgi at most once a minute, on the person's own session while they have one: a page load never signs anyone in.
+- **The count** of what waits for a person shows on the Kindgi menu and in the admin bar. It's asked of Kindgi at most once a minute, on the person's own session while they have one. The count never signs anyone in: only opening a Kindgi page does.
 - **Notification address:** each statement carries the person's email, for Kindgi's "an approval is waiting" mail only. Change it, or send none, with the `kindgi_statement_email` filter.
 - **A changed role counts at once.** The plugin tells Kindgi when a person's roles change, so what they get there follows. Losing every role the site allows ends their grants, reviewer role and sessions at Kindgi. The same roles back bring the same person back.
 - **When someone leaves, Kindgi is told, for good.** Deleting their user, removing them from the site (on a network), or erasing their data ends their grants, reviewer role and sessions at Kindgi, and Kindgi refuses them from then on.

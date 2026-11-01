@@ -225,7 +225,8 @@ About the Kindgi URL:
   (`?approval=<id>`).
 - **A count** of what waits for the person, on the Kindgi menu and in the
   admin bar. The plugin asks Kindgi at most once a minute, on the person's
-  own session while they have one: a page load never signs anyone in.
+  own session while they have one. The count never signs anyone in: only
+  opening a Kindgi page does.
 
 **Activity:**
 - **The project's runs,** newest first, one row each: which agent or flow,
