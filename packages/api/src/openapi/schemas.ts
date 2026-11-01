@@ -10367,6 +10367,7 @@ export const CorrectedComparisonSummarySchema: JsonSchema = {
       },
     },
     costUsd: { $ref: '#/components/schemas/CorrectedComparisonCost' },
+    unchecked: { $ref: '#/components/schemas/CorrectedComparisonUnchecked' },
   },
 };
 
@@ -10392,6 +10393,28 @@ export const CorrectedComparisonCostSchema: JsonSchema = {
       type: 'integer',
       minimum: 1,
       description: 'The cases whose every repetition reported a cost: the ones totalled.',
+    },
+  },
+};
+
+export const CorrectedComparisonUncheckedSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['cases', 'reasons'],
+  description:
+    "The cases whose `expect` couldn't be graded, so they add no check to `passRate`: when `passRate` has no value, this says why. Absent from a summary when every case's was graded, and from older servers.",
+  properties: {
+    cases: {
+      type: 'integer',
+      minimum: 1,
+      description: 'How many cases have an `unchecked` reason.',
+    },
+    reasons: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 5,
+      items: { type: 'string' },
+      description: "Their reasons, each once, in the cases' order: the first 5.",
     },
   },
 };
@@ -10581,6 +10604,11 @@ export const ComparisonCaseResultSchema: JsonSchema = {
       description:
         "What each repetition's replay cost in model calls, as the runtime reported it, in US dollars: one per repetition, with what checking its answer cost. Absent when a repetition reported none.",
       items: { type: 'number', minimum: 0 },
+    },
+    unchecked: {
+      type: 'string',
+      description:
+        "Why the case's `expect` couldn't be graded, so it has no entry in `corrections` and adds no check to `passRate`: the answer checker's reason (say, that the version's model settings name no model), or why it wasn't asked. Absent when it was graded, and from older servers.",
     },
     diverged: { type: 'boolean' },
     refusedWrites: {
@@ -17942,6 +17970,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ComparisonCandidate', ComparisonCandidateSchema],
   ['CorrectedComparisonSummary', CorrectedComparisonSummarySchema],
   ['CorrectedComparisonCost', CorrectedComparisonCostSchema],
+  ['CorrectedComparisonUnchecked', CorrectedComparisonUncheckedSchema],
   ['CallDifference', CallDifferenceSchema],
   ['ComparisonCaseResult', ComparisonCaseResultSchema],
   ['CorrectedComparisonResult', CorrectedComparisonResultSchema],

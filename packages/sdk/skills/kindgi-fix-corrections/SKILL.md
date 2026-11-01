@@ -15,7 +15,7 @@ description: >
   agent.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.0"
+version: "0.3.1"
 sdk_version: "0.0.0"
 pack_languages: [node, python, java, scala]
 sources:

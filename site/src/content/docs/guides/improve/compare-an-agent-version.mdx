@@ -453,10 +453,12 @@ answer fails, `why` has the judging model's reason:
   a check of its own.
 - **No pass.** A case that expects only `items` has no entry, and adds no
   check to `passRate`: its items count toward the metrics. Neither does a
-  case whose answer couldn't be checked, say because the version has no
-  model settings or the call to the judging model failed, or one that
-  expects `decisions: "right"` when the recorded run's tool calls can't be
-  read. A failed call doesn't stop the test run.
+  case whose answer couldn't be checked, say because the version's model
+  settings name no model or the call to the judging model failed, or one
+  that expects `decisions: "right"` when the recorded run's tool calls
+  can't be read. The case's `unchecked` says why, and the summary's
+  `unchecked` counts those cases and lists their reasons. A failed call
+  doesn't stop the test run.
 - **A repetition that errored or stopped** fails every part, and its answer
   isn't checked, nor any after it.
 

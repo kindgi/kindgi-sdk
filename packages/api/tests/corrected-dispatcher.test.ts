@@ -1327,6 +1327,9 @@ describe("a case's expect, graded", () => {
       answer: () => replayed('j-1', [call('acme.lookup')]),
     });
     expect(perCase[0]?.corrections).toBeUndefined();
+    expect(perCase[0]?.unchecked).toBe(
+      "The recorded run's tool calls can't be read, so its decisions can't be compared.",
+    );
   });
 
   test('answer wrong: the checker decides, and a failing answer says why', async () => {
@@ -1556,6 +1559,7 @@ describe("a case's expect, graded", () => {
     expect(error).toBe('cancelled');
     expect(answers.asked).toHaveLength(0);
     expect(perCase[0]?.corrections).toBeUndefined();
+    expect(perCase[0]?.unchecked).toBe('The test run was stopped before the answer was checked.');
   });
 
   test('no checker: a case that expects an answer has no pass, even when its decisions pass', async () => {
@@ -1566,11 +1570,16 @@ describe("a case's expect, graded", () => {
     });
     expect(perCase[0]?.corrections).toBeUndefined();
     expect(perCase[0]?.correctionDifferences).toBeUndefined();
+    expect(perCase[0]?.unchecked).toBe(
+      'This server has no answer checker, so no answer is checked.',
+    );
   });
 
-  test("a checker that can't check leaves the case with no pass", async () => {
-    const answers = checker({ kind: 'unchecked', reason: 'The version has no model settings.' });
-    const { perCase } = await compare({
+  test("a checker that can't check leaves the case with no pass, and its reason on the case and the summary", async () => {
+    const reason =
+      "Version 2.0.0 of agent acme.agent's model-settings block names no model to judge with.";
+    const answers = checker({ kind: 'unchecked', reason });
+    const { summary, perCase } = await compare({
       comparison: { ...DEFAULT_COMPARISON, repetitions: 2 },
       cases: [expecting(sayHowLong)],
       answers: answers.binding,
@@ -1578,6 +1587,45 @@ describe("a case's expect, graded", () => {
     });
     expect(answers.asked).toHaveLength(1);
     expect(perCase[0]?.corrections).toBeUndefined();
+    expect(perCase[0]?.unchecked).toBe(reason);
+    // Nothing was checked, so passRate has no value, and the summary says why.
+    expect(summary.metrics.passRate.candidate).toBeNull();
+    expect(summary.unchecked).toEqual({ cases: 1, reasons: [reason] });
+    expect(wireErrors({ summary, perCase })).toEqual([]);
+  });
+
+  test('the summary counts every case with no pass, and lists each reason once, five at most', async () => {
+    const reasons = ['r1', 'r1', 'r2', 'r3', 'r4', 'r5', 'r6'];
+    const cases = reasons.map((_, i) =>
+      expecting(sayHowLong, { caseId: `j-${i + 1}`, runId: `j-${i + 1}-run` }),
+    );
+    const { summary, perCase } = await compare({
+      comparison: once,
+      cases: [...cases, expecting(sayHowLong, { caseId: 'j-8', runId: 'j-8-run' })],
+      answers: {
+        check: async ({ caseId }) => {
+          const reason = reasons[Number(caseId.slice(2)) - 1];
+          return reason === undefined
+            ? { kind: 'checked', pass: true }
+            : { kind: 'unchecked', reason };
+        },
+      },
+      answer: () => replayed('j-1', []),
+    });
+    expect(perCase.map((r) => r.unchecked)).toEqual([...reasons, undefined]);
+    expect(summary.unchecked).toEqual({ cases: 7, reasons: ['r1', 'r2', 'r3', 'r4', 'r5'] });
+    expect(wireErrors({ summary, perCase })).toEqual([]);
+  });
+
+  test('a summary whose every case was graded has no unchecked', async () => {
+    const { summary, perCase } = await compare({
+      comparison: once,
+      cases: [expecting(sayHowLong)],
+      answers: checker().binding,
+      answer: () => replayed('j-1', []),
+    });
+    expect(perCase[0]?.unchecked).toBeUndefined();
+    expect(summary.unchecked).toBeUndefined();
   });
 
   test("a check whose reply couldn't be read leaves the case with no pass, and counts what its call cost", async () => {
@@ -1592,6 +1640,7 @@ describe("a case's expect, graded", () => {
       answer: () => replayed('j-1', [], 'Refunded $25.', { costUsd: 0.1 }),
     });
     expect(perCase[0]?.corrections).toBeUndefined();
+    expect(perCase[0]?.unchecked).toBe("The judging model's reply couldn't be read.");
     expect(perCase[0]?.costUsd?.[0]).toBeCloseTo(0.11, 10);
   });
 
@@ -1613,6 +1662,9 @@ describe("a case's expect, graded", () => {
     });
     expect(answers.asked).toHaveLength(0);
     expect(withExpect.perCase[0]?.corrections).toBeUndefined();
+    // Nothing it expects was left unchecked: it expects nothing of its decisions or answer.
+    expect(withExpect.perCase[0]?.unchecked).toBeUndefined();
+    expect(withExpect.summary.unchecked).toBeUndefined();
     expect(withExpect.summary.metrics).toEqual(without.summary.metrics);
   });
 
