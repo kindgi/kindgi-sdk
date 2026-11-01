@@ -648,7 +648,8 @@ const unsetCmd: LeafCommand = {
     if (ctx.options.tenant !== undefined) {
       return {
         kind: 'error',
-        stderr: '--tenant goes with --cloud-secret: an env value is removed in your own workspace.\n',
+        stderr:
+          '--tenant goes with --cloud-secret: an env value is removed in your own workspace.\n',
         exitCode: 2,
       };
     }
