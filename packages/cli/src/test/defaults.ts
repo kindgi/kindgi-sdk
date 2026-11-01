@@ -45,13 +45,17 @@ async function spawnRunner(opts: RunTestsOptions): Promise<RunTestsResult> {
     ? ['exec', 'vitest', ...opts.args]
     : ['--no-install', 'vitest', ...opts.args];
   const env = { ...process.env, ...opts.env } as NodeJS.ProcessEnv;
-  // The runner on PATH, never one in the pack's folder.
-  const file = await programPath(binary, env).catch(() => undefined);
-  if (file === undefined) {
+  // The runner on PATH, never one in the pack's folder. Its miss reads as
+  // the spawn's own error below would.
+  let file: string;
+  try {
+    file = await programPath(binary, env);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
     return {
       spawned: false,
       exitCode: 1,
-      reason: 'runner-binary-not-found',
+      reason: code === 'ENOENT' ? 'runner-binary-not-found' : 'runner-spawn-error',
       resolvedBinary: binary,
     };
   }

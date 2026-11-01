@@ -65,6 +65,37 @@ describe("searchPath on Windows: PATH's absolute entries only, never the folder 
     expect(asked).toEqual(['C:\\Git\\cmd\\git.com', 'C:\\Git\\cmd\\git.exe']);
   });
 
+  test('a name with an extension is asked about as given first; one ending in . takes .com and .exe without a second', async () => {
+    const system = lookupOn('win32', 'C:\\Windows;C:\\Windows\\System32', [
+      'C:\\Windows\\py.exe',
+      'C:\\Windows\\System32\\notepad.exe',
+    ]);
+    expect(await searchPath('notepad.exe', system.lookup)).toBe(
+      'C:\\Windows\\System32\\notepad.exe',
+    );
+    expect(await searchPath('py.exe', system.lookup)).toBe('C:\\Windows\\py.exe');
+    expect(system.asked).toEqual([
+      'C:\\Windows\\notepad.exe',
+      'C:\\Windows\\notepad.exe.com',
+      'C:\\Windows\\notepad.exe.exe',
+      'C:\\Windows\\System32\\notepad.exe',
+      'C:\\Windows\\py.exe',
+    ]);
+    const python = lookupOn('win32', 'C:\\Python', []);
+    expect(await searchPath('python3.12', python.lookup)).toBe(undefined);
+    expect(python.asked).toEqual([
+      'C:\\Python\\python3.12',
+      'C:\\Python\\python3.12.com',
+      'C:\\Python\\python3.12.exe',
+    ]);
+    const dotted = lookupOn('win32', 'C:\\bin', []);
+    expect(await searchPath('tool.', dotted.lookup)).toBe(undefined);
+    expect(dotted.asked).toEqual(['C:\\bin\\tool.com', 'C:\\bin\\tool.exe']);
+    const dot = lookupOn('win32', 'C:\\bin', ['C:\\bin\\.com']);
+    expect(await searchPath('.', dot.lookup)).toBe(undefined);
+    expect(dot.asked).toEqual([]);
+  });
+
   test('in each folder, <name>.com and then <name>.exe, as libuv tries them; the first folder wins', async () => {
     const { lookup } = lookupOn('win32', 'C:\\a;C:\\b', [
       'C:\\a\\git.exe',
@@ -328,6 +359,18 @@ const CALL =
   /(?:(?<![\w$])(?:[\w$]+\.)?(?:spawn|spawnSync|execFile|execFileSync|execSync|fork)|(?<![\w$.])exec)\(\s*['"`]/;
 const CHILD_PROCESS = /['"](?:node:)?child_process['"]/;
 const LOOKUP = /from '(?:\.\.?\/)+program-path\.js'/;
+/** A name a file gives a child_process function: `spawn as nodeSpawn`, `run = promisify(execFile)`. */
+const ALIAS =
+  /\b(?:spawn|spawnSync|execFile|execFileSync|execSync|exec|fork)\s+as\s+([\w$]+)|([\w$]+)\s*=\s*promisify\(\s*(?:[\w$]+\.)?(?:execFile|exec)\s*\)/g;
+
+/** Whether `text` starts a program by a literal name, by a function's own name or its alias. */
+function startsByName(text: string): boolean {
+  if (CALL.test(text)) return true;
+  return [...text.matchAll(ALIAS)].some((match) => {
+    const alias = (match[1] ?? match[2] ?? '').replaceAll('$', '\\$');
+    return new RegExp(`(?<![\\w$.])${alias}\\(\\s*['"\`]`).test(text);
+  });
+}
 
 /** Files that start children with no lookup, and why. */
 const NO_LOOKUP: Readonly<Record<string, string>> = {
@@ -356,6 +399,22 @@ describe('every child is started by the path found on PATH', () => {
     expect(CALL.test('spawn(file, args)')).toBe(false);
     expect(CALL.test("PATTERN.exec('text')")).toBe(false);
     expect(CALL.test("spawnOutcome('docker', args)")).toBe(false);
+    expect(
+      startsByName(
+        "import { spawn as nodeSpawn } from 'node:child_process';\nnodeSpawn('npx', args);",
+      ),
+    ).toBe(true);
+    expect(
+      startsByName("const run = promisify(cp.execFile);\nawait run(\n  'git', ['status']);"),
+    ).toBe(true);
+    expect(startsByName('const run = promisify(execFile);\nawait run(process.execPath, []);')).toBe(
+      false,
+    );
+    expect(
+      startsByName(
+        "import { spawn as nodeSpawn } from 'node:child_process';\nconst deps = { spawn: nodeSpawn };",
+      ),
+    ).toBe(false);
     expect(CHILD_PROCESS.test("import { spawn } from 'node:child_process';")).toBe(true);
     expect(LOOKUP.test("import { programPath } from '../../program-path.js';")).toBe(true);
   });
@@ -364,7 +423,7 @@ describe('every child is started by the path found on PATH', () => {
     '%s: no source starts a program by a literal name',
     async (pkg) => {
       const bare = (await sources(pkg))
-        .filter(({ text }) => CALL.test(text))
+        .filter(({ text }) => startsByName(text))
         .map(({ file }) => file);
       expect(bare).toEqual([]);
     },

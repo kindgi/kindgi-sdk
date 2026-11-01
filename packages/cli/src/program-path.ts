@@ -117,15 +117,29 @@ function absolute(platform: NodeJS.Platform, entry: string): boolean {
 }
 
 /**
+ * The names libuv tries for `name` in each folder on Windows: `name` as
+ * given when it has an extension (a `.` with something after it, as in
+ * `notepad.exe` or `python3.12`), then `<name>.com` and `<name>.exe`. A
+ * name that ends in `.` takes those without a second one. `.` and an empty
+ * name are never a program.
+ */
+function windowsNames(name: string): string[] {
+  if (name === '' || name === '.') return [];
+  const dot = name.indexOf('.');
+  const stem = name.endsWith('.') ? name : `${name}.`;
+  const given = dot !== -1 && dot < name.length - 1 ? [name] : [];
+  return [...given, `${stem}com`, `${stem}exe`];
+}
+
+/**
  * `name`'s absolute path: in the first absolute `PATH` entry that holds
- * it, as `<name>.com` and then `<name>.exe` on Windows (the names libuv
- * tries); `undefined` when none does. Empty and relative entries are
- * skipped.
+ * it, by the names libuv tries there on Windows ({@link windowsNames});
+ * `undefined` when none does. Empty and relative entries are skipped.
  */
 export async function searchPath(name: string, lookup: PathLookup): Promise<string | undefined> {
   if (lookup.path === undefined) return undefined;
   const join = lookup.platform === 'win32' ? path.win32.join : path.posix.join;
-  const names = lookup.platform === 'win32' ? [`${name}.com`, `${name}.exe`] : [name];
+  const names = lookup.platform === 'win32' ? windowsNames(name) : [name];
   for (const entry of pathEntries(lookup.platform, lookup.path)) {
     if (!absolute(lookup.platform, entry)) continue;
     for (const fileName of names) {

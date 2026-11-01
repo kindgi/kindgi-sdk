@@ -226,6 +226,15 @@ describe.skipIf(process.platform === 'win32')(
         reason: 'runner-binary-not-found',
         resolvedBinary: 'npx',
       });
+      // One on PATH it may not run: the spawn's EACCES, as before. (A PATH
+      // not asked about yet: a path found is kept for each PATH.)
+      await chmod(join(bin, 'npx'), 0o644);
+      expect(await run(bin)).toEqual({
+        spawned: false,
+        exitCode: 1,
+        reason: 'runner-spawn-error',
+        resolvedBinary: 'npx',
+      });
       expect(await marks()).toHaveLength(1);
     });
 
