@@ -460,6 +460,22 @@ project and mark what it fixes there, as on a deployed runtime.
   its test runs reopen what that version fails. An unpin is refused with
   `409 registry-read-only`. Commit the files before you pin, so
   `git diff` shows what a pin changed.
+- **Files git hasn't committed** are named before a pin writes over them:
+  the files it would write that are changed, staged, untracked or ignored,
+  or in a repository inside the pack's, such as a submodule.
+  `kindgi agents pin`, `kindgi suggested-changes pin` and
+  `kindgi agents pin --check` say so on stderr, and the pin's dialog shows
+  them under "Files git hasn't committed". When the pack isn't in a git
+  repository, they say that instead. The pin check
+  (`POST /v1/agents/{agentId}/pinned/check`) answers the files as
+  `uncommittedFiles`, paths in the pack's folder, or `notInGit: true`.
+  It's a warning: the pin still goes, and stdout, `--json` too, is its
+  answer as before. Nothing is said when the pin writes nothing, or when
+  git can't say, as when it isn't installed or doesn't answer in time. To
+  keep those changes in git, commit the files before the pin writes them:
+  before you pin, or, while the pin waits for your approval, before you
+  approve it. A pin that wrote over them keeps them as they were right
+  before it: pin the version before to bring them back.
 - **A block's file edited by hand without a new version,** at a version a
   pin wrote or wrote over, refuses the next pin the same way: `kindgi dev`
   keeps each of those versions as it was, for a pin of the version before
