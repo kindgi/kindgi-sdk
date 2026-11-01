@@ -378,7 +378,7 @@ async function planFor(
       files,
       held.kind,
       runs,
-      `Give the edits a version of their own and deploy it, or undo them (for edits git hasn't committed: \`git restore --staged --worktree -- ${files.map(shellWord).join(' ')}\`), then pull again.`,
+      `Give the edits a version of their own and deploy it, or undo them (for edits git hasn't committed: \`git checkout HEAD -- ${files.map(shellWord).join(' ')}\`), then pull again.`,
     ),
   };
 }

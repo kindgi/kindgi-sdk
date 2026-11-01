@@ -295,7 +295,7 @@ describe('kindgi blocks pull', () => {
             `${JSON.stringify({ ...tone, content: { template: 'Be short.' } }, null, 2)}\n`,
           );
         },
-        "blocks/tone.json holds acme.tone 1.0.0 with edits that aren't in the runtime's 1.0.0: pulling 1.2.0 would drop them. Give the edits a version of their own and deploy it, or undo them (for edits git hasn't committed: `git restore --staged --worktree -- blocks/tone.json`), then pull again.",
+        "blocks/tone.json holds acme.tone 1.0.0 with edits that aren't in the runtime's 1.0.0: pulling 1.2.0 would drop them. Give the edits a version of their own and deploy it, or undo them (for edits git hasn't committed: `git checkout HEAD -- blocks/tone.json`), then pull again.",
       ],
       [
         'an edited template file',
@@ -307,7 +307,7 @@ describe('kindgi blocks pull', () => {
             `${JSON.stringify({ ...tone, content: { templateFile: 'tone.liquid' } }, null, 2)}\n`,
           );
         },
-        "blocks/tone.json and its template blocks/tone.liquid hold acme.tone 1.0.0 with edits that aren't in the runtime's 1.0.0: pulling 1.2.0 would drop them. Give the edits a version of their own and deploy it, or undo them (for edits git hasn't committed: `git restore --staged --worktree -- blocks/tone.json blocks/tone.liquid`), then pull again.",
+        "blocks/tone.json and its template blocks/tone.liquid hold acme.tone 1.0.0 with edits that aren't in the runtime's 1.0.0: pulling 1.2.0 would drop them. Give the edits a version of their own and deploy it, or undo them (for edits git hasn't committed: `git checkout HEAD -- blocks/tone.json blocks/tone.liquid`), then pull again.",
       ],
       [
         "a version the runtime doesn't have",
