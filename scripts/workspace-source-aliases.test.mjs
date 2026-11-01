@@ -146,6 +146,20 @@ describe('workspace-source-aliases', () => {
     assert.equal(resolveWith(aliases, '@kindgi/lib/package.json'), undefined);
   });
 
+  test('an exports object of conditions only is the "." export', () => {
+    for (const exports of [
+      entry('./dist/index.js'),
+      { import: './dist/index.js', default: './dist/index.js' },
+    ]) {
+      const { dirOf: dirs } = workspace({
+        '@kindgi/app': { manifest: { exports }, sources: ['src/index.ts'] },
+      });
+      const sugar = workspaceSourceAliases(dirs('@kindgi/app'));
+      assert.equal(sugar.length, 1);
+      assert.equal(resolveWith(sugar, '@kindgi/app'), join(dirs('@kindgi/app'), 'src/index.ts'));
+    }
+  });
+
   test('a ./dist/ export with no source file throws, naming the package and the export', () => {
     const { dirOf: dirs } = workspace({
       '@kindgi/app': {

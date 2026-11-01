@@ -21,7 +21,9 @@
  *
  * Which entries: each export whose target is `./dist/<path>.js` gets an
  * alias for exactly its specifier (`@kindgi/api` never matches
- * `@kindgi/api/testing`), replaced by `<package>/src/<path>.ts`. An export
+ * `@kindgi/api/testing`), replaced by `<package>/src/<path>.ts`. An
+ * `exports` string, or an object of conditions only, is the `.` export, as
+ * in Node. An export
  * with no `./dist/` target (a committed `./openapi.json`, `./schemas/*`)
  * has no alias and resolves as it always does. These throw, naming the
  * package and the export, so nothing loads `dist/` without saying so:
@@ -95,8 +97,12 @@ function exportAliases(dir, manifest) {
     checkEntryPointsOutsideDist(manifest);
     return [];
   }
+  const { exports } = manifest;
+  // A string, or an object with no `.` key (conditions only), is Node's shorthand for `.`.
   const entries =
-    typeof manifest.exports === 'string' ? { '.': manifest.exports } : manifest.exports;
+    typeof exports === 'string' || !Object.keys(exports).some((key) => key.startsWith('.'))
+      ? { '.': exports }
+      : exports;
   return Object.entries(entries).flatMap(([subpath, target]) => {
     const name = `${manifest.name}${subpath === '.' ? '' : subpath.slice(1)}`;
     return exportAlias(dir, name, subpath, target);
