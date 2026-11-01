@@ -367,9 +367,8 @@ doesn't fail. It's left for the run's next resume:
 - **The run stays `running`.** Steps running beside it finish first.
 - **The run is resumed once its lease runs out,** 5 minutes by default
   ([If the runtime stops](../../../concepts/runs/#if-the-runtime-stops)),
-  and the step runs again. A step in a loop, a fan-out or a subflow is left
-  with the whole loop, fan-out or subflow step, and the resume replays from
-  the journal what had finished.
+  and the step runs again. A step in a loop is left with the whole loop step,
+  and the resume replays from the journal what had finished.
 - **The runtime logs it at `WARN`:**
   `flow run <run-id>'s step "<node-id>" was left for the run's next resume: the release gate couldn't be read`,
   naming the read.
