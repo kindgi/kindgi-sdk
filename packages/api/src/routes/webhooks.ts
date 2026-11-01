@@ -19,6 +19,7 @@ import type {
   WebhookSignatureScheme,
 } from '@kindgi/types';
 
+import { labelOrNull, patchedField } from '../bounded-text.js';
 import { callerIdentity, callerRef } from '../caller.js';
 import { sameJson } from '../canonical-json.js';
 import { statusFor, toWireError } from '../errors.js';
@@ -329,6 +330,8 @@ export function webhooksRouter(
     if (delivery.kind === 'err') return bad(c, requestId, delivery.message);
     const tools = parseToolsAllowedUnattended(body);
     if (tools.kind === 'err') return bad(c, requestId, tools.message);
+    const label = labelOrNull(body.label ?? null);
+    if (label.problem !== undefined) return bad(c, requestId, label.problem);
     // A name the store can't write, refused before anything is stored: the
     // trigger goes in before the secret it generates.
     const unwritable = generate ? nameRefused(c, hmacSecretName.value) : undefined;
@@ -428,7 +431,7 @@ export function webhooksRouter(
       hmacSecretName: hmacSecretName.value,
       ...(hmacSecretScope !== undefined && { hmacSecretScope }),
       ...withoutNulls(delivery.value),
-      ...(typeof body.label === 'string' && body.label.length > 0 && { label: body.label }),
+      ...(label.value !== null && { label: label.value }),
       ...(tools.kind === 'ok' && tools.value.length > 0 && { toolsAllowedUnattended: tools.value }),
     };
 
@@ -599,6 +602,9 @@ export function webhooksRouter(
 
     const found = await webhookFor(c, 'write');
     if (found.kind === 'err') return found.response;
+    // As create checks it, against the webhook just read.
+    const label = await patchedField(body.label, labelOrNull, async () => found.value.label);
+    if (label.kind === 'refused') return bad(c, requestId, label.problem);
     const notOwners = await personalTriggerRefusal(
       c,
       authorizer,
@@ -691,7 +697,7 @@ export function webhooksRouter(
       by: callerIdentity(c),
       ...(hmacSecretScope !== undefined && { hmacSecretScope }),
       ...(Object.keys(cfg).length > 0 && { config: cfg }),
-      ...('label' in body && { label: body.label === null ? null : (body.label as string) }),
+      ...(label.kind === 'write' && { label: label.value }),
       ...(typeof body.flowVersion === 'string' && { flowVersion: body.flowVersion }),
       ...(typeof body.hmacSecretName === 'string' && { hmacSecretName: body.hmacSecretName }),
       ...delivery.value,

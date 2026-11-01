@@ -50,11 +50,11 @@ export function boundedText(raw: unknown, field: string, max: number): Checked<s
 }
 
 /**
- * An optional label: absent is `undefined`, `null` is no label (an update's
- * way to clear one), and anything else is checked as {@link boundedText}.
+ * A trigger's label: `null` is no label (an update's way to clear one), and
+ * anything else is checked as {@link boundedText}, at most {@link LABEL_MAX}.
  */
-export function optionalLabel(raw: unknown, field = 'label'): Checked<string | null | undefined> {
-  if (raw === undefined || raw === null) return { value: raw };
+export function labelOrNull(raw: unknown, field = 'label'): Checked<string | null> {
+  if (raw === null) return { value: null };
   return boundedText(raw, field, LABEL_MAX);
 }
 

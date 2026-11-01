@@ -7,6 +7,7 @@ import { Hono } from 'hono';
 import { ref } from '@kindgi/authz';
 import type { ApiTokenId, ProjectId, TenantId } from '@kindgi/types';
 
+import { LABEL_MAX, boundedText } from '../bounded-text.js';
 import { callerPrincipal, callerRef, isTenantAdmin, principalToWire } from '../caller.js';
 
 import { statusFor, toWireError } from '../errors.js';
@@ -465,8 +466,9 @@ function parseMintBody(body: unknown): Parsed<ParsedMintBody> {
   };
 
   if (b.label !== undefined) {
-    if (typeof b.label !== 'string') return badInput('`label` must be a string');
-    out.label = b.label;
+    const label = boundedText(b.label, 'label', LABEL_MAX);
+    if (label.problem !== undefined) return badInput(label.problem);
+    out.label = label.value;
   }
   if (b.expiresAt !== undefined) {
     const expiresAt = parseExpiresAt(b.expiresAt);

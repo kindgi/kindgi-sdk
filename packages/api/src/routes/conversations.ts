@@ -16,6 +16,7 @@ import type { RunBinding } from '@kindgi/runtime';
 import type { AgentId, ProjectId, Semver, TenantId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
+import { TITLE_MAX, atMostCodePoints } from '../bounded-text.js';
 import { callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, runIn } from '../item-rights.js';
@@ -661,14 +662,21 @@ function parseOpenBody(
     };
   }
   const titleRaw = b.title;
-  if (titleRaw !== undefined && typeof titleRaw !== 'string') {
+  if (
+    titleRaw !== undefined &&
+    (typeof titleRaw !== 'string' || !atMostCodePoints(titleRaw, TITLE_MAX))
+  ) {
     return {
       kind: 'err',
-      error: { code: 'bad-input', message: '`title` must be a string when supplied' },
+      error: {
+        code: 'bad-input',
+        message: `\`title\` must be a string of at most ${TITLE_MAX} characters when supplied`,
+      },
     };
   }
-  // Default title when omitted — the underlying runtime rejects blanks.
-  // Callers who want a first-turn auto-title supply that themselves.
+  // Default title when omitted or blank — the underlying runtime rejects blanks.
+  // Callers who want a first-turn auto-title supply that themselves, of at
+  // most 200 code points.
   const title =
     titleRaw !== undefined && titleRaw.trim().length > 0 ? titleRaw : 'Untitled conversation';
 

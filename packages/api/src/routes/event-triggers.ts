@@ -6,6 +6,7 @@ import type { Context } from 'hono';
 
 import type { Cursor, TenantId, TriggerId } from '@kindgi/types';
 
+import { labelOrNull, patchedField } from '../bounded-text.js';
 import { callerIdentity } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { ItemRights } from '../item-rights.js';
@@ -57,6 +58,8 @@ export function eventTriggersRouter(
     if (flowId.kind === 'err') return bad(c, requestId, flowId.message);
     if (flowVersion.kind === 'err') return bad(c, requestId, flowVersion.message);
     if (eventKind.kind === 'err') return bad(c, requestId, eventKind.message);
+    const label = labelOrNull(body.label ?? null);
+    if (label.problem !== undefined) return bad(c, requestId, label.problem);
 
     const refused = await access.onRegister(c, flowId.value);
     if (refused !== undefined) return refused;
@@ -72,7 +75,7 @@ export function eventTriggersRouter(
         eventKind: eventKind.value,
         ...('input' in rawConfig && { input: rawConfig.input }),
       },
-      ...(typeof body.label === 'string' && body.label.length > 0 && { label: body.label }),
+      ...(label.value !== null && { label: label.value }),
     };
 
     const result = await binding.register(registerInput);
@@ -125,6 +128,12 @@ export function eventTriggersRouter(
     return c.json(serializeEventTrigger(rec));
   });
 
+  /** The event trigger's label as stored, for an update sent it unchanged. */
+  async function storedLabel(tenantId: TenantId, triggerId: TriggerId): Promise<unknown> {
+    const rec = await binding.get({ tenantId, triggerId });
+    return rec?.kind === 'event' ? rec.label : undefined;
+  }
+
   /** The event trigger, when the caller may read it; else the answer. */
   async function readable(c: Context<AppEnv>): Promise<TriggerId | Response> {
     const triggerId = c.req.param('triggerId') as TriggerId;
@@ -164,6 +173,12 @@ export function eventTriggersRouter(
     if (parsed.kind === 'err') return parsed.response;
     const body = parsed.value;
 
+    // As create checks it; the trigger is read only when a sent label fails.
+    const label = await patchedField(body.label, labelOrNull, () =>
+      storedLabel(tenantId, triggerId),
+    );
+    if (label.kind === 'refused') return bad(c, requestId, label.problem);
+
     const patchConfig = body.config as Record<string, unknown> | undefined;
     const cfg: Partial<{ eventKind: string; input: unknown }> = {};
     if (patchConfig !== undefined) {
@@ -177,7 +192,7 @@ export function eventTriggersRouter(
       triggerId,
       by: callerIdentity(c),
       ...(Object.keys(cfg).length > 0 && { config: cfg }),
-      ...('label' in body && { label: body.label === null ? null : (body.label as string) }),
+      ...(label.kind === 'write' && { label: label.value }),
       ...(typeof body.flowVersion === 'string' && { flowVersion: body.flowVersion }),
     };
 
