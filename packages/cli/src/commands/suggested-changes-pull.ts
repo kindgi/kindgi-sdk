@@ -17,11 +17,9 @@
  */
 
 import { spawn } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
 
 import { KindgiApiError, type KindgiClient, type SuggestedChange } from '@kindgi/client';
-import { type IndexedBlock, writePackBlock } from '@kindgi/handler-runtime';
+import { type IndexedBlock, packBlockFiles, writePackBlock } from '@kindgi/handler-runtime';
 import semver from 'semver';
 
 import { stableStringify } from '../build/envelope.js';
@@ -119,8 +117,10 @@ async function pullOf(
       `${block.modulePath} holds ${block.id} ${block.version}, newer than the ${change.from} the suggested change is built on: pulling it would drop ${block.version}'s edits. Make the change again on what the pack holds.`,
     );
   }
-  const template = await templateFileOf(packDir, block);
-  const files = template === undefined ? [block.modulePath] : [block.modulePath, template];
+  const files = [
+    block.modulePath,
+    ...(await packBlockFiles(packDir, pattern, [block.id])).filter((f) => f !== block.modulePath),
+  ];
   const pull = { blockId: block.id, to: change.to, block, files };
   if (semver.lt(block.version, change.from)) return pull;
   return { ...pull, expected: await unchangedSince(client, pull, change.from) };
@@ -146,18 +146,6 @@ async function unchangedSince(
     );
   }
   return expected;
-}
-
-/** A prompt's template file, where `readPackBlocks` reads it: relative to its block's file. */
-async function templateFileOf(packDir: string, block: IndexedBlock): Promise<string | undefined> {
-  if (block.kind !== 'prompt') return undefined;
-  const raw = JSON.parse(await readFile(path.join(packDir, block.modulePath), 'utf8')) as {
-    readonly content?: { readonly templateFile?: unknown };
-  };
-  const file = raw.content?.templateFile;
-  return typeof file === 'string'
-    ? path.posix.normalize(path.posix.join(path.posix.dirname(block.modulePath), file))
-    : undefined;
 }
 
 /** Each version written into its file, in order, into `wrote`: what's written when a later one fails. */
