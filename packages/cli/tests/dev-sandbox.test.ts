@@ -17,7 +17,12 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { runIndexerReadReal } from '../src/dev/defaults.js';
 import type { PackCode } from '../src/dev/pack-code.js';
-import { BWRAP_WRAPPER_PROGRAMS, appSecrets, bwrapArgs } from '../src/dev/sandbox/bwrap.js';
+import {
+  BWRAP_WRAPPER,
+  BWRAP_WRAPPER_PROGRAMS,
+  appSecrets,
+  bwrapArgs,
+} from '../src/dev/sandbox/bwrap.js';
 import { type ProbeResult, detectDevSandbox } from '../src/dev/sandbox/detect.js';
 import { sandboxedCommand } from '../src/dev/sandbox/index.js';
 import { kindgiConfigFiles, resolveDevSandbox } from '../src/dev/sandbox/notices.js';
@@ -644,6 +649,10 @@ describe.skipIf(process.platform === 'win32')(
       for (const file of paths) expect(file !== undefined && isAbsolute(file), file).toBe(true);
       expect(paths[1]).toBe(join(bin, 'bwrap'));
       expect(command.slice(0, 6)).toEqual([paths[0], wrapper(), ...paths.slice(1)]);
+      // The wrapper reads those paths in the same order.
+      expect(BWRAP_WRAPPER).toContain(
+        BWRAP_WRAPPER_PROGRAMS.map((name, i) => `${name}=$${i + 1}`).join(' '),
+      );
       expect(command.slice(-COMMAND.length)).toEqual([...COMMAND]);
     });
 
