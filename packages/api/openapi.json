@@ -53406,7 +53406,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "The tenant's purge is running, so nothing was swept (`tenant-closing`, with `details.tenantId`); or an Idempotency-Key reused with another body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -53436,7 +53436,7 @@
             }
           }
         },
-        "description": "Purges, for good, every tombstoned row past its grace (or only `domain`'s): the grace of the retention policy that covers its domain, or this server's limit for the domain when no policy covers it or the policy keeps rows longer (`limitApplied`), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows, unless the domain has a limit. Idempotent: a second call purges nothing new. Requires `admin` on the tenant.",
+        "description": "Purges, for good, every tombstoned row past its grace (or only `domain`'s): the grace of the retention policy that covers its domain, or this server's limit for the domain when no policy covers it or the policy keeps rows longer (`limitApplied`), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows, unless the domain has a limit. Idempotent: a second call purges nothing new. While the tenant's purge runs, nothing is swept (`409 tenant-closing`): the purge deletes its rows itself. Requires `admin` on the tenant.",
         "requestBody": {
           "required": false,
           "content": {
@@ -53503,7 +53503,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "The tenant's purge is running, so nothing was swept (`tenant-closing`, with `details.tenantId`); or an Idempotency-Key reused with another body.",
             "content": {
               "application/json": {
                 "schema": {

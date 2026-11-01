@@ -29,6 +29,8 @@ export interface RetentionClient {
    * Purge, for good, the tombstoned rows past their policy's grace: in
    * every domain, or only `domain`. At most `maxPerDomain` per domain
    * per call (default 500); `remaining` counts the rest. Idempotent.
+   * Rejects with `409 tenant-closing`, and sweeps nothing, while the
+   * tenant's purge runs.
    *
    * @wire `POST /v1/retention/sweep`, or with `domain`
    *   `POST /v1/retention/sweep/{domain}` — see

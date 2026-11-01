@@ -27,9 +27,11 @@ export interface RetentionBinding {
   /**
    * Trigger a sweep across every domain (or `domain` if provided).
    * Idempotent — a second call after a successful sweep returns
-   * `purged: 0` per domain.
+   * `purged: 0` per domain. While the tenant's purge runs, a runtime that
+   * keeps sweeps off it answers `RetentionSweepRefused` and sweeps
+   * nothing: the purge deletes the tenant's rows itself.
    */
-  sweep(input: RetentionSweepInput): Promise<RetentionSweepResult>;
+  sweep(input: RetentionSweepInput): Promise<RetentionSweepResult | RetentionSweepRefused>;
 }
 
 export interface RetentionScheduledInput {
@@ -128,4 +130,12 @@ export interface RetentionSweepResult {
   readonly totalPurged: number;
   /** Domains more than one retention policy covers (see `RetentionPolicyConflict`). */
   readonly conflicts?: readonly RetentionPolicyConflict[];
+}
+
+/**
+ * A sweep that didn't run: the tenant's purge is running
+ * (`tenant-purging`). The sweep routes answer it with `409 tenant-closing`.
+ */
+export interface RetentionSweepRefused {
+  readonly refused: 'tenant-purging';
 }

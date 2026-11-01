@@ -1464,5 +1464,6 @@ export type {
   RetentionScheduledItem,
   RetentionScheduledPage,
   RetentionSweepInput,
+  RetentionSweepRefused,
   RetentionSweepResult,
 } from './retention-binding.js';

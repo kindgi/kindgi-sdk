@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 
 import { ref } from '@kindgi/authz';
 import { RETENTION_DOMAINS, type RetentionDomain } from '@kindgi/policy-contract';
@@ -22,6 +22,9 @@ import { clampLimit } from './pagination.js';
  *                                         sweep would purge now)
  *   - `POST /v1/retention/sweep`          "purge every past-grace tombstone in this tenant"
  *   - `POST /v1/retention/sweep/:domain`  same but narrowed to one domain
+ *
+ * While the tenant's purge runs, both sweeps answer `409 tenant-closing`
+ * and sweep nothing (`RetentionSweepRefused`).
  *
  * PEP: reads and writes both require `admin` on `tenant:<tenantId>`,
  * matching how the other tenant-scoped admin knobs gate.
@@ -110,6 +113,7 @@ export function retentionRouter(binding: RetentionBinding, authorizer?: Authoriz
       ...(parsed.value.domain !== undefined && { domain: parsed.value.domain }),
       ...(parsed.value.maxPerDomain !== undefined && { maxPerDomain: parsed.value.maxPerDomain }),
     });
+    if ('refused' in result) return purging(c, tenantId);
     return c.json(result);
   });
 
@@ -153,10 +157,28 @@ export function retentionRouter(binding: RetentionBinding, authorizer?: Authoriz
       domain,
       ...(parsed.value.maxPerDomain !== undefined && { maxPerDomain: parsed.value.maxPerDomain }),
     });
+    if ('refused' in result) return purging(c, tenantId);
     return c.json(result);
   });
 
   return r;
+}
+
+/** A sweep refused while the tenant's purge runs: nothing was swept. */
+function purging(c: Context<AppEnv>, tenantId: TenantId): Response {
+  const id = tenantId as unknown as string;
+  c.status(statusFor('tenant-closing') as never);
+  // `toWireError` puts every field besides code and message under `details`.
+  return c.json(
+    toWireError(
+      {
+        code: 'tenant-closing',
+        message: `Tenant ${id}'s purge is running, so nothing was swept.`,
+        tenantId: id,
+      },
+      c.get('requestId'),
+    ),
+  );
 }
 
 /**

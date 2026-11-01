@@ -578,9 +578,13 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants/$TENANT_ID/purge" \
   went (`authzStoreDeleted`).
 - **One purge of a tenant runs at a time,** through this route or with
   `kindgi-runtime tenants purge`: a second waits for the first to finish,
-  then runs. Every 30 seconds of waiting, the server logs
-  `tenant purge: waiting for another purge of the tenant to finish`, with
-  `tenantId` and `waitedSeconds`, under the
+  then runs. From runtime `<x>`, it also waits for a
+  [retention sweep](../../retention/) over the tenant to finish, and no
+  sweep starts while it runs: `POST /v1/retention/sweep` answers
+  `409 tenant-closing`, and a scheduled round skips the tenant. Every 30
+  seconds of waiting, the server logs
+  `tenant purge: waiting for another purge of the tenant, or a sweep over it, to finish`,
+  with `tenantId` and `waitedSeconds`, under the
   [subsystem](../logs/#the-subsystems) `tenants.purge`.
 - **`complete: true`:** nothing of it is left, its record is written, and
   it's marked purged at `purgedAt`. **`complete: false`:** `left` and
@@ -656,11 +660,12 @@ tenants purge: tenant 1ccae8e9-3dc8-4db9-b393-ba3d44e7f86e (acme-shop)
   each purge, `purged/<tenant id>.json` under it. After a restore,
   [`tenants repurge`](#after-a-restore-tenants-repurge) reads them.
 - **One purge of a tenant runs at a time** (runtime 0.1.10 or later): a
-  second, here or through the system API, waits for the first to finish.
+  second, here or through the system API, waits for the first to finish,
+  and from runtime `<x>` for a retention sweep over the tenant too.
   Every 30 seconds of waiting it says
-  `tenants purge: waiting for another purge of tenant <id> to finish (30 s so far)`
+  `tenants purge: waiting for another purge of tenant <id>, or a sweep over it, to finish (30 s so far)`
   on stderr. `tenants repurge` waits the same way, tenant by tenant:
-  `tenant <id>: waiting for another purge of it to finish (30 s so far)`.
+  `tenant <id>: waiting for another purge of it, or a sweep over it, to finish (30 s so far)`.
 
 ### After a restore: tenants repurge
 

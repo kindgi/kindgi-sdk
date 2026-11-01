@@ -1702,6 +1702,11 @@ const ProviderChangeRefused: ResponseSpec = ErrorResponse(
   `Not a tenant admin (\`permission-denied\`). ${WITHOUT_STORE_ADMIN} Or this deployment's operator manages sign-in (\`identity-providers-operator-managed\`, \`KINDGI_AUTH_TENANT_PROVIDERS=off\`): only the deployment's own token can change its providers.`,
 );
 
+/** A sweep while the tenant's purge runs (`RetentionSweepRefused`). */
+const SweepWhilePurging: ResponseSpec = ErrorResponse(
+  "The tenant's purge is running, so nothing was swept (`tenant-closing`, with `details.tenantId`); or an Idempotency-Key reused with another body.",
+);
+
 /**
  * Reads that never reach the storage backend, so they can't answer
  * `503 database-busy`: the liveness probe (`GET /health`) and the spec
@@ -6987,7 +6992,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'retention.sweep',
     summary: 'Purge the deleted rows past their grace',
     description:
-      "Purges, for good, every tombstoned row past its grace (or only `domain`'s): the grace of the retention policy that covers its domain, or this server's limit for the domain when no policy covers it or the policy keeps rows longer (`limitApplied`), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows, unless the domain has a limit. Idempotent: a second call purges nothing new. Requires `admin` on the tenant.",
+      "Purges, for good, every tombstoned row past its grace (or only `domain`'s): the grace of the retention policy that covers its domain, or this server's limit for the domain when no policy covers it or the policy keeps rows longer (`limitApplied`), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows, unless the domain has a limit. Idempotent: a second call purges nothing new. While the tenant's purge runs, nothing is swept (`409 tenant-closing`): the purge deletes its rows itself. Requires `admin` on the tenant.",
     tags: ['retention'],
     security: 'bearer',
     requestBody: { required: false, schema: ref('RetentionSweepBody') },
@@ -6996,6 +7001,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '403': ErrorResponse('Not a tenant admin.'),
       '400': ErrorResponse('Unknown `domain`, or `maxPerDomain` outside 1..10000.'),
+      '409': SweepWhilePurging,
     },
   },
   {
@@ -7014,6 +7020,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '403': ErrorResponse('Not a tenant admin.'),
       '400': ErrorResponse('Unknown `domain` (or `*`), or `maxPerDomain` outside 1..10000.'),
+      '409': SweepWhilePurging,
     },
   },
 

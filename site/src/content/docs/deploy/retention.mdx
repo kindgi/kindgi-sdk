@@ -454,6 +454,10 @@ purged:
   counts in that domain's `remaining`, and the next sweep tries it again. Its
   `retention:purge` audit event says `outcome: failed`, with the error in
   `evidence.error`.
+- **A tenant being purged isn't swept** (runtime `<x>` or later). While
+  its purge runs, a sweep answers `409 tenant-closing`, naming the tenant
+  in `details.tenantId`, and purges nothing: the purge deletes the
+  tenant's rows itself.
 
 ### Sweep on a schedule
 
@@ -468,6 +472,12 @@ due is left. However many replicas you run, one of them runs each round.
   that runs out of time, or meets a tenant whose sweep fails, stays due,
   and the next check goes on with it. A failed tenant is logged and
   skipped, never the end of the round.
+- **A tenant whose purge is running is skipped** (runtime `<x>` or later),
+  and doesn't keep the round due: the purge deletes what the round would
+  have. It logs `tenant <id>: skipped, its purge is running`.
+- **A round whose purge guard fails stops there and stays due** (runtime
+  `<x>` or later). The guard is how the runtime tells whether a tenant's
+  purge is running. Its warning names the tenant the round stopped at.
 
 The startup log says which way it runs, and the limit for runs when
 there is one:

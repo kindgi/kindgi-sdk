@@ -146,3 +146,27 @@ describe("the server's retention limit decides a row's grace (`limitApplied`)", 
     });
   });
 });
+
+describe("a sweep while the tenant's purge runs", () => {
+  test('both sweep routes answer 409 tenant-closing, naming the tenant', async () => {
+    const retention: RetentionBinding = {
+      scheduled: async () => ({ data: [], domainsMissingAdapter: [], unpolicedDomains: [] }),
+      sweep: async () => ({ refused: 'tenant-purging' }),
+    };
+    const app = createApp({ ...createStubAppBindings(), resolveToken, runHandler, retention });
+    for (const path of ['/v1/retention/sweep', '/v1/retention/sweep/run']) {
+      const res = await app.request(path, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: '',
+      });
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error: Record<string, unknown> };
+      expect(body.error).toMatchObject({
+        code: 'tenant-closing',
+        message: `Tenant ${tenantId}'s purge is running, so nothing was swept.`,
+        details: { tenantId },
+      });
+    }
+  });
+});
