@@ -1,6 +1,6 @@
 ---
 title: Corrections reference
-description: Corrections and what they say, their status and sorting, corrector groups and restrictions, queue rules, the answers waiting for a correction, rule results, and the console's Quality section.
+description: Corrections and what they say, their status and sorting, corrector groups and restrictions, queue rules, the answers waiting for a correction, rule results, and the console's Corrections section.
 sidebar:
   order: 1.5
 ---
@@ -8,7 +8,7 @@ sidebar:
 This page lists everything about correcting runs: what a correction holds,
 where it goes until it's fixed, how corrector groups weigh it, what queue rules match, what the answers
 waiting for a correction hold, how a rule's results count, and what the
-console's Quality section shows. To correct a run, follow
+console's Corrections section shows. To correct a run, follow
 [Correct a run's output](../correct-a-runs-output/).
 
 ## Corrections
@@ -398,16 +398,18 @@ dismissed. The fourth was never corrected. So `corrections` is 4,
 
 ## In the console
 
-A project's **Quality** section is the answers waiting for a correction and
-the queue rules in the console. Its header says what it holds: "Answers
-waiting for a correction, where each corrected one stands, and the queue
-rules that pick them." The section has five tabs: **To correct**, **Rules**, **Trends**,
-**Corrector groups** and **Suggested changes**. Their tables sort by a
+**Corrections**, in the menu's Improve group, is a project's corrections
+and the runs waiting for one. Its header says what it holds: "Runs waiting
+for a person to review them, every correction not fixed yet and who fixes
+it, and who corrects." The section has five tabs: **To review**, **To
+fix**, **Who corrects**, **Rules** and **Trends**. Their tables sort by a
 column's header, and **Columns** chooses which columns each shows. The tab,
 the filters and each table's view go in the page's address, such as
-`?tab=rules`, so a link opens the same view.
+`?tab=rules`, so a link opens the same view. An agent's own corrections,
+test set and suggested changes are tabs on its page, as
+[Improve an agent](../improve-an-agent/#in-the-console) shows.
 
-### To correct
+### To review
 
 ![The Quality section's To correct tab, showing Waiting and For me: the Show and Whose filters, "2 more wait for other judges.", the Columns menu, and three runs of Dev-Echo Agent 1.0.0 queued by the Everything and Support sample rules, each needing an expert correction, with a Dismiss icon.](../../../../assets/quality/quality-waiting.png)
 
@@ -427,6 +429,22 @@ and by agent. **Dismiss** takes a run out of the queue with a reason, and
 
 ![The To correct tab filtered to Dismissed and Everyone's: a run of Dev-Echo Agent 1.0.0 queued by the Everything and Support sample rules, "Dismissed by you 24 Oct 2026, 9:02 PM EDT: A test order", with a Reopen icon.](../../../../assets/quality/quality-dismissed.png)
 
+### To fix
+
+**To fix** lists the project's corrections that aren't fixed yet, in one
+part for each who fixes them, and leaves out a part with none:
+
+- **Not sorted yet:** "end users' corrections, until someone hands each one
+  on."
+- **A developer:** "fixes it in the pack's code or files."
+- **The owner:** "decides the agent's rules and tools."
+- **Improve:** "tries new wording or settings on the test set. Run it from
+  the agent's Suggested changes tab."
+
+Each row names its agent or flow, which links that one's **Corrections**
+tab, and **Hand it to…** changes who fixes it. With none left: "Nothing to
+fix: every correction here is Fixed, Won't fix or Removed."
+
 ### Rules
 
 ![The Rules tab: New rule, a search box and the Columns menu, and the Support sample, Everything and Bot review rules, each with which runs it takes, what it wants, its cap, its open items, and History, Change and Remove icons.](../../../../assets/quality/quality-rules.png)
@@ -438,7 +456,7 @@ Each rule is in words:
 - **What it wants:** "An expert correction", "Any correction" or "A bot
   correction".
 - **Its cap:** "No cap", or no new items while that many are open.
-- **What it has open now:** for example "3 open", linking **To correct**, filtered to the rule.
+- **What it has open now:** for example "3 open", linking **To review**, filtered to the rule.
 
 A rule matches an agent's or a flow's own runs, not an agent's turns as a
 flow's step. Replays never match.
@@ -480,11 +498,12 @@ last 90 or 30 days. These are [a rule's results](#a-rules-results):
 
 ![A rule's trend after the rule changed, now at rule version 2: "Too few corrections to chart yet: a version shows from 10 corrections.", 1.2.0 with too few corrections to say (0 so far), the one matched run the cap kept out, and rule version 1 shown apart, never added in.](../../../../assets/quality/quality-trends-changed.png)
 
-### Corrector groups
+### Who corrects
 
 ![The Corrector groups tab: New class, the Columns menu, and two classes, both Restricted. The expert class "Counts 3× an unclassified one", applies to this project, may be given only by people and is wanted by the Echo half and Support sample rules; the bot class counts the same, only services, and no rule wants it. Below: "A share weights each correction by its class."](../../../../assets/quality/quality-classes.png)
 
-Each [corrector group](#corrector-groups) that applies to the project's runs, in
+**Who corrects** lists, under **Corrector groups**, each
+[corrector group](#corrector-groups) that applies to the project's runs, in
 words:
 
 - how much it counts, such as "Counts 3× an unclassified one";
@@ -501,15 +520,3 @@ Project admins add, change and remove a project's groups, and tenant admins
 a tenant's. Removing a group names the rules that want it.
 
 ![The Remove expert? dialog, over the Corrector groups tab: "No new correction can name it. Corrections that named it keep it, and still count with its weight in trends." and "2 rules want its correction (Echo half, Support sample): change them first, or their items wait for a class nobody can give."](../../../../assets/quality/quality-class-remove.png)
-
-### Suggested changes
-
-![The Suggested changes tab: Tuned agent's suggested changes, one under "Being evaluated (1)", drafted and not evaluated yet; one under "Need a look (1)", "Not better on the test cases"; and a withdrawn one under "Closed (1)".](../../../../assets/quality/quality-proposals.png)
-
-The project's agents' [suggested changes](../improve-an-agent/), grouped by
-what they wait for: **To review**, **Waiting for a reviewer**, **Being
-evaluated**, **Need a look** and **Closed**, each shown only when it has
-any, with its count, such as "Need a look (1)". Each says where it stands,
-such as "Not better on the test cases", with the share marked right it was
-evaluated on. Each links its page: "Each suggested change's page holds its
-actions: evaluate, ask to pin it, withdraw."

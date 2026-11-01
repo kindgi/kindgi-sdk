@@ -59,8 +59,9 @@ default project, where `kindgi dev` places the pack's agents.
    within one working day".
 2. **See it sorted.** A correction of the answer alone goes to Improve:
    `{{KINDGI}} corrections list --agent={{PACK_ID}}.returns-helper` shows
-   it `open`, with `sortedTo: "improve"`. Quality lists it too.
-3. **See it in the test set.** The agent's **Test set** page lists the
+   it `open`, with `sortedTo: "improve"`. **Corrections** > **To fix**
+   lists it too.
+3. **See it in the test set.** The agent's **Test set** tab lists the
    correction as a case: every fix is checked against it from now on.
 4. **Fix it in the pack.** Say when in `blocks/tone.liquid`, and raise
    the patch number of `version` in `blocks/tone.json`, which the agent's
@@ -82,7 +83,7 @@ its files. Then:
    `--provider` and `--model` it tries `temperature` alone, since
    `returns-model.json` names no model.
 6. **Read its suggested change and pin it.** The agent's **Suggested
-   changes** page shows what it found and its check: the correction should
+   changes** tab shows what it found and its check: the correction should
    pass on the new version and nothing should newly fail. Pin it. The pin
    waits for an approval, which under `kindgi dev` you give yourself
    (`kindgi dev` registers you as a reviewer): open its approval from the
@@ -110,7 +111,7 @@ one, when the workspace has two. Pinning there changes no file: the project
 runs block versions that `blocks/` doesn't have yet, and
 `{{KINDGI}} suggested-changes get <suggested-change-id>` shows them, to
 bring the files up to them. Going back is a pin: on the agent's **Pinned
-versions** page, pin the version before it again. The correction reopens,
+versions** tab, pin the version before it again. The correction reopens,
 and says which version reopened it.
 
 The other kind of fix: correct a refund of A-1002 ("our window is 14

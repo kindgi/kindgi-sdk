@@ -1996,7 +1996,7 @@ export const ERROR_ENTRIES = {
     details: [],
   },
   'expert-queue-item-not-found': {
-    description: "The run isn't in the project's To correct list.",
+    description: "The run isn't in the project's To review list.",
     details: [],
   },
   'expert-queue-item-not-open': {

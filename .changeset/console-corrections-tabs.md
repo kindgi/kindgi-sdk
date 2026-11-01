@@ -1,0 +1,10 @@
+---
+"@kindgi/cli": patch
+"@kindgi/sdk": patch
+---
+
+**The `kindgi-using` skill, the returns-helper template and the CLI name the console's Corrections section and an agent's tabs.**
+
+- `kindgi-using` names **Corrections** (`corrections`) where it named Quality, with its To review and To fix tabs, and an agent's own `…/corrections` tab.
+- The returns-helper template's README names **Corrections** > **To fix**, and an agent's **Test set**, **Suggested changes** and **Pinned versions** tabs, where it named Quality and pages.
+- `kindgi expert-queue` describes the project's To review list, where it said To correct.
