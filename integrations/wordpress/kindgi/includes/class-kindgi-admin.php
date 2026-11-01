@@ -344,9 +344,9 @@ final class Kindgi_Admin {
 
 	/** A Kindgi page before the site is connected: the way to connect it, for whoever can. */
 	private static function not_connected(): void {
-		echo '<div class="kindgi-empty"><p class="kindgi-empty-title">' . esc_html__( "This store isn't connected to Kindgi yet", 'kindgi' ) . '</p>';
+		echo '<div class="kindgi-empty"><p class="kindgi-empty-title">' . esc_html__( "This site isn't connected to Kindgi yet", 'kindgi' ) . '</p>';
 		if ( current_user_can( 'manage_options' ) ) {
-			echo '<p>' . esc_html__( "Once it is, your staff see what the agents want them to decide, what they did, and can ask them about the store, signed in as themselves.", 'kindgi' ) . '</p>';
+			echo '<p>' . esc_html__( "Once it is, your staff see what the agents want them to decide, what they did, and can ask them about the site, signed in as themselves.", 'kindgi' ) . '</p>';
 			echo '<p class="kindgi-empty-actions"><a class="button button-primary" href="' . esc_url( admin_url( 'admin.php?page=' . self::SETTINGS_PAGE ) ) . '">' . esc_html__( 'Connect it in Settings', 'kindgi' ) . '</a></p>';
 		} else {
 			echo '<p>' . esc_html__( 'An administrator of this site connects it, under Kindgi → Settings.', 'kindgi' ) . '</p>';
