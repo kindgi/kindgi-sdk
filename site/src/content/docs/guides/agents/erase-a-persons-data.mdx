@@ -224,9 +224,9 @@ Once it completes, new turns for the person start again.
     `erased: true`, and runs on the test cases leave it out and count it, in
     `summary.erased`. For a case from such a run, or a replay of one, a run
     on the test cases loses what could quote them: the case's `changes`,
-    `tools` and `error`, and what differed from what the run should have
-    done. Its scores, its counts, and whether each correction passed stay,
-    so its numbers do.
+    `tools`, `stopped` and `error`, and what differed from what the run
+    should have done. Its scores, its counts, and whether each correction
+    passed stay, so its numbers do.
 
 Audit events of a kind your compliance setup holds, a legal hold, keep their
 text, and the erasure counts them. A fact under legal hold stops the erasure
@@ -239,6 +239,9 @@ before it starts: `409 legal-hold`, with the held facts in `details.factIds`.
   explains.
 - **Signed exports already made**, such as an approval's audit bundle.
 - **A webhook receiver's copy** of a delivery that was already sent.
+- **A run on the test cases that had already finished** keeps its own copy
+  of the case's `changes`, `tools`, `stopped` and `error`, and what differed
+  from what the run should have done (`perCase`).
 - **An Improve run's drafted instructions and hypotheses.** A draft that
   quotes eight or more words in a row of a test case is refused, and such
   quotes are cut from a hypothesis, so they hold a paraphrase at most. The

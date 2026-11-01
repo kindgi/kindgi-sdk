@@ -187,7 +187,7 @@ pnpm exec kindgi agents promote acme-desk.reply-drafter <version> --project=<pro
 ```
 
 `kindgi projects list` lists the projects, with their ids. In the console,
-the agent's **Live versions** page shows where each version is live.
+the agent's **Pinned versions** page shows where each version is pinned.
 
 **2. Put the project in production.**
 
