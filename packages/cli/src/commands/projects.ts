@@ -9,10 +9,11 @@
  * `projects.create`, `projects.update` and `projects.setProduction`.
  */
 
+import { SLUG, SLUG_RULE, slugOf } from '@kindgi/types';
+
 import type { CommandContext } from '../context.js';
 import { UsageError, extractKindgiError } from '../errors.js';
 import { renderJson } from '../output.js';
-import { SLUG, slugOf } from '../slug.js';
 import {
   commandResultFromThrown,
   givenFlag,
@@ -95,9 +96,7 @@ async function printProject(
 
 function checkSlug(slug: string): string {
   if (!SLUG.test(slug)) {
-    throw new UsageError(
-      `--slug=${slug}: lowercase letters, digits and hyphens, starting with a letter or digit, at most 63 characters`,
-    );
+    throw new UsageError(`--slug=${slug}: ${SLUG_RULE}`);
   }
   return slug;
 }

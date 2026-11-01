@@ -32,6 +32,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 
 import { type DiscoveryConfig, readPackBlocks, resolveDiscovery } from '@kindgi/handler-runtime';
 import { LOCAL_ENV_NAME, type PackEnv, packValues, readPackEnv } from '@kindgi/secrets-dotenv';
+import { SLUG } from '@kindgi/types';
 
 import { deployApiAddress, hostedApiAddress } from '../api-address.js';
 import { describeFiles } from '../build/pack-blocks.js';
@@ -77,7 +78,6 @@ import type { OptionValue } from '../parse.js';
 import { type ProgressLines, progressLines } from '../progress-lines.js';
 import { PROJECT_ID_RE } from '../project-ref.js';
 import { type RateLimitRefusal, isWait, sendWaitingOutRateLimits } from '../rate-limit-wait.js';
-import { SLUG } from '../slug.js';
 import { type PackEnvironments, environmentsOf, resolveValueTarget } from '../value-target.js';
 import { CLI_VERSION } from '../version-info.js';
 import { runBuild } from './build.js';
