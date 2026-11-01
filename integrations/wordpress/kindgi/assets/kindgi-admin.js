@@ -179,6 +179,8 @@
     try {
       loaded = await loadInbox(opened);
     } catch (error) {
+      // Try again opens the linked approval too.
+      config.approval = opened;
       root.replaceChildren(notice(error, () => renderInbox()));
       return;
     }
