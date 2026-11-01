@@ -578,6 +578,7 @@ export {
   type PinTestRun,
   type PinTestRunDeps,
   type PinTestRuns,
+  candidatesPinProjects,
   latestMoved,
   pinTookEffect,
 } from './pin-test-runs.js';

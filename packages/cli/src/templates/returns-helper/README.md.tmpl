@@ -85,13 +85,13 @@ its files, and under `kindgi dev` git is how you go back. Then:
    changes** page shows what it found and its check: the correction should
    pass on the new version and nothing should newly fail. Pin it. The pin
    waits for an approval, which under `kindgi dev` you give yourself
-   (`kindgi dev` registers you as a reviewer), on the console's
-   **Approvals** page. Once it's approved, the new wording goes into
+   (`kindgi dev` registers you as a reviewer): open its approval from the
+   suggested change's page. Once it's approved, the new wording goes into
    `blocks/tone.liquid` and the new versions into the blocks' JSON files,
    and `kindgi dev` reloads them: `git diff` shows what changed. Commit it
    to keep it.
-7. **Watch it become Fixed.** When the pin's test run ends, the
-   correction reads Fixed, in the version the pin made.
+7. **Watch it become Fixed.** Once the pin is approved and its test run
+   has ended, the correction reads Fixed, in the version the pin made.
 8. **Go back.** Under `kindgi dev`, with git: `git checkout blocks/` (or
    revert the commit), and `kindgi dev` reloads the files. The correction
    stays Fixed there, since no pin checked the files you went back to.
@@ -100,8 +100,9 @@ its files, and under `kindgi dev` git is how you go back. Then:
 
 Deploy the pack to a runtime (one on your machine works: the docs'
 **Self-host Kindgi** page sets one up), and steps 5 to 7 work there too,
-for one project. Pinning there changes no file: the project runs block
-versions that `blocks/` doesn't have yet, and
+for one project. The pin's approval comes from a reviewer there: a second
+one, when the workspace has two. Pinning there changes no file: the project
+runs block versions that `blocks/` doesn't have yet, and
 `{{KINDGI}} suggested-changes get <suggested-change-id>` shows them, to
 bring the files up to them. Going back is a pin: on the agent's **Pinned
 versions** page, pin the version before it again. The correction reopens,
