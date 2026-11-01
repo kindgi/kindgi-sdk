@@ -5,14 +5,14 @@
  * Git, run by its absolute path from `PATH`: never a `git` in the folder
  * it runs in.
  *
- * The CLI runs git in the pack's folder. Given a bare `'git'`, Node hands
- * the name to libuv, and on Windows libuv looks in the child's `cwd`
- * (for `git.com`, then `git.exe`) before `PATH`, unless
+ * The CLI runs git (and gh) in the pack's folder. Given a bare `'git'`,
+ * Node hands the name to libuv, and on Windows libuv looks in the child's
+ * `cwd` (for `git.com`, then `git.exe`) before `PATH`, unless
  * `NoDefaultCurrentDirectoryInExePath` is set. A `git.exe` in the pack
  * would then run in git's place. On every platform, an empty or relative
- * `PATH` entry is relative to that folder too. {@link findGit} looks
+ * `PATH` entry is relative to that folder too. {@link findOnPath} looks
  * only in `PATH`'s absolute entries, trying the names libuv would there,
- * and {@link gitOutput} runs what it found.
+ * and {@link gitOutput} runs the git it finds.
  */
 
 import { execFile } from 'node:child_process';
@@ -20,8 +20,8 @@ import { constants } from 'node:fs';
 import { access, stat } from 'node:fs/promises';
 import path from 'node:path';
 
-/** Where {@link findGit} looks: {@link gitLookup} for this process; tests pass another platform. */
-export interface GitLookup {
+/** Where {@link searchPath} looks; tests pass another platform. */
+export interface PathLookup {
   readonly platform: NodeJS.Platform;
   /** `PATH`'s value; `undefined` when it isn't set. */
   readonly path: string | undefined;
@@ -40,9 +40,19 @@ const runnable = async (file: string): Promise<boolean> => {
   }
 };
 
-/** This process's platform and `PATH`. */
-export function gitLookup(): GitLookup {
-  return { platform: process.platform, path: process.env.PATH, runnable };
+/**
+ * `env`'s `PATH`. On Windows the name's case doesn't matter, and of two
+ * spellings the one Node gives a child is used: the first, sorted.
+ */
+export function pathValue(
+  platform: NodeJS.Platform,
+  env: Readonly<Record<string, string | undefined>>,
+): string | undefined {
+  if (platform !== 'win32') return env.PATH;
+  const [name] = Object.keys(env)
+    .filter((key) => key.toUpperCase() === 'PATH')
+    .sort();
+  return name === undefined ? undefined : env[name];
 }
 
 /**
@@ -76,35 +86,49 @@ function absolute(platform: NodeJS.Platform, entry: string): boolean {
 }
 
 /**
- * Git's absolute path: in the first absolute `PATH` entry that holds it,
- * as `git.com` and then `git.exe` on Windows (the names libuv tries);
- * `undefined` when none does. Empty and relative entries are skipped.
+ * `name`'s absolute path: in the first absolute `PATH` entry that holds
+ * it, as `<name>.com` and then `<name>.exe` on Windows (the names libuv
+ * tries); `undefined` when none does. Empty and relative entries are
+ * skipped.
  */
-export async function findGit(lookup: GitLookup): Promise<string | undefined> {
+export async function searchPath(name: string, lookup: PathLookup): Promise<string | undefined> {
   if (lookup.path === undefined) return undefined;
   const join = lookup.platform === 'win32' ? path.win32.join : path.posix.join;
-  const names = lookup.platform === 'win32' ? ['git.com', 'git.exe'] : ['git'];
+  const names = lookup.platform === 'win32' ? [`${name}.com`, `${name}.exe`] : [name];
   for (const entry of pathEntries(lookup.platform, lookup.path)) {
     if (!absolute(lookup.platform, entry)) continue;
-    for (const name of names) {
-      const file = join(entry, name);
+    for (const fileName of names) {
+      const file = join(entry, fileName);
       if (await lookup.runnable(file)) return file;
     }
   }
   return undefined;
 }
 
-let found:
-  | { readonly path: string | undefined; readonly git: Promise<string | undefined> }
-  | undefined;
+const found = new Map<string, Promise<string | undefined>>();
 
-/** {@link findGit} for this process, looked up once for each `PATH` it has. */
-function processGit(): Promise<string | undefined> {
-  const lookup = gitLookup();
-  if (found === undefined || found.path !== lookup.path) {
-    found = { path: lookup.path, git: findGit(lookup) };
-  }
-  return found.git;
+/**
+ * {@link searchPath} for `name` on `env`'s `PATH`, on this platform. A
+ * path found is kept for each `PATH` value. A miss isn't, so a program
+ * installed while the CLI runs is found at the next call.
+ */
+export function findOnPath(
+  name: string,
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<string | undefined> {
+  const value = pathValue(process.platform, env);
+  if (value === undefined) return Promise.resolve(undefined);
+  const key = `${name}\0${value}`;
+  const kept = found.get(key);
+  if (kept !== undefined) return kept;
+  const search = searchPath(name, { platform: process.platform, path: value, runnable }).then(
+    (file) => {
+      if (file === undefined && found.get(key) === search) found.delete(key);
+      return file;
+    },
+  );
+  found.set(key, search);
+  return search;
 }
 
 export interface GitRun {
@@ -112,18 +136,20 @@ export interface GitRun {
   readonly timeout: number;
   /** The most it may print, in bytes (`execFile`'s `maxBuffer`; 1 MiB when absent). */
   readonly maxBuffer?: number;
+  /** The environment git is found on and run with; this process's when absent. */
+  readonly env?: Readonly<Record<string, string | undefined>>;
 }
 
 /**
- * `git <args>` run in `cwd`, by {@link findGit}'s path: what it printed,
- * or `undefined` when it failed or there's no git on `PATH`.
+ * `git <args>` run in `cwd`, by {@link findOnPath}'s path: what it
+ * printed, or `undefined` when it failed or there's no git on `PATH`.
  */
 export async function gitOutput(
   cwd: string,
   args: readonly string[],
   run: GitRun,
 ): Promise<string | undefined> {
-  const git = await processGit();
+  const git = await findOnPath('git', run.env ?? process.env);
   if (git === undefined) return undefined;
   return new Promise<string | undefined>((resolvePromise) => {
     execFile(
@@ -133,6 +159,7 @@ export async function gitOutput(
         cwd,
         timeout: run.timeout,
         ...(run.maxBuffer !== undefined && { maxBuffer: run.maxBuffer }),
+        ...(run.env !== undefined && { env: run.env }),
       },
       (err, stdout) => resolvePromise(err === null ? stdout : undefined),
     );
