@@ -449,14 +449,15 @@
   ];
 
   /**
-   * A new conversation's agent: the one that last answered the person, when
-   * it's still offered; else the first offered.
+   * A new conversation's agent: the one the person last asked (the
+   * conversation with the newest message, theirs or its), when it's still
+   * offered; else the first offered.
    */
   function lastAsked(offered, conversations) {
-    const answered = conversations.filter(
+    const asked = conversations.filter(
       (c) => c.lastMessageAt && offered.some((a) => a.id === c.agentId),
     );
-    const latest = answered.reduce(
+    const latest = asked.reduce(
       (best, c) => (best === null || c.lastMessageAt > best.lastMessageAt ? c : best),
       null,
     );
@@ -696,6 +697,15 @@
     );
   }
 
+  /** What a new conversation's box suggests: a store's staff ask about its orders. */
+  const firstWords = () =>
+    config.store === true
+      ? __('Ask about orders, products or customers…', 'kindgi')
+      : __('Ask a question…', 'kindgi');
+
+  /** Whether the page is used by touch, where Enter starts a new line. */
+  const touch = () => window.matchMedia?.('(pointer: coarse)').matches === true;
+
   /**
    * The box to write in. Enter sends and Shift+Enter starts a new line; it
    * grows with what's written. A new conversation picks its agent here,
@@ -710,13 +720,11 @@
       id: 'kindgi-message',
       rows: '2',
       maxlength: '20000',
-      placeholder:
-        conversation === null
-          ? __('Ask about orders, products or customers…', 'kindgi')
-          : __('Reply…', 'kindgi'),
+      placeholder: conversation === null ? firstWords() : __('Reply…', 'kindgi'),
       oninput: () => fit(),
       onkeydown: (event) => {
-        if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+        // A phone's keyboard has no Shift+Enter: there Enter starts a new line and Send sends.
+        if (event.key !== 'Enter' || event.shiftKey || event.isComposing || touch()) return;
         event.preventDefault();
         if (!send.disabled) send.click();
       },
@@ -729,7 +737,9 @@
       {
         type: 'button',
         className: 'button button-primary kindgi-send',
-        onclick: () => sendTurn(input, send, log, progress, onSend),
+        // Once the new conversation is open, its agent is fixed: the picker goes.
+        onclick: () =>
+          sendTurn(input, send, log, progress, { onSend, onOpen: () => picker?.remove() }),
       },
       __('Send', 'kindgi'),
     );
@@ -738,7 +748,7 @@
         ? el(
             'select',
             {
-              className: 'kindgi-agent',
+              className: 'kindgi-agent-pick',
               'aria-label': __('Agent', 'kindgi'),
               onchange: (event) => {
                 state.newAgent = offered[Number(event.target.value)];
@@ -801,7 +811,7 @@
   }
 
   /** Sends a message: opens the conversation first when it's new, then follows the turn. */
-  async function sendTurn(input, send, log, progress, onSend) {
+  async function sendTurn(input, send, log, progress, { onSend, onOpen }) {
     const text = input.value.trim();
     if (text === '') return;
     send.disabled = true;
@@ -820,6 +830,7 @@
         state.newAgent = null;
         state.order = null;
         window.history.replaceState(null, '', askUrl(opened.id));
+        onOpen();
       }
       const conversationId = state.conversationId;
       const turn = await api(`/conversations/${encodeURIComponent(conversationId)}/turns`, {
@@ -878,41 +889,54 @@
   const NUMBERED = /^\s*\d+[.)]\s+/;
   const HEADING = /^\s*#{1,6}\s+/;
 
+  /** A line's kind: an item of a list, a heading, a blank, or text. */
+  function kindOf(line) {
+    if (line.trim() === '') return 'blank';
+    if (BULLET.test(line)) return 'ul';
+    if (NUMBERED.test(line)) return 'ol';
+    if (HEADING.test(line)) return 'h';
+    return 'p';
+  }
+
+  /** A run of lines of one kind, as elements. A numbered list goes on from its first number. */
+  const BLOCKS = {
+    ul: (lines) =>
+      el(
+        'ul',
+        {},
+        lines.map((l) => el('li', {}, inline(l.replace(BULLET, '')))),
+      ),
+    ol: (lines) => {
+      const first = Number.parseInt(lines[0], 10);
+      return el(
+        'ol',
+        { start: first > 1 ? String(first) : null },
+        lines.map((l) => el('li', {}, inline(l.replace(NUMBERED, '')))),
+      );
+    },
+    h: (lines) => lines.map((l) => el('p', {}, el('strong', {}, inline(l.replace(HEADING, ''))))),
+    p: (lines) =>
+      el(
+        'p',
+        {},
+        lines.map((l, i) => (i === 0 ? inline(l) : [el('br'), inline(l)])),
+      ),
+  };
+
   /**
    * An agent's words with the little Markdown agents write: paragraphs,
-   * lists, headings, **bold** and `code`. Built as elements, so nothing an
-   * agent says is ever read as HTML.
+   * lists (a lead-in line right above one too), headings, **bold** and
+   * `code`. Built as elements, so nothing an agent says is ever read as HTML.
    */
   function rich(text) {
-    return text
-      .replace(/\r\n/g, '\n')
-      .split(/\n{2,}/)
-      .filter((block) => block.trim() !== '')
-      .map((block) => {
-        const lines = block.split('\n');
-        if (lines.every((l) => BULLET.test(l))) {
-          return el(
-            'ul',
-            {},
-            lines.map((l) => el('li', {}, inline(l.replace(BULLET, '')))),
-          );
-        }
-        if (lines.every((l) => NUMBERED.test(l))) {
-          return el(
-            'ol',
-            {},
-            lines.map((l) => el('li', {}, inline(l.replace(NUMBERED, '')))),
-          );
-        }
-        if (lines.length === 1 && HEADING.test(lines[0])) {
-          return el('p', {}, el('strong', {}, inline(lines[0].replace(HEADING, ''))));
-        }
-        return el(
-          'p',
-          {},
-          lines.map((l, i) => (i === 0 ? inline(l) : [el('br'), inline(l)])),
-        );
-      });
+    const runs = [];
+    for (const line of text.replace(/\r\n/g, '\n').split('\n')) {
+      const kind = kindOf(line);
+      const last = runs.at(-1);
+      if (last !== undefined && last.kind === kind) last.lines.push(line);
+      else runs.push({ kind, lines: [line] });
+    }
+    return runs.filter((run) => run.kind !== 'blank').flatMap((run) => BLOCKS[run.kind](run.lines));
   }
 
   /** One message: words, the tools an agent used, or a tool's answer (its raw result a click away). */
