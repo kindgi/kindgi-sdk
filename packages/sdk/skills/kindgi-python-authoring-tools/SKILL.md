@@ -14,7 +14,7 @@ description: >
   kindgi-python-getting-started.
 type: core
 library: "kindgi (Python)"
-version: "0.1.7"
+version: "0.1.8"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -340,7 +340,10 @@ lookup_case = http_tool(
 
 - `{name}` placeholders in `url_template` are filled from the input's
   fields, URL-encoded; each must be a field of the input model, or the
-  indexer reports it.
+  indexer reports it. A name is ASCII letters, digits and `_`; any other
+  brace in the URL is refused, so write a literal one as `%7B` or `%7D`.
+  A `text` body or a header keeps JSON's braces, and GraphQL's with spaces
+  inside them (`{ name }`).
 - `authorization`: `{"kind": "bearer", "secretRef": …}` or
   `{"kind": "header", "headerName": "X-Api-Key", "secretRef": …}`. The
   runtime resolves the secret on every call — `envName` `local` is the

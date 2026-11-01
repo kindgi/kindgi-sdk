@@ -245,7 +245,7 @@ function substituteUrl(
  * Substitute `{name}` placeholders in a plain string (used for
  * header values + `text` body templates). Unlike `substituteUrl`,
  * this does NOT URL-encode values — headers/text bodies want raw
- * strings. Missing keys throw.
+ * strings. A name the input lacks is kept as written, braces and all.
  */
 function substituteTemplate(template: string, input: Record<string, unknown>): string {
   return template.replace(/\{(\w+)\}/g, (_, key: string) => {

@@ -10,6 +10,8 @@ candidates, and theirs are just below it.
 
 ## Unreleased
 
+- `kindgi-pack`, `kindgi-pack-scala`: **an HTTP tool's templates hold only what the runtime fills.** `.http(...)` throws on a brace in the URL that isn't part of a `{field}` placeholder (write a literal one as `%7B` or `%7D`), and on a `{name}` in a `Text` body or a header value whose name isn't ASCII, which the runtime never fills. The braces of JSON, or of GraphQL with spaces inside them, still pass. `defineTool` and Python's `http_tool` refuse the same.
+
 ## 0.3.1
 
 - `kindgi-pack`, `kindgi-pack-scala`: **an `llm-judge` guardrail is judged.** `Guardrail.define(id).kind("llm-judge").judgeCapabilities(Map.of("needs", List.of(Map.of("feature", "structured-output"))))` (Scala: `.judgeCapabilities(Map("needs" -> List(Map("feature" -> "structured-output"))))`) names what the judge model is routed by, and the index carries it; `check(...)` refuses an `llm-judge` guardrail without it. Before, the index schema refused the field, so `set("judgeCapabilities", ...)` failed the build, and without it the runtime refused the guardrail on every turn.

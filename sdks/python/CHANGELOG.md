@@ -13,6 +13,12 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **an HTTP tool's templates hold only what the runtime fills.** `http_tool`
+  refuses a brace in `url_template` that isn't part of a `{field}` placeholder (write a
+  literal one as `%7B` or `%7D`), and a `{name}` in a `text` body or a header value whose
+  name isn't ASCII, which the runtime never fills. The braces of JSON, or of GraphQL with
+  spaces inside them, still pass. `defineTool` and the Java `Tool` builder refuse the same.
+
 ## 0.3.1
 
 - `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",

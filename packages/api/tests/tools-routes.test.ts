@@ -405,7 +405,13 @@ describe('API — tools get', () => {
     const publish = await app.request('/v1/tools', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ ...toolPostBody({ id: 'acme.http-tool' }), spec }),
+      body: JSON.stringify({
+        ...toolPostBody({
+          id: 'acme.http-tool',
+          input: { type: 'object', properties: { id: { type: 'string' } } },
+        }),
+        spec,
+      }),
     });
     expect(publish.status).toBe(201);
     const res = await app.request('/v1/tools/acme.http-tool', {
@@ -587,6 +593,38 @@ describe('API — tools register', () => {
         message: 'must be a string: env values are strings',
       },
     ]);
+  });
+
+  test("an HTTP tool whose URL has a brace that isn't a placeholder's → 400 validation-failed, naming the escape", async () => {
+    const { app } = makeApp();
+    const res = await app.request('/v1/tools', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectId: randomUUID(),
+        id: 'acme.lookup',
+        description: 'Looks an order up.',
+        version: '0.1.0',
+        input: { type: 'object', properties: { id: { type: 'string' } } },
+        output: { type: 'object' },
+        spec: {
+          kind: 'http',
+          method: 'GET',
+          urlTemplate: 'https://api.example.com/orders/{id}?filter={{id}}',
+        },
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; message: string; details?: { issues?: unknown[] } };
+    };
+    const message =
+      "has a brace that isn't part of a {field} placeholder; write a literal one as %7B or %7D";
+    expect(body.error).toMatchObject({
+      code: 'validation-failed',
+      message: `Tool "acme.lookup" spec.urlTemplate ${message}`,
+    });
+    expect(body.error.details?.issues).toEqual([{ path: '/spec/urlTemplate', message }]);
   });
 
   test('non-JSON body → 400 bad-input', async () => {

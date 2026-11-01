@@ -186,11 +186,14 @@ object AddOrderNote {
 
 - **The URL.** Each `{name}` in the URL template is filled from the input
   field with that wire name, URL-encoded. Every placeholder must be an input
-  field.
+  field, named in ASCII letters, digits and `_`. The URL has no other brace:
+  write a literal one as `%7B` or `%7D`.
 - **The body.** A `POST`, `PUT`, `PATCH` or `DELETE` sends the input fields
   the URL didn't use, as JSON: here `{"text": …}`. A `GET` sends no body.
   For another shape, set the request body. `input-passthrough` sends the
-  whole input. `text` sends a template's result as `text/plain`.
+  whole input. `text` sends a template's result as `text/plain`; its
+  `{name}`s are filled the same way, and the braces of JSON, or of GraphQL
+  with spaces inside them (`{ name }`), are sent as they are.
 - **The answer.** The response's JSON is the tool's output, checked against
   the output schema. A Zod `z.object` rejects fields it doesn't list, and
   most APIs return more than you need. So in TypeScript, use

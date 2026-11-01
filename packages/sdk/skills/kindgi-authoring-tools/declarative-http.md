@@ -18,7 +18,8 @@ const defined = defineTool({
     kind: 'http',
     method: 'GET',
     urlTemplate: 'https://api.shop.example/orders/{orderId}',
-    // Every {placeholder} MUST be a key on the input schema
+    // Every {placeholder} MUST be a key on the input schema (an ASCII name);
+    // a literal brace in the URL is %7B or %7D
     authorization: {
       kind: 'bearer',
       secretRef: { envName: 'production', name: 'shop-api-token' },

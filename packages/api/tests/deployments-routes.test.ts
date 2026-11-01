@@ -1297,6 +1297,55 @@ describe('POST /v1/deployments — happy path', () => {
     expect(await toolRegistry.get({ tenantId, toolId: 'acme.relay' as never })).toBeNull();
   });
 
+  test("an HTTP tool's header with a {name} that isn't ASCII is refused, by the issue's own words", async () => {
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        packId: 'acme.aperture',
+        packVersion: '1.0.0',
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [
+          {
+            id: 'acme.lookup',
+            description: 'Looks an order up.',
+            version: '1.0.0',
+            input: { type: 'object', properties: { id: { type: 'string' } } },
+            output: { type: 'object' },
+            modulePath: './tools/lookup.js',
+            spec: {
+              kind: 'http',
+              method: 'GET',
+              urlTemplate: 'https://api.example.com/orders/{id}',
+              headers: [{ name: 'X-Size', value: '{größe}' }],
+            },
+          },
+        ],
+        guardrails: [],
+      },
+    });
+    const { app, toolRegistry } = makeApp({ fixture });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; details: { issues: unknown[] } } };
+    expect(body.error.code).toBe('deployment-validation-failed');
+    expect(body.error.details.issues).toEqual([
+      {
+        primitive: 'tool',
+        index: 0,
+        id: 'acme.lookup',
+        path: '/spec/headers/0/value',
+        message:
+          "has {größe}, which isn't a {field} placeholder: a placeholder's name is ASCII letters, digits and _",
+      },
+    ]);
+    expect(await toolRegistry.get({ tenantId, toolId: 'acme.lookup' as never })).toBeNull();
+  });
+
   test('signed deployment → 201 with all primitives registered', async () => {
     const fixture = buildSignedDeploy();
     const { app, toolRegistry, guardrailRegistry } = makeApp({ fixture });

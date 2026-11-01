@@ -117,27 +117,37 @@ describe('defineTool({spec: http}) — URL template substitution', () => {
     expect(url).toBe('https://api.example.com/repos/anthropics/claude%20code/issues/42');
   });
 
-  test('missing placeholder key surfaces as handler-error', async () => {
-    // Input schema requires all three; construct a tool that references a key
-    // NOT in the input schema — the URL substitution should throw.
-    const brokenSpec: HttpToolSpec = {
+  // A tool whose URL names a key that isn't in its input schema.
+  const unfillable = {
+    id: 'demo.broken' as ToolId,
+    description: 'Broken url template.',
+    version: '1.0.0',
+    input: {
+      type: 'object',
+      properties: { repo: { type: 'string' } },
+      required: ['repo'],
+      additionalProperties: false,
+    } as const,
+    output: { type: 'object', additionalProperties: true } as const,
+    spec: {
       kind: 'http',
       method: 'GET',
       urlTemplate: 'https://api.example.com/{missing}/{repo}',
-    };
-    const tool = defineTool({
-      id: 'demo.broken' as ToolId,
-      description: 'Broken url template.',
-      version: '1.0.0',
-      input: {
-        type: 'object',
-        properties: { repo: { type: 'string' } },
-        required: ['repo'],
-        additionalProperties: false,
-      } as const,
-      output: { type: 'object', additionalProperties: true } as const,
-      spec: brokenSpec,
-    });
+    } satisfies HttpToolSpec,
+  };
+
+  test('a placeholder the input has no field for is refused where the tool is defined', () => {
+    const tool = defineTool(unfillable);
+    expect(tool.kind).toBe('err');
+    if (tool.kind !== 'err') return;
+    expect(tool.error.code).toBe('invalid-tool-definition');
+    expect(tool.error.message).toBe(
+      'Tool "demo.broken": {missing} not a field of the input, which fills placeholders',
+    );
+  });
+
+  test('a stored tool with one still builds, and the missing key surfaces as handler-error', async () => {
+    const tool = defineTool(unfillable, { stored: true });
     expect(tool.kind).toBe('ok');
     if (tool.kind !== 'ok') return;
     const invoked = await invokeTool(tool.value, { repo: 'x' }, makeCtx());
@@ -184,7 +194,11 @@ describe('defineTool({spec: http}) — where the request goes', () => {
     id: 'acme.lookup',
     description: 'Look something up.',
     version: '1.0.0',
-    input: { type: 'object', additionalProperties: true },
+    input: {
+      type: 'object',
+      properties: { id: { type: 'string' }, q: { type: 'string' } },
+      additionalProperties: true,
+    },
     output: { type: 'object', additionalProperties: true },
     spec: { kind: 'http', method: 'GET', urlTemplate },
   });
@@ -231,6 +245,132 @@ describe('defineTool({spec: http}) — where the request goes', () => {
     // The value is encoded into the path: it can't add a path, query or host.
     expect(seen).toEqual(['https://api.example.com/items/a%2Fb%3Fc']);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+// -----------------------------------------------------------------------------
+// What a template may hold
+// -----------------------------------------------------------------------------
+
+describe('defineTool({spec: http}) — a template holds only what the runtime fills', () => {
+  const tool = (spec: Partial<Omit<HttpToolSpec, 'kind'>>) => ({
+    id: 'acme.lookup' as ToolId,
+    description: 'Look an order up.',
+    version: '1.0.0',
+    input: {
+      type: 'object',
+      properties: { id: { type: 'string' }, q: { type: 'string' } },
+      additionalProperties: false,
+    } as const,
+    output: { type: 'object', additionalProperties: true } as const,
+    spec: {
+      kind: 'http',
+      method: 'POST',
+      urlTemplate: 'https://api.example.com/orders/{id}',
+      ...spec,
+    } satisfies HttpToolSpec,
+  });
+
+  /** The refusal from where a tool is defined, registered and deployed: the same in all three. */
+  const refusal = (spec: Partial<Omit<HttpToolSpec, 'kind'>>) => {
+    const defined = defineTool(tool(spec));
+    const validated = validateToolManifest(tool(spec));
+    expect(defined.kind).toBe('err');
+    expect(validated.kind).toBe('err');
+    if (defined.kind !== 'err' || validated.kind !== 'err') return undefined;
+    expect(validated.error).toEqual(defined.error);
+    // A tool the runtime stored before the check existed still builds.
+    expect(defineTool(tool(spec), { stored: true }).kind).toBe('ok');
+    return defined.error;
+  };
+
+  const passes = (spec: Partial<Omit<HttpToolSpec, 'kind'>>) => {
+    expect(defineTool(tool(spec)).kind).toBe('ok');
+    expect(validateToolManifest(tool(spec)).kind).toBe('ok');
+  };
+
+  test("a brace in the URL that isn't a placeholder's is refused, naming the escape", () => {
+    const message =
+      "has a brace that isn't part of a {field} placeholder; write a literal one as %7B or %7D";
+    for (const urlTemplate of [
+      'https://api.example.com/orders/{{id}}',
+      'https://api.example.com/orders/{id}{?q}',
+      'https://api.example.com/orders/{order-id}',
+      'https://api.example.com/orders/{}',
+      'https://api.example.com/orders/{id',
+      'https://api.example.com/orders/id}',
+      'https://api.example.com/orders/{größe}',
+    ]) {
+      expect(refusal({ urlTemplate }), urlTemplate).toEqual({
+        code: 'invalid-tool-definition',
+        message: `Tool "acme.lookup" spec.urlTemplate ${message}`,
+        issues: [{ path: '/spec/urlTemplate', message }],
+      });
+    }
+    passes({ urlTemplate: 'https://api.example.com/orders/{id}?filter=%7Bq%7D' });
+  });
+
+  test("a {name} in a text body or a header value that isn't ASCII is refused", () => {
+    const rule = "a placeholder's name is ASCII letters, digits and _";
+    expect(
+      refusal({ requestBody: { kind: 'text', template: '{"q": "{q}", "size": "{größe}"}' } }),
+    ).toEqual({
+      code: 'invalid-tool-definition',
+      message: `Tool "acme.lookup" spec.requestBody.template has {größe}, which isn't a {field} placeholder: ${rule}`,
+      issues: [
+        {
+          path: '/spec/requestBody/template',
+          message: `has {größe}, which isn't a {field} placeholder: ${rule}`,
+        },
+      ],
+    });
+    expect(
+      refusal({
+        headers: [
+          { name: 'Accept', value: 'application/json' },
+          { name: 'X-Query', value: '{"size": "{größe}", "street": "{straße}"}' },
+        ],
+      }),
+    ).toEqual({
+      code: 'invalid-tool-definition',
+      message: `Tool "acme.lookup" spec.headers[1].value (the header "X-Query") has {größe}, {straße}, which aren't {field} placeholders: ${rule}`,
+      issues: [
+        {
+          path: '/spec/headers/1/value',
+          message: `has {größe}, {straße}, which aren't {field} placeholders: ${rule}`,
+        },
+      ],
+    });
+  });
+
+  test('JSON, and GraphQL with spaces inside its braces, still pass', () => {
+    passes({ requestBody: { kind: 'text', template: '{"q": "{q}", "filter": {"open": true}}' } });
+    passes({
+      requestBody: { kind: 'text', template: 'query { order(id: "{id}") { total } }' },
+      headers: [{ name: 'X-Filter', value: '{"q": "{q}"}' }],
+    });
+  });
+
+  test('a placeholder in the URL or a text body needs a field of the input, as in Java and Python', () => {
+    const notField = (names: string) =>
+      `${names} not a field of the input, which fills placeholders`;
+    expect(
+      refusal({
+        urlTemplate: 'https://api.example.com/{region}/orders/{id}',
+        requestBody: { kind: 'text', template: '{"year": "{year}", "region": "{region}"}' },
+      }),
+    ).toEqual({
+      code: 'invalid-tool-definition',
+      message: `Tool "acme.lookup": ${notField('{region}, {year}')}`,
+      issues: [
+        { path: '/spec/urlTemplate', message: notField('{region}') },
+        { path: '/spec/requestBody/template', message: notField('{region}, {year}') },
+      ],
+    });
+    // A compact GraphQL selection reads as a placeholder; with spaces it doesn't.
+    expect(
+      refusal({ requestBody: { kind: 'text', template: 'query { order(id: "{id}") {total} }' } }),
+    ).toMatchObject({ message: `Tool "acme.lookup": ${notField('{total}')}` });
   });
 });
 
