@@ -12,6 +12,7 @@ import {
   type GitCall,
   callGit,
   gitCaller,
+  gitEnv,
   listedFiles,
   uncommittedFiles,
 } from '../src/uncommitted-files.js';
@@ -270,6 +271,27 @@ describe.skipIf(process.platform === 'win32')('uncommittedFiles: when git can’
     );
     expect(await uncommittedFiles(root, ['blocks/tone.json'], callGit, SLOW_START_MS)).toEqual({
       kind: 'unknown',
+    });
+  });
+});
+
+describe('gitEnv', () => {
+  test("git's repository variables are left out, the rest kept, and its messages are in English", () => {
+    expect(
+      gitEnv({
+        PATH: '/usr/bin',
+        HOME: '/home/acme',
+        GIT_DIR: '/elsewhere/.git',
+        GIT_WORK_TREE: '/elsewhere',
+        GIT_INDEX_FILE: '/elsewhere/index',
+        GIT_SSH_COMMAND: 'ssh -i key',
+        LC_ALL: 'de_DE.UTF-8',
+      }),
+    ).toEqual({
+      PATH: '/usr/bin',
+      HOME: '/home/acme',
+      GIT_SSH_COMMAND: 'ssh -i key',
+      LC_ALL: 'C',
     });
   });
 });
