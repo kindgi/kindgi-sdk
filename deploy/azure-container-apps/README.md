@@ -76,7 +76,7 @@ Copy the runtime's **whole multi-platform index** by digest: a `docker pull` / `
 
 ```sh
 ACR=$(terraform output -raw image_registry)
-az acr login -n "${ACR%%.*}" --expose-token --query accessToken -o tsv \
+az acr login -n "${ACR%%.*}" --expose-token --only-show-errors --query accessToken -o tsv \
   | docker login "$ACR" --username 00000000-0000-0000-0000-000000000000 --password-stdin
 docker buildx imagetools create --tag $ACR/runtime:<version> registry.kindgi.com/kindgi/runtime:<version>@sha256:<release digest>
 kindgi build --local --push --env dev      # the pack image, signed; registry: <ACR>/<repo> in kindgi.config

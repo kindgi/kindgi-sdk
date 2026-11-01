@@ -1210,7 +1210,7 @@ if [[ $DRY_RUN == true ]]; then
   if [[ $REBUILD_PACK == true ]]; then require_cmd kindgi; fi
 
   step "What a real run would change, in order"
-  info "2. log docker in to ${IMAGE_REPOSITORY} (a token from az acr login --expose-token, on docker login's stdin, which keeps it as for any docker login)"
+  info "2. log docker in to ${IMAGE_REPOSITORY} (a token from az acr login --expose-token, on docker login's stdin, which docker stores as it does for any login)"
   info "2. add the image tag ${IMAGE_REPOSITORY}/runtime:${TARGET} to the module's registry"
   info "   (a copy of ${RUNTIME_REPO}:${TARGET}@${RUNTIME_DIGEST}; it serves nothing until step 5)"
   info "   (both platforms, through this machine; on a slow uplink it can take most of an hour)"

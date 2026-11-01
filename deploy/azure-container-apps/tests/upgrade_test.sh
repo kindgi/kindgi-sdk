@@ -1205,7 +1205,7 @@ run "yes" --pack-dir "$PACK_DIR" --dry-run
 assert_rc 0 "a dry run exits 0"
 assert_out "DRY RUN. It reads only"
 assert_file_has "$STUB_CALLS_LOG" "docker buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.2.0 " "the release digest is read"
-assert_file_has "$OUT" "2. log docker in to $REPO (a token from az acr login --expose-token, on docker login's stdin, which keeps it as for any docker login)" "the docker login"
+assert_file_has "$OUT" "2. log docker in to $REPO (a token from az acr login --expose-token, on docker login's stdin, which docker stores as it does for any login)" "the docker login"
 assert_file_has "$OUT" "2. add the image tag $REPO/runtime:0.2.0 to the module's registry" "the copy"
 assert_file_has "$OUT" "   (both platforms, through this machine; on a slow uplink it can take most of an hour)" "the copy's time"
 assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-pk  (check provider-keys)" "the provider-keys job"
