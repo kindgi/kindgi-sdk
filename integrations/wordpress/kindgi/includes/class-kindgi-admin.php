@@ -31,6 +31,9 @@ final class Kindgi_Admin {
 	/** The page each admin hook shows (`inbox`, `activity`, `ask`), as the menu made them. */
 	private static $views = array();
 
+	/** Settings' admin hook, as the menu made it: false until then, or for someone who can't open it. */
+	private static $settings_hook = false;
+
 	public static function register(): void {
 		add_action( 'admin_menu', array( self::class, 'menu' ) );
 		// After every plugin's menu: the count goes on the menu's title, not into its pages' hook names.
@@ -44,12 +47,12 @@ final class Kindgi_Admin {
 	}
 
 	/**
-	 * Who sees the Kindgi page. Kindgi decides the rest from the person's
+	 * Who sees the Kindgi pages. Kindgi decides the rest from the person's
 	 * roles on this site (a role it doesn't allow is refused there).
 	 */
 	public static function capability(): string {
 		/**
-		 * The capability the Kindgi page needs.
+		 * The capability the Kindgi pages need (Settings needs `manage_options`).
 		 *
 		 * @param string $capability Default `manage_woocommerce` with WooCommerce (shop managers and
 		 *                           administrators), otherwise `edit_others_posts` (editors and
@@ -154,7 +157,7 @@ final class Kindgi_Admin {
 				self::$views[ $hook ] = $page['view'];
 			}
 		}
-		add_submenu_page( self::PAGE, __( 'Kindgi settings', 'kindgi' ), __( 'Settings', 'kindgi' ), 'manage_options', self::SETTINGS_PAGE, array( self::class, 'settings' ) );
+		self::$settings_hook = add_submenu_page( self::PAGE, __( 'Kindgi settings', 'kindgi' ), __( 'Settings', 'kindgi' ), 'manage_options', self::SETTINGS_PAGE, array( self::class, 'settings' ) );
 	}
 
 	/** The pages staff use, by slug: the Inbox first, as the menu's own page. */
@@ -245,6 +248,10 @@ final class Kindgi_Admin {
 			wp_set_script_translations( 'kindgi-count', 'kindgi' );
 			wp_add_inline_style( 'admin-bar', '#wpadminbar #wp-admin-bar-kindgi-inbox.kindgi-none{display:none}#wpadminbar #wp-admin-bar-kindgi-inbox .ab-icon:before{top:2px}' );
 		}
+		if ( false !== self::$settings_hook && self::$settings_hook === $hook && null !== Kindgi_Settings::site() ) {
+			wp_enqueue_script( 'kindgi-settings', plugins_url( 'assets/kindgi-settings.js', KINDGI_PLUGIN_FILE ), array( 'wp-api-fetch', 'wp-i18n' ), $version, true );
+			wp_set_script_translations( 'kindgi-settings', 'kindgi' );
+		}
 		if ( ! isset( self::$views[ $hook ] ) ) {
 			return;
 		}
@@ -309,7 +316,7 @@ final class Kindgi_Admin {
 				<?php self::site_table( false ); ?>
 				<?php self::connect_form( null ); ?>
 			<?php else : ?>
-				<p><?php self::connected_words( $site ); ?></p>
+				<?php self::connected_words( $site ); ?>
 				<?php self::warnings( $site ); ?>
 				<?php self::webhooks_off(); ?>
 				<?php self::waiting(); ?>
@@ -341,25 +348,16 @@ final class Kindgi_Admin {
 		<?php
 	}
 
-	/** "Connected to Kindgi at …, for the project …": the project's name when Kindgi tells it. */
+	/**
+	 * "Connected to Kindgi at …", from what the site keeps: Settings never
+	 * waits on Kindgi. The page's script adds the project's name once
+	 * Kindgi tells it (`kindgi-settings.js`).
+	 */
 	private static function connected_words( array $site ): void {
-		$name = null;
-		$me   = Kindgi_Rest::me();
-		if ( ! is_wp_error( $me ) ) {
-			$answer = Kindgi_Api::body( wp_get_current_user(), 'GET', '/v1/projects/' . rawurlencode( (string) $me['projectId'] ) );
-			$name   = ! is_wp_error( $answer ) && is_string( $answer['body']['name'] ?? null ) ? $answer['body']['name'] : null;
-		}
-		if ( null === $name ) {
-			/* translators: %s: Kindgi's public URL */
-			printf( esc_html__( 'Connected to Kindgi at %s.', 'kindgi' ), '<code>' . esc_html( $site['audience'] ) . '</code>' );
-			return;
-		}
-		printf(
-			/* translators: 1: Kindgi's public URL, 2: the project's name */
-			esc_html__( 'Connected to Kindgi at %1$s, for the project %2$s. Your staff sign in to it as themselves from the Kindgi pages.', 'kindgi' ),
-			'<code>' . esc_html( $site['audience'] ) . '</code>',
-			'<strong>' . esc_html( $name ) . '</strong>'
-		);
+		echo '<p id="kindgi-connected" data-audience="' . esc_attr( $site['audience'] ) . '">';
+		/* translators: %s: Kindgi's public URL */
+		printf( esc_html__( 'Connected to Kindgi at %s.', 'kindgi' ), '<code>' . esc_html( $site['audience'] ) . '</code>' );
+		echo '</p>';
 	}
 
 	/** The site's details: its id once connected, the two addresses Kindgi registers, and its key. */
@@ -415,38 +413,24 @@ final class Kindgi_Admin {
 
 	/**
 	 * The agents staff see on the Ask page: each of the project's agents,
-	 * ticked when offered. Kindgi still decides who may ask an agent at all.
+	 * ticked when offered. Kindgi still decides who may ask an agent at
+	 * all. The form is drawn here, its nonce with it; the page's script
+	 * fills in the agents from Kindgi (`kindgi-settings.js`), so Settings
+	 * never waits on Kindgi.
 	 */
 	private static function offer_form(): void {
-		$answer = Kindgi_Rest::agents();
-		if ( is_wp_error( $answer ) ) {
-			echo '<div class="notice notice-error inline"><p>' . esc_html( $answer->get_error_message() ) . '</p></div>';
-			return;
-		}
-		if ( array() === $answer['agents'] ) {
-			echo '<p>' . esc_html__( 'The project has no agents yet. Once one is deployed, it shows here.', 'kindgi' ) . '</p>';
-			return;
-		}
 		$chosen = null !== Kindgi_Rest::offered();
 		?>
 		<p><?php esc_html_e( 'Staff see these on the Ask page. An agent that works on its own, from a webhook or a schedule, needn\'t be one: leave it unticked.', 'kindgi' ); ?></p>
-		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+		<form id="kindgi-offer" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 			<input type="hidden" name="action" value="<?php echo esc_attr( self::OFFER ); ?>">
 			<?php wp_nonce_field( self::OFFER ); ?>
 			<fieldset>
 				<legend class="screen-reader-text"><?php esc_html_e( 'Agents offered to staff', 'kindgi' ); ?></legend>
-				<?php foreach ( $answer['agents'] as $agent ) : ?>
-					<input type="hidden" name="kindgi_shown[]" value="<?php echo esc_attr( $agent['id'] ); ?>">
-					<p>
-						<label>
-							<input type="checkbox" name="kindgi_agents[]" value="<?php echo esc_attr( $agent['id'] ); ?>" <?php checked( $agent['offered'] ); ?>>
-							<strong><?php echo esc_html( '' !== $agent['name'] ? $agent['name'] : $agent['id'] ); ?></strong>
-						</label>
-						<?php if ( '' !== $agent['description'] ) : ?>
-							<br><span class="description"><?php echo esc_html( $agent['description'] ); ?></span>
-						<?php endif; ?>
-					</p>
-				<?php endforeach; ?>
+				<div class="kindgi-offer-list" aria-live="polite">
+					<p class="description"><?php esc_html_e( "Asking Kindgi for the project's agents…", 'kindgi' ); ?></p>
+					<noscript><p><?php esc_html_e( 'Choosing the agents needs JavaScript.', 'kindgi' ); ?></p></noscript>
+				</div>
 			</fieldset>
 			<p class="description">
 				<?php
@@ -457,7 +441,7 @@ final class Kindgi_Admin {
 				);
 				?>
 			</p>
-			<?php submit_button( __( 'Save', 'kindgi' ) ); ?>
+			<?php submit_button( __( 'Save', 'kindgi' ), 'primary', 'submit', true, array( 'disabled' => 'disabled' ) ); ?>
 		</form>
 		<?php
 	}
@@ -474,14 +458,30 @@ final class Kindgi_Admin {
 				return 1 === preg_match( '/^' . Kindgi_Rest::ID . '$/', $id );
 			} ) ) );
 		};
-		$ticked = $ids( 'kindgi_agents' );
-		$shown  = $ids( 'kindgi_shown' );
-		if ( array() !== $shown && array() === array_diff( $shown, $ticked ) ) {
+		$shown = $ids( 'kindgi_shown' );
+		if ( array() === $shown ) {
+			// The agents never loaded: what's offered stays as it was.
+			self::done( 'error', __( "Nothing was saved: Kindgi's list of agents hadn't loaded. Try again.", 'kindgi' ) );
+		}
+		$offered = self::offered_after( $shown, $ids( 'kindgi_agents' ) );
+		if ( null === $offered ) {
 			delete_option( Kindgi_Rest::OFFERED );
 		} else {
-			update_option( Kindgi_Rest::OFFERED, $ticked, false );
+			update_option( Kindgi_Rest::OFFERED, $offered, false );
 		}
 		self::done( 'ok', __( 'Saved: staff see the ticked agents on the Ask page.', 'kindgi' ) );
+	}
+
+	/**
+	 * What the form offers: null (all, now and later) when every agent it
+	 * showed is ticked, else the ticked ones, none included.
+	 *
+	 * @param string[] $shown  The agents the form showed, at least one.
+	 * @param string[] $ticked The ones ticked.
+	 * @return string[]|null
+	 */
+	public static function offered_after( array $shown, array $ticked ): ?array {
+		return array() === array_diff( $shown, $ticked ) ? null : $ticked;
 	}
 
 	/** The connect form: the site's public key goes to Kindgi with the one-time code. */
@@ -550,7 +550,7 @@ final class Kindgi_Admin {
 		);
 		// Kindgi ended the site's sessions: so do the copies kept here.
 		Kindgi_Sessions::forget_all();
-		self::done( 'ok', __( 'Connected: your staff can use the Kindgi page now.', 'kindgi' ) );
+		self::done( 'ok', __( 'Connected: your staff can use the Kindgi pages now.', 'kindgi' ) );
 	}
 
 	/** WooCommerce webhooks to Kindgi that WooCommerce turned off, each with the way back on. */

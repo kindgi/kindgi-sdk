@@ -5,8 +5,8 @@
 defined( 'ABSPATH' ) || exit;
 
 /**
- * The Kindgi page's own routes on the store (`/wp-json/kindgi/v1/…`): each
- * needs the WordPress login (cookie and `X-WP-Nonce`) and the page's
+ * The Kindgi pages' own routes on the store (`/wp-json/kindgi/v1/…`): each
+ * needs the WordPress login (cookie and `X-WP-Nonce`) and the pages'
  * capability, then makes fixed calls to Kindgi as the signed-in person.
  * Nothing here forwards a path or a body the browser chose.
  */
@@ -43,6 +43,7 @@ final class Kindgi_Rest {
 		$id = '(?P<id>' . self::ID . ')';
 		self::route( '/me', 'GET', 'me' );
 		self::route( '/agents', 'GET', 'agents' );
+		self::route( '/project', 'GET', 'project_named' );
 		self::route( '/conversations', 'GET', 'conversations', array( 'cursor' => self::optional_string( 512 ) ) );
 		self::route(
 			'/conversations',
@@ -120,8 +121,9 @@ final class Kindgi_Rest {
 	}
 
 	/**
-	 * The project's agents the person can see, less those an administrator
-	 * didn't offer to staff (Kindgi → Settings); `offered` says which.
+	 * The project's agents the person can see, each with `offered`: whether
+	 * an administrator offered it to staff (Kindgi → Settings). Ask lists
+	 * only those. It's no boundary: Kindgi decides who may ask an agent.
 	 */
 	public static function agents() {
 		$user    = wp_get_current_user();
@@ -155,6 +157,23 @@ final class Kindgi_Rest {
 			);
 		}
 		return array( 'agents' => $agents );
+	}
+
+	/** The site's project at Kindgi: its id, and its name when Kindgi tells it (Settings shows it). */
+	public static function project_named() {
+		$user    = wp_get_current_user();
+		$project = self::project( $user );
+		if ( is_wp_error( $project ) ) {
+			return $project;
+		}
+		$answer = Kindgi_Api::body( $user, 'GET', '/v1/projects/' . rawurlencode( $project ) );
+		if ( is_wp_error( $answer ) ) {
+			return $answer;
+		}
+		return array(
+			'id'   => $project,
+			'name' => is_string( $answer['body']['name'] ?? null ) ? $answer['body']['name'] : null,
+		);
 	}
 
 	/** The agents' ids an administrator offered to staff, or null when they didn't choose (all are). */

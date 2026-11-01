@@ -50,6 +50,12 @@ function kindgi_test_approval( array $changes = array() ): array {
 	);
 }
 
+/*
+ * Kindgi's own words for every tool call, its title "HITL review: <tool>"
+ * and its description "Tool call <tool> awaiting reviewer approval before
+ * dispatch.", are left out together: once a tool can give its approval a
+ * title and a summary of its own, both rules change at once.
+ */
 function test_inbox_a_tool_calls_card_reads_in_words_not_kindgis(): void {
 	$card = Kindgi_Inbox::card( kindgi_test_approval(), 'u-me', kindgi_test_reviewer(), kindgi_test_names() );
 	kindgi_assert_same( 'Refund large', $card['heading'], 'the tool in words, not "HITL review: …"' );
@@ -508,4 +514,11 @@ function test_activity_a_persons_run_and_its_answer(): void {
 	kindgi_assert_same( null, Kindgi_Activity::summary( array( 1, 2 ) ), 'a list has nothing to say' );
 	kindgi_assert_same( null, Kindgi_Activity::summary( null ), 'no output' );
 	kindgi_assert_same( null, Kindgi_Activity::summary( "\n\n" ), 'an empty answer' );
+}
+
+function test_admin_the_offer_form_offers_all_some_or_none(): void {
+	$shown = array( 'acme-desk.store-agent', 'acme-desk.order-reviewer' );
+	kindgi_assert_same( null, Kindgi_Admin::offered_after( $shown, $shown ), 'every one ticked: all, and any deployed later' );
+	kindgi_assert_same( array( 'acme-desk.store-agent' ), Kindgi_Admin::offered_after( $shown, array( 'acme-desk.store-agent' ) ), 'some: only those' );
+	kindgi_assert_same( array(), Kindgi_Admin::offered_after( $shown, array() ), 'none ticked: none offered' );
 }
