@@ -17,7 +17,7 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `OrgSpec` and `TeamSpec` refuse a slug that isn't lowercase letters, digits and hyphens
   starting with a letter or digit, of at most 63 characters, and a name of more than 100
   characters, before the call is sent. The register bodies of schedules, mail triggers and
-  webhook triggers, and `MintTokenBody`, refuse a blank label or one of more than 100
+  webhook triggers, and `MintTokenBody`, refuse an empty label or one of more than 100
   characters, and `OpenConversationBody` a title of more than 200. The update bodies check
   none of these: `ProjectPatch`, `OrgPatch` and `TeamPatch` no longer refuse `""` for a name
   or a slug, and a trigger update's label stays unchecked. The API passes a stored value sent
