@@ -363,8 +363,9 @@ def http_tool(
     )
 
 
-_PLACEHOLDER = re.compile(r"\{(\w+)\}")
-"""A `{name}` placeholder, as the runtime's HTTP tool fills it."""
+_PLACEHOLDER = re.compile(r"\{(\w+)\}", re.ASCII)
+"""A `{name}` placeholder, as the runtime's HTTP tool fills it: its name is ASCII letters, digits
+and `_`, as the runtime and Java's check read one. Other text in braces is text."""
 
 
 @cache

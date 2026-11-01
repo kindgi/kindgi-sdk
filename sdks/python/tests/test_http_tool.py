@@ -123,6 +123,17 @@ def test_every_placeholder_is_a_field_of_the_input() -> None:
     assert text.spec is not None
 
 
+def test_a_placeholder_is_named_in_ascii_as_the_runtime_fills_it() -> None:
+    # The runtime fills no name outside ASCII, so that one is text, not a field the input lacks.
+    with pytest.raises(DefinitionError) as raised:
+        lookup(
+            url_template="https://cases.example.com/{court}/{case_id}?size={gr\u00f6\u00dfe}&by={judge}"
+        )
+    assert str(raised.value) == (
+        'Tool "acme.lookup": {judge} not a field of the input, which fills placeholders'
+    )
+
+
 class Docket(BaseModel):
     case_id: str
     court: str = Field(json_schema_extra={"x-acme-source": "docket"})
