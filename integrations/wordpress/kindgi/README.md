@@ -1,19 +1,22 @@
 # Kindgi for WordPress
 
-A WordPress plugin that brings a store's staff to your Kindgi agents. In wp-admin, each person signed in to WordPress can:
+A WordPress plugin that brings a store's staff to your Kindgi agents. In wp-admin, under the **Kindgi** menu, each person signed in to WordPress can:
 
-- **ask** the project's agents, in conversations of their own;
-- **approve or reject** what an agent is about to do, for example a refund, when the action needs a person.
+- **decide** in the **Inbox**: approve or reject what an agent is about to do, for example a refund, when the action needs a person, and see what waits for others;
+- **follow** in **Activity**: what the project's agents and flows did, and what they found;
+- **ask** the agents an administrator offered to staff, on **Ask**, in conversations of their own.
+
+Administrators also get **Settings**: the connection, the agents offered to staff, and the site's own details.
 
 Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme store", never "approved by the store".
 
 ## How it works
 
-- **The site vouches for its staff.** When Jane opens the Kindgi page:
+- **The site vouches for its staff.** When Jane opens a Kindgi page:
   1. The plugin signs a short statement: "the person signed in here is Jane, with these WordPress roles".
   2. It sends the statement to Kindgi, server to server.
   3. Kindgi exchanges it for a 15-minute session as Jane, limited to the site's project. What she can do there comes from her roles on this site, under the ceiling the site was registered with.
-- **Nothing reaches the browser but this site's own pages.** The page calls the plugin's routes (`/wp-json/kindgi/v1/…`), and the plugin calls Kindgi. No Kindgi token is ever in a browser.
+- **Nothing reaches the browser but this site's own pages.** The pages call the plugin's routes (`/wp-json/kindgi/v1/…`), and the plugin calls Kindgi. No Kindgi token is ever in a browser.
 - **People are matched by the site, never by email.** Each person is a random id the plugin keeps for them (`kindgi_subject`), never their WordPress user id, login name or email.
 
 ## Requirements
@@ -61,11 +64,13 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
 - **Its id** shows under **Kindgi → Settings**: the key's RFC 7638 thumbprint. `kindgi sites get <site-id>` lists the site's keys by the same id, so you can tell which one to revoke.
 - **The site's address is part of the deal.** The plugin signs nothing when `home_url()` isn't the address the site connected as, so a staging copy of the site never vouches as production. If the site moves, connect it again with a new code.
 
-## Who sees the page
+## Who sees the pages
 
-- **The page needs `manage_woocommerce` when WooCommerce is active** (shop managers and administrators), and `edit_others_posts` otherwise (editors and administrators). Authors, contributors and customers never see it. Change it with the `kindgi_capability` filter.
+- **The pages need `manage_woocommerce` when WooCommerce is active** (shop managers and administrators), and `edit_others_posts` otherwise (editors and administrators). Authors, contributors and customers never see it. Change it with the `kindgi_capability` filter.
 - **Kindgi decides the rest from the person's roles on this site.** A role the site wasn't registered to allow is refused there.
-- **The Approvals tab** shows only for someone whose roles give a reviewer role.
+- **The Inbox** shows everyone what waits for them and what waits for others. Approve and Reject show only for someone who may decide: their roles give a reviewer role, and they have a row on Kindgi's reviewer roster.
+- **Each person reads their own.** A conversation opens for the person it's with, and for an approval's reviewer through that approval. In **Activity**, someone else's run is one line: who, which agent, when and its state. A run no person started (a webhook, a schedule) shows what it found; with WooCommerce, only to someone who can edit orders.
+- **The count** of what waits for a person shows on the Kindgi menu and in the admin bar. It's asked of Kindgi at most once a minute, on the person's own session while they have one: a page load never signs anyone in.
 - **Notification address:** each statement carries the person's email, for Kindgi's "an approval is waiting" mail only. Change it, or send none, with the `kindgi_statement_email` filter.
 - **A changed role counts at once.** The plugin tells Kindgi when a person's roles change, so what they get there follows. Losing every role the site allows ends their grants, reviewer role and sessions at Kindgi. The same roles back bring the same person back.
 - **When someone leaves, Kindgi is told, for good.** Deleting their user, removing them from the site (on a network), or erasing their data ends their grants, reviewer role and sessions at Kindgi, and Kindgi refuses them from then on.
