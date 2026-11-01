@@ -56,6 +56,13 @@ export interface InProcessProviderOptions {
 }
 
 /**
+ * The `max_new_tokens` a call gets when neither it
+ * (`ModelCallInput.maxOutputTokens`) nor its model's registration
+ * (`ModelInfo.maxOutputTokens`) sets one.
+ */
+const DEFAULT_MAX_NEW_TOKENS = 512;
+
+/**
  * Create an in-process `ModelProvider` backed by `@huggingface/transformers`.
  *
  * Pipelines are loaded lazily per model on the first `invoke()` call
@@ -73,12 +80,25 @@ export interface InProcessProviderOptions {
 export function createInProcessModelProvider(
   options: InProcessProviderOptions = {},
 ): ModelProvider {
+  return registeredInProcessProvider(options, new Map());
+}
+
+/**
+ * {@link createInProcessModelProvider}, with the `maxOutputTokens` each
+ * model is registered with: the cap for a call that sets none. The
+ * runtime's factory (`entry.ts`) passes them from the registration; the
+ * package doesn't export this.
+ */
+export function registeredInProcessProvider(
+  options: InProcessProviderOptions,
+  maxOutputTokens: ReadonlyMap<LocalModel, number>,
+): ModelProvider {
   const modelKeys = options.models ?? [DEFAULT_LOCAL_MODEL];
   if (modelKeys.length === 0) {
     throw new Error('createInProcessModelProvider: `models` must not be empty.');
   }
   const providerId = options.providerId ?? `in-process/${modelKeys.join('+')}`;
-  const metadata: ProviderMetadata = buildProviderMetadata(providerId, modelKeys);
+  const metadata: ProviderMetadata = buildProviderMetadata(providerId, modelKeys, maxOutputTokens);
   // Cache loaded pipelines per model key. Uses a Promise to dedupe
   // concurrent first-invocations on the same model.
   const pipelines = new Map<LocalModel, Promise<TextGenerationPipeline>>();
@@ -123,7 +143,8 @@ export function createInProcessModelProvider(
       const promptTokens = countPromptTokens(p, messages);
 
       const output = await p(messages, {
-        max_new_tokens: input.maxOutputTokens ?? 512,
+        max_new_tokens:
+          input.maxOutputTokens ?? modelInfo?.maxOutputTokens ?? DEFAULT_MAX_NEW_TOKENS,
         do_sample: input.temperature !== undefined && input.temperature > 0,
         ...(input.temperature !== undefined &&
           input.temperature > 0 && {
@@ -161,12 +182,14 @@ export function createInProcessModelProvider(
  * `ModelInfo.name` is the key itself (short label), not the fully-
  * qualified Hugging Face model id, so provider listings (such as
  * `GET /v1/providers`) show `smollm2-360m` alongside vendor model ids.
+ * A model's registered `maxOutputTokens` is kept on its entry.
  * Provider-level `attributes` are the union of every model's
  * `suitableFor` + `tier`, deduped, plus a marker `in-process`.
  */
 function buildProviderMetadata(
   providerId: string,
   modelKeys: readonly LocalModel[],
+  maxOutputTokens: ReadonlyMap<LocalModel, number>,
 ): ProviderMetadata {
   const attributes = new Set<string>(['in-process']);
   for (const key of modelKeys) {
@@ -177,20 +200,25 @@ function buildProviderMetadata(
   return {
     id: providerId,
     region: 'in-process',
-    models: modelKeys.map((key) => buildModelInfo(key, MODEL_SPECS[key])),
+    models: modelKeys.map((key) => buildModelInfo(key, MODEL_SPECS[key], maxOutputTokens.get(key))),
     attributes: [...attributes],
     description:
       'Local models via @huggingface/transformers — routing / classification / smoke-test tier.',
   };
 }
 
-function buildModelInfo(key: LocalModel, spec: ModelSpec): ModelInfo {
+function buildModelInfo(
+  key: LocalModel,
+  spec: ModelSpec,
+  maxOutputTokens: number | undefined,
+): ModelInfo {
   const features: Feature[] = ['streaming'];
   if (spec.toolUse) features.push('tool-use', 'structured-output');
   if (spec.contextWindow >= 32_000) features.push('long-context');
   return {
     name: key,
     contextWindow: spec.contextWindow,
+    ...(maxOutputTokens !== undefined && { maxOutputTokens }),
     features,
     cost: { promptUsdPer1kTokens: 0, completionUsdPer1kTokens: 0 },
     description: `Local ${spec.tier}-tier model (${spec.approxDownloadMb} MB, ${spec.contextWindow}-token context, HF id: ${spec.hfName}).`,
