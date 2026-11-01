@@ -33,7 +33,7 @@ docker rm kindgi-server
 docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  registry.kindgi.com/kindgi/runtime:0.3.0
+  registry.kindgi.com/kindgi/runtime:0.3.1
 ```
 
 - `-t 30` gives the runtime 30 seconds to stop before Docker kills it.
@@ -129,7 +129,7 @@ curl -s http://localhost:4000/v1/runtime -H @<(printf 'Authorization: Bearer %s\
 ```
 
 ```text
-{"version":"0.3.0","tenancy":"single","development":false}
+{"version":"0.3.1","tenancy":"single","development":false}
 ```
 
 `version` is the release, or what the build gave otherwise (`dev` when it
