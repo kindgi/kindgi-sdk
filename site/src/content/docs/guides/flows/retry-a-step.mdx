@@ -390,6 +390,19 @@ a resume of the child itself is refused with `run-held-by-parent`. Once the
 parent's subflow step has been left 3 times, the child's step fails with the
 read's error, and the parent's subflow step fails with `child-failed`.
 
+An agent's step that's left before its turn ended names the turn, by its
+run id, in the entry's `childRunId`:
+
+```json
+{"sequence": 6, "kind": "step.retry-scheduled", "nodeId": "draft", "payload": {"nodeId": "draft", "attempt": 1, "nextDelayMs": 0, "previousError": "run-snapshot-unreadable: …", "left": true, "childRunId": "…"}, …}
+```
+
+When the run is resumed, the step goes on with that turn. If the turn has
+failed or been cancelled by then, the step fails, naming the turn, and no new
+turn starts, so the turn's tools aren't called again. A step left before its
+turn started, as in the `run-version-unreadable` example above, has no
+`childRunId`. Runtimes up to 0.4.0 never write it.
+
 ## Where a policy applies
 
 A policy applies to the step its edge leads to, when that step has exactly one
