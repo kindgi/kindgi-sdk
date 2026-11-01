@@ -37,9 +37,11 @@ Sessions also end when what they came from goes:
 - **An admin signs a person out everywhere**
   (`POST /v1/identity/users/<id>/revoke-sessions`), or removes them. A
   removed person can't sign in again either.
-- **Revoking an API key** ends the console sessions that key opened, and
-  changing the runtime's own token (`KINDGI_API_TOKEN`) ends the ones the
-  old token opened.
+- **Revoking an API key** ends the console sessions that key opened. Each
+  request on one checks the key, so once it's revoked, the next request is
+  refused with `401 auth-revoked`, "The API key this session was opened
+  with is revoked: sign in again". Changing the runtime's own token
+  (`KINDGI_API_TOKEN`) ends the sessions the old token opened.
 - **Removing an identity provider,** or changing which one is behind it,
   ends the sessions people opened through it
   ([Set up SSO](../#change-it-list-it-remove-it)).

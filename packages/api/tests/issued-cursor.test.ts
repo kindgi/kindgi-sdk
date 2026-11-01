@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * The agents, flows, policies and eval-suites `/versions` lists check a
+ * The agents, flows, policies and test-sets `/versions` lists check a
  * cursor with their binding's optional `issuedCursor` before reading the
  * list: one the binding didn't issue answers `400 bad-input`, never the
  * first page again. A binding without `issuedCursor` pages as before.
@@ -72,9 +72,9 @@ const LISTS: readonly {
     mount: (b) => ({ policyRegistry: b as never }),
   },
   {
-    name: 'eval suites',
-    path: '/v1/eval-suites/acme.answers/versions',
-    mount: (b) => ({ evalSuiteRegistry: b as never }),
+    name: 'test sets',
+    path: '/v1/test-sets/acme.answers/versions',
+    mount: (b) => ({ testSetRegistry: b as never }),
   },
 ];
 

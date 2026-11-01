@@ -53,6 +53,7 @@ class IndexerTest {
     // Two versions of one tool, side by side, and a third tool; the re-exported one isn't this pack's.
     assertThat(tools).extracting(t -> t.get("id") + "@" + t.get("version")).containsExactly("acme.greet@1.0.0", "acme.greet@2.0.0", "acme.refund@1.0.0");
     assertThat(tools.get(0)).containsEntry("mutating", false).containsEntry("needsApprovalWhenUnattended", false)
+        .containsEntry("resultIsOutsideData", true)
         .containsEntry("modulePath", "src/main/java/com/kindgi/pack/testpacks/good/tools/Greet.java")
         .containsEntry("input", Map.of("type", "object", "additionalProperties", false,
             "properties", Map.of("name", Map.of("type", "string")), "required", List.of("name")));
@@ -61,7 +62,7 @@ class IndexerTest {
         "GREETINGS_KEY", Map.of("type", "string"),
         "TRANSLATE_KEY", Map.of("type", List.of("string", "null")))));
     // A tool that says nothing about either carries neither: it may change something, and it needs no approval.
-    assertThat(tools.get(1)).doesNotContainKeys("mutating", "needsApprovalWhenUnattended");
+    assertThat(tools.get(1)).doesNotContainKeys("mutating", "needsApprovalWhenUnattended", "resultIsOutsideData");
     assertThat(tools.get(2)).containsEntry("mutating", true).containsEntry("needsApprovalWhenUnattended", true);
 
     Map<String, Object> guardrail = ((List<Map<String, Object>>) index.get("guardrails")).get(0);
@@ -117,6 +118,22 @@ class IndexerTest {
               "secretRef", Map.of("envName", "production", "name", "ACME_TOKEN")))
           .containsEntry("successStatus", Map.of("min", 200, "max", 299));
     });
+
+    List<Map<String, Object>> issues = Specs.validator("pack-index").issues(index);
+    assertThat(issues).as(String.valueOf(issues)).isEmpty();
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void anLlmJudgeGuardrailCarriesItsJudgeIntoAValidIndex() throws Exception {
+    // The runtime routes an llm-judge guardrail's judge by its judgeCapabilities, and refuses one without them.
+    Map<String, Object> report = value(index("judge"));
+    assertThat(report.get("fileErrors")).isEqualTo(List.of());
+    String text = Files.readString(out.resolve("judge.json"), StandardCharsets.UTF_8);
+    Map<String, Object> index = (Map<String, Object>) Json.parse(text.getBytes(StandardCharsets.UTF_8));
+    Map<String, Object> guardrail = ((List<Map<String, Object>>) index.get("guardrails")).get(0);
+    assertThat(guardrail).containsEntry("kind", "llm-judge").containsEntry("checkId", "acme.checks.tone")
+        .containsEntry("judgeCapabilities", Map.of("needs", List.of(Map.of("feature", "structured-output"))));
 
     List<Map<String, Object>> issues = Specs.validator("pack-index").issues(index);
     assertThat(issues).as(String.valueOf(issues)).isEmpty();

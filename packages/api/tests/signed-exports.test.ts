@@ -171,7 +171,7 @@ function harness(
 
 const EXPORTS = [
   ['audit-bundle', `/v1/approvals/${approvalId}/audit-bundle`, 'approvalId', approvalId, '2.0.0'],
-  ['provenance', `/v1/provenance/${runId}/export`, 'runId', runId, '1.2.0'],
+  ['provenance', `/v1/provenance/${runId}/export`, 'runId', runId, '1.3.0'],
   ['compliance', '/v1/compliance/evidence/export', 'tenantId', tenantId, '1.0.0'],
 ] as const;
 

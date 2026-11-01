@@ -4,9 +4,18 @@
 import type { Agent, AgentId } from '@kindgi/agents';
 import type { TupleEnqueueHook } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
-import type { Cursor, LiveScope, ProjectId, Semver, TenantId } from '@kindgi/types';
+import type { AgentPinScope, Cursor, ProjectId, Semver, TenantId, UserId } from '@kindgi/types';
 
+import type { PinActor } from './agent-pin-binding.js';
 import type { RegistryReadOnly } from './registry-read-only.js';
+
+/**
+ * What an agent version is made for. `latest`: a deploy or a person's
+ * full publish, so it can be what an unpinned project runs. `project`: a
+ * version made for one project's card, published under that project; it
+ * is Latest nowhere until someone adds it as the latest version.
+ */
+export type AgentMadeFor = 'latest' | 'project';
 
 /**
  * Caller-plugged surface for the agent catalog. Same shape as
@@ -39,8 +48,11 @@ export interface AgentRegistryBinding {
    */
   list(input: AgentListInput): Promise<AgentPage>;
   /**
-   * Latest version of the given agent id, or `null` if unknown. The
-   * route surfaces `null` as `404 agent-not-found`.
+   * The highest active version of the given agent id, or `null` if
+   * unknown. The route surfaces `null` as `404 agent-not-found`. It
+   * numbers the next version; what an unpinned project runs is Latest
+   * (`LatestBinding`), which a version made for a project's card never is
+   * by itself.
    */
   get(input: AgentGetInput): Promise<AgentVersionRecord | null>;
   /**
@@ -90,8 +102,8 @@ export interface AgentRegistryBinding {
    * Soft-tombstone a specific `(agentId, version)`. Returns
    * `{ unregistered: true }` on success; `{ unregistered: false }`
    * when the version was unknown OR already tombstoned — the route
-   * flips the latter to `404` — or, with `live`, when it's a scope's live
-   * version (`409 agent-version-live`). Head row is preserved; when this
+   * flips the latter to `404` — or, with `pinned`, when it's a scope's pinned
+   * version (`409 agent-version-pinned`). Head row is preserved; when this
    * unregister leaves NO active versions, the agent has no latest
    * version — it enters the derived "retired" state
    * (GET returns 410 gone) but the identity persists. Publish of a
@@ -108,6 +120,24 @@ export interface AgentRegistryBinding {
    * published.
    */
   reinstateVersion(input: AgentReinstateVersionInput): Promise<AgentReinstateVersionOutcome>;
+  /**
+   * Make an existing version Latest, now, in the project it was made in
+   * (Add as the latest version): sets its `latestAt` and `latestBy`, so
+   * it's Latest there until a newer deployment or another add
+   * (`LatestBinding`). Marking it again moves the time. `{ kind:
+   * 'not-found' }` when the version was never published, or is
+   * unregistered. A registry whose versions come from files refuses it
+   * the same way.
+   */
+  markLatest(input: AgentMarkLatestInput): Promise<AgentMarkLatestOutcome>;
+  /**
+   * Sets the agent's owner (`AgentOwner`), replacing the one before. The
+   * owner is the agent's, not a version's: every version reads it.
+   * `{ kind: 'not-found' }` when the agent was never published. Optional:
+   * without it, `PUT /v1/agents/:id/owner` answers 501
+   * `agent-owner-unsupported`.
+   */
+  setOwner?(input: AgentSetOwnerInput): Promise<AgentSetOwnerOutcome>;
 }
 
 /**
@@ -119,6 +149,12 @@ export interface AgentRegistryBinding {
 export type AgentVersionRecord = Agent & {
   /** ISO-8601; present only on an unregistered version. */
   readonly unregisteredAt?: string;
+  /** What the version was made for, when the store records it. Absent on a version from before 0.4.0. */
+  readonly madeFor?: AgentMadeFor;
+  /** ISO-8601: when a person made the version Latest in its project (`AgentPublishInput.latestBy`). */
+  readonly latestAt?: string;
+  /** Who did, with `latestAt`. */
+  readonly latestBy?: PinActor;
   /**
    * The agent's project, when the store records it: agents never move
    * between projects, so every version reads the same one. In a tenant
@@ -134,7 +170,22 @@ export type AgentVersionRecord = Agent & {
    * promoted build.
    */
   readonly madeInProjectId?: ProjectId;
+  /** The agent's owner, the same on every version. Absent until one is set. */
+  readonly owner?: AgentOwner;
 };
+
+/**
+ * The person an agent's corrections go to when they need its owner: one
+ * per agent, set by an admin of its project. Until one is set, those go to
+ * everyone who may publish the agent.
+ */
+export interface AgentOwner {
+  readonly userId: UserId;
+  /** The id of the caller that set it, a person's or a service's; absent without one. */
+  readonly setBy?: string;
+  /** ISO-8601. */
+  readonly setAt: string;
+}
 
 export interface AgentListInput {
   readonly tenantId: TenantId;
@@ -200,10 +251,10 @@ export interface AgentPublishInput {
   /**
    * Project the agent is published into. REQUIRED. Callers that
    * don't naturally know a projectId
-   * (e.g. the deployments route) resolve the tenant's Default
+   * (e.g. the deployments route) resolve the tenant's default
    * via `projectBinding.getDefault(tenantId)` at THEIR layer and
    * thread the resolved id here — the storage adapter never
-   * silently falls back to Default.
+   * silently falls back to the default.
    */
   readonly projectId: ProjectId;
   /**
@@ -212,6 +263,15 @@ export interface AgentPublishInput {
    * use); a binding stores and returns them with the rest.
    */
   readonly agent: Agent;
+  /** What the version is made for (`AgentMadeFor`). */
+  readonly madeFor: AgentMadeFor;
+  /**
+   * A person's full publish makes the version Latest in its project at
+   * once, and records who did (`AgentVersionRecord.latestAt`). Absent for
+   * a deploy, whose deployment is the record, and for a card's version,
+   * which is Latest only once someone adds it.
+   */
+  readonly latestBy?: PinActor;
   /**
    * REQUIRED. Called inside the binding's write transaction after the
    * head + version rows are inserted, receiving the FGA subject id
@@ -241,6 +301,26 @@ export interface AgentReinstateVersionInput {
   readonly agentId: AgentId;
   readonly version: Semver;
 }
+
+export interface AgentMarkLatestInput {
+  readonly tenantId: TenantId;
+  readonly agentId: AgentId;
+  readonly version: Semver;
+  /** Who made it Latest: the request's principal. */
+  readonly by: PinActor;
+}
+
+export interface AgentSetOwnerInput {
+  readonly tenantId: TenantId;
+  readonly agentId: AgentId;
+  readonly userId: UserId;
+  /** The caller's id, a person's or a service's; absent on a runtime without sign-in. */
+  readonly setBy?: string;
+}
+
+export type AgentSetOwnerOutcome =
+  | { readonly kind: 'set'; readonly owner: AgentOwner }
+  | { readonly kind: 'not-found' };
 
 export interface AgentPage {
   readonly data: readonly AgentVersionRecord[];
@@ -289,15 +369,29 @@ export type AgentPublishOutcome =
 export type AgentUnregisterOutcome = {
   readonly unregistered: boolean;
   /**
-   * Set when the version wasn't unregistered because it's live: the
-   * scopes whose live pin it is (evals step 4). Unregister stops a version
-   * being chosen, and a live pin is a standing choice, so the operator
-   * moves those pins first (rollback, unpin, or promote another version).
-   * The route answers `409 agent-version-live`. Absent: a registry that
-   * doesn't know live versions, as before.
+   * Set when the version wasn't unregistered because it's pinned: the
+   * scopes whose pin it is. Unregister stops a version
+   * being chosen, and a pin is a standing choice, so the operator
+   * moves those pins first (unpin, or pin another version).
+   * The route answers `409 agent-version-pinned`. Absent: a registry that
+   * doesn't know pinned versions, as before.
    */
-  readonly live?: readonly LiveScope[];
+  readonly pinned?: readonly AgentPinScope[];
 };
+
+export type AgentMarkLatestOutcome =
+  | {
+      readonly kind: 'ok';
+      readonly agentId: AgentId;
+      readonly version: Semver;
+      /** ISO-8601: the version's new `latestAt`. */
+      readonly latestAt: string;
+    }
+  | {
+      readonly kind: 'not-found';
+      readonly agentId: AgentId;
+      readonly version: Semver;
+    };
 
 export type AgentReinstateVersionOutcome =
   | {

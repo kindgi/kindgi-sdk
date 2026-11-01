@@ -16,7 +16,15 @@ const line = (body: Record<string, unknown>, status: number) =>
 
 describe('error tags', () => {
   test.each([
-    [{ code: 'gate-failed', message: 'The gate refused the promotion' }, 422, 'gate-failed'],
+    [
+      {
+        code: 'gate-failed',
+        message:
+          'The release gate refused acme.agent 1.2.0: Precision at 5 is 0.75; the gate needs at least 0.8.',
+      },
+      422,
+      'gate-failed',
+    ],
     [
       { code: 'budget-exceeded', message: 'Agent turn cost budget exceeded' },
       422,

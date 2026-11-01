@@ -18,6 +18,7 @@ import type { EnvName } from '@kindgi/types';
 import type { CommandContext } from '../context.js';
 import { extractKindgiError } from '../errors.js';
 import { renderJson } from '../output.js';
+import { type SaidLine, note, renderLines, warning } from '../progress-lines.js';
 import { type ResolvedEnvironment, valueTargetFor, withEnvironmentNote } from '../value-target.js';
 import { commandResultFromThrown, stringFlag } from './helpers.js';
 import type { CommandResult } from './types.js';
@@ -183,9 +184,10 @@ export function credentialWarning(key: string, target: ScopedTarget): string | u
   );
 }
 
-function ok(summary: unknown, ctx: CommandContext, banner: string): CommandResult {
+function ok(summary: unknown, ctx: CommandContext, lines: readonly SaidLine[]): CommandResult {
   const rendered = renderJson(summary, ctx.globals.format);
-  return { kind: 'ok', rendered: { stdout: rendered.stdout, stderr: banner } };
+  const stderr = renderLines(lines, ctx.globals.format === 'quiet');
+  return { kind: 'ok', rendered: { stdout: rendered.stdout, stderr } };
 }
 
 /** `kindgi env set <KEY> <VALUE> --scope=… --env=…`. KEY is already checked. */
@@ -196,7 +198,11 @@ export async function setScoped(
 ): Promise<CommandResult> {
   const t = await scopedTarget(ctx, 'set');
   if (t.kind === 'error') return t;
-  return withEnvironmentNote(await setScopedAt(ctx, key, value, t.target), t.target);
+  return withEnvironmentNote(
+    await setScopedAt(ctx, key, value, t.target),
+    t.target,
+    ctx.globals.format,
+  );
 }
 
 async function setScopedAt(
@@ -207,7 +213,7 @@ async function setScopedAt(
 ): Promise<CommandResult> {
   const { scope, envName } = target;
   const where = `${describeScope(scope)} in env ${envName}`;
-  const warning = credentialWarning(key, target);
+  const credential = credentialWarning(key, target);
   const env = ctx.client().env;
   try {
     const existing = await env.get({ scope, envName: envName as EnvName, name: key });
@@ -218,7 +224,13 @@ async function setScopedAt(
       return ok(
         { envName, scope: describeScope(scope), key, changed: false, revision: existing.revision },
         ctx,
-        `\n  ✓ ${key} is already set to that value at ${where}: no change. Re-run with --force to set it again: on Kindgi Cloud, a pack service whose new values didn't start tries them again.\n\n`,
+        [
+          note(''),
+          note(
+            `  ✓ ${key} is already set to that value at ${where}: no change. Re-run with --force to set it again: on Kindgi Cloud, a pack service whose new values didn't start tries them again.`,
+          ),
+          note(''),
+        ],
       );
     }
     if (existing !== null && ctx.options.force !== true) {
@@ -243,13 +255,14 @@ async function setScopedAt(
       };
     }
     const lines = [
-      '',
-      same
-        ? `  ✓ Set ${key} again at ${where}, to the same value: a new revision.`
-        : `  ✓ ${existing !== null ? 'Updated' : 'Set'} ${key} at ${where}. A tool that declares it (\`needsSpec.env\`) gets it on its next call.`,
-      ...(warning !== undefined ? ['', `  ⚠ ${warning}`] : []),
-      '',
-      '',
+      note(''),
+      note(
+        same
+          ? `  ✓ Set ${key} again at ${where}, to the same value: a new revision.`
+          : `  ✓ ${existing !== null ? 'Updated' : 'Set'} ${key} at ${where}. A tool that declares it (\`needsSpec.env\`) gets it on its next call.`,
+      ),
+      ...(credential !== undefined ? [note(''), warning(`  ⚠ ${credential}`)] : []),
+      note(''),
     ];
     return ok(
       {
@@ -259,10 +272,10 @@ async function setScopedAt(
         changed: true,
         overwritten: existing !== null,
         revision: outcome.record.revision,
-        ...(warning !== undefined && { warnings: [warning] }),
+        ...(credential !== undefined && { warnings: [credential] }),
       },
       ctx,
-      lines.join('\n'),
+      lines,
     );
   } catch (err) {
     return envErrorResult(err, ctx, 'kindgi env set');
@@ -273,7 +286,7 @@ async function setScopedAt(
 export async function listScoped(ctx: CommandContext): Promise<CommandResult> {
   const t = await scopedTarget(ctx, 'list');
   if (t.kind === 'error') return t;
-  return withEnvironmentNote(await listScopedAt(ctx, t.target), t.target);
+  return withEnvironmentNote(await listScopedAt(ctx, t.target), t.target, ctx.globals.format);
 }
 
 async function listScopedAt(ctx: CommandContext, target: ScopedTarget): Promise<CommandResult> {
@@ -288,19 +301,84 @@ async function listScopedAt(ctx: CommandContext, target: ScopedTarget): Promise<
       revision: r.revision,
       updatedAt: r.updatedAt,
     }));
-    const lines = ['', `  Value set: ${envName}`, `  Scope:     ${describeScope(scope)}`, ''];
-    lines.push(values.length === 0 ? '  (no values set here)' : `  ${values.length} key(s):`);
-    for (const v of values) lines.push(`    ${v.key.padEnd(24, ' ')} ${v.value}`);
-    lines.push('', "  A tool gets the project's value, else its org's, else the tenant's.", '', '');
+    const cloudSecrets = await tenantCloudSecretNames(ctx, scope, envName as EnvName);
+    const lines = [
+      '',
+      `  Value set: ${envName}`,
+      `  Scope:     ${describeScope(scope)}`,
+      '',
+      values.length === 0 ? '  (no values set here)' : `  ${values.length} key(s):`,
+      ...values.map((v) => `    ${v.key.padEnd(24, ' ')} ${v.value}`),
+      ...(cloudSecrets.length > 0
+        ? [
+            '',
+            `  ${cloudSecrets.length} set by your operator to a cloud secret, which a pack service reads from the cloud:`,
+            ...cloudSecrets.map((c) => `    ${c.key} (cloud secret)`),
+          ]
+        : []),
+      '',
+      "  A tool gets the project's value, else its org's, else the tenant's.",
+      '',
+    ].map(note);
     return ok(
-      { envName, scope: describeScope(scope), count: values.length, values },
+      {
+        envName,
+        scope: describeScope(scope),
+        count: values.length,
+        values,
+        ...(cloudSecrets.length > 0 && { cloudSecrets }),
+      },
       ctx,
-      lines.join('\n'),
+      lines,
     );
   } catch (err) {
     return envErrorResult(err, ctx, 'kindgi env list');
   }
 }
+
+/**
+ * The names the operator set to a cloud secret at a tenant's scope, as the
+ * tenant sees them: no path. Empty from a runtime that keeps none (`501`)
+ * or doesn't know them (`404`).
+ */
+export async function tenantCloudSecretNames(
+  ctx: CommandContext,
+  scope: ScopeRef,
+  envName: EnvName,
+): Promise<
+  readonly { readonly key: string; readonly revision: number; readonly updatedAt: string }[]
+> {
+  const out: { key: string; revision: number; updatedAt: string }[] = [];
+  let cursor: string | undefined;
+  try {
+    for (let i = 0; i < 1_000; i += 1) {
+      const page = await ctx.client().env.listCloudSecrets({
+        scope,
+        envName,
+        ...(cursor !== undefined && { cursor: cursor as never }),
+      });
+      out.push(
+        ...page.data.map((r) => ({ key: r.name, revision: r.revision, updatedAt: r.updatedAt })),
+      );
+      if (page.nextCursor === undefined) break;
+      cursor = page.nextCursor;
+    }
+  } catch (err) {
+    // A runtime that keeps none, or before the route (`/v1/env/:name` then
+    // reads `cloud-secrets` as a name): none.
+    const wire = extractKindgiError(err);
+    const code = wire !== null && 'serverCode' in wire ? wire.serverCode : undefined;
+    if (code !== undefined && TENANT_LIST_NONE.has(code)) return [];
+    throw err;
+  }
+  return out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+}
+
+const TENANT_LIST_NONE: ReadonlySet<string> = new Set([
+  'cloud-secrets-unsupported',
+  'route-not-found',
+  'env-not-found',
+]);
 
 /** What a call sees once a scope's value is gone. */
 const FALLBACK: Readonly<Record<ScopeRef['kind'], string>> = {
@@ -314,7 +392,7 @@ const FALLBACK: Readonly<Record<ScopeRef['kind'], string>> = {
 export async function unsetScoped(ctx: CommandContext, key: string): Promise<CommandResult> {
   const t = await scopedTarget(ctx, 'unset');
   if (t.kind === 'error') return t;
-  return withEnvironmentNote(await unsetScopedAt(ctx, key, t.target), t.target);
+  return withEnvironmentNote(await unsetScopedAt(ctx, key, t.target), t.target, ctx.globals.format);
 }
 
 async function unsetScopedAt(
@@ -331,11 +409,11 @@ async function unsetScopedAt(
     const outcome = deleted
       ? `Removed ${key} at ${where}. A tool that declares it now gets ${FALLBACK[scope.kind]}.`
       : `${key} wasn't set at ${where}: no change.`;
-    return ok(
-      { envName, scope: describeScope(scope), key, removed: deleted },
-      ctx,
-      `\n  ✓ ${outcome}\n\n`,
-    );
+    return ok({ envName, scope: describeScope(scope), key, removed: deleted }, ctx, [
+      note(''),
+      note(`  ✓ ${outcome}`),
+      note(''),
+    ]);
   } catch (err) {
     return envErrorResult(err, ctx, 'kindgi env unset');
   }

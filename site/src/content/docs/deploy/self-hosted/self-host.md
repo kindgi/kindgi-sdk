@@ -18,9 +18,9 @@ You run four containers on one Docker network:
 Everything here runs on one machine with Docker Desktop. On a server the pieces are the same; step 2 says what changes.
 
 :::note[Access to the runtime image]
-Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
-runtime image's pull credentials, and log in once with `kindgi auth registry`
-(see [Install](../../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or your
+email address for a license key. The key is also the runtime image's
+password ([Pull the runtime image](../pull-the-runtime-image/)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## Before you start
@@ -43,19 +43,26 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
 
   `init` lists the files it made, and `pnpm install` its packages.
 
-- **A license key.** Outside development mode, the runtime needs one: a free non-production key covers staging and CI, and a production key comes with a commercial license. To get one, write to contact@kindgi.com. [Licensing](../../../concepts/licensing/) explains the keys. `kindgi dev` needs none.
+- **A license key.** Outside development mode, the runtime needs one, and
+  pulling its image needs one too. A free non-production key covers staging
+  and CI: get one at [access.kindgi.com](https://access.kindgi.com). A
+  production key comes with a commercial license from contact@kindgi.com.
+  [Licensing](../../../concepts/licensing/) explains the keys.
 
 ## 1. Pull the runtime image
 
-The runtime runs from Kindgi's image. Log in to its registry and pull it:
+The runtime runs from Kindgi's image. Log in to its registry with your
+license key, and pull it:
 
 ```sh
-docker login quay.io
-docker pull quay.io/kindgi/runtime:0.1.10
+docker login registry.kindgi.com --username kindgi
+docker pull registry.kindgi.com/kindgi/runtime:0.3.0
 ```
 
-`docker login` prints `Login Succeeded`. It asks for the robot name and
-token only if `kindgi auth registry` hasn't logged Docker in already. `docker pull` prints the image's digest when it's done.
+`docker login` asks for the password: paste your key. It prints
+`Login Succeeded`. `docker pull` prints the image's digest when it's done.
+[Pull the runtime image](../pull-the-runtime-image/) covers logging in from a
+script or CI, and other clients.
 
 ## 2. Start Postgres and a registry
 
@@ -122,6 +129,11 @@ uuidgen | tr 'A-Z' 'a-z'
 
 It prints the id in lower case. Keep it for the config and `kindgi.env`.
 
+Keep the id in lower case. With an upper-case one, manage the tenant's people
+one way only: with the API token as the bearer of your CLI or API calls, or
+through the console and API keys, not both. A runtime that already runs with
+an upper-case id keeps it as it is.
+
 Create a signing key. `acme-selfhost` is the key's id, and `--env selfhost`
 also prints the lines to add to the `selfhost` environment:
 
@@ -132,7 +144,8 @@ npx --yes @kindgi/cli@0.2 key create acme-selfhost --env selfhost
 It prints the key's JSON, then the paths of its private and public key files
 and its fingerprint.
 [Rotate a signing key](../rotate-keys/#rotate-a-signing-key) shows that
-output in full.
+output in full for a second key, with the key lines the `selfhost` block has
+by then.
 
 Add an environment for this deployment to `kindgi.config.ts`:
 
@@ -221,6 +234,15 @@ one, as `env-dropped`, never its value.
 [Declare the environment your code reads](../../../guides/secrets/pack-env/#in-a-deployment)
 says more.
 
+This one service runs the tools' code of every project the runtime serves,
+in the same processes, with one environment.
+[Your tools' code](../../../concepts/security/#your-tools-code) says what
+that means, and how to keep projects apart.
+It runs only the tool versions in the build you started it with: after you
+start a newer one, an agent or flow version that locked a tool version the
+build no longer has fails when it calls that tool
+([A self-hosted runtime runs what your pack has](../../../guides/agents/agent-and-tool-versions/#a-self-hosted-runtime-runs-what-your-pack-has)).
+
 ## 5. Configure and start the runtime
 
 Make an API token. Your CLI and apps send it as their bearer:
@@ -250,7 +272,9 @@ KINDGI_CONSOLE_TOKEN_SIGN_IN=on
 
 - **`<DB_PASSWORD>`** is the password from step 2: `echo "$DB_PASSWORD"`
   prints it.
-- **`<your tenant id>`** is the id `uuidgen` printed.
+- **`<your tenant id>`** is the id `uuidgen` printed. The runtime takes it
+  in lower case. If an earlier runtime ran with it in upper case, the start
+  says what to do: [A tenant id given in upper case](../serve-many-tenants/#a-tenant-id-given-in-upper-case).
 - **`<the token>`** is the API token `printf` printed.
 - **`<the same token as in pack.env>`** is `pack.env`'s
   `KINDGI_PACK_SERVICE_TOKEN`.
@@ -277,7 +301,7 @@ Start the runtime:
 docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.10
+  registry.kindgi.com/kindgi/runtime:0.3.0
 ```
 
 - **`--restart unless-stopped`** brings the runtime back by itself after a

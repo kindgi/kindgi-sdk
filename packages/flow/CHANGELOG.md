@@ -1,5 +1,44 @@
 # @kindgi/flow
 
+## 0.3.0
+
+### Patch Changes
+
+- Updated dependencies [8dd91b0]
+  - @kindgi/types@0.3.0
+  - @kindgi/schema@0.3.0
+
+## 0.3.0-rc.0
+
+### Patch Changes
+
+- Updated dependencies [8dd91b0]
+  - @kindgi/types@0.3.0-rc.0
+  - @kindgi/schema@0.3.0-rc.0
+
+## 0.2.0
+
+### Patch Changes
+
+- Updated dependencies [d70c2a5]
+  - @kindgi/schema@0.2.0
+  - @kindgi/types@0.2.0
+
+## 0.2.0-rc.1
+
+### Patch Changes
+
+- @kindgi/schema@0.2.0-rc.1
+  - @kindgi/types@0.2.0-rc.1
+
+## 0.2.0-rc.0
+
+### Patch Changes
+
+- Updated dependencies [d70c2a5]
+  - @kindgi/schema@0.2.0-rc.0
+  - @kindgi/types@0.2.0-rc.0
+
 ## 0.1.10
 
 ### Patch Changes

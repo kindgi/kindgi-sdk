@@ -67,7 +67,9 @@ export default defined.value;
 - `defineTool` returns a result instead of throwing. Unwrap it when the file
   loads, so a bad definition fails at once rather than on the first call.
 - `ctx` carries `tenantId`, `runId`, `requestId` and an `abortSignal` that
-  fires when the call is cancelled. In a run it also carries `projectId`, the
+  fires when the call is cancelled, or passes its deadline
+  ([Work that takes longer than a call](#work-that-takes-longer-than-a-call)).
+  In a run it also carries `projectId`, the
   run's project, and `orgId`, the project's org when it has one. The runtime
   sets both from the run, never from the input, so compare an id in the input
   with them rather than trusting it.
@@ -115,8 +117,10 @@ def lookup_order(ref: OrderRef, ctx: ToolContext) -> Order:
   Field aliases are the names on the wire.
 - The docstring is the description. The version is the pack's, unless you
   pass `version=`.
-- `ctx` carries `tenant_id`, `run_id`, `request_id` and `cancellation`. In a
-  run it also carries `project_id`, the run's project, and `org_id`, the
+- `ctx` carries `tenant_id`, `run_id`, `request_id` and `cancellation`,
+  which fires when the call is cancelled, or passes its deadline
+  ([Work that takes longer than a call](#work-that-takes-longer-than-a-call)).
+  In a run it also carries `project_id`, the run's project, and `org_id`, the
   project's org when it has one (else `None`). The runtime sets both from the
   run, never from the input. A `def` handler runs in a worker thread, so
   blocking calls are fine; an `async def` handler runs on the event loop.
@@ -173,7 +177,9 @@ public final class LookupOrder {
   a Jakarta Validation constraint such as `@Pattern` becomes its schema
   keyword, and an enum the list of its JSON values.
 - `ctx` carries `tenantId()`, `runId()`, `requestId()` and `cancellation()`,
-  which fires when the call is cancelled. In a run it also carries
+  which fires when the call is cancelled, or passes its deadline
+  ([Work that takes longer than a call](#work-that-takes-longer-than-a-call)).
+  In a run it also carries
   `projectId()`, the run's project, and `orgId()`, the project's org when it
   has one (else `null`). The runtime sets both from the run, never from the
   input. Each call runs on its own thread, so blocking calls are fine.
@@ -234,6 +240,18 @@ In every language:
 - `mutating: false` (`.mutating(false)` in Java, `.readOnly` in Scala)
   declares that the tool only reads. See
   [Mark a tool read-only](../read-only-tools/).
+- A `pattern` (`@Pattern` in Java and Scala) is read as JavaScript's
+  `RegExp` reads it, in the runtime. In Python, Java and Scala, the pack
+  checks data against it with its own regular expressions too, so it must be
+  one both read, as `^ord_\d+$` is:
+  - In Python, one JavaScript doesn't read, such as `(?P<name>.)`, is
+    refused when the tool is defined. A schema given as a dict has its data
+    checked with Python's `re`, so one `re` doesn't read, such as `\p{L}`, is
+    refused then too. A pydantic model's `Field(pattern=...)` is checked by
+    pydantic, which reads `\p{L}`. One pydantic doesn't read, such as `a\Z`,
+    fails when the model class is created.
+  - In Java and Scala, one JavaScript or Java doesn't read, such as `[^]`,
+    which Java doesn't, is refused when the pack is indexed.
 - What the handler prints shows in the `kindgi dev` terminal, prefixed `[pack]`.
 - Open files, databases and connections inside the handler, on first use,
   not at the module's top level (in a static field or an object's `val`, in
@@ -562,6 +580,14 @@ uv run kindgi runs start --flow=my-pack.check-order --input='{"orderId":"ord_999
   "failureMessage": "handler-error: Tool \"my-pack.lookup-order\" handler threw: handler-throw: Handler for tool \"my-pack.lookup-order\" threw: Error: No order ord_9999",
 ```
 
+In TypeScript, the message goes on to say what caused the error, as Node
+writes it, up to three causes. A `fetch` that failed says why, where it
+said only `fetch failed`:
+`TypeError: fetch failed; caused by ConnectTimeoutError [UND_ERR_CONNECT_TIMEOUT]: Connect Timeout Error (attempted address: shop.acme.example:443, timeout: 10000ms)`.
+The message is masked, its causes included: a Kindgi token, and a URL's
+secret query value such as `?token=` or `X-Amz-Signature=`, show as
+`[redacted]`.
+
 What the handler returns is checked against the output schema too; a return
 value that doesn't fit fails with `output-validation-failed`.
 
@@ -637,6 +663,54 @@ that must be unique) and look for it before you write. The key is a UUID.
   its answers: two turns of a loop can share one.
 - **It can be absent** outside a run: a unit test passes its own, or none.
   Check for it, as above; without one, the call can't be deduped on it.
+
+## Work that takes longer than a call
+
+A tool call has a deadline: 120 seconds by default. When it passes, the
+call fails with `deadline-exceeded`, and the handler's abort signal fires:
+`ctx.abortSignal` in TypeScript, `ctx.cancellation` in Python,
+`ctx.cancellation()` in Java and `ctx.cancellation` in Scala. In Java and
+Scala the thread is interrupted too, which ends a wait such as `Thread.sleep`.
+A handler that doesn't stop then runs on, and what it returns goes nowhere.
+
+- **In an agent,** the failure fails the turn, unless `tool-error` is in
+  the agent's `toolErrors.retryOn` (`tool_errors` in Python). Then it goes
+  back to the model, which can call the tool again. The list replaces the
+  default one, so name `invalid-arguments` and `unknown-tool` in it too to
+  keep their retries.
+- **In a flow,** it fails the step. An edge's `retry` runs the step again,
+  maybe while the first handler still runs, with the same
+  `ctx.idempotencyKey` ([Make a side effect happen once](#make-a-side-effect-happen-once)).
+  An edge's `timeoutMs` can fail the step sooner, never later.
+
+While a call runs, its run is executing, not waiting. If the runtime stops
+in the middle, for a deploy, a restart or a crash, the run fails
+([If the runtime stops](../../../concepts/runs/#if-the-runtime-stops)). On a
+runtime you run, `KINDGI_PACK_CALL_TIMEOUT_MS` sets the deadline, in
+milliseconds. A longer deadline doesn't change that.
+
+So don't make a tool wait for work that takes minutes or hours, such as a
+report, a batch job or someone's answer in another system. Hand the work on
+instead:
+
+- **Pause the run** until the other system answers. The tool hands that
+  system a link and returns `ctx.pause()`. The answer becomes the call's
+  result, and the run goes on from there. The run waits parked, for up to
+  24 days, so a restart doesn't end it. It's in TypeScript and Python
+  ([Wait for another system's answer](../wait-for-another-system/)).
+- **Start the job and return its id.** The tool starts the job and returns
+  at once. It passes `ctx.idempotencyKey` along, so a call that runs again
+  doesn't start a second job ([Make a side effect happen once](#make-a-side-effect-happen-once)).
+  When the job ends, it posts its result to a
+  [webhook trigger](../../webhooks/start-runs-from-webhooks/), which starts a
+  run that takes it on. Your app hears that each run ended from
+  [`run.finished`](../../webhooks/receive-run-finished/).
+- **Check on a schedule** when the other system can't call back. A
+  [scheduled](../../runs/run-on-a-schedule/) flow asks how the job stands,
+  and takes it on once it's done.
+
+Ask your coding agent: "My tool starts a report that takes an hour. Make
+the run wait for it." Kindgi's skills in your pack tell it how.
 
 ## Check the run's org
 

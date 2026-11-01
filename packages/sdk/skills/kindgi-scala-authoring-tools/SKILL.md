@@ -15,7 +15,7 @@ description: >
   kindgi-scala-getting-started.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.3"
+version: "0.1.6"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -156,7 +156,7 @@ object Citator {
   it writes to (`Option(ctx.idempotencyKey).foreach(k => request.header("Idempotency-Key", k))`)
   or looks for it there first: a refund never goes out twice. A UUID; `null`
   outside a run and from a runtime before 0.1.6. Docs:
-  https://docs.kindgi.com/v0.1/guides/tools/write-a-tool/#make-a-side-effect-happen-once
+  https://docs.kindgi.com/v0.3/guides/tools/write-a-tool/#make-a-side-effect-happen-once
 - `ctx.projectId`, `ctx.orgId`: the run's project, and its org (`null` when
   it has none). The runtime sets them from the run, never from the input.
   To check an id the input names, compare it with these.
@@ -173,6 +173,30 @@ object Citator {
   --scope=project:<id> --env=<env>`), with a declared `default` filled in.
   Strings, and not secret.
 - `ctx.config`: **reserved, empty today**.
+
+## Work that takes longer than a call
+
+A tool call has a deadline: 120 s by default (`KINDGI_PACK_CALL_TIMEOUT_MS`
+on a runtime the user runs). At the deadline the call fails with
+`deadline-exceeded` and `ctx.cancellation` fires; a handler that doesn't
+stop runs on, and its result goes nowhere.
+- In an agent, the turn fails, unless the agent's `toolErrors`
+  (`set("toolErrors", …)`) lists `tool-error` in `retryOn`. The list
+  replaces the default, so keep `invalid-arguments` and `unknown-tool` in
+  it; the tenant's `tool-errors` policy can narrow it further.
+- In a flow, the step fails. An edge's `retry` may run it again while the
+  first handler still runs, with the same `ctx.idempotencyKey`: pass the
+  key on. An edge's `timeoutMs` can only fail it sooner.
+- A run whose call is still running is executing, not parked: a runtime
+  deploy or restart, or a crash, fails it.
+
+NEVER write a tool that waits for work taking minutes or hours, and don't
+raise the deadline for it: a Scala tool can't pause its run. Start the job
+with `ctx.idempotencyKey`, return its id at once, and give the other
+system a webhook trigger that starts the next flow with its answer; when it
+can't call back, check the job from a scheduled flow.
+
+Docs: https://docs.kindgi.com/v0.3/guides/tools/write-a-tool/#work-that-takes-longer-than-a-call
 
 ## Configuration and secrets
 
@@ -226,10 +250,10 @@ val tool: Tool[Input, Output] = Tool[Input, Output]("my-pack.send-mail")
 - **The token:** `accessToken` is current for this call only. Never keep, print, log or return it; it never reaches the journal. `account.label` says whose account it is (`ana@acme.com`). `ToolConnection`, `ConnectionAccount` and `ConnectionRejectedException` come with `com.kindgi.pack.scaladsl._`.
 - **A 401 from the app:** `throw new ConnectionRejectedException("mail")`, with the connection's name (a second argument can say what the app answered, never the token), or your own exception with it as the cause. The runtime renews the token once and runs the call again; refused again, the call fails with `connection-rejected`.
 - **An HTTP tool** sends the token with no code: `.authorization(new HttpAuthSpec.Connection("mail"))`.
-- **Unattended runs:** in a run no person started, a tool that uses a `"person"` connection waits for that person's yes, unless it's marked `.readOnly` (mark read-only tools so). The agent's own approval settings can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needsApprovalWhenUnattended` (below).
+- **Unattended runs:** in a run no person started, a tool that uses a `"person"` connection waits for that person's yes, reads included: `.readOnly` doesn't lift it. The agent's own approval settings can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needsApprovalWhenUnattended` (below). In a run a new mail started, the mail is a stranger's text, so two more calls wait: a call of a tool that isn't `.readOnly`, and, when the trigger reads the company's mailbox, a read with the company's connection to that app. The mail trigger's `toolsAllowedUnattended` lifts these too.
 - **In a unit test:** `com.kindgi.pack.ToolContext.forTest(java.util.Map.of("mail", new ToolConnection("c-1", "google", "Google", "test", new ConnectionAccount("1", "ana@acme.com"), null)))`; the last argument, when the token expires, can be `null`. `ctx.connections` is empty when the tool declares none.
 
-Docs: https://docs.kindgi.com/v0.1/guides/connections/use-a-connection/
+Docs: https://docs.kindgi.com/v0.3/guides/connections/use-a-connection/
 
 ## Errors and output
 
@@ -245,10 +269,20 @@ Docs: https://docs.kindgi.com/v0.1/guides/connections/use-a-connection/
 **`readOnly`** declares a tool that changes nothing outside itself (a lookup,
 a search, a calculation): it's `mutating(false)`. A dry run
 (`./kindgiw runs start --dry-run`) runs it. Leave it off for anything that
-writes, sends, charges or deletes: such a tool stops a dry run. It's also
-the tool's approval default: an agent that turns approval gates on
+writes, sends, charges or deletes: such a tool stops a dry run. It's also the
+tool's approval default: an agent that turns approval gates on
 (`conversationPolicy.hitl`) asks before any tool that isn't read-only on its
-first use.
+first use. And it decides what runs together: when a model step asks for
+several calls at once, an agent runs calls to read-only tools (no changing
+effect either) that come one after another at the same time, up to 8 of them,
+and any other call on its own, in the order the model asked (an agent with
+`set("parallelToolCalls", false)` runs every call on its own). A call that may
+wait, for another system's answer or for the person who started the run to
+connect an app, runs on its own too.
+
+In a run a new mail started, a call of a tool that isn't read-only waits
+for a person's yes, unless the mail trigger's `toolsAllowedUnattended`
+lists it.
 
 `effect(kind, resource)` declares a side effect, such as
 `.effect("writes", "db:ledger")`. A dry run also stops at a tool with a
@@ -304,11 +338,11 @@ pages or filters, not one that returns everything.
 
 ## A person's yes when no one is watching: `needsApprovalWhenUnattended`
 
-`needsApprovalWhenUnattended(true)` declares that a person must say yes to every call of the tool in a run no person started: one a schedule, a webhook, an event or a service account's key started. In such a run:
+`needsApprovalWhenUnattended(true)` declares that a person must say yes to every call of the tool in a run no person started: one a schedule, a webhook, a new mail, an event or a service account's key started. In such a run:
 
 - **An agent's call waits** for a person's yes, whatever the agent's `conversationPolicy.hitl.tools` says. The agent's rules can't lift it: agents are reused, and the tool's author knows what it does.
 - **A flow's tool step that calls it is refused.** Put the tool behind an agent step instead, whose call waits.
-- **A trigger can lift both, for its own runs only.** A project admin names the tool in a webhook trigger's or a schedule's `toolsAllowedUnattended` (`--allow-unattended=<tool-id>` on `kindgi webhooks` and `kindgi schedules`). In that trigger's runs, the tool is then as in a run a person started. The tenant's approval rules still apply.
+- **A trigger can lift both, for its own runs only.** A project admin names the tool in a webhook trigger's, a schedule's or a mail trigger's `toolsAllowedUnattended` (`--allow-unattended=<tool-id>` on `kindgi webhooks`, `kindgi schedules` and `kindgi mail-triggers`). In that trigger's runs, the tool is then as in a run a person started. The tenant's approval rules still apply.
 
 In a run a person started (signed in, or with their own API key), the agent's rules decide, as for any tool. Left unset, it counts as `false`. Declare it on a tool that moves money or changes something people rely on:
 
@@ -318,7 +352,11 @@ In a run a person started (signed in, or with their own API key), the agent's ru
     .needsApprovalWhenUnattended(true)
 ```
 
-Docs: https://docs.kindgi.com/v0.1/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
+Docs: https://docs.kindgi.com/v0.3/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
+
+## Results that are text from outside: `resultIsOutsideData`
+
+`resultIsOutsideData(true)` says the tool's results are text from outside that nobody checked, such as a mail someone sent or a page a search found. An agent reads each result of the tool as data, not instructions, in that turn and in every later turn's history. It changes what the model is told, not what the tool may do: pair it with approvals for anything an agent could do with what it read. Absent means `false`.
 
 ## Testing
 
@@ -412,7 +450,7 @@ changes (a removed field, a narrower type), not on every save.
     folder, `~/.aws`) or any `.env*` file, and gets `EPERM` there. A tool that
     needs a path names it in `kindgi.config.json`: `"dev": {"sandbox": {"allowRead": ["~/.aws"]}}`.
     Never set `KINDGI_DEV_SANDBOX=off` or `dev.sandbox: false` to get past it
-    (https://docs.kindgi.com/v0.1/guides/secrets/dev-sandbox/).
+    (https://docs.kindgi.com/v0.3/guides/secrets/dev-sandbox/).
 
 ## When the framework itself is the problem
 

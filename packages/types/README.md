@@ -1,6 +1,6 @@
 # `@kindgi/types`
 
-Foundational TypeScript types shared across Kindgi. Almost entirely type-only: the single runtime export is `makeEnvName`, the validated constructor for `EnvName`.
+Foundational TypeScript types shared across Kindgi. Almost entirely type-only: the runtime exports are small helpers with no dependencies, `makeEnvName` (the validated constructor for `EnvName`), `headerValueProblem` and `bearerValueProblem`, `CORRECTION_ITEM`, and `isFileValue` with `FILE_NOT_SHOWN_REASONS`.
 
 ## Purpose
 
@@ -8,7 +8,7 @@ Provide the canonical, branded ID types and reference shapes used across Kindgi,
 
 ## Exports
 
-- **Branded IDs** — `TenantId`, `UserId`, `OrgId`, `TeamId`, `ProjectId`, `ThreadId`, `ConversationId`, `SessionId`, `RunId`, `FlowId`, `NodeId`, `EdgeId`, `AgentId`, `ToolId`, `GuardrailId`, `PolicyId`, `PackId`, `EventId`, `FactId`, `LogEntryId`, `ArtifactId`, `ProvenanceId`, `SubscriptionId`, `ApprovalId`, `ReviewerId`, `SupervisorId`, `ObservationId`, `FixProposalId`, `AuditBundleId`, `ComplianceEvidenceId`, `WaitTokenId`, `DatasetId`, `ScheduleId`, `ProviderId`, `ApiTokenId`, `WebhookId`, `WebhookEndpointId`, `WebhookEventId`, `WebhookDeliveryId`, `InstallationId`, `SigningKeyId`, `TriggerId`.
+- **Branded IDs** — `TenantId`, `UserId`, `OrgId`, `TeamId`, `ProjectId`, `ThreadId`, `ConversationId`, `SessionId`, `RunId`, `FlowId`, `NodeId`, `EdgeId`, `AgentId`, `ToolId`, `GuardrailId`, `PolicyId`, `PackId`, `EventId`, `FactId`, `LogEntryId`, `ArtifactId`, `ProvenanceId`, `SubscriptionId`, `ApprovalId`, `ReviewerId`, `SupervisorId`, `ObservationId`, `SuggestedChangeId`, `AuditBundleId`, `ComplianceEvidenceId`, `WaitTokenId`, `DatasetId`, `ScheduleId`, `ProviderId`, `ApiTokenId`, `WebhookId`, `WebhookEndpointId`, `WebhookEventId`, `WebhookDeliveryId`, `InstallationId`, `SigningKeyId`, `TriggerId`.
 - **Environment names** — `EnvName` (`[a-z][a-z0-9-]{0,62}`) and `makeEnvName(raw)`, which returns the branded value or `null` on a grammar violation.
 - **Brand utility** — `Brand<T, B>` for constructing pack-scoped IDs (e.g. a `MatterId` in a pack that tracks legal matters).
 - **Temporal** — `Timestamp` (ISO 8601 UTC branded string), `DurationMs`, `IsoDuration`.
@@ -17,6 +17,7 @@ Provide the canonical, branded ID types and reference shapes used across Kindgi,
 - **Result** — `Result<T, E>` discriminated union with runtime `kind` tag, plus `OkOf<R>` / `ErrOf<R>` extractors.
 - **Version** — `Semver`, `SchemaMajor`, `VersionedRef<Id>`.
 - **Lists** — `Cursor` (opaque pagination cursor), `Filter<TStatus>` (shared list-filter shape), `Page<T>` (`{ items, nextCursor?, truncated? }`).
+- **Files** — `FileValue` (`{ type: 'kindgi.file', artifactId, contentType, size, sha256, … }`), a stored file as a plain JSON value in a run's input, a tool's result or a conversation message; `isFileValue(value)` checks its shape; `FileNotShownReason` and `FILE_NOT_SHOWN_REASONS` say why a file isn't shown to a model.
 
 ## Example
 
@@ -35,6 +36,6 @@ const hash: ContentHash = 'sha256:abc123...' as ContentHash;
 
 ## Non-goals
 
-- **No runtime validation.** Branded types are compile-time only. Validation of wire payloads lives in `@kindgi/schema`; `makeEnvName` is the one exception.
+- **No runtime validation.** Branded types are compile-time only. Validation of wire payloads lives in `@kindgi/schema`; `makeEnvName` and `isFileValue` are the exceptions, each a check with no dependency.
 - **No constructors.** Construction is by `as` cast, except `makeEnvName` for `EnvName`.
 - **No business logic.** Only types that are used by two or more packages belong here. Package-scoped types stay in that package.

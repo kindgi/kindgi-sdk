@@ -30,21 +30,45 @@
 
 import { KindgiApiError } from '@kindgi/client';
 import type {
+  DeployCheckStop,
   Deployment,
   DeploymentPromotion,
   DeploymentPromotionCheck,
   KindgiClient,
+  Pin,
 } from '@kindgi/client';
 
 import { deployApiAddress, sameAddress } from '../api-address.js';
 import type { CommandContext } from '../context.js';
+import {
+  type ReplaceFlags,
+  type StopWords,
+  passedLines,
+  replaceFlagsProblem,
+  replaceOf,
+  stoppedText,
+} from '../deploy/runs-check.js';
 import { UsageError } from '../errors.js';
 import { type Column, type Rendered, renderJson, renderTable } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
+import { type ProgressLines, progressLines } from '../progress-lines.js';
 import { resolveProjectRefs } from '../project-ref.js';
+import {
+  type ApprovalWaited,
+  WAIT_FLAG,
+  type WaitingVersion,
+  endedLine,
+  stillOpenLine,
+  unreadableLine,
+  waitDeadline,
+  waitFlag,
+  waitForApproval,
+  waitWords,
+  waitingLine,
+} from './approval-wait.js';
 import { type EnvironmentConfig, projectOfEnv } from './build.js';
 import { packDirOf } from './environments.js';
-import { runSdkRendered, stringFlag } from './helpers.js';
+import { ANSWER_NO_EXIT_CODE, listFlag, runSdkRendered, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
 type Answer = Rendered & { readonly exitCode?: number };
@@ -291,7 +315,7 @@ export function movesText(
     }
   }
   lines.push(
-    `Test sets don't move: ${route.to} reads the ones made in ${route.from}, as it reads those of every environment before it in the order.`,
+    `Test cases don't move: ${route.to} reads the ones made in ${route.from}, as it reads those of every environment before it in the order.`,
   );
   return `${lines.join('\n')}\n`;
 }
@@ -374,13 +398,158 @@ export function resultText(result: DeploymentPromotion, to: string): string {
   const head = result.created
     ? `Promoted: deployment ${id} in ${to}.\n`
     : `${to} has this build already, as deployment ${id}: nothing new was deployed. The carried edits are recorded with it.\n`;
-  const live = result.live ?? [];
-  if (live.length === 0) return head;
-  const pin = (p: (typeof live)[number]) =>
+  const pinned = result.pinned ?? [];
+  const pin = (p: (typeof pinned)[number]) =>
     p.pinned
-      ? `  ${p.id} ${p.version} — live`
-      : `  ${p.id} ${p.version} — ${p.gate?.status === 'pending-approval' ? 'waiting for an approval' : 'held by the gate'}`;
-  return `${head}Live in ${to}:\n${live.map(pin).join('\n')}\n`;
+      ? `  ${p.id} ${p.version} — pinned`
+      : `  ${p.id} ${p.version} — ${GATE_WORDS[p.gate?.status ?? ''] ?? 'held by the gate'}`;
+  const pinnedText =
+    pinned.length === 0 ? '' : `Agent pins in ${to}:\n${pinned.map(pin).join('\n')}\n`;
+  // `pin` also pins each flow version the promotion carries, for the target.
+  const flows = result.pinnedFlows ?? [];
+  const flowsText =
+    flows.length === 0
+      ? ''
+      : `Flows pinned in ${to}:\n${flows.map((f) => `  ${f.id} ${f.version}`).join('\n')}\n`;
+  return `${head}${pinnedText}${flowsText}${blockCheckText(result, to)}`;
+}
+
+/**
+ * What the pins' check against what runs in the target found: each block
+ * put back on purpose, each `--replace` not needed, or that none is older.
+ * A runtime that doesn't check says so, as does a build deployed before
+ * deployments kept their blocks. Nothing without `--pin`.
+ */
+function blockCheckText(result: DeploymentPromotion, to: string): string {
+  if (result.pinned === undefined) return '';
+  const check = result.blockCheck;
+  if (check === undefined) {
+    return `This runtime doesn't check the build's blocks against what runs in ${to}.\n`;
+  }
+  if (!check.checked) {
+    return `The build's blocks weren't checked against what runs in ${to}: it was deployed before deployments kept their blocks.\n`;
+  }
+  const lines = passedLines(
+    { kind: 'passed', replaced: check.replaced, notNeeded: check.notNeeded },
+    { ours: 'the build', runs: `what runs in ${to}` },
+  );
+  return `${lines.join('\n')}\n`;
+}
+
+/** A carried version that isn't pinned, by its gate's status; any other is held by the gate. */
+const GATE_WORDS: Readonly<Record<string, string>> = {
+  'pending-approval': 'waiting for an approval',
+  rejected: 'its approval was rejected',
+  expired: 'its approval expired',
+  superseded: 'approved, but superseded',
+};
+
+type PinnedAgent = NonNullable<DeploymentPromotion['pinned']>[number];
+
+/** A carried version waiting for an approval, as the wait's lines name it. */
+function waitingVersion(pin: PinnedAgent): WaitingVersion {
+  return {
+    agentId: pin.id,
+    toVersion: pin.version,
+    ...(pin.gate?.approvalId !== undefined && { approvalId: pin.gate.approvalId }),
+  };
+}
+
+/**
+ * `--wait`: wait for each carried version that waits for an approval, all
+ * within one deadline, and stop at the first that isn't pinned. A
+ * version held by a failed check can't be pinned, so then nothing waits.
+ * The answer has each version as it ended, and `end` says when the wait
+ * ended before every version did: stopped, or a promotion it couldn't read.
+ */
+async function waitForPins(
+  ctx: CommandContext,
+  client: KindgiClient,
+  result: DeploymentPromotion,
+  waitMs: number,
+  out: ProgressLines,
+): Promise<PinsWaited> {
+  const pinned = result.pinned ?? [];
+  const held = pinned.find((p) => !p.pinned && p.gate?.status !== 'pending-approval');
+  if (held !== undefined) {
+    out.problem(
+      `Not waiting: ${held.id} ${held.version} is held by the gate, so not every version is pinned.`,
+    );
+    return { result };
+  }
+  const waiting = pinned.filter((p) => !p.pinned);
+  for (const p of waiting) out.line(waitingLine(waitingVersion(p), waitMs));
+  const deadline = waitDeadline(ctx, waitMs);
+  const ended = new Map<string, Pin>();
+  for (const p of waiting) {
+    const changeId = p.gate?.changeId;
+    if (changeId === undefined) continue;
+    const waited = await waitForApproval(
+      ctx,
+      undefined,
+      () => client.agents.pinned.getChange(p.id, changeId),
+      deadline,
+    );
+    if (waited.pin !== undefined) ended.set(changeId, waited.pin);
+    const end = sayHowItEnded(waited, waitingVersion(p), waitMs, out);
+    if (end === 'pinned') continue;
+    return { result: withEnded(result, ended), ...(end !== 'not-pinned' && { end }) };
+  }
+  return { result: withEnded(result, ended) };
+}
+
+/** Say how one carried version's wait ended, unless it was pinned. */
+function sayHowItEnded(
+  waited: ApprovalWaited<Pin | undefined>,
+  version: WaitingVersion,
+  waitMs: number,
+  out: ProgressLines,
+): 'pinned' | 'not-pinned' | NonNullable<PinsWaited['end']> {
+  switch (waited.kind) {
+    case 'stopped':
+      out.line(`Stopped waiting. ${stillOpenLine(version)}`);
+      return 'stopped';
+    case 'unreadable':
+      out.problem(unreadableLine(version, waited.message));
+      return 'unreadable';
+    case 'still-waiting':
+      out.problem(`Still waiting after ${waitWords(waitMs)}. ${stillOpenLine(version)}`);
+      return 'not-pinned';
+    case 'decided':
+      if (waited.pin.status === 'pinned') return 'pinned';
+      out.problem(endedLine(waited.pin));
+      return 'not-pinned';
+  }
+}
+
+interface PinsWaited {
+  readonly result: DeploymentPromotion;
+  readonly end?: 'stopped' | 'unreadable';
+}
+
+/** The exit of a wait that ended before every version did. */
+const END_EXIT: Readonly<Record<NonNullable<PinsWaited['end']>, number>> = {
+  stopped: 130,
+  unreadable: 1,
+};
+
+/** `result` with each carried version a wait read as it ended. */
+function withEnded(
+  result: DeploymentPromotion,
+  ended: ReadonlyMap<string, Pin>,
+): DeploymentPromotion {
+  if (result.pinned === undefined || ended.size === 0) return result;
+  const pinned = result.pinned.map((pin): PinnedAgent => {
+    const gate = pin.gate;
+    const change = gate !== undefined ? ended.get(gate.changeId) : undefined;
+    if (gate === undefined || change?.status === undefined) return pin;
+    return {
+      ...pin,
+      pinned: change.status === 'pinned',
+      gate: { ...gate, status: change.status },
+    };
+  });
+  return { ...result, pinned };
 }
 
 /** The values a `409 promotion-values-not-ready` names; `undefined` for any other error. */
@@ -392,7 +561,101 @@ function valuesRefused(err: unknown): readonly DeploymentValue[] | undefined {
   return Array.isArray(values) ? (values as DeploymentValue[]) : undefined;
 }
 
+/**
+ * A refused promotion, in prose: the blocks the pins would put back
+ * (`409 deploy-would-put-back-older-blocks`), or a value gone missing since
+ * the check (`409 promotion-values-not-ready`); exits 1. Any other error
+ * is thrown on.
+ */
+async function refusedAnswer(
+  err: unknown,
+  client: KindgiClient,
+  head: string,
+  target: ValueTarget,
+  words: StopWords,
+): Promise<Answer> {
+  // A newer version of one of the build's blocks runs in the target: the pins would put it back.
+  const stops = olderBlocksRefused(err);
+  if (stops !== undefined) {
+    return { stdout: `${head}${await stoppedText(client, stops, words)}`, stderr: '', exitCode: 1 };
+  }
+  // A value went missing since the check.
+  const values = valuesRefused(err);
+  if (values === undefined) throw err;
+  return { stdout: `${head}${valuesText(values, target)}`, stderr: '', exitCode: 1 };
+}
+
+/** The blocks a `409 deploy-would-put-back-older-blocks` names; `undefined` for any other error. */
+function olderBlocksRefused(err: unknown): readonly DeployCheckStop[] | undefined {
+  if (!(err instanceof KindgiApiError)) return undefined;
+  const e = err.error;
+  if (e.code !== 'conflict' || e.serverCode !== 'deploy-would-put-back-older-blocks') {
+    return undefined;
+  }
+  const blocks = e.fields?.blocks;
+  return Array.isArray(blocks) ? (blocks as DeployCheckStop[]) : undefined;
+}
+
+/**
+ * `--replace=<block>` (repeatable), which goes only with `--pin`, not with
+ * `--check`, and needs `--reason`: the pins put each named block back to
+ * the build's older version on purpose.
+ */
+function promoteReplaceFlags(ctx: CommandContext): ReplaceFlags {
+  const flags: ReplaceFlags = {
+    blocks: listFlag(ctx, 'replace'),
+    reason: stringFlag(ctx, 'reason'),
+  };
+  if (flags.blocks.length === 0) return flags;
+  if (ctx.options.check === true || ctx.options.pin !== true) {
+    throw new UsageError(
+      '--replace puts a block back with the versions --pin pins: it goes with --pin, without --check',
+    );
+  }
+  const problem = replaceFlagsProblem(flags);
+  if (problem !== undefined) throw new UsageError(problem);
+  return flags;
+}
+
+/** `--wait`, which goes only with `--pin`, and not with `--check`. */
+function promoteWaitFlag(ctx: CommandContext): number | undefined {
+  const waitMs = waitFlag(ctx);
+  if (waitMs !== undefined && (ctx.options.check === true || ctx.options.pin !== true)) {
+    throw new UsageError(
+      '--wait waits for the versions --pin pins: it goes with --pin, without --check',
+    );
+  }
+  return waitMs;
+}
+
+/**
+ * The promotion's answer: each carried version as it ended, after any
+ * `--wait`, rendered by `render`. It exits 3 when one isn't pinned, 130
+ * when the wait is stopped, and 1 when it couldn't read a promotion.
+ */
+async function promotedAnswer(
+  ctx: CommandContext,
+  client: KindgiClient,
+  result: DeploymentPromotion,
+  waitMs: number | undefined,
+  render: (promotion: DeploymentPromotion) => string,
+): Promise<Answer> {
+  const out = progressLines(ctx.progress, ctx.globals.format === 'quiet');
+  const waited: PinsWaited =
+    waitMs === undefined ? { result } : await waitForPins(ctx, client, result, waitMs, out);
+  const notPinned = (waited.result.pinned ?? []).some((p) => !p.pinned);
+  const exit =
+    waited.end !== undefined ? END_EXIT[waited.end] : notPinned ? ANSWER_NO_EXIT_CODE : undefined;
+  return {
+    stdout: render(waited.result),
+    stderr: out.kept(),
+    ...(exit !== undefined && { exitCode: exit }),
+  };
+}
+
 async function promoteBuild(ctx: CommandContext): Promise<Answer> {
+  const waitMs = promoteWaitFlag(ctx);
+  const replace = replaceOf(promoteReplaceFlags(ctx));
   const route = await routeOf(ctx);
   const source = await sourceOf(ctx, route);
   if ('answer' in source) return source.answer;
@@ -421,25 +684,40 @@ async function promoteBuild(ctx: CommandContext): Promise<Answer> {
     result = await deployments.promote(deploymentId, {
       toProjectId: route.toProjectId,
       ...(reason !== undefined && { reason }),
-      ...(ctx.options['make-live'] === true && { makeLive: true }),
+      ...(ctx.options.pin === true && { pin: true }),
+      ...(replace !== undefined && { replace }),
     });
   } catch (err) {
-    // A value went missing since the check.
-    const values = valuesRefused(err);
-    if (values === undefined || json) throw err;
-    return { stdout: `${head}${valuesText(values, target)}`, stderr: '', exitCode: 1 };
+    if (json) throw err;
+    return await refusedAnswer(err, route.client, head, target, promoteStopWords(ctx, route));
   }
-  if (json) return renderJson({ deploymentId, check, promotion: result }, ctx.globals.format);
-  return { stdout: `${head}${valuesText([], target)}${resultText(result, route.to)}`, stderr: '' };
+  const render = json
+    ? (promotion: DeploymentPromotion) =>
+        renderJson({ deploymentId, check, promotion }, ctx.globals.format).stdout
+    : (promotion: DeploymentPromotion) =>
+        `${head}${valuesText([], target)}${resultText(promotion, route.to)}`;
+  return await promotedAnswer(ctx, route.client, result, waitMs, render);
+}
+
+/** How a promotion's stop says it: the build's blocks, nothing promoted, and the same command with `--replace`. */
+function promoteStopWords(ctx: CommandContext, route: Pick<Route, 'from' | 'to'>): StopWords {
+  const deployment = stringFlag(ctx, 'deployment');
+  return {
+    what: 'promotion',
+    ours: 'the build',
+    nothingDone: 'Nothing was promoted.',
+    keep: `deploy a build that has them to ${route.from}, then promote that one`,
+    command: `kindgi promote --from=${route.from} --to=${route.to}${deployment !== undefined ? ` --deployment=${deployment}` : ''} --pin`,
+  };
 }
 
 const promote: LeafCommand = {
   kind: 'leaf',
   name: 'promote',
   description:
-    "Move a build to the next environment of its environment order, staging to prod, say: the same signed image, with the edits made since to its agents and flows. Prints what moves, then each value the build needs there that isn't set, with the command that sets it; exits 1 while one isn't. `--check` stops before moving anything. In a pack, --from and --to are its environment names; outside one, project ids or slugs.",
+    "Move a build to the next environment of its environment order, staging to prod, say: the same signed image, with the edits made since to its agents and flows. Prints what moves, then each value the build needs there that isn't set, with the command that sets it; exits 1 while one isn't. `--check` stops before moving anything. With `--pin`, exits 3 when a carried version isn't pinned: held by the gate, or waiting for an approval (`--wait` waits for the decision). With `--pin`, a newer version of one of the build's blocks running in --to stops it first, with nothing moved, and exits 1, unless `--replace` names the block. In a pack, --from and --to are its environment names; outside one, project ids or slugs.",
   usage:
-    'kindgi promote --from=<env> --to=<env> [--deployment=<id>] [--reason=<text>] [--check] [--make-live] [--path=<dir>]',
+    'kindgi promote --from=<env> --to=<env> [--deployment=<id>] [--reason=<text>] [--check] [--pin [--wait[=<duration>]] [--replace=<block>]...] [--path=<dir>]',
   optionSpec: {
     from: {
       type: 'string',
@@ -456,15 +734,25 @@ const promote: LeafCommand = {
       description:
         'The deployment to promote. Default: the one deployment serving in --from (in a pack, of this pack).',
     },
-    reason: { type: 'string', description: 'Why, kept on the audit record.' },
+    reason: {
+      type: 'string',
+      description: 'Why, kept on the audit record. With --replace, why each block goes back too.',
+    },
     check: {
       type: 'boolean',
       description: 'What would move, and the values not set in --to. Changes nothing.',
     },
-    'make-live': {
+    pin: {
       type: 'boolean',
       description:
-        "Make every agent version the promotion carries live in --to, each through its scope's gate. Prints each, and any waiting on a gate.",
+        "Pin every agent version the promotion carries in --to, each through its scope's release gate, and every flow version it carries. A project there that ran its Latest runs the pinned version from then on, off Latest: --pin is the ask, so nothing more is confirmed. Prints each, and any waiting on a gate; exits 3 when one isn't pinned.",
+    },
+    ...WAIT_FLAG,
+    replace: {
+      type: 'string',
+      multiple: true,
+      description:
+        "With --pin: a block the pins put back to the build's older version than runs in --to, on purpose (repeatable). Needs --reason.",
     },
     path: { type: 'string', description: 'The pack root. Default: the current directory.' },
   },

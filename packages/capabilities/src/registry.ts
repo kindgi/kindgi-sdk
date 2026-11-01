@@ -5,6 +5,7 @@ import type { Result, TenantId } from '@kindgi/types';
 
 import type { CapabilityError, DuplicateProviderError, InvalidProviderError } from './errors.js';
 import { validateProviderLabels } from './provider-labels.js';
+import { modelThinkingProblem } from './thinking.js';
 import type { ModelProvider, ModelThinking, ProviderRegistry } from './types.js';
 
 /**
@@ -131,10 +132,11 @@ export function createProviderRegistry(
           reason: 'invalid-sampling',
         };
       }
-      if (m.thinking !== undefined && !isModelThinking(m.thinking)) {
+      const thinking = m.thinking === undefined ? undefined : modelThinkingProblem(m.thinking);
+      if (thinking !== undefined) {
         return {
           code: 'invalid-provider',
-          message: `provider "${p.metadata.id}" model "${m.name}" thinking must be { mode: 'adaptive' | 'always', lowest: <the vendor's setting> }`,
+          message: `provider "${p.metadata.id}" model "${m.name}" thinking ${thinking}`,
           reason: 'invalid-thinking',
         };
       }
@@ -204,14 +206,10 @@ export function createProviderRegistry(
   return { registry, register };
 }
 
-/** `ModelInfo.thinking`'s shape: a known mode and a non-empty vendor setting. */
+/**
+ * `ModelInfo.thinking`'s shape: a known mode, a non-empty vendor setting,
+ * and `levels` and a `default` the model takes (`modelThinkingProblem`).
+ */
 export function isModelThinking(value: unknown): value is ModelThinking {
-  if (typeof value !== 'object' || value === null) return false;
-  const t = value as Record<string, unknown>;
-  return (
-    (t.mode === 'adaptive' || t.mode === 'always') &&
-    typeof t.lowest === 'string' &&
-    t.lowest.length > 0 &&
-    Object.keys(t).every((k) => k === 'mode' || k === 'lowest')
-  );
+  return modelThinkingProblem(value) === undefined;
 }

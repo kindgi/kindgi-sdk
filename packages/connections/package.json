@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/connections",
-  "version": "0.1.10",
+  "version": "0.3.0",
   "description": "Kindgi™ connections: the app entries a Kindgi server reads to connect people's and a company's accounts at other apps (how to sign in, each permission in plain words, whose account it is, how access is withdrawn), defineApp to check one, the Google, GitHub, Microsoft and LinkedIn entries, and tools that act with their connections (sending and reading mail as a person; listing and labelling a repository's issues; posting on LinkedIn as a person).",
   "license": "Apache-2.0",
   "repository": {
@@ -36,6 +36,11 @@
       "import": "./dist/google-tools.js",
       "default": "./dist/google-tools.js"
     },
+    "./google/mail": {
+      "types": "./dist/google-mail.d.ts",
+      "import": "./dist/google-mail.js",
+      "default": "./dist/google-mail.js"
+    },
     "./github/tools": {
       "types": "./dist/github-tools.d.ts",
       "import": "./dist/github-tools.js",
@@ -51,6 +56,11 @@
       "import": "./dist/microsoft-tools.js",
       "default": "./dist/microsoft-tools.js"
     },
+    "./microsoft/mail": {
+      "types": "./dist/microsoft-mail.d.ts",
+      "import": "./dist/microsoft-mail.js",
+      "default": "./dist/microsoft-mail.js"
+    },
     "./linkedin": {
       "types": "./dist/linkedin.d.ts",
       "import": "./dist/linkedin.js",
@@ -65,6 +75,11 @@
       "types": "./dist/app-fetch.d.ts",
       "import": "./dist/app-fetch.js",
       "default": "./dist/app-fetch.js"
+    },
+    "./mail": {
+      "types": "./dist/mail.d.ts",
+      "import": "./dist/mail.js",
+      "default": "./dist/mail.js"
     }
   },
   "files": ["dist", "src", "README.md"],
@@ -82,6 +97,7 @@
     "provenance": true
   },
   "dependencies": {
+    "@kindgi/capabilities": "workspace:*",
     "@kindgi/tools": "workspace:*",
     "@kindgi/types": "workspace:*"
   },

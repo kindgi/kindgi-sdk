@@ -37,7 +37,7 @@ import {
 } from '../mcp-endpoint-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
-import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
+import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
 import { type SecretScopeDeps, secretScopesFor } from '../secret-scope.js';
 import { type ServedEnvRule, refuseUnservedReference } from '../served-env.js';
 import { type TenantHostAccess, deniesHostReach, stdioRefusal } from '../tenant-host-access.js';
@@ -108,13 +108,9 @@ export function mcpRouter(
       });
       return mw(c, next);
     });
+    // '/endpoints/:endpointId/*' matches '/endpoints/:endpointId' too: this
+    // one gate decides both, once.
     r.use('/endpoints/:endpointId/*', async (c, next) => {
-      const action = c.req.method === 'GET' ? 'read' : 'admin';
-      const endpointId = c.req.param('endpointId') ?? '';
-      const mw = authorizer.authorize(action, () => ref('mcp_endpoint', endpointId));
-      return mw(c, next);
-    });
-    r.use('/endpoints/:endpointId', async (c, next) => {
       const action = c.req.method === 'GET' ? 'read' : 'admin';
       const endpointId = c.req.param('endpointId') ?? '';
       const mw = authorizer.authorize(action, () => ref('mcp_endpoint', endpointId));
@@ -241,8 +237,8 @@ export function mcpRouter(
       );
     }
 
-    // A model provider's key is never an MCP endpoint's.
-    const refusal = await refuseProviderKeys(
+    // A reserved `kindgi.` name or a model provider's key is never an MCP endpoint's.
+    const refusal = await refuseSecretNames(
       options.providerKeys,
       tenantId,
       mcpEndpointSecretNames(validation.value),

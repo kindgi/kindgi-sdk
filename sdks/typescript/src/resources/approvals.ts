@@ -44,8 +44,9 @@ import { verifySignedExport } from '../verify-export.js';
  * ≤ their rank (standard < senior < admin). Out-of-scope reads surface
  * as `404 approval-not-found` to avoid cross-tier existence leaks.
  *
- * `batch`, `assign`, `audit.get`, `audit.list` and
- * `audit.verify` have no API route and throw `not-yet-wired`.
+ * `batch`, `assign`, `audit.get` and `audit.list` have no API route and
+ * throw `not-yet-wired`. `audit.verify` makes no request: it verifies a
+ * bundle where it's read.
  * `reviewers.updateRole` has no dedicated route either — role rotation
  * happens via re-`register` (idempotent per `(tenantId, userId)`).
  */
@@ -256,6 +257,14 @@ export interface DecideInput {
    * Ignored otherwise.
    */
   readonly value?: unknown;
+  /**
+   * Only with `approve`, on the approval of a fact an agent wants to
+   * remember (`subjectKind: 'fact'`): the text the fact holds once
+   * approved, in place of the agent's. More than spaces, at most 2000
+   * characters. The API refuses it (400 `bad-input`) on any other
+   * decision or approval.
+   */
+  readonly factText?: string;
   readonly idempotencyKey?: string;
 }
 
@@ -326,6 +335,7 @@ export function makeApprovalsClient(transport: Transport): ApprovalsClient {
       const body: Record<string, unknown> = { decision: input.decision };
       if (input.rationale !== undefined) body.rationale = input.rationale;
       if (input.value !== undefined) body.value = input.value;
+      if (input.factText !== undefined) body.factText = input.factText;
       return transport.request<CompleteApprovalResult>({
         method: 'POST',
         path: `/v1/approvals/${encodeURIComponent(id as unknown as string)}/complete`,

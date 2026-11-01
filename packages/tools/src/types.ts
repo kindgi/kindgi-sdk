@@ -6,6 +6,7 @@ import type { ZodLikeSchema } from '@kindgi/schema';
 import type { OrgId, ProjectId, TenantId, ToolId, UserId } from '@kindgi/types';
 
 import type { ConnectionNeed, ToolConnection } from './connections.js';
+import type { FileStore } from './files.js';
 
 /**
  * JSON Schema for a tool's input/output. Author-supplied, Draft 2020-12.
@@ -214,6 +215,23 @@ export interface ToolContext {
    * tool dispatch, a flow's tool step); absent outside a run.
    */
   readonly record?: <T>(key: string, decide: () => T | Promise<T>) => Promise<T>;
+  /**
+   * The call's files, only for a tool that declares `storesFiles` or
+   * `readsFiles`, with only what it declares:
+   * - `store` (`storesFiles`) checks a file's bytes, stores it as a file
+   *   the call's run owns, and answers the file value to return in the
+   *   result's top-level `files`, or why it stored nothing. At most
+   *   `MAX_STORED_FILES_PER_CALL` files a call. Absent when the call has no
+   *   `idempotencyKey`.
+   * - `read` (`readsFiles`) answers the bytes of a file the call's run may
+   *   be shown, or why there are none.
+   *
+   * Absent for any other tool, when the runtime has no file store, and from
+   * a runtime before pack protocol 2.10.0: a tool then says a file can't
+   * be stored (`notShown: 'store'`) without fetching it. A unit test passes
+   * its own.
+   */
+  readonly files?: FileStore;
 }
 
 /**
@@ -445,23 +463,31 @@ export interface ToolManifest {
    * agent's `conversationPolicy.hitl.tools` sets neither an override
    * nor a `default` for the tool — a read-only tool passes straight
    * through, a mutating tool asks on first use.
+   *
+   * It also decides what runs together: calls to read-only tools that a
+   * model step asks for one after another run at the same time, up to 8 at
+   * once, unless the agent sets `parallelToolCalls: false`; a call to a
+   * mutating tool runs on its own, and so does a call to a read-only tool
+   * that pauses or declares connections, since it may wait.
    */
   readonly mutating?: boolean;
   /**
    * `true` when a person must say yes to every call of this tool in a run
-   * no person started: one a schedule, a webhook, an event or a service
-   * account's key started (`RunStartedBy` other than `person`, or none).
-   * In such a run, an agent's call of the tool waits for a person's yes
-   * whatever the agent's `conversationPolicy.hitl.tools` says (the
+   * no person started: one a schedule, a webhook, an event, a mail or a
+   * service account's key started (`RunStartedBy` other than `person`, or
+   * none). In such a run, an agent's call of the tool waits for a person's
+   * yes whatever the agent's `conversationPolicy.hitl.tools` says (the
    * agent's rules can't lift it), and a flow's tool step that calls it is
-   * refused. A webhook trigger or a schedule whose
+   * refused. A webhook trigger, a schedule or a mail trigger whose
    * `toolsAllowedUnattended` names the tool (a project admin's to set)
    * lifts that, in its own runs only. In a run a person started, the
    * agent's rules decide, as for any tool. Absent = `false`.
    *
-   * A tool that acts with a person's connection (a `needsSpec.connections`
-   * entry `as: 'person'`) and isn't read-only (`mutating: false`) counts as
-   * declaring it, whatever this says: `false` doesn't lift it.
+   * A tool that uses a person's connection (a `needsSpec.connections`
+   * entry `as: 'person'`), reads included, counts as declaring it, whatever
+   * this or `mutating` says: `false` doesn't lift it. In a run a mail
+   * started, so does a tool that isn't read-only (`mutating: false`), and
+   * one that uses a connection of the run's own mailbox.
    *
    * Declare it on a tool that moves money or changes something people
    * rely on, so that an agent reused under a trigger can't run it with no
@@ -480,6 +506,40 @@ export interface ToolManifest {
    * `spec`, nor an MCP tool. Absent = `false`.
    */
   readonly pauses?: boolean;
+  /**
+   * `true` when the tool may store files it fetches, such as a mail's
+   * attachments, as files its run owns. The handler of each call with an
+   * `idempotencyKey` gets `ctx.files.store`: it stores a file there and
+   * returns the file value it gets back in its result's top-level `files`,
+   * so an agent is shown the file. At most `MAX_STORED_FILES_PER_CALL`
+   * files a call.
+   *
+   * Only a tool with a handler can store files: not one with a
+   * declarative `spec`, nor an MCP tool. Absent = `false`.
+   */
+  readonly storesFiles?: boolean;
+  /**
+   * `true` when the tool may read stored files' bytes, such as a PDF an
+   * agent was given, to parse it. Each call's handler gets
+   * `ctx.files.read`, which answers the bytes of a file the call's run may
+   * be shown, by its file value's `artifactId`.
+   *
+   * Only a tool with a handler can read files: not one with a declarative
+   * `spec`, nor an MCP tool. Absent = `false`.
+   */
+  readonly readsFiles?: boolean;
+  /**
+   * `true` when the tool's results are text from outside that nobody
+   * checked, such as a mail someone sent or a page a search found. An
+   * agent reads each result of the tool as data, not instructions: in an
+   * `<event>` block, and so again in every later turn's history. It
+   * changes what the model is told, not what the tool may do: pair it
+   * with approvals for anything an agent could do with what it read. A
+   * tool whose results carry stored files from outside (a mail's
+   * attachments) sets it too, so the rule that they're data is in the
+   * agent's system message from the turn's start. Absent = `false`.
+   */
+  readonly resultIsOutsideData?: boolean;
   /** Isolation posture — see `SandboxMode`. */
   readonly sandbox?: SandboxMode;
   /** Memory + CPU caps enforced by the sandbox at dispatch. */

@@ -49,7 +49,7 @@ const guideAreas = [
   ['Connections', 'connections'],
   ['Sign-in', 'sso'],
   ['Cost and provenance', 'observability'],
-  ['Evals', 'evals'],
+  ['Improve', 'improve'],
 ];
 
 // The HTTP API reference: every route and schema, from the API's own spec.
@@ -209,11 +209,22 @@ export default defineConfig({
             'deploy/retention',
             'deploy/authorization',
             'deploy/people-and-keys',
+            'deploy/ship-from-ci',
             { label: 'Kindgi Cloud', items: [{ autogenerate: { directory: 'hosted' } }] },
             {
               label: 'Self-hosted',
               items: [{ autogenerate: { directory: 'deploy/self-hosted' } }],
             },
+          ],
+        },
+        // Newest first: each release adds its page's line.
+        {
+          label: 'Release notes',
+          items: [
+            { label: 'Overview', link: '/releases/' },
+            { label: '0.1.10', link: '/releases/0.1.10/' },
+            { label: '0.1.9', link: '/releases/0.1.9/' },
+            { label: '0.1.8', link: '/releases/0.1.8/' },
           ],
         },
         {

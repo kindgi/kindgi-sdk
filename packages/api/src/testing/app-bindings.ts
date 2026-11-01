@@ -95,6 +95,7 @@ export function createStubAppBindings(): StubAppBindings {
       listRecords: true,
       getByRunId: true,
       getCallUsage: true,
+      getStepUsage: true,
     }),
   };
 }
@@ -138,12 +139,15 @@ export function createStubKernelBinding(): KernelBinding {
       pause: true,
       resume: true,
       unregister: true,
+      listVersions: true,
+      getVersion: true,
       findWebhook: true,
       fireWebhook: true,
       recordWebhookRefusal: true,
       listFires: true,
       fireNow: true,
       setOwner: true,
+      findImproveSchedule: true,
     }),
   };
 }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: packages/api/openapi.json sdks/typescript/scripts/gen-client.mjs sdks/typescript/src/resources/*.ts
 
 /**
  * SDK ↔ HTTP wire coverage drift.
@@ -51,31 +52,28 @@ function generatedPaths(): readonly string[] {
 }
 
 /**
- * Extract every path literal referenced in a `transport.request(...)`
- * or similar call across all resource files. Grabs both plain-string
- * paths (`path: '/v1/foo'`) and template-literal paths
- * (`` path: `/v1/foo/${id}` ``).
+ * Every path a resource file calls: a `path: '/v1/foo'` or `path: "/v1/foo"`
+ * literal, a template `` path: `/v1/foo/${id}` ``, and the URLs streaming
+ * callers build, `` `${transport.apiUrl}/v1/test-runs/${seg(id)}/events` ``
+ * or `buildUrl(transport.apiUrl, '/v1/corrections/export', query)`.
  */
+function callerPaths(src: string): string[] {
+  const patterns = [
+    /path:\s*['"]([^'"]+)['"]/g,
+    /path:\s*`([^`]+)`/g,
+    /`\$\{transport\.apiUrl\}(\/v1\/[^`]+)`/g,
+    /buildUrl\(\s*transport\.apiUrl,\s*['"`]([^'"`]+)['"`]/g,
+  ];
+  return patterns.flatMap((re) => [...src.matchAll(re)].map((m) => m[1]!));
+}
+
+/** Every path the resource files call, normalized. */
 function resourcePathSet(): ReadonlySet<string> {
   const paths = new Set<string>();
   const files = readdirSync(RESOURCES_DIR).filter((f) => f.endsWith('.ts'));
   for (const f of files) {
     const src = readFileSync(join(RESOURCES_DIR, f), 'utf8');
-    // `path: '/v1/foo'` or `path: "/v1/foo"`
-    for (const m of src.matchAll(/path:\s*['"]([^'"]+)['"]/g)) {
-      paths.add(normalize(m[1]!));
-    }
-    // path: `/v1/foo/${id}` (backtick template literal)
-    for (const m of src.matchAll(/path:\s*`([^`]+)`/g)) {
-      paths.add(normalize(m[1]!));
-    }
-    // Streaming callers build URLs directly, e.g.
-    //   const url = `${transport.apiUrl}/v1/eval-runs/${seg(id)}/events`;
-    // Match any backtick template that references `transport.apiUrl` and
-    // extract the path suffix.
-    for (const m of src.matchAll(/`\$\{transport\.apiUrl\}(\/v1\/[^`]+)`/g)) {
-      paths.add(normalize(m[1]!));
-    }
+    for (const p of callerPaths(src)) paths.add(normalize(p));
   }
   return paths;
 }
@@ -111,6 +109,14 @@ describe('SDK ↔ generated wire coverage — every endpoint has a resource wrap
         // the run's wait there; this client answers with `runs.resume`.
         '/v1/wait-tokens/{token}/complete':
           "waitTokens.complete — the answering system's path (a pausing tool's link), not this client's",
+
+        // The link a tool that stores or reads files has its bytes posted to
+        // and got from: a pack service posts each store there and gets each
+        // read from under it, with the call's tool files token.
+        '/v1/tool-files':
+          "toolFiles.store — a pack service's path (a call's toolFiles link), not this client's",
+        '/v1/tool-files/{artifactId}':
+          "toolFiles.read — a pack service's path (under a call's toolFiles link), not this client's",
       };
       if (raw in SKIP) continue;
       if (!wrapped.has(normalize(raw))) missing.push(raw);
@@ -131,14 +137,7 @@ describe('SDK ↔ generated wire coverage — every endpoint has a resource wrap
     const files = readdirSync(RESOURCES_DIR).filter((f) => f.endsWith('.ts'));
     for (const f of files) {
       const src = readFileSync(join(RESOURCES_DIR, f), 'utf8');
-      const paths = new Set<string>();
-      for (const m of src.matchAll(/path:\s*['"]([^'"]+)['"]/g)) {
-        paths.add(m[1]!);
-      }
-      for (const m of src.matchAll(/path:\s*`([^`]+)`/g)) {
-        paths.add(m[1]!);
-      }
-      for (const p of paths) {
+      for (const p of new Set(callerPaths(src))) {
         if (!generated.has(normalize(p))) orphans.push(`${f}: ${p}`);
       }
     }

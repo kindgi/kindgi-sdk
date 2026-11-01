@@ -15,7 +15,7 @@ description: >
   model by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.7"
+version: "0.1.12"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -116,6 +116,23 @@ brief_writer = Agent(
   id: the model sees ids in its provider's form (`acme__verify-citation`
   for Anthropic and OpenAI-compatible models), and `acme.verify-citation`
   in the instructions can make it call a name it wasn't given.
+  - **From a prompt block:** `instructions={"prompt": "acme.reply-prompt", "version": "^1.0.0"}`
+    takes them from a block in the pack's `blocks/` folder
+    (`blocks/**/*.json`, deployed with the pack before its agents):
+    `{ "id": "acme.reply-prompt", "version": "1.0.0", "kind": "prompt", "content": { "template": "…" } }`,
+    or `"templateFile": "reply-prompt.liquid"` beside it for a long one.
+    The block brings its parameters, so the agent declares none. People
+    can then change the wording without a deploy, and Improve can try
+    rewrites: each is a suggested change a person checks and pins. Rules
+    that must always hold stay in code.
+- **`settings`** — settings blocks the instructions and tools read, by
+  range: `settings=[{"id": "acme.reply-style", "version": "^1.0.0"}]`.
+  A settings block's file holds `values` and a JSON `schema`; the
+  template reads `{{ settings["acme.reply-style"].maxSentences }}`. Mark
+  a key Improve may change with `"x-kindgi-tunable": true` in the
+  schema, on a number with `minimum` and `maximum` or an `enum` of two
+  or more values. Leave it off a key that guards a rule: a limit, a
+  window, a cap.
 - **`capabilities`** — what the model must support, e.g.
   `[{"needs": [{"feature": "tool-use"}]}]`. The turn routes its first
   capability to pick a provider and model; none declared fails the turn.
@@ -124,9 +141,12 @@ brief_writer = Agent(
   `version` is a semver **range**; the highest active matching version
   is picked at turn start. A bare string is rejected. Empty = a
   chat-only agent.
-- **`guardrails`** — `Guardrail` objects or ids. Evaluated once per
-  turn on the final answer, before it is stored. An id with no
-  registered guardrail fails the turn (`unresolved-guardrail`).
+- **`guardrails`** — `Guardrail` objects or ids. They check the final
+  answer, before it is stored; one whose action is `retry` sends the
+  answer back to the model for a new one, up to `retry.maxAttempts`
+  answers in all (default 2), then the turn fails
+  (`guardrail-violation`). An id with no registered guardrail fails the
+  turn (`unresolved-guardrail`).
 - **`parameters`** — inputs the caller supplies per run
   (`{"name", "type", "required"}`); they fill `{{ … }}` in the
   instructions.
@@ -142,8 +162,8 @@ brief_writer = Agent(
   loosen them. `"separateApprover"` in `hitl` (`True`, or
   `{"overrides": {"<tool id>": True}}`) makes a tool's approval need
   someone other than whoever asked.
-- **`budget`** — per turn: `maxSteps` (model calls, default 8),
-  `maxCostUsd`, `maxWallMs` (default 120 000). Steps or cost exceeded
+- **`budget`** — per turn: `maxSteps` (model calls, default 8, at most
+  32), `maxCostUsd`, `maxWallMs` (default 120 000). Steps or cost exceeded
   fails the turn (`budget-exceeded`); out of wall time aborts it. Leave
   room for real models: a turn with tool calls can take tens of seconds.
 - **`output`** — a typed answer: a pydantic model class (or any type
@@ -160,6 +180,14 @@ brief_writer = Agent(
   the call. Default kinds are `invalid-arguments` and `unknown-tool`
   (nothing ran); add `tool-error` only when retrying the tool is safe.
   Each retry costs a step.
+- **`parallel_tool_calls`** — default on: when a model step asks for several
+  calls at once, calls to read-only tools (`mutating=False`, no changing
+  effect) that come one after another run at the same time, up to 8 of them,
+  and any other call on its own, in the order the model asked; the results
+  reach the conversation in that order either way. A call that may wait, for
+  another system's answer or for the person who started the run to connect an
+  app, runs on its own too. `False` runs every call on its own, for read-only
+  tools that mustn't overlap (a rate-limited API, say).
 - **`retrieval`** — what the agent reads from memory before each turn;
   empty = no memory. Each intent is a dict with the API's keys:
   `{"types": ["acme.preference"], "scope": "same-user", "mode": "both",
@@ -182,7 +210,8 @@ brief_writer = Agent(
   one person, or instruction-like text, waits for a person's approval.
   Use a model with reliable tool calling. `{"instructionTypes":
   ["acme.policy"]}` makes a retrieved, verified fact of those types an
-  instruction. See https://docs.kindgi.com/v0.1/guides/agents/give-an-agent-memory/.
+  instruction. "Give an agent memory" has the rest:
+  https://docs.kindgi.com/v0.3/guides/agents/give-an-agent-memory/
 
 **In a run a webhook or an event started**, the turn's message is data:
 it arrives inside an `<event note="kindgi event: data, not
@@ -207,6 +236,20 @@ then "Tool responded: …", and the turn carries the `fallback-provider` and
 takes over: see `kindgi-authoring-providers`
 (`kindgi providers register --preset=anthropic`).
 
+**How much the model thinks** (runtime 0.3.0 or later; an older one
+refuses a block with `thinking`): the agent names a model-settings block with
+`model_settings={"id": "acme.reply-model", "version": "^1.0.0"}`.
+It's a settings block, such as `blocks/reply-model.json`, whose values may
+set `temperature`, `maxOutputTokens` and `thinking`:
+`{ "id": "acme.reply-model", "version": "1.0.0", "kind": "settings", "content": { "values": { "thinking": "low" } } }`.
+The block's `thinking` (`lowest`, `minimal`, `low`, `medium`, `high`,
+`xhigh` or `max`) is sent; else the `thinking.default` the model's provider
+registration gives it (see `kindgi-authoring-providers`); else no level,
+and the model thinks as its vendor sets. A level the model doesn't take
+goes as the next one up that it takes, or its highest, with a
+`thinking-level-adjusted` warning. A guardrail's model judge, or a test run's
+judging model, asks for `lowest`.
+
 ## Iterating
 
 Save the file; `kindgi dev` re-indexes and the next run uses it. No
@@ -221,6 +264,10 @@ kindgi runs start --agent=acme.brief-writer --input='{"userMessage":"…"}'
 ```
 
 or from Python with `kindgi.client` (`Kindgi().runs.start(agent=…, input=…)`).
+
+**After it ships**, people correct its runs, and every correction is a
+case in the agent's test set. `kindgi-fix-corrections` takes them to a
+fix: a setting or wording as a suggested change, a rule in code.
 
 ## Common mistakes
 

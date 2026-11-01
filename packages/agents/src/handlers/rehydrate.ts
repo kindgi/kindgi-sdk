@@ -17,6 +17,8 @@
  *     the turn's user message (`persist-user-message` journals its
  *     sequence);
  *   - the retrieved facts and recalled messages come from `run-retrievals`' journaled output;
+ *   - where the loop's own messages start, from `build-initial-messages`'
+ *     journaled output;
  *   - usage is summed from the journaled model calls, so the step and
  *     cost budgets count the whole turn.
  *
@@ -47,12 +49,15 @@ import type { Timestamp } from '@kindgi/types';
 import type { ConversationMessage, RecalledMemory, RetrievedFact } from '../types.js';
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
+import { bindRunFiles } from './files.js';
 import { readGateDecision } from './gate-decision.js';
 import { addModelWarnings } from './model-call.js';
+import type { StepPointsOutput } from './point-gate.js';
 import { rehydrateReplay } from './replay.js';
 import type { PinnedBlockVersions } from './resolve-blocks.js';
 import { TOOL_GATE_RECORD_PREFIX } from './tool-hitl.js';
 import {
+  type PinnedGuardrails,
   loadTurnConversation,
   resolveTurnEnvironment,
   resolveTurnHitlPolicy,
@@ -60,10 +65,11 @@ import {
 import {
   addInputNode,
   addModelCallNode,
+  addPointCheckNodes,
   addRetrievalNodes,
   addStepToolNodes,
 } from './turn-provenance.js';
-import type { ToolApproval } from './turn-provenance.js';
+import type { FileRead, PointCheckNode, ToolApproval } from './turn-provenance.js';
 
 interface StepRecord {
   readonly nodeId: string;
@@ -97,6 +103,38 @@ function completedSteps(journal: readonly JournalEntry[]): readonly StepRecord[]
   return [...byStep.values()];
 }
 
+/**
+ * What the turn's completed model calls add up to: its steps, usage, last
+ * provider and warnings, and the files it left out after a refused call.
+ */
+function restoreModelCalls(ctx: TurnContext, steps: readonly StepRecord[]): void {
+  for (const s of steps.filter((s) => s.nodeId === 'model-call' && s.inLoop)) {
+    const out = s.output as {
+      readonly step?: number;
+      readonly iterationUsage?: {
+        readonly promptTokens?: number;
+        readonly completionTokens?: number;
+        readonly costUsd?: number;
+      };
+      readonly provider?: { readonly id: string; readonly model: string };
+      readonly warnings?: readonly { readonly code: string; readonly message: string }[];
+      readonly refused?: readonly string[];
+    };
+    ctx.usage.steps = Math.max(ctx.usage.steps, out.step ?? 0);
+    ctx.usage.promptTokens += out.iterationUsage?.promptTokens ?? 0;
+    ctx.usage.completionTokens += out.iterationUsage?.completionTokens ?? 0;
+    ctx.usage.totalCostUsd += out.iterationUsage?.costUsd ?? 0;
+    if (out.provider !== undefined) ctx.lastProvider = out.provider;
+    addModelWarnings(ctx, out.warnings);
+    // A step retried without the files it carried: the turn goes on
+    // without them, and doesn't retry again.
+    if (out.refused !== undefined && out.refused.length > 0) {
+      ctx.filesRetried = true;
+      ctx.refusedFiles = new Set([...(ctx.refusedFiles ?? []), ...out.refused]);
+    }
+  }
+}
+
 /** The output of an outer step that completed, if it did. */
 function outputOf<T>(steps: readonly StepRecord[], nodeId: string): T | undefined {
   return steps.find((s) => s.nodeId === nodeId && !s.inLoop)?.output as T | undefined;
@@ -117,6 +155,7 @@ export async function rehydrateTurnContext(
     readonly providerModel: string;
     readonly toolVersions?: Readonly<Record<string, string>>;
     readonly blockVersions?: PinnedBlockVersions;
+    readonly guardrails?: PinnedGuardrails;
   }>(steps, 'setup');
   if (setup === undefined) return false;
 
@@ -124,16 +163,20 @@ export async function rehydrateTurnContext(
     ctx.provenance = ctx.bindings.provenance.newBuilder({ runId, tenantId: ctx.input.tenantId });
     ctx.provenanceBindings = ctx.bindings.provenance;
   }
+  bindRunFiles(ctx, runId);
   await loadTurnConversation(ctx);
   ctx.hitlPolicy = await resolveTurnHitlPolicy(ctx);
-  // The route and the tool versions `setup` resolved: a resumed turn
-  // runs those, never a range resolved again (a journal from before
-  // `toolVersions` was recorded resolves the ranges, as it did).
+  // The route, the tool versions and the guardrails `setup` resolved: a
+  // resumed turn runs those, never a range or a guardrail resolved again
+  // (a journal from before `toolVersions` or `guardrails` was recorded
+  // resolves them, as it did). Each guardrail's point is checked again
+  // against its check as the registry holds it now.
   await resolveTurnEnvironment(
     ctx,
     { providerId: setup.providerId, model: setup.providerModel },
     setup.toolVersions,
     setup.blockVersions,
+    setup.guardrails,
   );
 
   const userMessage = outputOf<{ readonly sequence: number }>(steps, 'persist-user-message');
@@ -149,28 +192,40 @@ export async function rehydrateTurnContext(
   if (retrievals?.retrieved !== undefined) ctx.retrieved = retrievals.retrieved;
   if (retrievals?.recalled !== undefined) ctx.recalled = retrievals.recalled;
 
-  for (const s of steps.filter((s) => s.nodeId === 'model-call' && s.inLoop)) {
-    const out = s.output as {
-      readonly step?: number;
-      readonly iterationUsage?: {
-        readonly promptTokens?: number;
-        readonly completionTokens?: number;
-        readonly costUsd?: number;
-      };
-      readonly provider?: { readonly id: string; readonly model: string };
-      readonly warnings?: readonly { readonly code: string; readonly message: string }[];
-    };
-    ctx.usage.steps = Math.max(ctx.usage.steps, out.step ?? 0);
-    ctx.usage.promptTokens += out.iterationUsage?.promptTokens ?? 0;
-    ctx.usage.completionTokens += out.iterationUsage?.completionTokens ?? 0;
-    ctx.usage.totalCostUsd += out.iterationUsage?.costUsd ?? 0;
-    if (out.provider !== undefined) ctx.lastProvider = out.provider;
-    addModelWarnings(ctx, out.warnings);
-  }
+  // Where the loop's own messages start, as the step that built them saw it.
+  const initial = outputOf<{ readonly nextMessages?: readonly unknown[] }>(
+    steps,
+    'build-initial-messages',
+  );
+  if (initial?.nextMessages !== undefined) ctx.initialMessageCount = initial.nextMessages.length;
+
+  restoreModelCalls(ctx, steps);
   ctx.toolApprovals = toolApprovalsOf(journal);
+  restoreLoopGuardrails(ctx, steps);
   rebuildProvenance(ctx, steps, retrievals?.retrieved, retrievals?.recalled);
   rehydrateReplay(ctx, journal);
   return true;
+}
+
+/**
+ * What the loop's guardrail points kept in the completed `dispatch-tools`
+ * steps' outputs: the calls that ran (`ranCalls`), for the points' traces,
+ * and the failures only recorded (`guardrailViolations`), for the turn's
+ * result. The step the turn parked in adds its own again when it runs
+ * again, from its records.
+ */
+function restoreLoopGuardrails(ctx: TurnContext, steps: readonly StepRecord[]): void {
+  for (const s of steps.filter((s) => s.nodeId === 'dispatch-tools' && s.inLoop)) {
+    const out = s.output as StepPointsOutput;
+    for (const key of out.ranCalls ?? []) {
+      ctx.ranCalls ??= new Set();
+      ctx.ranCalls.add(key);
+    }
+    for (const { key, violation } of out.guardrailViolations ?? []) {
+      ctx.pointViolations ??= new Map();
+      ctx.pointViolations.set(key, violation);
+    }
+  }
 }
 
 /**
@@ -226,12 +281,14 @@ interface ModelCallStepOutput {
   readonly callId?: string;
   readonly finishReason?: string;
   readonly provider?: { readonly id: string; readonly model: string };
+  readonly files?: readonly FileRead[];
 }
 
 /**
  * The provenance of the steps that ran before the park, in the order
  * they ran: the user message, the retrievals, then each model call with
- * the tool calls its completed step stored.
+ * the tool calls its completed step stored and the guardrail checks at
+ * its points (`StepPointsOutput.guardrailChecks`).
  */
 function rebuildProvenance(
   ctx: TurnContext,
@@ -247,27 +304,31 @@ function rebuildProvenance(
   }
 
   const storedByStep = new Map<number, readonly ConversationMessage[]>();
+  const checksByStep = new Map<number, readonly PointCheckNode[]>();
   for (const s of steps.filter((s) => s.nodeId === 'dispatch-tools' && s.inLoop)) {
-    const out = s.output as {
+    const out = s.output as StepPointsOutput & {
       readonly step?: number;
       readonly iterationAppended?: readonly ConversationMessage[];
     };
-    if (out.step !== undefined) storedByStep.set(out.step, out.iterationAppended ?? []);
+    if (out.step === undefined) continue;
+    storedByStep.set(out.step, out.iterationAppended ?? []);
+    if (out.guardrailChecks !== undefined) checksByStep.set(out.step, out.guardrailChecks);
   }
   const calls = steps
     .filter((s) => s.nodeId === 'model-call' && s.inLoop)
     .map((s) => ({ at: s.at, out: s.output as ModelCallStepOutput }))
     .sort((a, b) => (a.out.step ?? 0) - (b.out.step ?? 0));
   for (const { at, out } of calls) {
-    const { step, callId, provider, finishReason } = out;
+    const { step, callId, provider, finishReason, files = [] } = out;
     if (step === undefined || callId === undefined || provider === undefined) continue;
     addModelCallNode(
       ctx.provenance,
-      { step, callId, provider, finishReason: finishReason ?? 'stop', at },
+      { step, callId, provider, finishReason: finishReason ?? 'stop', at, files },
       input.sequence,
       [...(ctx.toolResultIds ?? [])],
     );
     addStepToolNodes(ctx, step, storedByStep.get(step) ?? []);
+    addPointCheckNodes(ctx, checksByStep.get(step) ?? []);
   }
 }
 

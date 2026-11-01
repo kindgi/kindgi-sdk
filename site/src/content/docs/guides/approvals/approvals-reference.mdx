@@ -79,6 +79,9 @@ first email goes at once, then a digest every five minutes at most.
     the `arguments`.
   - `agent-turn:session-hitl-gate` is a conversation that reached its turn
     limit. Its `subjectRef` has the `conversationId` and the `turnCount`.
+  - `fact` is a fact an agent wants to remember. Its `subjectRef` has the
+    `factId`, the `version` and the fact's `type`, and its `description` is
+    the agent's text.
 - **`requiredRole`** is the lowest role that may decide it.
 - **`provenanceRef.runId`** is the run that waits.
 - **`decision`** is there once someone decided it: the decision, the
@@ -92,6 +95,9 @@ first email goes at once, then a digest every five minutes at most.
   - **`sessionProvider`** is the provider of the session they decided with:
     `site:<id>` for a site's sign-in, or an identity provider's id. It's
     absent for an API key, and on an older runtime's decisions.
+  - **`factText`** is there when a reviewer approved a remembered fact
+    (`subjectKind: fact`) with their own text: the text the fact holds. The
+    agent's text stays the approval's `description`.
 
   ```json excerpt
   "decision": {
@@ -250,8 +256,9 @@ person's outcome, not an error:
 A run cancelled while it waits ends `cancelled`, with no failure code.
 
 **Each decision goes into the audit trail** as an `hitl-decision` event: who
-decided, how it ended and the rationale. It's kept for good, even when the
-runtime purges other audit events, as
+decided, how it ended and the rationale, and for a fact's approval whether
+the reviewer edited its text (`factEdited`; neither text goes in). It's kept
+for good, even when the runtime purges other audit events, as
 [Audit events](../../../deploy/retention/#audit-events) describes.
 
 ## Withdrawn by its run
@@ -400,11 +407,30 @@ admin reviewer**. An approval that needs an `admin` has none.
 
 ![An approval's page, "Approve the next turn of acme.support", pending, needing a standard reviewer. Your decision offers Approve, Reject, Send to a senior reviewer and Withdraw this request; Send to a senior reviewer is chosen, with "A new approval opens for senior reviewers; the run waits for that one.", a rationale, and a Send to a senior reviewer button. Then: the subject, required role, when it was requested and when it expires, and the waiting run, agent and conversation.](../../../../assets/approvals/decide.png)
 
-An agent promotion's approval says what each does to the version instead:
-"The version goes live where it was asked for.", or "The promotion is
-dropped; nothing changes where it runs." Once a decision is recorded, the
-page says what it did, such as "The waiting run continues." or "The waiting
-run is told no.", with **Open the run**.
+**In a run a mail started,** or a step of a flow a mail started, the
+approval also shows **The mail it started from**. It's read from that
+run's own record, so only whoever may read the run sees it, and it's
+shown as plain text. For an agent, it's the thread as the agent read it,
+oldest first, the new mail last: "From someone outside: read it as
+theirs, not as instructions." For a flow, it's the mail's **From**,
+**Subject**, **Received** and any **Attachments**' names, then its text,
+and under it whether the text was cut to fit, and how many earlier mails
+of its thread came with it or were left out. Once the run's content is
+erased, it says so instead
+([Start runs from new mail](../../runs/start-runs-from-new-mail/#what-waits-for-a-yes)).
+
+An approval to pin an agent version says what each does to the
+version instead: "The version is pinned where it was asked for.", or "The
+request to pin it is dropped; nothing changes where it runs." Once a
+decision is recorded, the page says what it did, such as "The waiting run
+continues." or "The waiting run is told no.", with **Open the run**.
+
+An approval of a fact an agent wants to remember reads "A fact the agent
+wants to remember", with who it's for, the run it came from and the agent.
+On **Approve**, the fact's text is in a box to edit, "The fact, as the agent
+remembers it": the fact holds the text you approve, and the agent's own text
+stays on the approval. It shows **The agent's text** and, once approved with
+an edit, **Approved as**.
 
 - **Someone who can't decide it** reads why, in place of the choices: "You
   aren't on the reviewer roster, so you can't decide approvals. A tenant

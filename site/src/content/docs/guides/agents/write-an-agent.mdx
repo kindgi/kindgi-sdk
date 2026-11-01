@@ -309,9 +309,11 @@ agent, as in Java.
   see [Choose the model an agent uses](../choose-a-model/).
 - **`tools`** are the tools the model may call (below). An agent with
   `tools: []` only talks.
-- **`guardrails`** check the agent's final answer, once per turn, before it's
-  stored. A guardrail whose action is `halt` fails the turn, and the answer is
-  never written to the conversation.
+- **`guardrails`** check the agent's final answer before it's stored. A
+  guardrail whose action is `halt` fails the turn, and the answer is never
+  written to the conversation. One whose action is `retry` sends the answer
+  back to the model for a new one
+  ([Send the answer back](../../guardrails/halt-or-record/#send-the-answer-back)).
 - **`budget`** caps each turn: see [Set an agent's budget](../budgets/).
 
 In TypeScript, `tools`, `retrieval` and `guardrails` are required; pass `[]`
@@ -392,10 +394,9 @@ Edit the file and save: `kindgi dev` reloads it, and the next run uses it.
 
 `{{ today }}` above is filled in when the turn starts. The template language
 is Liquid, so tags such as `{% if %}` work too. Partials (`{% include %}`,
-`{% render %}`, `{% layout %}`) don't: an agent or prompt block whose
-template uses one is refused with "templates can't use include, render or
-layout". To write `{{` or `{%` as text, put it in
-`{% raw %}…{% endraw %}`. These variables are always there:
+`{% render %}`, `{% layout %}`) don't: when the agent's instructions use
+one, they're refused with "templates can't use include, render or layout".
+To write `{{` or `{%` as text, put it in `{% raw %}…{% endraw %}`. These variables are always there:
 
 | Variable | Example |
 | --- | --- |

@@ -11,8 +11,8 @@ finds it, downloads it and deletes it.
 A file kept in the runtime is an **artifact**, such as a report a run's
 output became, a document your app sent in, or an export. Each one belongs to
 a project, and can name the run it came from. Its name, type, size and sha256
-are kept in the runtime's database. Its bytes are kept on disk or in a
-Google Cloud Storage bucket.
+are kept in the runtime's database. Its bytes are kept on disk, in a
+Google Cloud Storage bucket, or in an S3 bucket.
 
 ## Before you start
 
@@ -39,7 +39,7 @@ pnpm exec kindgi artifacts upload report.pdf --run=<run-id> --content-type=appli
 It prints the artifact's record, with its `blobId`.
 
 - **Its project:** with `--run`, it's the run's project. Without `--run`,
-  it's `--project`'s, or else the tenant's Default project. A `--project`
+  it's `--project`'s, or else the tenant's default project. A `--project`
   that isn't the run's is refused, and so is a run that doesn't exist, with
   `404 run-not-found`. With an API key limited to a project, an upload that
   names no project goes to the key's project. One whose project, named or its
@@ -70,6 +70,29 @@ pnpm exec kindgi artifacts download <blob-id> -o report.pdf
 - `download` writes the file under its own name in this directory, unless
   `-o` names one. It keeps a file that's already there, unless you add
   `--force`.
+- `download` first writes to a new file next to the one it saves, and moves
+  it into place only once the whole file has arrived and its sha256 is the
+  one the server sent. A download that fails leaves no file, and with
+  `--force` the file already there stays as it was.
+- One Ctrl-C (or `SIGTERM`) stops `download`, whether it's still waiting
+  for the server or part way through the file. As after a failure, it leaves
+  no file, and a file already there stays as it was. It says
+  `kindgi artifacts download stopped: no file was written.` and exits with
+  code 130.
+- Ended at once, by a second Ctrl-C or `kill -9`, `download` can leave that
+  new file behind: the file's name, then 8 hex digits, then `.partial`, such
+  as `report.pdf.1a2b3c4d.partial`. You can delete it.
+
+A download is checked against the sha256 and size kept for the artifact. If
+its bytes were changed in their store outside the runtime, on disk or in the
+bucket, the download stops part way: the runtime closes the connection
+before the last of its `Content-Length` bytes. `download` then fails with
+`the download stopped part way (…): report.pdf wasn't written`, and writes
+no file. In TypeScript, reading `download`'s body throws. The runtime logs
+each one at `ERROR`, as
+`Artifact <blob-id>'s stored bytes aren't the ones put; the read was stopped`,
+with its tenant, where its bytes are kept, the sha256 and size kept for it,
+and what was read. The log line never holds the file's content.
 
 With [authorization](../../../deploy/authorization/) on, listing and
 downloading need `read` on the artifact's project, and uploading and deleting
@@ -96,10 +119,16 @@ go:
 - `gcs:<bucket>[/<prefix>]`: a Google Cloud Storage bucket, reached with the
   runtime's own Google identity, its Application Default Credentials. So
   there's no key to store.
+- `s3:<bucket>[/<prefix>]` (runtime 0.3.0 or later): an S3 bucket, on AWS
+  with the runtime's own AWS identity, or in an S3-compatible store such as
+  MinIO or Cloudflare R2.
 
 Without it, the runtime serves no artifacts. `kindgi dev` keeps them in the
 pack's `.kindgi/dev/artifacts`. `KINDGI_ARTIFACT_MAX_BYTES` sets the upload
 cap. The startup output says where artifacts go, or that they're off.
+[Choose where the runtime keeps files](../../../deploy/self-hosted/store-files/)
+has each one's settings and permissions, and what the runtime checks at
+startup.
 
 ## Next
 

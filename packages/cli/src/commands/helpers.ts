@@ -11,6 +11,13 @@ import { type Column, type Rendered, renderJson, renderTable } from '../output.j
 import type { CommandResult } from './types.js';
 
 /**
+ * The exit code of a command that ran, and whose answer is no: a release
+ * gate refused a version or wants an approval, a version didn't go
+ * live, a test run failed. An error is 1, a usage error 2.
+ */
+export const ANSWER_NO_EXIT_CODE = 3;
+
+/**
  * How a list command's page renders under `--table`: its rows and the
  * columns to show. A command without one prints JSON under `--table`.
  */
@@ -71,11 +78,14 @@ export function truncateCell(text: string, max: number): string {
  * such as tables), still routing any thrown value through the standard
  * error formatter. An `exitCode` with it is the command's own (e.g. a run
  * that failed: its output is still printed, and the exit code says so).
+ * A thrown refusal `answeredNo` picks out is printed as any error is, and
+ * exits `ANSWER_NO_EXIT_CODE`.
  */
 export async function runSdkRendered(
   ctx: CommandContext,
   commandLabel: string,
   fn: () => Promise<Rendered & { readonly exitCode?: number }>,
+  answeredNo?: (err: unknown) => boolean,
 ): Promise<CommandResult> {
   try {
     const { stdout, stderr, exitCode } = await fn();
@@ -85,7 +95,13 @@ export async function runSdkRendered(
       ...(exitCode !== undefined && { exitCode }),
     };
   } catch (err) {
-    return commandResultFromThrown(err, ctx, commandLabel);
+    const result = commandResultFromThrown(err, ctx, commandLabel);
+    // A refusal that is the command's answer (`answeredNo`): said as any
+    // error is, with the exit code that says the answer is no.
+    if (result.kind === 'error' && answeredNo?.(err) === true) {
+      return { ...result, exitCode: ANSWER_NO_EXIT_CODE };
+    }
+    return result;
   }
 }
 
@@ -130,6 +146,47 @@ export function requiredPositional(ctx: CommandContext, index: number, label: st
   }
   return value;
 }
+
+/**
+ * A trigger's version, the optional argument at `index`: its number, a
+ * whole number from 1, as `…/versions/{version}` takes it. Undefined when
+ * it isn't given.
+ */
+export function triggerVersionPositional(ctx: CommandContext, index: number): number | undefined {
+  const raw = ctx.positionals[index];
+  if (raw === undefined) return undefined;
+  const version = /^[1-9][0-9]*$/.test(raw) ? Number(raw) : Number.NaN;
+  if (!Number.isSafeInteger(version)) {
+    throw new UsageError(`<version> must be a whole number from 1, got "${raw}"`);
+  }
+  return version;
+}
+
+/** A trigger's version as each kind's `versions` page holds it, for its table. */
+interface TriggerVersionRow {
+  readonly version: number;
+  readonly createdAt: string;
+  readonly createdBy?: string | undefined;
+  readonly cause: string;
+}
+
+/**
+ * `schedules versions`, `webhooks versions` and `mail-triggers versions`
+ * under `--table`: each version's number, when it was made, by whom
+ * (`Kindgi` for one the runtime made itself, which names no one) and why.
+ */
+export const TRIGGER_VERSIONS_TABLE: TableSpec<
+  { readonly data: readonly TriggerVersionRow[] },
+  TriggerVersionRow
+> = {
+  rows: (p) => p.data,
+  columns: [
+    { header: 'VERSION', get: (v) => String(v.version) },
+    { header: 'CREATED', get: (v) => v.createdAt },
+    { header: 'BY', get: (v) => v.createdBy ?? 'Kindgi' },
+    { header: 'CAUSE', get: (v) => v.cause },
+  ],
+};
 
 /** Extract an optional string flag. */
 export function stringFlag(ctx: CommandContext, name: string): string | undefined {
@@ -211,7 +268,7 @@ export function segmentsFlag(
 
 /**
  * The project a command writes into: `--project=<id>`, or the tenant's
- * Default project when the flag is absent.
+ * default project when the flag is absent.
  */
 export async function projectIdFlag(ctx: CommandContext): Promise<string> {
   return stringFlag(ctx, 'project') ?? (await ctx.client().projects.getDefault()).id;
@@ -244,6 +301,46 @@ export function allowUnattendedField(
     throw new UsageError('--allow-unattended=none clears the list: not with tool ids');
   }
   return { toolsAllowedUnattended: [] };
+}
+
+/**
+ * A schedule's, a webhook trigger's or a mail trigger's `RUNS AS` cell: its
+ * owner's name (else id), and whether that makes it personal (a person) or
+ * shared (a service account). One run as its project's own account says
+ * "this project". A trigger with no owner (the server's
+ * `{service, 'unknown'}`) is neither: it starts nothing until an admin takes
+ * it over. Empty when the server names no owner at all.
+ */
+export function runsAsCell(
+  owner:
+    | {
+        readonly kind: string;
+        readonly id: string;
+        readonly displayName?: string;
+        readonly isProjectAccount?: boolean;
+      }
+    | undefined,
+): string {
+  if (owner === undefined) return '';
+  if (owner.kind === 'service' && owner.id === 'unknown') {
+    return 'no owner (an admin can take it over)';
+  }
+  if (owner.isProjectAccount === true) return 'this project (shared)';
+  return `${owner.displayName ?? owner.id} (${owner.kind === 'user' ? 'personal' : 'shared'})`;
+}
+
+/**
+ * The owner `--run-as` names, as a register or take-over body says it:
+ * `project` is the trigger's project's own account (`runAsProject`), and
+ * anything else a service account's id. A runtime's account ids are UUIDs,
+ * so the word can't be one. Nothing when the flag is absent.
+ */
+export function runAsFields(runAs: string | undefined): {
+  readonly runAsProject?: true;
+  readonly runAsServiceAccountId?: string;
+} {
+  if (runAs === undefined) return {};
+  return runAs === 'project' ? { runAsProject: true } : { runAsServiceAccountId: runAs };
 }
 
 /** Extract an optional integer flag; throws on non-integer values. */

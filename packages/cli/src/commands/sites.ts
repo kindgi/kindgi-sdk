@@ -4,7 +4,7 @@
 import type { Site, SiteCollectionPage, SiteEnrollmentCode, SitesClient } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
-import { renderJson } from '../output.js';
+import { type Rendered, renderJson, successNote } from '../output.js';
 import {
   type TableSpec,
   integerFlag,
@@ -23,7 +23,7 @@ type Settings = Parameters<SitesClient['update']>[2];
 const PROJECT_FLAG: Readonly<Record<string, ParseArgsOption>> = {
   project: {
     type: 'string',
-    description: "The site's project, by id (default: the tenant's Default project).",
+    description: "The site's project, by id (default: the tenant's default project).",
   },
 };
 
@@ -112,6 +112,14 @@ async function settingsFrom(ctx: CommandContext): Promise<Settings> {
   };
 }
 
+/**
+ * The result's stdout: under `--quiet`, the one-time code alone, since it's
+ * shown this once, as `connections connect`'s link is; else `rendered`'s.
+ */
+function codeStdout(ctx: CommandContext, rendered: Rendered, code: SiteEnrollmentCode): string {
+  return ctx.globals.format === 'quiet' ? `${code.code}\n` : rendered.stdout;
+}
+
 /** Where the code goes, said once: what the plugin's admin pastes. */
 function codeNote(ctx: CommandContext, code: SiteEnrollmentCode): string[] {
   return [
@@ -160,15 +168,18 @@ const register: LeafCommand = {
         .projects.sites.register(projectId, { ...settings, displayName, origin, approvalsUrl });
       const rendered = renderJson({ site, enrollment }, ctx.globals.format);
       return {
-        stdout: rendered.stdout,
-        stderr: [
-          '',
-          `  Registered site ${site.siteId} on project ${site.projectId}: its people show as "<name>, via ${site.displayName}".`,
-          ...codeNote(ctx, enrollment),
-          `  A code that ran out: \`kindgi sites code ${site.siteId}${projectSuffix(ctx)}\` gives a new one.`,
-          '',
-          '',
-        ].join('\n'),
+        stdout: codeStdout(ctx, rendered, enrollment),
+        stderr: successNote(
+          ctx.globals.format,
+          [
+            '',
+            `  Registered site ${site.siteId} on project ${site.projectId}: its people show as "<name>, via ${site.displayName}".`,
+            ...codeNote(ctx, enrollment),
+            `  A code that ran out: \`kindgi sites code ${site.siteId}${projectSuffix(ctx)}\` gives a new one.`,
+            '',
+            '',
+          ].join('\n'),
+        ),
       };
     }),
 };
@@ -194,8 +205,11 @@ const code: LeafCommand = {
         .projects.sites.newEnrollmentCode(await projectIdFlag(ctx), siteId);
       const rendered = renderJson(enrollment, ctx.globals.format);
       return {
-        stdout: rendered.stdout,
-        stderr: ['', ...codeNote(ctx, enrollment), '', ''].join('\n'),
+        stdout: codeStdout(ctx, rendered, enrollment),
+        stderr: successNote(
+          ctx.globals.format,
+          ['', ...codeNote(ctx, enrollment), '', ''].join('\n'),
+        ),
       };
     }),
 };

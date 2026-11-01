@@ -10,12 +10,16 @@ import {
   type EvaluationResult,
   type Guardrail,
   type GuardrailCheckOutcome,
+  type GuardrailPoint,
   type GuardrailSeverity,
   type ModelCallRecord,
   type OnViolation,
   type RunTrace,
   type ToolCallRecord,
   type ToolResultRecord,
+  type TraceCall,
+  type TraceCallResult,
+  type TraceStep,
   evaluateAll,
 } from '@kindgi/guardrails';
 import type {
@@ -27,6 +31,7 @@ import type {
   Result,
   RunId,
   TenantId,
+  Timestamp,
 } from '@kindgi/types';
 
 import type { Agent, ConversationId, ConversationMessage } from './types.js';
@@ -93,12 +98,32 @@ export function buildRunTrace(input: {
   /** The parsed answer, when the agent declares `output`. */
   readonly structuredOutput?: unknown;
   readonly appended: readonly ConversationMessage[];
-  readonly finalResponse: ConversationMessage;
+  /** The answer as it would be stored. Absent at a point inside the loop, where there's none yet. */
+  readonly finalResponse?: ConversationMessage;
+  /** When the gate runs: the time of the approximate model-call record without a final response. */
+  readonly evaluatedAt?: Timestamp;
+  /** At a point inside the loop (`Guardrail.at`): what the check judges there. */
+  readonly point?: {
+    readonly at: GuardrailPoint;
+    /**
+     * The calls that ran, by `<reply sequence>:<call id>`: the trace's
+     * `toolCalls` and `toolResults` hold only these, so a call refused,
+     * rejected or not run yet isn't one, and a refusal's note isn't a
+     * result.
+     */
+    readonly ranCalls: ReadonlySet<string>;
+    readonly call?: TraceCall;
+    readonly result?: TraceCallResult;
+    readonly step?: TraceStep;
+  };
   readonly usage: TurnUsageSnapshot;
 }): RunTrace {
   const toolCalls: ToolCallRecord[] = [];
   const toolResults: ToolResultRecord[] = [];
   const modelCalls: ModelCallRecord[] = [];
+  const ran = input.point?.ranCalls;
+  // Each call's reply, by the call's id: the latest reply that asked for it.
+  const replyOf = new Map<string, number>();
 
   for (const msg of input.appended) {
     if (msg.role === 'agent' && typeof msg.content === 'object' && msg.content !== null) {
@@ -111,6 +136,8 @@ export function buildRunTrace(input: {
       };
       if (structured.toolCalls !== undefined) {
         for (const call of structured.toolCalls) {
+          replyOf.set(call.id, msg.sequence);
+          if (ran !== undefined && !ran.has(`${msg.sequence}:${call.id}`)) continue;
           toolCalls.push({
             toolId: call.name as never,
             toolName: call.name,
@@ -121,6 +148,8 @@ export function buildRunTrace(input: {
       }
     }
     if (msg.role === 'tool' && msg.toolCall !== undefined) {
+      const { invocationId } = msg.toolCall;
+      if (ran !== undefined && !ran.has(`${replyOf.get(invocationId)}:${invocationId}`)) continue;
       toolResults.push({
         toolCallId: msg.toolCall.invocationId,
         output: msg.content,
@@ -137,13 +166,20 @@ export function buildRunTrace(input: {
     model: 'runtime.picked',
     promptTokens: input.usage.promptTokens,
     completionTokens: input.usage.completionTokens,
-    at: input.finalResponse.createdAt,
+    at:
+      input.finalResponse?.createdAt ??
+      input.evaluatedAt ??
+      (new Date().toISOString() as Timestamp),
   });
 
+  const final = input.finalResponse;
   const output =
-    typeof input.finalResponse.content === 'string'
-      ? input.finalResponse.content
-      : JSON.stringify(input.finalResponse.content);
+    final === undefined
+      ? undefined
+      : typeof final.content === 'string'
+        ? final.content
+        : JSON.stringify(final.content);
+  const point = input.point;
 
   return {
     runId: input.runId,
@@ -152,7 +188,7 @@ export function buildRunTrace(input: {
     ...(input.orgId !== undefined && { orgId: input.orgId }),
     agentId: input.agent.id as unknown as AgentId,
     ...(input.flowId !== undefined && { flowId: input.flowId }),
-    output,
+    ...(output !== undefined && { output }),
     toolCalls,
     toolResults,
     modelCalls,
@@ -167,6 +203,12 @@ export function buildRunTrace(input: {
       ...(input.stepInput !== undefined && { stepInput: input.stepInput }),
       ...(input.structuredOutput !== undefined && { structuredOutput: input.structuredOutput }),
     },
+    ...(point !== undefined && {
+      at: point.at,
+      ...(point.call !== undefined && { call: point.call }),
+      ...(point.result !== undefined && { result: point.result }),
+      ...(point.step !== undefined && { step: point.step }),
+    }),
   };
 }
 
@@ -248,12 +290,14 @@ export interface GuardrailEvaluationError {
 
 /**
  * Sort evaluation outcomes by the failed guardrail's action. `halt` is
- * blocking — the turn fails with `guardrail-violation`. `log-only` and
- * `noop` are warnings; every other action (`retry`, `escalate`,
- * `compensate`, or a custom action — actions are open strings) lands in
- * `other`. Warnings and `other` are attached to the successful turn
- * result under `result.violations`; the turn does not carry out those
- * actions. Evaluation errors (a check that could not run) are collected
+ * blocking — the turn fails with `guardrail-violation`. `retry` is in
+ * `retry`: the agent loop sends the answer back to the model while the
+ * guardrail's attempts last (`budget-check`). `log-only` and `noop` are
+ * warnings; every other action (`escalate`, `compensate`, or a custom
+ * action — actions are open strings) lands in `other`. Warnings and
+ * `other` are attached to the successful turn result under
+ * `result.violations`; the turn does not carry out those actions.
+ * Evaluation errors (a check that could not run) are collected
  * in `errors`; those of a `halt` guardrail are also in `blockingErrors`,
  * which fail the turn as a violation would (a guardrail that can't check
  * fails closed). `guardrails` is the list the outcomes came from, one
@@ -262,7 +306,7 @@ export interface GuardrailEvaluationError {
  *
  * `checks` is what each guardrail's check came to, in order, for the
  * outcome ledger (`GuardrailOutcomeSink`): `blocked` (in `blocking`),
- * `violated` (in `warnings` or `other`), `errored` (in `errors`), or
+ * `violated` (in `warnings`, `retry` or `other`), `errored` (in `errors`), or
  * `passed`. A guardrail whose scope didn't match wasn't checked and has no
  * entry.
  */
@@ -272,6 +316,7 @@ export function categorizeOutcomes(
 ): {
   readonly blocking: readonly EvaluationResult[];
   readonly warnings: readonly EvaluationResult[];
+  readonly retry: readonly EvaluationResult[];
   readonly other: readonly EvaluationResult[];
   readonly errors: readonly GuardrailEvaluationError[];
   readonly blockingErrors: readonly GuardrailEvaluationError[];
@@ -279,6 +324,7 @@ export function categorizeOutcomes(
 } {
   const blocking: EvaluationResult[] = [];
   const warnings: EvaluationResult[] = [];
+  const retry: EvaluationResult[] = [];
   const other: EvaluationResult[] = [];
   const errors: GuardrailEvaluationError[] = [];
   const blockingErrors: GuardrailEvaluationError[] = [];
@@ -328,23 +374,55 @@ export function categorizeOutcomes(
     }
     if (evalResult.action === 'log-only' || evalResult.action === 'noop') {
       warnings.push(evalResult);
-    } else other.push(evalResult);
+    } else if (evalResult.action === 'retry') retry.push(evalResult);
+    else other.push(evalResult);
     checks.push({ ...check, outcome: 'violated' });
   });
-  return { blocking, warnings, other, errors, blockingErrors, checks };
+  return { blocking, warnings, retry, other, errors, blockingErrors, checks };
+}
+
+/** Where in the turn guardrails stopped it, for its message: the point, and at a tool point the tool. */
+export interface BlockedAt {
+  readonly point: GuardrailPoint;
+  readonly toolId?: string;
 }
 
 /**
  * Message for a turn stopped by blocking violations — names each
- * guardrail that fired, with its check's reason when it gave one:
+ * guardrail that fired, with its check's reason when it gave one, where
+ * in the turn when it wasn't the final answer, and, for `retry`
+ * guardrails out of attempts, the answers (or, in the loop, the replies)
+ * the turn made:
  *
  *   Turn blocked by guardrail 'no-pii': Response contains an email address
  *   Turn blocked by 2 guardrails: 'no-pii' (Response contains …); 'max-length'
+ *   Turn blocked by guardrail 'cite' after 2 answers: No source cited
+ *   Turn blocked by guardrail 'no-refund' before calling acme.woo.refund: …
+ *   Turn blocked by guardrail 'no-refund' before calling acme.woo.refund, after 2 replies: …
+ *   Turn blocked by guardrail 'no-pii' on a model reply, after 2 replies: …
  */
 export function describeBlockingViolations(
   blocking: readonly EvaluationResult[],
   blockingErrors: readonly GuardrailEvaluationError[] = [],
+  attempts?: number,
+  blockedAt?: BlockedAt,
 ): string {
+  const point = blockedAt?.point ?? 'final-answer';
+  const tool = blockedAt?.toolId ?? 'a tool';
+  const where =
+    point === 'before-tool'
+      ? ` before calling ${tool}`
+      : point === 'after-tool'
+        ? ` after ${tool} ran`
+        : point === 'model-step'
+          ? ' on a model reply'
+          : '';
+  const noun = point === 'final-answer' ? 'answer' : 'reply';
+  const counted =
+    attempts === undefined
+      ? ''
+      : `${attempts} ${attempts === 1 ? noun : noun === 'reply' ? 'replies' : `${noun}s`}`;
+  const after = `${where}${counted === '' ? '' : `${where === '' ? '' : ','} after ${counted}`}`;
   const reasonOf = (v: EvaluationResult): string | undefined => {
     const reason = v.result.reason?.trim();
     return reason === undefined || reason === '' ? undefined : reason;
@@ -355,10 +433,10 @@ export function describeBlockingViolations(
   const [onlyError] = blockingErrors;
   if (blocking.length === 1 && only !== undefined && blockingErrors.length === 0) {
     const reason = reasonOf(only);
-    return `Turn blocked by guardrail '${only.guardrailId}'${reason !== undefined ? `: ${reason}` : ''}`;
+    return `Turn blocked by guardrail '${only.guardrailId}'${after}${reason !== undefined ? `: ${reason}` : ''}`;
   }
   if (blocking.length === 0 && blockingErrors.length === 1 && onlyError !== undefined) {
-    return `Turn blocked: guardrail ${couldNotRun(onlyError)}`;
+    return `Turn blocked${after}: guardrail ${couldNotRun(onlyError)}`;
   }
   const named = [
     ...blocking.map((v) => {
@@ -367,7 +445,7 @@ export function describeBlockingViolations(
     }),
     ...blockingErrors.map(couldNotRun),
   ];
-  return `Turn blocked by ${named.length} guardrails: ${named.join('; ')}`;
+  return `Turn blocked by ${named.length} guardrails${after}: ${named.join('; ')}`;
 }
 
 /**
@@ -421,6 +499,17 @@ export interface GuardrailViolationError {
    * guardrail's error blocks the turn on its own, so `violations` can be empty.
    */
   readonly evaluationErrors: readonly GuardrailEvaluationError[];
+  /**
+   * For `retry` guardrails out of attempts: the answers the turn wrote,
+   * the first one included, or at a loop point its replies the guardrail
+   * sent back or refused or withheld a call of. Absent when a `halt`
+   * guardrail blocked it.
+   */
+  readonly attempts?: number;
+  /** Where in the turn the guardrails stopped it (`Guardrail.at`). Absent: the final answer. */
+  readonly point?: GuardrailPoint;
+  /** At `'before-tool'` and `'after-tool'`: the model's id for the call, unique within its reply. */
+  readonly callId?: string;
 }
 
 /**
@@ -435,6 +524,35 @@ export interface HitlRequiredError {
   readonly message: string;
   readonly threshold: number;
   readonly approvalId?: string;
+}
+
+/**
+ * A reviewer rejected the turn at its session approval gate; in a replay,
+ * the past run's reviewer did. `rationale` is the reviewer's, when they
+ * gave one.
+ */
+export interface HitlRejectedError {
+  readonly code: 'hitl-rejected';
+  readonly message: string;
+  readonly rationale?: string;
+}
+
+/**
+ * Nobody decided at an approval gate in time: its approval expired at the
+ * `admin` role, or its wait was cancelled another way. `reason` is the
+ * wait's (`timeout`, …).
+ */
+export interface HitlCancelledError {
+  readonly code: 'hitl-cancelled';
+  readonly message: string;
+  readonly reason: string;
+}
+
+/** A reviewer withdrew an approval gate's request (`reason: 'approval-withdrawn'`). */
+export interface HitlWithdrawnError {
+  readonly code: 'hitl-withdrawn';
+  readonly message: string;
+  readonly reason: string;
 }
 
 /** Emitted when the agent references guardrail IDs not in the registry. */

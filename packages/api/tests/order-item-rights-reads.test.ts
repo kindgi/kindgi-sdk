@@ -36,11 +36,11 @@ const KINDS = [
   { kind: 'flow', path: '/v1/flows', registry: 'flowRegistry', idKey: 'flowId', type: 'flow' },
   { kind: 'tool', path: '/v1/tools', registry: 'toolRegistry', idKey: 'toolId', type: 'tool' },
   {
-    kind: 'eval_suite',
-    path: '/v1/eval-suites',
-    registry: 'evalSuiteRegistry',
-    idKey: 'suiteId',
-    type: 'eval_suite',
+    kind: 'test_set',
+    path: '/v1/test-sets',
+    registry: 'testSetRegistry',
+    idKey: 'testSetId',
+    type: 'test_set',
   },
   {
     kind: 'block',
@@ -55,7 +55,7 @@ type Kind = (typeof KINDS)[number];
 /** The item an order carries (`acme.desk`), and one in a single project (`acme.solo`). */
 const SERVED = 'acme.desk';
 const SOLO = 'acme.solo';
-/** An agent from before the order, adopted into it: first published in the Default project. */
+/** An agent from before the order, adopted into it: first published in the default project. */
 const ADOPTED = 'acme.adopted';
 
 /**
@@ -180,7 +180,7 @@ const resolveToken: TokenResolver = async (token) => {
 /**
  * The app over every kind's records: the order's item at its three
  * versions (all filed under staging, its first project), the one-project
- * item in `other`, and the adopted agent in Default. Without `served`, no
+ * item in `other`, and the adopted agent in the default. Without `served`, no
  * item-projects binding: every item has one project. Without `authorized`,
  * no authorizer. With `projectless`, no record names a project, as
  * `kindgi dev`'s pack read from disk.
@@ -203,7 +203,10 @@ function harness(
       rec(SOLO, '1.0.0', at(OTHER)),
       rec(SOLO, '2.0.0', at(OTHER)),
       ...(prefix === 'agent' ? [rec(ADOPTED, '1.0.0', at(DEFAULT))] : []),
-    ].filter((r) => opts.soloOnly !== true || r.id === SOLO);
+    ]
+      .filter((r) => opts.soloOnly !== true || r.id === SOLO)
+      // A test set's kind is an eval kind, and the list holds those it lists.
+      .map((r) => (prefix === 'test_set' ? { ...r, kind: 'custom' } : r));
   const registries = Object.fromEntries(
     KINDS.map((k) => [k.registry, registry(k.idKey, records(k.kind))]),
   ) as unknown as Partial<CreateAppInput>;

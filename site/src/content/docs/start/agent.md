@@ -179,22 +179,20 @@ step 1.
 If doctor's `registry` check passes, this machine can already pull the
 runtime: skip this step.
 
-1. Ask the person: "Sign in at https://access.kindgi.com with GitHub. Under
-   **1. Pull the runtime image**, copy the token, and tell me when you're
-   done. Also tell me the robot name in its command, after `--username` (it
-   isn't secret)." If the page doesn't give them a token, stop here until
-   they have one.
-2. When they say they're done, pipe the clipboard into the login, with the
-   robot name they gave you:
+1. Ask the person: "Sign in at https://access.kindgi.com with GitHub or your
+   email address. Under **1. Your license key**, copy the key (it starts with
+   `kgi_lk_`), and tell me when you're done." If the page doesn't give them a
+   key, stop here until they have one.
+2. When they say they're done, pipe the clipboard into the login:
 
    ```sh
-   <read the clipboard> | npx --yes @kindgi/cli@0.2 auth registry --username <robot name> --password-stdin
+   <read the clipboard> | npx --yes @kindgi/cli@0.2 auth registry --password-stdin
    ```
 
    It ends with:
 
    ```text
-   ✓ You can pull quay.io/kindgi/runtime:…@sha256:…, the image this CLI runs.
+   ✓ You can pull registry.kindgi.com/kindgi/runtime:…@sha256:…, the image this CLI runs.
    ```
 
 3. Clear the clipboard, if this OS lets you.
@@ -424,12 +422,13 @@ Tell the person, in your own words:
 >
 > 1. **Give it a tool:** ask me "add a tool that looks up an order, and let
 >    the agent call it".
-> 2. **Judge a few answers:** say yes or no to what it answered, so later
->    versions can be checked against your judgments
->    ([Judge a run's output](https://docs.kindgi.com/guides/evals/judge-a-runs-output/)).
+> 2. **Correct a few runs:** say whether what it did and answered was right,
+>    and what was right instead, so later versions can be checked against
+>    your corrections
+>    ([Correct a run's output](https://docs.kindgi.com/guides/improve/correct-a-runs-output/)).
 > 3. **Compare two versions:** change its instructions and see whether people's
->    judgments rate the new version higher
->    ([Compare a version on a test set](https://docs.kindgi.com/guides/evals/compare-an-agent-version/)).
+>    corrections rate the new version higher
+>    ([Try a version on the test cases](https://docs.kindgi.com/guides/improve/compare-an-agent-version/)).
 
 If the person then asks for an app that starts the agent's runs, read
 [Start runs from your app](https://docs.kindgi.com/start/call-from-your-app.md)

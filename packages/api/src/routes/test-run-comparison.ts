@@ -1,0 +1,228 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+import type { AgentId } from '@kindgi/agents';
+import type { FlowVersionOverrides } from '@kindgi/flow';
+import type { ProjectId, Semver } from '@kindgi/types';
+
+import { DEFAULT_COMPARISON } from '../corrected-dispatcher.js';
+import type {
+  TestRunBaseline,
+  TestRunComparison,
+  TestRunOverrides,
+  TestRunSample,
+} from '../test-run-binding.js';
+import { parseSegmentsBody } from './segments.js';
+
+const MAX_REPETITIONS = 10;
+const MAX_K = 100;
+const MAX_OVERRIDDEN_BLOCKS = 20;
+
+function obj(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function parsePinned(raw: unknown): TestRunBaseline | string {
+  const pinned = obj(raw);
+  if (pinned === undefined) return '`baseline.pinned` must be an object';
+  if (pinned.projectId !== undefined && typeof pinned.projectId !== 'string') {
+    return '`baseline.pinned.projectId` must be a string';
+  }
+  const path = parseSegmentsBody(pinned.segments, 'baseline.pinned.segments');
+  if (path.kind === 'err') return path.message;
+  if (path.segments !== undefined && pinned.projectId === undefined) {
+    return '`baseline.pinned.segments` is a segment path in a project: it needs `baseline.pinned.projectId`';
+  }
+  return {
+    pinned: {
+      ...(typeof pinned.projectId === 'string' && { projectId: pinned.projectId as ProjectId }),
+      ...(path.segments !== undefined && { segments: path.segments }),
+    },
+  };
+}
+
+function parseBaseline(raw: unknown): TestRunBaseline | string {
+  if (raw === 'recorded') return 'recorded';
+  const o = obj(raw);
+  if (o === undefined) {
+    return "`baseline` must be 'recorded', { agentId, version } or { pinned: { projectId?, segments? } }";
+  }
+  if (o.pinned !== undefined) return parsePinned(o.pinned);
+  if (typeof o.agentId !== 'string' || o.agentId === '' || typeof o.version !== 'string') {
+    return '`baseline` as a version needs `agentId` and `version`';
+  }
+  return { agentId: o.agentId as AgentId, version: o.version as Semver };
+}
+
+/** `{ id: version }` with non-empty strings; an error message otherwise. */
+function versionMap(raw: unknown, name: string): Readonly<Record<string, string>> | string {
+  const o = obj(raw);
+  const valid =
+    o !== undefined &&
+    Object.entries(o).every(([id, v]) => id !== '' && typeof v === 'string' && v !== '');
+  return valid
+    ? (o as Record<string, string>)
+    : `\`${name}\` must be an object of { id: version } with non-empty strings`;
+}
+
+/** `versions: { agents?, tools? }`; `undefined` when it names nothing. */
+function parseVersions(raw: unknown): FlowVersionOverrides | undefined | string {
+  const o = obj(raw);
+  if (o === undefined) return '`versions` must be an object: { agents?, tools? }';
+  const extra = Object.keys(o).filter((key) => key !== 'agents' && key !== 'tools');
+  if (extra.length > 0) return `\`versions\` takes \`agents\` and \`tools\`, not \`${extra[0]}\``;
+  const agents = o.agents === undefined ? {} : versionMap(o.agents, 'versions.agents');
+  if (typeof agents === 'string') return agents;
+  const tools = o.tools === undefined ? {} : versionMap(o.tools, 'versions.tools');
+  if (typeof tools === 'string') return tools;
+  if (Object.keys(agents).length === 0 && Object.keys(tools).length === 0) return undefined;
+  return {
+    ...(Object.keys(agents).length > 0 && { agents }),
+    ...(Object.keys(tools).length > 0 && { tools }),
+  };
+}
+
+function integerIn(raw: unknown, name: string, max: number): number | string {
+  return typeof raw === 'number' && Number.isInteger(raw) && raw >= 1 && raw <= max
+    ? raw
+    : `\`${name}\` must be an integer from 1 to ${max}`;
+}
+
+/** `overrides: { settings?, prompts? }`; `undefined` when it names nothing. */
+function parseOverrides(raw: unknown): TestRunOverrides | undefined | string {
+  const o = obj(raw);
+  if (o === undefined) return '`overrides` must be an object: { settings?, prompts? }';
+  const extra = Object.keys(o).filter((key) => key !== 'settings' && key !== 'prompts');
+  if (extra.length > 0) {
+    return `\`overrides\` takes \`settings\` and \`prompts\`, not \`${extra[0]}\``;
+  }
+  const settings = o.settings === undefined ? {} : obj(o.settings);
+  const prompts = o.prompts === undefined ? {} : obj(o.prompts);
+  const settingsBlocks = settings === undefined ? [] : Object.entries(settings);
+  const promptBlocks = prompts === undefined ? [] : Object.entries(prompts);
+  if (
+    settings === undefined ||
+    settingsBlocks.length > MAX_OVERRIDDEN_BLOCKS ||
+    settingsBlocks.some(([id, values]) => id === '' || obj(values) === undefined)
+  ) {
+    return `\`overrides.settings\` must be an object of { blockId: { …values } } (at most ${MAX_OVERRIDDEN_BLOCKS} blocks)`;
+  }
+  if (
+    prompts === undefined ||
+    promptBlocks.length > 1 ||
+    promptBlocks.some(([id, content]) => {
+      const c = obj(content);
+      return (
+        id === '' ||
+        c === undefined ||
+        typeof c.template !== 'string' ||
+        Object.keys(c).length !== 1
+      );
+    })
+  ) {
+    return '`overrides.prompts` must be { blockId: { template } } for the prompt block (one)';
+  }
+  if (settingsBlocks.length === 0 && promptBlocks.length === 0) return undefined;
+  return {
+    ...(settingsBlocks.length > 0 && {
+      settings: settings as Readonly<Record<string, Readonly<Record<string, unknown>>>>,
+    }),
+    ...(promptBlocks.length > 0 && {
+      prompts: prompts as Readonly<Record<string, { readonly template: string }>>,
+    }),
+  };
+}
+
+/** `sample: { part, seed, holdOutShare }`, or an error message. */
+function parseSample(raw: unknown): TestRunSample | string {
+  const o = obj(raw);
+  const share = o?.holdOutShare;
+  if (
+    o === undefined ||
+    (o.part !== 'search' && o.part !== 'hold-out') ||
+    typeof o.seed !== 'string' ||
+    o.seed === '' ||
+    o.seed.length > 200 ||
+    typeof share !== 'number' ||
+    share < 0.1 ||
+    share > 0.9 ||
+    Object.keys(o).some((key) => !['part', 'seed', 'holdOutShare'].includes(key))
+  ) {
+    return "`sample` must be { part: 'search' | 'hold-out', seed, holdOutShare } with holdOutShare from 0.1 to 0.9";
+  }
+  return { part: o.part, seed: o.seed, holdOutShare: share };
+}
+
+/**
+ * A comparison test run's settings from the start body: `baseline`,
+ * `reads`, `repetitions`, `k`, `groupWeights` and a flow candidate's
+ * `versions`.
+ * `undefined` when none is given (the defaults apply); an error message
+ * for a bad one.
+ */
+export function parseComparison(
+  b: Readonly<Record<string, unknown>>,
+):
+  | { readonly kind: 'ok'; readonly value?: TestRunComparison }
+  | { readonly kind: 'err'; readonly message: string } {
+  const { baseline, reads, repetitions, k, groupWeights } = b;
+  const versions = b.versions === undefined ? undefined : parseVersions(b.versions);
+  if (typeof versions === 'string') return { kind: 'err', message: versions };
+  const overrides = b.overrides === undefined ? undefined : parseOverrides(b.overrides);
+  if (typeof overrides === 'string') return { kind: 'err', message: overrides };
+  const sample = b.sample === undefined ? undefined : parseSample(b.sample);
+  if (typeof sample === 'string') return { kind: 'err', message: sample };
+  if (
+    baseline === undefined &&
+    reads === undefined &&
+    repetitions === undefined &&
+    k === undefined &&
+    versions === undefined &&
+    groupWeights === undefined &&
+    overrides === undefined &&
+    sample === undefined
+  ) {
+    return { kind: 'ok' };
+  }
+  if (
+    groupWeights !== undefined &&
+    groupWeights !== 'as-recorded' &&
+    groupWeights !== 'experts-only'
+  ) {
+    return {
+      kind: 'err',
+      message:
+        "`groupWeights` must be 'as-recorded' (every correction at its group's weight) or 'experts-only' (only corrections recorded under an expert group)",
+    };
+  }
+  const parsedBaseline =
+    baseline === undefined ? DEFAULT_COMPARISON.baseline : parseBaseline(baseline);
+  if (typeof parsedBaseline === 'string' && parsedBaseline !== 'recorded') {
+    return { kind: 'err', message: parsedBaseline };
+  }
+  if (reads !== undefined && reads !== 'recorded' && reads !== 'live') {
+    return { kind: 'err', message: "`reads` must be 'recorded' or 'live'" };
+  }
+  const reps =
+    repetitions === undefined
+      ? DEFAULT_COMPARISON.repetitions
+      : integerIn(repetitions, 'repetitions', MAX_REPETITIONS);
+  if (typeof reps === 'string') return { kind: 'err', message: reps };
+  const topK = k === undefined ? DEFAULT_COMPARISON.k : integerIn(k, 'k', MAX_K);
+  if (typeof topK === 'string') return { kind: 'err', message: topK };
+  return {
+    kind: 'ok',
+    value: {
+      baseline: parsedBaseline,
+      reads: reads ?? DEFAULT_COMPARISON.reads,
+      repetitions: reps,
+      k: topK,
+      ...(versions !== undefined && { versions }),
+      ...(groupWeights !== undefined && { groupWeights }),
+      ...(overrides !== undefined && { overrides }),
+      ...(sample !== undefined && { sample }),
+    },
+  };
+}

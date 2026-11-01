@@ -34,6 +34,8 @@ import type {
   WebhookTriggerCollectionPage,
   WebhookTriggerRecord,
   WebhookTriggerUnregisterResult,
+  WebhookTriggerVersion,
+  WebhookTriggerVersionPage,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
 
@@ -43,7 +45,13 @@ export type RegisterWebhookTriggerInput = RegisterWebhookTriggerBody;
 export type UpdateWebhookTriggerInput = PatchWebhookTriggerBody;
 export type UnregisterWebhookTriggerResult = WebhookTriggerUnregisterResult;
 export type TakeTriggerOwnerInput = TakeTriggerOwnerBody;
-export type { WebhookFire, WebhookFirePage, WebhookSignature };
+export type {
+  WebhookFire,
+  WebhookFirePage,
+  WebhookSignature,
+  WebhookTriggerVersion,
+  WebhookTriggerVersionPage,
+};
 
 export interface ListWebhookTriggersFilter {
   readonly limit?: number;
@@ -54,6 +62,11 @@ export interface ListWebhookTriggersFilter {
 }
 
 export interface ListWebhookFiresFilter {
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+export interface ListWebhookTriggerVersionsFilter {
   readonly limit?: number;
   readonly cursor?: string;
 }
@@ -90,9 +103,31 @@ export interface WebhooksClient {
    */
   fires(triggerId: string, filter?: ListWebhookFiresFilter): Promise<WebhookFirePage>;
   /**
+   * The trigger's versions, newest first: what it was from each version's
+   * `createdAt` on, who made it (`createdBy`) and why (`cause`). Each
+   * change makes one; a change that alters nothing, pausing and resuming
+   * make none. A delivery's run uses the newest when it starts, and keeps
+   * it (its `trigger.version`).
+   *
+   * @wire GET /v1/webhooks/:triggerId/versions
+   */
+  versions(
+    triggerId: string,
+    filter?: ListWebhookTriggerVersionsFilter,
+  ): Promise<WebhookTriggerVersionPage>;
+  /**
+   * One version of the trigger, by its number (from 1). Returns 404
+   * `trigger-version-not-found` for a number it never had.
+   *
+   * @wire GET /v1/webhooks/:triggerId/versions/:version
+   */
+  getVersion(triggerId: string, version: number): Promise<WebhookTriggerVersion>;
+  /**
    * The caller becomes the trigger's owner: its runs act as the caller
    * from the next delivery. Pass `{ runAsServiceAccountId }` to make a
-   * service account the owner instead (needs `act_as` on the account).
+   * service account the owner instead (needs `act_as` on the account), or
+   * `{ runAsProject: true }` to make the project's own account the owner
+   * (made the first time).
    *
    * @wire POST /v1/webhooks/:triggerId/owner
    */
@@ -172,6 +207,22 @@ export function makeWebhooksClient(transport: Transport): WebhooksClient {
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
         },
+      });
+    },
+    async versions(triggerId, filter) {
+      return transport.request<WebhookTriggerVersionPage>({
+        method: 'GET',
+        path: `/v1/webhooks/${encodeURIComponent(triggerId)}/versions`,
+        query: {
+          ...(filter?.limit !== undefined && { limit: filter.limit }),
+          ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+        },
+      });
+    },
+    async getVersion(triggerId, version) {
+      return transport.request<WebhookTriggerVersion>({
+        method: 'GET',
+        path: `/v1/webhooks/${encodeURIComponent(triggerId)}/versions/${version}`,
       });
     },
     async takeOwnership(triggerId, input, options) {

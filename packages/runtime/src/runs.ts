@@ -11,8 +11,10 @@
 import type { FlowVersionOverrides } from '@kindgi/flow';
 import type {
   Cursor,
+  FlowVersionVia,
   NodeId,
   OrgId,
+  PinScope,
   ProjectId,
   RunId,
   ScopeSegment,
@@ -21,7 +23,7 @@ import type {
   TriggerId,
 } from '@kindgi/types';
 
-import type { RunActsFor, RunAgentRef, RunStartedBy, RunTriggerRef } from './inputs.js';
+import type { RunActsFor, RunAgentRef, RunMailbox, RunStartedBy, RunTriggerRef } from './inputs.js';
 import type { RunStatus } from './types.js';
 
 /**
@@ -53,17 +55,24 @@ export interface KernelRunRecord {
    * every other run, and on agent runs started before runs recorded it.
    */
   readonly agent?: RunAgentRef;
-  /** Set on a replay run: the run it re-ran and the eval run that did so (`RunReplayRef`). */
+  /** Set on a replay run: the run it re-ran and the test run that did so (`RunReplayRef`). */
   readonly replayOf?: RunId | null;
-  readonly evalRunId?: string | null;
+  readonly testRunId?: string | null;
   /**
    * The versions the run swaps in over its flow version's pins
    * (`RunFlowInput.versions`). Absent on a run that has none.
    */
   readonly versions?: FlowVersionOverrides;
   /**
+   * How the run's flow version was chosen (`RunFlowInput.flowVersionVia`)
+   * and, for `pinned`, the pin's scope. Absent on runs that didn't record
+   * it, as on runs from before it was recorded (nothing is backfilled).
+   */
+  readonly flowVersionVia?: FlowVersionVia;
+  readonly flowPinnedScope?: PinScope;
+  /**
    * The segment path the run was started with (ordered, coarse to fine),
-   * which picks live agent versions: the run's own, and its agent steps'
+   * which picks pinned agent versions: the run's own, and its agent steps'
    * when it is a flow run. Absent when it was started without one.
    */
   readonly segments?: readonly ScopeSegment[];
@@ -77,16 +86,21 @@ export interface KernelRunRecord {
   readonly startedBy?: RunStartedBy;
   /**
    * Whom the run acts for (`RunActsFor`). Absent on a run that acts for no
-   * one (a system job, an agent on its own, an eval run's replay run), runs
+   * one (a system job, an agent on its own, a test run's replay run), runs
    * from before runs recorded it included.
    */
   readonly actsFor?: RunActsFor;
   /**
    * The tools it may call without a person's yes though no person started
-   * it (`RunFlowInput.toolsAllowedUnattended`), from the webhook or
-   * schedule that started it. Absent when there are none.
+   * it (`RunFlowInput.toolsAllowedUnattended`), from the webhook, schedule
+   * or mail trigger that started it. Absent when there are none.
    */
   readonly toolsAllowedUnattended?: readonly string[];
+  /**
+   * The mailbox its mail came from (`RunFlowInput.mailbox`), on a run a
+   * mail trigger started. Absent on every other run.
+   */
+  readonly mailbox?: RunMailbox;
   /**
    * When an erasure cleared the run's content (its input, output, failure
    * message and journal payloads). Absent on every other run.
@@ -148,8 +162,8 @@ export interface ListRunsInput {
   readonly agentId?: string;
   /** Replay runs: `exclude` leaves them out, `only` returns just them. Absent = include, so internal callers see every run. */
   readonly replays?: 'exclude' | 'include' | 'only';
-  /** Only the replays of this eval run. */
-  readonly evalRunId?: string;
+  /** Only the replays of this test run. */
+  readonly testRunId?: string;
   /** Only the runs this trigger started (`RunTriggerRef.triggerId`). */
   readonly triggerId?: TriggerId;
   /** Only runs in one of these statuses. */

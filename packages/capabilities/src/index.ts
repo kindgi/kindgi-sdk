@@ -3,6 +3,7 @@
 
 export {
   adapterConfigError,
+  adapterConfigKeyProblems,
   createAdapterFactoryRegistry,
   identitiesPresent,
 } from './adapter-factory.js';
@@ -24,6 +25,29 @@ export type {
 } from './adapter-factory.js';
 export { CAPABILITY_SCHEMA_URI, defineCapability } from './define.js';
 export {
+  DOCUMENT_FILE_TYPES,
+  FILE_LIMITS,
+  IMAGE_FILE_TYPES,
+  PROVIDER_FILE_LIMITS,
+  TEXT_FILE_TYPES,
+  filesForCall,
+  fileParts,
+  headedFileParts,
+  isReadable,
+  notShownLine,
+} from './message-files.js';
+export type {
+  DocumentFileType,
+  FileExtract,
+  FileForm,
+  FilePart,
+  FilePartsOptions,
+  FilePlanOptions,
+  FileRendition,
+  ImageFileType,
+  MessageFile,
+} from './message-files.js';
+export {
   PROVIDER_LABEL_KEY,
   PROVIDER_LABEL_MANAGED_BY,
   PROVIDER_LABEL_VALUE_MAX_LENGTH,
@@ -35,6 +59,16 @@ export { matchTuples, route } from './router.js';
 export type { RouteInput } from './router.js';
 export { SAMPLING_UNSUPPORTED, samplingFor } from './sampling.js';
 export type { Sampling } from './sampling.js';
+export {
+  THINKING_LEVEL_ADJUSTED,
+  THINKING_LEVELS,
+  THINKING_UNSUPPORTED,
+  isThinkingLevel,
+  modelThinkingProblem,
+  thinkingFor,
+  thinkingLevelsOf,
+} from './thinking.js';
+export type { Thinking, ThinkingLevel } from './thinking.js';
 export { recordModelUsage } from './usage.js';
 export { ToolNameCollisionError, nameToolsAsSent, toolIdsBySentName } from './tool-names.js';
 export type { RecordModelUsageOptions } from './usage.js';

@@ -12,23 +12,23 @@ their work by project or org, and deletes an org.
 
 A **project** holds runs, conversations, approvals and what they cost. An
 **org** groups projects: one org per customer, for example, with a project
-for each part of their work. Every tenant has a Default project. A run that
+for each part of their work. Every tenant has a default project. A run that
 names no project runs in its agent's or flow's own project: the one it was
 published in. For what `kindgi deploy` registers, that's the project the
-deploy named (`--project`), else Default. A turn in a conversation stays in
+deploy named (`--project`), else the default project. A turn in a conversation stays in
 the conversation's project.
 
-An agent, flow, tool or test set belongs to the project its first version
+An agent, flow, tool or set of test cases belongs to the project its first version
 was published into, and never moves. Publishing a version of it into another
 project is refused with a `409`, and nothing is written. Its code names the
 kind, such as `agent-project-mismatch`, `flow-…`, `tool-…` or
-`eval-suite-project-mismatch`.
+`test-set-project-mismatch`.
 The refusal doesn't name the project it belongs to, since you may not be
 able to read that project. A deploy that includes one is refused whole and
 deploys nothing, even when that agent or flow is unchanged. Publish new
 versions in its own project.
 
-Reading an agent, flow, tool, test set or guardrail says which project
+Reading an agent, flow, tool, test cases or guardrail says which project
 it's in: its `projectId`, with the runtime 0.1.6 or later. A pack
 `kindgi dev` serves from disk has none.
 
@@ -207,8 +207,8 @@ In the console, a tenant admin makes one with **New project** on the tenant
 dashboard's **Projects** card: a name, a slug made from the name until you
 edit it, an org if the tenant has any, and what it's for. The new project then
 opens. A project's admins (an admin of its org, or a tenant admin, is one)
-rename it with **Rename** in its **Dashboard**'s header. Its id stays; a new
-slug changes what `kindgi deploy --project` takes.
+rename it with **Rename** in its **Dashboard**'s header. Its id stays; what
+a new slug changes is under **Changing a project's slug**, below.
 
 **Slugs.** An org's slug is unique in the tenant. A project's slug is unique
 in its org, so every customer can have a `support` project. A project with
@@ -220,8 +220,27 @@ Another org in the tenant has the slug "acme-customer-one"
 Another project in its org has the slug "support" (for a project without an org: another project without one)
 ```
 
-A tenant has one Default project. Asking for a second one answers
-`409 project-default-already-exists`, "The tenant already has a Default
+**Changing a project's slug.** A rename is one change: a taken slug is
+refused, as above, and nothing changes. Once it's renamed, its old slug is
+free for another project to take. The project's id stays, and the runtime
+goes by the id, so the project's pages in the console, its runs, keys and
+triggers, and what's deployed into it keep working, with no redeploy. Only
+the CLI looks a slug up, each time it runs, wherever you name a project by
+its slug: `kindgi deploy --project`, say, or an environment's `project` in
+your pack config (`environments.<name>.project`). Every command that names
+the project that way looks it up: `kindgi deploy`, `kindgi promote`,
+`kindgi environments set`, and `kindgi secrets` and `kindgi env` under a
+pack environment (`--env`). Before you next run one, change the old slug to
+the new one there. Until you do, such a command is refused, since the slug
+names no project, unless another project in the tenant has it: one in
+another org may have it already, or take it later. Then the command acts on
+that project: a deploy goes into it without a word, and a secret or value
+is set on it. So if you change a project's slug, name the project by its id
+in scripts and pack configs, or change them to the new slug before anyone
+runs one of those commands again.
+
+A tenant has one default project. Asking for a second one answers
+`409 project-default-already-exists`, "The tenant already has a default
 project".
 
 ## Deploy a client's pack into its project
@@ -241,7 +260,7 @@ pnpm exec kindgi deploy --project acme-shop
 `--project` takes the project's id or its slug. A slug is unique within an
 org, so if two orgs each have a project with that slug, the CLI refuses it
 and names both ids: pass the id instead. Without `--project`, a deploy is
-tenant-wide and registers into the Default project, as before.
+tenant-wide and registers into the default project, as before.
 
 What a deploy into a project does, with the runtime 0.1.8 or later:
 
@@ -261,9 +280,9 @@ What a deploy into a project does, with the runtime 0.1.8 or later:
 - **A project of another tenant, or none,** is `404 project-not-found`.
 - **A suspended project** takes no deploy, where the runtime suspends
   projects: `409 project-suspended`, before anything is written. No run
-  starts in it either: `POST /v1/runs` answers the same, as do an eval run
-  started in it and an improvement pass for one of its agents. An eval run
-  or a pass already going stops at its next case and ends `cancelled`, with
+  starts in it either: `POST /v1/runs` answers the same, as do a test run
+  started in it and an Improve run for one of its agents. A test run
+  or an Improve run already going stops at its next case and ends `cancelled`, with
   `project-suspended` in its `cancelReason`. A delivery to one of its
   webhook triggers is answered `202` and skipped, with nothing recorded on
   the trigger's fires.
@@ -271,13 +290,21 @@ What a deploy into a project does, with the runtime 0.1.8 or later:
 Deploying the same pack into a second project is refused, because its ids
 already belong to the first project: `409 tool-project-mismatch` (or
 `agent-…`, `flow-…`, `guardrail-…`), and nothing is deployed. The message
-names the fix: make a copy of the pack for the new client with `kindgi init`,
-which gives every id the new pack's id.
+names the fix your runtime has. Where each deployment runs as a service of
+its own, make a copy of the pack for the new client with `kindgi init`,
+which gives every id the new pack's id. Where one pack service runs every
+deployment, the default on any runtime, a copy's code wouldn't run. There,
+when both projects are in the same org, or neither is in an org, put them
+in one environment order (`kindgi environments set`), the second right
+after the first, and `kindgi promote` the build to the second instead of
+deploying it. Projects in two orgs can't share an order, so a client in an
+org of its own, as this guide sets one up, needs a runtime that runs each
+deployment as a service of its own.
 
 ## What a project's runs can use
 
 A run uses its own project's tools, agents, flows, guardrails, data blocks
-and test sets, and the tools of an MCP server registered for its project,
+and test cases, and the tools of an MCP server registered for its project,
 its org or the tenant. Anything else is refused with
 `reference-out-of-scope`: a publish, a deploy or a run start that names it
 answers `400` before anything is written, and a tool call from the run
@@ -316,6 +343,12 @@ project in production is a **production** run, and a run anywhere else is
 **staging**. A runtime that counts usage (`KINDGI_USAGE_METERING=on`) labels
 each run with its class for usage counting, so test work is counted apart
 from real work. A run's own read doesn't show it.
+
+On a runtime you run yourself, with neither usage counting nor the
+production gate or limit below, being in production is only a label:
+agents, flows, triggers and approvals work the same in a project in
+production and out of it. The license key doesn't read it either
+([What a key covers](../../../concepts/licensing/#what-a-key-covers)).
 
 To switch it from your app, ask your coding agent: "Put a customer's project
 in production when they go live." For reference, the commands and the code
@@ -381,15 +414,17 @@ kindgi.projects().production()
 </TabItem>
 </Tabs>
 
-In the console, a project's **Dashboard** has a **Production** card. It shows
-**Live**, and since when, or **Not live**. A tenant admin puts the project in
-production with **Go live**, and takes it out with **Take out of
-production**, after the console asks ("Go live?", "Take this project out of
-production?"). While the tenant may not put projects in production, the card says so,
-and gives a tenant admin **See how to go live** when the runtime names where
-to go. A refused switch shows the runtime's own message.
-
-![The Default project's Dashboard, as a tenant admin sees it: the Production card, "Runs here count as staging: building and testing.", marked Not live, with Go live.](../../../../assets/projects/production-card.png)
+In the console, a project's **Dashboard** says at the top whether it's in
+production: **Live**, by a green dot, or **Testing mode**, by a gray one.
+Choosing it says since when it's been live, or "Kindgi counts its runs as
+testing. Once it's live, they count as live use.", and gives a tenant admin
+the switch: **Go live**, or **Move back to testing**. While the tenant may
+not put projects in production, it says "Going live isn't turned on for this
+tenant yet.", and gives a tenant admin **See how to go live** when the
+runtime names where to go. A refused switch says why in the console's
+words: at the tenant's limit of live projects, "Move one back to testing
+first", with a link to get more when the runtime names one, or "Going live
+isn't turned on for this tenant yet."
 
 - **Tenant admins only,** both ways: anyone else gets
   `403 permission-denied`.

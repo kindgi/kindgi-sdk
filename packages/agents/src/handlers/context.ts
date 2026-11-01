@@ -24,6 +24,7 @@ import type {
   RetrievedFact,
 } from '../types.js';
 
+import type { FileBinding } from './files.js';
 import type { HitlBindings, InvokeAgentBindings, InvokeAgentInput } from './public-types.js';
 import type { TurnBlocks } from './resolve-blocks.js';
 import type { ToolErrorPolicy } from './tool-errors.js';
@@ -93,9 +94,31 @@ export interface TurnContext {
    */
   model?: ModelInfo;
   /**
-   * Populated by `setup` — resolved guardrails for the final-response gate.
+   * Populated by `setup`, and on a resume by `rehydrate` from the set
+   * `setup` journaled: the turn's guardrails, at every point
+   * (`Guardrail.at`).
    */
   guardrails?: readonly Guardrail[];
+  /**
+   * The turn's guardrails that run where their check, as the turn
+   * resolved it, doesn't, by id, with the problem
+   * (`guardrailPointFaults`). Checked whenever the turn resolves its
+   * checks: at setup and on each resume. Such a guardrail fails as a check
+   * that couldn't run, uncalled.
+   */
+  guardrailPointFaults?: ReadonlyMap<string, string>;
+  /**
+   * The calls the turn ran, by `<reply sequence>:<call id>`
+   * (`ranCallKey`), for the trace's `toolCalls` at the loop's points. Kept
+   * only when the turn has a guardrail in the loop; restored on a resume
+   * from the completed `dispatch-tools` steps and the parked step's records.
+   */
+  ranCalls?: Set<string>;
+  /**
+   * The flow whose step started the turn, once read (`flowOfTurn`): a
+   * turn's flow doesn't change, so a gate at each call doesn't read it again.
+   */
+  turnFlow?: { readonly flowId: import('@kindgi/types').FlowId | undefined };
   /**
    * Populated by `persist-user-message` — the persisted user message row.
    */
@@ -105,6 +128,14 @@ export interface TurnContext {
    * string that seeds the first model call.
    */
   renderedPrompt?: string;
+  /**
+   * How many messages the agent loop starts with: the system message, the
+   * history, the memory and the person's message. Set by
+   * `build-initial-messages`, and by the rebuild of a resumed turn from
+   * that step's journaled output. What a step of the loop adds (answers,
+   * tool results, repair and retry notes) comes after them.
+   */
+  initialMessageCount?: number;
   /**
    * Populated by `run-retrievals` — facts pulled by declared intents.
    */
@@ -159,6 +190,23 @@ export interface TurnContext {
    */
   provenanceBindings?: ProvenanceBindings;
   /**
+   * The turn's run's stored files (`bindings.files.forRun`), set with the
+   * provenance builder once the run has its id. Undefined when the caller
+   * didn't wire them.
+   */
+  files?: FileBinding;
+  /**
+   * The images and PDFs the turn's model couldn't read: a call carrying
+   * them was refused, and the same call without them answered. Each later
+   * call of the turn reads a line in each one's place. Set by `model-call`,
+   * and restored on a resume from its step's `refused`.
+   */
+  refusedFiles?: Set<string>;
+  /** Whether the turn has retried a call without its files: once a turn at most. */
+  filesRetried?: boolean;
+  /** The files the turn has told its binding the model was shown (`FileBinding.shown`). */
+  shownFiles?: Set<string>;
+  /**
    * The persisted provenance snapshot (post `persist-provenance`).
    * Present only when the builder was wired AND persistence succeeded.
    */
@@ -209,6 +257,34 @@ export interface TurnContext {
    * `AgentTurnResult.violations`.
    */
   nonBlockingViolations?: readonly EvaluationResult[];
+  /**
+   * The failures the loop's points only recorded (`log-only`, and any
+   * action other than `halt` and `retry`, even on a dry run), by
+   * step and guardrail, in the order they ran: `evaluate-guardrails` puts
+   * them first in `nonBlockingViolations`. Keyed, so a step run again
+   * after a park adds none twice; restored on a resume from the completed
+   * `dispatch-tools` steps' `guardrailViolations`.
+   */
+  pointViolations?: Map<string, EvaluationResult>;
+  /**
+   * The answer `budget-check` judged and let finish the turn, when the
+   * turn has a `retry` guardrail: its loop iteration and its message. Its
+   * `halt` and `retry` guardrails passed it there, so `evaluate-guardrails`
+   * judges only the others, and only when the loop's final output is this
+   * answer. In memory only: a turn resumed in another process has none,
+   * and `evaluate-guardrails` judges every guardrail, as without a `retry`
+   * one. `errors` are the checks there that couldn't run on it (a `retry`
+   * guardrail's: a `halt` one's would have failed the turn), which
+   * `evaluate-guardrails` shows in its provenance and its output, as for
+   * the checks it runs.
+   */
+  answerJudgedInLoop?:
+    | {
+        readonly iteration: number;
+        readonly message: string;
+        readonly errors: readonly import('../guardrails-gate.js').GuardrailEvaluationError[];
+      }
+    | undefined;
   /**
    * A replay turn's tool calls so far, and what happened to each
    * (`decideReplayTool`). Rebuilt from the journal on resume.

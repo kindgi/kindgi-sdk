@@ -4,11 +4,20 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  type CronTriggerDefinition,
   type CronTriggerRecord,
   DEFAULT_WEBHOOK_SIGNATURE,
+  type EventTriggerDefinition,
   type FireWebhookInput,
+  type GetTriggerVersionInput,
   type ListTriggerFiresInput,
+  type ListTriggerVersionsInput,
+  MAIL_TRIGGER_LIMITS,
+  type MailTriggerDefinition,
+  type MailTriggerRecord,
+  type RegisterMailTriggerInput,
   type RegisterTriggerInput,
+  type RegisterWebhookTriggerInput,
   SCHEDULE_DEFAULTS,
   type TriggerFire,
   type TriggerFirePage,
@@ -16,15 +25,22 @@ import {
   type TriggerOwner,
   type TriggerRecord,
   type TriggerRegistryBinding,
+  type TriggerVersionCause,
+  type TriggerVersionPage,
+  type TriggerVersionRecord,
+  type UpdateMailTriggerInput,
   type UpdateTriggerInput,
   WEBHOOK_BODY_LIMITS,
   WEBHOOK_RATE_LIMITS,
   WEBHOOK_REFUSALS_RECORDED_PER_MINUTE,
   type WebhookFire,
   type WebhookRefusalInput,
+  type WebhookTriggerDefinition,
   type WebhookTriggerRecord,
 } from '@kindgi/runtime';
 import type { Cursor, ProjectId, TenantId, TriggerId } from '@kindgi/types';
+
+import { sameJson } from '../canonical-json.js';
 
 /**
  * An in-memory `TriggerRegistryBinding` for app and route tests: the
@@ -33,7 +49,10 @@ import type { Cursor, ProjectId, TenantId, TriggerId } from '@kindgi/types';
  * runs; `fireNow` and `fireWebhook` record a `pending` fire, and
  * `recordFire` lets a test add fires as a scheduler would. A webhook
  * delivery's event and the access-audit refusals are kept for the test
- * to read (`webhookEvents`, `webhookAudit`).
+ * to read (`webhookEvents`, `webhookAudit`). Versions as a runtime makes
+ * them: register makes version 1, an update that changes the definition
+ * and every take-ownership the next; pause, resume and unregister none.
+ * A version is frozen once made.
  */
 export interface InMemoryTriggerRegistry extends TriggerRegistryBinding {
   /** Add a fire to a trigger's history, as a scheduler would. */
@@ -53,6 +72,8 @@ export function createInMemoryTriggerRegistry(
 ): InMemoryTriggerRegistry {
   const rows = new Map<string, TriggerRecord & { unregistered?: boolean }>();
   const fires: TriggerFire[] = [];
+  /** Each trigger's versions, oldest first, by trigger id. */
+  const versions = new Map<string, TriggerVersionRecord[]>();
   /** A webhook fire's dedupe key, per trigger: `triggerId|key` → fire id. */
   const dedupe = new Map<string, string>();
   const webhookEvents = new Map<string, unknown>();
@@ -85,6 +106,25 @@ export function createInMemoryTriggerRegistry(
     const { unregistered: _, ...rest } = row;
     return rest as TriggerRecord;
   };
+  /** `row` as its next version, which is recorded. */
+  const versioned = <R extends TriggerRecord>(
+    row: R,
+    cause: TriggerVersionCause,
+    by: string,
+  ): R => {
+    const stamped = { ...row, version: (row.version ?? 0) + 1 };
+    const id = row.triggerId as unknown as string;
+    versions.set(id, [...(versions.get(id) ?? []), versionOf(stamped, now(), cause, by)]);
+    return stamped;
+  };
+  /** A changed row (an update, or a take-over): its next version, unless its definition is as it was. */
+  const changed = (
+    row: TriggerRecord,
+    next: TriggerRecord,
+    cause: 'edit' | 'owner',
+    by: string,
+  ): TriggerRecord =>
+    sameJson(definitionOf(next), definitionOf(row)) ? next : versioned(next, cause, by);
 
   const registry: InMemoryTriggerRegistry = {
     async register(input: RegisterTriggerInput) {
@@ -97,10 +137,11 @@ export function createInMemoryTriggerRegistry(
         createdAt: now(),
         updatedAt: now(),
       };
+      const registered = (row: TriggerRecord) => save(versioned(row, 'register', input.by));
       if (input.kind === 'cron') {
         return {
           kind: 'ok',
-          value: save({
+          value: registered({
             ...base,
             kind: 'cron',
             target: input.target,
@@ -116,30 +157,17 @@ export function createInMemoryTriggerRegistry(
           }),
         };
       }
-      const flow = { flowId: input.flowId, flowVersion: input.flowVersion };
+      if (input.kind === 'mail') {
+        return { kind: 'ok', value: registered(mailRecord(base, input, defaultProject)) };
+      }
       if (input.kind === 'event') {
+        const flow = { flowId: input.flowId, flowVersion: input.flowVersion };
         return {
           kind: 'ok',
-          value: save({ ...base, ...flow, kind: 'event', config: input.config }),
+          value: registered({ ...base, ...flow, kind: 'event', config: input.config }),
         };
       }
-      const webhook: WebhookTriggerRecord = {
-        ...base,
-        ...flow,
-        kind: 'webhook',
-        projectId: input.projectId ?? defaultProject,
-        owner: input.owner,
-        config: input.config,
-        webhookId: input.webhookId,
-        hmacSecretName: input.hmacSecretName,
-        ...(input.hmacSecretScope !== undefined && { hmacSecretScope: input.hmacSecretScope }),
-        signature: input.signature ?? DEFAULT_WEBHOOK_SIGNATURE,
-        ...(input.deliveryIdHeader !== undefined && { deliveryIdHeader: input.deliveryIdHeader }),
-        bodyLimitBytes: input.bodyLimitBytes ?? WEBHOOK_BODY_LIMITS.defaultBytes,
-        rateLimitPerMinute: input.rateLimitPerMinute ?? WEBHOOK_RATE_LIMITS.defaultPerMinute,
-        ...toolsAllowed(input.toolsAllowedUnattended),
-      };
-      return { kind: 'ok', value: save(webhook) };
+      return { kind: 'ok', value: registered(webhookRecord(base, input, defaultProject)) };
     },
 
     async update(input: UpdateTriggerInput) {
@@ -150,20 +178,18 @@ export function createInMemoryTriggerRegistry(
         ...(input.label !== undefined && { label: input.label }),
       };
       if (row.kind === 'cron' && input.kind === 'cron') {
-        return {
-          kind: 'ok',
-          value: save({
-            ...withToolsAllowed(row, input.toolsAllowedUnattended),
-            ...common,
-            config: { ...row.config, ...input.config },
-            ...(input.target !== undefined && { target: input.target }),
-            ...(input.catchUp !== undefined && { catchUp: input.catchUp }),
-            ...(input.overlap !== undefined && { overlap: input.overlap }),
-            ...(input.startingDeadlineSeconds !== undefined && {
-              startingDeadlineSeconds: input.startingDeadlineSeconds,
-            }),
-          } as CronTriggerRecord),
-        };
+        const next = {
+          ...withToolsAllowed(row, input.toolsAllowedUnattended),
+          ...common,
+          config: { ...row.config, ...input.config },
+          ...(input.target !== undefined && { target: input.target }),
+          ...(input.catchUp !== undefined && { catchUp: input.catchUp }),
+          ...(input.overlap !== undefined && { overlap: input.overlap }),
+          ...(input.startingDeadlineSeconds !== undefined && {
+            startingDeadlineSeconds: input.startingDeadlineSeconds,
+          }),
+        } as CronTriggerRecord;
+        return { kind: 'ok', value: save(changed(row, next, 'edit', input.by)) };
       }
       if (row.kind === 'webhook' && input.kind === 'webhook') {
         const listed = withToolsAllowed(row, input.toolsAllowedUnattended);
@@ -186,18 +212,22 @@ export function createInMemoryTriggerRegistry(
             rateLimitPerMinute: input.rateLimitPerMinute ?? WEBHOOK_RATE_LIMITS.defaultPerMinute,
           }),
         };
-        return { kind: 'ok', value: save(next) };
+        return { kind: 'ok', value: save(changed(row, next, 'edit', input.by)) };
       }
-      return {
-        kind: 'ok',
-        value: save({
-          ...row,
-          ...common,
-          config: { ...row.config, ...input.config },
-          ...(input.kind === 'event' &&
-            input.flowVersion !== undefined && { flowVersion: input.flowVersion }),
-        } as TriggerRecord),
-      };
+      if (row.kind === 'mail' && input.kind === 'mail') {
+        return {
+          kind: 'ok',
+          value: save(changed(row, updatedMail(row, input, common), 'edit', input.by)),
+        };
+      }
+      const next = {
+        ...row,
+        ...common,
+        config: { ...row.config, ...input.config },
+        ...(input.kind === 'event' &&
+          input.flowVersion !== undefined && { flowVersion: input.flowVersion }),
+      } as TriggerRecord;
+      return { kind: 'ok', value: save(changed(row, next, 'edit', input.by)) };
     },
 
     async list(input) {
@@ -224,6 +254,25 @@ export function createInMemoryTriggerRegistry(
     async get(input) {
       const row = live(input.tenantId, input.triggerId);
       return row === undefined ? null : strip(row);
+    },
+
+    async listVersions(input: ListTriggerVersionsInput): Promise<TriggerVersionPage> {
+      const mine =
+        live(input.tenantId, input.triggerId) === undefined
+          ? []
+          : [...(versions.get(input.triggerId as unknown as string) ?? [])].reverse();
+      const start = input.cursor === undefined ? 0 : Number(input.cursor);
+      const limit = input.limit ?? 50;
+      return {
+        data: mine.slice(start, start + limit),
+        ...(start + limit < mine.length && { nextCursor: String(start + limit) as Cursor }),
+      };
+    },
+
+    async getVersion(input: GetTriggerVersionInput) {
+      if (live(input.tenantId, input.triggerId) === undefined) return null;
+      const mine = versions.get(input.triggerId as unknown as string) ?? [];
+      return mine.find((v) => v.version === input.version) ?? null;
     },
 
     async pause(input: TriggerLifecycleInput) {
@@ -338,10 +387,13 @@ export function createInMemoryTriggerRegistry(
       };
     },
 
-    async setOwner(input: TriggerLifecycleInput & { readonly owner: TriggerOwner }) {
+    async setOwner(
+      input: TriggerLifecycleInput & { readonly owner: TriggerOwner; readonly by: string },
+    ) {
       const row = live(input.tenantId, input.triggerId);
       if (row === undefined || row.kind === 'event') return notFound(input.triggerId);
-      return { kind: 'ok', value: save({ ...row, owner: input.owner, updatedAt: now() }) };
+      const next = { ...row, owner: input.owner, updatedAt: now() };
+      return { kind: 'ok', value: save(changed(row, next, 'owner', input.by)) };
     },
 
     recordFire(fire) {
@@ -373,6 +425,127 @@ export function createInMemoryTriggerRegistry(
   return registry;
 }
 
+/** Each kind's definition fields: every one, so a field added to a definition is kept. */
+type DefinitionFields<D> = { readonly [K in keyof D]-?: true };
+
+const CRON_DEFINITION: DefinitionFields<CronTriggerDefinition> = {
+  target: true,
+  projectId: true,
+  owner: true,
+  config: true,
+  catchUp: true,
+  overlap: true,
+  startingDeadlineSeconds: true,
+  label: true,
+  toolsAllowedUnattended: true,
+};
+
+const EVENT_DEFINITION: DefinitionFields<EventTriggerDefinition> = {
+  flowId: true,
+  flowVersion: true,
+  config: true,
+  label: true,
+};
+
+const WEBHOOK_DEFINITION: DefinitionFields<WebhookTriggerDefinition> = {
+  flowId: true,
+  flowVersion: true,
+  projectId: true,
+  owner: true,
+  config: true,
+  hmacSecretName: true,
+  hmacSecretScope: true,
+  signature: true,
+  deliveryIdHeader: true,
+  bodyLimitBytes: true,
+  rateLimitPerMinute: true,
+  label: true,
+  toolsAllowedUnattended: true,
+};
+
+const MAIL_DEFINITION: DefinitionFields<MailTriggerDefinition> = {
+  target: true,
+  projectId: true,
+  owner: true,
+  config: true,
+  label: true,
+  toolsAllowedUnattended: true,
+};
+
+/** `row`'s definition fields it sets, copied and frozen: nothing later reaches them. */
+function pick<D>(row: D, fields: DefinitionFields<D>): D {
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(fields)) {
+    const value = (row as Record<string, unknown>)[key];
+    if (value !== undefined) out[key] = value;
+  }
+  return frozen(structuredClone(out)) as D;
+}
+
+function definitionOf(row: TriggerRecord): TriggerVersionRecord['definition'] {
+  switch (row.kind) {
+    case 'cron':
+      return pick<CronTriggerDefinition>(row, CRON_DEFINITION);
+    case 'event':
+      return pick<EventTriggerDefinition>(row, EVENT_DEFINITION);
+    case 'webhook':
+      return pick<WebhookTriggerDefinition>(row, WEBHOOK_DEFINITION);
+    case 'mail':
+      return pick<MailTriggerDefinition>(row, MAIL_DEFINITION);
+  }
+}
+
+/** Version `row.version` of `row`'s trigger: its definition now. */
+function versionOf(
+  row: TriggerRecord & { readonly version: number },
+  at: string,
+  cause: TriggerVersionCause,
+  by: string,
+): TriggerVersionRecord {
+  const base = {
+    triggerId: row.triggerId,
+    version: row.version,
+    createdAt: at,
+    createdBy: by,
+    cause,
+  };
+  switch (row.kind) {
+    case 'cron':
+      return frozen({
+        ...base,
+        kind: 'cron',
+        definition: pick<CronTriggerDefinition>(row, CRON_DEFINITION),
+      });
+    case 'event':
+      return frozen({
+        ...base,
+        kind: 'event',
+        definition: pick<EventTriggerDefinition>(row, EVENT_DEFINITION),
+      });
+    case 'webhook':
+      return frozen({
+        ...base,
+        kind: 'webhook',
+        definition: pick<WebhookTriggerDefinition>(row, WEBHOOK_DEFINITION),
+      });
+    case 'mail':
+      return frozen({
+        ...base,
+        kind: 'mail',
+        definition: pick<MailTriggerDefinition>(row, MAIL_DEFINITION),
+      });
+  }
+}
+
+/** `value`, and everything in it, frozen. */
+function frozen<T>(value: T): T {
+  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
+    for (const inner of Object.values(value)) frozen(inner);
+    Object.freeze(value);
+  }
+  return value;
+}
+
 /** A record's `toolsAllowedUnattended`: only when it lists any (absent is none). */
 function toolsAllowed(tools: readonly string[] | undefined): {
   toolsAllowedUnattended?: readonly string[];
@@ -388,4 +561,101 @@ function withToolsAllowed<T extends { readonly toolsAllowedUnattended?: readonly
   if (tools === undefined) return row;
   const { toolsAllowedUnattended: _, ...rest } = row;
   return { ...rest, ...toolsAllowed(tools) } as T;
+}
+
+/** A webhook trigger as registered, its defaults filled in. */
+function webhookRecord(
+  base: Omit<
+    WebhookTriggerRecord,
+    | 'kind'
+    | 'flowId'
+    | 'flowVersion'
+    | 'projectId'
+    | 'owner'
+    | 'config'
+    | 'webhookId'
+    | 'hmacSecretName'
+    | 'signature'
+    | 'bodyLimitBytes'
+    | 'rateLimitPerMinute'
+  >,
+  input: RegisterWebhookTriggerInput,
+  defaultProject: ProjectId,
+): WebhookTriggerRecord {
+  return {
+    ...base,
+    flowId: input.flowId,
+    flowVersion: input.flowVersion,
+    kind: 'webhook',
+    projectId: input.projectId ?? defaultProject,
+    owner: input.owner,
+    config: input.config,
+    webhookId: input.webhookId,
+    hmacSecretName: input.hmacSecretName,
+    ...(input.hmacSecretScope !== undefined && { hmacSecretScope: input.hmacSecretScope }),
+    signature: input.signature ?? DEFAULT_WEBHOOK_SIGNATURE,
+    ...(input.deliveryIdHeader !== undefined && { deliveryIdHeader: input.deliveryIdHeader }),
+    bodyLimitBytes: input.bodyLimitBytes ?? WEBHOOK_BODY_LIMITS.defaultBytes,
+    rateLimitPerMinute: input.rateLimitPerMinute ?? WEBHOOK_RATE_LIMITS.defaultPerMinute,
+    ...toolsAllowed(input.toolsAllowedUnattended),
+  };
+}
+
+/** A mail trigger as registered, its pace filled in. */
+function mailRecord(
+  base: Omit<
+    MailTriggerRecord,
+    'kind' | 'target' | 'projectId' | 'owner' | 'config' | 'nextFireAt'
+  >,
+  input: RegisterMailTriggerInput,
+  defaultProject: ProjectId,
+): MailTriggerRecord {
+  const { pollSeconds, runsPerHour } = MAIL_TRIGGER_LIMITS;
+  return {
+    ...base,
+    kind: 'mail',
+    target: input.target,
+    projectId: input.projectId ?? defaultProject,
+    owner: input.owner,
+    config: {
+      ...input.config,
+      pollSeconds: input.config.pollSeconds ?? pollSeconds.default,
+      runsPerHour: input.config.runsPerHour ?? runsPerHour.default,
+    },
+    nextFireAt: null,
+    ...toolsAllowed(input.toolsAllowedUnattended),
+  };
+}
+
+/** A mail trigger after an update: the config fields given replace its own. */
+function updatedMail(
+  row: MailTriggerRecord,
+  input: UpdateMailTriggerInput,
+  common: { readonly updatedAt: string; readonly label?: string | null },
+): MailTriggerRecord {
+  return {
+    ...withToolsAllowed(row, input.toolsAllowedUnattended),
+    ...common,
+    config: mailConfigAfter(row.config, input.config),
+    ...(input.target !== undefined && { target: input.target }),
+  };
+}
+
+/**
+ * A mail trigger's config after an update, as a runtime merges it. A folder
+ * or label id belongs to one mailbox, so another mailbox (the other app, or
+ * the other `as`) with no `folder` drops it: the trigger watches the new
+ * mailbox's inbox. The same mailbox sent again keeps it.
+ */
+function mailConfigAfter(
+  config: MailTriggerRecord['config'],
+  edit: UpdateMailTriggerInput['config'],
+): MailTriggerRecord['config'] {
+  const merged = { ...config, ...edit };
+  const moved =
+    edit?.mailbox !== undefined &&
+    (edit.mailbox.app !== config.mailbox.app || edit.mailbox.as !== config.mailbox.as);
+  if (!moved || edit?.folder !== undefined) return merged;
+  const { folder: _, ...inbox } = merged;
+  return inbox;
 }

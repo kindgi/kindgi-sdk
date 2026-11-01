@@ -11,20 +11,24 @@ import org.jspecify.annotations.Nullable;
 /**
  * @param note <code>null</code> clears it. Absent, an explicit {@code null}, or a value.
  * @param owner Absent, an explicit {@code null}, or a value.
+ * @param state Absent, an explicit {@code null}, or a value.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record PatchWidgetBody(@JsonProperty("name") @Nullable String name,
         @JsonProperty("note") @JsonInclude(value = JsonInclude.Include.CUSTOM, valueFilter = OptionalNullable.AbsentFilter.class) OptionalNullable<String> note,
-        @JsonProperty("owner") @JsonInclude(value = JsonInclude.Include.CUSTOM, valueFilter = OptionalNullable.AbsentFilter.class) OptionalNullable<Owner> owner) implements Model {
+        @JsonProperty("owner") @JsonInclude(value = JsonInclude.Include.CUSTOM, valueFilter = OptionalNullable.AbsentFilter.class) OptionalNullable<Owner> owner,
+        @JsonProperty("state") @JsonInclude(value = JsonInclude.Include.CUSTOM, valueFilter = OptionalNullable.AbsentFilter.class) OptionalNullable<WidgetState> state) implements Model {
     public PatchWidgetBody {
         note = Checks.triState(note);
         owner = Checks.triState(owner);
+        state = Checks.triState(state);
     }
 
     @Override
     public void validate(Checks checks) {
         checks.minLength("name", name, 1);
         checks.nested("owner", owner.orElse(null));
+        checks.nested("state", state.orElse(null));
     }
 
     /**
@@ -55,6 +59,8 @@ public record PatchWidgetBody(@JsonProperty("name") @Nullable String name,
 
         private OptionalNullable<Owner> owner = OptionalNullable.absent();
 
+        private OptionalNullable<WidgetState> state = OptionalNullable.absent();
+
         private Builder() {
         }
 
@@ -62,6 +68,7 @@ public record PatchWidgetBody(@JsonProperty("name") @Nullable String name,
             this.name = source.name;
             this.note = source.note;
             this.owner = source.owner;
+            this.state = source.state;
         }
 
         public Builder name(@Nullable String name) {
@@ -88,13 +95,22 @@ public record PatchWidgetBody(@JsonProperty("name") @Nullable String name,
         }
 
         /**
+         * Absent, an explicit {@code null}, or a value.
+         * <p>A {@code null} sends an explicit {@code null}.
+         */
+        public Builder state(@Nullable WidgetState state) {
+            this.state = OptionalNullable.of(state);
+            return this;
+        }
+
+        /**
          * The {@link PatchWidgetBody}.
          *
          * @return the value
          * @throws ValidationException when it breaks the API's constraints (every problem is listed)
          */
         public PatchWidgetBody build() {
-            PatchWidgetBody built = new PatchWidgetBody(name, note, owner);
+            PatchWidgetBody built = new PatchWidgetBody(name, note, owner, state);
             built.validate();
             return built;
         }

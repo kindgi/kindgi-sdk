@@ -11,7 +11,7 @@
  *   - a flow's tool step: `tool-call:<tool id>:<key>`, in its node's scope
  *     (already per node, loop iteration and fanout branch).
  *
- * Judgment capture builds the same keys to read a call's records back.
+ * Correction capture builds the same keys to read a call's records back.
  */
 export function toolCallRecordKey(input: {
   readonly toolId: string;

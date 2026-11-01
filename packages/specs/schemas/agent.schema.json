@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kindgi.com/schemas/v1/agent.schema.json",
-  "$comment": "schema-version: 1.6.0",
+  "$comment": "schema-version: 1.7.0",
   "title": "Agent",
   "description": "An agent definition. Declarative composition of instructions + capabilities + tools + memory retrieval + guardrails + conversation policy. The same definition is durable across restarts and versioned like flows — provenance references agents by (id, version).",
   "type": "object",
@@ -113,7 +113,7 @@
     "guardrails": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 },
-      "description": "Guardrail ids the agent is subject to. Resolved at turn start against the guardrails bound for the run (an unknown id fails the turn); evaluated on each turn's final response, before it is stored."
+      "description": "Guardrail ids the agent is subject to. Resolved at turn start against the guardrails bound for the run (an unknown id fails the turn); each is evaluated where its `at` says: on each turn's final response, before it is stored (the default), or inside the turn's loop, on a tool call before it runs, on a call's result before the model sees it, or on a model reply before its calls run."
     },
     "preferredProvider": {
       "type": "string",
@@ -133,7 +133,11 @@
       "description": "Free-form filter tags for the catalog. Not consumed by execution."
     },
     "output": { "$ref": "#/$defs/AgentOutputSpec" },
-    "toolErrors": { "$ref": "#/$defs/ToolErrorsSpec" }
+    "toolErrors": { "$ref": "#/$defs/ToolErrorsSpec" },
+    "parallelToolCalls": {
+      "type": "boolean",
+      "description": "Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default true. false: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for."
+    }
   },
   "$defs": {
     "PromptRef": {
@@ -312,7 +316,7 @@
         "maxSteps": {
           "type": "integer",
           "minimum": 1,
-          "description": "Maximum model→tool→model iterations per turn. Default 8."
+          "description": "Maximum model→tool→model iterations per turn. Default 8. At most 32, the most the turn's loop runs: a higher value acts as 32."
         },
         "maxCostUsd": {
           "type": "number",

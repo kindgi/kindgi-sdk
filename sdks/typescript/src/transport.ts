@@ -29,7 +29,7 @@ export interface Transport {
   request<T>(input: TransportRequest): Promise<T>;
   /**
    * Fetch implementation the transport is bound to. Exposed so streaming
-   * callers (`runs.follow`, `evalRuns.events`, `adapters.prepare`, the
+   * callers (`runs.follow`, `testRuns.events`, `adapters.prepare`, the
    * secrets rotation event stream) can hand it to `readSse` without
    * going through `request` (SSE is a `text/event-stream` body, not JSON).
    */
@@ -215,7 +215,8 @@ export function seconds(ms: number): string {
   return `${ms / 1000} s`;
 }
 
-function buildUrl(
+/** `apiUrl` + `path`, with the query: `undefined` values dropped, an array repeating its key. */
+export function buildUrl(
   apiUrl: string,
   path: string,
   query?: Readonly<Record<string, QueryValue>>,

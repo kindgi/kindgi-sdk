@@ -45,10 +45,10 @@ final class OperationPlanner {
 
   /**
    * More names for an operation, beside its own: the name the other resources use for the same
-   * call ({@code evalSuites.unregister}, as {@code agents.unregister}). The Python client has the
+   * call ({@code testSets.unregister}, as {@code agents.unregister}). The Python client has the
    * same list.
    */
-  static final Map<String, List<String>> ALIASES = Map.of("evalSuites.versions.unregister", List.of("evalSuites.unregister"));
+  static final Map<String, List<String>> ALIASES = Map.of("testSets.versions.unregister", List.of("testSets.unregister"));
 
   enum ResponseKind {
     JSON,
@@ -126,7 +126,7 @@ final class OperationPlanner {
   private final ModelPlanner models;
   final List<Op> ops = new ArrayList<>();
   final Resource root = new Resource(List.of());
-  /** Every operation id, aliases excluded, and those without a method (`HEAD`). */
+  /** The operations without a method: a `HEAD`, and those {@link #withoutMethod} names. */
   final Set<String> skipped = new LinkedHashSet<>();
 
   OperationPlanner(Map<String, Object> document, ModelPlanner models) {
@@ -153,14 +153,24 @@ final class OperationPlanner {
       for (String method : List.of("get", "post", "put", "patch", "delete", "head")) {
         if (item.containsKey(method)) {
           Map<String, Object> op = map(item.get(method), pe.getKey() + " " + method);
-          // An outside sender's path: no client method, so none of its schemas either.
-          if (!Boolean.TRUE.equals(op.get("x-kindgi-sender-only"))) {
+          // No client method, so none of its schemas either.
+          if (!withoutMethod(op)) {
             out.put(method.toUpperCase() + " " + pe.getKey(), op);
           }
         }
       }
     }
     return out;
+  }
+
+  /**
+   * An operation this client has no method for, beside a {@code HEAD}: an outside sender's path
+   * ({@code x-kindgi-sender-only}, the inbound webhook receiver), or a body streamed as it arrives
+   * ({@code x-kindgi-streamed}, {@code corrections.export}, which the TypeScript and Python clients
+   * read).
+   */
+  static boolean withoutMethod(Map<String, Object> op) {
+    return Boolean.TRUE.equals(op.get("x-kindgi-sender-only")) || Boolean.TRUE.equals(op.get("x-kindgi-streamed"));
   }
 
   private List<Schema> operationSchemas(Map<String, Object> op, String where) {
@@ -209,8 +219,7 @@ final class OperationPlanner {
         if (id == null || !ids.add(id)) {
           throw new GenerationException(path + " " + method + ": missing or duplicate operationId " + id);
         }
-        // An outside sender's path (the inbound webhook receiver), as `HEAD`: no client method.
-        if (SKIPPED_METHODS.contains(method) || Boolean.TRUE.equals(raw.get("x-kindgi-sender-only"))) {
+        if (SKIPPED_METHODS.contains(method) || withoutMethod(raw)) {
           skipped.add(id);
           continue;
         }
@@ -477,7 +486,7 @@ final class OperationPlanner {
     return t;
   }
 
-  /** `Idempotency-Key` → `idempotencyKey`; `X-Supervisor-Id` → `supervisorId`. */
+  /** `Idempotency-Key` → `idempotencyKey`; `X-Request-Id` → `requestId`. */
   static String javaParamName(String wire) {
     String name = wire.startsWith("X-") || wire.startsWith("x-") ? wire.substring(2) : wire;
     return Names.member(name);

@@ -11,7 +11,13 @@
  * - a provider registered with a key that a tool or an endpoint already
  *   uses: 409 `provider-key-in-use`, naming what uses it.
  *
- * (A deployment that brings such a tool: `deployments-routes.test.ts`.)
+ * A name under the reserved `kindgi.` prefix is refused at the same places
+ * (400 `reserved-name-prefix`), and as a provider's `secret_ref`
+ * (400 `bad-input`).
+ *
+ * (A deployment that brings such a tool: `deployments-routes.test.ts`; a
+ * webhook trigger's secret: `webhooks-routes.test.ts`; a connection app's:
+ * `connections-routes.test.ts`.)
  */
 
 import { randomUUID } from 'node:crypto';
@@ -40,6 +46,9 @@ const MODEL_KEY = 'ANTHROPIC_API_KEY';
 const projectId = randomUUID();
 const REFUSED = (user: string) =>
   `\`${MODEL_KEY}\` is the key of model provider "anthropic-main": ${user} never gets a model provider's key. If it needs to call a model itself, store the key under its own name (the same value is fine) and use that name`;
+const HELD = 'kindgi.connection-token';
+const RESERVED = (user: string) =>
+  `\`${HELD}\` uses the reserved "kindgi." prefix: ${user} never names one. Those names are Kindgi's own; store the secret under a name of its own and use that`;
 
 function tool(id: string, extra: Partial<ToolManifest> = {}): Record<string, unknown> {
   return {
@@ -67,6 +76,7 @@ function makeApp() {
     },
   ];
   const registered: unknown[] = [];
+  const stored: unknown[] = [];
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
@@ -90,27 +100,30 @@ function makeApp() {
       list: async () => ({ data: tools }),
       headExists: async () => false,
       get: async () => null,
-      // Retired versions: one declares the model key, one a key of its own.
+      // Retired versions: one declares the model key, one a reserved name,
+      // one a key of its own.
       getVersion: async (input: { toolId: string }) =>
         input.toolId === 'acme.t'
           ? tool('acme.t', { needsSpec: { secrets: { [MODEL_KEY]: { type: 'string' } } } })
-          : tool('acme.own', { needsSpec: { secrets: { OWN_KEY: { type: 'string' } } } }),
-      reinstateVersion: async (input: { toolId: string; version: string }) => ({
-        kind: 'ok',
-        toolId: input.toolId,
-        version: input.version,
-        wasTombstoned: true,
-      }),
-      publish: async (input: { tool: ToolManifest }) => ({
-        kind: 'ok',
-        toolId: input.tool.id,
-        version: input.tool.version,
-      }),
+          : input.toolId === 'acme.held'
+            ? tool('acme.held', { needsSpec: { secrets: { [HELD]: { type: 'string' } } } })
+            : tool('acme.own', { needsSpec: { secrets: { OWN_KEY: { type: 'string' } } } }),
+      reinstateVersion: async (input: { toolId: string; version: string }) => {
+        stored.push(input);
+        return { kind: 'ok', toolId: input.toolId, version: input.version, wasTombstoned: true };
+      },
+      publish: async (input: { tool: ToolManifest }) => {
+        stored.push(input);
+        return { kind: 'ok', toolId: input.tool.id, version: input.tool.version };
+      },
     } as never,
     mcpEndpointRegistry: {
       list: async () => ({ data: [] }),
       get: async () => null,
-      register: async () => ({ kind: 'ok', endpointId: 'acme-docs' }),
+      register: async (input: unknown) => {
+        stored.push(input);
+        return { kind: 'ok', endpointId: 'acme-docs' };
+      },
     } as never,
     webhookEndpoints: {
       list: async () => ({ data: hooks }),
@@ -130,7 +143,7 @@ function makeApp() {
     });
     return { status: res.status, body: (await res.json()) as Record<string, any> };
   };
-  return { call, registered };
+  return { call, registered, stored };
 }
 
 describe("a model provider's key, named where it's not the provider", () => {
@@ -266,6 +279,110 @@ describe("a model provider's key, named where it's not the provider", () => {
         usedBy,
       ]);
     }
+    expect(h.registered).toEqual([]);
+  });
+});
+
+describe('a reserved `kindgi.` name, named where a registration names a secret', () => {
+  test('a tool declaring it, or sending it: 400, naming it, and nothing is published', async () => {
+    const h = makeApp();
+    const declared = await h.call('POST', '/v1/tools', {
+      ...tool('acme.summarize', { needsSpec: { secrets: { [HELD]: { type: 'string' } } } }),
+      projectId,
+    });
+    expect([declared.status, declared.body.error]).toEqual([
+      400,
+      expect.objectContaining({
+        code: 'reserved-name-prefix',
+        message: RESERVED('a tool'),
+        details: { secret: HELD },
+      }),
+    ]);
+    const sent = await h.call('POST', '/v1/tools', {
+      ...tool('acme.relay', {
+        spec: {
+          kind: 'http',
+          method: 'POST',
+          urlTemplate: 'https://elsewhere.example/relay',
+          authorization: { kind: 'bearer', secretRef: { envName: 'local', name: HELD } },
+        } as never,
+      }),
+      projectId,
+    });
+    expect([sent.status, sent.body.error?.code]).toEqual([400, 'reserved-name-prefix']);
+    expect(h.stored).toEqual([]);
+  });
+
+  test('reinstating a retired version that names it: 400, and it stays retired', async () => {
+    const h = makeApp();
+    const refused = await h.call('POST', '/v1/tools/acme.held/versions/1.0.0/reinstate', {});
+    expect([refused.status, refused.body.error?.code, refused.body.error?.message]).toEqual([
+      400,
+      'reserved-name-prefix',
+      RESERVED('a tool'),
+    ]);
+    expect(h.stored).toEqual([]);
+  });
+
+  test('an MCP endpoint naming it: 400, and nothing is registered', async () => {
+    const h = makeApp();
+    const mcp = await h.call('POST', '/v1/mcp/endpoints', {
+      endpointId: 'acme-docs',
+      name: 'Docs MCP',
+      transport: 'stdio',
+      config: { transport: 'stdio', command: '/usr/local/bin/docs-mcp', args: ['--stdio'] },
+      secretRef: { envName: 'local', name: HELD },
+    });
+    expect([mcp.status, mcp.body.error?.code, mcp.body.error?.message]).toEqual([
+      400,
+      'reserved-name-prefix',
+      RESERVED('an MCP endpoint'),
+    ]);
+    expect(h.stored).toEqual([]);
+  });
+
+  test('a webhook endpoint naming it, made or changed: 400', async () => {
+    const h = makeApp();
+    // The store's `create` and `update` throw: a refusal never reaches them.
+    const hook = await h.call('POST', '/v1/webhook-endpoints', {
+      url: 'https://app.acme.example/hooks',
+      events: ['run.finished'],
+      secretRef: { envName: 'local', name: HELD },
+    });
+    expect([hook.status, hook.body.error?.code, hook.body.error?.message]).toEqual([
+      400,
+      'reserved-name-prefix',
+      RESERVED('a webhook endpoint'),
+    ]);
+    const changed = await h.call('PATCH', '/v1/webhook-endpoints/whe-1', {
+      secretRef: { envName: 'local', name: HELD },
+    });
+    expect([changed.status, changed.body.error?.code]).toEqual([400, 'reserved-name-prefix']);
+  });
+
+  test("a provider's `secret_ref` naming it: 400 `bad-input`, and nothing is registered", async () => {
+    const h = makeApp();
+    const r = await h.call('POST', '/v1/providers', {
+      metadata: {
+        id: 'openai-main',
+        region: 'us-east-1',
+        models: [
+          {
+            name: 'gpt-x',
+            contextWindow: 128_000,
+            features: ['tool-use'],
+            cost: { promptUsdPer1kTokens: 0.01, completionUsdPer1kTokens: 0.03 },
+          },
+        ],
+      },
+      adapter_id: '@kindgi/adapter-model-anthropic',
+      secret_ref: { envName: 'local', name: HELD },
+    });
+    expect([r.status, r.body.error?.code, r.body.error?.message]).toEqual([
+      400,
+      'bad-input',
+      `\`secret_ref.name\` is \`${HELD}\`, under the reserved "kindgi." prefix: those names are Kindgi's own. Store the key under a name of its own.`,
+    ]);
     expect(h.registered).toEqual([]);
   });
 });

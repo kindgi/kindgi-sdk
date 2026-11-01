@@ -86,6 +86,7 @@ export type {
   OutputSchemaViolationError,
   RateLimitExceededError,
   ResumeAgentTurnInput,
+  RunJournalUnavailableError,
   RunSnapshotError,
   SemanticUnavailableError,
   ApprovalsPendingLimitError,
@@ -95,6 +96,9 @@ export type {
   TurnMemoryLimitReachedError,
   TurnConnections,
   ConnectionCallCode,
+  FileBinding,
+  FileBindings,
+  FileHold,
   UnresolvedToolError,
 } from './invoke.js';
 export {
@@ -105,7 +109,10 @@ export {
   resolveGuardrails,
 } from './guardrails-gate.js';
 export type {
+  HitlCancelledError,
+  HitlRejectedError,
   HitlRequiredError,
+  HitlWithdrawnError,
   GuardrailViolationError,
   GuardrailsBindings,
   SessionGateResult,
@@ -115,6 +122,7 @@ export { persistProvenance } from './provenance-emit.js';
 export type { ProvenanceBindings } from './provenance-emit.js';
 export type {
   AgentMessageEvent,
+  CallThinking,
   GuardrailErrorEvent,
   GuardrailViolatedEvent,
   ModelCallCompletedEvent,

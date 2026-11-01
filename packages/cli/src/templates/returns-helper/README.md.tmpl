@@ -1,0 +1,126 @@
+# {{PACK_NAME}}
+
+A returns helper — scaffolded by `kindgi init --template=returns-helper`.
+
+One agent answers a store's customers about returns and refunds an order
+within the store's rules. Its instructions, its return window and its
+model settings are blocks, so people change them without a deploy, and
+Improve can try other wording. Use it to try the correcting loop on
+`kindgi dev`: correct a run, then fix it in the pack yourself, or run
+Improve, pin its suggested change, and watch the correction become Fixed.
+
+## Layout
+
+```
+{{PACK_NAME}}/
+├── kindgi.config.ts              # pack id + version + discovery patterns
+├── package.json                  # depends on @kindgi/sdk + zod
+├── tsconfig.json
+├── lib/orders.ts                 # four sample orders, in memory, dated from today
+├── tools/
+│   ├── find-order/index.ts       # looks an order up
+│   └── refund/index.ts           # refunds within the window; the limit is in code
+├── agents/
+│   └── returns-helper/index.ts   # pins the three blocks by range
+└── blocks/
+    ├── tone.json + tone.liquid   # its instructions (a prompt block)
+    ├── refund-rules.json         # returnWindowDays (a settings block)
+    └── returns-model.json        # its model settings; names its model
+```
+
+The sample orders: A-1001 (delivered 5 days ago, 40), A-1002 (20 days
+ago, 60), A-1003 (3 days ago, 250, over the refund limit of 100) and
+A-1004 (on its way).
+
+## Run
+
+```sh
+{{INSTALL}}
+{{TYPECHECK}}  # verify the pack compiles
+{{KINDGI}} test  # the refund tool's cases
+{{KINDGI}} dev  # runs the Kindgi runtime (Docker) + hot-reloads this pack
+```
+
+Put one model provider's key in `.env` first (see `AGENTS.md`): without
+one, `kindgi dev`'s fallback only echoes a tool's answer. The helper
+prefers the model `blocks/returns-model.json` names, Anthropic's
+`claude-sonnet-5-5`, and that model also judges answers in the loop
+below. For another provider, put its id and one of its models in
+`providerId` and `model` there first.
+
+## Try the loop
+
+### On `kindgi dev`
+
+With `kindgi dev` running, sign in to the console it prints and open the
+default project, where `kindgi dev` places the pack's agents.
+
+1. **Correct a run.** On the returns helper's page, start a run: "The
+   seam on my tent from order A-1003 tore. Can I get my money back?" The
+   refund tool refuses (over the limit), and the helper says a person
+   will follow up. On the run's page, open **Corrections** and correct the
+   answer only: it should say when, "a person from the store replies
+   within one working day".
+2. **See it sorted.** A correction of the answer alone goes to Improve:
+   `{{KINDGI}} corrections list --agent={{PACK_ID}}.returns-helper` shows
+   it `open`, with `sortedTo: "improve"`. Quality lists it too.
+3. **See it in the test set.** The agent's **Test set** page lists the
+   correction as a case: every fix is checked against it from now on.
+4. **Fix it in the pack.** Say when in `blocks/tone.liquid`, and raise
+   the patch number of `version` in `blocks/tone.json`, which the agent's
+   `^` range takes. `kindgi dev` reloads the pack, and the next run reads
+   the new wording: start the same run again to see it.
+
+### Or let Improve fix it
+
+Instead of step 4 (take it back with `git checkout blocks/` if you made it),
+Improve can find the wording. Commit the pack first: pinning writes into
+its files. Then:
+
+5. **Run Improve.** Ask whether it's ready, with the default project's id
+   (`{{KINDGI}} projects list`):
+   `{{KINDGI}} improve runs start --agent={{PACK_ID}}.returns-helper --project=<project-id> --check`,
+   then run it without `--check`. It tries other wording for the `tone`
+   block, on the test set. The model named in `returns-model.json` writes
+   the wording, and judges whether each new answer says what the correction
+   asks. `--provider` and `--model` name another model to write it, and the
+   judge stays the same. The check answers `ready: true` with `settings`
+   missing: the sample marks no setting Improve may tune, since its model
+   takes no temperature.
+6. **Read its suggested change and pin it.** The agent's **Suggested
+   changes** page shows what it found and its check: the correction should
+   pass on the new version and nothing should newly fail. Pin it. The pin
+   waits for an approval, which under `kindgi dev` you give yourself
+   (`kindgi dev` registers you as a reviewer): open its approval from the
+   suggested change's page. Once it's approved, the new wording goes into
+   `blocks/tone.liquid` and the new versions into the blocks' JSON files,
+   and `kindgi dev` reloads them: `git diff` shows what changed. Commit it
+   to keep it.
+7. **Watch it become Fixed.** Once the pin is approved and its test run
+   has ended, the correction reads Fixed, in the version the pin made.
+8. **Go back.** Pin the version before, as on a deployed runtime:
+   `{{KINDGI}} agents pin {{PACK_ID}}.returns-helper {{PACK_VERSION}} --tenant --reason="Going back"`.
+   It writes the files back as they were right before the pin, and
+   `kindgi dev` reloads them. Its test run checks that version, so the
+   correction reopens if it fails there. Going back with git works too,
+   but no pin checks the files then, so the correction stays Fixed. When
+   you edit a block by hand after that, raise its version, as in step 4:
+   a pin refuses a file that changed at a version `kindgi dev` kept.
+
+### On a deployed runtime
+
+Deploy the pack to a runtime (one on your machine works: the docs'
+**Self-host Kindgi** page sets one up), and steps 5 to 7 work there too,
+for one project. The pin's approval comes from a reviewer there: a second
+one, when the workspace has two. Pinning there changes no file: the project
+runs block versions that `blocks/` doesn't have yet, and
+`{{KINDGI}} suggested-changes get <suggested-change-id>` shows them, to
+bring the files up to them. Going back is a pin: on the agent's **Pinned
+versions** page, pin the version before it again. The correction reopens,
+and says which version reopened it.
+
+The other kind of fix: correct a refund of A-1002 ("our window is 14
+days", the decisions were wrong). That one goes to the agent's owner,
+since it changes a rule: the fix is a new `refund-rules` value, or code
+with a test in `tools/refund/index.test.ts`. The `kindgi-fix-corrections`
+skill walks through both.

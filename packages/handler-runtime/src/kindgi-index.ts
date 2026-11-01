@@ -20,7 +20,7 @@
  *   3. Dynamically imports each file (from its bundle, given a map).
  *      Reads the `default` export
  *      (accepting either the raw primitive shape or a `Result`-wrapped
- *      envelope from `defineTool` / `defineGuardrail` / etc.).
+ *      envelope from `defineTool` / `validateGuardrail` / etc.).
  *   4. Kind-maps the discovered file by its default folder (primary) or
  *      by structural shape of the default export (fallback for
  *      custom-pattern files).
@@ -63,6 +63,7 @@ import type { Result } from '@kindgi/types';
 import { parse as parseToml } from 'smol-toml';
 
 import { TEST_FILE_REGEX, globStaticPrefix, globToRegex } from './discovery.js';
+import { serializeCause, stringifyError } from './error-text.js';
 import { compileSchema } from './handler-runner.js';
 import { type IndexedBlock, readPackBlocks } from './pack-blocks.js';
 import { type PackEnvConfig, type PackEnvDeclaration, resolvePackEnv } from './pack-env.js';
@@ -347,6 +348,21 @@ export interface IndexedTool {
    * wait token and may answer `pause`. Absent means `false`.
    */
   readonly pauses?: boolean;
+  /**
+   * The tool's declared `storesFiles` (schema-version 1.8.0+): each call
+   * gets tool files, and its handler `files.store`. Absent means `false`.
+   */
+  readonly storesFiles?: boolean;
+  /**
+   * The tool's declared `readsFiles` (schema-version 1.8.0+): each call
+   * gets tool files, and its handler `files.read`. Absent means `false`.
+   */
+  readonly readsFiles?: boolean;
+  /**
+   * The tool's declared `resultIsOutsideData`: an agent reads each of its
+   * results as data, not instructions. Absent means `false`.
+   */
+  readonly resultIsOutsideData?: boolean;
   readonly modulePath: string;
 }
 
@@ -357,8 +373,17 @@ export interface IndexedGuardrail {
   readonly action: Readonly<Record<string, unknown>>;
   readonly severity?: string;
   readonly scope?: Readonly<Record<string, unknown>>;
+  /** Where in the agent's turn it runs (`Guardrail.at`). Absent: the final answer. */
+  readonly at?: string;
+  /** What its check sees of the conversation (`Guardrail.sees`). Absent: the turn. */
+  readonly sees?: string;
   readonly checkModulePath: string;
   readonly checkId?: string;
+  /**
+   * The points the pack's check runs at (its `points`, or the final answer when it names
+   * none). Absent for a built-in check, whose points the runtime knows.
+   */
+  readonly checkPoints?: readonly string[];
   /**
    * The guardrail names a built-in check (`checkId`) without shipping a check of its own:
    * `checkModulePath` is only its file. A runtime warns about one without it (an older CLI's).
@@ -367,6 +392,10 @@ export interface IndexedGuardrail {
   readonly configSchema?: Readonly<Record<string, unknown>>;
   /** The guardrail's `config`: what its check is configured with. */
   readonly config?: Readonly<Record<string, unknown>>;
+  /** The guardrail's `budget`: the agent loop stops its check past `maxLatencyMs`. */
+  readonly budget?: Readonly<Record<string, unknown>>;
+  /** An `llm-judge` guardrail's `judgeCapabilities`: what its judge model is routed by. */
+  readonly judgeCapabilities?: Readonly<Record<string, unknown>>;
   readonly sandbox?: string;
   readonly limits?: Readonly<Record<string, unknown>>;
   readonly network?: Readonly<Record<string, unknown>>;
@@ -402,6 +431,11 @@ export interface IndexedAgent {
   readonly output?: Readonly<Record<string, unknown>>;
   /** How the agent's turns retry failed tool calls (`{ maxRetries?, retryOn? }`). */
   readonly toolErrors?: Readonly<Record<string, unknown>>;
+  /**
+   * Whether a step's read-only tool calls in a row run at the same time, up to 8: not one
+   * to a tool that pauses or declares connections, which may wait.
+   */
+  readonly parallelToolCalls?: boolean;
   /** How the agent uses what it retrieves (`{ instructionTypes? }`). */
   readonly memory?: Readonly<Record<string, unknown>>;
   readonly modulePath: string;
@@ -744,7 +778,7 @@ export async function runIndexer(
         break;
       }
       case 'guardrail': {
-        const built = buildGuardrail(unwrapped, relPath, zodConverter);
+        const built = buildGuardrail(unwrapped, module_, relPath, zodConverter);
         if (built.kind === 'err') {
           fileErrors.push(built.error);
           continue;
@@ -1582,8 +1616,8 @@ function buildTool(
   if (inputWire.kind === 'err') return inputWire;
   const outputWire = resolveSchema(rec, 'output', 'outputZod', relPath, converter);
   if (outputWire.kind === 'err') return outputWire;
-  const pauses = pausesOf(rec, relPath);
-  if (pauses.kind === 'err') return pauses;
+  const handlerFlags = handlerFlagsOf(rec, relPath);
+  if (handlerFlags.kind === 'err') return handlerFlags;
 
   const tool: IndexedTool = {
     id: rec.id,
@@ -1608,34 +1642,65 @@ function buildTool(
       network: rec.network as Readonly<Record<string, unknown>>,
     }),
     ...(isObject(rec.spec) && { spec: rec.spec as Readonly<Record<string, unknown>> }),
-    ...(typeof rec.mutating === 'boolean' && { mutating: rec.mutating }),
-    ...(typeof rec.needsApprovalWhenUnattended === 'boolean' && {
-      needsApprovalWhenUnattended: rec.needsApprovalWhenUnattended,
-    }),
-    ...pauses.value,
+    ...toolFlagsOf(rec),
+    ...handlerFlags.value,
     modulePath: normalizeModulePath(relPath),
   };
   return { kind: 'ok', value: tool };
 }
 
+/** The tool's declared boolean flags, each only when the manifest sets it. */
+function toolFlagsOf(
+  rec: Readonly<Record<string, unknown>>,
+): Pick<IndexedTool, 'mutating' | 'needsApprovalWhenUnattended' | 'resultIsOutsideData'> {
+  return {
+    ...(typeof rec.mutating === 'boolean' && { mutating: rec.mutating }),
+    ...(typeof rec.needsApprovalWhenUnattended === 'boolean' && {
+      needsApprovalWhenUnattended: rec.needsApprovalWhenUnattended,
+    }),
+    ...(typeof rec.resultIsOutsideData === 'boolean' && {
+      resultIsOutsideData: rec.resultIsOutsideData,
+    }),
+  };
+}
+
 /**
- * The tool's `pauses`, as the index carries it. Only the pack service's
- * own run of a handler can answer `pause`: the runtime runs a declarative
- * spec itself, and an MCP server can't.
+ * The tool's `pauses`, `storesFiles` and `readsFiles`, as the index
+ * carries them. Only the pack service's own run of a handler can answer
+ * `pause`, store a file or read one: the runtime runs a declarative spec
+ * itself, and an MCP server can't do any of them.
  */
-function pausesOf(
+function handlerFlagsOf(
   rec: Readonly<Record<string, unknown>>,
   relPath: string,
-): Result<{ readonly pauses?: true }, IndexerError> {
-  if (rec.pauses !== true) return { kind: 'ok', value: {} };
-  if (isObject(rec.spec) || rec.transport === 'mcp') {
+): Result<
+  { readonly pauses?: true; readonly storesFiles?: true; readonly readsFiles?: true },
+  IndexerError
+> {
+  const flag = HANDLER_FLAGS.find((f) => rec[f] === true);
+  if (flag !== undefined && (isObject(rec.spec) || rec.transport === 'mcp')) {
     return manifestErr(
       relPath,
-      `'pauses: true' needs a handler the pack runs: a tool with a declarative 'spec' or an MCP transport can't pause`,
+      `'${flag}: true' needs a handler the pack runs: a tool with a declarative 'spec' or an MCP transport can't ${HANDLER_FLAG_DOES[flag]}`,
     );
   }
-  return { kind: 'ok', value: { pauses: true } };
+  return {
+    kind: 'ok',
+    value: {
+      ...(rec.pauses === true && { pauses: true }),
+      ...(rec.storesFiles === true && { storesFiles: true }),
+      ...(rec.readsFiles === true && { readsFiles: true }),
+    },
+  };
 }
+
+const HANDLER_FLAGS = ['pauses', 'storesFiles', 'readsFiles'] as const;
+
+const HANDLER_FLAG_DOES = {
+  pauses: 'pause',
+  storesFiles: 'store files',
+  readsFiles: 'read files',
+} as const;
 
 /**
  * The built-in checks' ids (`BUILT_IN_CHECK_IDS` in `@kindgi/guardrails`; a test holds the two
@@ -1713,8 +1778,91 @@ function unprefixedChecksIn(
   }));
 }
 
+/**
+ * The points a guardrail may run at (`GUARDRAIL_POINTS` in `@kindgi/guardrails`; a test holds
+ * the two equal).
+ */
+export const GUARDRAIL_POINTS: readonly string[] = [
+  'before-tool',
+  'after-tool',
+  'model-step',
+  'final-answer',
+];
+
+/**
+ * A `scope.tools` entry: a tool id, or a prefix with a trailing `*` (the guardrail schema's
+ * pattern; a test holds the two equal).
+ */
+export const SCOPE_TOOL = /^[^*]*\*?$/;
+
+/**
+ * What the guardrail asks for that its point can't do, in `guardrailPointIssues`'s words and
+ * paths (`@kindgi/guardrails`; a test holds the two equal), so a pack a deploy would refuse
+ * fails its build first: `'escalate'` and `'compensate'` away from the final answer, and
+ * `scope.tools` away from the tool points.
+ */
+export function guardrailPointIssues(
+  rec: Readonly<Record<string, unknown>>,
+): readonly { readonly path: string; readonly message: string }[] {
+  const at = (rec.at as string | undefined) ?? 'final-answer';
+  const action = isObject(rec.action) ? rec.action['on-violation'] : undefined;
+  const issues: { path: string; message: string }[] = [];
+  if ((action === 'escalate' || action === 'compensate') && at !== 'final-answer') {
+    issues.push({
+      path: '/action/on-violation',
+      message: `"${action}" is recorded at the final answer only, not at "${at}"`,
+    });
+  }
+  if (
+    isObject(rec.scope) &&
+    rec.scope.tools !== undefined &&
+    at !== 'before-tool' &&
+    at !== 'after-tool'
+  ) {
+    issues.push({
+      path: '/scope/tools',
+      message: `scope.tools is for "before-tool" and "after-tool", not "${at}"`,
+    });
+  }
+  return issues;
+}
+
+/**
+ * The points the guardrail's own check runs at: the check object it names, or the one its
+ * module exports under its `check` id. Undefined when the module ships none (a built-in).
+ */
+function packCheckPoints(
+  rec: Readonly<Record<string, unknown>>,
+  module_: unknown,
+  checkId: string,
+): Result<readonly string[] | undefined, string> {
+  const candidates: unknown[] = [
+    rec.check,
+    ...(isObject(module_) ? Object.values(module_ as Record<string, unknown>) : []),
+  ];
+  const check = candidates.find(
+    (c) => isObject(c) && c.id === checkId && typeof c.evaluate === 'function',
+  ) as Readonly<Record<string, unknown>> | undefined;
+  if (check === undefined) return { kind: 'ok', value: undefined };
+  if (check.points === undefined) return { kind: 'ok', value: ['final-answer'] };
+  const points = check.points;
+  if (
+    !Array.isArray(points) ||
+    points.length === 0 ||
+    !points.every((p) => typeof p === 'string' && GUARDRAIL_POINTS.includes(p)) ||
+    new Set(points).size !== points.length
+  ) {
+    return {
+      kind: 'err',
+      error: `check "${checkId}" 'points' must name one or more of ${GUARDRAIL_POINTS.join(', ')}, each once`,
+    };
+  }
+  return { kind: 'ok', value: points as string[] };
+}
+
 function buildGuardrail(
   raw: unknown,
+  module_: unknown,
   relPath: string,
   converter: ZodConverter | undefined,
 ): Result<IndexedGuardrail, IndexerError> {
@@ -1774,6 +1922,55 @@ function buildGuardrail(
         ? check.id
         : undefined;
 
+  // Where it runs, and where its check can.
+  if (rec.at !== undefined && !GUARDRAIL_POINTS.includes(rec.at as string)) {
+    return manifestErr(relPath, `'at' must be one of ${GUARDRAIL_POINTS.join(', ')}`);
+  }
+  if (rec.sees !== undefined && rec.sees !== 'turn' && rec.sees !== 'conversation') {
+    return manifestErr(relPath, `'sees' must be 'turn' or 'conversation'`);
+  }
+  // The runtime judges an llm-judge guardrail with the model its `judgeCapabilities` route
+  // to, and refuses one without them on every turn: refused here, at build.
+  if (rec.judgeCapabilities !== undefined && !isObject(rec.judgeCapabilities)) {
+    return manifestErr(relPath, `guardrail ${rec.id}: 'judgeCapabilities' must be an object`);
+  }
+  if (rec.kind === 'llm-judge' && rec.judgeCapabilities === undefined) {
+    return manifestErr(
+      relPath,
+      `guardrail ${rec.id} is kind 'llm-judge' with no 'judgeCapabilities': name what its judge model is routed by (for example { needs: [{ feature: 'structured-output' }] })`,
+    );
+  }
+  const scopeTools = isObject(rec.scope) ? rec.scope.tools : undefined;
+  if (
+    scopeTools !== undefined &&
+    !(
+      Array.isArray(scopeTools) &&
+      scopeTools.length > 0 &&
+      scopeTools.every((t) => typeof t === 'string' && t.length > 0 && SCOPE_TOOL.test(t))
+    )
+  ) {
+    return manifestErr(
+      relPath,
+      `'scope.tools' must name one or more tool ids, each with at most a trailing '*'`,
+    );
+  }
+  const pointIssues = guardrailPointIssues(rec);
+  if (pointIssues.length > 0) {
+    return manifestErr(
+      relPath,
+      `guardrail ${rec.id}: ${pointIssues.map((i) => `${i.path}: ${i.message}`).join('; ')}`,
+    );
+  }
+  const points = packCheckPoints(rec, module_, checkId ?? rec.id);
+  if (points.kind === 'err') return manifestErr(relPath, points.error);
+  const at = (rec.at as string | undefined) ?? 'final-answer';
+  if (points.value !== undefined && !points.value.includes(at)) {
+    return manifestErr(
+      relPath,
+      `guardrail ${rec.id} runs at '${at}', which isn't one of its check's points (${points.value.join(', ')})`,
+    );
+  }
+
   const guardrail: IndexedGuardrail = {
     id: rec.id,
     ...(typeof rec.name === 'string' && { name: rec.name }),
@@ -1783,13 +1980,20 @@ function buildGuardrail(
     ...(isObject(rec.scope) && {
       scope: rec.scope as Readonly<Record<string, unknown>>,
     }),
+    ...(rec.at !== undefined && { at }),
+    ...(typeof rec.sees === 'string' && { sees: rec.sees }),
     checkModulePath: normalizeModulePath(relPath),
     ...(checkId !== undefined && { checkId }),
+    ...(points.value !== undefined && { checkPoints: points.value }),
     // Naming a built-in is all it can do: shipping a check of its own under a built-in's id is
     // refused before this (`reserved-check-id`).
     ...(RESERVED_CHECK_IDS.includes(checkId ?? rec.id) && { checkBuiltIn: true as const }),
     ...(configSchema !== undefined && { configSchema }),
     ...(isObject(rec.config) && { config: rec.config as Readonly<Record<string, unknown>> }),
+    ...(isObject(rec.budget) && { budget: rec.budget as Readonly<Record<string, unknown>> }),
+    ...(isObject(rec.judgeCapabilities) && {
+      judgeCapabilities: rec.judgeCapabilities as Readonly<Record<string, unknown>>,
+    }),
     ...(typeof rec.sandbox === 'string' && { sandbox: rec.sandbox }),
     ...(isObject(rec.limits) && {
       limits: rec.limits as Readonly<Record<string, unknown>>,
@@ -1865,6 +2069,7 @@ function optionalAgentFields(rec: Record<string, unknown>): Partial<IndexedAgent
   for (const key of ['preferredProvider', 'preferredModel', 'description'] as const) {
     if (typeof rec[key] === 'string') out[key] = rec[key];
   }
+  if (typeof rec.parallelToolCalls === 'boolean') out.parallelToolCalls = rec.parallelToolCalls;
   return out as Partial<IndexedAgent>;
 }
 
@@ -2101,32 +2306,6 @@ function isObject(v: unknown): v is Readonly<Record<string, unknown>> {
 
 function sortById<T extends { readonly id: string }>(items: readonly T[]): readonly T[] {
   return [...items].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-}
-
-function stringifyError(err: unknown): string {
-  if (err instanceof Error) return `${err.name}: ${err.message}`;
-  return String(err);
-}
-
-function serializeCause(err: unknown): unknown {
-  if (err instanceof Error) {
-    return { name: err.name, message: err.message, stack: err.stack };
-  }
-  if (err === undefined) return null;
-  if (
-    err === null ||
-    typeof err === 'string' ||
-    typeof err === 'number' ||
-    typeof err === 'boolean'
-  ) {
-    return err;
-  }
-  try {
-    JSON.stringify(err);
-    return err;
-  } catch {
-    return String(err);
-  }
 }
 
 function normalizeModulePath(relPath: string): string {

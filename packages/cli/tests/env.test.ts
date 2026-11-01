@@ -158,6 +158,34 @@ describe('kindgi env list', () => {
     expect(out.stdout + out.stderr).not.toContain('sk-typo-secret');
   });
 
+  test('--quiet: the list goes, its warnings stay', async () => {
+    const envPath = join(packDir, '.env.staging');
+    const warned = await runCli(
+      baseInputs(makeFixtures({ [envPath]: 'GOOD_KEY=value\nAPI KEY=sk-typo-secret\n' }), [
+        'env',
+        'list',
+        `--path=${packDir}`,
+        '--quiet',
+      ]),
+    );
+    expect(warned.exitCode, warned.stderr).toBe(0);
+    expect(warned.stdout).toBe('');
+    expect(warned.stderr).toBe(
+      '  ⚠ 1 warning(s):\n      .env.staging:2: ignored — not a `KEY=value` line\n',
+    );
+
+    const clean = await runCli(
+      baseInputs(makeFixtures({ [envPath]: 'GOOD_KEY=value\n' }), [
+        'env',
+        'list',
+        `--path=${packDir}`,
+        '--quiet',
+      ]),
+    );
+    expect(clean.exitCode, clean.stderr).toBe(0);
+    expect([clean.stdout, clean.stderr]).toEqual(['', '']);
+  });
+
   test('missing env file does not error — reports 0 keys', async () => {
     const fixtures = makeFixtures();
     const out = await runCli(baseInputs(fixtures, ['env', 'list', `--path=${packDir}`]));
@@ -424,7 +452,10 @@ interface StoredEnv {
 }
 
 /** A fake `/v1/env` behind the client the CLI builds, recording each call. */
-function fakeEnvApi(seed: readonly StoredEnv[] = []) {
+function fakeEnvApi(
+  seed: readonly StoredEnv[] = [],
+  cloud: { readonly names?: readonly string[]; readonly fails?: unknown } = {},
+) {
   const rows = new Map<string, StoredEnv>();
   const keyOf = (scope: StoredEnv['scope'], envName: string, name: string) =>
     `${scope.kind}:${scope.orgId ?? scope.projectId ?? ''}|${envName}|${name}`;
@@ -469,6 +500,22 @@ function fakeEnvApi(seed: readonly StoredEnv[] = []) {
     delete: async (input: { scope: StoredEnv['scope']; envName: string; name: string }) => {
       calls.push({ method: 'delete', input });
       return { deleted: rows.delete(keyOf(input.scope, input.envName, input.name)) };
+    },
+    // The names the operator set to a cloud secret: the tenant's view, no path.
+    listCloudSecrets: async (input: { scope: StoredEnv['scope']; envName: string }) => {
+      calls.push({ method: 'listCloudSecrets', input });
+      if (cloud.fails !== undefined) throw cloud.fails;
+      return {
+        data: (cloud.names ?? []).map((name) => ({
+          scope: { kind: input.scope.kind },
+          envName: input.envName,
+          name,
+          revision: 1,
+          createdAt: '2026-10-07T00:00:00Z',
+          updatedAt: '2026-10-07T00:00:00Z',
+        })),
+        hasMore: false,
+      };
     },
   };
   return { calls, rows, clientFactory: (() => ({ env })) as never };
@@ -638,6 +685,35 @@ describe("kindgi env set/list/unset --scope — the runtime's env values (ctx.en
     expect(summary.warnings).toHaveLength(1);
   });
 
+  test('--quiet: a set says nothing; a name that looks like a credential is still warned about', async () => {
+    const set = (key: string) => {
+      const api = fakeEnvApi();
+      return runCli({
+        ...baseInputs(makeFixtures(), [
+          'env',
+          'set',
+          key,
+          'abc',
+          '--scope=project:p-1',
+          '--env=local',
+          '--quiet',
+          ...API,
+        ]),
+        clientFactory: api.clientFactory,
+      });
+    };
+    const plain = await set('ACME_REGION');
+    expect(plain.exitCode, plain.stderr).toBe(0);
+    expect([plain.stdout, plain.stderr]).toEqual(['', '']);
+
+    const credential = await set('ACME_API_KEY');
+    expect(credential.exitCode, credential.stderr).toBe(0);
+    expect(credential.stdout).toBe('');
+    expect(credential.stderr).toBe(
+      "  ⚠ ACME_API_KEY looks like a credential. Env values aren't secret: they're recorded with each run that uses them, and shown in its journal. Store a credential as a secret: kindgi secrets set ACME_API_KEY --env=local --scope=project:p-1\n",
+    );
+  });
+
   test('the KINDGI_ prefix stays refused with --scope', async () => {
     const api = fakeEnvApi();
     const out = await runCli({
@@ -685,6 +761,56 @@ describe("kindgi env set/list/unset --scope — the runtime's env values (ctx.en
       ['ZED', 'z'],
     ]);
     expect(out.stderr).toContain('Scope:     tenant');
+  });
+
+  test('list names the ones your operator set to a cloud secret, and never a path', async () => {
+    const api = fakeEnvApi(
+      [
+        {
+          scope: { kind: 'tenant' },
+          envName: 'local',
+          name: 'ACME_REGION',
+          value: 'eu',
+          revision: 1,
+        },
+      ],
+      { names: ['STRIPE_KEY'] },
+    );
+    const out = await runCli({
+      ...baseInputs(makeFixtures(), ['env', 'list', '--scope=tenant', '--env=local', ...API]),
+      clientFactory: api.clientFactory,
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain('1 set by your operator to a cloud secret');
+    expect(out.stderr).toContain('STRIPE_KEY (cloud secret)');
+    const summary = JSON.parse(out.stdout) as { cloudSecrets: { key: string }[] };
+    expect(summary.cloudSecrets.map((c) => c.key)).toEqual(['STRIPE_KEY']);
+    expect(out.stdout + out.stderr).not.toContain('projects/');
+  });
+
+  test.each([
+    ['cloud-secrets-unsupported', 501],
+    ['env-not-found', 404],
+  ])('list from a runtime answering %s for them: the values alone', async (serverCode) => {
+    const api = fakeEnvApi(
+      [
+        {
+          scope: { kind: 'tenant' },
+          envName: 'local',
+          name: 'ACME_REGION',
+          value: 'eu',
+          revision: 1,
+        },
+      ],
+      { fails: new KindgiApiError({ code: 'server', serverCode, message: 'none here' }) },
+    );
+    const out = await runCli({
+      ...baseInputs(makeFixtures(), ['env', 'list', '--scope=tenant', '--env=local', ...API]),
+      clientFactory: api.clientFactory,
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).not.toContain('cloud secret');
+    expect(JSON.parse(out.stdout)).not.toHaveProperty('cloudSecrets');
   });
 
   test('unset removes the value at the scope and says what a call gets now', async () => {
@@ -744,6 +870,228 @@ describe("kindgi env set/list/unset --scope — the runtime's env values (ctx.en
   });
 });
 
+// ---------- env set/unset/list --cloud-secret (the operator's) ----------
+
+interface StoredCloudSecret {
+  readonly tenantId: string;
+  readonly name: string;
+  readonly cloudSecret: string;
+  readonly revision: number;
+}
+
+/** A fake `/v1/system/tenants/:tenantId/env` behind the client the CLI builds. */
+function fakeSystemEnvApi(seed: readonly StoredCloudSecret[] = [], fails?: unknown) {
+  const rows = new Map<string, StoredCloudSecret>(seed.map((r) => [r.name, r]));
+  const calls: { readonly method: string; readonly input: Record<string, unknown> }[] = [];
+  const record = (r: StoredCloudSecret) => ({
+    scope: { kind: 'project', id: 'p-1' },
+    envName: 'production',
+    name: r.name,
+    cloudSecret: r.cloudSecret,
+    revision: r.revision,
+    createdAt: '2026-10-31T00:00:00Z',
+    updatedAt: '2026-10-31T00:00:00Z',
+  });
+  const systemEnv = {
+    listCloudSecrets: async (input: Record<string, unknown>) => {
+      calls.push({ method: 'list', input });
+      if (fails !== undefined) throw fails;
+      return { data: [...rows.values()].map(record), hasMore: false };
+    },
+    setCloudSecret: async (input: {
+      tenantId: string;
+      name: string;
+      cloudSecret: string;
+      ifRevision?: number;
+    }) => {
+      calls.push({ method: 'set', input });
+      const prev = rows.get(input.name);
+      if (input.ifRevision !== undefined && prev?.revision !== input.ifRevision) {
+        return { kind: 'revision-conflict', currentRevision: prev?.revision ?? 0 };
+      }
+      const next = { ...input, revision: (prev?.revision ?? 0) + 1 };
+      rows.set(input.name, next);
+      return { kind: 'ok', record: record(next) };
+    },
+    deleteCloudSecret: async (input: { name: string }) => {
+      calls.push({ method: 'delete', input });
+      return { deleted: rows.delete(input.name) };
+    },
+  };
+  return { calls, rows, clientFactory: (() => ({ systemEnv })) as never };
+}
+
+const CLOUD = 'projects/acme-prod/secrets/stripe-key/versions/3';
+const AT = ['--tenant=t-1', '--scope=project:p-1', '--env=production', ...API];
+
+describe("kindgi env set/unset/list --cloud-secret — the operator's cloud secrets", () => {
+  test('set names a version of a cloud secret for a tenant, and says who reads it', async () => {
+    const api = fakeSystemEnvApi();
+    const out = await runCli({
+      ...baseInputs(makeFixtures(), ['env', 'set', 'STRIPE_KEY', '--cloud-secret', CLOUD, ...AT]),
+      clientFactory: api.clientFactory,
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(api.calls.find((c) => c.method === 'set')?.input).toEqual({
+      tenantId: 't-1',
+      scope: { kind: 'project', projectId: 'p-1' },
+      envName: 'production',
+      name: 'STRIPE_KEY',
+      cloudSecret: CLOUD,
+    });
+    expect(out.stderr).toContain('Set STRIPE_KEY at project:p-1 in env production of tenant t-1');
+    expect(out.stderr).toContain("pack service's own account");
+    expect(JSON.parse(out.stdout)).toMatchObject({
+      changed: true,
+      overwritten: false,
+      revision: 1,
+    });
+  });
+
+  test.each([
+    ['latest', 'projects/acme-prod/secrets/stripe-key/versions/latest', 'numbered version'],
+    ['a kp- copy', 'projects/acme-prod/secrets/kp-d1-stripe/versions/1', '`kp-`'],
+    ['not that form', 'stripe-key', 'projects/<project>/secrets/<secret>/versions/<number>'],
+  ])('set refuses %s before any call: exit 2', async (_what, raw, said) => {
+    const api = fakeSystemEnvApi();
+    const out = await runCli({
+      ...baseInputs(makeFixtures(), ['env', 'set', 'STRIPE_KEY', '--cloud-secret', raw, ...AT]),
+      clientFactory: api.clientFactory,
+    });
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain(said);
+    expect(api.calls).toEqual([]);
+  });
+
+  test.each([
+    [['env', 'set', 'STRIPE_KEY', 'sk-value', '--cloud-secret', CLOUD, ...AT], 'VALUE'],
+    [
+      [
+        'env',
+        'set',
+        'STRIPE_KEY',
+        '--cloud-secret',
+        CLOUD,
+        '--scope=project:p-1',
+        '--env=production',
+        ...API,
+      ],
+      '--tenant',
+    ],
+    [['env', 'set', 'STRIPE_KEY', 'v', ...AT], '--cloud-secret'],
+    [['env', 'unset', 'STRIPE_KEY', ...AT], '--cloud-secret'],
+  ])('%j is a usage error: exit 2, no call', async (argv, said) => {
+    const api = fakeSystemEnvApi();
+    const out = await runCli({
+      ...baseInputs(makeFixtures(), argv),
+      clientFactory: api.clientFactory,
+    });
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain(said);
+    expect(api.calls).toEqual([]);
+  });
+
+  test('set refuses to change another path without --force, replaces it with, and the same path is no change', async () => {
+    const seed = { tenantId: 't-1', name: 'STRIPE_KEY', cloudSecret: CLOUD, revision: 2 };
+    const next = CLOUD.replace(/3$/, '4');
+    const argv = ['env', 'set', 'STRIPE_KEY', '--cloud-secret', next, ...AT];
+    const refused = fakeSystemEnvApi([seed]);
+    const no = await runCli({
+      ...baseInputs(makeFixtures(), argv),
+      clientFactory: refused.clientFactory,
+    });
+    expect(no.exitCode).toBe(1);
+    expect(no.stderr).toContain(
+      `already set at project:p-1 in env production of tenant t-1 to ${CLOUD}`,
+    );
+    expect(refused.calls.map((c) => c.method)).toEqual(['list']);
+
+    const forced = fakeSystemEnvApi([seed]);
+    const yes = await runCli({
+      ...baseInputs(makeFixtures(), [...argv, '--force']),
+      clientFactory: forced.clientFactory,
+    });
+    expect(yes.exitCode, yes.stderr).toBe(0);
+    expect(forced.calls.find((c) => c.method === 'set')?.input).toMatchObject({
+      cloudSecret: next,
+      ifRevision: 2,
+    });
+    expect(yes.stderr).toContain('Updated STRIPE_KEY');
+
+    const same = fakeSystemEnvApi([seed]);
+    const none = await runCli({
+      ...baseInputs(makeFixtures(), ['env', 'set', 'STRIPE_KEY', '--cloud-secret', CLOUD, ...AT]),
+      clientFactory: same.clientFactory,
+    });
+    expect(none.exitCode, none.stderr).toBe(0);
+    expect(none.stderr).toContain('no change');
+    expect(same.calls.map((c) => c.method)).toEqual(['list']);
+  });
+
+  test('unset removes one, and a second is no change; list shows each path', async () => {
+    const api = fakeSystemEnvApi([
+      { tenantId: 't-1', name: 'STRIPE_KEY', cloudSecret: CLOUD, revision: 1 },
+    ]);
+    const listed = await runCli({
+      ...baseInputs(makeFixtures(), ['env', 'list', '--cloud-secret', ...AT]),
+      clientFactory: api.clientFactory,
+    });
+    expect(listed.exitCode, listed.stderr).toBe(0);
+    expect(listed.stderr).toContain('Tenant:    t-1');
+    expect(listed.stderr).toContain(CLOUD);
+    expect(JSON.parse(listed.stdout)).toMatchObject({
+      count: 1,
+      cloudSecrets: [{ key: 'STRIPE_KEY', cloudSecret: CLOUD, revision: 1 }],
+    });
+    const argv = ['env', 'unset', 'STRIPE_KEY', '--cloud-secret', ...AT];
+    const gone = await runCli({
+      ...baseInputs(makeFixtures(), argv),
+      clientFactory: api.clientFactory,
+    });
+    expect(gone.exitCode, gone.stderr).toBe(0);
+    expect(JSON.parse(gone.stdout)).toMatchObject({ removed: true });
+    expect(gone.stderr).toContain("Removed STRIPE_KEY's cloud secret");
+    const again = await runCli({
+      ...baseInputs(makeFixtures(), argv),
+      clientFactory: api.clientFactory,
+    });
+    expect(again.exitCode).toBe(0);
+    expect(again.stderr).toContain("wasn't set to a cloud secret");
+  });
+
+  test.each([
+    [
+      { code: 'server', serverCode: 'cloud-secrets-unsupported', message: 'x' },
+      'its operator turns them on with KINDGI_ENV_CLOUD_SECRETS=on',
+    ],
+    [
+      { code: 'auth', serverCode: 'system-scope-missing', message: 'x', reason: 'forbidden' },
+      'lacks system:env-refs',
+    ],
+    [
+      { code: 'auth', serverCode: 'system-principal-required', message: 'x', reason: 'forbidden' },
+      'with a system key holding system:env-refs',
+    ],
+    [
+      {
+        code: 'not-found',
+        serverCode: 'tenant-not-found',
+        message: 'x',
+        resource: { kind: 'tenant', id: 't-1' },
+      },
+      'no tenant with that id',
+    ],
+  ])('a refusal is said plainly: %j', async (error, said) => {
+    const api = fakeSystemEnvApi([], new KindgiApiError(error as never));
+    const out = await runCli({
+      ...baseInputs(makeFixtures(), ['env', 'list', '--cloud-secret', ...AT]),
+      clientFactory: api.clientFactory,
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(said);
+  });
+});
+
 // ---------- env init ----------
 
 describe('kindgi env init', () => {
@@ -768,6 +1116,31 @@ describe('kindgi env init', () => {
     expect(written).toContain('KINDGI_SECRETS_GCP_LOCATION_ID=us-central1');
     // Optional core vars commented out.
     expect(written).toContain('# KINDGI_API_PORT=4000');
+  });
+
+  test('--quiet: writes the same file, and says nothing', async () => {
+    const outPath = join(packDir, '.env.example');
+    const written = async (quiet: readonly string[]) => {
+      const fixtures = makeFixtures();
+      const out = await runCli(
+        baseInputs(fixtures, [
+          'env',
+          'init',
+          '--secrets-backend=postgres',
+          '--kms=gcp',
+          `--out=${outPath}`,
+          '--non-interactive',
+          ...quiet,
+        ]),
+      );
+      return { out, file: fixtures.state.files.get(outPath) };
+    };
+    const loud = await written([]);
+    const quiet = await written(['--quiet']);
+    expect(loud.out.stderr).toContain(`env-var entries → ${outPath}`);
+    expect([quiet.out.exitCode, quiet.out.stdout, quiet.out.stderr]).toEqual([0, '', '']);
+    expect(quiet.file).toBeDefined();
+    expect(quiet.file).toBe(loud.file);
   });
 
   test('non-interactive: --kms=azure writes the Key Vault key (required) and no GCP vars', async () => {
@@ -1081,6 +1454,23 @@ describe('kindgi env --env=local — the project env files', () => {
     expect(out.stderr).toContain('still set in .env');
   });
 
+  test('unset --quiet: only that the key is still set in .env', async () => {
+    const fixtures = makeFixtures({ [dotEnv()]: 'KEY=base\n', [dotEnvLocal()]: 'KEY=local\n' });
+    const out = await runCli(
+      baseInputs(fixtures, ['env', 'unset', 'KEY', '--env=local', `--path=${packDir}`, '--quiet']),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toBe('  ! KEY is still set in .env — kindgi env only edits .env.local.\n');
+
+    const only = makeFixtures({ [dotEnvLocal()]: 'KEY=local\n' });
+    const gone = await runCli(
+      baseInputs(only, ['env', 'unset', 'KEY', '--env=local', `--path=${packDir}`, '--quiet']),
+    );
+    expect(gone.exitCode, gone.stderr).toBe(0);
+    expect([gone.stdout, gone.stderr]).toEqual(['', '']);
+  });
+
   test('dev.envFiles in kindgi.config.ts picks the files', async () => {
     const fixtures = makeFixtures({ [join(packDir, '.env.dev')]: 'X=dev\n' });
     const out = await runCli(
@@ -1178,5 +1568,33 @@ describe('kindgi env plan', () => {
     );
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('--format is terraform or gcloud, not "yaml"');
+  });
+
+  test('--quiet: the plan goes, its warnings stay', async () => {
+    const plan = (production: unknown) =>
+      runCli(
+        baseInputs(
+          makeFixtures(),
+          ['env', 'plan', '--env=production', '--format=gcloud', `--path=${packDir}`, '--quiet'],
+          { buildConfigLoader: declaring(production) },
+        ),
+      );
+    const clean = await plan({ DATABASE_URL: { secret: 'acme-db-url', version: '3' } });
+    expect(clean.exitCode, clean.stderr).toBe(0);
+    expect(clean.stdout).toBe('--update-secrets=DATABASE_URL=acme-db-url:3\n');
+    expect(clean.stderr).toBe('');
+
+    const warned = await plan({
+      DATABASE_URL: { secret: 'acme-db-url', version: 'latest' },
+      LOG_FORMAT: 'json',
+    });
+    expect(warned.exitCode, warned.stderr).toBe(0);
+    expect(warned.stderr).toBe(
+      [
+        "  ⚠ DATABASE_URL uses the latest version of acme-db-url: it's read when an instance starts, so a new version needs a new revision",
+        "  ⚠ environments.production.env.LOG_FORMAT isn't declared in env.required or env.optional, so it isn't injected",
+        '',
+      ].join('\n'),
+    );
   });
 });

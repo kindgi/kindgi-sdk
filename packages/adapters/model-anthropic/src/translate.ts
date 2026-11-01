@@ -4,11 +4,13 @@
 import type Anthropic from '@anthropic-ai/sdk';
 
 import type {
+  FilePart,
   ModelCallResult,
   ModelMessage,
   ModelToolCall,
   ModelToolDefinition,
 } from '@kindgi/capabilities';
+import { headedFileParts } from '@kindgi/capabilities';
 
 /**
  * The framework's tool id convention is `<pack>.<tool>` — e.g.
@@ -53,8 +55,15 @@ export function decodeToolName(name: string): string {
  * `systemParts` keeps the system messages apart, in order, so each can be
  * its own block: the first (the agent's prompt) is the stable one a cache
  * breakpoint goes on (`withPromptCache`).
+ *
+ * `files` holds each message's file parts (`fileParts`), by index. They go
+ * after the message's text, under the outside-data heading: in the user
+ * turn, or inside the tool result, which takes image and document blocks.
  */
-export function toAnthropicMessages(messages: readonly ModelMessage[]): {
+export function toAnthropicMessages(
+  messages: readonly ModelMessage[],
+  files: readonly (readonly FilePart[])[] = [],
+): {
   readonly system: string | undefined;
   readonly systemParts: readonly string[];
   readonly messages: readonly Anthropic.MessageParam[];
@@ -62,13 +71,14 @@ export function toAnthropicMessages(messages: readonly ModelMessage[]): {
   const systemParts: string[] = [];
   const out: Anthropic.MessageParam[] = [];
 
-  for (const msg of messages) {
+  for (const [i, msg] of messages.entries()) {
+    const parts = partsAt(files, i);
     if (msg.role === 'system') {
       if (msg.content.length > 0) systemParts.push(msg.content);
       continue;
     }
     if (msg.role === 'user') {
-      appendToUserTurn(out, [{ type: 'text', text: msg.content }]);
+      appendToUserTurn(out, userBlocks(msg.content, parts));
       continue;
     }
     if (msg.role === 'assistant') {
@@ -100,7 +110,7 @@ export function toAnthropicMessages(messages: readonly ModelMessage[]): {
     const toolResult: Anthropic.ToolResultBlockParam = {
       type: 'tool_result',
       tool_use_id: msg.toolCallId ?? '',
-      content: msg.content,
+      content: toolResultContent(msg.content, parts),
     };
     appendToUserTurn(out, [toolResult]);
   }
@@ -110,6 +120,57 @@ export function toAnthropicMessages(messages: readonly ModelMessage[]): {
     systemParts,
     messages: out,
   };
+}
+
+/** Message `i`'s file parts, under the outside-data heading; none when it has none. */
+function partsAt(files: readonly (readonly FilePart[])[], i: number): readonly FilePart[] {
+  return headedFileParts(files[i] ?? []);
+}
+
+/** A user message's blocks: its text, then its files (when it has any). */
+function userBlocks(
+  text: string,
+  parts: readonly FilePart[],
+): (Anthropic.TextBlockParam | Anthropic.ImageBlockParam | Anthropic.DocumentBlockParam)[] {
+  return parts.length === 0 ? [{ type: 'text', text }] : fileBlocks(text, parts);
+}
+
+/** A tool result's content: its text alone, or with its files, as blocks. */
+function toolResultContent(
+  text: string,
+  parts: readonly FilePart[],
+): NonNullable<Anthropic.ToolResultBlockParam['content']> {
+  return parts.length === 0 ? text : fileBlocks(text, parts);
+}
+
+/** The message's text (when there is any), then its file parts as blocks. */
+function fileBlocks(
+  text: string,
+  parts: readonly FilePart[],
+): (Anthropic.TextBlockParam | Anthropic.ImageBlockParam | Anthropic.DocumentBlockParam)[] {
+  return [
+    ...(text.length > 0 ? [{ type: 'text' as const, text }] : []),
+    ...parts.map(toAnthropicBlock),
+  ];
+}
+
+function toAnthropicBlock(
+  part: FilePart,
+): Anthropic.TextBlockParam | Anthropic.ImageBlockParam | Anthropic.DocumentBlockParam {
+  switch (part.kind) {
+    case 'text':
+      return { type: 'text', text: part.text };
+    case 'image':
+      return {
+        type: 'image',
+        source: { type: 'base64', media_type: part.mediaType, data: part.data },
+      };
+    case 'document':
+      return {
+        type: 'document',
+        source: { type: 'base64', media_type: part.mediaType, data: part.data },
+      };
+  }
 }
 
 function appendToUserTurn(

@@ -26,7 +26,8 @@ import type { Agent } from './types.js';
  * `AgentTurnResult` or an `InvokeAgentError`.
  *
  * Budgets enforced (all optional, all take agent-declared defaults):
- *   - `agent.budget.maxSteps`     — cap on model↔tool iterations (default 8).
+ *   - `agent.budget.maxSteps`     — cap on model↔tool iterations (default 8,
+ *                                   at most AGENT_TURN_LOOP_MAX_ITERATIONS, 32).
  *   - `agent.budget.maxCostUsd`   — cumulative USD across model calls.
  *   - `agent.budget.maxWallMs`    — wall-clock cap; combined with abortSignal.
  */
@@ -90,11 +91,11 @@ export async function invokeAgent(
         version: input.agent.version,
         conversationId: input.conversationId,
         ...(input.versionVia !== undefined && { via: input.versionVia }),
-        ...(input.liveScope !== undefined && { liveScope: input.liveScope }),
+        ...(input.pinnedScope !== undefined && { pinnedScope: input.pinnedScope }),
       },
       ...(input.segments !== undefined && { segments: input.segments }),
       ...(input.parent !== undefined && { parent: input.parent }),
-      // A replay's run says so, and which eval run and past run it is for.
+      // A replay's run says so, and which test run and past run it is for.
       ...(input.replay !== undefined && { replay: input.replay }),
       ...(input.idempotencyKey !== undefined && { idempotencyKey: input.idempotencyKey }),
       ...(input.trigger !== undefined && { trigger: input.trigger }),
@@ -102,6 +103,7 @@ export async function invokeAgent(
       ...(input.toolsAllowedUnattended !== undefined && {
         toolsAllowedUnattended: input.toolsAllowedUnattended,
       }),
+      ...(input.mailbox !== undefined && { mailbox: input.mailbox }),
       ...(input.dryRun === true && { options: { dryRun: true } }),
       // Authorization — carry principal + authz into the run so every
       // tool invocation inside the agent's turn is checked.
@@ -172,7 +174,7 @@ async function rehydrateFromJournal(
       error: {
         code: 'run-journal-unavailable',
         message: `Failed to read the journal of run ${runId as unknown as string}: ${journal.error.message}`,
-      } as never,
+      },
     };
   }
   try {
@@ -223,9 +225,10 @@ export async function resumeAgentTurn(
       error: {
         code: 'agent-version-mismatch',
         message: `Snapshot pinned to ${snapshot.agentId as unknown as string}@${snapshot.agentVersion}; resume called with ${input.agent.id as unknown as string}@${input.agent.version as unknown as string}`,
+        conversationId: snapshot.conversationId,
         expectedVersion: snapshot.agentVersion,
         actualVersion: input.agent.version,
-      } as never,
+      },
     };
   }
 
@@ -298,6 +301,7 @@ export type {
   ModelInvocationError,
   OutputSchemaViolationError,
   RateLimitExceededError,
+  RunJournalUnavailableError,
   RunSnapshotError,
   SemanticUnavailableError,
   ApprovalsPendingLimitError,
@@ -306,6 +310,7 @@ export type {
   UnresolvedToolError,
 } from './handlers/errors.js';
 export type { TurnMemoryBinding, TurnMemoryCharge } from './handlers/turn-memory.js';
+export type { FileBinding, FileBindings, FileHold } from './handlers/files.js';
 export type {
   HitlBindings,
   HitlEnqueueInput,
@@ -357,9 +362,15 @@ export function turnInputFromSnapshot(
       snapshot.toolsAllowedUnattended !== null && {
         toolsAllowedUnattended: snapshot.toolsAllowedUnattended,
       }),
+    // The mailbox a mail trigger's run came from, as recorded when it
+    // started: never from whoever resumes it.
+    ...(snapshot.mailbox !== undefined &&
+      snapshot.mailbox !== null && { mailbox: snapshot.mailbox }),
     // No `messageFromEvent`: a replay doesn't park before its turn has
     // stored its message (marked) and built its first model call, and a
     // resumed turn reads that stored mark. If a replay could park sooner,
     // derive it here from the replay's past run.
+    // No `files` either: a turn parks only after its message is stored,
+    // and a resumed turn reads the files kept with it.
   };
 }

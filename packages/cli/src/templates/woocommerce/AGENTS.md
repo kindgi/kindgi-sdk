@@ -16,6 +16,15 @@ or `OPENROUTER_API_KEY`) and declare its preset
 `'openrouter'`) in `kindgi.config.ts`'s `providers`: `kindgi dev` then
 registers it on every boot, in every worktree. Other providers and
 per-agent model choice: the `kindgi-authoring-providers` skill.
+How much a model thinks (runtime 0.3.0 or later): `thinking` in the
+agent's `modelSettings` block, else the model's registered
+`thinking.default`, else its vendor's own.
+
+Each git worktree runs its own `kindgi dev`, with its own dev tenant,
+user and token, and its own database in the bundled Postgres. When port
+4000 is taken (another worktree's, say), it takes the next free one,
+prints it and records it in `.kindgirc.json`. The getting-started skill
+has the details.
 
 ## This pack: a WooCommerce store
 
@@ -49,8 +58,11 @@ README.md explains the whole design; keep it true when you change the pack.
   deploy refuses a version whose content changed.
   `agents/store-agent/index.test.ts` checks they still name every tool
   that waits for a person.
-- **The store's password is a secret** (`WOO_APP_PASSWORD`, set with
-  `kindgi secrets set`): never write it in a file, a test or the chat.
+- **The store's password is a secret** (`WOO_APP_PASSWORD`): never write
+  it in a file, a test or the chat, and never ask the person to copy it.
+  The pack's `connect-store` script connects a store: one of its
+  administrators approves Kindgi in wp-admin, and the script saves the
+  password in Kindgi itself (README.md, Connect your store).
 
 ## Skills
 
@@ -69,6 +81,13 @@ items fixed by adding a `> **Fixed:** <note>` line right after their
 header; the file is a plain markdown list you edit directly.
 Send entries to Kindgi only after the person has seen the preview and said
 yes: `kindgi feedback submit --preview`, then `--yes=<its digest>`.
+
+After the agents ship, people correct their answers, and each correction
+becomes a case in the agent's test set. To fix what they corrected, see the
+`kindgi-fix-corrections` skill: a setting or the wording becomes a
+suggested change, checked on that test set; a rule changes in code, with a
+pack test. Pinning stays with the person, and a correction that would
+loosen a rule goes to the agent's owner.
 
 ## Commands for the person's own terminal
 

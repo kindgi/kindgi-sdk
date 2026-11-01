@@ -40,21 +40,25 @@ runs for you.
 
 ### Access to the runtime image
 
-Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub.
-Under **1. Pull the runtime image** it shows the image's pull credentials: a
-robot name, in its command after `--username`, and a token. Log in to its
-registry once with them. The CLI asks for the token without showing
-it, hands both to `docker login` (Kindgi keeps no copy), and checks that you
-can pull the image it runs:
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or
+your email address for a license key, which starts with `kgi_lk_`. The key is
+the runtime image's password on its registry, `registry.kindgi.com`. Log in
+there once with it. The CLI asks for the key without showing it, hands it to
+`docker login` (Kindgi keeps no copy), and checks that you can pull the image
+it runs:
 
 ```sh
-npx --yes @kindgi/cli@0.2 auth registry --username <your robot name>
-# without Node: uvx --from "kindgi-cli>=0.2,<0.3" kindgi auth registry --username <your robot name>
+npx --yes @kindgi/cli@0.2 auth registry
+# without Node: uvx --from "kindgi-cli>=0.2,<0.3" kindgi auth registry
 ```
 
 ```text
-✓ You can pull quay.io/kindgi/runtime:…@sha256:…, the image this CLI runs.
+✓ Logged in to registry.kindgi.com with your license key. Docker keeps it in its own credential store; Kindgi stores nothing. When your key renews, log in again with the new one.
+✓ You can pull registry.kindgi.com/kindgi/runtime:…@sha256:…, the image this CLI runs.
 ```
+
+The `docker login registry.kindgi.com --username kindgi` that
+access.kindgi.com shows logs in too, without the check.
 
 The first `kindgi dev` then pulls the image (about 700 MB; `amd64` and
 `arm64`). Questions or trouble: contact@kindgi.com.
@@ -85,7 +89,7 @@ kindgi doctor (CLI …)
   ✓ npm: npm 11.21.0.
 …
   ✓ Docker: Docker is running.
-  ✓ Runtime image: Docker can pull the runtime image (quay.io/kindgi/runtime:…@sha256:…).
+  ✓ Runtime image: Docker can pull the runtime image (registry.kindgi.com/kindgi/runtime:…@sha256:…).
 …
   – Project: No Kindgi project in …: no kindgi.config.ts, kindgi.config.mts, kindgi.config.mjs, kindgi.config.js, kindgi.config.cjs, no pyproject.toml with [tool.kindgi], and no kindgi.config.json.
 …
@@ -144,6 +148,18 @@ own:
   ! Provider: 2 providers are registered: anthropic, openai. The runtime can't build openai from its registration, so agents only get the others.
       ✗ openai: /adapter_config/api: adapter_config.api must be one of responses, chat-completions.
       Fix: Unregister openai (pnpm exec kindgi providers unregister openai), then register it again: pnpm exec kindgi providers register --preset=openai.
+```
+
+A registration with an `adapter_config` key its adapter doesn't read still
+builds, so it's a warning, never a failure. Here, a Gemini registration
+stored with `thinkingLevels`, whose setting is now each model's
+`thinking.default`
+([Gemini on Vertex AI](../../guides/models/gemini-on-vertex-ai/#a-registration-that-set-thinkinglevels)):
+
+```text
+  ! Provider: A provider is registered: gemini-api. gemini-api builds, but adapter_config.thinkingLevels isn't read.
+      ✗ gemini-api: /adapter_config/thinkingLevels: adapter_config.thinkingLevels isn't read here: its setting is metadata.models[].thinking.default.
+      Fix: Unregister gemini-api (pnpm exec kindgi providers unregister gemini-api), then register it again: pnpm exec kindgi providers register --spec=@<file> (its spec with each key moved to the place its warning names, or removed).
 ```
 
 `--json` gives the same checks as JSON, for a script or a coding agent
@@ -308,6 +324,21 @@ workspace root's or the pack folder's. It says which when it starts:
 - **Several packs in one project** share its database and tenant, but not
   each other's tools: under `kindgi dev`, a flow in one pack can't call
   another pack's tools.
+- **Git worktrees run side by side.** The project's name is the same in
+  every worktree, and `<worktree>` is git's name for a linked one. Each
+  worktree has its own dev tenant, user and token. In the bundled Postgres
+  it has its own database too, and its tenant and user are named from it;
+  with your own (`--database-url` or `KINDGI_DATABASE_URL`), it uses that
+  one. Its `.kindgirc.json`, which `kindgi init` keeps out of git, keeps
+  the token, the tenant and the user. When port `4000` is taken, by another
+  worktree's `kindgi dev` say, `kindgi dev` takes the next free one and
+  says so:
+  `⚠ port 4000 is in use (another kindgi dev?): using 4001`. The
+  worktree's `.kindgirc.json` records it, so the CLI there follows. A
+  `--port` that's taken is refused. The providers the Kindgi config declares
+  are registered in each worktree as it starts. One registered with
+  `kindgi providers register` belongs to one worktree, and so does an env
+  file git doesn't track, such as `.env.local`: copy it into a new worktree.
 
 ## Calling Kindgi from an application
 

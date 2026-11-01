@@ -34,7 +34,7 @@
 
 import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { chmod, readFile, unlink, writeFile } from 'node:fs/promises';
+import { readFile, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -71,6 +71,7 @@ import {
   PUBLIC_TOKEN_KEY_PATH_VAR,
   parseCorsOrigins,
 } from '@kindgi/env-schema';
+import { scrubText } from '@kindgi/log';
 
 import { indexerPredatesBlocks, packIndexerName } from '../build/pack-blocks.js';
 import type { CommandContext } from '../context.js';
@@ -161,13 +162,14 @@ import { PYPI_NO_BUNDLER } from '../esbuild-loader.js';
 import { openUrlInBrowser } from '../open-url.js';
 import { renderJson } from '../output.js';
 import { binDisplay, cliInstall, detectBinRunner } from '../package-manager.js';
+import { writePrivateFile } from '../private-file.js';
+import type { SaidLine } from '../progress-lines.js';
 import { MODELS_GUIDE } from '../providers/models-guide.js';
 import { loadProviderPresets } from '../providers/preset-loader.js';
 import { CLI_VERSION } from '../version-info.js';
 import { consoleUrlOf, couldNotOpen } from './console.js';
 import { defaultSdkSkillsRoot } from './init.js';
 import { describeDevSkillsRefresh, refreshSkillsForDev } from './skills.js';
-import type { DevSkillsLine } from './skills.js';
 import type { CommandResult, LeafCommand } from './types.js';
 
 export const devCommand: LeafCommand = {
@@ -557,7 +559,7 @@ async function runDevForPack(
     env: ctx.env,
     packDir: args.packDir,
     home: ctx.env.HOME ?? homedir(),
-    detect: dev.detectSandbox,
+    detect: () => dev.detectSandbox(ctx.env),
   });
   if (devSandbox.kind === 'error') {
     return { kind: 'error', stderr: `kindgi dev: ${devSandbox.message}\n`, exitCode: 1 };
@@ -689,7 +691,7 @@ async function runDevForPack(
       emitProgress('🧹 --reset: removed .kindgirc.json (a new token this boot)');
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-        emitProgress(`  --reset: could not remove .kindgirc.json: ${(err as Error).message}`);
+        emitProblem(`⚠ --reset: could not remove .kindgirc.json: ${(err as Error).message}`);
       }
     }
     if (projectDatabases === undefined) {
@@ -800,8 +802,8 @@ async function runDevForPack(
       return { kind: 'error', stderr: refused, exitCode: 1 };
     }
     if (previous.packServicePort === undefined) throw err;
-    emitProgress(
-      `  the pack service's port ${previous.packServicePort} is taken: using another one${args.runtimeUrl !== undefined ? ' (restart your runtime with the new runtime.env)' : ''}`,
+    emitProblem(
+      `⚠ the pack service's port ${previous.packServicePort} is taken: using another one${args.runtimeUrl !== undefined ? ' (restart your runtime with the new runtime.env)' : ''}`,
     );
     await pack.close().catch(() => undefined);
     pack = dev.createPackService(packOptions);
@@ -999,21 +1001,6 @@ async function runDevForPack(
   );
   if (previewWarning !== undefined) emitProblem(previewWarning);
 
-  const bannerLines = renderDevBanner({
-    baseUrl: server.baseUrl,
-    consoleMounted: server.consoleMounted === true,
-    tenantId: server.tenantId,
-    token: server.token,
-    providers,
-    packDir: args.packDir,
-    bootIndex,
-    bootReport,
-    discoveryRoots: discoveryRoots(projectEnv.discoveryPatterns),
-    ...(servicesHandle !== undefined && { autoStartedServices: servicesHandle.services }),
-    corsOrigins: publicRunTokens.corsOrigins,
-    ...(google.credentials !== undefined && { googleCredentials: google.credentials }),
-  });
-
   // Write `.kindgirc.json` to the pack root so a SECOND terminal in
   // the same directory (`cd <pack>; kindgi runs start ...`) picks up
   // the api URL + bearer token automatically. Same file the config
@@ -1031,31 +1018,32 @@ async function runDevForPack(
   // tenant row and orphans the pack's registered primitives under old
   // tenant UUIDs. Persisting keeps the "run this pack" identity
   // stable across restarts.
-  let kindgircWritten = false;
-  try {
-    await writeFile(
-      kindgircPath,
-      `${JSON.stringify(
-        {
-          apiUrl: server.baseUrl,
-          token: server.token,
-          tenantId: server.tenantId as unknown as string,
-          userId: server.userId,
-          packServicePort: packFront.port,
-          packServiceToken: pack.token,
-        },
-        null,
-        2,
-      )}\n`,
-      // It holds the dev token and the pack service's token.
-      { encoding: 'utf8', mode: 0o600 },
-    );
-    await chmod(kindgircPath, 0o600);
-    kindgircWritten = true;
-  } catch {
-    // Best effort — if the pack dir is read-only or something goes wrong,
-    // don't fail boot. The user can still pass --url/--token flags.
-  }
+  const kindgircWritten = await writeKindgirc(kindgircPath, {
+    apiUrl: server.baseUrl,
+    token: server.token,
+    tenantId: server.tenantId as unknown as string,
+    userId: server.userId,
+    packServicePort: packFront.port,
+    packServiceToken: pack.token,
+  });
+  // Where the token is in full: the banners show only its ends.
+  const tokenFile = kindgircWritten ? '.kindgirc.json' : join('.kindgi', 'dev', 'runtime.env');
+
+  const bannerLines = renderDevBanner({
+    baseUrl: server.baseUrl,
+    consoleMounted: server.consoleMounted === true,
+    tenantId: server.tenantId,
+    token: server.token,
+    tokenFile,
+    providers,
+    packDir: args.packDir,
+    bootIndex,
+    bootReport,
+    discoveryRoots: discoveryRoots(projectEnv.discoveryPatterns),
+    ...(servicesHandle !== undefined && { autoStartedServices: servicesHandle.services }),
+    corsOrigins: publicRunTokens.corsOrigins,
+    ...(google.credentials !== undefined && { googleCredentials: google.credentials }),
+  });
 
   // Where it serves, for a second kindgi dev to say (`dev.lock`).
   await lock
@@ -1081,7 +1069,7 @@ async function runDevForPack(
     emitProgress(`  Project    ${project.name} · database ${project.database}`);
   }
   emitProgress(`  Tenant     ${server.tenantId}`);
-  emitProgress(`  Token      ${server.token}`);
+  emitProgress(`  Token      ${describeDevToken(server.token, tokenFile)}`);
   if (providers !== undefined) {
     emitProgress(`  Models     ${describeModels(providers)}`);
   }
@@ -1126,11 +1114,10 @@ async function runDevForPack(
   if (args.open) {
     if (server.consoleMounted === true) {
       const opened = await (ctx.openUrl ?? openUrlInBrowser)(consoleUrlOf(server.baseUrl));
-      emitProgress(
-        opened.ok ? '  Opened the console in your browser.' : `  ${couldNotOpen(opened.reason)}`,
-      );
+      if (opened.ok) emitProgress('  Opened the console in your browser.');
+      else emitProblem(`⚠ ${couldNotOpen(opened.reason)}`);
     } else {
-      emitProgress('  --open: this runtime serves no console, so there is nothing to open.');
+      emitProblem('⚠ --open: this runtime serves no console, so there is nothing to open.');
     }
     emitProgress('');
   }
@@ -1693,6 +1680,29 @@ function pickRunners(ctx: CommandContext): RunnersOutcome {
 }
 
 /**
+ * Write `.kindgirc.json`, readable by its owner only, since it holds the dev
+ * token and the pack service's token: a new `0600` file that replaces the old
+ * one (`writePrivateFile`), so a program that opened an older, looser one
+ * can't read the new tokens through it. Whether it was written. Best effort:
+ * what goes wrong is a warning, and boot goes on. Without the file, the CLI
+ * in the folder can still pass --url and --token.
+ */
+async function writeKindgirc(
+  path: string,
+  rc: Readonly<Record<string, unknown>>,
+): Promise<boolean> {
+  try {
+    await writePrivateFile(path, `${JSON.stringify(rc, null, 2)}\n`);
+  } catch (err) {
+    emitProblem(
+      `⚠ couldn't write .kindgirc.json (${(err as Error).message}): the CLI in this folder needs --url and --token to reach this runtime`,
+    );
+    return false;
+  }
+  return true;
+}
+
+/**
  * Read the persisted `.kindgirc.json` if present. Returns `undefined`
  * for any missing field — all missing cases fall back to
  * server-generated on this boot. Called at boot so the previous run's
@@ -1972,7 +1982,7 @@ async function emitSkillsRefresh(
 ): Promise<void> {
   const skillsRoot = defaultSdkSkillsRoot();
   if (skillsRoot === undefined) return;
-  let lines: readonly DevSkillsLine[];
+  let lines: readonly SaidLine[];
   try {
     const refresh = await refreshSkillsForDev({ skillsRoot, targetDir: packDir, language });
     lines = describeDevSkillsRefresh(refresh, commands);
@@ -2162,6 +2172,8 @@ interface DevBannerInputs {
   readonly consoleMounted?: boolean;
   readonly tenantId: string;
   readonly token: string;
+  /** The file in the pack that has the token in full (see `describeDevToken`). */
+  readonly tokenFile: string;
   /** The tenant's model providers; `undefined` leaves the line out. */
   readonly providers?: readonly BannerProvider[] | undefined;
   readonly packDir: string;
@@ -2178,6 +2190,21 @@ interface DevBannerInputs {
   readonly corsOrigins?: readonly string[];
   /** The Google credentials mounted for Vertex AI (`KINDGI_DEV_GOOGLE_CREDENTIALS`). Absent: no line. */
   readonly googleCredentials?: DevGoogleCredentials;
+}
+
+/**
+ * The dev token as the banners show it: as the runtime's own startup line
+ * does, `kgi_bt_…` and its last four characters, so a dev log someone
+ * pastes doesn't give the token away. A token pinned with `--dev-token` in
+ * another shape shows only its last four, and none under 16 characters.
+ * `tokenFile`, in the pack, has it in full.
+ */
+export function describeDevToken(token: string, tokenFile: string): string {
+  const scrubbed = scrubText(token);
+  const shown = /^kgi_[a-z]{2,3}_…[^…]{0,4}$/u.test(scrubbed)
+    ? scrubbed
+    : `…${token.length >= 16 ? token.slice(-4) : ''}`;
+  return `${shown}   (in full in the pack's ${tokenFile})`;
 }
 
 /** The browser origins line: who may follow runs with public run tokens (`KINDGI_CORS_ORIGINS`). */
@@ -2225,7 +2252,7 @@ export function renderDevBanner(inputs: DevBannerInputs): readonly string[] {
   }
   lines.push(`    API server         ${inputs.baseUrl}`);
   lines.push(`    Tenant             ${inputs.tenantId}`);
-  lines.push(`    Bearer token       ${inputs.token}`);
+  lines.push(`    Bearer token       ${describeDevToken(inputs.token, inputs.tokenFile)}`);
   lines.push(`    Pack dir           ${inputs.packDir}`);
   if (inputs.providers !== undefined) {
     lines.push(`    Models             ${describeModels(inputs.providers)}`);

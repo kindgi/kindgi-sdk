@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026 Kindgi Inc.
 
-# The two Cloud Run services: the pack service (runs the pack's code,
-# internal only) and the server (the API, agent and flow execution).
+# The server (the API, agent and flow execution) on Cloud Run. Each
+# deployment's pack code runs in a Cloud Run service of its own, which the
+# pack orchestrator makes (orchestrator.tf); the server calls each one at the
+# endpoint it recorded (KINDGI_PACK_ROUTING=per-deployment).
 
 locals {
   # The instance the server serves from: database_instance's (a restore
@@ -25,174 +27,32 @@ locals {
   server_module_env = toset([
     "KINDGI_API_TOKEN", "KINDGI_CORS_ORIGINS", "KINDGI_DATABASE_SERVER_CA",
     "KINDGI_DATABASE_SERVER_CA_PATH", "KINDGI_DATABASE_URL", "KINDGI_DEV", "KINDGI_ENV",
+    "KINDGI_ENV_CLOUD_SECRETS",
     "KINDGI_EXPORT_SIGNING_KEY", "KINDGI_EXPORT_SIGNING_KMS_KEY", "KINDGI_IMAGE_REGISTRY_AUTH",
     "KINDGI_IMAGE_REGISTRY_HOST", "KINDGI_LICENSE_KEY", "KINDGI_OPENFGA_API_URL",
-    "KINDGI_PACK_CALL_TIMEOUT_MS", "KINDGI_PACK_SERVICE_AUTH", "KINDGI_PACK_SERVICE_TOKEN",
-    "KINDGI_PACK_SERVICE_URL", "KINDGI_PUBLIC_TOKEN_SIGNING_KEY", "KINDGI_PUBLIC_URL",
+    "KINDGI_PACK_CALL_TIMEOUT_MS", "KINDGI_PACK_ENDPOINT_HOSTS", "KINDGI_PACK_ENDPOINT_KMS_KEY",
+    "KINDGI_PACK_ROUTING", "KINDGI_PUBLIC_TOKEN_SIGNING_KEY", "KINDGI_PUBLIC_URL",
     "KINDGI_SECRETS_AAD_KEY", "KINDGI_SECRETS_BACKEND", "KINDGI_SECRETS_BACKEND_KMS",
     "KINDGI_SECRETS_GCP_KEY_ID", "KINDGI_SECRETS_GCP_KEY_RING_ID", "KINDGI_SECRETS_GCP_LOCATION_ID",
     "KINDGI_SECRETS_GCP_PROJECT_ID", "KINDGI_SEED_USER_ID", "KINDGI_TENANCY", "KINDGI_TENANT_ID",
     "KINDGI_TRUSTED_PROXIES",
   ])
   server_extra_env = setunion(keys(var.server_env), keys(var.server_secret_env))
+  # The one pack service's settings, which a server routing per deployment
+  # refuses at boot: each endpoint carries its own URL, token and auth.
+  single_pack_env = toset(["KINDGI_PACK_SERVICE_AUTH", "KINDGI_PACK_SERVICE_TOKEN", "KINDGI_PACK_SERVICE_URL"])
+
+  # Where the pack orchestrator makes each deployment's service: Cloud Run's
+  # deterministic URLs in this project and region, the only hosts the server
+  # takes an endpoint on.
+  pack_endpoint_hosts = "*-${local.project_number}.${var.region}.run.app"
 
   # What a server serving many tenants needs, each named when it's missing.
   multi_missing = compact([
     var.openfga_api_url == "" ? "openfga_api_url (without an authorization store, no tenant would have an admin)" : "",
     contains(keys(var.server_secret_env), "KINDGI_OPENFGA_PRESHARED_KEY") ? "" : "server_secret_env's KINDGI_OPENFGA_PRESHARED_KEY (a key the authorization store accepts)",
     lookup(var.server_env, "KINDGI_TENANT_HOST_ACCESS", "") == "isolated" ? "" : "server_env's KINDGI_TENANT_HOST_ACCESS = \"isolated\"",
-    lookup(var.server_env, "KINDGI_PACK_ROUTING", "") == "per-deployment" ? "" : "server_env's KINDGI_PACK_ROUTING = \"per-deployment\"",
-    lookup(var.server_env, "KINDGI_PACK_ENDPOINT_HOSTS", "") != "" ? "" : "server_env's KINDGI_PACK_ENDPOINT_HOSTS (the hosts a deployment's endpoint may be on)",
-    var.secrets_backend == "postgres" ? "" : "secrets_backend = \"postgres\" (each endpoint's token is sealed under the secrets' key)",
   ])
-}
-
-# ---- the pack service ---------------------------------------------------------
-
-resource "google_cloud_run_v2_service" "pack" {
-  count               = local.pack ? 1 : 0
-  name                = "${var.name_prefix}-pack"
-  location            = var.region
-  ingress             = var.pack_ingress
-  deletion_protection = false
-
-  template {
-    service_account                  = google_service_account.pack[0].email
-    timeout                          = var.pack_timeout
-    max_instance_request_concurrency = var.pack_concurrency
-
-    scaling {
-      min_instance_count = var.pack_min_instances
-      max_instance_count = var.pack_max_instances
-    }
-
-    # Connector mode: the pack's code reaches private IPs (an app
-    # database) through the existing connector. Not in direct mode (the pack
-    # is internal) or none (no VPC).
-    dynamic "vpc_access" {
-      for_each = var.network_mode == "connector" ? [1] : []
-      content {
-        connector = var.vpc_connector
-        egress    = "PRIVATE_RANGES_ONLY"
-      }
-    }
-
-    dynamic "volumes" {
-      for_each = length(var.pack_cloud_sql_instances) > 0 ? [1] : []
-      content {
-        name = "cloudsql"
-        cloud_sql_instance {
-          instances = var.pack_cloud_sql_instances
-        }
-      }
-    }
-
-    containers {
-      image = var.pack_image
-
-      ports {
-        container_port = 8080
-      }
-
-      resources {
-        limits = {
-          cpu    = "1"
-          memory = "1Gi"
-        }
-        # CPU only while a call runs: the service does no work between
-        # calls, so the instance pack_min_instances keeps up bills at the
-        # idle rate. Named because with limits set, Cloud Run otherwise
-        # keeps CPU allocated. The boost shortens the start, which imports
-        # every module before it listens.
-        cpu_idle          = true
-        startup_cpu_boost = true
-      }
-
-      env {
-        name = "KINDGI_PACK_SERVICE_TOKEN"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.shared["pack_service_token"].secret_id
-            version = "latest"
-          }
-        }
-      }
-      env {
-        name  = "KINDGI_PACK_SERVICE_MAX_CONCURRENCY"
-        value = tostring(var.pack_concurrency)
-      }
-      env {
-        name  = "KINDGI_PACK_ENV_CHECK"
-        value = "strict"
-      }
-
-      # The pack's declared env (`kindgi env plan --env <name>`): plain
-      # values, then Secret Manager references, read with this service's
-      # identity at instance start.
-      dynamic "env" {
-        for_each = var.pack_env
-        content {
-          name  = env.key
-          value = env.value
-        }
-      }
-      dynamic "env" {
-        for_each = var.pack_secret_env
-        content {
-          name = env.key
-          value_source {
-            secret_key_ref {
-              secret  = env.value.project == null ? env.value.secret : "projects/${env.value.project}/secrets/${env.value.secret}"
-              version = env.value.version
-            }
-          }
-        }
-      }
-
-      dynamic "volume_mounts" {
-        for_each = length(var.pack_cloud_sql_instances) > 0 ? [1] : []
-        content {
-          name       = "cloudsql"
-          mount_path = "/cloudsql"
-        }
-      }
-
-      # Not ready until every module is loaded and every env.required name
-      # is set: a revision missing one never takes traffic, and its logs
-      # (and /v1/info) name what's missing.
-      startup_probe {
-        http_get {
-          path = "/readyz"
-          port = 8080
-        }
-        period_seconds    = 5
-        timeout_seconds   = 3
-        failure_threshold = 24
-      }
-      liveness_probe {
-        http_get {
-          path = "/healthz"
-          port = 8080
-        }
-        period_seconds = 30
-      }
-    }
-  }
-
-  depends_on = [
-    google_project_service.apis,
-    google_secret_manager_secret_iam_member.pack_reads_token,
-  ]
-}
-
-# Only the server may call the pack service (with a Google ID token, plus
-# the pack token in Kindgi-Pack-Token).
-resource "google_cloud_run_v2_service_iam_member" "server_invokes_pack" {
-  count    = local.pack ? 1 : 0
-  name     = google_cloud_run_v2_service.pack[0].name
-  location = var.region
-  role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.server.email}"
 }
 
 # ---- the server ---------------------------------------------------------------
@@ -346,14 +206,14 @@ resource "google_cloud_run_v2_service" "server" {
       # KINDGI_SECRETS_* variable is set: the runtime stores no secrets.
       # The order is the one these had before secrets_backend existed.
       dynamic "env" {
-        for_each = local.kms ? [["KINDGI_SECRETS_BACKEND", "postgres"], ["KINDGI_SECRETS_BACKEND_KMS", "gcp"]] : []
+        for_each = local.postgres_secrets ? [["KINDGI_SECRETS_BACKEND", "postgres"], ["KINDGI_SECRETS_BACKEND_KMS", "gcp"]] : []
         content {
           name  = env.value[0]
           value = env.value[1]
         }
       }
       dynamic "env" {
-        for_each = local.kms ? [1] : []
+        for_each = local.postgres_secrets ? [1] : []
         content {
           name = "KINDGI_SECRETS_AAD_KEY"
           value_source {
@@ -368,11 +228,11 @@ resource "google_cloud_run_v2_service" "server" {
         }
       }
       dynamic "env" {
-        for_each = local.kms ? [
+        for_each = local.postgres_secrets ? [
           ["KINDGI_SECRETS_GCP_PROJECT_ID", var.project_id],
           ["KINDGI_SECRETS_GCP_LOCATION_ID", var.region],
-          ["KINDGI_SECRETS_GCP_KEY_RING_ID", google_kms_key_ring.kindgi[0].name],
-          ["KINDGI_SECRETS_GCP_KEY_ID", google_kms_crypto_key.secrets[0].name],
+          ["KINDGI_SECRETS_GCP_KEY_RING_ID", google_kms_key_ring.kindgi.name],
+          ["KINDGI_SECRETS_GCP_KEY_ID", google_kms_crypto_key.secrets.name],
         ] : []
         content {
           name  = env.value[0]
@@ -380,36 +240,31 @@ resource "google_cloud_run_v2_service" "server" {
         }
       }
 
-      # The pack service: its internal URL, the shared token, and a Google
-      # ID token per call (KINDGI_PACK_SERVICE_AUTH). Without a pack image
-      # there's no pack service, and so none of the three: each deployment
-      # is a service of its own (KINDGI_PACK_ROUTING=per-deployment), whose
-      # endpoint carries its own token and auth, and the server refuses them.
-      dynamic "env" {
-        for_each = local.pack ? [google_cloud_run_v2_service.pack[0].uri] : []
-        content {
-          name  = "KINDGI_PACK_SERVICE_URL"
-          value = env.value
-        }
+      # Each call goes to the pack service of the deployment that shipped
+      # what it names, at the endpoint the pack orchestrator recorded: a
+      # Cloud Run URL of this project and region, called with a Google ID
+      # token and that service's own token. Each endpoint's token is sealed
+      # under the module's key (KINDGI_PACK_ENDPOINT_KMS_KEY), whatever the
+      # secrets backend: turning the store on later changes nothing for them.
+      env {
+        name  = "KINDGI_PACK_ROUTING"
+        value = "per-deployment"
       }
-      dynamic "env" {
-        for_each = local.pack ? [google_secret_manager_secret.shared["pack_service_token"].secret_id] : []
-        content {
-          name = "KINDGI_PACK_SERVICE_TOKEN"
-          value_source {
-            secret_key_ref {
-              secret  = env.value
-              version = "latest"
-            }
-          }
-        }
+      env {
+        name  = "KINDGI_PACK_ENDPOINT_HOSTS"
+        value = local.pack_endpoint_hosts
       }
-      dynamic "env" {
-        for_each = local.pack ? ["google-id-token"] : []
-        content {
-          name  = "KINDGI_PACK_SERVICE_AUTH"
-          value = env.value
-        }
+      env {
+        name  = "KINDGI_PACK_ENDPOINT_KMS_KEY"
+        value = google_kms_crypto_key.secrets.id
+      }
+      # A pack's env may name a secret of yours in Secret Manager, pinned to
+      # a version (a cloud secret), whatever the secrets backend: each
+      # deployment's own service reads it as the pack account
+      # (pack_secret_readers).
+      env {
+        name  = "KINDGI_ENV_CLOUD_SECRETS"
+        value = "on"
       }
 
       # Reading deployments' images from Artifact Registry with the
@@ -532,30 +387,15 @@ resource "google_cloud_run_v2_service" "server" {
       error_message = "network_mode = \"connector\" needs vpc_connector (projects/<project>/locations/<region>/connectors/<name>)."
     }
     precondition {
-      condition     = !local.pack || var.network_mode == "direct" || var.pack_ingress == "INGRESS_TRAFFIC_ALL"
-      error_message = "network_mode = \"connector\" or \"none\" needs pack_ingress = \"INGRESS_TRAFFIC_ALL\": a server without a VPC reaches the pack service over its public URL (IAM still admits only the server's account)."
+      condition     = var.network_mode == "direct" || var.pack_ingress == "INGRESS_TRAFFIC_ALL"
+      error_message = "network_mode = \"connector\" or \"none\" needs pack_ingress = \"INGRESS_TRAFFIC_ALL\": a server without a VPC reaches each pack service over its public URL (IAM still admits only the project's invokers, the server's account among them)."
     }
     precondition {
-      condition = local.pack || (
-        length(var.pack_env) == 0 && length(var.pack_secret_env) == 0 && length(var.pack_cloud_sql_instances) == 0
-        && length(var.pack_bucket_readers) == 0 && length(var.pack_run_invokers) == 0
-      )
-      error_message = "pack_env, pack_secret_env, pack_cloud_sql_instances, pack_bucket_readers and pack_run_invokers configure the one pack service, which exists only with pack_image: set pack_image, or unset them."
+      condition     = length(setintersection(local.single_pack_env, local.server_extra_env)) == 0
+      error_message = "server_env and server_secret_env can't set KINDGI_PACK_SERVICE_URL, KINDGI_PACK_SERVICE_TOKEN or KINDGI_PACK_SERVICE_AUTH: the server calls each deployment's own pack service, whose endpoint carries its own URL, token and auth, and refuses the one pack service's settings."
     }
     precondition {
-      condition     = var.tenancy != "single" || local.pack
-      error_message = "tenancy = \"single\" needs pack_image: the one pack service the server calls."
-    }
-    precondition {
-      condition     = var.tenancy != "single" || contains(["", "single"], trimspace(lookup(var.server_env, "KINDGI_PACK_ROUTING", "")))
-      error_message = "tenancy = \"single\" calls the one pack service: server_env's KINDGI_PACK_ROUTING, if set, is empty or \"single\". \"per-deployment\" needs tenancy = \"multi\"."
-    }
-    precondition {
-      condition     = var.tenancy != "multi" || !local.pack
-      error_message = "tenancy = \"multi\" takes no pack_image: each deployment is a service of its own, whose endpoint carries its own URL, token and auth, and the server refuses the one pack service's. Leave it unset."
-    }
-    precondition {
-      condition     = !local.kms || var.secrets_aad_key_version != null
+      condition     = !local.postgres_secrets || var.secrets_aad_key_version != null
       error_message = "secrets_backend = \"postgres\" needs secrets_aad_key_version: the version of <prefix>-secrets-aad-key the server reads (\"1\" for a new deployment), never \"latest\"."
     }
     precondition {
@@ -633,6 +473,7 @@ resource "google_cloud_run_v2_service" "server" {
     google_secret_manager_secret_iam_member.server_reads_its_secrets,
     google_kms_crypto_key_iam_member.server_wraps,
     google_kms_crypto_key_iam_member.server_reads_key,
+    google_project_iam_member.server_invokes_packs,
     google_secret_manager_secret_iam_member.server_reads_export_key,
     google_kms_crypto_key_iam_member.server_signs_exports,
     google_project_iam_member.server_sql_client,
@@ -647,4 +488,16 @@ resource "google_cloud_run_v2_service_iam_member" "server_public" {
   location = var.region
   role     = "roles/run.invoker"
   member   = "allUsers"
+}
+
+# The server calls each deployment's pack service with a Google ID token. The
+# pack orchestrator makes and deletes those services, and never sets a
+# service's own policy, so the server may invoke the project's Cloud Run
+# services: run one installation per project. roles/run.servicesInvoker
+# invokes services and nothing else: unlike roles/run.invoker, it doesn't
+# let the server run the project's Jobs.
+resource "google_project_iam_member" "server_invokes_packs" {
+  project = var.project_id
+  role    = "roles/run.servicesInvoker"
+  member  = "serviceAccount:${google_service_account.server.email}"
 }

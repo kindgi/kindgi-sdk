@@ -29,6 +29,8 @@ import type {
   ScheduleFire as ScheduleFireWire,
   ScheduleRecord,
   ScheduleUnregisterResult,
+  ScheduleVersionPage as ScheduleVersionPageWire,
+  ScheduleVersion as ScheduleVersionWire,
   TakeTriggerOwnerBody,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
@@ -41,9 +43,16 @@ export type UpdateScheduleInput = PatchScheduleBody;
 export type UnregisterScheduleResult = ScheduleUnregisterResult;
 export type ScheduleFire = ScheduleFireWire;
 export type ScheduleFirePage = ScheduleFirePageWire;
+export type ScheduleVersion = ScheduleVersionWire;
+export type ScheduleVersionPage = ScheduleVersionPageWire;
 export type TakeTriggerOwnerInput = TakeTriggerOwnerBody;
 
 export interface ListScheduleFiresFilter {
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+export interface ListScheduleVersionsFilter {
   readonly limit?: number;
   readonly cursor?: string;
 }
@@ -129,6 +138,25 @@ export interface SchedulesClient {
   fires(triggerId: string, filter?: ListScheduleFiresFilter): Promise<ScheduleFirePage>;
 
   /**
+   * The schedule's versions, newest first: what it was from each version's
+   * `createdAt` on, who made it (`createdBy`) and why (`cause`). Each
+   * change makes one; a change that alters nothing, pausing and resuming
+   * make none. A fire's run uses the newest when it starts, and keeps it
+   * (its `trigger.version`).
+   *
+   * @wire GET /v1/schedules/:triggerId/versions
+   */
+  versions(triggerId: string, filter?: ListScheduleVersionsFilter): Promise<ScheduleVersionPage>;
+
+  /**
+   * One version of the schedule, by its number (from 1). Returns 404
+   * `trigger-version-not-found` for a number it never had.
+   *
+   * @wire GET /v1/schedules/:triggerId/versions/:version
+   */
+  getVersion(triggerId: string, version: number): Promise<ScheduleVersion>;
+
+  /**
    * Fire it now, outside the schedule: one run as the schedule's owner,
    * recorded with `manual: true`. The next occurrence is unchanged.
    *
@@ -137,10 +165,11 @@ export interface SchedulesClient {
   runNow(triggerId: string, options?: MutationOptions): Promise<ScheduleFire>;
 
   /**
-   * Become the schedule's owner, so its runs act as you from the next fire
-   * (for a schedule whose owner left). Needs `admin` on its project. Pass
+   * Become the schedule's owner, so its runs act as you from the next run
+   * that starts (for a schedule whose owner left). Needs `admin` on its project. Pass
    * `{ runAsServiceAccountId }` to make a service account the owner instead
-   * (needs `act_as` on the account).
+   * (needs `act_as` on the account), or `{ runAsProject: true }` to make
+   * the project's own account the owner (made the first time).
    *
    * @wire POST /v1/schedules/:triggerId/owner
    */
@@ -221,6 +250,22 @@ export function makeSchedulesClient(transport: Transport): SchedulesClient {
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
         },
+      });
+    },
+    async versions(triggerId, filter) {
+      return transport.request<ScheduleVersionPage>({
+        method: 'GET',
+        path: `/v1/schedules/${encodeURIComponent(triggerId)}/versions`,
+        query: {
+          ...(filter?.limit !== undefined && { limit: filter.limit }),
+          ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+        },
+      });
+    },
+    async getVersion(triggerId, version) {
+      return transport.request<ScheduleVersion>({
+        method: 'GET',
+        path: `/v1/schedules/${encodeURIComponent(triggerId)}/versions/${version}`,
       });
     },
     async runNow(triggerId, options) {

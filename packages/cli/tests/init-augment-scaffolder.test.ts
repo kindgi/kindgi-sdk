@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: packages/cli/src/templates/**
 
 /**
  * Tests for `runInitAugment` — the augment-mode scaffolder. Uses a
@@ -362,6 +363,24 @@ describe('runInitAugment — end-to-end', () => {
 
     await runInitAugment({ targetDir: root, skillsRoot, force: true });
     expect(await fileContents(userSkillPath)).toBe('# tools skill\n');
+  });
+
+  test("a skill's files a later run rewrote are the only ones it lists as created", async () => {
+    await writePkgJson(root, { name: 'my-app', version: '1.0.0' });
+    const tools = join(skillsRoot, 'kindgi-authoring-tools');
+    // Built so check-refs doesn't read it as a document reference.
+    const topic = `${'path-a'}.md`;
+    await writeFile(join(tools, topic), '# path a\n');
+    await runInitAugment({ targetDir: root, skillsRoot, force: false });
+    await writeFile(join(tools, topic), '# path a, again\n');
+
+    const result = await runInitAugment({ targetDir: root, skillsRoot, force: true });
+    if (result.kind !== 'ok') throw new Error(result.stderr);
+    const { created } = JSON.parse(result.rendered.stdout) as { created: string[] };
+    expect(created.filter((path) => path.includes(join('skills', 'kindgi-')))).toEqual([
+      join(root, '.claude', 'skills', 'kindgi-authoring-tools', topic),
+      join(root, '.agents', 'skills', 'kindgi-authoring-tools', topic),
+    ]);
   });
 
   test('preserves existing .env.local when present', async () => {

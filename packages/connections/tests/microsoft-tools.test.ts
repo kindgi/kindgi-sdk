@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   type OutlookSendInput,
+  outlookAttachmentGet,
   outlookMessageGet,
   outlookMessagesList,
   outlookSend,
@@ -25,6 +26,10 @@ const GRAPH = 'https://graph.microsoft.com/v1.0';
 const send = outlookSend({ id: 'acme.outlook.send' });
 const list = outlookMessagesList({ id: 'acme.outlook.messages.list' });
 const get = outlookMessageGet({ id: 'acme.outlook.messages.get' });
+
+/** A sender or recipient past both cuts, and how a message gives them. */
+const LONG_ADDRESS = { address: `${'a'.repeat(300)}@acme.test`, name: 'n'.repeat(300) };
+const CUT_PERSON = { address: `${'a'.repeat(253)}…`, name: `${'n'.repeat(199)}…` };
 
 function mail(): ToolConnection {
   return {
@@ -238,8 +243,9 @@ describe('outlook.messages.list', () => {
   it("reads only, with that person's mail.read", () => {
     expect(list).toMatchObject({
       id: 'acme.outlook.messages.list',
-      version: '1.0.0',
+      version: '1.1.0',
       mutating: false,
+      resultIsOutsideData: true,
       needsSpec: {
         connections: { mail: { app: 'microsoft', permissions: ['mail.read'], as: 'person' } },
       },
@@ -247,6 +253,16 @@ describe('outlook.messages.list', () => {
     });
     expect(list.effects?.map((e) => e.kind)).toEqual(['reads', 'network']);
     expect(list.needsApprovalWhenUnattended).toBeUndefined();
+  });
+
+  it("cuts a sender's address at 254 characters and name at 200", async () => {
+    graphAnswering(() =>
+      Response.json({
+        value: [{ ...RAW_MESSAGE, from: { emailAddress: LONG_ADDRESS } }],
+      }),
+    );
+    const r = await invokeToolForTest(list, {}, { connections: { mail: mail() } });
+    expect(r.kind === 'ok' && r.value.messages[0]?.from).toEqual(CUT_PERSON);
   });
 
   it('lists the newest first, with ids that survive a move', async () => {
@@ -325,7 +341,7 @@ describe('outlook.messages.list', () => {
       { connections: { mail: mail() } },
     );
     expect(r.kind === 'err' && r.error.message).toContain(
-      "Outlook found nothing at /me/mailFolders/archive/messages in the person's mailbox. (ErrorItemNotFound: Not found.)",
+      'Outlook found nothing at /me/mailFolders/archive/messages in the mailbox. (ErrorItemNotFound: Not found.)',
     );
   });
 });
@@ -334,6 +350,7 @@ describe('outlook.messages.get', () => {
   it("reads only, with that person's mail.read", () => {
     expect(get).toMatchObject({
       mutating: false,
+      resultIsOutsideData: true,
       needsSpec: {
         connections: { mail: { app: 'microsoft', permissions: ['mail.read'], as: 'person' } },
       },
@@ -341,7 +358,8 @@ describe('outlook.messages.get', () => {
     expect(get.effects?.map((e) => e.kind)).toEqual(['reads', 'network']);
   });
 
-  it('reads one message, its body as plain text', async () => {
+  it('reads one message as a MailMessage, its body as plain text, at 2.0.0', async () => {
+    expect(get.version).toBe('2.0.0');
     const sent = graphAnswering(() => Response.json(RAW_MESSAGE));
     const r = await invokeToolForTest(
       get,
@@ -352,22 +370,190 @@ describe('outlook.messages.get', () => {
       kind: 'ok',
       value: {
         id: RAW_MESSAGE.id,
+        threadId: 'AAQkAGI2-conv',
         subject: 'The revised quote',
         from: { address: 'bo@acme.test', name: 'Bo' },
         to: [{ address: 'ana@acme.test', name: 'Ana' }],
         cc: [{ address: 'cy@acme.test' }],
+        replyTo: [],
         receivedAt: '2026-10-22T14:03:00Z',
         body: 'Here it is.\nBo',
         bodyCut: false,
-        conversationId: 'AAQkAGI2-conv',
+        attachments: [],
+        autoSubmitted: false,
       },
     });
     const url = sent[0]?.url ?? '';
     expect(url.split('?')[0]).toBe(`${GRAPH}/me/messages/${RAW_MESSAGE.id}`);
     expect(queryOf(url)).toEqual({
-      $select: 'id,subject,from,toRecipients,ccRecipients,receivedDateTime,body,conversationId',
+      $select:
+        'id,conversationId,subject,from,toRecipients,ccRecipients,replyTo,receivedDateTime,internetMessageHeaders,body',
+      $expand: 'attachments($select=id,name,contentType,size,isInline)',
     });
     expect(sent[0]?.headers.prefer).toBe('outlook.body-content-type="text", IdType="ImmutableId"');
+  });
+
+  it('names the attachments, one in the body marked inline, and marks an automatic reply', async () => {
+    // learn.microsoft.com/en-us/graph/api/resources/message (internetMessageHeaders, replyTo),
+    // .../resources/attachment (name, contentType, size, isInline; fileAttachment and itemAttachment).
+    graphAnswering(() =>
+      Response.json({
+        ...RAW_MESSAGE,
+        replyTo: [{ emailAddress: { address: 'orders@acme.test', name: 'Orders' } }],
+        internetMessageHeaders: [
+          { name: 'Received', value: 'from mail.acme.test' },
+          { name: 'Auto-Submitted', value: 'auto-replied' },
+        ],
+        attachments: [
+          {
+            '@odata.type': '#microsoft.graph.fileAttachment',
+            name: 'quote.pdf',
+            contentType: 'application/pdf',
+            size: 52_113,
+            isInline: false,
+          },
+          {
+            '@odata.type': '#microsoft.graph.fileAttachment',
+            name: 'logo.png',
+            contentType: 'image/png',
+            size: 900,
+            isInline: true,
+          },
+          {
+            '@odata.type': '#microsoft.graph.itemAttachment',
+            name: 'Fwd: the order',
+            contentType: null,
+            size: 2_000,
+            isInline: false,
+          },
+        ],
+      }),
+    );
+    const r = await invokeToolForTest(
+      get,
+      { messageId: RAW_MESSAGE.id },
+      { connections: { mail: mail() } },
+    );
+    expect(r.kind === 'ok' && r.value).toMatchObject({
+      replyTo: [{ address: 'orders@acme.test', name: 'Orders' }],
+      autoSubmitted: true,
+    });
+    expect(r.kind === 'ok' && r.value.attachments).toEqual([
+      { name: 'quote.pdf', contentType: 'application/pdf', size: 52_113 },
+      { name: 'logo.png', contentType: 'image/png', size: 900, inline: true },
+      { name: 'Fwd: the order', contentType: 'message/rfc822', size: 2_000 },
+    ]);
+  });
+
+  it('lists the first 20 attachments, each name and type cut at 200 characters, and counts the rest', async () => {
+    graphAnswering(() =>
+      Response.json({
+        ...RAW_MESSAGE,
+        attachments: Array.from({ length: 25 }, (_, i) => ({
+          '@odata.type': '#microsoft.graph.fileAttachment',
+          name: i === 0 ? 'n'.repeat(300) : `file-${i}.pdf`,
+          contentType: i === 0 ? `application/${'x'.repeat(300)}` : 'application/pdf',
+          size: 1_000,
+          isInline: false,
+        })),
+      }),
+    );
+    const r = await invokeToolForTest(
+      get,
+      { messageId: RAW_MESSAGE.id },
+      { connections: { mail: mail() } },
+    );
+    const value = r.kind === 'ok' ? r.value : undefined;
+    expect(value?.attachments).toHaveLength(20);
+    expect(value?.attachments[0]).toEqual({
+      name: `${'n'.repeat(199)}…`,
+      contentType: `application/${'x'.repeat(187)}…`,
+      size: 1_000,
+    });
+    expect(value?.attachments[19]?.name).toBe('file-19.pdf');
+    expect(value?.attachmentsLeftOut).toBe(5);
+  });
+
+  it.each([
+    ['toRecipients', 'to', 'toLeftOut'],
+    ['ccRecipients', 'cc', 'ccLeftOut'],
+    ['replyTo', 'replyTo', 'replyToLeftOut'],
+  ] as const)(
+    'gives the first 20 people of %s, each address cut at 254 characters and name at 200, and counts the rest',
+    async (raw, field, leftOut) => {
+      graphAnswering(() =>
+        Response.json({
+          ...RAW_MESSAGE,
+          [raw]: Array.from({ length: 25 }, (_, i) => ({
+            emailAddress: i === 0 ? LONG_ADDRESS : { address: `p${i}@acme.test` },
+          })),
+        }),
+      );
+      const r = await invokeToolForTest(
+        get,
+        { messageId: RAW_MESSAGE.id },
+        { connections: { mail: mail() } },
+      );
+      const value = r.kind === 'ok' ? r.value : undefined;
+      expect(value?.[field]).toHaveLength(20);
+      expect(value?.[field][0]).toEqual(CUT_PERSON);
+      expect(value?.[field][19]).toEqual({ address: 'p19@acme.test' });
+      expect(value?.[leftOut]).toBe(5);
+    },
+  );
+
+  it('cuts the sender like the others, and counts none of 20 or fewer people', async () => {
+    const twenty = Array.from({ length: 20 }, (_, i) => ({
+      emailAddress: { address: `p${i}@acme.test` },
+    }));
+    graphAnswering(() =>
+      Response.json({
+        ...RAW_MESSAGE,
+        from: { emailAddress: LONG_ADDRESS },
+        toRecipients: twenty,
+        ccRecipients: twenty,
+        replyTo: twenty,
+      }),
+    );
+    const r = await invokeToolForTest(
+      get,
+      { messageId: RAW_MESSAGE.id },
+      { connections: { mail: mail() } },
+    );
+    const value = r.kind === 'ok' ? r.value : undefined;
+    expect(value?.from).toEqual(CUT_PERSON);
+    expect([value?.to.length, value?.cc.length, value?.replyTo.length]).toEqual([20, 20, 20]);
+    expect(value && ['toLeftOut', 'ccLeftOut', 'replyToLeftOut'].filter((k) => k in value)).toEqual(
+      [],
+    );
+  });
+
+  it('gives no count of attachments left out when there are 20 or fewer', async () => {
+    graphAnswering(() => Response.json(RAW_MESSAGE));
+    const r = await invokeToolForTest(
+      get,
+      { messageId: RAW_MESSAGE.id },
+      { connections: { mail: mail() } },
+    );
+    expect(r.kind === 'ok' && 'attachmentsLeftOut' in r.value).toBe(false);
+  });
+
+  it('turns a body Graph gives as HTML into text', async () => {
+    graphAnswering(() =>
+      Response.json({
+        ...RAW_MESSAGE,
+        body: {
+          contentType: 'html',
+          content: '<html><body><p>Here <b>it</b> is.</p></body></html>',
+        },
+      }),
+    );
+    const r = await invokeToolForTest(
+      get,
+      { messageId: RAW_MESSAGE.id },
+      { connections: { mail: mail() } },
+    );
+    expect(r.kind === 'ok' && r.value.body).toBe('Here it is.');
   });
 
   it('gives the first 50,000 characters of a longer body, and says it was cut', async () => {
@@ -381,6 +567,22 @@ describe('outlook.messages.get', () => {
     expect(r.kind === 'ok' && r.value.bodyCut).toBe(true);
   });
 
+  it('keeps a long web address whole, without its tracking', async () => {
+    const share = `https://share.acme.example/s/${'k'.repeat(80)}/invoice.pdf?rlkey=z9`;
+    graphAnswering(() =>
+      Response.json({
+        ...RAW_MESSAGE,
+        body: { contentType: 'text', content: `The invoice: ${share}&utm_source=mail` },
+      }),
+    );
+    const r = await invokeToolForTest(
+      get,
+      { messageId: RAW_MESSAGE.id },
+      { connections: { mail: mail() } },
+    );
+    expect(r.kind === 'ok' && r.value.body).toBe(`The invoice: ${share}`);
+  });
+
   it("an id that isn't one never reaches the path", async () => {
     const sent = graphAnswering(() => Response.json(RAW_MESSAGE));
     for (const messageId of ['../mailFolders', 'a/b', 'a?b', '']) {
@@ -391,5 +593,36 @@ describe('outlook.messages.get', () => {
       get.handler({ messageId: '../me' }, toolContextForTest({ connections: { mail: mail() } })),
     ).rejects.toThrow("isn't a message id");
     expect(sent).toHaveLength(0);
+  });
+});
+
+describe('Outlook tools for the company mailbox', () => {
+  it.each([
+    ['outlookSend', outlookSend, 'mail.send', "Sends mail as the company's mailbox."],
+    ['outlookMessagesList', outlookMessagesList, 'mail.read', undefined],
+    ['outlookMessageGet', outlookMessageGet, 'mail.read', undefined],
+    ['outlookAttachmentGet', outlookAttachmentGet, 'mail.read', undefined],
+  ] as const)(
+    "%s with as: 'company' needs the company's connection, and says whose",
+    (_name, make, permission, notes) => {
+      const person = make({ id: 'acme.mail' });
+      const company = make({ id: 'acme.store-mail', as: 'company' });
+      expect(company.needsSpec?.connections).toEqual({
+        mail: { app: 'microsoft', permissions: [permission], as: 'company' },
+      });
+      expect(person.needsSpec?.connections?.mail?.as).toBe('person');
+      expect(company.description).toContain("the company's Outlook mailbox");
+      expect(person.description).not.toContain('company');
+      if (notes !== undefined) expect(toManifest(company).effects?.[0]?.notes).toBe(notes);
+      // The same version for both: an id keeps its `as` (tool-pins.test.ts pins each).
+      expect(company.version).toBe(person.version);
+      expect(company.resultIsOutsideData).toBe(person.resultIsOutsideData);
+    },
+  );
+
+  it('a company send still waits for a yes in a run no person started', () => {
+    expect(
+      outlookSend({ id: 'acme.store-mail.send', as: 'company' }).needsApprovalWhenUnattended,
+    ).toBe(true);
   });
 });

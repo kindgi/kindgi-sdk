@@ -98,7 +98,7 @@ async function sites(argv: readonly string[]) {
 const REQUIRED = ['--name=Acme store', `--origin=${ORIGIN}`, `--approvals-url=${APPROVALS_URL}`];
 
 describe('kindgi sites register', () => {
-  test("in the Default project: the site's settings as given, and its code once, with where to paste it", async () => {
+  test("in the default project: the site's settings as given, and its code once, with where to paste it", async () => {
     const { out, calls } = await sites(['register', ...REQUIRED]);
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
@@ -118,6 +118,13 @@ describe('kindgi sites register', () => {
     expect(out.stderr).toContain('under Kindgi → Settings');
     expect(out.stderr).toContain('this CLI uses https://kindgi.acme.example');
     expect(out.stderr).toContain(`\`kindgi sites code ${SITE_ID}\` gives a new one`);
+  });
+
+  test('--quiet: the one-time code alone on stdout, and no notes', async () => {
+    const { out } = await sites(['register', ...REQUIRED, '--quiet']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toBe(`${CODE.code}\n`);
+    expect(out.stderr).toBe('');
   });
 
   test('every setting, in a project given', async () => {
@@ -198,6 +205,13 @@ describe('kindgi sites: the rest of the group', () => {
     expect(out.stderr).toContain('under Kindgi → Settings');
   });
 
+  test('code --quiet: the one-time code alone on stdout, and no notes', async () => {
+    const { out } = await sites(['code', SITE_ID, `--project=${PROJECT}`, '--quiet']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toBe(`${CODE.code}\n`);
+    expect(out.stderr).toBe('');
+  });
+
   test('list as a table: each site, its state and its keys; unregistered ones when asked', async () => {
     const { out, calls } = await sites(['list', '--include-unregistered', '--limit=10', '--table']);
     expect(out.exitCode, out.stderr).toBe(0);
@@ -235,7 +249,7 @@ describe('kindgi sites: the rest of the group', () => {
     expect(revoked.calls).toEqual([['revokeKey', PROJECT, SITE_ID, 'k1']]);
   });
 
-  test('restore-person: the site and the person by id, in the project given or the Default one', async () => {
+  test('restore-person: the site and the person by id, in the project given or the default one', async () => {
     const restored = await sites(['restore-person', SITE_ID, PERSON_ID, `--project=${PROJECT}`]);
     expect(restored.out.exitCode, restored.out.stderr).toBe(0);
     expect(restored.calls).toEqual([['restorePerson', PROJECT, SITE_ID, PERSON_ID]]);

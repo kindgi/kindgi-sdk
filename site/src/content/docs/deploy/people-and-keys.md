@@ -48,7 +48,7 @@ With authorization on:
   providers, policies, adapters and signing keys. Everyone you add is one.
   A deployment is read in the project it serves: a member lists and reads
   only those in projects they read. One deployed without a project is the
-  Default project's.
+  default project's.
 - **A role on a project** gives the work in it: its agents, runs and
   conversations. The roles are `owner`, `admin`, `editor` and `viewer`
   ([Project memberships](../authorization/#project-memberships)).
@@ -92,6 +92,11 @@ with `KINDGI_TENANCY=multi`, the runtime doesn't start without a store.
 - **Roles aren't checked.** A project role you record, and a service
   account's grants, give nothing more here. Making a person a tenant admin
   answers `501 person-grants-unsupported`.
+- **Schedules and webhook triggers keep to their owners** (runtime 0.2.0 or
+  later). Only a tenant admin changes, pauses, fires or unregisters someone
+  else's personal one, changes what a shared one runs, sets one's tools
+  allowed unattended, or takes one over
+  ([Shared or personal](../../guides/runs/run-on-a-schedule/#shared-or-personal)).
 
 [Run with authorization](../authorization/) when people need different
 access, or more than one person needs to be a tenant admin.
@@ -336,15 +341,23 @@ key that carries a capability, or let it expire, make its replacement with
 it. If the first admin doesn't hold a capability and no key in the tenant
 carries it, contact support.
 
-Make the key that deploys, from CI or anywhere else, for a service account
-that's a tenant admin, not for the first admin. It keeps working if the
-first admin stops being a tenant admin or is removed, and as a tenant
-admin, whoever holds it can make new keys with its capabilities:
+Make the key that carries these capabilities for a service account that's
+a tenant admin, not for the first admin. It keeps working if the first
+admin stops being a tenant admin or is removed, and as a tenant admin,
+whoever holds it can make new keys with its capabilities:
 
 ```sh
-npx --yes @kindgi/cli@0.2 service-accounts create acme-deploy --description="Deploys" --tenant-admin
-npx --yes @kindgi/cli@0.2 tokens create --for=sa:<service-account-id> --role=admin --capability=signing-keys:write --capability=secrets:write --label=deploy --expires=90d
+npx --yes @kindgi/cli@0.2 service-accounts create acme-admin --description="Trusts signing keys and sets secrets" --tenant-admin
+npx --yes @kindgi/cli@0.2 tokens create --for=sa:<service-account-id> --role=admin --capability=signing-keys:write --capability=secrets:write --label=admin --expires=90d
 ```
+
+It can trust signing keys, so keep it out of CI: trusting CI's signing key
+is a person's step, and CI's keys are each made for one job
+([The keys CI uses](../ship-from-ci/#the-keys-ci-uses)). On Kindgi Cloud,
+CI's deploy key is a tenant admin's key too, with no capability. It can
+still promote to prod, replace release gates, and make service
+accounts and keys, so main's own protection is what guards prod there
+([The deploy key](../ship-from-ci/#the-deploy-key)).
 
 ## What you may do
 
@@ -375,6 +388,16 @@ a role.
 - **`capabilities`:** what each project role allows on the project and on
   each kind of object in it, read from the runtime's authorization model.
   Your project role's entry is what you may do there.
+- **`licenseOperatorOnly`:** `true` when `GET /v1/license` refuses you
+  whatever your role, because the license is the deployment operator's, as
+  on a runtime serving many tenants; the console doesn't ask it then.
+  `false` when your role decides: the deployment's own token reads it, and
+  where the deployment is set up to serve one tenant (without
+  `KINDGI_TENANCY=multi`) and its database holds only yours, its admins
+  (`tenant.admin`) read the license's countdown and its other people are
+  still refused. It's absent when the deployment has no license to read, or
+  couldn't read its tenants just then, and on an older runtime: ask
+  `GET /v1/license` as before.
 - **`readOnlyNotice`:** the line the console shows someone who may only
   view a project, when a tenant admin set one. It's in the tenant config,
   `kind: 'config'`, key `console.readOnlyNotice`, plain text on one line, at
@@ -428,7 +451,10 @@ Make longer-lived keys with one of those, such as the 90-day key in
   only for a tenant admin. For anyone else, it's refused with
   `403 role-exceeds-principal`.
 - **`--project=<project-id>`** limits the key to one project. A request that
-  names another project is refused with `403 key-project-mismatch`.
+  names another project is refused with `403 key-project-mismatch`. A
+  promotion reads one project and writes another, so a key limited to a
+  project is refused the same way on every promotion
+  ([A promote key for each later environment](../ship-from-ci/#a-promote-key-for-each-later-environment)).
 - **`--capability=<cap>`,** repeatable, puts a capability on the key, such as
   `signing-keys:write` or `secrets:write`
   ([Who can do what](#who-can-do-what)). You can give only those you hold,
@@ -495,10 +521,11 @@ so a tool that needs a person's yes when no one is watching waits for one
 - **On a runtime serving one tenant, the runtime's API token acts as the
   seed user,** a person, so the runs it starts count as a person's.
 
-Make one:
+Make one. A deploy into a project takes `admin` on it, so this one, which
+deploys from CI, is an admin of one project:
 
 ```sh
-npx --yes @kindgi/cli@0.2 service-accounts create acme-ci --description="Deploys from CI" --project=<project-id>:editor
+npx --yes @kindgi/cli@0.2 service-accounts create acme-ci --description="Deploys from CI" --project=<project-id>:admin
 ```
 
 - `acme-ci` is the account's name.
@@ -515,7 +542,7 @@ npx --yes @kindgi/cli@0.2 service-accounts create acme-ci --description="Deploys
     {
       "kind": "project",
       "projectId": "211244ea-cdac-45e5-be8c-30a3e0bc42f7",
-      "role": "editor"
+      "role": "admin"
     }
   ],
   "createdBy": "user:11111111-3333-4333-8444-000000000402",
@@ -523,24 +550,88 @@ npx --yes @kindgi/cli@0.2 service-accounts create acme-ci --description="Deploys
 }
 ```
 
-Then make it a key:
+Then make it a key, limited to that same project:
 
 ```sh
-npx --yes @kindgi/cli@0.2 tokens create --for=sa:<service-account-id> --label=ci --expires=90d
+npx --yes @kindgi/cli@0.2 tokens create --for=sa:<service-account-id> --project=<project-id> --label=ci --expires=90d
 ```
 
-`<service-account-id>` is the `serviceAccountId` that `create` printed.
+`<service-account-id>` is the `serviceAccountId` that `create` printed, and
+`--project=<project-id>` limits the key to that one project.
 Its grants are written before `create` answers, so its first key works at
 once. You can grant `--tenant-admin`, `--tenant-member` and
 `--project=<id>:<role>`, now or later with `kindgi service-accounts grant`
 and `ungrant`.
+
+CI's deploys name that project, with `kindgi deploy --project <id or slug>`.
+A deploy that names no project is tenant-wide, which needs `admin` on the
+tenant, so this key is refused.
+
+On Kindgi Cloud, CI needs a tenant admin's key instead, because Kindgi
+Cloud builds a pack only with one: an account made with `--tenant-admin`,
+and a key made with `--role=admin` and no `--project`. The key needs no
+capability: add `--capability=secrets:write` only when CI runs
+`kindgi deploy --sync-secrets`. That key reaches the whole tenant, so keep
+it in CI's deploy step only.
 
 Give `--tenant-member` only to an account whose job reads the tenant's
 settings. Without it, such a read is refused, and the refusal says how to
 grant it.
 
 `kindgi service-accounts unregister <service-account-id>` takes its grants
-away, and its keys stop working.
+away, and its keys stop working. If it stops part way, its keys have
+already stopped: run it again to take away the grants it left (runtime
+0.3.0 or later).
+
+### A project's own account
+
+A project can have one service account of its own (runtime 0.2.0 or
+later). It runs only the triggers set to run as the project: shared
+schedules, webhook triggers and mail triggers on a company mailbox. A
+shared trigger that names a service account runs as that one instead.
+The project's account is made the first time a trigger is set to run as
+the project, when one is created or taken over
+with `--run-as=project` (`runAsProject: true` in the API), which takes
+`admin` on the project
+([Run as a service account](../../guides/runs/run-on-a-schedule/#run-as-a-service-account)).
+A project that never does that has none. A runtime that can't make one
+answers `--run-as=project` with `501 trigger-operation-unsupported`: "This
+runtime can't make a project's own account."
+
+- **Its grant is fixed:** `editor` on its project, and nothing else, so its
+  runs may do what the project's editors may. `grant` and `ungrant` on it
+  are refused, `409 service-account-project-owned`. So, with an
+  authorization store, a trigger runs as the project only if the project's
+  editors can run its agent or flow. Setting it to run as the project, or
+  giving it another agent or flow, is otherwise refused, `409
+  trigger-owner-cannot-run-target`: "The project's own account runs only
+  what the project's editors can." Run the trigger as a service account
+  that can, or own it yourself; to change one the project's account owns,
+  a project admin can take it over first.
+- **It has no keys.** A key for it is refused the same way: "A project's
+  own account has no keys: give an app a service account of its own."
+- **It's named only as the project.** `--run-as=<service-account-id>` with
+  its id is refused: a tenant admin is answered `409
+  service-account-project-owned`, and anyone else gets the usual `403`.
+- **Its name is `project-<project-id>`.**
+  `kindgi service-accounts list --table` shows it with
+  `project's own: <project-id>` in its grants. `list` and `get` without
+  it, and the API, show its `projectId`. A trigger that runs as it has
+  `isProjectAccount: true` in its `owner`. If a tenant admin already made
+  an account of that name, `--run-as=project` is answered
+  `409 service-account-name-taken`: "An account named
+  `project-<project-id>` is already registered. A tenant admin can
+  unregister it."
+- **A tenant admin may unregister it.** The project's triggers that run as
+  it then stop, until a project admin takes each over. A take-over with
+  `--run-as=project` makes the project a new account.
+- **Deleting the project unregisters it.**
+- **Without an authorization store,** running a trigger as the project
+  takes a tenant-admin key, and its grant is kept as a record only: each
+  fire or delivery checks only that the account is registered.
+
+For an account used across projects, with other grants, or with keys for
+an app, make one of your own, as above.
 
 ## Who sees the tenant's people
 
@@ -580,7 +671,7 @@ Removed Sam Rivera: 1 key(s) and 0 session(s) revoked, 5 role(s) and membership(
 In one step, before it answers, their API keys are revoked, their sessions
 end, and every grant, membership and capability is taken away, with what
 their creates gave them: `owner` on each agent, flow, tool, guardrail and
-eval suite they made, and `admin` on an org they made (runtime 0.1.9 or
+test set they made, and `admin` on an org they made (runtime 0.1.9 or
 later). What they made stays. The tenant's admins still manage all of it,
 and an org's admins what's in their org; no one becomes its owner. The next
 request with Sam's key:
@@ -643,7 +734,7 @@ It's refused for yourself and for the seed user, with
 - **Service accounts,** for tenant admins: create one with its grants,
   change them, make it a key, or unregister it.
 
-  ![The Service accounts page: acme-ci, "Deploys from CI", editor on the Default project, with no active keys yet.](../../../assets/people/service-accounts.png)
+  ![The Service accounts page: acme-ci, "Deploys from CI", admin on the default project, with no active keys yet.](../../../assets/people/service-accounts.png)
 
 A project you have no role on shows **No access**, with the projects you can
 open.
@@ -698,7 +789,7 @@ where you may:
 - **Projects and teams:** change a role, **Take away** one, or **Give
   access** to another project or team, with a role. Each project role says
   what it gives, such as "Also changes it: registers and runs agents,
-  judges, publishes." for an editor.
+  corrects answers, publishes." for an editor.
 - **Reviewer:** their tier, or none; **Take off the roster**.
 - **Tenant admin:** making or unmaking one. "A tenant always keeps one
   admin: removing the only one is refused."
@@ -751,7 +842,9 @@ Each change is kept as evidence: `person-added`, `person-granted`,
 `person-capabilities-revoked`, `api-key-minted`,
 `api-key-revoked`, `service-account-created`, `service-account-granted`,
 `service-account-ungranted` and `service-account-unregistered`. A key's
-secret is never in one.
+secret is never in one. A project's own account is made with one
+`service-account-created`, which has its `projectId` and
+`projectAccount: true`, and no separate `service-account-granted`.
 
 ## Next
 

@@ -5,10 +5,12 @@ import type { Principal } from '@kindgi/authz';
 import type { Flow, FlowVersionOverrides } from '@kindgi/flow';
 import type { HandlerRegistry } from '@kindgi/handler';
 import type {
+  AgentPinScope,
   AgentVersionVia,
   ConversationId,
-  LiveScope,
+  FlowVersionVia,
   NodeId,
+  PinScope,
   ProjectId,
   Result,
   RunId,
@@ -68,15 +70,20 @@ export interface RunAgentRef {
   readonly conversationId: ConversationId;
   /** Why this version ran (absent on runs from before it was recorded). */
   readonly via?: AgentVersionVia;
-  /** The pin that chose it, when `via` is `live`. */
-  readonly liveScope?: LiveScope;
+  /** The pin that chose it, when `via` is `pinned`. */
+  readonly pinnedScope?: AgentPinScope;
 }
 
-/** Marks a run as a replay: an eval run re-running a past run (`of`). */
+/** Marks a run as a replay: a test run re-running a past run (`of`). */
 export interface RunReplayRef {
   readonly of: RunId;
-  readonly evalRunId: string;
+  readonly testRunId: string;
+  /** The test case the replay ran, by its id in the test set; a test run sets it on each replay. */
+  readonly caseId?: string;
 }
+
+/** Every value of `RunTriggerRef.kind`. */
+export const RUN_TRIGGER_KINDS = ['schedule', 'event', 'webhook', 'mail'] as const;
 
 /**
  * Marks a run a trigger started: the trigger, the fire that started it,
@@ -84,20 +91,26 @@ export interface RunReplayRef {
  */
 export interface RunTriggerRef {
   readonly triggerId: TriggerId;
-  readonly kind: 'schedule' | 'event' | 'webhook';
+  readonly kind: (typeof RUN_TRIGGER_KINDS)[number];
   readonly fireId: string;
   /** A schedule's fire: the occurrence it ran for. */
   readonly scheduledFor?: Timestamp;
+  /**
+   * The trigger's version its fire's start used (`TriggerVersionRecord`),
+   * which the run keeps whatever later edits make. Only the runtime sets
+   * it. Absent on a run from before versions.
+   */
+  readonly version?: number;
 }
 
 /** Every value of `RunStartedBy`. */
-export const RUN_STARTED_BY = ['person', 'key', 'schedule', 'webhook', 'event'] as const;
+export const RUN_STARTED_BY = ['person', 'key', 'schedule', 'webhook', 'event', 'mail'] as const;
 
 /**
  * How a run started, recorded with it and never changed: a person
  * (`person`), a service account's key (`key`), or the kind of trigger
- * that fired it (`schedule`, `webhook`, `event`). A child run takes its
- * parent's. A person's own API key starts runs as that person.
+ * that fired it (`schedule`, `webhook`, `event`, `mail`). A child run
+ * takes its parent's. A person's own API key starts runs as that person.
  *
  * Only `person` counts as attended (`runIsAttended`): a run with any other
  * value, or with none, is one no person is watching, so a tool that
@@ -108,6 +121,20 @@ export type RunStartedBy = (typeof RUN_STARTED_BY)[number];
 /** Whether a person is watching the run: only when it says a person started it. */
 export function runIsAttended(startedBy: RunStartedBy | undefined): boolean {
   return startedBy === 'person';
+}
+
+/**
+ * The mailbox a mail trigger's run started from: the app, and whose
+ * connection the trigger reads it with, the company's or the trigger
+ * owner's. The run keeps it through the trigger version it started under
+ * (`RunTriggerRef.version`), whatever later edits make; a child run takes
+ * its parent's. In such a run a further read of that mailbox is steered by the
+ * mail, so a call with a connection of this app and kind waits for a
+ * person's yes, read-only or not (`needsPersonsYesUnattended`).
+ */
+export interface RunMailbox {
+  readonly app: 'google' | 'microsoft';
+  readonly as: 'company' | 'person';
 }
 
 /**
@@ -123,7 +150,7 @@ export type RunActsFor = `user:${string}` | `service_account:${string}`;
 /**
  * What the rule for runs no person started reads of a tool: its flags,
  * and its `needsSpec.connections` (`@kindgi/tools`' `ConnectionNeed`s,
- * each `as: 'person' | 'company'`).
+ * each an `app` and `as: 'person' | 'company'`).
  */
 export interface UnattendedRuleTool {
   readonly id: string;
@@ -134,40 +161,108 @@ export interface UnattendedRuleTool {
 
 /**
  * Whether a call of `tool` needs a person's yes in a run no person
- * started: it declares `needsApprovalWhenUnattended`, or it acts with a
- * person's connection (a `needsSpec.connections` entry `as: 'person'`)
- * and isn't read-only (`mutating` isn't `false`). So a tool that sends as
- * someone never runs unasked under a trigger because its author left the
- * flag off; `needsApprovalWhenUnattended: false` doesn't lift it.
+ * started: it declares `needsApprovalWhenUnattended`, or it uses a
+ * person's connection (a `needsSpec.connections` entry `as: 'person'`),
+ * reads included. So a tool that reads or sends as someone never runs
+ * unasked under a trigger because its author left the flag off or marked
+ * it `mutating: false`; `needsApprovalWhenUnattended: false` doesn't lift
+ * it either.
  */
 export function toolNeedsPersonsYesUnattended(tool: UnattendedRuleTool): boolean {
-  if (tool.needsApprovalWhenUnattended === true) return true;
-  if (tool.mutating === false) return false;
-  const { connections } = (tool.needsSpec ?? {}) as {
-    readonly connections?: Readonly<Record<string, { readonly as?: unknown }>>;
-  };
-  return connections !== undefined && Object.values(connections).some((c) => c.as === 'person');
+  const reason = waitReasonOf(tool, undefined, undefined);
+  return reason === 'declared' || reason === 'persons-connection';
+}
+
+/**
+ * Why a call waits for a person's yes in a run no person started
+ * (`unattendedWaitReason`):
+ *
+ * - `declared`: the tool declares `needsApprovalWhenUnattended`;
+ * - `persons-connection`: it uses a person's connection, reads included;
+ * - `mail-change`: a mail started the run, and the tool changes something
+ *   (it isn't `mutating: false`);
+ * - `mail-own-mailbox`: a mail started the run, and the tool uses a
+ *   connection of the run's own mailbox, read-only or not.
+ */
+export type UnattendedWaitReason =
+  | 'declared'
+  | 'persons-connection'
+  | 'mail-change'
+  | 'mail-own-mailbox';
+
+/**
+ * Why a call of `tool` waits for a person's yes because no person is
+ * watching its run (`runIsAttended`), or `undefined` when it doesn't. It
+ * waits, for the first reason that holds, in this order:
+ *
+ * - the tool declares it (`declared`), or uses a person's connection
+ *   (`persons-connection`), in any such run (`toolNeedsPersonsYesUnattended`);
+ * - a mail started the run (`mail`), and the tool changes something
+ *   (`mail-change`: it isn't `mutating: false`), or it uses a connection of
+ *   the run's own `mailbox`, its app and kind (`mail-own-mailbox`; any
+ *   connection, when the run records no mailbox).
+ *
+ * Unless the trigger that started the run lists the tool in its
+ * `toolsAllowedUnattended`: only the runs a webhook, a schedule or a mail
+ * trigger started have a list, and on any other one lifts nothing. The one
+ * rule an agent's tool gate and a flow's tool step both apply, so a
+ * refusal's message names the reason this gives.
+ */
+export function unattendedWaitReason(
+  tool: UnattendedRuleTool,
+  startedBy: RunStartedBy | undefined,
+  toolsAllowedUnattended: readonly string[] | undefined,
+  mailbox?: RunMailbox,
+): UnattendedWaitReason | undefined {
+  if (runIsAttended(startedBy)) return undefined;
+  const reason = waitReasonOf(tool, startedBy, mailbox);
+  if (reason === undefined) return undefined;
+  const listed =
+    (startedBy === 'webhook' || startedBy === 'schedule' || startedBy === 'mail') &&
+    toolsAllowedUnattended?.includes(tool.id) === true;
+  return listed ? undefined : reason;
 }
 
 /**
  * Whether a call of `tool` waits for a person's yes because no person is
- * watching its run: the tool needs one then (`needsApprovalWhenUnattended`,
- * declared, or a change made with a person's connection), the run isn't
- * attended (`runIsAttended`), and it isn't a run a webhook or a schedule
- * started whose `toolsAllowedUnattended` lists the tool. Only those runs
- * have a list: on any other, one lifts nothing. The one rule an agent's
- * tool gate and a flow's tool step both apply.
+ * watching its run: whether `unattendedWaitReason` gives a reason.
  */
 export function needsPersonsYesUnattended(
   tool: UnattendedRuleTool,
   startedBy: RunStartedBy | undefined,
   toolsAllowedUnattended: readonly string[] | undefined,
+  mailbox?: RunMailbox,
 ): boolean {
-  if (!toolNeedsPersonsYesUnattended(tool) || runIsAttended(startedBy)) return false;
-  const listed =
-    (startedBy === 'webhook' || startedBy === 'schedule') &&
-    toolsAllowedUnattended?.includes(tool.id) === true;
-  return !listed;
+  return unattendedWaitReason(tool, startedBy, toolsAllowedUnattended, mailbox) !== undefined;
+}
+
+/** The first reason a call of `tool` waits in an unattended run, before the list. */
+function waitReasonOf(
+  tool: UnattendedRuleTool,
+  startedBy: RunStartedBy | undefined,
+  mailbox: RunMailbox | undefined,
+): UnattendedWaitReason | undefined {
+  if (tool.needsApprovalWhenUnattended === true) return 'declared';
+  const needs = connectionNeedsOf(tool);
+  if (needs.some((need) => need.as === 'person')) return 'persons-connection';
+  if (startedBy !== 'mail') return undefined;
+  if (tool.mutating !== false) return 'mail-change';
+  const ownMailbox = needs.some(
+    (need) => mailbox === undefined || (need.app === mailbox.app && need.as === mailbox.as),
+  );
+  return ownMailbox ? 'mail-own-mailbox' : undefined;
+}
+
+/** A tool's `needsSpec.connections` entries, as the rule reads them. */
+function connectionNeedsOf(
+  tool: UnattendedRuleTool,
+): readonly { readonly app?: unknown; readonly as?: unknown }[] {
+  const { connections } = (tool.needsSpec ?? {}) as {
+    readonly connections?: Readonly<
+      Record<string, { readonly app?: unknown; readonly as?: unknown }>
+    >;
+  };
+  return connections === undefined ? [] : Object.values(connections);
 }
 
 /**
@@ -198,7 +293,7 @@ export interface RunFlowInput {
   /**
    * Content-scope anchor. REQUIRED — every kernel run is bound to
    * exactly one project inside the tenant. Callers without a natural
-   * project id resolve to the tenant's Default via
+   * project id resolve to the tenant's default via
    * `projectBinding.getDefault(tenantId)` at the caller layer.
    */
   readonly projectId: ProjectId;
@@ -223,7 +318,7 @@ export interface RunFlowInput {
   readonly parent?: ParentRunRef;
   /** The agent this run is a turn of; see `RunAgentRef`. */
   readonly agent?: RunAgentRef;
-  /** Set when an eval run is replaying a past run; see `RunReplayRef`. */
+  /** Set when a test run is replaying a past run; see `RunReplayRef`. */
   readonly replay?: RunReplayRef;
   /**
    * Set when the run doesn't exist yet (no `runId`): start it at most once
@@ -241,11 +336,19 @@ export interface RunFlowInput {
   /**
    * The tools, by id, a call of which doesn't wait for a person's yes
    * though no person started the run (`needsPersonsYesUnattended`): the
-   * `toolsAllowedUnattended` of the webhook or schedule that started it,
-   * as it was when the run started. Recorded with the run and never
-   * changed; a child run takes its parent's. Absent: none.
+   * `toolsAllowedUnattended` of the webhook, schedule or mail trigger that
+   * started it, as the trigger version it started under has it
+   * (`RunTriggerRef.version`). The run keeps that version whatever later
+   * edits make; a child run takes its parent's. Absent: none.
    */
   readonly toolsAllowedUnattended?: readonly string[];
+  /**
+   * The mailbox the run's mail came from (`RunMailbox`), on a run a mail
+   * trigger started (`startedBy: 'mail'`), as the trigger version it
+   * started under has it, kept the same way as `toolsAllowedUnattended`.
+   * Absent on every other run.
+   */
+  readonly mailbox?: RunMailbox;
   /**
    * The W3C trace id of the request that started the run (32 lowercase
    * hex), kept on the run so its later turns and resumes can name the
@@ -260,7 +363,15 @@ export interface RunFlowInput {
    */
   readonly versions?: FlowVersionOverrides;
   /**
-   * The run's segment path (ordered, coarse to fine), which picks live agent
+   * How the caller chose the run's flow version: named (`explicit`), the
+   * version pinned for the run's project (`pinned`, with the pin's scope
+   * in `flowPinnedScope`), or the newest the project reaches (`latest`).
+   * Recorded with the run and never changed. Absent: not recorded.
+   */
+  readonly flowVersionVia?: FlowVersionVia;
+  readonly flowPinnedScope?: PinScope;
+  /**
+   * The run's segment path (ordered, coarse to fine), which picks pinned agent
    * versions; a child run inherits its parent's.
    */
   readonly segments?: readonly ScopeSegment[];
@@ -338,7 +449,7 @@ export interface StartRunParams {
   readonly parent?: ParentRunRef;
   /** The agent this run is a turn of; see `RunAgentRef`. */
   readonly agent?: RunAgentRef;
-  /** Set when an eval run is replaying a past run; see `RunReplayRef`. */
+  /** Set when a test run is replaying a past run; see `RunReplayRef`. */
   readonly replay?: RunReplayRef;
   /** Start it at most once per key; see `RunIdempotencyKey`. */
   readonly idempotencyKey?: RunIdempotencyKey;
@@ -348,10 +459,15 @@ export interface StartRunParams {
   readonly startedBy?: RunStartedBy;
   /** What it may call without a person's yes; see `RunFlowInput.toolsAllowedUnattended`. */
   readonly toolsAllowedUnattended?: readonly string[];
+  /** The mailbox a mail trigger's run came from; see `RunFlowInput.mailbox`. */
+  readonly mailbox?: RunMailbox;
   /** The trace id of the request that started the run; see `RunFlowInput.traceId`. */
   readonly traceId?: string;
   /** The versions the run swaps in over its flow version's pins; see `RunFlowInput.versions`. */
   readonly versions?: FlowVersionOverrides;
+  /** How the run's flow version was chosen; see `RunFlowInput.flowVersionVia`. */
+  readonly flowVersionVia?: FlowVersionVia;
+  readonly flowPinnedScope?: PinScope;
   /** The run's segment path; see `RunFlowInput.segments`. */
   readonly segments?: readonly ScopeSegment[];
   /** Who starts the run; stored with it, see `RunFlowInput.principal`. */

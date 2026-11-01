@@ -6,15 +6,19 @@ import { describe, expect, test } from 'vitest';
 import { TenantBudgetError } from '@kindgi/bounds';
 import { createProviderRegistry } from '@kindgi/capabilities';
 import type { ModelMessage, ModelProvider } from '@kindgi/capabilities';
+import { createCheckRegistry } from '@kindgi/guardrails';
+import type { Guardrail } from '@kindgi/guardrails';
 import type { JournalEntry } from '@kindgi/runtime';
 import { createToolRegistry, defineTool } from '@kindgi/tools';
 import type { AnyTool } from '@kindgi/tools';
 import type { RunId, Semver, TenantId, Timestamp, ToolId } from '@kindgi/types';
 
 import { defineAgent } from '../src/define.js';
+import type { AgentVersionMismatchError } from '../src/errors.js';
 import type { TurnContext } from '../src/handlers/context.js';
 import { buildDispatchToolsHandler } from '../src/handlers/dispatch-tools.js';
-import { AgentTurnFailure } from '../src/handlers/errors.js';
+import { AgentTurnFailure, type RunJournalUnavailableError } from '../src/handlers/errors.js';
+import type { FileBinding, FileBindings } from '../src/handlers/files.js';
 import { rehydrateTurnContext } from '../src/handlers/rehydrate.js';
 import { resolveEffectiveHitlPolicy } from '../src/hitl-policy.js';
 import { resumeAgentTurn } from '../src/invoke.js';
@@ -97,7 +101,7 @@ const stored = [
 ];
 
 /** A turn being resumed: nothing on it yet but what `resumeAgentTurn` builds. */
-function resumedTurn(providers: readonly ModelProvider[]) {
+function resumedTurn(providers: readonly ModelProvider[], files?: FileBindings) {
   const a = agent();
   const ctx = {
     input: { tenantId, conversationId: 'conv-1', agent: a },
@@ -115,6 +119,7 @@ function resumedTurn(providers: readonly ModelProvider[]) {
       toolRegistry: createToolRegistry([]),
       providerRegistry: createProviderRegistry(providers.map((p) => ({ tenantId, provider: p })))
         .registry,
+      ...(files !== undefined && { files }),
     },
     turnAbort: new AbortController(),
     startedAt: Date.now(),
@@ -154,6 +159,13 @@ const firstModelCall = completed(
 );
 
 /** A turn parked on a tool-call approval in its second loop iteration. */
+/** A fact the turn retrieved before the park, as `run-retrievals` journals it. */
+const retrievedFact = {
+  fact: { id: 'fact-1', type: 'note', contentHash: 'sha256:abc' },
+  intent: { scope: 'tenant' },
+  score: 0.9,
+};
+
 const parkedJournal: readonly JournalEntry[] = [
   completed('setup', {
     turnNumber: 2,
@@ -163,8 +175,14 @@ const parkedJournal: readonly JournalEntry[] = [
   }),
   completed('render-prompt', {}),
   completed('persist-user-message', { sequence: 3 }),
-  completed('run-retrievals', { count: 1, retrieved: [{ intent: 'facts', content: 'a fact' }] }),
-  completed('build-initial-messages', {}),
+  completed('run-retrievals', { count: 1, retrieved: [retrievedFact] }),
+  completed('build-initial-messages', {
+    nextMessages: [
+      { role: 'system', content: 'Help.' },
+      { role: 'user', content: 'An earlier question' },
+      { role: 'user', content: 'Where is order A-1042?' },
+    ],
+  }),
   firstModelCall,
   completed('dispatch-tools', { iterationAppended: [stored[3], stored[4]] }, 0),
   completed('budget-check', {}, 0),
@@ -205,7 +223,9 @@ describe('rehydrateTurnContext', () => {
     expect(ctx.appended.map((m) => m.sequence)).toEqual([3, 4, 5, 6, 7]);
     expect(ctx.storedBeforePark?.map((m) => m.sequence)).toEqual([6, 7]);
     expect(ctx.userMessage?.sequence).toBe(3);
-    expect(ctx.retrieved).toEqual([{ intent: 'facts', content: 'a fact' }]);
+    expect(ctx.retrieved).toEqual([retrievedFact]);
+    // Where the loop's own messages start, from what build-initial-messages journaled.
+    expect(ctx.initialMessageCount).toBe(3);
     // Usage across both model calls, so the budgets count the whole turn.
     expect(ctx.usage).toEqual({
       steps: 2,
@@ -214,6 +234,54 @@ describe('rehydrateTurnContext', () => {
       totalCostUsd: expect.closeTo(0.03),
     });
     expect(ctx.lastProvider).toEqual({ id: 'second', model: 'second-model' });
+    expect(ctx.refusedFiles).toBeUndefined();
+    expect(ctx.filesRetried).toBeUndefined();
+  });
+
+  test('a step retried without its files: the resumed turn leaves them out, and retries no more', async () => {
+    const ctx = resumedTurn([provider('first'), provider('second')]);
+    const retried = completed(
+      'model-call',
+      {
+        step: 2,
+        iterationUsage: { promptTokens: 20, completionTokens: 3, costUsd: 0.02 },
+        provider: { id: 'second', model: 'second-model' },
+        warnings: [{ code: 'file-refused', message: 'without "photo-1.jpg"' }],
+        refused: ['art-1'],
+      },
+      1,
+    );
+    expect(await rehydrateTurnContext(ctx, 'run-1', [...parkedJournal.slice(0, -1), retried])).toBe(
+      true,
+    );
+    expect(ctx.refusedFiles).toEqual(new Set(['art-1']));
+    expect(ctx.filesRetried).toBe(true);
+    expect(ctx.modelWarnings?.get('file-refused')).toBe('without "photo-1.jpg"');
+  });
+
+  test("binds the resumed run's files by the run's id; a turn left to setup is bound there", async () => {
+    const asked: unknown[] = [];
+    const run: FileBinding = {
+      admit: async () => [],
+      read: async () => undefined,
+      store: async () => ({ notStored: 'limit' }),
+      readSource: async () => ({ notRead: 'rule' }),
+      shown: async () => {},
+      refuse: async () => {},
+    };
+    const files: FileBindings = {
+      forRun: (r) => {
+        asked.push(r);
+        return run;
+      },
+    };
+    const early = resumedTurn([provider('first')], files);
+    expect(await rehydrateTurnContext(early, 'run-1', [])).toBe(false);
+    expect(early.files).toBeUndefined();
+    const ctx = resumedTurn([provider('first'), provider('second')], files);
+    expect(await rehydrateTurnContext(ctx, 'run-1', parkedJournal)).toBe(true);
+    expect(asked).toEqual([{ runId: 'run-1', tenantId }]);
+    expect(ctx.files).toBe(run);
   });
 
   test("keeps the model calls' warnings, so a resumed turn's result still has them", async () => {
@@ -296,6 +364,106 @@ describe('rehydrateTurnContext', () => {
     });
     expect(resumes).toBe(0);
   });
+
+  /** The bindings of a resumed turn whose snapshot reads, with `readJournal` as given. */
+  function resumeBindings(
+    turn: TurnContext,
+    agentVersion: string,
+    readJournal: () => Promise<unknown>,
+    resumes: { count: number },
+  ) {
+    return {
+      ...turn.bindings,
+      runSnapshotBinding: {
+        read: async () => ({
+          kind: 'ok',
+          value: {
+            runId: 'run-1',
+            tenantId,
+            projectId: 'p-1',
+            agentId: turn.input.agent.id,
+            agentVersion,
+            conversationId: 'conv-1',
+            userMessage: 'user 3',
+            dryRun: false,
+            createdAt: '2026-10-01T00:00:00Z',
+          },
+        }),
+      },
+      runBinding: {
+        readJournal,
+        resumeRun: async () => {
+          resumes.count += 1;
+          throw new Error('not resumed');
+        },
+      },
+    } as never;
+  }
+
+  test("a resumed turn whose run's journal can't be read fails with run-journal-unavailable, a declared error", async () => {
+    const turn = resumedTurn([provider('second')]);
+    const { agent: resumed } = turn.input;
+    const resumes = { count: 0 };
+    const result = await resumeAgentTurn(
+      { tenantId, runId: 'run-1' as RunId, agent: resumed },
+      resumeBindings(
+        turn,
+        resumed.version,
+        async () => ({
+          kind: 'err',
+          error: { code: 'persistence-error', message: 'connection reset' },
+        }),
+        resumes,
+      ),
+    );
+    expect(result).toEqual({
+      kind: 'err',
+      error: {
+        code: 'run-journal-unavailable',
+        message: 'Failed to read the journal of run run-1: connection reset',
+      },
+    });
+    // A typed caller narrows to it, as to any of the turn's errors.
+    if (result.kind === 'err' && result.error.code === 'run-journal-unavailable') {
+      const declared: RunJournalUnavailableError = result.error;
+      expect(declared.code).toBe('run-journal-unavailable');
+    }
+    expect(resumes.count).toBe(0);
+  });
+
+  test('a resume at another agent version than its snapshot fails with agent-version-mismatch, naming the conversation', async () => {
+    const turn = resumedTurn([provider('second')]);
+    const { agent: resumed } = turn.input;
+    const resumes = { count: 0 };
+    let journalReads = 0;
+    const result = await resumeAgentTurn(
+      { tenantId, runId: 'run-1' as RunId, agent: resumed },
+      resumeBindings(
+        turn,
+        '0.9.0',
+        async () => {
+          journalReads += 1;
+          return { kind: 'ok', value: parkedJournal };
+        },
+        resumes,
+      ),
+    );
+    expect(result).toMatchObject({
+      kind: 'err',
+      error: {
+        code: 'agent-version-mismatch',
+        conversationId: 'conv-1',
+        expectedVersion: '0.9.0',
+        actualVersion: resumed.version,
+      },
+    });
+    if (result.kind === 'err' && result.error.code === 'agent-version-mismatch') {
+      const declared: AgentVersionMismatchError = result.error;
+      expect(declared.conversationId).toBe('conv-1');
+    }
+    expect(journalReads).toBe(0);
+    expect(resumes.count).toBe(0);
+  });
 });
 
 describe('dispatch-tools, resumed in the step it parked in', () => {
@@ -375,5 +543,92 @@ describe('dispatch-tools, resumed in the step it parked in', () => {
     ]);
     expect(ctx.storedBeforePark).toEqual([]);
     expect(ctx.appended.map((m) => m.sequence)).toEqual([3, 4, 5, 6, 7, 8]);
+  });
+});
+
+describe("rehydrateTurnContext: the guardrails at the loop's points", () => {
+  const AT_CALL = {
+    id: 'acme.no-big-refund',
+    kind: 'zero-llm',
+    check: 'acme.refund-limit',
+    at: 'before-tool',
+    action: { 'on-violation': 'retry' },
+  } as unknown as Guardrail;
+
+  /** The parked journal (or `journal`), with `output` added to the output of each `nodeId` step. */
+  const journalWith = (
+    nodeId: string,
+    output: Record<string, unknown>,
+    journal: readonly JournalEntry[] = parkedJournal,
+  ) =>
+    journal.map((e) =>
+      e.nodeId === nodeId
+        ? ({
+            ...e,
+            payload: {
+              ...(e.payload as object),
+              output: { ...((e.payload as { output?: object }).output ?? {}), ...output },
+            },
+          } as JournalEntry)
+        : e,
+    );
+
+  test("takes the turn's guardrails from setup's output, and checks their points against the checks it has now", async () => {
+    const ctx = resumedTurn([provider('second')]);
+    const checks = createCheckRegistry();
+    // The check as the registry holds it now: it names no points, so it runs at the final answer only.
+    checks.register({
+      id: 'acme.refund-limit',
+      kind: 'zero-llm',
+      evaluate: async () => ({ passed: true }),
+    } as never);
+    (ctx.bindings as { checks?: unknown }).checks = checks;
+    expect(
+      await rehydrateTurnContext(ctx, 'run-1', journalWith('setup', { guardrails: [AT_CALL] })),
+    ).toBe(true);
+    // The agent names none: the set is the one setup resolved.
+    expect(ctx.guardrails).toEqual([AT_CALL]);
+    expect([...(ctx.guardrailPointFaults?.keys() ?? [])]).toEqual(['acme.no-big-refund']);
+  });
+
+  test('restores the calls that ran, the failures only recorded, and the checks in provenance', async () => {
+    const ctx = resumedTurn([provider('second')]);
+    const nodes: string[] = [];
+    const edges: unknown[] = [];
+    (ctx.bindings as { provenance?: unknown }).provenance = {
+      newBuilder: () => ({
+        addNode: (n: { readonly id: string }) => void nodes.push(n.id),
+        addEdge: (e: unknown) => void edges.push(e),
+      }),
+    };
+    const violation = {
+      guardrailId: 'acme.warn',
+      action: 'log-only',
+      severity: 'warning',
+      result: { passed: false, reason: 'a warning' },
+      at: '2026-10-01T00:00:00Z',
+    };
+    const check = 'guardrail-check:acme.warn@before-tool:c1';
+    // Each model call named, so provenance rebuilds its step.
+    const journal = journalWith(
+      'dispatch-tools',
+      {
+        step: 1,
+        ranCalls: ['4:c1'],
+        guardrailViolations: [{ key: 'dispatch-tools@0:before-tool:c1:acme.warn', violation }],
+        guardrailChecks: [
+          { id: check, timestamp: '2026-10-01T00:00:00Z', attributes: {}, to: 'tool-call:c1' },
+        ],
+      },
+      journalWith('model-call', { callId: 'model-call-1' }),
+    );
+    expect(await rehydrateTurnContext(ctx, 'run-1', journal)).toBe(true);
+    expect([...(ctx.ranCalls ?? [])]).toEqual(['4:c1']);
+    expect([...(ctx.pointViolations?.entries() ?? [])]).toEqual([
+      ['dispatch-tools@0:before-tool:c1:acme.warn', violation],
+    ]);
+    expect(nodes).toContain(check);
+    expect(nodes.indexOf(check)).toBeGreaterThan(nodes.indexOf('tool-call:c1'));
+    expect(edges).toContainEqual({ from: check, to: 'tool-call:c1', kind: 'influenced-by' });
   });
 });

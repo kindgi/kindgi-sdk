@@ -282,6 +282,7 @@ def _tool_entry(tool: Tool[..., Any], rel_path: str, config: PackConfig) -> dict
             "effects": [dict(e) for e in tool.effects],
             "mutating": tool.mutating,
             "needsApprovalWhenUnattended": tool.needs_approval_when_unattended,
+            "resultIsOutsideData": tool.result_is_outside_data,
             "needs": None if tool.needs is None else [dict(n) for n in tool.needs],
             "needsSpec": _dict(tool.needs_spec),
             "sandbox": tool.sandbox,
@@ -289,6 +290,8 @@ def _tool_entry(tool: Tool[..., Any], rel_path: str, config: PackConfig) -> dict
             "network": _dict(tool.network),
             "spec": _dict(tool.spec),
             "pauses": True if tool.pauses else None,
+            "storesFiles": True if tool.stores_files else None,
+            "readsFiles": True if tool.reads_files else None,
             "modulePath": rel_path,
         }
     )
@@ -306,6 +309,7 @@ def _guardrail_entry(guardrail: Guardrail, rel_path: str) -> dict[str, Any]:
             "checkModulePath": rel_path,
             "checkId": guardrail.check_id,
             "config": _dict(guardrail.config),
+            "judgeCapabilities": _dict(guardrail.judge_capabilities),
             "configSchema": guardrail.config_schema,
             "sandbox": guardrail.sandbox,
             "limits": _dict(guardrail.limits),
@@ -362,6 +366,7 @@ def _agent_entry(agent: Agent, rel_path: str, config: PackConfig) -> dict[str, A
             "conversationPolicy": _dict(agent.conversation_policy),
             "output": output,
             "toolErrors": _dict(agent.tool_errors),
+            "parallelToolCalls": agent.parallel_tool_calls,
             "memory": _dict(agent.memory),
             "settings": [dict(s) for s in agent.settings],
             "modelSettings": _dict(agent.model_settings),

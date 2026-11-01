@@ -1,6 +1,6 @@
 ---
 title: Microsoft
-description: Register your company's own Microsoft Entra app with Kindgi, so people can connect their Outlook mail and tools can send and read mail as them.
+description: Register your company's own Microsoft Entra app with Kindgi, so people can connect their Outlook mail, or the company's mailbox, and tools can send and read mail.
 sidebar:
   order: 15
   label: Microsoft
@@ -9,9 +9,12 @@ sidebar:
 When you finish this page, people in your workspace can connect their
 Microsoft work, school or personal account. A tool, such as the ready-made
 [`outlookSend`](../use-a-connection/#ready-made-tools), can then send mail
-as them, after they approve it, and read their mail. They connect through
-an app registered in your organization's Microsoft Entra directory, which
-you register with Kindgi once.
+as them, after they approve it, and read their mail. A tenant admin can
+connect the company's mailbox too, such as a shop's support address, for
+the tools and
+[mail triggers](../../runs/start-runs-from-new-mail/) that use it. They
+connect through an app registered in your organization's Microsoft Entra
+directory, which you register with Kindgi once.
 
 ## Before you start
 
@@ -71,10 +74,13 @@ In the [Microsoft Entra admin center](https://entra.microsoft.com):
    sign-in on its server.
 3. **API permissions → Add a permission → Microsoft Graph → Delegated
    permissions:** `offline_access`, `User.Read`, and the mail permissions
-   your tools need, `Mail.Send` to send mail and `Mail.Read` to read it.
-   Then choose **Add permissions**. Kindgi asks for `offline_access` to keep
-   access between sign-ins, and for `User.Read` to learn whose account it
-   is.
+   your tools need, `Mail.Send` to send mail and `Mail.Read` to read it,
+   and both to reply. For the [calendar tools](../calendar/), add
+   `Calendars.ReadBasic` to list events and for free/busy, and
+   `Calendars.ReadWrite` to add and change them. Then choose **Add
+   permissions**. Kindgi asks for
+   `offline_access` to keep access between sign-ins, and for `User.Read` to
+   learn whose account it is.
 4. **Certificates & secrets → Client secrets → New client secret.** Pick
    when it expires, 24 months at most, and choose **Add**. Copy its
    **Value** at once: Microsoft never shows it again
@@ -151,6 +157,15 @@ accounts to use.
 The connection shows your Microsoft account, what it allows, and when it
 was last used. Reconnecting later needs the same Microsoft account.
 
+**The company's mailbox** is a tenant admin's to connect. In a project,
+open **Connections**, choose **Connect an app**, pick Microsoft, and under
+**For** choose **The company**. Then sign in to Microsoft as the mailbox
+itself, such as `support@acme.example`, not as yourself. Tools with
+`as: 'company'` use it, in every project the registration allows
+([The company's mailbox](../../runs/start-runs-from-new-mail/#the-companys-mailbox)).
+A shared mailbox, one people open from their own account, isn't
+supported yet.
+
 If you turn it down on Microsoft's page, or go back from it because your
 directory needs an admin's consent first ([Admin consent](#admin-consent)),
 the connect is declined. If a tool's call asked you to connect, that call
@@ -220,8 +235,10 @@ mailbox:
   one mailbox
   ([Microsoft: Throttling limits](https://learn.microsoft.com/en-us/graph/throttling-limits)).
 
-The ready-made tools that read mail count only against the second. A call
-whose `toolId` the entry doesn't list takes 1 unit of each, so your own
+The ready-made tools that read mail or a calendar count only against
+the second. A calendar create or update counts against both, as it can
+send meeting requests. A call whose `toolId` the entry doesn't list takes
+1 unit of each, so your own
 tool's calls to Graph through
 [`appFetch`](../use-a-connection/#read-the-token) count as sends too.
 

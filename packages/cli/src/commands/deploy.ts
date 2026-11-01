@@ -14,21 +14,25 @@
  *
  *   1. Resolve args (env block, endpoint, token, envelope source).
  *   2. Ensure envelope exists — read from disk, or inline-build first.
- *   3. Structurally validate the envelope.
+ *   3. Structurally validate the envelope, and check its blocks against
+ *      what runs (`deploy/runs-check.ts`), unless an inline build's local
+ *      index was checked before its image was built.
  *   4. Build the wire POST body (strip `tenantId` / `$schema` /
  *      `buildLogsUrl`).
  *   5. Compute `Idempotency-Key: sha256(canonicalBody)` (or `--idempotency-key`).
  *   6. If `--dry-run`: print the curl-equivalent + body + headers to
- *      stderr, exit 0.
+ *      stderr, exit 0. An unsigned envelope shows the body less the
+ *      signature's fields, and no derived key.
  *   7. Otherwise POST via `ctx.fetch`, waiting out the server's rate
  *      limits (`429` with `Retry-After`) for up to 10 minutes in all.
  *   8. Handle response (201 / 200 / 4xx / 5xx / transport).
  *   9. Warn on out-of-band secrets sync if `.env.<envName>` exists.
  */
 
-import { stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 
+import { createClient } from '@kindgi/client';
 import { type DiscoveryConfig, readPackBlocks, resolveDiscovery } from '@kindgi/handler-runtime';
 import { LOCAL_ENV_NAME, type PackEnv, packValues, readPackEnv } from '@kindgi/secrets-dotenv';
 
@@ -39,9 +43,11 @@ import { isEnvelopeSigned } from '../deploy/envelope-loader.js';
 import { packBlocksRefusal } from '../deploy/pack-blocks-gate.js';
 import { packServiceProblemText, packServiceRetiredText } from '../deploy/pack-service-text.js';
 import {
+  type UnsignedPostBody,
   buildPostBody,
   deriveIdempotencyKey,
   deriveSyncSecretsIdempotencyKey,
+  unsignedPostBody,
 } from '../deploy/post.js';
 import { type PromotionStop, promotionPath } from '../deploy/promotion-path.js';
 import { renderResponse } from '../deploy/response.js';
@@ -54,6 +60,17 @@ import type {
   RunBuildResult,
   SyncSecretsBody,
 } from '../deploy/runners.js';
+import {
+  type ReplaceFlags,
+  type StopWords,
+  UNCHECKED_LINES,
+  checkRuns,
+  passedLines,
+  replaceFlagsProblem,
+  replaceOf,
+  runsCheckInputOf,
+  stoppedText,
+} from '../deploy/runs-check.js';
 import { envProjectRefs } from '../env-projects.js';
 import {
   packEnvProblemLines,
@@ -78,7 +95,8 @@ import { SLUG } from '../slug.js';
 import { type PackEnvironments, environmentsOf, resolveValueTarget } from '../value-target.js';
 import { CLI_VERSION } from '../version-info.js';
 import { runBuild } from './build.js';
-import type { EnvironmentConfig, PackConfig } from './build.js';
+import type { BuildHooks, EnvironmentConfig, PackConfig } from './build.js';
+import { listFlag, stringFlag } from './helpers.js';
 import type { CommandResult, LeafCommand } from './types.js';
 
 /** Default relative path to look for a pre-built envelope. */
@@ -90,11 +108,13 @@ export const deployCommand: LeafCommand = {
   description:
     'Deploy a signed pack image to Kindgi. Reads deploy-envelope.json (or runs `kindgi build` inline) + POSTs to /v1/deployments. ' +
     "`--hosted` (or the env block's `build: 'hosted'`) deploys to Kindgi hosted: an inline build runs on the hosted build service (as `kindgi build --hosted`), and after the deploy it waits, up to 5 minutes, for the deployment's pack service to be ready. " +
-    "A deploy into the Default project with a pack tool whose id is an MCP endpoint's tool's is refused (`tool-kind-mismatch`), and nothing is deployed.",
+    "A deploy into the default project with a pack tool whose id is an MCP endpoint's tool's is refused (`tool-kind-mismatch`), and nothing is deployed. " +
+    "Before an image is built, the pack's blocks are checked against what runs: a deploy that would put back an older version of a block than runs now in a project of one of its agents stops, and exits 1 with nothing deployed, unless `--replace` names the block, with `--reason`.",
   hostedRun: { defaultEnv: 'staging' },
   usage:
     'kindgi deploy [--env <name>] [--from-envelope <path>] [--endpoint <url>] [--token <bearer>] ' +
     '[--tenant <id>] [--project <id|slug>] [--hosted] [--idempotency-key <str>] [--dry-run] [--sync-secrets] [--allow-missing-env] ' +
+    '[--replace <block>]... [--reason <text>] ' +
     '[--target <t>] [--build-endpoint <url>] [--out <dir>] [--artifact-version <v>] [--published-at <iso>] ' +
     '[--signing-key <path>] [--signer-key-id <id>] [--registry-push-creds <ref>] ' +
     '[--skip-integrity-gate] [--skip-image-pull] [--skip-sign] [--path <dir>]',
@@ -122,7 +142,7 @@ export const deployCommand: LeafCommand = {
     project: {
       type: 'string',
       description:
-        "The project to deploy into, one per client: its id, or its slug. A slug two orgs share is refused: pass the id. Default: a tenant-wide deploy, into the tenant's Default project.",
+        "The project to deploy into, one per client: its id, or its slug. A slug two orgs share is refused: pass the id. Default: a tenant-wide deploy, into the tenant's default project.",
     },
     'idempotency-key': {
       type: 'string',
@@ -132,7 +152,17 @@ export const deployCommand: LeafCommand = {
     'dry-run': {
       type: 'boolean',
       description:
-        'Print the equivalent `curl` request instead of sending it. A missing envelope is still built first.',
+        "Print the equivalent `curl` request instead of sending it. A missing envelope is still built first, and the pack's blocks are still checked against what runs: a stop exits 1.",
+    },
+    replace: {
+      type: 'string',
+      multiple: true,
+      description:
+        'A block the deploy puts back on purpose, although a newer version of it runs now (repeatable). Needs --reason. The deployment records each, with the reason and who deployed.',
+    },
+    reason: {
+      type: 'string',
+      description: 'Why --replace puts the blocks back: 1 to 500 characters.',
     },
     // Opt-in post-deploy secret sync. Default OFF: regulated
     // verticals rotate secrets on a separate cadence.
@@ -245,6 +275,8 @@ interface ResolvedDeployArgs {
   readonly allowMissingEnv: boolean;
   /** The pack's blocks discovery pattern (`discovery.blocks`, the same default in every language). */
   readonly blocksPattern: string;
+  /** `--replace` and `--reason`: the blocks put back on purpose, and why. */
+  readonly replace: ReplaceFlags;
 }
 
 // ---------------------------------------------------------------------
@@ -367,8 +399,21 @@ async function deployWith(
     if (refused !== undefined) return failure(refused);
   }
 
+  // The pack's blocks against what runs, asked once, before an image is
+  // built: from the local index an inline build writes, else from the
+  // envelope's (step 3). A stop exits 1 with nothing deployed, under
+  // --dry-run too (`deploy/runs-check.ts`).
+  const runsCheck = runsCheckOnce(ctx, args, project.id, out);
+
   // ---- 2. Ensure envelope on disk -------------------------------------
-  const envelopeReady = await ensureEnvelopeExists(ctx, args, runners, out, project.id);
+  const envelopeReady = await ensureEnvelopeExists(
+    ctx,
+    args,
+    runners,
+    out,
+    project.id,
+    runsCheck.hooks,
+  );
   if (envelopeReady.kind === 'error') return envelopeReady;
 
   // ---- 3. Load + validate envelope ------------------------------------
@@ -388,16 +433,12 @@ async function deployWith(
     );
     if (refused !== undefined) return failure(refused);
   }
+  const stopped = await runsCheck.unlessChecked(envelope.index);
+  if (stopped !== undefined) return stopped;
 
   // ---- 4. Signed-envelope gate ----------------------------------------
   if (!isEnvelopeSigned(envelope)) {
-    if (!args.dryRun) {
-      return failure(
-        'deploy-envelope.json is unsigned. The server will refuse the deployment.\n' +
-          'Re-run `kindgi build` without --skip-sign, or pass --dry-run to inspect ' +
-          'what would be POSTed.\n',
-      );
-    }
+    if (!args.dryRun) return failure(UNSIGNED_REFUSAL);
     out.problem('  ⚠ Envelope is unsigned — --dry-run is proceeding for inspection only.');
     out.problem('');
   }
@@ -410,19 +451,24 @@ async function deployWith(
   }
 
   // ---- 6. Build POST body + Idempotency-Key ---------------------------
-  let postBody: PostDeploymentBody;
-  try {
-    postBody = {
-      ...buildPostBody(envelope),
-      ...(project.id !== undefined && { projectId: project.id }),
-    };
-  } catch (err) {
-    return failure(`Internal error building POST body: ${(err as Error).message}\n`);
-  }
+  //
+  // An unsigned envelope comes this far only under --dry-run (step 4). It
+  // has no POST body: the dry run shows the body less the signature's
+  // fields, and no derived Idempotency-Key, which hashes the signed body.
+  // Where the pack lives in git, inside a work tree (`deploy/source.ts`).
+  const source = await runners.readSource?.(args.packDir);
+  const replace = replaceOf(args.replace);
+  const bodyFields = {
+    ...(project.id !== undefined && { projectId: project.id }),
+    ...(source !== undefined && { source }),
+    ...(replace !== undefined && { replace }),
+  };
+  const postBody: PostDeploymentBody | undefined = isEnvelopeSigned(envelope)
+    ? { ...buildPostBody(envelope), ...bodyFields }
+    : undefined;
   const idempotencyKey =
-    args.idempotencyKeyOverride !== undefined
-      ? args.idempotencyKeyOverride
-      : deriveIdempotencyKey(postBody);
+    args.idempotencyKeyOverride ??
+    (postBody !== undefined ? deriveIdempotencyKey(postBody) : undefined);
 
   // ---- 7. Secrets sync detection + warning ---------------------------
   //
@@ -451,34 +497,11 @@ async function deployWith(
 
   // ---- 8. Dry-run ------------------------------------------------------
   if (args.dryRun) {
-    line('  Dry run — would POST the following:');
-    line('');
-    line(`    curl -X POST ${args.endpoint.replace(/\/+$/, '')}/v1/deployments \\`);
-    line('      -H "Authorization: Bearer <redacted>" \\');
-    line('      -H "Content-Type: application/json" \\');
-    line(`      -H "Idempotency-Key: ${idempotencyKey}" \\`);
-    line("      -d @-  <<'JSON'");
-    for (const bodyLine of JSON.stringify(postBody, null, 2).split('\n')) {
-      line(`    ${bodyLine}`);
-    }
-    line('    JSON');
-    line('');
-    line('  --dry-run set. No request sent. Exiting 0.');
-    line('');
-    const summary = {
-      envName: args.envName,
-      endpoint: args.endpoint,
-      envelopePath: args.envelopePath,
-      idempotencyKey,
-      dryRun: true,
-      wouldPost: postBody,
-    };
-    const rendered = renderJson(summary, ctx.globals.format);
-    return {
-      kind: 'ok',
-      rendered: { stdout: rendered.stdout, stderr: '' },
-    };
+    const shown = postBody ?? { ...unsignedPostBody(envelope), ...bodyFields };
+    return dryRunResult(ctx, args, line, shown, idempotencyKey);
   }
+  // Step 4 refused an unsigned envelope without --dry-run; this tells the types.
+  if (postBody === undefined || idempotencyKey === undefined) return failure(UNSIGNED_REFUSAL);
 
   // ---- 9. POST ---------------------------------------------------------
   //
@@ -560,11 +583,21 @@ async function deployWith(
     packService = waited.endpoint;
   }
 
+  // ---- 13. Hosted: the builds the project keeps -------------------------
+  //
+  // Each kept build has its own pack service, and a version stays callable
+  // by its number until someone unregisters it, so say how many there are
+  // and how to let old ones go. Only when the runtime counts them.
+  const kept =
+    packService !== undefined ? await sayKeptBuilds(ctx, args, runners, line, project.id) : {};
+
   const jsonOut = renderJson(
     {
       ...rendered.summary,
       ...(args.syncSecrets && { syncSecrets: syncSummary }),
       ...(packService !== undefined && { packService }),
+      ...(kept.keptBuilds !== undefined && { keptBuilds: kept.keptBuilds }),
+      ...(kept.error !== undefined && { keptBuildsError: kept.error }),
     },
     ctx.globals.format,
   );
@@ -767,6 +800,7 @@ async function ensureEnvelopeExists(
   runners: DeployRunners,
   out: ProgressLines,
   projectId: string | undefined,
+  hooks: BuildHooks,
 ): Promise<{ readonly kind: 'ok' } | (CommandResult & { readonly kind: 'error' })> {
   const { line } = out;
   const exists = await pathExists(args.envelopePath);
@@ -816,7 +850,7 @@ async function ensureEnvelopeExists(
   // No inline runner available — invoke the same-package `runBuild`
   // directly. This is the production path when
   // `deployRunners.runBuild` is omitted (see `deploy/defaults.ts`).
-  const built = await runInlineBuild(ctx, args, projectId, out);
+  const built = await runInlineBuild(ctx, args, projectId, out, hooks);
   if (built.kind === 'error') return built;
   return { kind: 'ok' };
 }
@@ -834,6 +868,7 @@ async function runInlineBuild(
   args: ResolvedDeployArgs,
   projectId: string | undefined,
   out: ProgressLines,
+  hooks: BuildHooks,
 ): Promise<
   | { readonly kind: 'ok' }
   | { readonly kind: 'error'; readonly stderr: string; readonly exitCode: number }
@@ -844,7 +879,20 @@ async function runInlineBuild(
   const buildCtx: CommandContext = { ...ctx, options: buildOptions };
   // Through deploy's own `out`, `--quiet` and all. None are kept here:
   // deploy's `out` streams or keeps them.
-  const result = await runBuild(buildCtx, { ...out, kept: () => '' });
+  // A stop of the check against what runs, after the build's local index
+  // and before its image, is deploy's own answer.
+  const checked: { stop?: CommandResult | undefined } = {};
+  const result = await runBuild(
+    buildCtx,
+    { ...out, kept: () => '' },
+    {
+      indexed: async (indexPath) => {
+        checked.stop = await hooks.indexed?.(indexPath);
+        return checked.stop;
+      },
+    },
+  );
+  if (checked.stop?.kind === 'error') return checked.stop;
   if (result.kind === 'error') {
     return {
       kind: 'error',
@@ -1016,8 +1064,10 @@ async function waitForPackService(
 
 /**
  * Where the deployment's pack declares names that stand in the way, said
- * as what to do: nothing when none does, when the server doesn't give pack
- * services their env (or is older), or when it can't be read.
+ * as what to do: nothing when none does, or when the server doesn't give
+ * pack services their env (or is older). A read that fails is said, with
+ * why, so no lines never stand for a read that didn't happen. A read the
+ * stop cut short says nothing: the wait says it stopped.
  */
 async function packEnvLines(
   ctx: CommandContext,
@@ -1034,7 +1084,8 @@ async function packEnvLines(
     fetchImpl: ctx.fetch,
     ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
   });
-  if (got.kind !== 'ok') return [];
+  if (got.kind === 'not-served' || ctx.stopSignal?.aborted === true) return [];
+  if (got.kind === 'error') return [`Couldn't read where each value is set: ${got.message}`];
   return packEnvProblemLines(got.packEnv.data, {
     envName: got.packEnv.envName,
     ...(projectId !== undefined && { projectId }),
@@ -1060,6 +1111,54 @@ async function readPackService(
     ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
   });
   return got.kind === 'ok' ? { kind: 'ok', endpoint: got.record.endpoint } : got;
+}
+
+/**
+ * How many builds keep a pack service where the deploy went, said with how
+ * to let old ones go: in the project it named, or the tenant's when it
+ * named none (the deploy answer doesn't name the default it went into). A
+ * read that fails is said, with why, and given back as `error`, so the
+ * JSON tells it from a runtime that doesn't count them; one the stop cut
+ * short says nothing.
+ */
+async function sayKeptBuilds(
+  ctx: CommandContext,
+  args: ResolvedDeployArgs,
+  runners: DeployRunners,
+  line: (s: string) => void,
+  projectId: string | undefined,
+): Promise<{ readonly keptBuilds?: number; readonly error?: string }> {
+  const count = runners.countKeptBuilds;
+  if (count === undefined) return {};
+  const got = await count({
+    endpoint: args.endpoint,
+    token: args.token,
+    ...(projectId !== undefined && { projectId }),
+    fetchImpl: ctx.fetch,
+    ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
+  });
+  if (ctx.stopSignal?.aborted === true) return {};
+  if (got.kind === 'error') {
+    line(`  Couldn't count the builds kept: ${got.message}`);
+    line('');
+    return { error: got.message };
+  }
+  if (got.keptBuilds === undefined) return {};
+  for (const l of keptBuildsLines(got.keptBuilds, projectId !== undefined)) line(l);
+  return { keptBuilds: got.keptBuilds };
+}
+
+export function keptBuildsLines(keptBuilds: number, inProject: boolean): string[] {
+  return [
+    `  Builds kept in this ${inProject ? 'project' : 'workspace'}: ${keptBuilds}`,
+    '    Each keeps its pack service while something it serves is registered, pinned or',
+    '    running, or until a newer build ships it. To let old ones go, unregister what',
+    '    nothing calls:',
+    '      kindgi tools|agents|flows unregister <id> <version>',
+    '      kindgi guardrails unregister <guardrail-id>',
+    '    `kindgi deployments get <deployment-id>` says what keeps each one.',
+    '',
+  ];
 }
 
 /** The wait stopped, with the deployment in place: why, and how to wait again. */
@@ -1326,6 +1425,14 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       : undefined;
 
   const dryRun = ctx.options['dry-run'] === true;
+  const replace: ReplaceFlags = {
+    blocks: listFlag(ctx, 'replace'),
+    reason: stringFlag(ctx, 'reason'),
+  };
+  const replaceProblem = replaceFlagsProblem(replace);
+  if (replaceProblem !== undefined) {
+    return { kind: 'error', stderr: `kindgi deploy: ${replaceProblem}\n`, exitCode: 1 };
+  }
   // Opt-in flag. Default OFF (see `syncSecrets` above).
   const syncSecrets = ctx.options['sync-secrets'] === true;
 
@@ -1358,6 +1465,7 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       packEnv: packEnv.plan,
       allowMissingEnv: ctx.options['allow-missing-env'] === true,
       blocksPattern: resolveDiscovery(cfg.discovery as DiscoveryConfig | undefined).blocks,
+      replace,
     },
   };
 }
@@ -1436,9 +1544,152 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
+/**
+ * `--dry-run`'s answer: the curl-equivalent and body as progress, the
+ * summary on stdout. An unsigned envelope's body lacks the signature's
+ * fields, and has no derived Idempotency-Key, which hashes the signed body.
+ */
+function dryRunResult(
+  ctx: CommandContext,
+  args: ResolvedDeployArgs,
+  line: ProgressLines['line'],
+  body: PostDeploymentBody | UnsignedPostBody,
+  idempotencyKey: string | undefined,
+): CommandResult {
+  const missing =
+    idempotencyKey === undefined
+      ? 'signerKeyId, signerPublicKey and signature a signed build adds, and the Idempotency-Key, which hashes that body'
+      : 'signerKeyId, signerPublicKey and signature a signed build adds';
+  line(
+    'signature' in body
+      ? '  Dry run — would POST the following:'
+      : `  Dry run — would POST the following, plus the ${missing}:`,
+  );
+  line('');
+  line(`    curl -X POST ${args.endpoint.replace(/\/+$/, '')}/v1/deployments \\`);
+  line('      -H "Authorization: Bearer <redacted>" \\');
+  line('      -H "Content-Type: application/json" \\');
+  if (idempotencyKey !== undefined) line(`      -H "Idempotency-Key: ${idempotencyKey}" \\`);
+  line("      -d @-  <<'JSON'");
+  for (const bodyLine of JSON.stringify(body, null, 2).split('\n')) {
+    line(`    ${bodyLine}`);
+  }
+  line('    JSON');
+  line('');
+  line('  --dry-run set. No request sent. Exiting 0.');
+  line('');
+  const summary = {
+    envName: args.envName,
+    endpoint: args.endpoint,
+    envelopePath: args.envelopePath,
+    ...(idempotencyKey !== undefined && { idempotencyKey }),
+    dryRun: true,
+    wouldPost: body,
+  };
+  const rendered = renderJson(summary, ctx.globals.format);
+  return {
+    kind: 'ok',
+    rendered: { stdout: rendered.stdout, stderr: '' },
+  };
+}
+
 function failure(stderr: string): CommandResult {
   return { kind: 'error', stderr, exitCode: 1 };
 }
+
+/**
+ * The check against what runs, asked once: by an inline build once it has
+ * its local index (`hooks`), else from the envelope's (`unlessChecked`).
+ */
+function runsCheckOnce(
+  ctx: CommandContext,
+  args: ResolvedDeployArgs,
+  projectId: string | undefined,
+  out: ProgressLines,
+): {
+  readonly hooks: BuildHooks;
+  readonly unlessChecked: (index: unknown) => Promise<CommandResult | undefined>;
+} {
+  let checked = false;
+  const check = (index: unknown): Promise<CommandResult | undefined> => {
+    checked = true;
+    return runsCheckAnswer(ctx, args, projectId, index, out);
+  };
+  return {
+    hooks: {
+      indexed: async (indexPath) => {
+        let index: unknown;
+        try {
+          index = JSON.parse(await readFile(indexPath, 'utf8'));
+        } catch {
+          // Checked from the envelope's index after the build instead.
+          return undefined;
+        }
+        return check(index);
+      },
+    },
+    unlessChecked: async (index) => (checked ? undefined : check(index)),
+  };
+}
+
+/**
+ * The pack's blocks against what runs, from its index: each block put back
+ * on purpose and each `--replace` not needed as progress, or the stop's
+ * table as the error, exit 1. A pack with no blocks and no `--replace`
+ * isn't asked about.
+ */
+async function runsCheckAnswer(
+  ctx: CommandContext,
+  args: ResolvedDeployArgs,
+  projectId: string | undefined,
+  index: unknown,
+  out: ProgressLines,
+): Promise<CommandResult | undefined> {
+  const input = runsCheckInputOf(index);
+  if (input.blocks.length === 0 && args.replace.blocks.length === 0) return undefined;
+  // Through `ctx.fetch`, as every other request a deploy sends.
+  const client = createClient({
+    apiUrl: args.endpoint,
+    auth: { kind: 'apiToken', token: args.token },
+    fetch: ctx.fetch,
+  });
+  out.line(`  Checking ${input.packId ?? 'the pack'} against what runs…`);
+  const check = await checkRuns(client, input, {
+    ...(projectId !== undefined && { projectId }),
+    replace: args.replace,
+  });
+  switch (check.kind) {
+    case 'passed':
+      for (const l of passedLines(check)) out.line(l);
+      out.line('');
+      return undefined;
+    case 'unchecked':
+      out.line(UNCHECKED_LINES[check.why]);
+      out.line('');
+      return undefined;
+    case 'failed':
+      return failure(
+        `Couldn't check the pack's blocks against what runs (POST /v1/deployments/check): ${check.message}\n`,
+      );
+    case 'stopped':
+      return failure(await stoppedText(client, check.stops, deployStopWords(args.envName)));
+  }
+}
+
+function deployStopWords(envName: string): StopWords {
+  return {
+    what: 'deploy',
+    ours: 'your files',
+    nothingDone: 'Nothing was deployed.',
+    keep: 'run `kindgi blocks pull`, then deploy again',
+    command: `kindgi deploy --env=${envName}`,
+  };
+}
+
+const UNSIGNED_REFUSAL =
+  'deploy-envelope.json is unsigned. The server will refuse the deployment.\n' +
+  'Re-run `kindgi build` without --skip-sign, or pass --dry-run to inspect ' +
+  'what would be POSTed.\n';
 
 function countIndexPrimitives(index: Readonly<Record<string, unknown>>): {
   tools: number;

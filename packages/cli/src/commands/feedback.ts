@@ -81,7 +81,7 @@ import {
   SEVERITIES,
 } from '../feedback/entries.js';
 import { runStatus, runSubmit, runWithdraw } from '../feedback/run.js';
-import { renderJson } from '../output.js';
+import { renderJson, successNote } from '../output.js';
 import { resolveSdkPackageRoot } from '../sdk-package.js';
 import { commandResultFromThrown, stringFlag } from './helpers.js';
 import type { Command, CommandResult, LeafCommand } from './types.js';
@@ -246,7 +246,10 @@ const write: LeafCommand = {
       // interactive user sees the write happened while the JSON goes
       // to stdout (respecting the CLI's format convention).
       process.stderr.write(
-        `✓ appended entry ${report.id} to ${report.path}\n  To mark items fixed, add \`> **Fixed:** <note>\` right after their header.\n  Send it to Kindgi with kindgi feedback submit --preview (it shows exactly what's sent first).\n`,
+        successNote(
+          ctx.globals.format,
+          `✓ appended entry ${report.id} to ${report.path}\n  To mark items fixed, add \`> **Fixed:** <note>\` right after their header.\n  Send it to Kindgi with kindgi feedback submit --preview (it shows exactly what's sent first).\n`,
+        ),
       );
       return {
         kind: 'ok',
@@ -301,7 +304,8 @@ async function runInteractiveEditor(seed: string): Promise<string> {
     tmpdir(),
     `kindgi-feedback-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.md`,
   );
-  await writeFile(tmpPath, seed, 'utf8');
+  // The draft may get a pasted secret, and the temp folder may be shared.
+  await writeFile(tmpPath, seed, { encoding: 'utf8', mode: 0o600 });
   await new Promise<void>((resolve_, reject) => {
     const child = spawn(editor, [tmpPath], { stdio: 'inherit' });
     child.on('exit', (code) => {

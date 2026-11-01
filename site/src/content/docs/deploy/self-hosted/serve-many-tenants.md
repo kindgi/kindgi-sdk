@@ -39,7 +39,7 @@ the runtime's address from `$KINDGI_URL`.
   needs a captcha: set KINDGI_AUTH_TURNSTILE_SECRET (or
   KINDGI_AUTH_TURNSTILE_SECRET_PATH) and KINDGI_AUTH_TURNSTILE_SITE_KEY."
 - **Each tenant is created through `POST /v1/system/tenants`**, with its
-  setup: its Default project and its authorization store.
+  setup: its default project and its authorization store.
 - **The start sets nothing up per tenant.** After an upgrade that adds a
   step for each tenant, run [`tenants repair`](#after-each-upgrade-tenants-repair).
 - **Background work** keeps up every tenant that's set up, and starts new
@@ -66,7 +66,7 @@ apart, and the two that let you allow and count them:
 | Setting | What it does |
 |---|---|
 | `KINDGI_TENANT_HOST_ACCESS=isolated` | What a tenant registers reaches public hosts only: not the metadata server, this host or private networks, and never with the server's own cloud credentials. The server then refuses `KINDGI_DEV`, `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow` and `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`. |
-| `KINDGI_PACK_ROUTING=per-deployment` | Each call goes to the pack service of the newest deployment in the run's project that shipped the tool or check, never to one pack service every tenant shares. A run with no project uses the Default project, whose deployments include each one that named no project. It needs `KINDGI_SECRETS_BACKEND=postgres`, because each endpoint's token is sealed under the secrets' key. `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused. |
+| `KINDGI_PACK_ROUTING=per-deployment` | Each call goes to the pack service of the newest deployment in the run's project that shipped the tool or check, never to one pack service every tenant shares. A run with no project uses the default project, whose deployments include each one that named no project. It needs a key to seal each endpoint's token under: `KINDGI_PACK_ENDPOINT_KMS_KEY`, or else the secrets' own, with `KINDGI_SECRETS_BACKEND=postgres`. `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused. |
 | `KINDGI_PACK_ENDPOINT_HOSTS` | The hosts a deployment's pack service may be on, comma-separated: a host name, `*.` and a domain, or `*-`, a tail and a domain. |
 | `KINDGI_OPENFGA_API_URL` and `KINDGI_OPENFGA_PRESHARED_KEY` | The authorization store, and the key it requires of its callers, so only the server reads and writes tenants' grants ([Require a key for OpenFGA](../../authorization/#require-a-key-for-openfga)). |
 | `KINDGI_PRODUCTION_GATE=on` | A tenant puts a project in production only once you allow it ([Limits and production](#limits-and-production)). |
@@ -105,6 +105,7 @@ own **system key** (`kgi_sy_…`), with the least scope it needs:
 | `system:suspend` | Suspending and restoring a tenant, a project or a pack |
 | `system:deployments` | The deployments and their pack services' endpoints |
 | `system:pack-env` | The values each deployment's pack declares, for its pack service, and the revision it runs (runtime 0.1.9 or later). On a key of its own: the deployments key reads no value, and only a key holding this scope itself, not `kindgi:system`, reads a secret's |
+| `system:env-refs` | [Setting a tenant's env names to a cloud secret](#set-a-name-to-a-cloud-secret), for its pack services (runtime 0.4.0 or later) |
 | `system:license` | Reading the deployment's license, for its renewal |
 | `kindgi:system` | All of them: a full key |
 
@@ -197,8 +198,20 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   minted, is in the tenant's audit log, by `system`, with your `--reason`. It
   exits `0` when the key is minted, `1` when it's minted but an audit entry
   couldn't be written or a revoked key's sessions couldn't be ended, and `2`
-  when it's refused and nothing changed. A tenant created with `firstAdmin`
-  has no such account: `tenants make-admin` makes a person its admin.
+  when it's refused and nothing changed. A session that wasn't ended is
+  refused at its next request anyway: each one checks its key. To end it,
+  revoke that key again, with the new key as `KINDGI_API_TOKEN`, as the
+  command's last line says. `<key id>` is the revoked key's id, from its
+  `revoked:` line:
+
+  ```sh
+  npx --yes @kindgi/cli@0.2 tokens revoke <key id>
+  ```
+
+  A key that's already revoked stays revoked, and the sessions it left end,
+  in the audit log as an `api-key-revoked` entry with `sessionsEnded`. A tenant
+  created with `firstAdmin` has no such account: `tenants make-admin` makes a
+  person its admin.
 - **Production starts blocked.** `"productionAllowed": true` allows it from
   the start, and takes `system:tenants:production`.
 - **`imagePrefix`** is the repository every image the tenant deploys must
@@ -241,15 +254,33 @@ Each deployment runs in its own pack service, which you run: an orchestrator,
 or a script, with a `system:deployments` key. The runtime records where each
 service is, and checks it. It never creates or deletes one.
 
+A pack's code may read whatever its service's account may. On
+[Cloud Run](../cloud-run/#serve-many-tenants), every tenant's pack services
+run as the module's one pack account, `$N-pack`. So each tenant's pack code
+can read every `kp-` secret, other tenants' pack service tokens and secret
+env values among them, and every secret in `pack_secret_readers`. One such
+installation is for tenants that trust one another's pack code. Give tenants
+that don't an installation each
+([Your tools' code](../../../concepts/security/#your-tools-code)).
+
 1. **List the deployments that need a service:**
    `GET /v1/system/deployments?endpoint=missing`, oldest first across tenants.
-   A deployment needs one while it's routed: it's the newest in its project
-   with routes for some tool version or pack check, it has no endpoint or a
-   cleared one, and nothing about it is closing or suspended. Each entry has
-   the tenant's id, the deployment's id, its pack and project (the one it
-   named, else the tenant's Default), and its image: the digest-pinned
-   `imageRef`, its digest, the artifact version and when it went live. It
-   has nothing else of the tenant.
+   A deployment needs one while it serves something a call can still ask for
+   that no newer deployment in its project serves: a tool, agent or flow
+   version that's registered, pinned by a flow or agent version a run can
+   reach, or used by an unfinished run; a tool deployed without a version; or
+   a pack check a registered guardrail runs in its project (runtime 0.4.0 or
+   later; before, while it was the newest in its project with routes for some
+   tool version or pack check). One whose endpoint an earlier runtime made or
+   last set also needs the earlier rule: once newer deployments in its
+   project ship every tool version and check it does, and deploy each tool it
+   deployed without a version the same way, it's retired for good. It also
+   has no endpoint or a cleared one, and nothing about it is closing or
+   suspended. Each entry has the tenant's id, the deployment's id, its pack
+   and project (the one it named, else the tenant's default), and its image:
+   the digest-pinned `imageRef`, its digest, the artifact version and when it
+   went live, and whether to start its service `warm` (step 7). It has
+   nothing else of the tenant.
 
    A deployment that ships no tools and no guardrail checks of its own, such
    as one of agents and flows whose guardrails use only built-in checks, has
@@ -273,6 +304,10 @@ service is, and checks it. It never creates or deletes one.
    plain value (`env`) and the `revision` they make. Ask with
    `?secrets=values`, and a name set only as a secret is given too, in
    `secrets`, read at the version the revision names. Give the service those.
+   A name your operator [set to a cloud secret](#set-a-name-to-a-cloud-secret)
+   (runtime 0.4.0 or later) comes in `cloudSecrets`, by its path, and never
+   its value: give the service that name from that version of the secret,
+   read as the service's own account, as a Cloud Run `secretKeyRef` does.
    If it names a `problem` instead, it gives no value: start nothing, and say
    why (step 4).
 3. **Record its endpoint:**
@@ -303,8 +338,10 @@ service is, and checks it. It never creates or deletes one.
    `tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed` or
    `image-not-allowed`. For its environment (runtime 0.1.9 or later):
    `pack-env-missing` (a required name is set nowhere), `pack-env-ambiguous`
-   (set both as a secret and as a plain value) or `pack-env-secret-not-yet`
-   (set only as a secret, read without `secrets=values`). With
+   (set more than one way: as a plain value, a secret or a cloud secret) or
+   `pack-env-secret-not-yet` (set only as a secret, read without
+   `secrets=values`). Where you run the service can't give it a cloud secret,
+   record `pack-env-cloud-secret-unsupported` (runtime 0.4.0 or later). With
    `secrets=values`, every secret value the route gives is audited, one row
    per secret, before the answer. When those rows can't be written, or the
    secret store is out, it gives none (`503 pack-env-unavailable`): try
@@ -312,7 +349,9 @@ service is, and checks it. It never creates or deletes one.
    `pack-env-secret-unreadable`, a runtime with nowhere to audit one refuses
    with `501 pack-env-secrets-unaudited`, and a secret over 32768 bytes is
    more than a pack service can be given (`pack-env-secret-too-large`):
-   record the code. Record `pack-env-secret-capacity` when there's no room
+   record the code. So is a name set as a secret that's too long for the
+   secret you keep it in (`pack-env-name-too-long`), which the owner
+   shortens in the pack. Record `pack-env-secret-capacity` when there's no room
    just now for a service that can be given a secret, kept apart from other
    projects': try again. The tenant sees the code and when, so a deploy that
    waits for its pack service says why at once.
@@ -338,8 +377,34 @@ service is, and checks it. It never creates or deletes one.
 6. **Retire what should go:** `GET /v1/system/deployments?endpoint=retire`
    lists deployments with an endpoint whose service should go, each with its
    `reason`. Clear the endpoint first, with `DELETE …/endpoint`, then delete
-   the service. A `superseded` deployment is one whose every tool version and
-   check newer deployments in its project ship.
+   the service. A deployment is `superseded` when nothing a call can still
+   ask for needs it: for each tool version, check, agent and flow version it
+   serves, a newer deployment in its project serves it too, or it's
+   unregistered, not pinned by a flow or agent version a run can reach and
+   not used by an unfinished run (a check: no registered guardrail runs it in
+   its project); and each tool it deployed without a version, a newer
+   deployment in its project deploys without one too (runtime 0.4.0 or later;
+   before, `superseded` meant newer deployments in its project shipped every
+   tool version and check it does and deployed each tool it deployed without
+   a version the same way). One whose endpoint an earlier runtime made or
+   last set is `superseded` as well, for good, once newer deployments in its
+   project ship every tool version and check it does and deploy each tool it
+   deployed without a version the same way (step 1). Otherwise it's listed as
+   needing a service again once something it serves that no newer deployment
+   in its project serves is wanted again: a tool, agent or flow version
+   registered again, pinned by a flow or agent version a run can reach or
+   used by an unfinished run, or a check a newly registered guardrail runs in
+   its project. A tenant sees what keeps each one in its endpoint's
+   `keptFor`.
+7. **Keep the warm ones up:** `GET /v1/system/deployments?endpoint=ready`
+   lists deployments whose service is ready and stays, oldest first across
+   tenants. Here and in `endpoint=missing`, `warm: true` means calls in its
+   project route to it for something always on: a tool version reached from
+   a version a pin holds (an agent's, a flow's or a tool's) or from the
+   Latest of each agent no pin covers there, or a pack check a registered
+   guardrail runs there. Keep an instance of a warm service running, and let
+   the others scale to zero. A runtime that doesn't send `warm` keeps none
+   warm.
 
 A call to a deployment's tool never goes anywhere else. With no endpoint yet
 it fails with `pack-endpoint-pending`, and after a clear with
@@ -360,6 +425,59 @@ deployment isn't in the run's project, or doesn't ship what the call names:
 ```text
 Deployment <deployment-id> isn't in project "<project name>", or doesn't ship tool acme.lookup@1.0.0. This call first ran on deployment <deployment-id>, and a re-run doesn't move to another.
 ```
+
+### Set a name to a cloud secret
+
+A name a pack reads from its environment can be set, at a tenant's scope and
+under one env, to a version of a secret your cloud holds instead of to a
+value (runtime 0.4.0 or later): a Google Cloud Secret Manager version,
+`projects/<project>/secrets/<secret>/versions/<number>`. Turn it on with
+`KINDGI_ENV_CLOUD_SECRETS=on`, which needs
+`KINDGI_PACK_ROUTING=per-deployment`. The runtime keeps
+that path and never reads the value. The pack service is given the name, and
+Cloud Run reads the value as the pack service's own account, so that account
+needs `roles/secretmanager.secretAccessor` on the secret. Every deployment's
+pack service runs as that one account, so any of them could read it: set one
+only for a value every pack may see.
+
+The version is a number, never `latest` or an alias, so what a pack service
+runs changes only when you set another version. A secret whose id starts
+with `kp-` is refused: those are the pack services' own copies.
+
+Only the operator sets one, with a system key holding `system:env-refs` as
+`KINDGI_API_TOKEN`:
+
+```sh
+npx --yes @kindgi/cli@0.4 env set STRIPE_KEY \
+  --cloud-secret projects/acme-prod/secrets/stripe-key/versions/3 \
+  --tenant="$TENANT_ID" --scope="project:$PROJECT_ID" --env=prod
+npx --yes @kindgi/cli@0.4 env list --cloud-secret \
+  --tenant="$TENANT_ID" --scope="project:$PROJECT_ID" --env=prod
+npx --yes @kindgi/cli@0.4 env unset STRIPE_KEY --cloud-secret \
+  --tenant="$TENANT_ID" --scope="project:$PROJECT_ID" --env=prod
+```
+
+`kindgi env set` refuses to change one that's set to another version without
+`--force`. Over HTTP, those are `PUT`, `GET` and `DELETE` on
+`/v1/system/tenants/{tenantId}/env[/{name}]`, with `envName`, `scopeKind` and
+`scopeId` in the query, and `{"cloudSecret": "<path>"}` as the `PUT`'s body.
+A path not of that form is `400 cloud-secret-invalid`, and a tenant's own key
+is refused, on `kindgi env set` too (`403 cloud-secret-system-only`). Each
+change is in the tenant's audit record (`env-set`, `env-deleted`), naming the
+system key that made it and marked `cloudSecret`, never with the path, and
+in the system access record. Setting, changing or removing one moves the
+pack env revision, so the pack services that declare the name are given the
+change as for any value (step 5).
+
+The tenant sees which names are set this way, never the path:
+`kindgi env list --scope` shows each as `NAME (cloud secret)`, and
+`kindgi deployments get` names it set. A name set to a cloud secret and also
+as a value or a secret is `pack-env-ambiguous`: its pack service gets
+neither until one is removed. With `KINDGI_ENV_CLOUD_SECRETS` off, the
+default, the runtime keeps none and answers `501 cloud-secrets-unsupported`,
+as Kindgi Cloud does. A runtime serving one
+tenant with a pack service per deployment mints `system:env-refs` keys too,
+from its own token, for that tenant alone.
 
 ## Limits and production
 
@@ -398,7 +516,7 @@ restoring clears both. A closing tenant can't be suspended (`409 tenant-closing`
   endpoint is recorded for it. Its unfinished runs are cancelled, waiting
   ones included. Its schedules and webhooks are skipped, and its
   deployments list to retire. The rest of the tenant is untouched. While
-  the Default project is suspended, a pack call that names no project is
+  the default project is suspended, a pack call that names no project is
   refused too.
 - **A pack:** `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended`.
   Its calls fail with `pack-suspended`, never going to an older deployment,
@@ -445,11 +563,14 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants/$TENANT_ID/purge" \
 - **`confirm` is the tenant's slug,** a second check on the id. Another
   value is `400 tenant-slug-mismatch`, and nothing is changed.
 - **The servers need `KINDGI_TENANT_PURGE_RECORD`:** where purge records
-  are kept, `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]`, the same
-  place as the command's `--record`. Unset, every purge is refused with
-  `409 purge-record-unset`: without a record, restoring a backup taken
-  before the purge would bring the tenant back, with nothing to purge it
-  again ([`kindgi-runtime tenants repurge`](#after-a-restore-tenants-repurge)
+  are kept, `local:<absolute dir>`, `gcs:<bucket>[/<prefix>]` or
+  `s3:<bucket>[/<prefix>]` (runtime 0.3.0 or later), the same place as the
+  command's `--record`
+  ([Choose where the runtime keeps files](../store-files/)). Unset, every
+  purge is refused with `409 purge-record-unset`: without a record,
+  restoring a backup taken before the purge would bring the tenant back,
+  with nothing to purge it again
+  ([`kindgi-runtime tenants repurge`](#after-a-restore-tenants-repurge)
   reads the records after a restore).
 - **It answers when it's done,** after its wait. The answer names each
   table's rows it deleted (`deleted`), the objects deleted from the
@@ -530,8 +651,9 @@ tenants purge: tenant 1ccae8e9-3dc8-4db9-b393-ba3d44e7f86e (acme-shop)
   `kindgi-runtime check purged-tenants` lists every tenant marked purged
   that still holds rows, by table and count: rows only, not the bytes under
   its prefix.
-- **`--record`** (`local:<dir>` or `gcs:<bucket>[/<prefix>]`) keeps a record
-  of each purge, `purged/<tenant id>.json` under it. After a restore,
+- **`--record`** (`local:<dir>`, `gcs:<bucket>[/<prefix>]`, or
+  `s3:<bucket>[/<prefix>]` with runtime 0.3.0 or later) keeps a record of
+  each purge, `purged/<tenant id>.json` under it. After a restore,
   [`tenants repurge`](#after-a-restore-tenants-repurge) reads them.
 - **One purge of a tenant runs at a time** (runtime 0.1.10 or later): a
   second, here or through the system API, waits for the first to finish.
@@ -552,10 +674,11 @@ kindgi-runtime tenants repurge --from <where> --ledger <where>
 ```
 
 - **Two sources name the tenants:** the purge records under `--from`
-  (`local:<dir>` or `gcs:<bucket>[/<prefix>]`, where `--record` and
-  `KINDGI_TENANT_PURGE_RECORD` write them), and the newest copy of the
-  erasure ledger under `--ledger` (runtime 0.1.10 or later), which names
-  every tenant purged before it was written, however long ago. A record can
+  (`local:<dir>`, `gcs:<bucket>[/<prefix>]` or `s3:<bucket>[/<prefix>]`,
+  where `--record` and `KINDGI_TENANT_PURGE_RECORD` write them), and the
+  newest copy of the erasure ledger under `--ledger` (runtime 0.1.10 or
+  later), which names every tenant purged before it was written, however
+  long ago. A record can
   be gone, deleted by a bucket's retention rule, say; the copy still names
   its tenant. A tenant both name is purged once.
 - **`--ledger`** takes what `erasures replay --from` takes: a directory, a
@@ -569,7 +692,8 @@ kindgi-runtime tenants repurge --from <where> --ledger <where>
   (`--from gcs:<bucket>`) and the server's copies under `runtime/`
   (`--ledger gcs:<bucket>/runtime`). Reading a bucket, it lists and
   downloads, so whatever runs it needs read access to it, as
-  [replay](../back-up-and-restore/) does.
+  [replay](../back-up-and-restore/) does
+  ([the permissions](../store-files/#files-written-once)).
 - **Run it with `--dry-run` first,** and nothing changes. Its first line
   says what it read:
   `tenants repurge --dry-run: <n> purge records, and the ledger's copy <file> (written <when>; <n> purged tenants). Nothing will be changed.`
@@ -606,16 +730,28 @@ kindgi-runtime tenants repair --all
 ```
 
 ```text
-tenant 5b52fd42-bd2b-4597-b324-84ec1a7033a4 (tenant-1792242381807-ed3afb): Default project kept; authorization store kept; 0 tuples added; 0 memberships and 0 service account grants put back; adapters: 6 kept up to date, 0 removed; sign-in providers reconciled
+tenant 5b52fd42-bd2b-4597-b324-84ec1a7033a4 (tenant-1792242381807-ed3afb): Default project kept; authorization store kept; 0 tuples added; 0 memberships and 0 service account grants put back; 0 removals finished and 0 grants taken away; adapters: 6 kept up to date, 0 removed; sign-in providers reconciled
 1 tenant repaired.
 ```
 
-It adds only what's missing: the Default project, the authorization store's
+It adds what's missing: the default project, the authorization store's
 tuples and current model, the access each active person and service account
 has on record (a person's tenant membership, a service account's grants), the
 shipped adapters, and the sign-in providers. It
 finishes a create whose setup didn't finish, if the create named a first
-admin. Run it again at will. `--tenant <id>` repairs one tenant.
+admin.
+
+It also takes away access the tenant's record doesn't back (runtime 0.3.0
+or later): it finishes a person's removal, or a service account's
+unregister, that stopped part way, and revokes a service account's admin,
+membership or project role that its grants don't give. And it takes away
+the access an older runtime gave `00000000-0000-0000-0000-000000000000`, the
+id it named as the creator of what a key with no person behind it made; no
+person has that id. Each removal it finishes and each grant it takes away
+is named under the tenant's line. `--dry-run` shows what it would put back
+and take away, per tenant, and changes nothing.
+
+Run it again at will. `--tenant <id>` repairs one tenant.
 `--providers` redoes only sign-in's providers, after `KINDGI_PUBLIC_URL`
 changes. It exits 0 when every tenant is set up, and 1 when something is left
 for you, named:
@@ -624,6 +760,61 @@ for you, named:
 tenant f309aaca-024a-4fb9-aff8-ef76c4c40e16 (tenant-a): Default project created; no authorization store, and none can be made without naming its first admin: left for the operator; 0 tuples added; adapters: 6 kept up to date, 0 removed; sign-in providers reconciled
 1 tenant gone through; 1 left for the operator (named above).
 ```
+
+Run it with the version you upgraded to, after its server has started. The
+`tenants` commands, `repair` among them, run only on a database migrated to
+their own version, and exit `2` on any other, with `Nothing was changed.`:
+
+- **A database a newer version migrated:**
+  ``This database was migrated by a newer Kindgi version: it records a migration this version doesn't have (…). This version's `tenants repair` doesn't run on it: run it with the version that migrated it.``
+- **A database not migrated to this version yet:**
+  ``This database isn't migrated to this Kindgi version yet: it doesn't record one of this version's migrations (…). This version's `tenants repair` doesn't run on it until it's migrated: start this version's server on it first, which migrates it.``
+  For `tenants repurge` after a restore, it says to run this version's
+  `erasures replay` on it first instead.
+
+`--all` checks again before each tenant. When it's refused partway, it names
+the tenants it went through first. A command waits while a migration or
+another admin command runs, and says so on stderr every 30 seconds, as
+`tenants repair: waiting for a migration, or another admin command, to finish (30 s so far)`.
+A server that starts while a command runs waits for it the same way, and
+logs it at `WARN`:
+`waiting for another instance's migrations, or an admin command, to finish (30 s so far)`.
+
+### A tenant id given in upper case
+
+A runtime serving one tenant takes `KINDGI_TENANT_ID` in lower case. An
+earlier runtime given it in upper case wrote under that spelling. Each
+start that finds something written there warns, once, at `WARN`: `KINDGI_TENANT_ID is set as <TENANT ID>, and is taken in lower case (<tenant id>).`,
+followed by the steps for that runtime:
+
+1. Move the artifact bytes kept under the old spelling to the same place
+   under `tenants/<tenant id>/`. The release notes' upgrade steps have the
+   commands.
+2. Once every replica runs the new version, repair the tenant with the old
+   spelling:
+
+   ```sh
+   kindgi-runtime tenants repair --tenant <tenant id> --old-spelling <TENANT ID>
+   ```
+
+   `<tenant id>` is the id in lower case, and `<TENANT ID>` the id as it was
+   given, as the warning names them.
+3. Set `KINDGI_TENANT_ID` in lower case.
+
+`--old-spelling` moves tenant admin given on the old spelling to the tenant,
+for the people still in it and the system's. A removed person's is only
+taken. Then it repairs the tenant, and deletes every other authorization
+tuple that names the old spelling. Its line lists the ids it moved
+(`tenant admin moved for …`), the ids it only took
+(`taken only, as they're not in the tenant: …`), and how many tuples it
+deleted. A second run finds nothing to do. It's refused, with exit `2`,
+without `--tenant`, with `--providers` or `--dry-run`, with an id that
+isn't the tenant's in another case, and without `KINDGI_OPENFGA_API_URL`.
+
+Until it runs, a tenant admin given on the old spelling keeps it on what
+was made before the upgrade, and the console doesn't list them as one.
+Taking tenant admin from someone, or removing them, takes it on both
+spellings.
 
 ## Switch a one-tenant runtime to many
 

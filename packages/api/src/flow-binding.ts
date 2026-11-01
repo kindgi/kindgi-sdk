@@ -4,7 +4,7 @@
 import type { TupleEnqueueHook } from '@kindgi/authz';
 import type { Flow } from '@kindgi/flow';
 import type { Scope } from '@kindgi/platform';
-import type { Cursor, FlowId, ProjectId, TenantId } from '@kindgi/types';
+import type { Cursor, FlowId, PinScope, ProjectId, TenantId } from '@kindgi/types';
 
 import type { RegistryReadOnly } from './registry-read-only.js';
 
@@ -91,7 +91,8 @@ export interface FlowRegistryBinding {
    * Soft-tombstone a specific `(flowId, version)`. When this leaves
    * NO active versions, the flow has no latest version — it enters the
    * derived "retired" state (GET returns 410 gone).
-   * Publish of a new version reactivates.
+   * Publish of a new version reactivates. A pinned version stays
+   * (`pinned`, `409 flow-version-pinned`).
    */
   unregister(input: FlowUnregisterInput): Promise<FlowUnregisterOutcome>;
   /**
@@ -192,10 +193,10 @@ export interface FlowPublishInput {
   /**
    * Project the flow is published into. REQUIRED. Callers that
    * don't naturally know a projectId
-   * (deployment route) resolve the tenant's Default via
+   * (deployment route) resolve the tenant's default via
    * `projectBinding.getDefault(tenantId)` at THEIR layer and thread
    * the resolved id here — the storage adapter never silently falls
-   * back to Default.
+   * back to the default.
    */
   readonly projectId: ProjectId;
   readonly flow: Flow;
@@ -267,6 +268,13 @@ export type FlowPublishOutcome =
 
 export type FlowUnregisterOutcome = {
   readonly unregistered: boolean;
+  /**
+   * Set when the version wasn't unregistered because it's pinned: the
+   * scopes that pin it. A pin is a standing choice, so the operator moves
+   * or removes those pins first. The route answers `409 flow-version-pinned`.
+   * Absent: a registry that doesn't know pins, as before.
+   */
+  readonly pinned?: readonly PinScope[];
 };
 
 export type FlowReinstateVersionOutcome =

@@ -33,6 +33,8 @@ import { stableStringify } from '../build/envelope.js';
 import type { DeployEnvelope } from '../build/envelope.js';
 import type { ServedEnv } from '../value-target.js';
 import type {
+  CountKeptBuildsOptions,
+  CountKeptBuildsResult,
   DeploymentRecord,
   EnvironmentOrderRow,
   FindProjectsOptions,
@@ -79,14 +81,38 @@ export function buildPostBody(envelope: DeployEnvelope): PostDeploymentBody {
       'buildPostBody() called on an unsigned envelope. Check with `isEnvelopeSigned` first.',
     );
   }
+  // publishedAt stays last, the order a released CLI sends: the server's
+  // idempotency check fingerprints the body's bytes, so the same envelope
+  // deployed again under the same key by another CLI version, its keys
+  // reordered, would be refused as a different body.
+  const { publishedAt, ...fields } = unsignedPostBody(envelope);
+  return {
+    ...fields,
+    signerKeyId: envelope.signerKeyId,
+    signerPublicKey: envelope.signerPublicKey,
+    signature: envelope.signature,
+    publishedAt,
+  };
+}
+
+/** The wire body without the signature's three fields: all an unsigned envelope has. */
+export type UnsignedPostBody = Omit<
+  PostDeploymentBody,
+  'signerKeyId' | 'signerPublicKey' | 'signature'
+>;
+
+/**
+ * The body less the signature's fields: what `--dry-run` shows for an
+ * unsigned envelope, and what `buildPostBody` adds the signature to, so
+ * a field the wire gains is in both. The server refuses it as it is, so
+ * nothing sends it.
+ */
+export function unsignedPostBody(envelope: DeployEnvelope): UnsignedPostBody {
   return {
     imageRef: envelope.imageRef,
     artifactVersion: envelope.artifactVersion,
     index: envelope.index,
     indexHash: envelope.indexHash,
-    signerKeyId: envelope.signerKeyId,
-    signerPublicKey: envelope.signerPublicKey,
-    signature: envelope.signature,
     publishedAt: envelope.publishedAt,
   };
 }
@@ -457,6 +483,45 @@ export async function getDeploymentReal(opts: GetDeploymentOptions): Promise<Get
     };
   }
   return { kind: 'ok', record: body as DeploymentRecord };
+}
+
+/** `GET /v1/deployments?limit=1`, in the project deployed into: its `keptBuilds`. */
+export async function countKeptBuildsReal(
+  opts: CountKeptBuildsOptions,
+): Promise<CountKeptBuildsResult> {
+  const query = new URLSearchParams({ limit: '1' });
+  if (opts.projectId !== undefined) query.set('projectId', opts.projectId);
+  const url = `${opts.endpoint.replace(/\/+$/, '')}/v1/deployments?${query.toString()}`;
+  let res: Response;
+  try {
+    res = await opts.fetchImpl(url, {
+      headers: { Authorization: `Bearer ${opts.token}` },
+      ...(opts.signal !== undefined && { signal: opts.signal }),
+    });
+  } catch (err) {
+    return { kind: 'error', message: `GET ${url} failed: ${(err as Error).message}` };
+  }
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    return {
+      kind: 'error',
+      message: `GET ${url} answered HTTP ${res.status} with a body that isn't JSON`,
+    };
+  }
+  if (!res.ok) {
+    const code = (body as { error?: { code?: unknown } } | null)?.error?.code;
+    return {
+      kind: 'error',
+      message: `GET ${url} answered HTTP ${res.status}${typeof code === 'string' ? ` (${code})` : ''}`,
+    };
+  }
+  const kept = (body as { keptBuilds?: unknown } | null)?.keptBuilds;
+  return {
+    kind: 'ok',
+    ...(typeof kept === 'number' && Number.isInteger(kept) && kept >= 0 && { keptBuilds: kept }),
+  };
 }
 
 /** `GET /v1/deployments/:id/pack-env`: where each name the deployment's pack declares is set. */

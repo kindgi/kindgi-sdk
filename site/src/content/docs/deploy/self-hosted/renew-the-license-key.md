@@ -30,8 +30,9 @@ a new key instead, or write to contact@kindgi.com.
 
 ## Before you start
 
-- **A non-production key from access.kindgi.com,** and the GitHub login you
-  sign in there with.
+- **A non-production key from access.kindgi.com.** After you sign in there,
+  your key page shows the account a renewer is for, under **Renew the key
+  from your deployment**: your GitHub login, or an `em-…` id.
 - **The `kindgi` CLI, 0.1.7 or later,** on a machine that can read and write
   where your keys are kept. It runs from any folder as
   `npx --yes @kindgi/cli@0.2` ([Install](../../../start/install/)). Inside a
@@ -86,11 +87,11 @@ Whatever runs `renew` needs to read these, and to write the license key's.
 access.kindgi.com trusts.
 
 ```sh
-npx --yes @kindgi/cli@0.2 license enroll --for <your GitHub login> --renewer gcp:projects/acme-prod/secrets/kindgi-license-renewer
+npx --yes @kindgi/cli@0.2 license enroll --for <your GitHub login or em- id> --renewer gcp:projects/acme-prod/secrets/kindgi-license-renewer
 ```
 
-- `--for` is the GitHub login you sign in to access.kindgi.com with. The
-  renewer works for it alone.
+- `--for` is that account: your GitHub login, or the `em-…` id your key page
+  shows. The renewer works for it alone.
 - `--renewer` is where to keep the renewer's private key, as a reference
   from [Where the keys are kept](#where-the-keys-are-kept).
 
@@ -101,7 +102,7 @@ command to run next:
 ```text
 Renewer lr_c1DXmGBUpkAT6wd10BARbp: its private key is in ….
 
-Add this deployment on https://access.kindgi.com, signed in as …, under "Renew the key from your deployment":
+Add this deployment on https://access.kindgi.com, signed in as the person it's for (…), under "Renew the key from your deployment":
 
   kgi_lrp_…
 
@@ -114,10 +115,18 @@ Run `enroll` again with the same `--renewer`, and it reuses the key it finds
 there. `--replace` makes a new one instead. The old one stops working once
 you add the new line.
 
+For a script, `enroll --json` prints the result as JSON on stdout, and the
+lines above on stderr: `renewerId`, `renewer` (the reference you gave),
+`changed` (`false` when it reused the key it found), `overwritten` (`true`
+when `--replace` overwrote what `--renewer` held), `login`, `accessUrl`,
+`enrollLine` (the `kgi_lrp_…` line to add) and `nextSteps`. `enroll --quiet`
+prints the `kgi_lrp_…` line alone.
+
 ## 2. Add the renewer at access.kindgi.com
 
-Sign in at access.kindgi.com as the login you gave `--for`. Under **Renew the
-key from your deployment**, add the `kgi_lrp_…` line that `enroll` printed.
+Sign in at access.kindgi.com, with GitHub or your email address, as the person
+you gave `--for`. Under **Renew the key from your deployment**, add the
+`kgi_lrp_…` line that `enroll` printed.
 access.kindgi.com keeps only the renewer's public key.
 
 ## 3. Renew
@@ -182,12 +191,43 @@ In the key's last 30 days, `renew` adds a line that starts
 `⚠ It expires in <N> days`. It says how to get a key if `renew` keeps
 answering `unchanged`.
 
+For a script, `renew --json` prints the result as JSON on stdout, and the
+lines above on stderr:
+
+```json
+{
+  "status": "renewed",
+  "renewerId": "lr_c1DXmGBUpkAT6wd10BARbp",
+  "license": {
+    "name": "acme.example",
+    "use": "non-production",
+    "expiresAt": "2026-12-09T00:00:00.000Z",
+    "daysLeft": 45
+  },
+  "warnings": []
+}
+```
+
+- `status` is `renewed` or `unchanged`.
+- `daysLeft` is the number the ⚠ line prints, so it's negative once the key
+  has expired.
+- With `--runtime`, `counts` says what the renewal carried:
+  `{"sent": true, "usage": {…}}` with the counts, or
+  `{"sent": false, "reason": "…"}`.
+- `warnings` holds the lines `--quiet` keeps, without the ⚠: the
+  `It expires in <N> days` line, and a `counts: not sent (…)` line other
+  than a production key's.
+
+`renew --quiet` prints only those warnings, on stderr, and nothing on
+stdout: the exit code says the rest. With none of these flags, `renew`
+prints its lines on stdout, as above.
+
 A refusal or a failure goes to stderr and exits `1`, so your scheduler's
 alerting sees it. The key is left as it was. A failure says what's wrong.
 Here, a scheduled run on Azure for a deployment that wasn't enrolled:
 
 ```text
-There's no renewer key in the Key Vault secret license-renewer (vault …). Enroll this deployment first: kindgi license enroll --for <your GitHub login> --renewer <where to keep its key>.
+There's no renewer key in the Key Vault secret license-renewer (vault …). Enroll this deployment first: kindgi license enroll --for <your GitHub login, or the em- id your key page shows> --renewer <where to keep its key>.
 ```
 
 A refusal from access.kindgi.com names its code, `refused (<code>): …`:
@@ -214,7 +254,8 @@ route refuses it.
 
 Mint it with the runtime's own token. On a runtime serving one tenant
 (runtime 0.1.10 or later), only that token mints system keys, and only ones
-holding `system:license`. The token reaches `curl` as a header file, so it
+holding `system:license`, or, with a pack service per deployment, the
+orchestrator's scopes. The token reaches `curl` as a header file, so it
 never shows in the list of processes:
 
 ```sh
@@ -291,7 +332,7 @@ from the runtime (`GET /v1/license/usage`, which only the deployment's own
 token, or a [system key holding `system:license`](#a-key-for-the-counts),
 can read):
 
-- **runs:** the runs started, not counting dry runs, replays, evals or the
+- **runs:** the runs started, not counting dry runs, replays, test runs or the
   runs another run starts;
 - **people:** the distinct people who started runs or decided approvals,
   counted in each tenant and summed, so a person in two tenants counts twice;

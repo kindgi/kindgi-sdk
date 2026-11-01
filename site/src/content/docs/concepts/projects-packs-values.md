@@ -16,7 +16,7 @@ own. Every id in it starts with the pack's id, such as `acme-desk.triage`
 ([Packs and primitives](../packs/)).
 
 `kindgi deploy` registers the whole pack in one project: the one
-`--project` names, else the tenant's Default project. Its agents, flows,
+`--project` names, else the tenant's default project. Its agents, flows,
 tools and guardrails belong to that project from then on. An item stays in
 the project its first version went into: publishing a version of it in
 another project is refused, and nothing is written.
@@ -28,12 +28,38 @@ which gives every id the new pack's id.
 [Deploy a client's pack into its project](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)
 shows how.
 
+A copy runs on a runtime that runs each deployment as a service of its
+own (`KINDGI_PACK_ROUTING=per-deployment`), whether it serves one tenant
+or many. Unset, a runtime runs one pack service for every
+deployment, whether it serves one tenant or many, and that service runs
+only the pack it was given, so a copy's code wouldn't run there. There, a
+second project gets the same items through an environment order, when
+both projects are in the same org or neither is in an org: put both in one
+order (`kindgi environments set`), the second right after the first, and
+`kindgi promote` the build from the first to the second instead of
+deploying it. Projects in two orgs, or one in an org and one not, can't
+share an order unless one moves (`orgId` on
+`PATCH /v1/projects/{projectId}`, for a project in no order), which also
+changes who in the orgs reaches it. The `409` names the fix your runtime
+has.
+
+An environment order, such as staging and then production, is the one way
+a build reaches more than one project: `kindgi promote` carries the same
+build on to the order's next project. Its items still belong to the project
+they were first published in, and they also run in each project a
+deployment that isn't retired carried the build to, so a change to one of
+them reaches each. For an agent,
+`GET /v1/agents/{agentId}/projects` lists those projects, its first one
+first, naming only the ones you can read.
+[Environments in order](../../deploy/ship-from-ci/#environments-in-order)
+sets an order up and promotes a build along it, by hand or from CI.
+
 ## What a project's runs can use
 
 A run is in one project, and it can use only what that project reaches:
 
 - **A pack's items**, its tools, agents, flows, guardrails, data blocks and
-  test sets, reach only runs in their own project.
+  test cases, reach only runs in their own project.
 - **An MCP server's tools** reach the projects its endpoint was registered
   for: every project in the tenant, every project in one org, or one
   project
@@ -92,9 +118,9 @@ A run uses four kinds of values, each kept in its own place.
   `--sync-secrets` writes: the project the deploy named, or the tenant for
   a deploy without `--project`. A promotion records where the promoted
   deployment's `--sync-secrets` writes: the project it promotes into, or
-  the tenant when that's the Default project. A tool registered any other
+  the tenant when that's the default project. A tool registered any other
   way records the broadest of those scopes: the tenant for a tenant admin,
-  the project for a project admin. So does a promotion into the Default
+  the project for a project admin. So does a promotion into the default
   project by someone who doesn't administer the tenant. That version then
   reads the secret there and nowhere else. A value set later at another scope isn't
   read until a new version of the tool is registered. An MCP endpoint's
@@ -128,20 +154,23 @@ An agent version holds the agent: its instructions, the tools and
 guardrails it names, and the data blocks it pins. It doesn't hold secrets,
 env values or model keys. A run reads those when it runs. So:
 
-- **Several versions can wait** while one is live, and you can run any of
+- **Several versions can wait** while one is pinned, and you can run any of
   them by its number:
   `kindgi runs start --agent=<agent-id> --agent-version=<version>`.
-- **A value only a new version reads** can be set before you make that
-  version live.
-- **Changing a value the live version reads** changes live runs from the
-  next run, before you make anything live.
+  On a self-hosted runtime with one pack service, a version runs only while your
+  pack still has the tool versions it locked
+  ([A self-hosted runtime runs what your pack has](../../guides/agents/agent-and-tool-versions/#a-self-hosted-runtime-runs-what-your-pack-has)).
+- **A value only a new version reads** can be set before you pin that
+  version.
+- **Changing a value the pinned version reads** changes its runs from the
+  next run, before you pin anything else.
 - **`--sync-secrets` writes at deploy time,** so it can change what the
-  live version reads, though the new version isn't live yet.
+  pinned version reads, though the new version isn't pinned yet.
 - **A conversation keeps its version.** One that's already open goes on
   with the version it started with
-  ([Conversations keep their version](../../guides/evals/live-versions-reference/#conversations-keep-their-version)).
+  ([Conversations keep their version](../../guides/improve/pinned-versions-reference/#conversations-keep-their-version)).
 
 On Kindgi Cloud,
 [Change your agent once it's live](../../hosted/deploy-your-agent/#change-your-agent-once-its-live)
-shows how to try a new version in the same project before you make it
-live.
+shows how to try a new version in the same project before you pin
+it.

@@ -98,7 +98,7 @@ type WireError = { readonly code: string; readonly message: string } & Readonly<
  * them; a scoped key never mints any key. On a runtime serving one tenant
  * only the deployment's own token reaches them, and they mint the scopes
  * `options.mintable` names alone (`system:license`, for the license
- * renewal).
+ * renewal, and, with a pack service per deployment, its orchestrator's).
  */
 export function systemKeysRouter(
   binding: SystemKeysBinding,

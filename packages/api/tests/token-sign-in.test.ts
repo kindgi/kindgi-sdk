@@ -17,6 +17,7 @@ import {
   createApp,
 } from '../src/index.js';
 import type {
+  ApiTokenRecord,
   IdentityProviderBinding,
   RunHandlerBinding,
   SecondFactorBinding,
@@ -24,6 +25,7 @@ import type {
   SessionConfig,
   SessionCreateInput,
   SessionStoreBinding,
+  TokenAdmin,
   TokenResolution,
 } from '../src/index.js';
 
@@ -115,6 +117,50 @@ function makeStore() {
   return { store, created };
 }
 
+/**
+ * The deployment's API keys (`tokenAdmin`): each of `KEYS` with an id, live,
+ * acting for its person. `reads`: the ids each read asked for. With
+ * `state.failing`, every read throws, as a database that's down does.
+ * `state.onRevoke` runs after a revoke is written: ending the key's sessions.
+ */
+function makeKeys() {
+  const records = new Map<string, ApiTokenRecord>();
+  for (const key of Object.values(KEYS)) {
+    if (key.tokenId === undefined) continue;
+    records.set(key.tokenId, {
+      tokenId: key.tokenId,
+      ...(key.userId !== undefined &&
+        key.serviceAccountId === undefined && {
+          principal: { kind: 'user' as const, userId: key.userId },
+        }),
+      role: key.tokenRole ?? 'admin',
+      capabilities: [],
+      createdAt: new Date(),
+    });
+  }
+  const reads: string[] = [];
+  const state = { failing: false, onRevoke: async (): Promise<void> => {} };
+  const admin: TokenAdmin = {
+    mint: async () => {
+      throw new Error('unused');
+    },
+    list: async () => [...records.values()],
+    async get({ tenantId: t, tokenId }) {
+      reads.push(tokenId);
+      if (state.failing) throw new Error('connect ECONNREFUSED 127.0.0.1:5432');
+      return t === tenantId ? records.get(tokenId) : undefined;
+    },
+    async revoke({ tokenId }) {
+      const record = records.get(tokenId);
+      if (record === undefined) return { kind: 'not-found' };
+      records.set(tokenId, { ...record, revokedAt: new Date() });
+      await state.onRevoke();
+      return { kind: 'ok' };
+    },
+  };
+  return { admin, records, reads, state };
+}
+
 const someProviders: IdentityProviderBinding = {
   list: async () => ({ data: [] }),
   get: async () => null,
@@ -133,9 +179,12 @@ function makeApp(
     identityProvider?: IdentityProviderBinding;
     withStore?: boolean;
     secondFactor?: SecondFactorBinding;
+    /** The deployment's API keys; `null`: it has none to read. Default: `makeKeys()`. */
+    keys?: ReturnType<typeof makeKeys> | null;
   } = {},
 ) {
   const { store, created } = makeStore();
+  const keys = extra.keys === undefined ? makeKeys() : extra.keys;
   const audit: AuditEvent[] = [];
   const auditEvents = {
     append: async (events: readonly AuditEvent[]) => {
@@ -150,10 +199,11 @@ function makeApp(
     ...(extra.withStore !== false && { sessionStore: store }),
     ...(extra.identityProvider !== undefined && { identityProvider: extra.identityProvider }),
     ...(extra.secondFactor !== undefined && { secondFactor: extra.secondFactor }),
+    ...(keys !== null && { tokenAdmin: keys.admin }),
     ...(session !== null && { session }),
     auditEvents,
   });
-  return { app, created, audit };
+  return { app, created, audit, store };
 }
 
 const signIn = (app: ReturnType<typeof makeApp>['app'], token: string) =>
@@ -163,6 +213,106 @@ const signIn = (app: ReturnType<typeof makeApp>['app'], token: string) =>
   });
 const codeOf = async (res: Response) =>
   ((await res.json()) as { error: { code: string; message: string } }).error;
+
+describe('a session token sign-in opened ends with its key', () => {
+  const cookieFor = async (app: ReturnType<typeof makeApp>['app'], token: string) =>
+    ((await signIn(app, token)).headers.get('set-cookie') ?? '').split(';')[0] as string;
+  const whoami = (app: ReturnType<typeof makeApp>['app'], headers: Record<string, string>) =>
+    app.request('/v1/identity/whoami', { headers });
+  const REVOKED = 'The API key this session was opened with is revoked: sign in again';
+
+  test("revoked while ending its sessions failed: the session's next request is refused, 401 auth-revoked", async () => {
+    const keys = makeKeys();
+    const { app } = makeApp(undefined, { keys });
+    const cookie = await cookieFor(app, 'kgi_person_full');
+    expect((await whoami(app, { cookie })).status).toBe(200);
+    keys.state.onRevoke = async () => {
+      throw new Error("the key's sessions couldn't be ended");
+    };
+    const revoke = await app.request('/v1/tokens/tok-1/revoke', {
+      method: 'POST',
+      headers: { authorization: 'Bearer kgi_seeded' },
+    });
+    expect(revoke.status).toBe(500);
+    expect(keys.records.get('tok-1')?.revokedAt).toBeDefined();
+    const after = await whoami(app, { cookie });
+    expect(after.status).toBe(401);
+    expect(await codeOf(after)).toMatchObject({ code: 'auth-revoked', message: REVOKED });
+  });
+
+  test('a key that is gone: refused the same way', async () => {
+    const keys = makeKeys();
+    const { app } = makeApp(undefined, { keys });
+    const cookie = await cookieFor(app, 'kgi_person_full');
+    keys.records.delete('tok-1');
+    const after = await whoami(app, { cookie });
+    expect(after.status).toBe(401);
+    expect(await codeOf(after)).toMatchObject({ code: 'auth-revoked', message: REVOKED });
+  });
+
+  test('read on each request, never cached: a revoke counts at the next one', async () => {
+    const keys = makeKeys();
+    const { app } = makeApp(undefined, { keys });
+    const cookie = await cookieFor(app, 'kgi_person_full');
+    expect((await whoami(app, { cookie })).status).toBe(200);
+    expect((await whoami(app, { cookie })).status).toBe(200);
+    expect(keys.reads).toEqual(['tok-1', 'tok-1']);
+    await keys.admin.revoke({ tenantId, tokenId: 'tok-1' as ApiTokenId });
+    expect((await whoami(app, { cookie })).status).toBe(401);
+  });
+
+  test('a key read that fails fails the request: never read as a live key', async () => {
+    const keys = makeKeys();
+    const { app } = makeApp(undefined, { keys });
+    const cookie = await cookieFor(app, 'kgi_person_full');
+    keys.state.failing = true;
+    expect((await whoami(app, { cookie })).status).toBe(500);
+  });
+
+  test("an identity provider's session, the deployment's own token's, and an API key read no key", async () => {
+    const keys = makeKeys();
+    const { app, store } = makeApp(undefined, { keys });
+    const idp = await store.create({
+      tenantId,
+      userId: alice,
+      providerId: 'oidc-acme',
+      expiresAt: new Date(Date.now() + HOUR).toISOString() as Timestamp,
+      scopes: [],
+    });
+    expect((await whoami(app, { authorization: `Bearer ${idp.token}` })).status).toBe(200);
+    const seeded = await cookieFor(app, 'kgi_seeded');
+    expect((await whoami(app, { cookie: seeded })).status).toBe(200);
+    expect((await whoami(app, { authorization: 'Bearer kgi_person_full' })).status).toBe(200);
+    expect(keys.reads).toEqual([]);
+  });
+
+  test('no API keys to read: token sign-in is off, says why, and a session naming a key is refused', async () => {
+    const { app, created, store } = makeApp(undefined, { keys: null });
+    const res = await signIn(app, 'kgi_person_full');
+    expect(res.status).toBe(403);
+    const error = await codeOf(res);
+    expect(error.code).toBe('token-sign-in-off');
+    expect(error.message).toContain("can't check its API keys");
+    expect(created).toHaveLength(0);
+    const options = await app.request('/v1/auth/sign-in-options');
+    expect(((await options.json()) as { methods: { apiToken: boolean } }).methods.apiToken).toBe(
+      false,
+    );
+    // A session from before (another server, or a store shared with one).
+    const older = await store.create({
+      tenantId,
+      userId: alice,
+      providerId: 'api-token:tok-1',
+      expiresAt: new Date(Date.now() + HOUR).toISOString() as Timestamp,
+      scopes: [],
+    });
+    const after = await whoami(app, { authorization: `Bearer ${older.token}` });
+    expect(after.status).toBe(401);
+    const refusal = await codeOf(after);
+    expect(refusal.code).toBe('auth-revoked');
+    expect(refusal.message).toContain("can't check its API keys");
+  });
+});
 
 describe('POST /v1/auth/token-sign-in', () => {
   test('a workspace that requires a second factor: refused, since a token gives none', async () => {

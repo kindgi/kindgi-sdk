@@ -119,8 +119,11 @@ server has them:
 
 ```sh
 docker run --rm --network kindgi --env-file kindgi.env \
-  quay.io/kindgi/runtime:<version> check stored-secrets
+  registry.kindgi.com/kindgi/runtime:<version> check stored-secrets
 ```
+
+`<version>` is the version your server runs. `registry.kindgi.com` has 0.2.0
+and later; for an earlier version, use the image your server already runs.
 
 It decrypts each live version of every stored secret, and prints ids and
 counts, never a value. When each one decrypts, it exits `0`:
@@ -270,15 +273,25 @@ Then:
    }
    ```
 
+3. **Empty the database you moved off.** When the restore went into a new
+   database or a new instance, and the runtime moved onto it, the one it
+   left doesn't get the erasures made later, so it keeps whom they erase.
+   Once the restored one is checked, drop that database. A backup
+   restored over the serving database overwrites it, so nothing is left
+   to empty.
+
 ### Copies the runtime keeps on its own
 
 The runtime can also keep copies of the ledger itself, every tenant's at
 once. That suits a runtime that serves several tenants, where no one admin
 can export them all:
 
-- **`KINDGI_ERASURE_LEDGER_EXPORT`:** where. Either `local:<absolute dir>`, or
-  `gcs:<bucket>[/<prefix>]` through Application Default Credentials. Creating
-  objects is all it needs (`roles/storage.objectCreator` on the bucket).
+- **`KINDGI_ERASURE_LEDGER_EXPORT`:** where. `local:<absolute dir>`,
+  `gcs:<bucket>[/<prefix>]` through Application Default Credentials, or
+  `s3:<bucket>[/<prefix>]` (runtime 0.3.0 or later). In a GCS bucket,
+  creating objects is all it needs (`roles/storage.objectCreator` on the
+  bucket). [Choose where the runtime keeps files](../store-files/#files-written-once)
+  has what each needs, and the checks at startup.
 - **`KINDGI_ERASURE_LEDGER_EXPORT_INTERVAL_MS`:** how often. Default an hour.
   Under a minute, or set without `KINDGI_ERASURE_LEDGER_EXPORT`, and the
   runtime refuses to start. An erasure made after both the last copy and the
@@ -304,15 +317,19 @@ with Docker:
 ```sh
 docker run --rm --network kindgi --env-file kindgi.env \
   -v /var/lib/kindgi/erasure-ledger:/erasure-ledger:ro \
-  quay.io/kindgi/runtime:<version> erasures replay --from local:/erasure-ledger
+  registry.kindgi.com/kindgi/runtime:<version> erasures replay --from local:/erasure-ledger
 ```
 
+As above, `registry.kindgi.com` has 0.2.0 and later; for an earlier
+version, use the image your server already runs.
+
 - **`--from`** takes a directory (`local:<dir>`, mounted into the container
-  as above), a bucket (`gcs:<bucket>[/<prefix>]`), or one file by its
-  absolute path.
+  as above), a bucket (`gcs:<bucket>[/<prefix>]` or
+  `s3:<bucket>[/<prefix>]`), or one file by its absolute path.
 - **From a bucket, replay reads it:** it lists and downloads, so whatever
-  runs it needs read access (`roles/storage.objectViewer`), which the
-  runtime's own writing identity doesn't have. In a container elsewhere, that
+  runs it needs read access (`roles/storage.objectViewer` on GCS;
+  `s3:GetObject` and `s3:ListBucket` on S3), which the runtime's own
+  writing identity may not have. In a container elsewhere, that
   means Google credentials inside it. On Google Cloud, run it as a Cloud Run
   job with the runtime image and a service account that can read the bucket.
 - **Which copy:** the one whose pass started last, by what the file says,
@@ -337,7 +354,7 @@ with `--ledger` where the copies are (`KINDGI_ERASURE_LEDGER_EXPORT` by
 default). The newest copy names every
 tenant purged before it was written, even one whose purge record is gone.
 
-`erasures export --out <local:<dir> | gcs:<bucket>[/<prefix>]>` writes a copy
+`erasures export --out <local:<dir> | gcs:<bucket>[/<prefix>] | s3:<bucket>[/<prefix>]>` writes a copy
 now, before an upgrade say, and says what it holds (`already there:` in
 place of `wrote` when a copy holding the same is there):
 

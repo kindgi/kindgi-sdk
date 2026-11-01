@@ -1,0 +1,566 @@
+// Connects this pack to a WooCommerce store in one step: the store's owner
+// approves Kindgi in wp-admin, and nobody makes a user or copies a password.
+//
+//   {{RUN}} connect-store https://shop.example.com
+//   {{RUN}} connect-store -- https://shop.example.com --hosted --env=<env> --scope=project:<id>
+//
+// 1. WordPress's own approval page (wp-admin/authorize-application.php) sends
+//    a new Application Password for whoever approves to a listener on
+//    127.0.0.1, which WordPress allows over plain http from 7.0. Before 7.0,
+//    it allows that only on a site whose environment type is `local`: an
+//    older store is connected by hand (the README's "Connect it by hand").
+// 2. With it, this script makes the agent's own user, `kindgi-agent`, a Shop
+//    Manager (or reuses it), and an Application Password for that user, so
+//    what the agent does in the store shows as that user's.
+// 3. It saves the user's password in Kindgi first, then the store's address
+//    and the user (`kindgi secrets set --from-stdin`, `kindgi env set`),
+//    and revokes the approver's password. Until the address names this
+//    store, a failure revokes the new password too, so the pack's tools
+//    never send one store's password to another.
+//
+// Nothing secret is printed, written to a file, or put in a command's
+// arguments. Run it again to replace the agent's password.
+
+import { spawn } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
+
+const PACK = '{{PACK_ID}}';
+const AGENT_USER = 'kindgi-agent';
+const WAIT_MS = 5 * 60_000;
+const USAGE = `Usage: {{RUN}} connect-store https://shop.example.com
+  Saves the store in this pack's local env, for \`kindgi dev\`. For a deploy:
+  {{RUN}} connect-store -- https://shop.example.com --hosted --env=<env> --scope=project:<id>
+  --no-browser prints the approval link instead of opening it.`;
+const PACK_ROOT = fileURLToPath(new URL('..', import.meta.url));
+// What wp-admin says when the store's WordPress is older than 7.0 (see above).
+const OLDER_WORDPRESS =
+  "If wp-admin says the URL must be served over a secure connection, the store's WordPress is older than 7.0: connect it by hand, as the README's \"Connect it by hand\" says";
+
+class Failure extends Error {}
+
+function say(line) {
+  process.stdout.write(`${line}\n`);
+}
+
+/** The store, and where in Kindgi it's saved: the local env under `kindgi dev`, unless told. */
+function options(argv) {
+  // `npm run` needs `--` before the flags; `pnpm` passes the `--` along.
+  const args = argv[0] === '--' ? argv.slice(1) : argv;
+  let parsed;
+  try {
+    parsed = parseArgs({
+      args,
+      allowPositionals: true,
+      options: {
+        env: { type: 'string' },
+        scope: { type: 'string' },
+        hosted: { type: 'boolean' },
+        'no-browser': { type: 'boolean' },
+        help: { type: 'boolean', short: 'h' },
+      },
+    });
+  } catch (err) {
+    throw new Failure(`${err.message.split('. ')[0]}.\n${USAGE}`);
+  }
+  const { values, positionals } = parsed;
+  if (values.help) {
+    say(USAGE);
+    process.exit(0);
+  }
+  if (positionals.length !== 1) throw new Failure(`Name one store.\n${USAGE}`);
+  if (values.hosted && (values.env === undefined || values.scope === undefined)) {
+    throw new Failure(
+      "With --hosted, name the env your deploy runs in and the scope that's this client's alone: --env=<env> --scope=project:<id>.",
+    );
+  }
+  const env = values.env ?? 'local';
+  const scope = values.scope ?? 'tenant';
+  // WordPress groups an app's passwords by a UUID: one for each pack, env
+  // and scope, so a connect replaces only its own password, and two
+  // clients' projects on one store keep theirs. The tenant's leaves its
+  // scope out.
+  const of = scope === 'tenant' ? [PACK, env] : [PACK, env, scope];
+  return {
+    store: storeAddress(positionals[0]),
+    env,
+    target: [`--env=${env}`, `--scope=${scope}`, ...(values.hosted ? ['--hosted'] : [])],
+    openBrowser: !values['no-browser'],
+    app: { name: `Kindgi (${of.join(', ')})`, id: uuidOf(`kindgi:${of.join(':')}`) },
+  };
+}
+
+function uuidOf(text) {
+  const b = createHash('sha256').update(text).digest().subarray(0, 16);
+  b[6] = (b[6] & 0x0f) | 0x50;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const x = b.toString('hex');
+  return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20)}`;
+}
+
+function storeAddress(text) {
+  let url;
+  try {
+    url = new URL(text);
+  } catch {
+    throw new Failure(`"${text}" isn't an address. Give the store's, like https://shop.example.com`);
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new Failure("The store's address starts with https:// (or http:// for a store on this machine).");
+  }
+  url.hash = '';
+  url.search = '';
+  return url.href.replace(/\/+$/, '');
+}
+
+/** The store's REST API, with or without pretty permalinks. */
+function restApi(store, pretty) {
+  return (path, query = {}) => {
+    const url = pretty ? new URL(`wp-json/${path}`, `${store}/`) : new URL(`${store}/`);
+    if (!pretty) url.searchParams.set('rest_route', `/${path}`);
+    for (const [k, v] of Object.entries(query)) url.searchParams.set(k, String(v));
+    return url;
+  };
+}
+
+function basic(user, password) {
+  return `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`;
+}
+
+async function call(url, { method = 'GET', auth, body } = {}) {
+  let res;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: {
+        accept: 'application/json',
+        ...(auth ? { authorization: auth } : {}),
+        ...(body ? { 'content-type': 'application/json' } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch (err) {
+    const why = err.cause?.code ?? err.cause?.errors?.[0]?.code ?? err.message;
+    throw new Failure(`Can't reach ${url.origin} (${why}). Is the store's address right, and is it up?`);
+  }
+  const text = await res.text();
+  let json;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = undefined;
+  }
+  return { status: res.status, ok: res.ok, json };
+}
+
+/** A WordPress REST error's own words, which never carry the password. */
+function wpError(what, { status, json }) {
+  const said = json && typeof json.message === 'string' ? `: ${json.message}` : '';
+  return new Failure(`${what} failed (HTTP ${status})${said}`);
+}
+
+async function discover(store) {
+  for (const pretty of [true, false]) {
+    const api = restApi(store, pretty);
+    const res = await call(api(''));
+    if (!res.ok || !res.json || !Array.isArray(res.json.namespaces)) continue;
+    const authorize = res.json.authentication?.['application-passwords']?.endpoints?.authorization;
+    if (!authorize) {
+      throw new Failure(
+        "This store doesn't offer Application Passwords. WordPress 5.6 and later offers them over HTTPS, or on a site whose environment type is local; a security plugin can also turn them off.",
+      );
+    }
+    if (!res.json.namespaces.includes('wc/v3')) {
+      throw new Failure("WooCommerce isn't active on this store, so the pack's tools have nothing to call.");
+    }
+    return { api, authorize };
+  }
+  throw new Failure(`${store} doesn't answer as a WordPress site (no /wp-json/).`);
+}
+
+function openInBrowser(url) {
+  const [cmd, cmdArgs] =
+    process.platform === 'darwin'
+      ? ['open', [url]]
+      : process.platform === 'win32'
+        ? ['rundll32', ['url.dll,FileProtocolHandler', url]]
+        : ['xdg-open', [url]];
+  try {
+    const child = spawn(cmd, cmdArgs, { detached: true, stdio: 'ignore' });
+    child.on('error', () => {});
+    child.unref();
+  } catch {
+    // The link is printed too.
+  }
+}
+
+function page(title, text) {
+  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${esc(title)}</title>
+<body style="font:16px/1.5 system-ui,sans-serif;max-width:36rem;margin:4rem auto;padding:0 1rem">
+<h1 style="font-size:1.4rem">${esc(title)}</h1><p>${esc(text)}</p></body>`;
+}
+
+/** The approval comes back to 127.0.0.1; this waits for it. */
+async function waitForApproval(authorize, { app, openBrowser }) {
+  const state = randomBytes(16).toString('hex');
+  const server = createServer();
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const back = `http://127.0.0.1:${server.address().port}`;
+  const link = new URL(authorize);
+  link.searchParams.set('app_name', app.name);
+  link.searchParams.set('app_id', app.id);
+  link.searchParams.set('success_url', `${back}/approved?state=${state}`);
+  link.searchParams.set('reject_url', `${back}/declined?state=${state}`);
+
+  say(
+    openBrowser
+      ? "Opening the store's wp-admin: approve Kindgi there, signed in as one of its administrators. If no browser opens, open:"
+      : 'Open this link and approve Kindgi there, signed in as one of the store\'s administrators:',
+  );
+  say(`  ${link.href}`);
+  if (openBrowser) openInBrowser(link.href);
+  say('Waiting for the approval (5 minutes at most)…');
+  say(`${OLDER_WORDPRESS} (Ctrl-C stops this).`);
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      server.close();
+      reject(new Failure(`Nobody approved within 5 minutes. Nothing changed; run this again. ${OLDER_WORDPRESS}.`));
+    }, WAIT_MS);
+    server.on('request', (req, res) => {
+      const url = new URL(req.url ?? '/', back);
+      if (url.searchParams.get('state') !== state) {
+        res.writeHead(404).end();
+        return;
+      }
+      clearTimeout(timer);
+      // The tab hears back once: the outcome, or that it was stopped.
+      let replied = false;
+      const reply = (title, text) => {
+        if (replied) return;
+        replied = true;
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+        res.end(page(title, text));
+        server.close();
+      };
+      if (url.pathname === '/approved' && url.searchParams.get('password')) {
+        resolve({
+          login: url.searchParams.get('user_login') ?? '',
+          password: url.searchParams.get('password') ?? '',
+          reply,
+        });
+      } else {
+        reply('Not connected', "Kindgi wasn't approved, so nothing changed in the store. You can close this tab.");
+        reject(new Failure('The approval was declined in wp-admin. Nothing changed.'));
+      }
+    });
+  });
+}
+
+/** This pack's own `kindgi`, run with this Node: no shell, on every OS. */
+function kindgiBin() {
+  let dir;
+  try {
+    dir = dirname(createRequire(join(PACK_ROOT, 'package.json')).resolve('@kindgi/cli'));
+  } catch {
+    throw new Failure("This pack's @kindgi/cli isn't installed. Run {{INSTALL}} first.");
+  }
+  for (;;) {
+    try {
+      const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+      if (manifest.name === '@kindgi/cli') {
+        return join(dir, typeof manifest.bin === 'string' ? manifest.bin : manifest.bin.kindgi);
+      }
+    } catch {
+      // Not the package's own folder yet.
+    }
+    const up = dirname(dir);
+    if (up === dir) throw new Failure("This pack's @kindgi/cli has no `kindgi` to run.");
+    dir = up;
+  }
+}
+
+/** Runs `kindgi …` in this pack; a value for stdin never goes in its arguments. */
+function kindgi(bin, cmdArgs, stdin) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [bin, ...cmdArgs], {
+      cwd: PACK_ROOT,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let out = '';
+    child.stdout.on('data', (d) => (out += d));
+    child.stderr.on('data', (d) => (out += d));
+    child.on('error', (err) => resolve({ code: 1, out: err.message }));
+    child.on('close', (code) => resolve({ code, out }));
+    // A `kindgi` that stops before it reads stdin says why in its output.
+    child.stdin.on('error', () => {});
+    child.stdin.end(stdin ?? '');
+  });
+}
+
+/** What `kindgi` said, without its line on which runtime it went to. */
+function said(out) {
+  return out
+    .split('\n')
+    .filter((line) => !/^kindgi .* goes to the kindgi dev runtime/.test(line))
+    .join('\n')
+    .trim();
+}
+
+/** One read on the target before anyone approves: what would stop the save stops this first. */
+async function checkKindgi(bin, target) {
+  const res = await kindgi(bin, ['env', 'list', ...target]);
+  if (res.code !== 0) {
+    throw new Failure(
+      `kindgi env list ${target.join(' ')} failed, so nothing was asked of the store:\n${said(res.out)}`,
+    );
+  }
+}
+
+/**
+ * The password first, then the store's address: a failure before the
+ * address is saved revokes the new password (see connect), so the address
+ * never names one store while the newest password signs in to another. A
+ * secret set before gets a new version.
+ */
+async function savePassword(bin, password, target) {
+  const secret = ['secrets', 'set', 'WOO_APP_PASSWORD', ...target, '--from-stdin'];
+  let res = await kindgi(bin, secret, password);
+  if (res.code !== 0 && /Version conflict/.test(res.out)) {
+    res = await kindgi(bin, [...secret, '--write-mode=add-version'], password);
+    if (res.code === 0) return ['WOO_APP_PASSWORD gets a new version'];
+  }
+  if (res.code !== 0) throw new Failure(`kindgi secrets set WOO_APP_PASSWORD failed:\n${said(res.out)}`);
+  return [];
+}
+
+/**
+ * Then the store's address, and the user. Each is this connect's to set;
+ * one set before says what it was, and so does a failure (`was`).
+ */
+async function saveSetting(bin, name, value, target) {
+  let res = await kindgi(bin, ['env', 'set', name, value, ...target]);
+  let was;
+  if (res.code !== 0 && /Re-run with --force/.test(res.out)) {
+    was = /already set .*? to "(.*)"\. Re-run with --force/.exec(res.out)?.[1];
+    res = await kindgi(bin, ['env', 'set', name, value, ...target, '--force']);
+    if (res.code === 0) return { replaced: was === undefined ? `${name} replaced` : `${name} was "${was}"`, was };
+  }
+  if (res.code !== 0) throw Object.assign(new Failure(`kindgi env set ${name} failed:\n${said(res.out)}`), { was });
+  return {};
+}
+
+/** Only the store before can revoke this pack's password there: Kindgi no longer signs in to it. */
+function storeBefore(storeWas, app) {
+  return `WOO_STORE_URL named ${storeWas} before. If that's another store, this pack's password there still signs in: remove "${app.name}" there, under Users → All Users → ${AGENT_USER} → Application Passwords.`;
+}
+
+/**
+ * Revokes one of the agent's passwords, and says whether it went; one that
+ * won't go is said, for the person to remove.
+ */
+async function revokeAgentPassword(api, owner, agentId, uuid, { done, left }) {
+  let why;
+  try {
+    const gone = await call(api(`wp/v2/users/${agentId}/application-passwords/${uuid}`), { method: 'DELETE', auth: owner });
+    if (gone.ok) {
+      if (done !== undefined) say(done);
+      return true;
+    }
+    why = `HTTP ${gone.status}`;
+  } catch (err) {
+    why = err.message;
+  }
+  say(`! Couldn't revoke ${left} (${why}). Remove it under Users → All Users → ${AGENT_USER} → Application Passwords.`);
+  return false;
+}
+
+function agentEmail(ownerEmail) {
+  const at = ownerEmail.lastIndexOf('@');
+  if (at < 1) throw new Failure("The approver's account has no email, which a new WordPress user needs.");
+  return `${ownerEmail.slice(0, at)}+${AGENT_USER}${ownerEmail.slice(at)}`;
+}
+
+async function connect(api, approval, { bin, store, target, app }) {
+  const { login, password } = approval;
+  const owner = basic(login, password);
+  const me = await call(api('wp/v2/users/me', { context: 'edit' }), { auth: owner });
+  if (!me.ok) throw wpError('Signing in with the approval', me);
+  if (!me.json.capabilities?.create_users || !me.json.capabilities?.promote_users) {
+    throw new Failure(`${login} can't add users, so Kindgi can't make its own. Approve as one of the store's administrators.`);
+  }
+  say(`✓ Approved by ${login}.`);
+
+  const found = await call(api('wp/v2/users', { slug: AGENT_USER, context: 'edit' }), { auth: owner });
+  if (!found.ok) throw wpError("Looking for the agent's user", found);
+  let agent = found.json[0];
+  if (agent) {
+    // Only a Shop Manager and nothing more: never one that's also an administrator.
+    if (agent.roles?.length !== 1 || agent.roles[0] !== 'shop_manager') {
+      throw new Failure(
+        `There's already a user named ${AGENT_USER}, as ${agent.roles?.join(', ') || 'no role'}. Kindgi signs in as its own user of that name, a Shop Manager and nothing more, and wp-admin can't change a username. If it's Kindgi's, give it the Shop Manager role alone (Users → All Users → ${AGENT_USER} → Role); if not, delete it there. Then run this again.`,
+      );
+    }
+    say(`✓ Kindgi signs in as its own user, ${AGENT_USER} (Shop Manager), made before.`);
+  } else {
+    const made = await call(api('wp/v2/users'), {
+      method: 'POST',
+      auth: owner,
+      body: {
+        username: AGENT_USER,
+        name: 'Kindgi agent',
+        email: agentEmail(me.json.email ?? ''),
+        // Never used, never shown: the agent signs in with its Application Passwords.
+        password: randomBytes(24).toString('base64url'),
+        roles: ['shop_manager'],
+        description: `Made by Kindgi when ${login} approved it. Kindgi signs in as this user with an Application Password for each pack and env, and a project's scope too, named "Kindgi (<pack>, <env>)" or "Kindgi (<pack>, <env>, project:<id>)": remove one to disconnect that pack, or this user to disconnect them all.`,
+      },
+    });
+    if (!made.ok) throw wpError(`Making the user ${AGENT_USER}`, made);
+    agent = made.json;
+    say(`✓ Made ${AGENT_USER}, a Shop Manager, for Kindgi to sign in as.`);
+  }
+
+  const passwords = api(`wp/v2/users/${agent.id}/application-passwords`);
+  const before = await call(passwords, { auth: owner });
+  if (!before.ok) throw wpError("Reading the agent's Application Passwords", before);
+  const created = await call(passwords, { method: 'POST', auth: owner, body: { name: app.name, app_id: app.id } });
+  if (!created.ok) throw wpError("Making the agent's Application Password", created);
+
+  // Kindgi keeps the new password only once WOO_STORE_URL names this store.
+  // Until then a failure revokes it: the pack's tools would send it to the
+  // address before, another store's maybe.
+  let saved = false;
+  let held = false;
+  let storeWas;
+  try {
+    const check = await call(api('wc/v3/orders', { per_page: 1 }), { auth: basic(AGENT_USER, created.json.password) });
+    if (!check.ok) {
+      throw new Failure(
+        `The agent's new password didn't sign in to WooCommerce (HTTP ${check.status}). If the store's host drops the Authorization header, its support can turn that off.`,
+      );
+    }
+    say('✓ Its Application Password signs in to WooCommerce.');
+    const secret = await savePassword(bin, created.json.password, target);
+    saved = true;
+    const url = await saveSetting(bin, 'WOO_STORE_URL', store, target);
+    held = true;
+    storeWas = url.was;
+    const user = await saveSetting(bin, 'WOO_USER', AGENT_USER, target);
+    const replaced = [url.replaced, user.replaced, ...secret].filter((r) => r !== undefined);
+    say(`✓ Saved in Kindgi (${target.join(' ')}): WOO_STORE_URL, WOO_USER, and the secret WOO_APP_PASSWORD.`);
+    if (replaced.length > 0) say(`  Replaced: ${replaced.join('; ')}.`);
+  } catch (err) {
+    if (!held) {
+      const gone = await revokeAgentPassword(api, owner, agent.id, created.json.uuid, {
+        left: `the agent's new password, the newest "${app.name}"`,
+      });
+      if (saved && err instanceof Failure) {
+        const still = err.was === undefined ? '' : ` (WOO_STORE_URL still says "${err.was}")`;
+        err.message += gone
+          ? `\nKindgi couldn't save this store's address${still}, so the store's new password is revoked: WOO_APP_PASSWORD's newest version is that revoked password, and the agent can't sign in until this runs again. Running this again once kindgi can set WOO_STORE_URL finishes the connect.`
+          : `\nKindgi couldn't save this store's address${still}, and the store couldn't revoke its new password: WOO_APP_PASSWORD's newest version is that password${err.was === undefined ? '' : `, which the pack's tools send to ${err.was}`}. Remove it as said above, then run this again once kindgi can set WOO_STORE_URL.`;
+      }
+    } else if (err instanceof Failure) {
+      const still = err.was === undefined ? '' : `, while WOO_USER still says "${err.was}"`;
+      err.message += `\nKindgi holds the store's new password (WOO_APP_PASSWORD) and its address (WOO_STORE_URL) now${still}: the password stays in the store, and running this again once kindgi can set WOO_USER finishes the connect.`;
+      if (storeWas !== undefined) err.message += `\n${storeBefore(storeWas, app)}`;
+    }
+    throw err;
+  }
+
+  for (const old of before.json ?? []) {
+    if (old.app_id !== app.id) continue;
+    await revokeAgentPassword(api, owner, agent.id, old.uuid, {
+      done: `✓ Revoked the agent's password from the connect before (${app.name}).`,
+      left: `the agent's password from the connect before, an older "${app.name}"`,
+    });
+  }
+  if (storeWas !== undefined) say(`! ${storeBefore(storeWas, app)}`);
+}
+
+/** The approver's own password was only for this; it goes either way. */
+async function revokeApproval(api, { login, password }, app) {
+  const auth = basic(login, password);
+  let why;
+  try {
+    const mine = await call(api('wp/v2/users/me/application-passwords/introspect'), { auth });
+    // One left by a connect that stopped after its approval goes too; this
+    // one goes last, since it signs these calls.
+    const all = mine.ok ? await call(api('wp/v2/users/me/application-passwords'), { auth }) : undefined;
+    for (const left of all?.ok ? all.json : []) {
+      if (left.app_id !== app.id || left.uuid === mine.json.uuid) continue;
+      const gone = await call(api(`wp/v2/users/me/application-passwords/${left.uuid}`), { method: 'DELETE', auth });
+      say(
+        gone.ok
+          ? `✓ Revoked an approval password an earlier connect left on ${login}.`
+          : `! Couldn't revoke an approval password an earlier connect left on ${login} (HTTP ${gone.status}). Remove "${app.name}" under Users → Profile → Application Passwords.`,
+      );
+    }
+    const gone = mine.ok
+      ? await call(api(`wp/v2/users/me/application-passwords/${mine.json.uuid}`), { method: 'DELETE', auth })
+      : mine;
+    if (gone.ok) {
+      say(`✓ Revoked ${login}'s approval password.`);
+      return;
+    }
+    why = `HTTP ${gone.status}`;
+  } catch (err) {
+    why = err.message;
+  }
+  say(`! Couldn't revoke ${login}'s approval password (${why}). Remove "${app.name}" under Users → Profile → Application Passwords.`);
+}
+
+async function main() {
+  const opts = options(process.argv.slice(2));
+  const bin = kindgiBin();
+  await checkKindgi(bin, opts.target);
+  const { api, authorize } = await discover(opts.store);
+  const approval = await waitForApproval(authorize, opts);
+  // The approver's password is live from here, and in the browser's
+  // history: a stop (Ctrl-C, a kill) revokes it too before it exits.
+  let revoking;
+  const revoke = () => (revoking ??= revokeApproval(api, approval, opts.app));
+  let connected = false;
+  const stop = (signal) => {
+    process.stderr.write(
+      connected
+        ? `Stopped (${signal}).\n`
+        : `Stopped (${signal}) before the store was connected: run this again to connect it, which replaces what this run left.\n`,
+    );
+    approval.reply('Not connected', 'It was stopped in the terminal. You can close this tab.');
+    void revoke().then(() => process.exit(signal === 'SIGINT' ? 130 : 143));
+  };
+  process.once('SIGINT', stop);
+  process.once('SIGTERM', stop);
+  try {
+    await connect(api, approval, { ...opts, bin });
+    connected = true;
+    approval.reply('Connected', `Kindgi signs in to this store as ${AGENT_USER}, a Shop Manager. You can close this tab.`);
+  } catch (err) {
+    const first = err instanceof Failure ? err.message.split('\n')[0].replace(/[.:]$/, '') : 'Something went wrong';
+    approval.reply('Not connected', `${first}. The terminal says more. You can close this tab.`);
+    throw err;
+  } finally {
+    await revoke();
+    process.off('SIGINT', stop);
+    process.off('SIGTERM', stop);
+  }
+  say(
+    opts.target.includes('--hosted')
+      ? `Connected: the pack's tools in ${opts.env} sign in to the store as ${AGENT_USER}.`
+      : `Connected. Try the store agent: {{KINDGI}} runs start --agent=${PACK}.store-agent --input='{"userMessage":"Which orders are still processing?"}'`,
+  );
+}
+
+main().catch((err) => {
+  process.stderr.write(`${err instanceof Failure ? err.message : err.stack}\n`);
+  process.exit(1);
+});

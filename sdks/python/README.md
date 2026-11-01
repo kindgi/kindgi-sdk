@@ -81,9 +81,16 @@ def record_expense(expense: Expense, ctx: ToolContext) -> Recorded:
   pydantic model, a `TypedDict`, a dataclass, anything pydantic understands —
   or from `input=` / `output=` (a type, or a JSON Schema dict). A dict is
   checked when the tool is defined, as the runtime compiles it, strictly: one
-  the runtime would refuse raises `DefinitionError`. Field aliases are the
-  names on the wire. The input is an object: a model calls a tool with
-  an object of arguments.
+  the runtime would refuse raises `DefinitionError`. So does a `pattern` only
+  JavaScript reads, such as `\p{L}`: the SDK checks data against it with
+  Python's `re`. A schema derived from a type is compiled the same way, so a
+  keyword `json_schema_extra` adds, or a `format` the runtime doesn't know (a
+  `Path` field's `"format": "path"`, `UUID4`'s `"uuid4"`), raises it too; a
+  plain `uuid.UUID` or `str`, or pydantic's `WithJsonSchema`, gives such a
+  field a schema the runtime compiles. In a derived schema, a `\p{L}`
+  pattern doesn't raise: pydantic checks data against it, and reads it.
+  Field aliases are the names on the wire.
+  The input is an object: a model calls a tool with an object of arguments.
 - The description is the docstring (or `description=`); the version is the
   pack's (or `version=`, an exact semver).
 - `mutating=False` declares a tool read-only: it runs in a dry run, and an
@@ -96,6 +103,12 @@ def record_expense(expense: Expense, ctx: ToolContext) -> Recorded:
   A webhook trigger or a schedule whose `toolsAllowedUnattended` names the
   tool (a project admin's to set) lifts that, in its own runs only. A run a
   person starts is unaffected.
+- `result_is_outside_data=True` says the tool's results are text from outside
+  that nobody checked, such as a mail someone sent or a page a search found.
+  An agent reads each result of the tool as data, not instructions, in that
+  turn and in every later turn's history. It changes what the model is told,
+  not what the tool may do: pair it with approvals for anything an agent could
+  do with what it read. Absent means `false`.
 - The handler is `(input)` or `(input, ctx)`, `def` or `async def`. A `def`
   handler runs in a worker thread, so blocking I/O is fine.
 - Before calling you, the pack service validates the input against the schema
@@ -175,10 +188,12 @@ type here — without it the check gets `{}`, its defaults. `RunTrace` holds the
 `tool_calls`, `tool_results`, `model_calls`, … (snake_case here, camelCase on
 the wire). `on_violation` names the action (`halt`, `retry`, `escalate`,
 `log-only`, `compensate`); `action=` takes the whole object
-(`{"on-violation": "retry", "retry": {"maxAttempts": 2}}`). In 0.1 the
-runtime acts only on `halt`: the turn fails with `guardrail-violation`. Any
-other action is recorded on the turn's violations and the turn completes;
-nothing runs it again, escalates or calls a compensating tool.
+(`{"on-violation": "retry", "retry": {"maxAttempts": 2}}`). The runtime acts
+on `halt`: the turn fails with `guardrail-violation`. It acts on `retry` too:
+the answer goes back to the model with the check's reason, for a new one,
+until the guardrail has failed `maxAttempts` answers, and then the turn fails
+the same way. Any other action is recorded on the turn's violations and the
+turn completes; in 0.1 nothing escalates or calls a compensating tool.
 
 ### Agents and flows
 
@@ -195,7 +210,7 @@ bookkeeper = Agent(
     name="Bookkeeper",
     instructions="Record each expense the user describes with acme.ledger.record-expense.",
     capabilities=[{"needs": [{"feature": "tool-use"}]}],
-    tools=[record_expense],             # Tool objects, or {"id", "version"} refs
+    tools=[record_expense],  # Tool objects, or {"id", "version"} refs
     guardrails=[response_not_empty],
 )
 ```
@@ -283,7 +298,9 @@ from kindgi.client import GuardrailViolationError, Kindgi, paginate
 
 client = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN — or Kindgi(url, token=…)
 
-run = client.runs.start(flow="acme.ledger.record-flow", input={"vendor": "Acme", "amountCents": 1299})
+run = client.runs.start(
+    flow="acme.ledger.record-flow", input={"vendor": "Acme", "amountCents": 1299}
+)
 print(run.status, run.output)
 
 try:
@@ -291,7 +308,7 @@ try:
 except GuardrailViolationError as blocked:
     print(blocked.violations)
 
-for event in client.runs.follow(turn.id):             # SSE, to the run's end
+for event in client.runs.follow(turn.id):  # SSE, to the run's end
     print(event.kind)
 
 for agent in paginate(client.agents.list, limit=50):  # every page
@@ -310,7 +327,7 @@ never reads `.kindgirc.json`. It's the same lookup as the TypeScript SDK's
   fields as keywords (snake_case or the wire's camelCase); answers are models.
 - A model has its API schema's name (`Flow`, `Tool`). An object inside a
   schema is named after the field that holds it, and after the schema too when
-  that name is another schema's (`JudgedRunContextFlow`). A union's members
+  that name is another schema's (`CorrectedRunContextFlow`). A union's members
   are named by the value that tells them apart (`ScopeTenant`, `ScopeOrg`,
   `ScopeProject`).
 - **Newer runtimes are expected.** An enum in an answer is typed
@@ -356,6 +373,7 @@ from kindgi import webhooks
 
 app = FastAPI()
 
+
 @app.post("/hooks/kindgi")
 async def kindgi_hook(request: Request) -> Response:
     body = await request.body()  # the bytes as sent, never re-serialized JSON
@@ -387,6 +405,7 @@ A `Tool` and a `Guardrail` stay callable:
 ```python
 from kindgi import ToolContext
 
+
 def test_record_expense():
     out = record_expense(Expense(vendor="Acme", amountCents=100), ToolContext.for_test())
     assert out.expense_id
@@ -411,9 +430,12 @@ The vendored schemas in `src/kindgi/_specs` are copies of `@kindgi/specs`;
 `tests/test_client.py` fails while they are out of step. `scripts/model_names.json`
 holds where each model sits, and generation fails when a model's name would
 move to another schema or vanish: such a change is an edit to that file, and
-an entry in `CHANGELOG.md`. A union's member sits at its discriminator's
-value, or in a union without one at its properties, so a member that gains a
-property reads as moved too: check it, then edit its line.
+an entry in `CHANGELOG.md`. A name that goes keeps its line with no places
+(`[]`): it stays dropped, and generation fails if a model would take it again.
+A union's members are named by their discriminator (`ScopeTenant`,
+`MCPEndpointConfigStdio`); in a union without one, a member sits at its
+properties, so a member that gains a property reads as moved too: check it,
+then edit its line.
 `@kindgi/pack-conformance` runs its suite against this package's `.venv`.
 
 The version is the npm packages' (`scripts/sync-python-version.mjs`

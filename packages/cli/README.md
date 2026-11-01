@@ -64,7 +64,7 @@ pnpm exec kindgi runs start --flow=my-pack.echo-flow --input='{"name":"Ada"}' --
 ## `kindgi init`
 
 ```sh
-kindgi init [<pack-name>] [--template=minimal|sample|woocommerce|drupal|follow-up|python|java|scala] [--path=<dir>]
+kindgi init [<pack-name>] [--template=minimal|sample|woocommerce|drupal|follow-up|returns-helper|python|java|scala] [--path=<dir>]
             [--force] [--link-local] [--new-repo] [--pack-id=<id>]
 ```
 
@@ -116,7 +116,7 @@ devDependency) at the running CLI's own version, or linked from a checkout
 | Flag | Purpose |
 |---|---|
 | `<pack-name>` | The pack id: lowercase kebab-case, optionally dot-namespaced (`my-pack`, `acme.legal-basics`). |
-| `--template=<name>` | `minimal` (the default: the folders, no examples), `sample` (three tools, a guardrail, an agent and a flow), `woocommerce` (agents for a WooCommerce store: typed store tools, approvals for large refunds and store changes, and a review of each new order), `drupal` (agents for a Drupal site through its MCP Server: house-style fixes as drafts, each change approved, and a review of each saved article), `follow-up` (an agent that writes a follow-up mail from your notes and sends it from your Gmail once you approve it; its send tool comes from `@kindgi/connections`, under the pack's id), `python` (the sample as a Python pack), `java` (a Java pack, built with Maven; preview) or `scala` (a Scala pack, built with sbt; preview). |
+| `--template=<name>` | `minimal` (the default: the folders, no examples), `sample` (three tools, a guardrail, an agent and a flow), `woocommerce` (agents for a WooCommerce store: typed store tools, approvals for large refunds and store changes, and a review of each new order), `drupal` (agents for a Drupal site through its MCP Server: house-style fixes as drafts, each change approved, and a review of each saved article), `follow-up` (an agent that writes a follow-up mail from your notes and sends it from your Gmail once you approve it; its send tool comes from `@kindgi/connections`, under the pack's id), `returns-helper` (an agent that answers about returns and refunds sample orders, with its instructions, return window and model settings as blocks: to try correcting a run, fixing it and pinning the fix on `kindgi dev`), `python` (the sample as a Python pack), `java` (a Java pack, built with Maven; preview) or `scala` (a Scala pack, built with sbt; preview). |
 | `--path=<dir>` | Where to scaffold. Default: `<pack-name>` under the current directory (for a dot-namespaced id, its last segment). |
 | `--force` | Write into a non-empty directory. Default: refuse. |
 | `--link-local` | Link `@kindgi/*` from the checkout the CLI runs from. |
@@ -208,10 +208,9 @@ One command runs the whole loop on your machine:
   Default Credentials file (`GOOGLE_APPLICATION_CREDENTIALS`, else the one
   `gcloud auth application-default login` writes) is mounted read-only.
   Kindgi keeps no key files of its own.
-- **The image:** the runtime image is pulled on first use. It needs a pull
-  credential: sign in with GitHub at https://access.kindgi.com for one, then
-  log Docker in with it:
-  `kindgi auth registry --username <your robot name>` (see
+- **The image:** the runtime image is pulled on first use. It needs your
+  license key: sign in at https://access.kindgi.com for it, then log Docker
+  in with it: `kindgi auth registry` (see
   [The runtime image's registry](#the-runtime-images-registry)). `kindgi dev`
   says so when a pull is refused.
 - **Starting:** `kindgi dev` says what the start is doing as it happens,
@@ -360,7 +359,7 @@ request field; dots nest).
   API        http://127.0.0.1:4000
   Console    http://127.0.0.1:4000/console/
   Tenant     c9a4…
-  Token      kgi_bt_…
+  Token      kgi_bt_…Wz9-   (in full in the pack's .kindgirc.json)
   Models     none yet. Agents give placeholder replies until you connect a model: https://docs.kindgi.com/…
   Origins    …
 
@@ -372,9 +371,18 @@ request field; dots nest).
   Ctrl+C to stop.
 ```
 
+The token shows as the runtime's own startup line shows it, its `kgi_bt_`
+prefix and last four characters, so a log you share doesn't give it away.
+The pack's `.kindgirc.json` has it in full, as `token`: readable only by
+you, and in the `.gitignore` that `kindgi init` writes. The CLI's other
+commands in the pack's folder read it from there.
+
 Progress and the runtime's own log lines (`[runtime] …`, `[pack] …`) go to
-stderr. With `--json` or `--raw`, a JSON summary goes to stdout when it
-exits, so `kindgi dev --no-watch --raw | jq` works.
+stderr. With `--log-format=json`, the log records go to stdout instead, one
+JSON line each. [Logs](https://docs.kindgi.com/deploy/self-hosted/logs/#under-kindgi-dev)
+has the flags that choose the level and the format: `--log-level`, `--log`
+and `--log-format`. With `--json` or `--raw`, a JSON summary goes to stdout
+when it exits, so `kindgi dev --no-watch --raw | jq` works.
 
 ### Watching
 
@@ -498,8 +506,8 @@ Builds a signed pack image with a Kindgi build server, and writes
 build server's log among them, so a long build shows where it is. A build
 that fails keeps those lines, with the error after them. The summary goes
 to stdout at the end, as JSON, so `kindgi build > build.json` keeps it
-apart. With `--quiet`, the build's own lines are left out but its errors
-and warnings, and the CLI pin's warning and a rate limit's wait still show.
+apart. With `--quiet`, only the build's errors and warnings show, the CLI
+pin's warning and a rate limit's wait among them.
 
 **The image (a TypeScript pack):**
 - **Base:** `node:22` or `node:24-bookworm-slim`, pinned by digest: the
@@ -696,7 +704,7 @@ and `--published-at`: the same inputs then give the same image.
 | `--tenant=<id>` | The tenant the signature names. Default: the env block's `tenantId`, else `KINDGI_TENANT_ID`. |
 | `--signing-key=<path>` | The Ed25519 private key (PEM). Default: the env block's `signingKey`. |
 | `--skip-integrity-gate` | Sign without re-checking the image's index. Prints a warning. |
-| `--skip-sign` | Write an unsigned envelope (for CI that signs elsewhere); `kindgi deploy` refuses it. |
+| `--skip-sign` | Write an unsigned envelope (for CI that signs elsewhere); `kindgi deploy` refuses it, and `kindgi deploy --dry-run` shows what it would send, less the signature and, unless you pass `--idempotency-key`, the Idempotency-Key. |
 
 ## `kindgi deploy`
 
@@ -716,10 +724,15 @@ deployment. The envelope is `--from-envelope`, else
   `--url` / `KINDGI_API_URL`.
 - **Idempotent:** the `Idempotency-Key` header is a hash of the request
   body (`--idempotency-key` overrides it). Deploying the same image again
-  returns the same deployment.
+  returns the same deployment. When the server answers from its record of
+  an earlier request with the same key, the deploy says "Nothing new was
+  deployed" in place of "Deploy complete.", and the JSON on stdout adds
+  `idempotentReplay: true`.
 - **`--tenant`** must match the envelope's tenant, checked before anything
   is sent.
 - **`--dry-run`** prints the equivalent `curl` command and sends nothing.
+  On an unsigned envelope, it shows the body without the signature's
+  fields, and the Idempotency-Key only if you pass one.
 - **The pack service's env, checked first.** When the pack declares `env`,
   the deploy prints the plan for `--env` (see `kindgi env plan`). It refuses
   when a required name has no value or reference in `environments.<env>.env`
@@ -753,6 +766,9 @@ kindgi env unset <KEY> [--env <name>] [--path <dir>]
 kindgi env pull  [--env <name>] --scope=<kind>[:id] [--overwrite-existing] [--path <dir>]
 kindgi env init  [--secrets-backend=<none|postgres|secret-manager>] [--kms=<gcp|aws|libsodium|vault>] [--out=<path>]
 kindgi env plan  [--env <name>] [--format=terraform|gcloud] [--path <dir>]
+kindgi env set   <KEY> --cloud-secret <projects/<p>/secrets/<s>/versions/<n>> --tenant=<id> --scope=<kind>[:id] --env=<name> [--force]
+kindgi env unset <KEY> --cloud-secret --tenant=<id> --scope=<kind>[:id] --env=<name>
+kindgi env list  --cloud-secret --tenant=<id> --scope=<kind>[:id] --env=<name>
 ```
 
 Per-environment values for the pack, in env files next to
@@ -768,6 +784,12 @@ Per-environment values for the pack, in env files next to
 - **`list`** redacts values; `--reveal` prints them, but not to a pipe
   without `--force-reveal`.
 - **`pull`** fetches the env's values from the API into `.env.<envName>`.
+- **`--cloud-secret`** is the operator's, with a system key holding
+  `system:env-refs`: it sets KEY, for the tenant `--tenant` names, to a
+  numbered version of a secret the operator's cloud holds, which a pack
+  service reads from the cloud as its own account. Kindgi keeps the name,
+  never the value. The tenant's `kindgi env list --scope` shows each such
+  name as `NAME (cloud secret)`, without the path.
 - **`init`** writes a `.env.example` for a deployment target.
 - **Format:** dotenv, read the way `dotenv` (and Next.js) read it, with
   `${VAR}` expansion. `set` and `unset` touch one key and keep every other
@@ -830,10 +852,15 @@ kindgi key revoke <keyId> [--reason <text>]
 
 Ed25519 signing keys for `kindgi build`, as files under `~/.kindgi/keys/`
 (the directory `0700`, `<keyId>.pem` `0600`, `<keyId>.pub.pem` `0644`).
+`~` is `$HOME`, or the system's home folder where `HOME` isn't set.
+`create`, `export`, `list` and `trust` take `--home <dir>` to use
+`<dir>/.kindgi/keys/` instead.
 
 - **`create`** generates a key pair and refuses to overwrite an existing
   one. With `--env`, it prints what to add to that env block in
-  `kindgi.config.ts`.
+  `kindgi.config.ts`, or that the block already names this key. The key's
+  path in that note starts with `~` when the key is under `$HOME`, and is
+  the full path otherwise.
 - **`export`** prints the public key only, never the private one.
 - **`list`** shows each key pair's id, fingerprint and paths.
 - **`trust`** adds a local key's public key to the runtime's trust list
@@ -847,8 +874,11 @@ Ed25519 signing keys for `kindgi build`, as files under `~/.kindgi/keys/`
 ## `kindgi skills`
 
 `kindgi skills sync [--force] [--dry-run]` refreshes `.claude/skills/` and
-`.agents/skills/` from the skills bundled with this CLI. Skills you edited are
-kept unless `--force`; a skill you deleted comes back. After an upgrade,
+`.agents/skills/` from the skills bundled with this CLI. A skill is a folder:
+its `SKILL.md` and the files beside it. Skills you edited are kept unless
+`--force`; a skill or a file of one you deleted comes back, and a file you
+added to a skill's folder is left as it is, unless a later release ships a
+file by that name: that counts as an edit. After an upgrade,
 `kindgi dev` refreshes them as it starts, the same way without `--force`,
 except that a skill or a skills folder you deleted stays deleted.
 
@@ -905,7 +935,7 @@ Inside a pack that `kindgi dev` runs, they find it on their own (see
 | `connections` | Accounts at other apps that tools act with: `list` (`--project`, `--app`, `--mine`, `--include-removed`), `get`, `connect <app>` (prints the link; at a terminal, waits and says whose account; `--for-company` for tenant admins), `disconnect <id>` (asks first, or `--yes`) |
 | `connection-apps` | The tenant's registrations at other apps (tenant admins): `list` (`--include-removed`), `get`, `add google` / `add microsoft` (`--tenant`) / `add github` / `add linkedin` (secrets by reference, `<env>/<name>`), `remove <id>` (`--with-connections`; asks first, or `--yes`) |
 | `runs` | `list`, `get`, `cancel`, `journal`, `stream` (one JSON event per line), `start`, `resume` |
-| `agents` | `list`, `get <agent-id> [<version>]`, `publish`, `derive`, `unregister <agent-id> <version>`, `versions`; which version runs where: `live`, `live-versions`, `promote`, `rollback`, `unpin`, `promotions` |
+| `agents` | `list`, `get <agent-id> [<version>]`, `publish`, `derive`, `unregister <agent-id> <version>`, `versions`; which version runs where: `pinned`, `pinned-versions`, `pin`, `unpin`, `pin-history` |
 | `tools` | `list`, `get`, `publish`, `unregister`, `versions`, `get-version`, `reinstate` |
 | `flows` | `list`, `get <flow-id> [<version>]`, `publish --spec=<json>`, `versions`, `unregister <flow-id> <version>`, `reinstate <flow-id> <version>` |
 | `guardrails` | `list`, `get`, `register`, `unregister` |
@@ -921,7 +951,7 @@ Inside a pack that `kindgi dev` runs, they find it on their own (see
 `kindgi runs start` starts a run for an agent (`--agent=<id>`) or a flow
 (`--flow=<id>`), at its latest version or the one `--agent-version=<v>` /
 `--flow-version=<v>` names (a turn in a conversation needs the version the
-conversation was opened with), in the tenant's Default project or the one
+conversation was opened with), in the tenant's default project or the one
 `--project=<project-id>` names (`kindgi projects list`), and waits until it
 finishes, or until it waits on an approval. It follows the run rather than holding the start request open, so
 a long run doesn't time it out. Stopped (Ctrl+C), the wait ends and the run
@@ -932,7 +962,7 @@ false`).
 
 `kindgi <command> --help` prints a command's subcommands and flags.
 
-More of the API (superseding and searching memory, proposals,
+More of the API (superseding and searching memory, suggested changes,
 observations and tokens) has commands in progress. They're left out of `--help` until they work; until then, use
 [`@kindgi/client`](../../sdks/typescript) for those resources.
 
@@ -949,7 +979,13 @@ The API URL and token come from, in order:
 
 `kindgi dev` writes `.kindgirc.json` in the pack. For another API, save the
 pair once with `kindgi auth login --url=<url> --token=<token>`, and check it
-with `kindgi auth whoami`.
+with `kindgi auth whoami`. Login keeps a login `~/.kindgi/config.json` holds
+for another address, or a key with no address beside it, and exits 2 naming
+it: to use both, skip the login, and set `KINDGI_API_URL` and
+`KINDGI_API_TOKEN` to the new address and its key in the shell you use it
+from. `--force` replaces it, and warns that its key is no
+longer stored. Login writes `~/.kindgi/config.json` `0600`, in a `~/.kindgi`
+that's `0700`, and tightens ones an older CLI left looser (not on Windows).
 
 **In a folder where `kindgi dev` ran, `--hosted` reaches the other API.**
 There, `.kindgirc.json` points every command at the dev runtime, ahead of
@@ -993,24 +1029,34 @@ whether it's for the API URL.
 
 ### The runtime image's registry
 
-The Kindgi runtime image `kindgi dev` runs needs a pull credential (a robot
-name and a token). Sign in with GitHub at https://access.kindgi.com for one,
-then log Docker in once:
+The Kindgi runtime image `kindgi dev` runs is on Kindgi's registry,
+`registry.kindgi.com`, and pulling it takes your license key. Sign in at
+https://access.kindgi.com for it, then log Docker in once. The username there
+is `kindgi`, so there's no `--username` to give:
 
 ```sh
-kindgi auth registry --username <your robot name>  # prompts for the token, without echoing it
-printf '%s' "$TOKEN" | kindgi auth registry --username <your robot name> --password-stdin
-kindgi auth registry --check                       # only check access, no login
+kindgi auth registry                    # prompts for the key, without echoing it
+printf '%s' "$KEY" | kindgi auth registry --password-stdin
+kindgi auth registry --key-from env-file:kindgi.env#KINDGI_LICENSE_KEY
+kindgi auth registry --check            # only check access, no login
 ```
 
-It runs `docker login` with the token on its stdin, never in its arguments,
-so the credential lives in Docker's own credential store: Kindgi stores
-nothing. Then it checks that Docker can pull the exact image this CLI runs
+`--key-from <store>` reads the key from where it's kept, as
+`kindgi license renew` does (`file:…`, `env-file:…#NAME`, `gcp:…`, `azure:…`
+or `aws:…`), so a deployment's own key logs in without passing through your
+shell. A value that isn't a license key at all is refused before anything
+logs in; whether the key pulls is the registry's to say. When your key
+renews, log in again with the new one.
+
+It runs `docker login` with the key or token on its stdin, never in its
+arguments, so the credential lives in Docker's own credential store: Kindgi
+stores nothing. Then it checks that Docker can pull the exact image this CLI runs
 (pinned by digest; with `docker buildx imagetools inspect`, or
 `docker manifest inspect` by digest where buildx isn't installed), and a
-failure says whether it's access (a pull credential from
-https://access.kindgi.com) or the image or the network. `--registry <host>` logs in
-to a mirror instead and checks for the same image there.
+failure says whether it's access (your license key, from
+https://access.kindgi.com) or the image or the network. `--registry <host>
+--username <name>` logs in to a mirror instead, with that registry's own
+token, and checks for the same image there.
 
 ## Output and global flags
 
@@ -1019,7 +1065,7 @@ to a mirror instead and checks for the same image there.
 | `--json` | Pretty JSON on stdout (the default), for `jq`. |
 | `--raw` | One-line JSON. |
 | `--table` | A table for list responses (`runs list`, `tools list`, `providers list`; JSON where a list has no columns). |
-| `--quiet` | Nothing on stdout, and errors and warnings only on stderr, the CLI pin's warning and a rate limit's wait among them: the exit code reports the result. `kindgi connections connect` still prints its link, which is what you open. |
+| `--quiet` | Nothing on stdout, and errors and warnings only on stderr, the CLI pin's warning and a rate limit's wait among them: the exit code reports the result. `kindgi connections connect` still prints its link, which is what you open, and what's shown only once prints alone on stdout too: `kindgi tokens create`'s secret, `kindgi webhooks register`'s signing secret, and the one-time code from `kindgi sites register` and `kindgi sites code`. A command whose output is its result still prints it on stdout: `kindgi env plan`'s plan, `kindgi key export`'s public key, `kindgi runs stream`'s events, and `kindgi dev --log-format=json`'s log records, from warn up unless you pass `--log-level` or `--log`. `kindgi license enroll` prints its enroll line alone, which is what you add at access.kindgi.com. With `--json` or `--raw` too, `--quiet` wins. |
 | `--url=<url>`, `--token=<token>` | The API and its token (see above). |
 | `--hosted` | Go to the CLI's own address, never a `kindgi dev` runtime's `.kindgirc.json` (see above). `kindgi build` and `kindgi deploy` then use the hosted build service. `kindgi dev` refuses it. |
 | `--verbose`, `-v` | Full errors: stack traces and the API's error bodies. |

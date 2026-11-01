@@ -37,6 +37,8 @@ import type { EnvName } from '@kindgi/types';
 import type { CommandContext } from '../context.js';
 import {
   describePackEnvPlan,
+  packEnvPlanLines,
+  packEnvPlanWarnings,
   planPackEnv,
   renderGcloud,
   renderTerraform,
@@ -45,10 +47,12 @@ import { ENV_KEY_REGEX } from '../env/parser.js';
 import { describeEnvDiagnostics, loadLocalEnvSettings } from '../env/project-env.js';
 import type { EnvRunners } from '../env/runners.js';
 import { EnvValueNotRepresentableError, setKey, unsetKey } from '../env/writer.js';
-import { renderJson } from '../output.js';
+import { renderJson, successNote } from '../output.js';
 import type { PackConfigRecord } from '../pack-config.js';
+import { type SaidLine, note, renderLines, warning } from '../progress-lines.js';
 import { type ResolvedEnvironment, valueTargetFor, withEnvironmentNote } from '../value-target.js';
 import { projectOfEnv } from './build.js';
+import { listCloudSecrets, setCloudSecret, unsetCloudSecret } from './env-cloud-secret.js';
 import {
   PROJECT_SCOPE_ALONE,
   describeScope,
@@ -209,14 +213,25 @@ const listCmd: LeafCommand = {
   kind: 'leaf',
   name: 'list',
   description:
-    "List resolved env values for the target env (merges config + .env.<envName>); with --scope, the runtime's values at that scope.",
+    "List resolved env values for the target env (merges config + .env.<envName>); with --scope, the runtime's values at that scope, and the names set to a cloud secret there. As the operator, --cloud-secret lists those with each one's path, for the tenant --tenant names.",
   usage:
-    'kindgi env list [--env <name>] [--reveal] [--force-reveal] [--path <dir>] [--scope=<kind>[:id]]',
+    'kindgi env list [--env <name>] [--reveal] [--force-reveal] [--path <dir>] [--scope=<kind>[:id]]\n       kindgi env list --cloud-secret --tenant=<tenantId> --scope=<kind>[:id] --env=<name>',
   optionSpec: {
+    'cloud-secret': {
+      type: 'boolean',
+      description:
+        'List the names set to a cloud secret, each with its path, at --scope of the tenant --tenant names and under --env. Operators only: a system key holding `system:env-refs`.',
+    },
+    tenant: {
+      type: 'string',
+      description:
+        'With `--cloud-secret`: the tenant whose env it is, acted on as the operator. The token (`KINDGI_API_TOKEN`) is then a system key holding `system:env-refs`.',
+    },
+
     env: {
       type: 'string',
       description:
-        "The value set (one environment's values): `local` is the project's own env files, any other name its `.env.<name>`. Default: `staging`.",
+        "The value set (one environment's values): `local` is the project's own env files, any other name its `.env.<name>`. Default: `staging`; required with `--cloud-secret`, which names the env the runtime serves.",
     },
     reveal: {
       type: 'boolean',
@@ -235,10 +250,18 @@ const listCmd: LeafCommand = {
     scope: {
       type: 'string',
       description:
-        "Act on the runtime's env values (`/v1/env`) instead of local files: `tenant`, `org:<orgId>` or `project:<projectId>`. Requires `--env`. On a runtime that keeps its values under one env, `--scope=project` with `--env` naming one of the pack's environments is that environment's project.",
+        "Act on the runtime's env values (`/v1/env`) instead of local files: `tenant`, `org:<orgId>` or `project:<projectId>`. Requires `--env`, and is required with `--cloud-secret`. On a runtime that keeps its values under one env, `--scope=project` with `--env` naming one of the pack's environments is that environment's project.",
     },
   },
   run: async (ctx): Promise<CommandResult> => {
+    if (ctx.options['cloud-secret'] === true) return listCloudSecrets(ctx);
+    if (ctx.options.tenant !== undefined) {
+      return {
+        kind: 'error',
+        stderr: '--tenant goes with --cloud-secret: env values are listed in your own tenant.\n',
+        exitCode: 2,
+      };
+    }
     if (ctx.options.scope !== undefined) return listScoped(ctx);
     const runnersOutcome = pickRunners(ctx);
     if (runnersOutcome.kind === 'error') return runnersOutcome;
@@ -284,12 +307,19 @@ const listCmd: LeafCommand = {
 
     const bannerLines = [
       ...listBanner(paths.envName, summary.envFiles, reveal, rows, warnings),
-      ...projectFileNote(paths, "These are the pack's env files' values.", 'lists the values of'),
+      ...projectFileNote(
+        paths,
+        "These are the pack's env files' values.",
+        'lists the values of',
+      ).map(note),
     ];
     const rendered = renderJson(summary, ctx.globals.format);
     return {
       kind: 'ok',
-      rendered: { stdout: rendered.stdout, stderr: `${bannerLines.join('\n')}\n` },
+      rendered: {
+        stdout: rendered.stdout,
+        stderr: renderLines(bannerLines, ctx.globals.format === 'quiet'),
+      },
     };
   },
 };
@@ -336,23 +366,29 @@ function listBanner(
   reveal: boolean,
   rows: readonly ListRow[],
   warnings: readonly string[],
-): string[] {
-  const lines: string[] = ['', `  Environment: ${envName}`];
+): SaidLine[] {
+  const lines: SaidLine[] = [note(''), note(`  Environment: ${envName}`)];
   for (const f of envFiles) {
-    lines.push(`  Env file:    ${f.file}${f.exists ? '' : '  (does not exist)'}`);
+    lines.push(note(`  Env file:    ${f.file}${f.exists ? '' : '  (does not exist)'}`));
   }
-  lines.push(`  Reveal:      ${reveal ? 'YES (values shown)' : 'NO (redacted; --reveal to show)'}`);
-  lines.push('');
-  lines.push(rows.length === 0 ? '  (no keys resolved)' : `  ${rows.length} key(s):`);
+  lines.push(
+    note(`  Reveal:      ${reveal ? 'YES (values shown)' : 'NO (redacted; --reveal to show)'}`),
+  );
+  lines.push(note(''));
+  lines.push(note(rows.length === 0 ? '  (no keys resolved)' : `  ${rows.length} key(s):`));
   for (const row of rows) {
     const where = row.file ?? row.source;
     const tag = row.runtime ? `${where}, Kindgi runtime` : where;
-    lines.push(`    ${row.key.padEnd(24, ' ')} ${row.value}    [${tag}]`);
+    lines.push(note(`    ${row.key.padEnd(24, ' ')} ${row.value}    [${tag}]`));
   }
   if (warnings.length > 0) {
-    lines.push('', `  ⚠ ${warnings.length} warning(s):`, ...warnings.map((w) => `      ${w}`));
+    lines.push(
+      note(''),
+      warning(`  ⚠ ${warnings.length} warning(s):`),
+      ...warnings.map((w) => warning(`      ${w}`)),
+    );
   }
-  lines.push('');
+  lines.push(note(''));
   return lines;
 }
 
@@ -364,14 +400,25 @@ const setCmd: LeafCommand = {
   kind: 'leaf',
   name: 'set',
   description:
-    "Set a KEY=VALUE in .env.<envName>, or with --scope in the runtime's env values. Refuses to overwrite unless --force.",
+    "Set a KEY=VALUE in .env.<envName>, or with --scope in the runtime's env values. Refuses to overwrite unless --force. As the operator, --cloud-secret sets KEY to a version of a secret your cloud holds, for the tenant --tenant names.",
   usage:
-    'kindgi env set <KEY> <VALUE> [--env <name>] [--force] [--path <dir>] [--scope=<kind>[:id]]',
+    'kindgi env set <KEY> <VALUE> [--env <name>] [--force] [--path <dir>] [--scope=<kind>[:id]]\n       kindgi env set <KEY> --cloud-secret <projects/<p>/secrets/<s>/versions/<n>> --tenant=<tenantId> --scope=<kind>[:id] --env=<name> [--force]',
   optionSpec: {
+    'cloud-secret': {
+      type: 'string',
+      description:
+        "Set KEY, at --scope of the tenant --tenant names and under --env, to this version of a secret your cloud holds: `projects/<project>/secrets/<secret>/versions/<number>`, a number, never `latest`. A pack service that declares KEY is given it by that name, and reads the value from your cloud as the pack service's own account, which must be able to read it. Kindgi keeps the name, never the value. Takes no VALUE. Operators only: a system key holding `system:env-refs`.",
+    },
+    tenant: {
+      type: 'string',
+      description:
+        'With `--cloud-secret`: the tenant whose env it is, acted on as the operator. The token (`KINDGI_API_TOKEN`) is then a system key holding `system:env-refs`.',
+    },
+
     env: {
       type: 'string',
       description:
-        "The value set (one environment's values): `local` is the project's own env files, any other name its `.env.<name>`. Default: `staging`.",
+        "The value set (one environment's values): `local` is the project's own env files, any other name its `.env.<name>`. Default: `staging`; required with `--cloud-secret`, which names the env the runtime serves.",
     },
     force: {
       type: 'boolean',
@@ -385,7 +432,7 @@ const setCmd: LeafCommand = {
     scope: {
       type: 'string',
       description:
-        "Act on the runtime's env values (`/v1/env`) instead of local files: `tenant`, `org:<orgId>` or `project:<projectId>`. Requires `--env`. On a runtime that keeps its values under one env, `--scope=project` with `--env` naming one of the pack's environments is that environment's project.",
+        "Act on the runtime's env values (`/v1/env`) instead of local files: `tenant`, `org:<orgId>` or `project:<projectId>`. Requires `--env`, and is required with `--cloud-secret`. On a runtime that keeps its values under one env, `--scope=project` with `--env` naming one of the pack's environments is that environment's project.",
     },
   },
   run: async (ctx): Promise<CommandResult> => {
@@ -400,6 +447,8 @@ const setCmd: LeafCommand = {
         exitCode: 2,
       };
     }
+    const operator = operatorSet(ctx, key, value);
+    if (operator !== undefined) return operator;
     if (typeof value !== 'string') {
       return {
         kind: 'error',
@@ -409,20 +458,8 @@ const setCmd: LeafCommand = {
         exitCode: 2,
       };
     }
-    if (!ENV_KEY_REGEX.test(key)) {
-      return {
-        kind: 'error',
-        stderr: `Invalid KEY: "${key}". Must match ${ENV_KEY_REGEX.source} — POSIX-shell env-var shape (upper-snake, starting with letter or underscore).\n`,
-        exitCode: 1,
-      };
-    }
-    if (isRefusedKey(key)) {
-      return {
-        kind: 'error',
-        stderr: `kindgi env refuses to manage "${key}" — reserved for framework runtime config.\nReserved prefixes: ${REFUSED_KEY_PREFIXES.join(', ')}.\nSet framework env directly (e.g. via your shell / secrets manager); .env.<envName> is for pack-level values.\n`,
-        exitCode: 1,
-      };
-    }
+    const refused = keyRefusal(key);
+    if (refused !== undefined) return refused;
     if (ctx.options.scope !== undefined) return setScoped(ctx, key, value);
 
     const runnersOutcome = pickRunners(ctx);
@@ -462,10 +499,59 @@ const setCmd: LeafCommand = {
     const rendered = renderJson(summary, ctx.globals.format);
     return {
       kind: 'ok',
-      rendered: { stdout: rendered.stdout, stderr: `${banner}\n` },
+      rendered: { stdout: rendered.stdout, stderr: successNote(ctx.globals.format, `${banner}\n`) },
     };
   },
 };
+
+/**
+ * `kindgi env set KEY --cloud-secret …`, the operator's, which takes no
+ * VALUE; or `--tenant` without it, refused. `undefined` for any other set.
+ */
+function operatorSet(
+  ctx: CommandContext,
+  key: string,
+  value: string | undefined,
+): CommandResult | Promise<CommandResult> | undefined {
+  const cloudSecret = ctx.options['cloud-secret'];
+  if (cloudSecret === undefined) {
+    if (ctx.options.tenant === undefined) return undefined;
+    return {
+      kind: 'error',
+      stderr: '--tenant goes with --cloud-secret: an env value is set in your own tenant.\n',
+      exitCode: 2,
+    };
+  }
+  if (value !== undefined) {
+    return {
+      kind: 'error',
+      stderr:
+        'kindgi env set --cloud-secret takes no <VALUE>: the cloud holds it.\n' +
+        'Usage: kindgi env set <KEY> --cloud-secret <path> --tenant=<tenantId> --scope=<kind>[:id] --env=<name>\n',
+      exitCode: 2,
+    };
+  }
+  return keyRefusal(key) ?? setCloudSecret(ctx, key, String(cloudSecret));
+}
+
+/** Why `kindgi env set` won't set KEY: not an env name, or a reserved one. */
+function keyRefusal(key: string): (CommandResult & { kind: 'error' }) | undefined {
+  if (!ENV_KEY_REGEX.test(key)) {
+    return {
+      kind: 'error',
+      stderr: `Invalid KEY: "${key}". Must match ${ENV_KEY_REGEX.source} — POSIX-shell env-var shape (upper-snake, starting with letter or underscore).\n`,
+      exitCode: 1,
+    };
+  }
+  if (isRefusedKey(key)) {
+    return {
+      kind: 'error',
+      stderr: `kindgi env refuses to manage "${key}" — reserved for framework runtime config.\nReserved prefixes: ${REFUSED_KEY_PREFIXES.join(', ')}.\nSet framework env directly (e.g. via your shell / secrets manager); .env.<envName> is for pack-level values.\n`,
+      exitCode: 1,
+    };
+  }
+  return undefined;
+}
 
 /** Refuse to change a key some env file already defines (unless --force). */
 function refuseExistingKey(
@@ -511,13 +597,25 @@ const unsetCmd: LeafCommand = {
   kind: 'leaf',
   name: 'unset',
   description:
-    "Remove KEY from .env.<envName>, or with --scope from the runtime's env values. Idempotent — no error if the key is absent.",
-  usage: 'kindgi env unset <KEY> [--env <name>] [--path <dir>] [--scope=<kind>[:id]]',
+    "Remove KEY from .env.<envName>, or with --scope from the runtime's env values. Idempotent — no error if the key is absent. As the operator, --cloud-secret removes the cloud secret KEY is set to, for the tenant --tenant names.",
+  usage:
+    'kindgi env unset <KEY> [--env <name>] [--path <dir>] [--scope=<kind>[:id]]\n       kindgi env unset <KEY> --cloud-secret --tenant=<tenantId> --scope=<kind>[:id] --env=<name>',
   optionSpec: {
+    'cloud-secret': {
+      type: 'boolean',
+      description:
+        'Remove the cloud secret KEY is set to, at --scope of the tenant --tenant names and under --env: its pack services lose it at their next revision. Operators only: a system key holding `system:env-refs`.',
+    },
+    tenant: {
+      type: 'string',
+      description:
+        'With `--cloud-secret`: the tenant whose env it is, acted on as the operator. The token (`KINDGI_API_TOKEN`) is then a system key holding `system:env-refs`.',
+    },
+
     env: {
       type: 'string',
       description:
-        "The value set (one environment's values): `local` is the project's own env files, any other name its `.env.<name>`. Default: `staging`.",
+        "The value set (one environment's values): `local` is the project's own env files, any other name its `.env.<name>`. Default: `staging`; required with `--cloud-secret`, which names the env the runtime serves.",
     },
     path: {
       type: 'string',
@@ -526,7 +624,7 @@ const unsetCmd: LeafCommand = {
     scope: {
       type: 'string',
       description:
-        "Act on the runtime's env values (`/v1/env`) instead of local files: `tenant`, `org:<orgId>` or `project:<projectId>`. Requires `--env`. On a runtime that keeps its values under one env, `--scope=project` with `--env` naming one of the pack's environments is that environment's project.",
+        "Act on the runtime's env values (`/v1/env`) instead of local files: `tenant`, `org:<orgId>` or `project:<projectId>`. Requires `--env`, and is required with `--cloud-secret`. On a runtime that keeps its values under one env, `--scope=project` with `--env` naming one of the pack's environments is that environment's project.",
     },
   },
   run: async (ctx): Promise<CommandResult> => {
@@ -544,6 +642,14 @@ const unsetCmd: LeafCommand = {
         kind: 'error',
         stderr: `kindgi env refuses to manage "${key}" — reserved for framework runtime config.\n`,
         exitCode: 1,
+      };
+    }
+    if (ctx.options['cloud-secret'] === true) return unsetCloudSecret(ctx, key);
+    if (ctx.options.tenant !== undefined) {
+      return {
+        kind: 'error',
+        stderr: '--tenant goes with --cloud-secret: an env value is removed in your own tenant.\n',
+        exitCode: 2,
       };
     }
     if (ctx.options.scope !== undefined) return unsetScoped(ctx, key);
@@ -590,16 +696,17 @@ async function unsetLocal(ctx: CommandContext, key: string): Promise<CommandResu
       : next.removed
         ? `Removed ${key} from ${paths.envFilePath}`
         : `${key} was not present in ${paths.envFilePath} — no change.`;
-  const note = projectFileNote(
+  const scopeNote = projectFileNote(
     paths,
     `${shown(paths, paths.envFilePath)} is the pack's env file.`,
     'removes it from',
   ).map((line) => `${line}\n`);
-  const banner = `\n  ✓ ${outcome}\n${still}${note.join('')}\n`;
+  const banner = `\n  ✓ ${outcome}\n${still}${scopeNote.join('')}\n`;
   const rendered = renderJson(summary, ctx.globals.format);
   return {
     kind: 'ok',
-    rendered: { stdout: rendered.stdout, stderr: banner },
+    // A value still set in another file is a warning: said under --quiet too.
+    rendered: { stdout: rendered.stdout, stderr: ctx.globals.format === 'quiet' ? still : banner },
   };
 }
 
@@ -707,8 +814,15 @@ const pullCmd: LeafCommand = {
       ].join('\n');
       const rendered = renderJson(summary, ctx.globals.format);
       return withEnvironmentNote(
-        { kind: 'ok', rendered: { stdout: rendered.stdout, stderr: `${banner}\n` } },
+        {
+          kind: 'ok',
+          rendered: {
+            stdout: rendered.stdout,
+            stderr: successNote(ctx.globals.format, `${banner}\n`),
+          },
+        },
         { envName: remoteEnv, ...(environment !== undefined && { environment }) },
+        ctx.globals.format,
       );
     } catch (err) {
       return envErrorResult(err, ctx, 'kindgi env pull');
@@ -990,7 +1104,10 @@ const initCmd: LeafCommand = {
       kind: 'ok',
       rendered: {
         stdout: renderJson(summary, ctx.globals.format).stdout,
-        stderr: `\n  Wrote ${vars.length} env-var entries → ${outPath}\n  Target: ${JSON.stringify(target)}\n\n`,
+        stderr: successNote(
+          ctx.globals.format,
+          `\n  Wrote ${vars.length} env-var entries → ${outPath}\n  Target: ${JSON.stringify(target)}\n\n`,
+        ),
       },
     };
   },
@@ -1084,11 +1201,16 @@ const planCmd: LeafCommand = {
     }
     const plan = planned.plan;
     const stdout = format === 'terraform' ? renderTerraform(plan) : renderGcloud(plan);
-    const stderr = `${describePackEnvPlan(plan).join('\n')}\n`;
     const blocked = plan.missing.length > 0 || plan.problems.length > 0;
-    return blocked
-      ? { kind: 'error', stderr, exitCode: 1 }
-      : { kind: 'ok', rendered: { stdout, stderr } };
+    if (blocked) {
+      return { kind: 'error', stderr: `${describePackEnvPlan(plan).join('\n')}\n`, exitCode: 1 };
+    }
+    // The plan's lines are notes; its warnings are said under --quiet too.
+    const stderr = renderLines(
+      [...packEnvPlanLines(plan).map(note), ...packEnvPlanWarnings(plan).map(warning)],
+      ctx.globals.format === 'quiet',
+    );
+    return { kind: 'ok', rendered: { stdout, stderr } };
   },
 };
 

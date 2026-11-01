@@ -182,6 +182,39 @@ describe('kindgi deployments get', () => {
     expect(out.stderr).toBe('');
   });
 
+  test('what keeps the build: one a line, after its pack service; nothing, said so', async () => {
+    const keptFor = [
+      { kind: 'agent', id: 'acme.reply-drafter', version: '3', registered: true, held: true },
+      { kind: 'flow', id: 'acme.triage', version: '2', held: true },
+      { kind: 'guardrail', id: 'acme.no-pii', registered: true },
+      { kind: 'tool', id: 'acme.lookup' },
+      { kind: 'tool', id: 'acme.search', version: '1.2.0', registered: true },
+      { kind: 'workflow', id: 'acme.later' },
+    ];
+    const ready = '  Pack service: ready since 2026-10-18T09:13:05.000Z';
+    const kept = await run(['deployments', 'get', 'dep-acme-1'], {
+      get: async () => ({ ...DEPLOYMENT, endpoint: { ...DEPLOYMENT.endpoint, keptFor } }),
+    });
+    expect(kept.out.exitCode).toBe(0);
+    expect(kept.out.stdout).toBe(
+      lines(
+        ...HEAD,
+        ready,
+        '  Kept for:',
+        '    agent acme.reply-drafter 3: registered, held by a pin or a run',
+        '    flow acme.triage 2: held by a pin or a run',
+        '    guardrail acme.no-pii: registered',
+        '    tool acme.lookup: deployed without a version, until a newer build ships it',
+        '    tool acme.search 1.2.0: registered',
+        '    workflow acme.later',
+      ),
+    );
+    const none = await run(['deployments', 'get', 'dep-acme-1'], {
+      get: async () => ({ ...DEPLOYMENT, endpoint: { ...DEPLOYMENT.endpoint, keptFor: [] } }),
+    });
+    expect(none.out.stdout).toBe(lines(...HEAD, ready, '  Kept for: nothing'));
+  });
+
   test('an older server: no packEnvProblem, or no pack service at all: no held line, and no pack-env read', async () => {
     // A server from before the field, routing per deployment: the endpoint as it was.
     const before = {
@@ -267,7 +300,7 @@ describe('kindgi deployments get', () => {
       lines(
         ...HEAD,
         HELD_SERVICE,
-        '    ! Since 2026-10-18T10:02:00.000Z: a name the pack reads from its env is set both as a secret and as a plain value (pack-env-ambiguous).',
+        '    ! Since 2026-10-18T10:02:00.000Z: a name the pack reads from its env is set more than one way: as a plain value, a secret or a cloud secret (pack-env-ambiguous).',
         "      SHOP_URL is set both as a secret (project prj-acme) and as a plain value (tenant): remove one, so it's clear which the pack service gets.",
       ),
     );
@@ -325,7 +358,7 @@ describe('kindgi deployments get', () => {
     );
   });
 
-  test("where its names are set can't be read: why and since when, without a line to run", async () => {
+  test("where its names are set can't be read: why and since when, then why it couldn't be read, without a line to run", async () => {
     const { out, asked } = await run(['deployments', 'get', 'dep-acme-1'], {
       get: async () => held('pack-env-update-failed'),
       packEnv: async () => {
@@ -341,8 +374,32 @@ describe('kindgi deployments get', () => {
         ...HEAD,
         HELD_SERVICE,
         "    ! Since 2026-10-18T10:02:00.000Z: its newest values were given to it, but it didn't start with them. It's tried again for an hour from then (pack-env-update-failed).",
+        "      Couldn't read where each value is set: Not allowed (forbidden)",
       ),
     );
+  });
+
+  test("a server that doesn't give pack services their env, or is older: nothing more is said", async () => {
+    for (const [body, status] of [
+      [{ code: 'pack-env-not-served', message: 'Not served', details: {} }, 501],
+      [{ code: 'route-not-found', message: 'No such route', details: {} }, 404],
+    ] as const) {
+      const { out, asked } = await run(['deployments', 'get', 'dep-acme-1'], {
+        get: async () => held('pack-env-update-failed'),
+        packEnv: async () => {
+          throw new KindgiApiError(fromWire(body, status));
+        },
+      });
+      expect(out.exitCode).toBe(0);
+      expect(asked.packEnv).toEqual(['dep-acme-1']);
+      expect(out.stdout).toBe(
+        lines(
+          ...HEAD,
+          HELD_SERVICE,
+          "    ! Since 2026-10-18T10:02:00.000Z: its newest values were given to it, but it didn't start with them. It's tried again for an hour from then (pack-env-update-failed).",
+        ),
+      );
+    }
   });
 
   test('a code a later runtime names: said by its code', async () => {
@@ -453,7 +510,7 @@ describe('kindgi deployments get', () => {
     expect(superseded.out.stdout).toBe(
       lines(
         ...HEAD,
-        `  Pack service: cleared since ${since}: a later deploy ships every tool version and check this one does, so no new call reaches it (superseded)`,
+        `  Pack service: cleared since ${since}: no new call needs it, or a later deploy into its project ships every tool version and check it does (superseded)`,
       ),
     );
 
@@ -607,7 +664,7 @@ describe('kindgi deployments list', () => {
       expect(JSON.parse(out.stdout)).toEqual({ data, hasMore: false, projectId: STAGING_ID });
     });
 
-    test("the Default project's id: its deployments and those that name no project, as the API answers them", async () => {
+    test("the default project's id: its deployments and those that name no project, as the API answers them", async () => {
       const data = [
         { ...DEPLOYMENT, deploymentId: 'dep-acme-d', projectId: DEFAULT_ID },
         (({ projectId: _p, ...rest }) => ({ ...rest, deploymentId: 'dep-acme-n' }))(DEPLOYMENT),

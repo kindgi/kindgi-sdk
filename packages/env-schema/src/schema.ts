@@ -40,10 +40,12 @@
 export interface EnvTarget {
   /**
    * Which process reads the env: the Kindgi `server` (the default when
-   * absent), or the `pack-service`, the separate process that runs a
-   * pack's code (its tools and guardrail checks).
+   * absent); the `pack-service`, the separate process that runs a pack's
+   * code (its tools and guardrail checks); or the `pack-orchestrator`, the
+   * runtime's `kindgi-runtime packs orchestrate`, which makes a pack
+   * service for each deployment.
    */
-  readonly component?: 'server' | 'pack-service';
+  readonly component?: 'server' | 'pack-service' | 'pack-orchestrator';
   readonly secretsBackend?: 'none' | 'postgres' | 'secret-manager' | 'dotenv';
   readonly secretsBackendKms?: 'gcp' | 'azure' | 'aws' | 'libsodium' | 'vault';
   /**
@@ -118,6 +120,8 @@ export const ENV_GROUPS = {
   'local-key': 'Local key (postgres + libsodium: a key this runtime holds, single-node)',
   'pack-service': 'Pack service (runs the pack code: tools and guardrail checks)',
   'image-registry': "Image registry (where deployments' images are read from)",
+  'pack-orchestrator':
+    'Pack orchestrator (`kindgi-runtime packs orchestrate`: a pack service for each deployment, on Cloud Run)',
   dev: 'Development (`kindgi dev`; each needs `KINDGI_DEV=true`)',
 } as const;
 
@@ -125,8 +129,9 @@ export const ENV_GROUPS = {
 // The registry.
 // ---------------------------------------------------------------------
 
-/** The server's own vars: every target but the pack service's. */
-const appliesToServer = (t: EnvTarget): boolean => t.component !== 'pack-service';
+/** The server's own vars: the server's targets, and a target that names no process. */
+const appliesToServer = (t: EnvTarget): boolean =>
+  t.component === undefined || t.component === 'server';
 
 const appliesToPostgresBackend = (t: EnvTarget): boolean =>
   appliesToServer(t) && t.secretsBackend === 'postgres';
@@ -152,6 +157,8 @@ const appliesToSecretManager =
     appliesToSecretManagerBackend(t) && t.secretsManager === manager;
 
 const appliesToPackService = (t: EnvTarget): boolean => t.component === 'pack-service';
+
+const appliesToPackOrchestrator = (t: EnvTarget): boolean => t.component === 'pack-orchestrator';
 
 /** The server, calling a pack service over HTTP. */
 const appliesToServerHttpPackTransport = (t: EnvTarget): boolean =>
@@ -311,7 +318,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SEED_USER_ID',
     description:
-      "The user the runtime's API token (`KINDGI_API_TOKEN`) acts as, made a tenant admin at every boot. Unset: the user that token had at an earlier boot (kept by the token's hash), or a new one the first time a token is used. Set it to keep one user across token changes.",
+      "The id, a UUID (read in lower case), of the user the runtime's API token (`KINDGI_API_TOKEN`) acts as, made a tenant admin at every boot. Unset: the user that token had at an earlier boot (kept by the token's hash), or a new one the first time a token is used. Set it to keep one user across token changes.",
     example: '00000000-0000-4000-8000-000000000002',
     required: false,
     appliesTo: appliesToServer,
@@ -821,7 +828,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_RUN_LEASE_MS',
     description:
-      "How long a run's executor lease lasts without renewal, in milliseconds. Every unfinished run and every running eval run holds one, renewed every quarter of this by the server executing it. When a server stops without a shutdown (killed, out of memory, a crash), their leases run out, and a server's sweep fails them: a run sending `run.finished`, an eval run ending `failed`, interrupted, with its finished cases kept. Default 300000 (5 minutes); at least 10000, or the server refuses to start. A shorter lease finds such runs sooner, at the cost of more renewals.",
+      "How long a run's executor lease lasts without renewal, in milliseconds. Every unfinished run and every running test run holds one, renewed every quarter of this by the server executing it. When a server stops without a shutdown (killed, out of memory, a crash), their leases run out, and a server's sweep fails them: a run sending `run.finished`, a test run ending `failed`, interrupted, with its finished cases kept. Default 300000 (5 minutes); at least 10000, or the server refuses to start. A shorter lease finds such runs sooner, at the cost of more renewals.",
     example: '300000',
     required: false,
     appliesTo: appliesToServer,
@@ -830,7 +837,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_RUN_SWEEP_INTERVAL_MS',
     description:
-      'How often each server sweeps for runs and eval runs whose executor lease ran out, in milliseconds. A run or eval run whose server stopped without a shutdown is failed within about `KINDGI_RUN_LEASE_MS` plus this. Default 60000; at least 1000, and shorter than `KINDGI_RUN_LEASE_MS`, or the server refuses to start.',
+      'How often each server sweeps for runs and test runs whose executor lease ran out, in milliseconds. A run or test run whose server stopped without a shutdown is failed within about `KINDGI_RUN_LEASE_MS` plus this. Default 60000; at least 1000, and shorter than `KINDGI_RUN_LEASE_MS`, or the server refuses to start.',
     example: '60000',
     required: false,
     appliesTo: appliesToServer,
@@ -902,7 +909,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ERASURE_SHARED_WAIT_MS',
     description:
-      "How long an erasure waits for a turn of the person's that sits in a flow serving other people (cancelling it now could end their work), in milliseconds. The erasure shows `waiting-on-run`, naming the run, until then; at the deadline it cancels the run and goes on, and a tenant admin can stop the wait sooner (`kindgi memory erasures resume <id> --force`). Default 604800000 (7 days); at least 3600000 (an hour), or the server refuses to start.",
+      "How long an erasure waits for a turn of the person's that sits in a flow serving other people (cancelling it now could end their work), or for a test run still going with a case from their runs, in milliseconds. The erasure shows `waiting-on-run`, naming the run or test run, until then; at the deadline it cancels it and goes on, and a tenant admin can stop the wait sooner (`kindgi memory erasures resume <id> --force`). Default 604800000 (7 days); at least 3600000 (an hour), or the server refuses to start.",
     example: '604800000',
     required: false,
     appliesTo: appliesToServer,
@@ -929,7 +936,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ERASURE_LEDGER_EXPORT',
     description:
-      'Where the server keeps copies of the erasure ledger, off the database, so erasures can be replayed after a backup restore: `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]` (Application Default Credentials; creating objects is all it needs). On an interval (`KINDGI_ERASURE_LEDGER_EXPORT_INTERVAL_MS`) it writes the ledger of every tenant it serves as one file (keyed hashes only, never whom an erasure names), as `kindgi memory erasures export` does for one tenant, and names every tenant marked purged, by id and when it was created: a new file when either changed, and at least one a day. It never overwrites or deletes one; keep them longer than your backups. After a restore, replay the newest with `kindgi-runtime erasures replay`, then purge the purged tenants again with `kindgi-runtime tenants repurge`, which reads the newest copy here by default. Unset (the default): the ledger stays in the database only.',
+      'Where the server keeps copies of the erasure ledger, off the database, so erasures can be replayed after a backup restore: `local:<absolute dir>`, `gcs:<bucket>[/<prefix>]` (Application Default Credentials; creating objects is all it needs) or, from runtime 0.3.0, `s3:<bucket>[/<prefix>]` (an earlier runtime refuses it at start; see `KINDGI_S3_REGION`; `s3:PutObject`, `s3:GetObject` and `s3:ListBucket`, and a store that keeps an object it was asked not to overwrite, which the server checks before it serves). The check leaves a small `.kindgi-conditional-write-probe` object under the prefix, which no replay or repurge reads. On an interval (`KINDGI_ERASURE_LEDGER_EXPORT_INTERVAL_MS`) it writes the ledger of every tenant it serves as one file (keyed hashes only, never whom an erasure names), as `kindgi memory erasures export` does for one tenant, and names every tenant marked purged, by id and when it was created: a new file when either changed, and at least one a day. It never overwrites or deletes one; keep them longer than your backups. After a restore, replay the newest with `kindgi-runtime erasures replay`, then purge the purged tenants again with `kindgi-runtime tenants repurge`, which reads the newest copy here by default. Unset (the default): the ledger stays in the database only.',
     example: 'gcs:acme-erasure-ledger/runtime',
     required: false,
     appliesTo: appliesToServer,
@@ -947,7 +954,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_TENANT_PURGE_RECORD',
     description:
-      "Where the server writes a purged tenant's record, off the database, so a restore from an older backup purges it again: `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]` (Application Default Credentials; creating objects is all it needs). Each record is `purged/<tenant id>.json` there, as `kindgi-runtime tenants purge --record` writes it, and `kindgi-runtime tenants repurge --from` purges again every tenant one names, after a restore. It never overwrites or deletes one; keep them longer than your backups. On a runtime serving many tenants, `POST /v1/system/tenants/{tenantId}/purge` needs it: unset (the default), that route refuses every purge with `409 purge-record-unset`. A value that is neither form stops the server from starting.",
+      "Where the server writes a purged tenant's record, off the database, so a restore from an older backup purges it again: `local:<absolute dir>`, `gcs:<bucket>[/<prefix>]` (Application Default Credentials; creating objects is all it needs) or, from runtime 0.3.0, `s3:<bucket>[/<prefix>]` (an earlier runtime refuses it at start; see `KINDGI_S3_REGION`; `s3:PutObject`, `s3:GetObject` and `s3:ListBucket`, and a store that keeps an object it was asked not to overwrite, which the server checks before it serves). The check leaves a small `.kindgi-conditional-write-probe` object under the prefix, which no replay or repurge reads. Each record is `purged/<tenant id>.json` there, as `kindgi-runtime tenants purge --record` writes it, and `kindgi-runtime tenants repurge --from` purges again every tenant one names, after a restore. It never overwrites or deletes one; keep them longer than your backups. On a runtime serving many tenants, `POST /v1/system/tenants/{tenantId}/purge` needs it: unset (the default), that route refuses every purge with `409 purge-record-unset`. A value in none of these forms stops the server from starting.",
     example: 'gcs:acme-purge-records/runtime',
     required: false,
     appliesTo: appliesToServer,
@@ -1010,7 +1017,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ARTIFACTS',
     description:
-      "Where artifacts' files go, which turns on `/v1/artifacts`: `local:<absolute dir>` (a directory on this machine) or `gcs:<bucket>[/<prefix>]` (a Google Cloud Storage bucket, through Application Default Credentials: workload identity on GCP, no keys to store). Metadata is in Postgres; a deleted artifact is purged under the `artifact` retention policy. Unset (the default): no `/v1/artifacts`. `kindgi dev` sets it to the pack's `.kindgi/dev/artifacts`.",
+      "Where artifacts' files go, which turns on `/v1/artifacts`: `local:<absolute dir>` (a directory on this machine), `gcs:<bucket>[/<prefix>]` (a Google Cloud Storage bucket, through Application Default Credentials: workload identity on GCP, no keys to store) or, from runtime 0.3.0, `s3:<bucket>[/<prefix>]` (an earlier runtime refuses it at start; an AWS S3 bucket, or an S3-compatible store's: see `KINDGI_S3_REGION`). Before it serves, the server refuses an `s3:` bucket a tenant purge couldn't empty: MFA Delete on, an Object Lock default retention, or no right to list its unfinished uploads (and, in a bucket that keeps versions, its versions). Metadata is in Postgres; a deleted artifact is purged under the `artifact` retention policy. Unset (the default): no `/v1/artifacts`. `kindgi dev` sets it to the pack's `.kindgi/dev/artifacts`.",
     example: 'gcs:acme-artifacts/prod',
     required: false,
     appliesTo: appliesToServer,
@@ -1021,6 +1028,43 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     description:
       'The most bytes one artifact upload may carry, the whole request body; more is `413 artifact-too-large`. Default 104857600 (100 MiB).',
     example: '104857600',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_S3_REGION',
+    description:
+      "Used from runtime 0.3.0; earlier runtimes ignore it. The region of the server's S3 buckets, one for every `s3:<bucket>[/<prefix>]` target (`KINDGI_ARTIFACTS`, `KINDGI_ERASURE_LEDGER_EXPORT`, `KINDGI_TENANT_PURGE_RECORD`): required with any of them, and with any other `KINDGI_S3_*` setting. On AWS S3, an AWS region in the commercial, GovCloud or China partition, such as `eu-west-1`; `AWS_REGION` is never read for it. With `KINDGI_S3_ENDPOINT`, the region name that store takes, such as `auto` for R2. Before it serves, the server checks each bucket is there; on AWS S3, a bucket in another region stops it, naming the bucket's region. On AWS S3, the server signs in as its AWS identity, so `KINDGI_AWS_IDENTITY` must be set.",
+    example: 'eu-west-1',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_S3_ENDPOINT',
+    description:
+      "Used from runtime 0.3.0; earlier runtimes ignore it. An S3-compatible store's address (MinIO, R2), for every `s3:` target: an `https://` origin with no path, user, query or fragment (`http://` only with `KINDGI_DEV=true`). The store's key goes in `KINDGI_S3_CREDENTIALS_PATH`, never in the address. Unset (the default): AWS S3. `AWS_ENDPOINT_URL`, `AWS_ENDPOINT_URL_S3` and a profile's `endpoint_url` are never read: they would send signed requests, with tenants' files, somewhere else.",
+    example: 'https://storage.acme.internal',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_S3_PATH_STYLE',
+    description:
+      "Used from runtime 0.3.0; earlier runtimes ignore it. `true`: requests name the bucket in the path (`<endpoint>/<bucket>/<key>`), for a store that needs it; with `KINDGI_S3_ENDPOINT` only. A bucket name with a dot needs it: a request that names the bucket in the host name puts the dot where TLS can't cover it, so on AWS S3 such a bucket is refused. Default `false`.",
+    example: 'true',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+    allowedValues: ['true', 'false'],
+  },
+  {
+    name: 'KINDGI_S3_CREDENTIALS_PATH',
+    description:
+      'Used from runtime 0.3.0; earlier runtimes ignore it. Absolute path to an S3-compatible store\'s own access key, a JSON file `{"accessKeyId": "…", "secretAccessKey": "…"}`, read again whenever it changes, so a rotated key takes effect at the next request; with `KINDGI_S3_ENDPOINT` only. Unset: S3 signs in as the server\'s AWS identity (`KINDGI_AWS_IDENTITY`); with neither, the server refuses to start. Never the AWS SDK\'s default chain or keys in the environment.',
+    example: '/etc/kindgi/s3-key.json',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
@@ -1039,6 +1083,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     description:
       "Used from runtime 0.1.8; earlier runtimes ignore it. The most memory, in MiB, that one tenant's running agent turns may hold, charged as for `KINDGI_TURN_MEMORY_MIB`. Past it, the turn fails with `429 turn-memory-limit-reached` (`limit: tenant`), and a resume whose journal alone is bigger fails at once. Unset: no limit per tenant. Kindgi Cloud sets 192.",
     example: '192',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_FILE_MEMORY_MIB',
+    description:
+      "Used from runtime 0.3.0; earlier runtimes ignore it. With artifacts on (`KINDGI_ARTIFACTS`), the memory, in MiB, the server keeps for the bytes of files its agents read. Each model call holds room for the files it reads, 3 × each one's size (2 × for one the cache keeps), until it ends. A call that finds no room within 15 seconds is sent with a line in each file's place, and the server logs a warning (`file-memory-no-room`); a later call is shown them again. A tool's file takes room too: twice its size while a pack tool stores it, and its size while a tool reads it. A store or a read that finds none in time fails (a pack's with `tool-files-busy` and `Retry-After`), and a file larger than this whole memory is answered `size`, with the same warning. When this memory is below what the server's configured file bindings can hold at once, the boot record warns once, and their larger files are answered `size`. Default: 512, or a quarter of the server's memory (its container's limit, when one is set) when that's less, and never below 35, the room one model call's files take at their limit. A value that isn't a whole number from 35 to 1048576 stops the server at boot, naming this variable (exit code 2).",
+    example: '512',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_FILE_CACHE_MIB',
+    description:
+      "Used from runtime 0.3.0; earlier runtimes ignore it. How much of `KINDGI_FILE_MEMORY_MIB`, in MiB, keeps the bytes of files model calls have read, so a later call reads them from memory rather than from the artifact store. A model call that needs the room takes it back, least recently read first. 0 keeps none. Default: half of `KINDGI_FILE_MEMORY_MIB`. A value that isn't a whole number from 0 to `KINDGI_FILE_MEMORY_MIB` stops the server at boot, naming this variable (exit code 2).",
+    example: '256',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
@@ -1392,7 +1454,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_PACK_CALL_TIMEOUT_MS',
     description:
-      'How long one pack call (a tool or a guardrail check) may take, in milliseconds. Default 120000. The deadline travels with the call, and the pack service aborts the handler when it passes.',
+      "How long one pack call (a tool or a guardrail check) may take, in milliseconds. Default 120000. The deadline travels with the call, and the pack service aborts the handler's signal when it passes.",
     example: '120000',
     required: false,
     appliesTo: appliesToServerHttpPackTransport,
@@ -1476,7 +1538,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_PACK_ROUTING',
     description:
-      'Used from runtime 0.1.8; earlier runtimes ignore it. How the server finds the pack service for a call. `single` (default): one pack service, `KINDGI_PACK_SERVICE_URL`, for every call. `per-deployment` needs `KINDGI_TENANCY=multi`: the endpoints are recorded through the system API, which a runtime serving one tenant does not have, so the server refuses to start with it there; `multi` starts only with it. Each call then goes to the newest deployment that shipped the tool or check, at the endpoint recorded for it by whatever runs the services (an orchestrator, or a script) with a `system:deployments` key. Each endpoint carries its own token and auth, so `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused; `KINDGI_PACK_CALL_TIMEOUT_MS` still applies. A call whose deployment has no endpoint yet fails (`pack-endpoint-pending`): it never falls back to an older deployment or another service. Deployments registered before it was turned on have no routes; deploy them again.',
+      "Used from runtime 0.1.8; earlier runtimes ignore it. How the server finds the pack service for a call. `single` (default): one pack service, `KINDGI_PACK_SERVICE_URL`, for every call. `per-deployment`: each call goes to the newest deployment in the run's project (on runtime 0.1.8, the tenant's newest) that shipped the tool or check, at the endpoint recorded for it by whatever runs the services (an orchestrator, or a script) with a `system:deployments` key. It needs `KINDGI_PACK_ENDPOINT_HOSTS`, and a key to seal each endpoint's token under: `KINDGI_PACK_ENDPOINT_KMS_KEY`, or else the secrets' own key, which `KINDGI_SECRETS_BACKEND=postgres` has. `KINDGI_TENANCY=multi` starts only with it. Serving one tenant, it works from runtime 0.4.0: the deployment's own token mints the orchestrator's keys at `/v1/system/keys`; earlier runtimes refuse to start with it there. Each endpoint carries its own token and auth, so `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused; `KINDGI_PACK_CALL_TIMEOUT_MS` still applies. A call whose deployment has no endpoint yet fails (`pack-endpoint-pending`): it never falls back to an older deployment or another service. Deployments registered before it was turned on have no routes; deploy them again.",
     example: 'single',
     required: false,
     appliesTo: appliesToServer,
@@ -1486,11 +1548,30 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_PACK_ENDPOINT_HOSTS',
     description:
-      "Used from runtime 0.1.8; earlier runtimes ignore it. With `KINDGI_PACK_ROUTING=per-deployment`: the hosts a deployment's pack endpoint may name, comma-separated. Each is a host name; `*.` and a domain, which matches one more label in front of it; or `*-`, a tail and a domain, which matches one more label ending with `-` and the tail. On Cloud Run, name each pack project with `*-<project number>.<region>.run.app`: Cloud Run URLs are `<service>-<project number>.<region>.run.app` for every project, so `*.`, or a `*-` tail that isn't a project number, with `run.app` or a domain under it would admit anyone's service, and the server refuses to start with one. Lowercase, with no scheme, port or path. Without it, the server refuses to start: per-deployment routing needs `KINDGI_TENANCY=multi`, which starts only with the hosts named. An endpoint's host must also begin with its deployment's own service name (`kp-` and 20 characters, then `-` or `.`), so an endpoint can't point one tenant's deployment at another's service.",
+      "Used from runtime 0.1.8; earlier runtimes ignore it. With `KINDGI_PACK_ROUTING=per-deployment`: the hosts a deployment's pack endpoint may name, comma-separated. Each is a host name; `*.` and a domain, which matches one more label in front of it; or `*-`, a tail and a domain, which matches one more label ending with `-` and the tail. On Cloud Run, name each pack project with `*-<project number>.<region>.run.app`: Cloud Run URLs are `<service>-<project number>.<region>.run.app` for every project, so `*.`, or a `*-` tail that isn't a project number, with `run.app` or a domain under it would admit anyone's service, and the server refuses to start with one. Lowercase, with no scheme, port or path. Without it, per-deployment routing refuses to start, since every endpoint would be refused. An endpoint's host must also begin with its deployment's own service name (`kp-` and 20 characters, then `-` or `.`), so an endpoint can't point one tenant's deployment at another's service.",
     example: '*-123456789012.us-central1.run.app',
     required: false,
     appliesTo: appliesToServer,
     group: 'pack-service',
+  },
+  {
+    name: 'KINDGI_PACK_ENDPOINT_KMS_KEY',
+    description:
+      "Used from runtime 0.4.0; earlier runtimes ignore it. With `KINDGI_PACK_ROUTING=per-deployment`: the key each deployment's endpoint token is sealed under in the database. Its shape picks the KMS. **Cloud KMS:** `projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>`, a symmetric encryption key; the server's service account needs `roles/cloudkms.cryptoKeyEncrypterDecrypter` on it. **Azure Key Vault:** `https://<vault>.vault.azure.net/keys/<name>`, an RSA key; the server's identity needs Key Vault Crypto Service Encryption User on it. Without a version either way: a token is sealed with the key's current version, so the key can rotate. Unset, the tokens are sealed under the secrets' own key, which `KINDGI_SECRETS_BACKEND=postgres` has; with any other backend, per-deployment routing refuses to start without it. Setting it on a server whose endpoints are already recorded, or changing it, leaves each of those unreadable, sealed under the secrets' own key or the old one: its calls fail until its endpoint is recorded again. The orchestrator records only pending or cleared endpoints, so deploy each pack again, or clear each ready endpoint (`DELETE /v1/system/tenants/<tenant>/deployments/<deployment>/endpoint`) for the orchestrator to make its service anew. Any other value stops the server at boot, naming both shapes.",
+    example: 'projects/acme/locations/us-central1/keyRings/kindgi/cryptoKeys/pack-endpoints',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'pack-service',
+  },
+  {
+    name: 'KINDGI_ENV_CLOUD_SECRETS',
+    description:
+      "Used from runtime 0.4.0; earlier runtimes ignore it. Whether the operator may set a pack's env name to a cloud secret: a numbered version of a Google Cloud Secret Manager secret (`projects/<project>/secrets/<secret>/versions/<number>`). The runtime keeps that path, never the value, and the pack service is given it by its env name: Cloud Run reads the value as the pack service's own account, so turn it on only where that account can read the secrets you name (the Cloud Run module grants it on each secret listed in `pack_secret_readers`). `on`: a system key holding `system:env-refs` sets and removes them (`kindgi env set NAME --cloud-secret <path> --tenant=<tenantId> --scope=<kind>[:id] --env=<name>`, or `PUT /v1/system/tenants/<tenantId>/env/<name>`), and each deployment's pack env answer carries them. It needs `KINDGI_PACK_ROUTING=per-deployment`: on without it, the server refuses to start, naming both. Unset or `off`: none is kept, and those routes answer 501 (`cloud-secrets-unsupported`), as on Kindgi Cloud.",
+    example: 'on',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'pack-service',
+    allowedValues: ['on', 'off'],
   },
   {
     name: 'KINDGI_IMAGE_REGISTRY_HOST',
@@ -1537,6 +1618,71 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     appliesTo: appliesToServer,
     group: 'image-registry',
     allowedValues: ['static', 'google', 'azure'],
+  },
+  {
+    name: 'KINDGI_ORCHESTRATOR_RUNTIME_URL',
+    description:
+      'The server, as the pack orchestrator reaches it: its base URL, `https` (`http` only on a loopback host). The orchestrator calls its system routes there: the deployments to give a pack service and to retire, their pack env, and the round that keeps two passes from running at once. The server needs `KINDGI_PACK_ROUTING=per-deployment`.',
+    example: 'https://kindgi-runtime-123456789012.us-central1.run.app',
+    required: true,
+    appliesTo: appliesToPackOrchestrator,
+    group: 'pack-orchestrator',
+  },
+  {
+    name: 'KINDGI_ORCHESTRATOR_SYSTEM_KEY',
+    description:
+      'A system key holding `system:deployments` and `system:pack-env`, which the orchestrator sends to the server. Set it from a secret (on Cloud Run, a Secret Manager reference), never in a file or a command line. It never reaches the pack services.',
+    example: '',
+    required: true,
+    appliesTo: appliesToPackOrchestrator,
+    group: 'pack-orchestrator',
+  },
+  {
+    name: 'KINDGI_ORCHESTRATOR_RUNTIME_AUTH',
+    description:
+      "Whether the orchestrator's calls carry a Google ID token, for a server behind Cloud Run IAM. Unset (default): the system key alone. `google-id-token`: each call also carries the orchestrator's Google ID token, in `X-Serverless-Authorization`, beside the system key. The token's audience is the origin of `KINDGI_ORCHESTRATOR_RUNTIME_URL`, which is then the service's `run.app` URL, or a custom audience the service sets: with a custom domain, set it as one. The token is the orchestrator's own identity's (Application Default Credentials: on Cloud Run, the Job's service account; a person's own application-default login can't make one), which needs `roles/run.invoker` on the server. Any other value stops the orchestrator, naming this setting.",
+    example: 'google-id-token',
+    required: false,
+    appliesTo: appliesToPackOrchestrator,
+    group: 'pack-orchestrator',
+    allowedValues: ['google-id-token'],
+  },
+  {
+    name: 'KINDGI_ORCHESTRATOR_PROJECT',
+    description:
+      "The Google Cloud project the pack services run in, by id. The orchestrator's own identity (Application Default Credentials: on Cloud Run, the Job's service account) makes, updates and deletes them there, and keeps their tokens and secret env in its Secret Manager, as secrets named `kp-…`.",
+    example: 'acme-kindgi',
+    required: true,
+    appliesTo: appliesToPackOrchestrator,
+    group: 'pack-orchestrator',
+  },
+  {
+    name: 'KINDGI_ORCHESTRATOR_REGION',
+    description:
+      'The region the pack services run in, and their secrets are kept in (replicated there only).',
+    example: 'us-central1',
+    required: true,
+    appliesTo: appliesToPackOrchestrator,
+    group: 'pack-orchestrator',
+  },
+  {
+    name: 'KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT',
+    description:
+      "The service account every pack service runs as, by email. It's one identity for all of them, apart from the server's: whatever one pack service may read, each may, the others' secrets included. Give it no more than the packs need.",
+    example: 'kindgi-packs@acme-kindgi.iam.gserviceaccount.com',
+    required: true,
+    appliesTo: appliesToPackOrchestrator,
+    group: 'pack-orchestrator',
+  },
+  {
+    name: 'KINDGI_ORCHESTRATOR_PACK_SERVICE',
+    description:
+      'How each pack service runs, as one JSON object; every field is optional. `ingress`: `all` (default), `internal` or `internal-and-cloud-load-balancing`. `egress`: `{"kind":"none"}` (default), `{"kind":"subnet","subnetwork":"projects/<project>/regions/<region>/subnetworks/<name>","networkTags":[…]}` (all of it through the subnet) or `{"kind":"connector","connector":"projects/<project>/locations/<region>/connectors/<name>"}` (private ranges through the connector). `timeoutSeconds` (300), `concurrency` (32), `maxInstances` (8), `cpu` (`1`), `memory` (`1Gi`), `startupCpuBoost` (`true`), `cloudSqlInstances` (none: connection names, mounted at `/cloudsql`). A field it doesn\'t know, or a value out of range, stops the orchestrator, naming it.',
+    example:
+      '{"ingress":"internal","egress":{"kind":"connector","connector":"projects/acme-kindgi/locations/us-central1/connectors/kindgi"}}',
+    required: false,
+    appliesTo: appliesToPackOrchestrator,
+    group: 'pack-orchestrator',
   },
   {
     name: 'KINDGI_PACK_DIR',

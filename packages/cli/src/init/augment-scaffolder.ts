@@ -16,8 +16,8 @@
  *   - `kindgi/tools/.gitkeep`
  *   - `kindgi/guardrails/.gitkeep`
  *   - `kindgi/flows/.gitkeep`
- *   - `.claude/skills/kindgi-<name>/SKILL.md` and
- *     `.agents/skills/kindgi-<name>/SKILL.md` for each shipped skill —
+ *   - `.claude/skills/kindgi-<name>/` and `.agents/skills/kindgi-<name>/`
+ *     for each shipped skill, its `SKILL.md` and the files beside it —
  *     merge-not-overwrite: skips files that already exist so user
  *     customizations survive
  *   - `package.json`: `@kindgi/sdk` (dependency) + `@kindgi/cli`
@@ -55,15 +55,16 @@ import { KINDGI_CONFIG_FILENAMES } from '@kindgi/handler-runtime';
 import semver from 'semver';
 
 import { PACK_ID_REGEX } from '../commands/init.js';
-import { syncSkills } from '../commands/skills.js';
+import { skillCopyPaths, syncSkills } from '../commands/skills.js';
 import type { CommandResult } from '../commands/types.js';
-import { renderJson } from '../output.js';
+import { type OutputFormat, renderJson } from '../output.js';
 import {
   type PackageManager,
   binDisplay,
   detectPackageManager,
   installCommand,
 } from '../package-manager.js';
+import { note, renderLines, warning } from '../progress-lines.js';
 import { MODELS_GUIDE } from '../providers/models-guide.js';
 import { agentAccessRows, patchAgentAccess } from './agent-access.js';
 import { type KindgiDependencySpecs, resolveKindgiDependencySpecs } from './dependency-specs.js';
@@ -108,11 +109,17 @@ export interface RunInitAugmentInputs {
   readonly packIdOverride?: string;
   /**
    * Overwrite existing `kindgi.config.ts` + shipped skill files under
-   * `.claude/skills/kindgi-<name>/SKILL.md` and `.agents/skills/`. Non-force default:
+   * `.claude/skills/kindgi-<name>/` and `.agents/skills/`. Non-force default:
    * refuse when `kindgi.config.ts` exists; merge (skip) any
    * pre-existing skill files.
    */
   readonly force: boolean;
+  /**
+   * The output format the command was given (`ctx.globals.format`): the
+   * summary prints as it asks, and `quiet` keeps only the warnings on
+   * stderr. Default `json`, as with no flag.
+   */
+  readonly format?: OutputFormat;
   /** `--link-local`: link the Kindgi checkout even when the target is inside its workspace. */
   readonly linkLocal?: boolean;
   /**
@@ -359,25 +366,30 @@ export async function runInitAugment(inputs: RunInitAugmentInputs): Promise<Comm
     nextSteps,
   };
 
-  const rendered = renderJson(summary, 'json');
+  const format = inputs.format ?? 'json';
+  const rendered = renderJson(summary, format);
 
   return {
     kind: 'ok',
     rendered: {
       stdout: rendered.stdout,
-      stderr: [
-        '',
-        `  Kindgi added to ${inputs.targetDir} (augment mode).`,
-        `  Pack id: ${packId}    Version: ${packVersion}`,
-        `  Wrote ${created.length} file${created.length === 1 ? '' : 's'}; skipped ${skipped.length}.`,
-        ...(patchResult.outside ?? []).map((line) => `  ✓ ${line}`),
-        ...warnings.map((warning) => `  ⚠ ${warning}`),
-        '',
-        '  Next steps:',
-        ...nextSteps.map((step) => `    ${step}`),
-        '',
-        '',
-      ].join('\n'),
+      stderr: renderLines(
+        [
+          note(''),
+          note(`  Kindgi added to ${inputs.targetDir} (augment mode).`),
+          note(`  Pack id: ${packId}    Version: ${packVersion}`),
+          note(
+            `  Wrote ${created.length} file${created.length === 1 ? '' : 's'}; skipped ${skipped.length}.`,
+          ),
+          ...(patchResult.outside ?? []).map((line) => note(`  ✓ ${line}`)),
+          ...warnings.map((w) => warning(`  ⚠ ${w}`)),
+          note(''),
+          note('  Next steps:'),
+          ...nextSteps.map((step) => note(`    ${step}`)),
+          note(''),
+        ],
+        format === 'quiet',
+      ),
     },
   };
 }
@@ -721,9 +733,11 @@ async function writeAugmentFiles(args: WriteAugmentFilesInputs): Promise<WriteAu
       dryRun: false,
     });
     for (const o of report.outcomes) {
-      const target = join(args.targetDir, o.folder, o.name, 'SKILL.md');
-      if (o.status === 'added' || o.status === 'updated') created.push(target);
-      else if (o.status !== 'local-only') skipped.push(target);
+      if (o.status === 'added' || o.status === 'updated') {
+        created.push(...skillCopyPaths(args.targetDir, o, 'written'));
+      } else if (o.status !== 'local-only') {
+        skipped.push(...skillCopyPaths(args.targetDir, o, 'files'));
+      }
     }
   }
 

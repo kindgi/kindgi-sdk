@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026 Kindgi Inc.
 
-# Kindgi's database and the secrets both services read.
+# Kindgi's database and the secrets the server and the pack orchestrator read.
 #
 # Secrets by reference: Terraform creates each secret's container and who
 # may read it, never a value. The operator adds every value with
@@ -61,6 +61,11 @@ resource "google_sql_database_instance" "kindgi" {
     edition           = var.database_edition
     tier              = var.database_tier
     availability_type = "ZONAL"
+
+    # Google's own deletion protection, which refuses a delete from the
+    # console, gcloud or the API as well: deletion_protection above stops only
+    # Terraform's. The one variable sets both.
+    deletion_protection_enabled = var.database_deletion_protection
 
     ip_configuration {
       ipv4_enabled    = !local.database_private
@@ -190,14 +195,9 @@ locals {
     api_token        = "${var.name_prefix}-api-token"        # KINDGI_API_TOKEN, the seeded bearer
     public_token_key = "${var.name_prefix}-public-token-key" # Ed25519 PKCS#8 PEM, base64: KINDGI_PUBLIC_TOKEN_SIGNING_KEY
     license_key      = "${var.name_prefix}-license-key"      # KINDGI_LICENSE_KEY (kgi_lk_…), issued by Kindgi
-    }, local.kms ? {
+    }, local.postgres_secrets ? {
     secrets_aad_key = "${var.name_prefix}-secrets-aad-key" # 32 random bytes, base64: KINDGI_SECRETS_AAD_KEY (secrets_backend = "postgres" only)
   } : {})
-  # Only with the one pack service: under per-deployment routing each
-  # endpoint carries its own token, and the server refuses this one.
-  shared_secrets = local.pack ? {
-    pack_service_token = "${var.name_prefix}-pack-service-token" # KINDGI_PACK_SERVICE_TOKEN, both services
-  } : {}
 }
 
 resource "google_secret_manager_secret" "server" {
@@ -214,22 +214,8 @@ resource "google_secret_manager_secret" "server" {
   depends_on = [google_project_service.apis]
 }
 
-resource "google_secret_manager_secret" "shared" {
-  for_each  = local.shared_secrets
-  secret_id = each.value
-
-  replication {
-    user_managed {
-      replicas {
-        location = var.region
-      }
-    }
-  }
-  depends_on = [google_project_service.apis]
-}
-
 resource "google_secret_manager_secret_iam_member" "server_reads" {
-  for_each  = merge(google_secret_manager_secret.server, google_secret_manager_secret.shared)
+  for_each  = google_secret_manager_secret.server
   secret_id = each.value.id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.server.email}"
@@ -282,21 +268,4 @@ resource "google_kms_crypto_key_iam_member" "server_signs_exports" {
   crypto_key_id = local.export_signing_crypto_key
   role          = each.value
   member        = "serviceAccount:${google_service_account.server.email}"
-}
-
-resource "google_secret_manager_secret_iam_member" "pack_reads_token" {
-  for_each  = { for name, secret in google_secret_manager_secret.shared : name => secret if local.pack }
-  secret_id = each.value.id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.pack[0].email}"
-}
-
-# The pack's own secrets (`secret_env` from `kindgi env plan`): the
-# operator created them; the pack service gets read access to exactly
-# these. One in another project is granted there, not here (README).
-resource "google_secret_manager_secret_iam_member" "pack_reads_its_secrets" {
-  for_each  = { for name, ref in var.pack_secret_env : name => ref if local.pack && ref.project == null }
-  secret_id = "projects/${var.project_id}/secrets/${each.value.secret}"
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.pack[0].email}"
 }

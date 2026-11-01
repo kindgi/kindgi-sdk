@@ -15,8 +15,8 @@ describe('the Google entry', () => {
     expect(Object.isFrozen(google)).toBe(true);
   });
 
-  it("is a member's own account, signed in with OAuth and PKCE", () => {
-    expect(google.owners).toEqual(['member']);
+  it("is a member's own account or the company's mailbox, signed in with OAuth and PKCE", () => {
+    expect(google.owners).toEqual(['member', 'company']);
     expect(google.signIn).toMatchObject({
       kind: 'oauth2',
       authorizeUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
@@ -45,6 +45,27 @@ describe('the Google entry', () => {
     });
   });
 
+  it("asks for calendar permissions that reach only the account's own calendars", () => {
+    expect(google.permissions['calendar.events.owned.readonly']).toEqual({
+      grants: 'https://www.googleapis.com/auth/calendar.events.owned.readonly',
+      says: 'See the events on your calendars',
+      changes: false,
+      review: 'sensitive',
+    });
+    expect(google.permissions['calendar.freebusy']).toEqual({
+      grants: 'https://www.googleapis.com/auth/calendar.freebusy',
+      says: "See when you're free or busy",
+      changes: false,
+      review: 'sensitive',
+    });
+    expect(google.permissions['calendar.events.owned']).toEqual({
+      grants: 'https://www.googleapis.com/auth/calendar.events.owned',
+      says: 'Add and change events on your calendars',
+      changes: true,
+      review: 'sensitive',
+    });
+  });
+
   it('learns the account from the ID token, from either form of the issuer', () => {
     expect(google.account).toEqual({
       kind: 'openid',
@@ -59,6 +80,47 @@ describe('the Google entry', () => {
       revokeIsGrantWide: true,
       notices: 'google-risc',
     });
+  });
+
+  it("paces mail in Gmail's quota units, 6,000 a minute per mailbox, and calendar calls at 600", () => {
+    // developers.google.com/workspace/gmail/api/reference/quota (read 2026-10-26),
+    // developers.google.com/workspace/calendar/api/guides/quota (read 2026-10-31).
+    expect(google.rateLimits).toEqual([
+      {
+        per: 'connection',
+        units: 6000,
+        perSeconds: 60,
+        costs: {
+          'gmail.send': 100,
+          'gmail.messages.get': 60,
+          'gmail.messages.get.metadata': 20,
+          'gmail.attachments.get': 5,
+          'gmail.threads.get': 120,
+          'gmail.messages.list': 5,
+          'gmail.history.list': 2,
+          'gmail.profile.get': 1,
+          'calendar.events.list': 0,
+          'calendar.events.get': 0,
+          'calendar.events.insert': 0,
+          'calendar.events.patch': 0,
+          'calendar.freebusy.query': 0,
+        },
+      },
+      {
+        per: 'connection',
+        units: 600,
+        perSeconds: 60,
+        costs: {
+          'gmail.send': 0,
+          'gmail.messages.get': 0,
+          'gmail.messages.get.metadata': 0,
+          'gmail.threads.get': 0,
+          'gmail.messages.list': 0,
+          'gmail.history.list': 0,
+          'gmail.profile.get': 0,
+        },
+      },
+    ]);
   });
 });
 
@@ -79,9 +141,27 @@ describe('the GitHub entry', () => {
   });
 
   it('reads issues, and labels and edits them', () => {
-    expect(Object.keys(github.permissions)).toEqual(['issues.read', 'issues.write']);
     expect(github.permissions['issues.write']).toMatchObject({
       grants: 'issues:write',
+      changes: true,
+    });
+  });
+
+  it("reads and commits a repository's files, and opens its pull requests, for a project's repo connection", () => {
+    expect(Object.keys(github.permissions)).toEqual([
+      'issues.read',
+      'issues.write',
+      'contents.read',
+      'contents.write',
+      'pull_requests.read',
+      'pull_requests.write',
+    ]);
+    expect(github.permissions['contents.write']).toMatchObject({
+      grants: 'contents:write',
+      changes: true,
+    });
+    expect(github.permissions['pull_requests.write']).toMatchObject({
+      grants: 'pull_requests:write',
       changes: true,
     });
   });
@@ -93,8 +173,8 @@ describe('the Microsoft entry', () => {
     expect(Object.isFrozen(microsoft)).toBe(true);
   });
 
-  it("is a member's own account, signed in with OAuth and PKCE in the registration's directory", () => {
-    expect(microsoft.owners).toEqual(['member']);
+  it("is a member's own account or the company's mailbox, signed in with OAuth and PKCE in the registration's directory", () => {
+    expect(microsoft.owners).toEqual(['member', 'company']);
     expect(microsoft.signIn).toEqual({
       kind: 'oauth2',
       authorizeUrl: 'https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize',
@@ -123,10 +203,20 @@ describe('the Microsoft entry', () => {
     }
   });
 
-  it('says what mail permissions allow, and which change anything', () => {
+  it('says what mail and calendar permissions allow, and which change anything', () => {
     expect(microsoft.permissions).toEqual({
       'mail.send': { grants: 'Mail.Send', says: 'Send mail as you', changes: true },
       'mail.read': { grants: 'Mail.Read', says: 'Read your mail', changes: false },
+      'calendars.readbasic': {
+        grants: 'Calendars.ReadBasic',
+        says: "See your calendar's events, without their details",
+        changes: false,
+      },
+      'calendars.readwrite': {
+        grants: 'Calendars.ReadWrite',
+        says: 'Read, add and change events on your calendar',
+        changes: true,
+      },
     });
   });
 
@@ -151,7 +241,18 @@ describe('the Microsoft entry', () => {
         per: 'connection',
         units: 30,
         perSeconds: 60,
-        costs: { 'outlook.messages.list': 0, 'outlook.messages.get': 0 },
+        // Reads, the mail calls' delta and the calendar's too, never count
+        // against sends. A calendar create or update can send meeting
+        // requests, so it counts.
+        costs: {
+          'outlook.messages.list': 0,
+          'outlook.messages.get': 0,
+          'outlook.attachments.get': 0,
+          'outlook.messages.delta': 0,
+          'outlook.folders.get': 0,
+          'outlook.calendar.view': 0,
+          'outlook.events.get': 0,
+        },
       },
     ]);
     expect(microsoft.setupGuide).toBe('/guides/connections/microsoft/');

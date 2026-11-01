@@ -38,7 +38,7 @@ agent that uses it, a flow around both) loads each one in turn.
 
 | Skill | Loaded when |
 |---|---|
-| `kindgi-getting-started`, `kindgi-python-getting-started`, `kindgi-java-getting-started`, `kindgi-scala-getting-started` | Setting up or orienting in a pack |
+| `kindgi-getting-started`, `kindgi-python-getting-started`, `kindgi-java-getting-started`, `kindgi-scala-getting-started` | Setting up or orienting in a pack, or upgrading a self-hosted deployment |
 | `kindgi-authoring-tools`, `kindgi-python-authoring-tools`, `kindgi-java-authoring-tools`, `kindgi-scala-authoring-tools` | Writing a tool: typed input and output, side effects, secrets, HTTP tools |
 | `kindgi-authoring-agents`, `kindgi-python-authoring-agents`, `kindgi-java-authoring-agents`, `kindgi-scala-authoring-agents` | Writing an agent: instructions, tools, typed output, budgets |
 | `kindgi-authoring-flows`, `kindgi-python-authoring-flows`, `kindgi-java-authoring-flows`, `kindgi-scala-authoring-flows` | Writing a flow: steps, edges, conditions, loops, fanout |
@@ -129,7 +129,7 @@ agent uses yours (with `--json`, it gets the same as
   ([Keep your tools' code away from your keys](../../guides/secrets/dev-sandbox/)).
 
 Logging in to the runtime image's registry is yours too:
-`kindgi auth registry` asks for your token the same way
+`kindgi auth registry` asks for your license key the same way
 ([Install](../install/)).
 
 ## Keep it out of your keys
@@ -390,14 +390,21 @@ To refresh them yourself, at any time:
 pnpm exec kindgi skills sync
 ```
 
-It keeps skills you edited, in either folder. `--force` replaces those too.
-A skill you deleted comes back. In a Python project, run it as
+A skill is a folder: its `SKILL.md`, which the agent loads, and the files
+beside it, which it reads only for its case. It keeps skills you edited, in
+either folder: a change to any of a skill's files keeps the whole skill as
+it is. `--force` replaces those too. A skill or a file of one you deleted
+comes back. A file the skill no longer has is removed, and one you edited
+is a change like any other: the skill is kept as it is, and `--force`
+removes the file. A file you added to a skill's folder is yours: it's never
+changed or removed, unless a later release ships a file by that name,
+which then counts as a change. In a Python project, run it as
 `uv run kindgi skills sync`. If the project has a `.prettierignore`, it adds
 Kindgi's skills in both folders to it, so your formatter leaves the copies
 alone.
 
-Which release each copy came from, in both folders, is recorded in
-`.claude/skills/.kindgi-manifest.json`. Keep it, even if you don't use
+Which release each copy came from, in both folders, and each of its files,
+is recorded in `.claude/skills/.kindgi-manifest.json`. Keep it, even if you don't use
 Claude Code: without it, `kindgi skills sync` can't tell a copy that's
 behind from one you edited, so it keeps every copy that's behind (`--force`
 replaces them), and `kindgi dev` doesn't refresh them.

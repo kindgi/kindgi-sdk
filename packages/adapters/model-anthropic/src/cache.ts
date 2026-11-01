@@ -66,7 +66,9 @@ export function withPromptCache(request: CacheableRequest): CachedRequest {
 
 /**
  * The messages with a breakpoint on the last block of the last one that
- * can carry it: text (not empty), a tool call, a tool result.
+ * can carry it: text (not empty), an image, a document, a tool call, a tool
+ * result. A conversation's photo is then read from the cache on the next
+ * step, not sent at full price again.
  */
 function markLastMessage(messages: readonly Anthropic.MessageParam[]): Anthropic.MessageParam[] {
   const out = [...messages];
@@ -89,8 +91,15 @@ function cacheable(
   block: Anthropic.ContentBlockParam,
 ): block is
   | Anthropic.TextBlockParam
+  | Anthropic.ImageBlockParam
+  | Anthropic.DocumentBlockParam
   | Anthropic.ToolUseBlockParam
   | Anthropic.ToolResultBlockParam {
   if (block.type === 'text') return block.text.length > 0;
-  return block.type === 'tool_use' || block.type === 'tool_result';
+  return (
+    block.type === 'image' ||
+    block.type === 'document' ||
+    block.type === 'tool_use' ||
+    block.type === 'tool_result'
+  );
 }

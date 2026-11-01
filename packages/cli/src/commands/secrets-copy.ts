@@ -12,8 +12,6 @@
  * Output names keys and files, never a value.
  */
 
-import { execFile } from 'node:child_process';
-
 import {
   type CopyToKindgiFileResult,
   LOCAL_ENV_NAME,
@@ -31,17 +29,16 @@ import {
   providerKeyNamesFromRuntime,
   readProviderKeysRecord,
 } from '../env/provider-keys.js';
+import { gitOutput } from '../git.js';
 import { renderJson } from '../output.js';
+import { type SaidLine, note, renderLines, warning } from '../progress-lines.js';
 import { loadProviderPresets } from '../providers/preset-loader.js';
 import type { CommandResult, LeafCommand } from './types.js';
 
 /** Whether git tracks `file` (`git ls-files --error-unmatch`); `false` outside a repository or without git. */
-const gitTracked = (file: string, cwd: string): Promise<boolean> =>
-  new Promise((resolvePromise) => {
-    execFile('git', ['ls-files', '--error-unmatch', '--', file], { cwd, timeout: 5000 }, (err) =>
-      resolvePromise(err === null),
-    );
-  });
+const gitTracked = async (file: string, cwd: string): Promise<boolean> =>
+  (await gitOutput(cwd, ['ls-files', '--error-unmatch', '--', file], { timeout: 5000 })) !==
+  undefined;
 
 export const secretsCopyCmd: LeafCommand = {
   kind: 'leaf',
@@ -65,11 +62,13 @@ export const secretsCopyCmd: LeafCommand = {
     const shown = (f: string): string => displayEnvPath(packDir, f);
     const appFilesLabel = files.app.map(shown).join(', ');
 
+    const quiet = ctx.globals.format === 'quiet';
     let names = [...ctx.positionals];
-    const notes: string[] = [];
+    // Couldn't ask the runtime which keys its providers use: said under --quiet too.
+    const unasked: SaidLine[] = [];
     if (names.length === 0) {
       const found = await providerKeyNames(ctx, packDir, settings.config);
-      if (found.note !== undefined) notes.push(found.note);
+      if (found.note !== undefined) unasked.push(warning(`  ${found.note}`));
       const held = await namesInAppFiles({
         packDir,
         ...(localEnvFiles !== undefined && { localEnvFiles }),
@@ -82,7 +81,17 @@ export const secretsCopyCmd: LeafCommand = {
           rendered: {
             stdout: renderJson({ kindgiFile: shown(files.write), names: [] }, ctx.globals.format)
               .stdout,
-            stderr: `${notes.map((n) => `\n  ${n}`).join('')}\n  No model provider's key is in your app's env files (${appFilesLabel}): nothing to copy.\n\n`,
+            stderr: renderLines(
+              [
+                note(''),
+                ...unasked,
+                note(
+                  `  No model provider's key is in your app's env files (${appFilesLabel}): nothing to copy.`,
+                ),
+                note(''),
+              ],
+              quiet,
+            ),
           },
         };
       }
@@ -110,37 +119,43 @@ export const secretsCopyCmd: LeafCommand = {
       }
     }
     const kindgiFile = shown(result.kindgiFile);
-    const lines: string[] = [...notes.map((n) => `  ${n}`)];
+    const lines: SaidLine[] = [note(''), ...unasked];
     for (const s of result.skipped) {
-      lines.push(`  ! Couldn't read ${shown(s.file)} (${s.reason}): skipped.`);
+      lines.push(warning(`  ! Couldn't read ${shown(s.file)} (${s.reason}): skipped.`));
     }
     for (const n of result.names) {
       const where = n.appFiles.map(shown).join(' and ');
       if (n.appFiles.length === 0) {
         lines.push(
-          `  · ${n.name} isn't in your app's env files (${appFilesLabel}): nothing to copy.`,
+          note(`  · ${n.name} isn't in your app's env files (${appFilesLabel}): nothing to copy.`),
         );
         continue;
       }
       if (n.copied) {
-        lines.push(`  ✓ Copied ${n.name} from ${where} to ${kindgiFile}.`);
+        lines.push(note(`  ✓ Copied ${n.name} from ${where} to ${kindgiFile}.`));
       } else if (n.alreadyInKindgiFile === 'different') {
         lines.push(
-          `  · ${n.name}: Kindgi has its own key in ${kindgiFile} and uses it first; your app keeps the one in ${where}.`,
+          note(
+            `  · ${n.name}: Kindgi has its own key in ${kindgiFile} and uses it first; your app keeps the one in ${where}.`,
+          ),
         );
       } else {
-        lines.push(`  · ${n.name} is already in ${kindgiFile}.`);
+        lines.push(note(`  · ${n.name} is already in ${kindgiFile}.`));
       }
       if (n.alreadyInKindgiFile !== 'different') {
         lines.push(
-          `    It's still in ${where}: removing it is your call, since it's your app's file.`,
-          `    If your app uses ${n.name} itself, keep it there. You can give Kindgi its own key in ${kindgiFile}, which Kindgi uses first.`,
+          note(`    It's still in ${where}: removing it is your call, since it's your app's file.`),
+          note(
+            `    If your app uses ${n.name} itself, keep it there. You can give Kindgi its own key in ${kindgiFile}, which Kindgi uses first.`,
+          ),
         );
       }
       for (const f of n.appFiles) {
         if (tracked.get(f) === true) {
           lines.push(
-            `    ⚠ ${shown(f)} is tracked by git, so ${n.name} is in your repository's history: rotate it with its provider.`,
+            warning(
+              `    ⚠ ${shown(f)} is tracked by git, so ${n.name} is in your repository's history: rotate it with its provider.`,
+            ),
           );
         }
       }
@@ -163,7 +178,7 @@ export const secretsCopyCmd: LeafCommand = {
       kind: 'ok',
       rendered: {
         stdout: renderJson(summary, ctx.globals.format).stdout,
-        stderr: `\n${lines.join('\n')}\n\n`,
+        stderr: renderLines([...lines, note('')], quiet),
       },
     };
   },
