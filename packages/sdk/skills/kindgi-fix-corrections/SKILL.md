@@ -22,6 +22,7 @@ sources:
   - packages/cli/src/commands/corrections.ts
   - packages/cli/src/commands/runs.ts
   - packages/cli/src/commands/suggested-changes.ts
+  - packages/cli/src/commands/suggested-changes-pull.ts
   - packages/cli/src/commands/agents.ts
   - packages/cli/src/commands/improve-runs.ts
   - packages/cli/src/commands/test.ts

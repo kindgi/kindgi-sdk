@@ -329,6 +329,49 @@ pnpm exec kindgi suggested-changes add-as-latest <suggested-change-id> --reason=
 - **A project whose Latest moved** since the suggested change was built
   takes it once it's [rebuilt](#if-the-project-moves-first).
 
+## Bring the pack up to it
+
+Once it's pinned or added as Latest, the project runs a block version your
+pack's `blocks/` folder doesn't have yet, and the pack's next deploy still
+carries the old one. Bring the block's file up to it through a pull request
+on the pack's repository:
+
+```sh
+pnpm exec kindgi suggested-changes pull <suggested-change-id> --pr
+```
+
+- It's allowed when the suggested change is `ready`,
+  `waiting-for-second-person`, `pinned` or `added-as-latest`. One still
+  `checking`, one whose check failed, one that's withdrawn, and
+  [a deploy's](#a-deploys-suggested-changes) are refused, each saying why.
+- It writes the block's version and content into its file, and into the
+  template file beside it, as
+  [Keep them in the pack](../change-a-prompt-or-setting/#keep-them-in-the-pack)
+  lays them out: only when it's newer than the file's. A file that holds a
+  newer version than the one the suggested change is built on, or that
+  version with edits, is refused, so it never drops what was changed since.
+- It makes a branch, `kindgi/<block>-<version>`, from the one checked out,
+  commits the block files alone, pushes the branch to `origin` (or the only
+  remote), and opens the pull request with `gh`. It stays on the new
+  branch, and says how to go back. Without `gh`, it prints where to open
+  one (its URL, when the remote gives one), and the lines that mark what it
+  fixes once it's open.
+- The pull request says where the suggested change came from, its test-set
+  numbers, the files, and a link to the suggested change with its check in
+  the console. It never says the suggested change's why, nor a
+  correction's words.
+- The corrections it fixes that are still `open` are then `being-fixed`,
+  linked to the pull request, which needs `publish` on the agent, or
+  `write` in the correction's project for an agent that several projects
+  serve. One it can't mark is named, with the line to run once it can be,
+  and the pull request stands.
+- Before it writes anything, it's refused when the pack isn't in git, its
+  block files have changes that aren't committed (or git can't say),
+  `HEAD` is detached, git has no `user.name`, there's no remote to push to,
+  or the branch is there already, in the pack's repository or on the remote.
+- Without `--pr`, it only writes the files, for you to commit. `--project`
+  refuses a suggested change for another project.
+
 ## If the project moves first
 
 A suggested change is built on the version its project runs when it's

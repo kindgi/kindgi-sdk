@@ -1,5 +1,12 @@
 # Step 3 — A setting or the wording: suggest a change
 
+## Contents
+
+- Its check
+- Pin it, or add it as Latest
+- Bring the pack up to it
+- Wording, with Improve
+
 A setting's value, or the agent's wording when the person said exactly what
 it should say, is fixed with a suggested change: a new version of one block,
 made for one project on the version it runs, and checked on the agent's test
@@ -74,9 +81,23 @@ take is withdrawn with `kindgi suggested-changes withdraw <id> --reason=…`.
 
 Once it's pinned or added, the project runs a block version your pack's
 `blocks/` folder doesn't have yet. Bring the block's file up to it, through
-the repo: its `version` and content as `get` shows them (`changes[].to` and
-`after`). Under `kindgi dev` the pin writes them itself, and one is for the
-whole workspace: make it in the default project.
+the repo:
+
+```sh
+kindgi suggested-changes pull <suggested-change-id> --pr
+```
+
+It writes the block's `version` and content (and its template file) on a new
+branch, `kindgi/<block>-<version>`, from the one checked out; commits those
+files alone, pushes, and opens a pull request with `gh` (without `gh`, it
+prints where to open one: its URL, when the remote gives one). The
+corrections it fixes that are still `open` are then `being-fixed`, linked to
+the pull request. Without `--pr`, it only writes the files. It refuses a
+block file that holds a newer version than the one the suggested change is
+built on, or that version with edits, and, with `--pr`, block files with
+changes that aren't committed. Under `kindgi dev` the pin writes the block's
+file (and its template file) itself, and a suggested change is for the whole
+workspace: make it in the default project.
 
 ## Wording, with Improve
 

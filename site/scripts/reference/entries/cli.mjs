@@ -498,6 +498,10 @@ export const CLI_DEFAULTS = {
     'idempotency-key': 'none',
     reason: 'none',
   },
+  'suggested-changes pull': {
+    path: 'the current directory',
+    project: 'none',
+  },
   'suggested-changes withdraw': {
     'idempotency-key': 'none',
     reason: 'required',
