@@ -26,7 +26,10 @@
  * Under `kindgi dev`, the front also takes `POST /v1/blocks` (token-gated,
  * like a call) when it's given `writeBlock`: making an Improve candidate
  * live writes the block's new version into the pack's files. Without
- * `writeBlock` the route isn't there (404), as on a deployment.
+ * `writeBlock` the route isn't there (404), as on a deployment. Given
+ * `blockFilesState` too, it takes `POST /v1/blocks/uncommitted` (token-gated
+ * the same way, 404 without it): which files of some blocks git hasn't
+ * committed, read before a pin writes them.
  *
  * Forwarding has two parts. The relay ({@link PackRelay}) takes a request
  * body and the call's options — deadline, run and request ids, a cancel
@@ -44,7 +47,7 @@ import { createInterface } from 'node:readline';
 
 import type { Result } from '@kindgi/types';
 
-import type { PackBlockWrite, PackBlockWriteOutcome } from '../pack-blocks.js';
+import type { PackBlockWrite, PackBlockWriteOutcome, PackFilesState } from '../pack-blocks.js';
 import { PACK_HEADERS } from '../protocol.js';
 import { PACK_SERVICE_DRAIN_MS } from './main.js';
 
@@ -107,6 +110,13 @@ export interface PackServiceSupervisorOptions {
    * answers 404.
    */
   readonly writeBlock?: (write: PackBlockWrite) => Promise<PackBlockWriteOutcome>;
+  /**
+   * What git says of the files of the pack's blocks with these ids (each
+   * block's file and its template file), behind
+   * `POST /v1/blocks/uncommitted`. Only `kindgi dev` gives it; without it
+   * the route answers 404.
+   */
+  readonly blockFilesState?: (ids: readonly string[]) => Promise<PackFilesState>;
   /** Test seam: run `fn` on the event loop's next turn (`setImmediate`). */
   readonly nextTurn?: (fn: () => void) => void;
 }
@@ -420,8 +430,10 @@ export function createPackServiceSupervisor(
     if (typeof admitted !== 'string') {
       return sendJson(res, admitted.status, admitted.body, admitted.headers);
     }
-    if (admitted === 'write-block') {
-      const reply = await writeBlockReply(req);
+    if (admitted === 'write-block' || admitted === 'blocks-uncommitted') {
+      const reply = await (admitted === 'write-block'
+        ? writeBlockReply(req)
+        : blocksUncommittedReply(req));
       return sendJson(res, reply.status, reply.body);
     }
     const body =
@@ -444,9 +456,15 @@ export function createPackServiceSupervisor(
    * The relay route for a request, or the front's own answer: an unknown
    * route, a wrong method, a probe, a bad token.
    */
-  function admit(req: IncomingMessage): Reply | 'invoke' | 'info' | 'write-block' {
+  function admit(
+    req: IncomingMessage,
+  ): Reply | 'invoke' | 'info' | 'write-block' | 'blocks-uncommitted' {
     const route = FRONT_ROUTES[(req.url ?? '/').split('?')[0] ?? ''];
-    if (route === undefined || (route.name === 'write-block' && options.writeBlock === undefined)) {
+    if (
+      route === undefined ||
+      (route.name === 'write-block' && options.writeBlock === undefined) ||
+      (route.name === 'blocks-uncommitted' && options.blockFilesState === undefined)
+    ) {
       return { status: 404, body: { error: `No route ${req.url ?? '/'}` } };
     }
     if (req.method !== route.method) return { status: 405, body: { error: `Use ${route.method}` } };
@@ -486,6 +504,34 @@ export function createPackServiceSupervisor(
       outcome.reason
     ];
     return { status, body: { error: outcome.message, reason: outcome.reason } };
+  }
+
+  /**
+   * `POST /v1/blocks/uncommitted`: `{ ids }`, the blocks a pin would
+   * write. `{ uncommittedFiles }` lists their files git hasn't committed
+   * (empty when it has them all), `{ notInGit: true }` says the pack isn't
+   * in git, and `{}` that git couldn't say.
+   */
+  async function blocksUncommittedReply(req: IncomingMessage): Promise<Reply> {
+    const filesState = options.blockFilesState;
+    if (filesState === undefined) {
+      return { status: 404, body: { error: 'No route /v1/blocks/uncommitted' } };
+    }
+    const text = await readBody(req, options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES);
+    if (text === undefined) return { status: 413, body: { error: 'Request body too large' } };
+    const ids = blockIdsOf(text);
+    if (ids === undefined) {
+      return { status: 400, body: { error: 'The body is the blocks to read: { ids: string[] }' } };
+    }
+    const state = await filesState(ids);
+    switch (state.kind) {
+      case 'git':
+        return { status: 200, body: { uncommittedFiles: state.uncommitted } };
+      case 'not-in-git':
+        return { status: 200, body: { notInGit: true } };
+      case 'unknown':
+        return { status: 200, body: {} };
+    }
   }
 
   /** `/healthz`: the front listens. `/readyz`: a child serves. Neither needs the token. */
@@ -649,13 +695,14 @@ interface Reply {
 const RETRY_AFTER: Readonly<Record<string, string>> = { 'retry-after': '1' };
 
 interface FrontRoute {
-  readonly name: 'invoke' | 'info' | 'write-block' | 'healthz' | 'readyz';
+  readonly name: 'invoke' | 'info' | 'write-block' | 'blocks-uncommitted' | 'healthz' | 'readyz';
   readonly method: 'GET' | 'POST';
 }
 
 const FRONT_ROUTES: Readonly<Record<string, FrontRoute>> = {
   '/v1/invoke': { name: 'invoke', method: 'POST' },
   '/v1/blocks': { name: 'write-block', method: 'POST' },
+  '/v1/blocks/uncommitted': { name: 'blocks-uncommitted', method: 'POST' },
   '/v1/info': { name: 'info', method: 'GET' },
   '/healthz': { name: 'healthz', method: 'GET' },
   '/readyz': { name: 'readyz', method: 'GET' },
@@ -676,6 +723,18 @@ function blockWriteOf(text: string): PackBlockWrite | undefined {
   if (!isRecord(content)) return undefined;
   if (expected !== undefined && !isRecord(expected)) return undefined;
   return { id, version, content, ...(expected !== undefined && { expected }) };
+}
+
+/** The block ids of a `POST /v1/blocks/uncommitted` body, or `undefined` when it isn't one. */
+function blockIdsOf(text: string): readonly string[] | undefined {
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  const ids = (body as Record<string, unknown> | null)?.ids;
+  return Array.isArray(ids) && ids.every((id) => typeof id === 'string') ? ids : undefined;
 }
 
 /** A connection that never reached a listener: the call did not run. */

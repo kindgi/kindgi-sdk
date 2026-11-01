@@ -17,6 +17,7 @@ import type { AgentId } from '@kindgi/types';
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
 import { type OutputFormat, type Rendered, renderJson, successNote } from '../output.js';
+import { askPinFiles, pinFilesLines, pinFilesStderr } from '../pin-files-warning.js';
 import { type ProgressLines, progressLines } from '../progress-lines.js';
 import { callWaitingOutRateLimits } from '../rate-limit-wait.js';
 import {
@@ -351,7 +352,7 @@ const pin: LeafCommand = {
   kind: 'leaf',
   name: 'pin',
   description:
-    "Pin a version for a scope: its runs that don't name a version use it, from the next run. Open conversations keep their version. It prints the pin's answer: the pin under `pin`, the test runs that check it, and the corrections a reused run marked `fixed` or reopened. With a release gate for the scope, the run on the test cases named by --test-run is checked first: the pin's `status` is `pinned`, or `pending-approval` (a reviewer approves it); a refusal lists every check. A pin that would take a project that follows Latest off it is refused (`409 pin-stops-latest`) unless --stop-following-latest. `--check` asks what the release gate would say, changing nothing. Exits 3 when the answer is no: the gate refuses the version, or it waits for an approval (`--wait` waits for the decision).",
+    "Pin a version for a scope: its runs that don't name a version use it, from the next run. Open conversations keep their version. It prints the pin's answer: the pin under `pin`, the test runs that check it, and the corrections a reused run marked `fixed` or reopened. With a release gate for the scope, the run on the test cases named by --test-run is checked first: the pin's `status` is `pinned`, or `pending-approval` (a reviewer approves it); a refusal lists every check. A pin that would take a project that follows Latest off it is refused (`409 pin-stops-latest`) unless --stop-following-latest. `--check` asks what the release gate would say, changing nothing. Under `kindgi dev`, where a pin writes the version into the pack's files, it says on stderr which of the files it writes over that git hasn't committed, or that the pack isn't in git, from the pin check it asks first. Exits 3 when the answer is no: the gate refuses the version, or it waits for an approval (`--wait` waits for the decision).",
   usage: `kindgi agents pin <agent-id> <version> ${SCOPE_USAGE} [--test-run=<test-run-id>] [--reason=<text>] [--stop-following-latest] [--check] [--wait[=<duration>]]`,
   optionSpec: {
     ...SCOPE_FLAGS,
@@ -402,21 +403,27 @@ async function pinAgent(ctx: CommandContext): Promise<Rendered & { readonly exit
     }
     const check = await pins.check(agentId, input);
     return {
-      ...renderJson(check, format),
+      stdout: renderJson(check, format).stdout,
+      stderr: pinFilesStderr(pinFilesLines(check), format),
       ...(check.outcome !== 'would-pin' && { exitCode: ANSWER_NO_EXIT_CODE }),
     };
   }
+  const warned = await askPinFiles(() => pins.check(agentId, input));
   const answer = await pins.pin(agentId, input, idempotency(ctx));
   const change = answer.pin;
-  if (change.status !== 'pending-approval') return renderJson(answer, format);
+  const warnings = pinFilesStderr(warned, format);
+  if (change.status !== 'pending-approval') {
+    return { stdout: renderJson(answer, format).stdout, stderr: warnings };
+  }
   if (waitMs === undefined) {
     return {
       stdout: renderJson(answer, format).stdout,
-      stderr: successNote(format, `${stillOpenLine(change)} \`--wait\` waits for the decision.\n`),
+      stderr: `${warnings}${successNote(format, `${stillOpenLine(change)} \`--wait\` waits for the decision.\n`)}`,
       exitCode: ANSWER_NO_EXIT_CODE,
     };
   }
   const out = progressLines(ctx.progress, format === 'quiet');
+  for (const line of warned) out.problem(line);
   out.line(waitingLine(change, waitMs));
   const waited = await waitForApproval(
     ctx,

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: packages/api/openapi.json
 
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
