@@ -305,7 +305,7 @@
   /** Under an approval waiting less than this long to be decided, its time left shows as short. */
   const SOON_MS = 2 * 60 * 60 * 1000;
 
-  /** Who asked and when; for a waiting approval, how long is left to decide it. */
+  /** Who asked and when; for a waiting approval, when it expires undecided. */
   function cardMeta(card) {
     const started = card.asked.kind === 'none';
     const left =
@@ -329,8 +329,11 @@
             el(
               'strong',
               { className: left < SOON_MS ? 'kindgi-soon' : null, title: when(card.expiresAt) },
-              /* translators: %s: how soon, in words, e.g. "in 23 hours" */
-              sprintf(__('Decide %s', 'kindgi'), ago(card.expiresAt)),
+              left > 0
+                ? /* translators: %s: how soon, in words, e.g. "a day from now" */
+                  sprintf(__('Expires %s', 'kindgi'), ago(card.expiresAt))
+                : /* translators: %s: how long ago, in words, e.g. "5 minutes ago" */
+                  sprintf(__('Expired %s', 'kindgi'), ago(card.expiresAt)),
             ),
           ],
     );
