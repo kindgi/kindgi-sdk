@@ -4,8 +4,9 @@
 import type { Context } from 'hono';
 
 import type { RenameTenantOutcome } from '@kindgi/platform';
-import type { TenantId } from '@kindgi/types';
+import { TENANT_SLUG, TENANT_SLUG_MAX, type TenantId } from '@kindgi/types';
 
+import { NAME_MAX, boundedText } from '../bounded-text.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { AppEnv } from '../types.js';
 
@@ -15,15 +16,13 @@ import type { AppEnv } from '../types.js';
  * `PATCH /v1/system/tenants/{tenantId}` (the operator's) share both.
  */
 
-/** A tenant's slug: lowercase letters, digits and single hyphens. Unique across tenants. */
-export const TENANT_SLUG_RE = /^[a-z0-9](?:-?[a-z0-9])*$/;
-export const TENANT_SLUG_MAX = 63;
-export const TENANT_NAME_MAX = 100;
-
-/** The slug given, `undefined` when it isn't, or why it's refused. */
+/**
+ * The slug given, `undefined` when it isn't, or why it's refused. A tenant's
+ * slug is `@kindgi/types`' {@link TENANT_SLUG}, and unique across tenants.
+ */
 export function tenantSlugOf(raw: unknown): string | undefined | { readonly problem: string } {
   if (raw === undefined) return undefined;
-  if (typeof raw !== 'string' || raw.length > TENANT_SLUG_MAX || !TENANT_SLUG_RE.test(raw)) {
+  if (typeof raw !== 'string' || !TENANT_SLUG.test(raw)) {
     return {
       problem: `\`slug\` must be lowercase letters, digits and single hyphens, at most ${TENANT_SLUG_MAX} characters`,
     };
@@ -37,12 +36,8 @@ export function tenantNameOf(
   field = 'name',
 ): string | undefined | { readonly problem: string } {
   if (raw === undefined) return undefined;
-  if (typeof raw !== 'string' || raw.trim() === '' || raw.length > TENANT_NAME_MAX) {
-    return {
-      problem: `\`${field}\` must be a non-empty string of at most ${TENANT_NAME_MAX} characters`,
-    };
-  }
-  return raw;
+  const name = boundedText(raw, field, NAME_MAX);
+  return name.problem === undefined ? name.value : { problem: name.problem };
 }
 
 /** A rename's body: each field optional, and one left out stays as it is. */

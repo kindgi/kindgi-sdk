@@ -210,7 +210,17 @@ opens. A project's admins (an admin of its org, or a tenant admin, is one)
 rename it with **Rename** in its **Dashboard**'s header. Its id stays; what
 a new slug changes is under **Changing a project's slug**, below.
 
-**Slugs.** An org's slug is unique in the tenant. A project's slug is unique
+**Slugs.** An org's, a project's and a team's slug is lowercase letters,
+digits and hyphens, starting with a letter or digit, at most 63 characters,
+so a shell and `kindgi deploy --project` take it as it is. Its name is at
+most 100 characters, and not blank. Another slug or name is refused with
+`400 bad-input`, on create and on a rename. A slug or a name stored before
+these rules stays, and a rename that sends it back unchanged passes, so a
+client that reads a project and writes it back keeps working. `@kindgi/types`
+exports the rule as `SLUG` and `isSlug`, and `slugOf(name)` makes a slug from
+a name.
+
+An org's slug is unique in the tenant. A project's slug is unique
 in its org, so every customer can have a `support` project. A project with
 no org has a slug unique among the projects with none. A taken slug is
 refused with `409 slug-conflict`:

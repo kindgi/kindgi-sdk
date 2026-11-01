@@ -4,7 +4,7 @@
 
 ## Design principles
 
-1. **Type-only, with one exception.** Every export is a `type` except `makeEnvName`, the validated `EnvName` factory. Consumers pay zero runtime cost for using branded types.
+1. **Type-only, with small exceptions.** Every export is a `type` except a few helpers with no dependencies: `makeEnvName` (the validated `EnvName` factory), `headerValueProblem` and `bearerValueProblem`, `CORRECTION_ITEM`, and the slug rules (`SLUG`, `TENANT_SLUG`, `isSlug`, `slugOf` and their kin). Consumers pay zero runtime cost for using branded types.
 2. **Nominal typing via brands.** Every entity ID is nominally distinct from any other. A `TenantId` and a `UserId` are both structurally `string`, but statically incompatible. Cross-boundary confusion becomes a compile error.
 3. **Correspondence to JSON Schemas.** Most entity kinds in `@kindgi/specs/*.schema.json` have a branded ID here (eval suites, for one, do not). If a schema defines a new entity kind, its ID goes here. Some IDs (e.g. `ConversationId`, `TriggerId`) name entities that have no schema.
 4. **Two or more consumers rule.** A type belongs in `@kindgi/types` only if two or more packages use it. Package-scoped types stay in that package.
@@ -140,12 +140,12 @@ Two helper types:
 
 ## Test approach
 
-Type-only tests via vitest typecheck mode (`vitest run --typecheck`):
+Type tests via vitest typecheck mode (`vitest run --typecheck`), plus runtime tests for the few runtime exports:
 
 - `.test-d.ts` files under `src/` are compiled by TS in typecheck mode.
 - Use `expectTypeOf(x).toEqualTypeOf<T>()` for positive assertions.
 - Use `// @ts-expect-error` immediately above lines that MUST fail compilation.
-- No runtime assertions in this package — the one runtime export, `makeEnvName`, is exercised by the `@kindgi/env-inmemory` tests.
+- Runtime tests sit under `tests/` (`*.test.ts`) and import from `src/index.ts`. `makeEnvName` is exercised by the `@kindgi/env-inmemory` tests.
 
 Coverage includes:
 - ID nominal distinctness (positive + negative).

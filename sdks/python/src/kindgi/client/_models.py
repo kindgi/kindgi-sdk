@@ -3819,9 +3819,9 @@ class OpenConversationBody(BaseModel):
     """
     Semver — pinned at open time.
     """
-    title: str | None = None
+    title: Annotated[str | None, Field(max_length=200)] = None
     """
-    Optional. Defaults to `"Untitled conversation"` when omitted.
+    Optional. Defaults to `"Untitled conversation"` when omitted or blank.
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
@@ -9451,8 +9451,8 @@ class OrgSpec(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    name: Annotated[str, Field(min_length=1)]
-    slug: Annotated[str, Field(min_length=1)]
+    name: Annotated[str, Field(max_length=100, min_length=1)]
+    slug: Annotated[str, Field(max_length=63, min_length=1, pattern="^[a-z0-9][a-z0-9-]{0,62}$")]
 
 
 class OrgPatch(BaseModel):
@@ -9460,8 +9460,14 @@ class OrgPatch(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    name: Annotated[str | None, Field(min_length=1)] = None
-    slug: Annotated[str | None, Field(min_length=1)] = None
+    name: str | None = None
+    """
+    A new name must be a non-empty string of at most 100 characters. The stored name sent back unchanged passes.
+    """
+    slug: str | None = None
+    """
+    A new slug must be lowercase letters, digits and hyphens, starting with a letter or digit, at most 63 characters. The stored slug sent back unchanged passes.
+    """
 
 
 class OrgCollectionPage(BaseModel):
@@ -9509,8 +9515,8 @@ class TeamSpec(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    name: Annotated[str, Field(min_length=1)]
-    slug: Annotated[str, Field(min_length=1)]
+    name: Annotated[str, Field(max_length=100, min_length=1)]
+    slug: Annotated[str, Field(max_length=63, min_length=1, pattern="^[a-z0-9][a-z0-9-]{0,62}$")]
     description: str | None = None
     org_id: Annotated[str | None, Field(alias="orgId")] = None
 
@@ -9520,8 +9526,14 @@ class TeamPatch(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    name: Annotated[str | None, Field(min_length=1)] = None
-    slug: Annotated[str | None, Field(min_length=1)] = None
+    name: str | None = None
+    """
+    A new name must be a non-empty string of at most 100 characters. The stored name sent back unchanged passes.
+    """
+    slug: str | None = None
+    """
+    A new slug must be lowercase letters, digits and hyphens, starting with a letter or digit, at most 63 characters. The stored slug sent back unchanged passes.
+    """
     description: str | None = None
     org_id: Annotated[str | None, Field(alias="orgId")] = None
     """
@@ -9780,8 +9792,8 @@ class ProjectSpec(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    name: Annotated[str, Field(min_length=1)]
-    slug: Annotated[str, Field(min_length=1)]
+    name: Annotated[str, Field(max_length=100, min_length=1)]
+    slug: Annotated[str, Field(max_length=63, min_length=1, pattern="^[a-z0-9][a-z0-9-]{0,62}$")]
     description: str | None = None
     org_id: Annotated[str | None, Field(alias="orgId")] = None
     is_default: Annotated[bool | None, Field(alias="isDefault")] = None
@@ -9792,8 +9804,14 @@ class ProjectPatch(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    name: Annotated[str | None, Field(min_length=1)] = None
-    slug: Annotated[str | None, Field(min_length=1)] = None
+    name: str | None = None
+    """
+    A new name must be a non-empty string of at most 100 characters. The stored name sent back unchanged passes.
+    """
+    slug: str | None = None
+    """
+    A new slug must be lowercase letters, digits and hyphens, starting with a letter or digit, at most 63 characters. The stored slug sent back unchanged passes.
+    """
     description: str | None = None
     org_id: Annotated[str | None, Field(alias="orgId")] = None
     """
@@ -10580,7 +10598,7 @@ class RegisterMailTriggerBody(BaseModel):
     On the company's mailbox only. `true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. It runs only what the project's editors can. With an authorization store, that's checked when it's named, and again when the trigger's target changes: if it can't run the target, the request is refused (`409 trigger-owner-cannot-run-target`). Takes `admin` on the trigger's project, as the company's mailbox does (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, on a person's mailbox, or without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.
     """
     config: RegisterMailTriggerBodyConfig
-    label: str | None = None
+    label: Annotated[str | None, Field(max_length=100, min_length=1)] = None
     tools_allowed_unattended: Annotated[
         list[ToolsAllowedUnattendedItem] | None,
         Field(alias="toolsAllowedUnattended", max_length=100),
@@ -10611,6 +10629,9 @@ class PatchMailTriggerBody(BaseModel):
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     config: PatchMailTriggerBodyConfig | None = None
     label: str | None = None
+    """
+    `null` clears the label; omit to leave unchanged. A new label must be a non-empty string of at most 100 characters. The stored label sent back unchanged passes.
+    """
     tools_allowed_unattended: Annotated[
         list[ToolsAllowedUnattendedItem] | None,
         Field(alias="toolsAllowedUnattended", max_length=100),
@@ -13706,9 +13727,9 @@ class MintTokenBody(BaseModel):
     """
     Framework capabilities the key carries (`env:write`, `secrets:write`, …). A caller can only grant capabilities it holds. Default none.
     """
-    label: str | None = None
+    label: Annotated[str | None, Field(max_length=100, min_length=1)] = None
     """
-    Optional human-readable label.
+    Optional human-readable label, not blank.
     """
     expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
     """
@@ -16395,7 +16416,7 @@ class RegisterWebhookTriggerBody(BaseModel):
     rate_limit_per_minute: Annotated[
         int | None, Field(alias="rateLimitPerMinute", ge=1, le=6000)
     ] = None
-    label: str | None = None
+    label: Annotated[str | None, Field(max_length=100, min_length=1)] = None
     run_as_service_account_id: Annotated[
         str | None, Field(alias="runAsServiceAccountId", min_length=1)
     ] = None
@@ -16422,6 +16443,9 @@ class PatchWebhookTriggerBody(BaseModel):
     )
     config: PatchWebhookTriggerBodyConfig | None = None
     label: str | None = None
+    """
+    `null` clears the label; omit to leave unchanged. A new label must be a non-empty string of at most 100 characters. The stored label sent back unchanged passes.
+    """
     flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
     hmac_secret_name: Annotated[str | None, Field(alias="hmacSecretName", min_length=1)] = None
     signature: (
@@ -17645,7 +17669,7 @@ class RegisterScheduleBody(BaseModel):
     """
     Default 600.
     """
-    label: str | None = None
+    label: Annotated[str | None, Field(max_length=100, min_length=1)] = None
     tools_allowed_unattended: Annotated[
         list[ToolsAllowedUnattendedItem] | None,
         Field(alias="toolsAllowedUnattended", max_length=100),
@@ -17695,7 +17719,7 @@ class PatchScheduleBody(BaseModel):
     """
     label: str | None = None
     """
-    `null` clears the label; omit to leave unchanged.
+    `null` clears the label; omit to leave unchanged. A new label must be a non-empty string of at most 100 characters. The stored label sent back unchanged passes.
     """
     tools_allowed_unattended: Annotated[
         list[ToolsAllowedUnattendedItem] | None,

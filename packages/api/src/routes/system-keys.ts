@@ -4,6 +4,7 @@
 import type { Context } from 'hono';
 import { Hono } from 'hono';
 
+import { LABEL_MAX, boundedText } from '../bounded-text.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
@@ -83,8 +84,6 @@ export function systemKeysMintedFrom(
   }
   return found;
 }
-
-const MAX_LABEL_LENGTH = 100;
 
 type WireError = { readonly code: string; readonly message: string } & Readonly<
   Record<string, unknown>
@@ -259,12 +258,8 @@ function parseScopes(raw: unknown): Parsed<readonly string[]> {
 
 function parseLabel(raw: unknown): Parsed<string | undefined> {
   if (raw === undefined) return { kind: 'ok', value: undefined };
-  if (typeof raw !== 'string' || raw.trim() === '' || raw.length > MAX_LABEL_LENGTH) {
-    return badInput(
-      `\`label\` must be a non-empty string of at most ${MAX_LABEL_LENGTH} characters`,
-    );
-  }
-  return { kind: 'ok', value: raw };
+  const label = boundedText(raw, 'label', LABEL_MAX);
+  return label.problem === undefined ? { kind: 'ok', value: label.value } : badInput(label.problem);
 }
 
 function parseExpiry(raw: unknown): Parsed<Date | undefined> {

@@ -6,6 +6,7 @@ import { type Context, Hono } from 'hono';
 import type { TenantHierarchyBinding } from '@kindgi/platform';
 import type { TenantId } from '@kindgi/types';
 
+import { type Checked, NAME_MAX, boundedText } from '../bounded-text.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type ImagePrefix, parseImagePrefix } from '../image-ref.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -19,7 +20,7 @@ import {
 } from '../middleware/system.js';
 import { FULL_SYSTEM_CAPABILITY, type SystemScope } from '../system.js';
 import type { AppEnv } from '../types.js';
-import { TENANT_NAME_MAX, readTenantPatch, renameAnswer, tenantSlugOf } from './tenant-rename.js';
+import { readTenantPatch, renameAnswer, tenantSlugOf } from './tenant-rename.js';
 import { refuseMalformedUuidParam } from './uuid-param.js';
 
 /** A tenant, as the operator sees it. Never its content. */
@@ -482,7 +483,7 @@ const CREATE_FIELDS = new Set([
 function parseCreateBody(b: Readonly<Record<string, unknown>>): ParsedCreate | Problem {
   const unknown = Object.keys(b).filter((k) => !CREATE_FIELDS.has(k));
   if (unknown.length > 0) return `Unknown field ${unknown.map((k) => `\`${k}\``).join(', ')}`;
-  const name = textOf(b.name, 'name', TENANT_NAME_MAX);
+  const name = textOf(b.name, 'name', NAME_MAX);
   if (name === undefined || name.problem !== undefined) {
     return name?.problem ?? '`name` is required';
   }
@@ -524,19 +525,9 @@ function referencesOf(
   };
 }
 
-function textOf(
-  raw: unknown,
-  field: string,
-  max: number,
-):
-  | { readonly value: string; readonly problem?: undefined }
-  | { readonly problem: string }
-  | undefined {
+function textOf(raw: unknown, field: string, max: number): Checked<string> | undefined {
   if (raw === undefined) return undefined;
-  if (typeof raw !== 'string' || raw.trim() === '' || raw.length > max) {
-    return { problem: `\`${field}\` must be a non-empty string of at most ${max} characters` };
-  }
-  return { value: raw };
+  return boundedText(raw, field, max);
 }
 
 function prefixOf(raw: unknown): ImagePrefix | Problem {
@@ -555,7 +546,7 @@ function adminOf(raw: unknown): { readonly email: string; readonly name: string 
   if (typeof a.email !== 'string' || a.email.length > 254 || !EMAIL_RE.test(a.email)) {
     return '`firstAdmin.email` must be an email address';
   }
-  const name = textOf(a.name, 'firstAdmin.name', TENANT_NAME_MAX);
+  const name = textOf(a.name, 'firstAdmin.name', NAME_MAX);
   if (name === undefined || name.problem !== undefined) {
     return name?.problem ?? '`firstAdmin.name` is required';
   }

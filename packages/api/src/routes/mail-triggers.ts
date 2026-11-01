@@ -9,6 +9,7 @@ import { type Action, type ResourceRef, ref } from '@kindgi/authz';
 import type { ProjectBinding } from '@kindgi/platform';
 import type { Cursor, ProjectId, TenantId, TriggerId } from '@kindgi/types';
 
+import { labelOrNull, patchedField } from '../bounded-text.js';
 import { callerIdentity, callerRef, isTenantAdmin } from '../caller.js';
 import { sameJson } from '../canonical-json.js';
 import { statusFor, toWireError } from '../errors.js';
@@ -267,6 +268,8 @@ export function mailTriggersRouter(
     const mailbox = config.value.mailbox as MailTriggerMailbox;
     const tools = parseToolsAllowedUnattended(body);
     if (tools.kind === 'err') return bad(c, requestId, tools.message);
+    const label = labelOrNull(body.label ?? null);
+    if (label.problem !== undefined) return bad(c, requestId, label.problem);
     const projectId = body.projectId;
     if (projectId !== undefined && (typeof projectId !== 'string' || !UUID_RE.test(projectId))) {
       return bad(c, requestId, '`projectId` must be a project id (a UUID)');
@@ -334,7 +337,7 @@ export function mailTriggersRouter(
       ...(project !== undefined && { projectId: project as ProjectId }),
       owner,
       config: config.value as MailTriggerConfig,
-      ...(typeof body.label === 'string' && body.label.length > 0 && { label: body.label }),
+      ...(label.value !== null && { label: label.value }),
       ...(tools.kind === 'ok' && tools.value.length > 0 && { toolsAllowedUnattended: tools.value }),
     };
     const result = await binding.register(registerInput);
@@ -462,6 +465,9 @@ export function mailTriggersRouter(
     const found = await mailTriggerFor(c, 'read');
     if (found.kind === 'err') return found.response;
     const rec = found.value;
+    // As create checks it, against the trigger just read.
+    const label = await patchedField(body.label, labelOrNull, async () => rec.label);
+    if (label.kind === 'refused') return bad(c, requestId, label.problem);
     const project = rec.projectId as unknown as string;
     const mailboxBefore = rec.config.mailbox;
     const mailboxAfter = config.value.mailbox ?? mailboxBefore;
@@ -555,7 +561,7 @@ export function mailTriggersRouter(
       by: callerIdentity(c),
       ...(Object.keys(config.value).length > 0 && { config: config.value }),
       ...(target !== undefined && { target: target.value }),
-      ...('label' in body && { label: body.label === null ? null : (body.label as string) }),
+      ...(label.kind === 'write' && { label: label.value }),
       // The same tools in another order change nothing: no version, as no audit entry.
       ...(tools.kind === 'ok' &&
         !sameToolList(kept, tools.value) && { toolsAllowedUnattended: tools.value }),

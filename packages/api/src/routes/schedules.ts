@@ -9,6 +9,7 @@ import { type Action, type ResourceRef, ref, targetAccess } from '@kindgi/authz'
 import type { ProjectBinding } from '@kindgi/platform';
 import type { Cursor, ProjectId, TenantId, TriggerId } from '@kindgi/types';
 
+import { labelOrNull, patchedField } from '../bounded-text.js';
 import { callerIdentity, callerRef } from '../caller.js';
 import { sameJson } from '../canonical-json.js';
 import { statusFor, toWireError } from '../errors.js';
@@ -219,6 +220,8 @@ export function schedulesRouter(
     if (cronExpression.kind === 'err') return bad(c, requestId, cronExpression.message);
     const policy = parsePolicy(body);
     if (policy.kind === 'err') return bad(c, requestId, policy.message);
+    const label = labelOrNull(body.label ?? null);
+    if (label.problem !== undefined) return bad(c, requestId, label.problem);
     const projectId = body.projectId;
     if (projectId !== undefined && (typeof projectId !== 'string' || !UUID_RE.test(projectId))) {
       return bad(c, requestId, '`projectId` must be a project id (a UUID)');
@@ -294,7 +297,7 @@ export function schedulesRouter(
         ...(input.input !== undefined && { input: input.input }),
       },
       ...policy.value,
-      ...(typeof body.label === 'string' && body.label.length > 0 && { label: body.label }),
+      ...(label.value !== null && { label: label.value }),
       ...(tools.kind === 'ok' && tools.value.length > 0 && { toolsAllowedUnattended: tools.value }),
     };
 
@@ -436,6 +439,9 @@ export function schedulesRouter(
 
     const found = await scheduleFor(c, 'write');
     if (found.kind === 'err') return found.response;
+    // As create checks it, against the schedule just read.
+    const label = await patchedField(body.label, labelOrNull, async () => found.value.label);
+    if (label.kind === 'refused') return bad(c, requestId, label.problem);
     const notOwners = await personalTriggerRefusal(
       c,
       authorizer,
@@ -524,7 +530,7 @@ export function schedulesRouter(
       ...(Object.keys(cfg).length > 0 && { config: cfg }),
       ...(target !== undefined && { target: target.value }),
       ...policy.value,
-      ...('label' in body && { label: body.label === null ? null : (body.label as string) }),
+      ...(label.kind === 'write' && { label: label.value }),
       // The same tools in another order change nothing: no version, as no audit entry.
       ...(tools.kind === 'ok' &&
         !sameToolList(kept, tools.value) && { toolsAllowedUnattended: tools.value }),

@@ -72,8 +72,9 @@ import {
   TOOL_ERROR_KINDS,
 } from '@kindgi/policy-contract';
 import { RUN_STARTED_BY, RUN_TRIGGER_KINDS, TRIGGER_VERSION_CAUSES } from '@kindgi/runtime';
-import { CORRECTION_ITEM } from '@kindgi/types';
+import { CORRECTION_ITEM, SLUG, SLUG_MAX, SLUG_RULE } from '@kindgi/types';
 
+import { LABEL_MAX, NAME_MAX, TITLE_MAX } from '../bounded-text.js';
 import {
   DEPLOYMENT_ENDPOINT_PROBLEM_CODES,
   SYSTEM_DEPLOYMENT_RETIRE_REASONS,
@@ -88,6 +89,14 @@ import { PACK_ENDPOINT_AUTHS } from '../routes/system-deployments.js';
 import { FULL_SYSTEM_CAPABILITY, SYSTEM_SCOPES } from '../system.js';
 
 export type JsonSchema = Record<string, unknown>;
+
+// An update checks a sent name, slug or label as create does, but passes the
+// stored value sent back unchanged. JSON Schema can't say that, and the
+// clients check a body against its schema before they send it, so the PATCH
+// bodies say the rule in words and carry no constraint.
+const PATCHED_NAME = `A new name must be a non-empty string of at most ${NAME_MAX} characters. The stored name sent back unchanged passes.`;
+const PATCHED_SLUG = `A new slug must be ${SLUG_RULE}. The stored slug sent back unchanged passes.`;
+const PATCHED_LABEL = `\`null\` clears the label; omit to leave unchanged. A new label must be a non-empty string of at most ${LABEL_MAX} characters. The stored label sent back unchanged passes.`;
 
 // ---------------- shared shapes ----------------
 
@@ -1445,7 +1454,12 @@ export const MintTokenBodySchema: JsonSchema = {
       ...ApiTokenCapabilitiesSchema,
       description: `${ApiTokenCapabilitiesSchema.description} Default none.`,
     },
-    label: { type: 'string', description: 'Optional human-readable label.' },
+    label: {
+      type: 'string',
+      minLength: 1,
+      maxLength: LABEL_MAX,
+      description: 'Optional human-readable label, not blank.',
+    },
     expiresAt: {
       type: 'string',
       format: 'date-time',
@@ -1535,7 +1549,7 @@ export const MintSystemKeyBodySchema: JsonSchema = {
       items: SYSTEM_KEY_SCOPE,
       description: "The least the key's service needs; `kindgi:system` alone for a full key.",
     },
-    label: { type: 'string', minLength: 1, maxLength: 100 },
+    label: { type: 'string', minLength: 1, maxLength: LABEL_MAX },
     expiresAt: {
       type: 'string',
       format: 'date-time',
@@ -4685,7 +4699,8 @@ export const OpenConversationBodySchema: JsonSchema = {
     agentVersion: { type: 'string', minLength: 1, description: 'Semver — pinned at open time.' },
     title: {
       type: 'string',
-      description: 'Optional. Defaults to `"Untitled conversation"` when omitted.',
+      maxLength: TITLE_MAX,
+      description: 'Optional. Defaults to `"Untitled conversation"` when omitted or blank.',
     },
     projectId: {
       type: 'string',
@@ -12226,8 +12241,8 @@ export const OrgSpecSchema: JsonSchema = {
   additionalProperties: false,
   required: ['name', 'slug'],
   properties: {
-    name: { type: 'string', minLength: 1 },
-    slug: { type: 'string', minLength: 1 },
+    name: { type: 'string', minLength: 1, maxLength: NAME_MAX },
+    slug: { type: 'string', minLength: 1, maxLength: SLUG_MAX, pattern: SLUG.source },
   },
 };
 
@@ -12235,8 +12250,8 @@ export const OrgPatchSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    name: { type: 'string', minLength: 1 },
-    slug: { type: 'string', minLength: 1 },
+    name: { type: 'string', description: PATCHED_NAME },
+    slug: { type: 'string', description: PATCHED_SLUG },
   },
 };
 
@@ -12293,8 +12308,8 @@ export const TeamSpecSchema: JsonSchema = {
   additionalProperties: false,
   required: ['name', 'slug'],
   properties: {
-    name: { type: 'string', minLength: 1 },
-    slug: { type: 'string', minLength: 1 },
+    name: { type: 'string', minLength: 1, maxLength: NAME_MAX },
+    slug: { type: 'string', minLength: 1, maxLength: SLUG_MAX, pattern: SLUG.source },
     description: { type: 'string' },
     orgId: { type: 'string' },
   },
@@ -12304,8 +12319,8 @@ export const TeamPatchSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    name: { type: 'string', minLength: 1 },
-    slug: { type: 'string', minLength: 1 },
+    name: { type: 'string', description: PATCHED_NAME },
+    slug: { type: 'string', description: PATCHED_SLUG },
     description: { type: 'string' },
     orgId: {
       type: ['string', 'null'],
@@ -12450,8 +12465,8 @@ export const ProjectSpecSchema: JsonSchema = {
   additionalProperties: false,
   required: ['name', 'slug'],
   properties: {
-    name: { type: 'string', minLength: 1 },
-    slug: { type: 'string', minLength: 1 },
+    name: { type: 'string', minLength: 1, maxLength: NAME_MAX },
+    slug: { type: 'string', minLength: 1, maxLength: SLUG_MAX, pattern: SLUG.source },
     description: { type: 'string' },
     orgId: { type: 'string' },
     isDefault: { type: 'boolean' },
@@ -12462,8 +12477,8 @@ export const ProjectPatchSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    name: { type: 'string', minLength: 1 },
-    slug: { type: 'string', minLength: 1 },
+    name: { type: 'string', description: PATCHED_NAME },
+    slug: { type: 'string', description: PATCHED_SLUG },
     description: { type: 'string' },
     orgId: {
       type: ['string', 'null'],
@@ -13886,7 +13901,7 @@ export const RegisterScheduleBodySchema: JsonSchema = {
       maximum: 86400,
       description: 'Default 600.',
     },
-    label: { type: 'string' },
+    label: { type: 'string', minLength: 1, maxLength: LABEL_MAX },
     toolsAllowedUnattended: toolsAllowedUnattendedProperty(
       "The tools whose calls in this schedule's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the schedule's project.",
     ),
@@ -13932,10 +13947,7 @@ export const PatchScheduleBodySchema: JsonSchema = {
       maximum: 86400,
       description: 'Default 600.',
     },
-    label: {
-      type: ['string', 'null'],
-      description: '`null` clears the label; omit to leave unchanged.',
-    },
+    label: { type: ['string', 'null'], description: PATCHED_LABEL },
     toolsAllowedUnattended: toolsAllowedUnattendedProperty(
       "Replaces the schedule's list; `[]` clears it, and absent keeps it. Naming it takes `admin` on the schedule's project. A change of what it runs (another flow or agent) while the list isn't empty must name it again, as it is or `[]`; a new version alone keeps it.",
     ),
@@ -14017,7 +14029,7 @@ export const RegisterEventTriggerBodySchema: JsonSchema = {
         input: {},
       },
     },
-    label: { type: 'string' },
+    label: { type: 'string', minLength: 1, maxLength: LABEL_MAX },
   },
 };
 
@@ -14033,7 +14045,7 @@ export const PatchEventTriggerBodySchema: JsonSchema = {
         input: {},
       },
     },
-    label: { type: ['string', 'null'] },
+    label: { type: ['string', 'null'], description: PATCHED_LABEL },
     flowVersion: { type: 'string' },
   },
 };
@@ -14335,7 +14347,7 @@ export const RegisterWebhookTriggerBodySchema: JsonSchema = {
         "Make a new signing secret, store it as `hmacSecretName` in the trigger's own project (in the env the deployment serves), and return it once as `signingSecret`. Needs only `write` on the project. A name the project already has is refused (`secret-write-conflict`, 409), never overwritten. Letters and digits, or `whsec_…` for `standard-webhooks`.",
     },
     ...WebhookDeliveryProperties,
-    label: { type: 'string' },
+    label: { type: 'string', minLength: 1, maxLength: LABEL_MAX },
     runAsServiceAccountId: {
       type: 'string',
       minLength: 1,
@@ -14364,7 +14376,7 @@ export const PatchWebhookTriggerBodySchema: JsonSchema = {
         input: {},
       },
     },
-    label: { type: ['string', 'null'] },
+    label: { type: ['string', 'null'], description: PATCHED_LABEL },
     flowVersion: { type: 'string', minLength: 1 },
     hmacSecretName: { type: 'string', minLength: 1 },
     signature: WebhookDeliveryProperties.signature as JsonSchema,
@@ -14612,7 +14624,7 @@ export const RegisterMailTriggerBodySchema: JsonSchema = {
         "On the company's mailbox only. `true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. It runs only what the project's editors can. With an authorization store, that's checked when it's named, and again when the trigger's target changes: if it can't run the target, the request is refused (`409 trigger-owner-cannot-run-target`). Takes `admin` on the trigger's project, as the company's mailbox does (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, on a person's mailbox, or without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.",
     },
     config: { $ref: '#/components/schemas/RegisterMailTriggerBodyConfig' },
-    label: { type: 'string' },
+    label: { type: 'string', minLength: 1, maxLength: LABEL_MAX },
     toolsAllowedUnattended: toolsAllowedUnattendedProperty(
       "The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project.",
     ),
@@ -14627,7 +14639,7 @@ export const PatchMailTriggerBodySchema: JsonSchema = {
   properties: {
     ...MAIL_TRIGGER_TARGET_PROPERTIES,
     config: { $ref: '#/components/schemas/PatchMailTriggerBodyConfig' },
-    label: { type: ['string', 'null'] },
+    label: { type: ['string', 'null'], description: PATCHED_LABEL },
     toolsAllowedUnattended: toolsAllowedUnattendedProperty(
       "Replaces the list (`[]` clears it; absent keeps it). Naming it takes `admin` on the trigger's project. A new target (not just a version) or another mailbox while it lists any must name it again, as it is or `[]`.",
     ),

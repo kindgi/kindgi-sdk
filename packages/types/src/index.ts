@@ -18,6 +18,19 @@ export type * from './webhook.js';
 // pure-type — value exports live only where explicitly listed.
 export { makeEnvName } from './ids.js';
 
+// The slug rules the API checks and the CLI and the console check before
+// they send one.
+export {
+  SLUG,
+  SLUG_MAX,
+  SLUG_RULE,
+  TENANT_SLUG,
+  TENANT_SLUG_MAX,
+  isSlug,
+  isTenantSlug,
+  slugOf,
+} from './slug.js';
+
 // Whether fetch can send a value in a header: a secret is checked by its
 // header's name before fetch, whose own error would quote it.
 export { bearerValueProblem, headerValueProblem } from './header-value.js';

@@ -247,3 +247,30 @@ describe('/v1/tokens', () => {
     expect((await call(app, 'GET', '/v1/tokens?cursor=nope', ADMIN)).status).toBe(400);
   });
 });
+
+describe('/v1/tokens: a label', () => {
+  const REFUSED = '`label` must be a non-empty string of at most 100 characters';
+
+  test.each([
+    ['empty', ''],
+    ['blank', '   '],
+    ['101 code points', 'x'.repeat(101)],
+    ['not a string', 5],
+  ])('a label that is %s is refused, and no key is minted', async (_what, label) => {
+    const app = makeApp();
+    const minted = await call(app, 'POST', '/v1/tokens', ADMIN, { label });
+    expect(minted.status).toBe(400);
+    expect(minted.body).toMatchObject({ error: { code: 'bad-input', message: REFUSED } });
+    const listed = await call(app, 'GET', '/v1/tokens', ADMIN);
+    expect(listed.body.data).toEqual([]);
+  });
+
+  test('100 code points outside the BMP, 200 UTF-16 units, are taken; no label is fine', async () => {
+    const app = makeApp();
+    const label = String.fromCodePoint(0x1f600).repeat(100);
+    const minted = await call(app, 'POST', '/v1/tokens', ADMIN, { label });
+    expect(minted.status).toBe(201);
+    expect(minted.body).toMatchObject({ label });
+    expect((await call(app, 'POST', '/v1/tokens', ADMIN, {})).status).toBe(201);
+  });
+});

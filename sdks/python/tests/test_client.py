@@ -239,6 +239,21 @@ def test_a_tenant_is_renamed_by_its_admins_or_the_operator_and_answers_nothing()
     assert seen[1].headers["idempotency-key"]  # generated: the call is safe to retry
 
 
+def test_a_project_update_sends_a_stored_slug_back_and_create_refuses_it() -> None:
+    # A slug stored before the rule, and a name over the limit: the server passes
+    # them sent back unchanged, so the client's own check doesn't refuse them.
+    project_id = "0e0c6f2a-6b8d-4d0e-9f3a-2b1c0d9e8f7a"
+    api, seen = client(lambda r: httpx.Response(204))
+    assert api.projects.update(project_id, name="x" * 101, slug="Foo Bar") is None
+    assert json.loads(seen[0].content) == {"name": "x" * 101, "slug": "Foo Bar"}
+    # Create checks the rule before it sends.
+    with pytest.raises(ValueError, match="slug"):
+        api.projects.create(name="Shop", slug="Foo Bar")
+    with pytest.raises(ValueError, match="name"):
+        api.projects.create(name="x" * 101, slug="shop")
+    assert len(seen) == 1
+
+
 def test_conversations_list_takes_replays() -> None:
     # A comparison's replay conversations are left out unless asked for.
     api, seen = client(lambda r: httpx.Response(200, json={"data": [], "hasMore": False}))

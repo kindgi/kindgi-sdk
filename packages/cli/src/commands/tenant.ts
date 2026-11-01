@@ -7,10 +7,11 @@
  * `tenant.update`.
  */
 
+import { TENANT_SLUG } from '@kindgi/types';
+
 import type { CommandContext } from '../context.js';
 import { UsageError, extractKindgiError } from '../errors.js';
 import { renderJson } from '../output.js';
-import { TENANT_SLUG } from '../slug.js';
 import { commandResultFromThrown, givenFlag, runSdk } from './helpers.js';
 import type { Command, CommandResult, LeafCommand } from './types.js';
 

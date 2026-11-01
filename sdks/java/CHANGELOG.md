@@ -10,6 +10,8 @@ candidates, and theirs are just below it.
 
 ## Unreleased
 
+- `kindgi-client`: **a project, org or team body is checked as the API checks it.** The builders of `ProjectSpec`, `OrgSpec` and `TeamSpec` refuse a slug that isn't lowercase letters, digits and hyphens starting with a letter or digit, of at most 63 characters, and a name of more than 100 characters. The register bodies of schedules, mail triggers and webhook triggers, and `MintTokenBody`, refuse an empty label or one of more than 100 characters, and `OpenConversationBody` a title of more than 200. The update bodies check none of these: `ProjectPatch`, `OrgPatch` and `TeamPatch` no longer refuse `""` for a name or a slug, and a trigger update's label stays unchecked. The API passes a stored value sent back unchanged, and answers `400` for a new one that fails.
+
 ## 0.3.1
 
 - `kindgi-pack`, `kindgi-pack-scala`: **an `llm-judge` guardrail is judged.** `Guardrail.define(id).kind("llm-judge").judgeCapabilities(Map.of("needs", List.of(Map.of("feature", "structured-output"))))` (Scala: `.judgeCapabilities(Map("needs" -> List(Map("feature" -> "structured-output"))))`) names what the judge model is routed by, and the index carries it; `check(...)` refuses an `llm-judge` guardrail without it. Before, the index schema refused the field, so `set("judgeCapabilities", ...)` failed the build, and without it the runtime refused the guardrail on every turn.
