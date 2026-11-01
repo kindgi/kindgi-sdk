@@ -7584,6 +7584,25 @@ class CorrectedComparisonCost(BaseModel):
     """
 
 
+class CorrectedComparisonUnchecked(BaseModel):
+    """
+    The cases whose `expect` couldn't be graded, so they add no check to `passRate`: when `passRate` has no value, this says why. Absent from a summary when every case's was graded, and from older servers.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    cases: Annotated[int, Field(ge=1)]
+    """
+    How many cases have an `unchecked` reason.
+    """
+    reasons: Annotated[list[str], Field(max_length=5, min_length=1)]
+    """
+    Their reasons, each once, in the cases' order: the first 5.
+    """
+
+
 class TopK(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -16569,6 +16588,7 @@ class CorrectedComparisonSummary(BaseModel):
     Corrections graded across the cases: shown for a release gate, not enforced. Absent when the test set carries no corrections.
     """
     cost_usd: Annotated[CorrectedComparisonCost | None, Field(alias="costUsd")] = None
+    unchecked: CorrectedComparisonUnchecked | None = None
 
 
 class CorrectionDifference(BaseModel):
@@ -16632,6 +16652,10 @@ class ComparisonCaseResult(BaseModel):
     cost_usd: Annotated[list[CostUsdItem] | None, Field(alias="costUsd")] = None
     """
     What each repetition's replay cost in model calls, as the runtime reported it, in US dollars: one per repetition, with what checking its answer cost. Absent when a repetition reported none.
+    """
+    unchecked: str | None = None
+    """
+    Why the case's `expect` couldn't be graded, so it has no entry in `corrections` and adds no check to `passRate`: the answer checker's reason (say, that the version's model settings name no model), or why it wasn't asked. Absent when it was graded, and from older servers.
     """
     diverged: bool
     refused_writes: Annotated[int, Field(alias="refusedWrites", ge=0)]
