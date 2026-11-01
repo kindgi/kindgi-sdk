@@ -649,6 +649,26 @@
   cursor: pointer;
 }
 
+/* The whole call, when the card leaves part of it out: for whoever decides, so each value whole. */
+.kindgi .kindgi-whole {
+  margin: 0 0 var(--kindgi-space-2);
+}
+
+.kindgi .kindgi-whole summary {
+  color: var(--kindgi-accent);
+  cursor: pointer;
+}
+
+.kindgi .kindgi-whole .kindgi-facts {
+  margin-top: var(--kindgi-space-2);
+}
+
+.kindgi .kindgi-whole dd {
+  max-height: 16em;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
 .kindgi .kindgi-card textarea {
   display: block;
   width: 100%;
