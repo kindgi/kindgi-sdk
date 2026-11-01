@@ -25,8 +25,9 @@ It also covers what the site's people can and can't do in Kindgi.
 
 ## On Kindgi Cloud
 
-Kindgi Cloud's site sign-in is coming. When it's on, there's nothing to
-turn on: skip
+Kindgi Cloud's site sign-in is coming. Until then, the plugin works only
+with a runtime you run; an agent on Kindgi Cloud can still work with a
+store without it (below). When it's on, there's nothing to turn on: skip
 [Self-hosted: turn site sign-in on](#self-hosted-turn-site-sign-in-on).
 The steps after it are the same, with two differences:
 - **Register the site with the CLI signed in to Kindgi Cloud**
