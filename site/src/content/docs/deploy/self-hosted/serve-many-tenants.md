@@ -273,13 +273,14 @@ that don't an installation each
    later; before, while it was the newest in its project with routes for some
    tool version or pack check). One whose endpoint an earlier runtime made or
    last set also needs the earlier rule: once newer deployments in its
-   project ship every tool version and check it does, it's retired for good.
-   It also has no endpoint or a cleared one, and nothing about it is closing
-   or suspended. Each entry has the tenant's id, the deployment's id, its
-   pack and project (the one it named, else the tenant's Default), and its
-   image: the digest-pinned `imageRef`, its digest, the artifact version and
-   when it went live, and whether to start its service `warm` (step 7). It
-   has nothing else of the tenant.
+   project ship every tool version and check it does, a tool it deployed
+   without a version without one too, it's retired for good. It also has no
+   endpoint or a cleared one, and nothing about it is closing or suspended.
+   Each entry has the tenant's id, the deployment's id, its pack and project
+   (the one it named, else the tenant's Default), and its image: the
+   digest-pinned `imageRef`, its digest, the artifact version and when it
+   went live, and whether to start its service `warm` (step 7). It has
+   nothing else of the tenant.
 
    A deployment that ships no tools and no guardrail checks of its own, such
    as one of agents and flows whose guardrails use only built-in checks, has
@@ -386,12 +387,14 @@ that don't an installation each
    before, `superseded` meant newer deployments in its project shipped every
    tool version and check it does). One whose endpoint an earlier runtime
    made or last set is `superseded` as well once newer deployments in its
-   project ship every tool version and check it does, and stays so (step 1).
-   Otherwise it's listed as needing a service again once something it serves
-   that no newer deployment in its project serves is registered again, pinned
-   by a flow or agent version a run can reach or used by an unfinished run,
-   or once a guardrail that runs one of its checks there is registered. A
-   tenant sees what keeps each one in its endpoint's `keptFor`.
+   project ship every tool version and check it does, a tool it deployed
+   without a version without one too, and stays so (step 1). Otherwise it's
+   listed as needing a service again once something it serves that no newer
+   deployment in its project serves is wanted again: a tool, agent or flow
+   version registered again, pinned by a flow or agent version a run can
+   reach or used by an unfinished run, or a check a newly registered
+   guardrail runs in its project. A tenant sees what keeps each one in its
+   endpoint's `keptFor`.
 7. **Keep the warm ones up:** `GET /v1/system/deployments?endpoint=ready`
    lists deployments whose service is ready and stays, oldest first across
    tenants. Here and in `endpoint=missing`, `warm: true` means calls in its
