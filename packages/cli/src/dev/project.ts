@@ -19,10 +19,11 @@
  *   of the project, and every restart, get the same ones.
  */
 
-import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
+
+import { gitOutput } from '../git.js';
 
 /** Where the project's name came from. */
 export type ProjectNameSource = 'config' | 'repository' | 'workspace' | 'pack folder';
@@ -193,26 +194,18 @@ function readIfExists(path: string): string | undefined {
 }
 
 /** `git rev-parse` for `dir`, with absolute paths; `undefined` outside a repository or without git. */
-export const locateGit: GitLocator = (dir) =>
-  new Promise((resolvePromise) => {
-    execFile(
-      'git',
-      ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-dir', '--git-common-dir'],
-      { cwd: dir, timeout: 5000 },
-      (err, stdout) => {
-        if (err !== null) {
-          resolvePromise(undefined);
-          return;
-        }
-        const [toplevel, gitDir, commonDir] = stdout.trim().split('\n');
-        resolvePromise(
-          toplevel !== undefined && gitDir !== undefined && commonDir !== undefined
-            ? { toplevel, gitDir, commonDir }
-            : undefined,
-        );
-      },
-    );
-  });
+export const locateGit: GitLocator = async (dir) => {
+  const stdout = await gitOutput(
+    dir,
+    ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-dir', '--git-common-dir'],
+    { timeout: 5000 },
+  );
+  if (stdout === undefined) return undefined;
+  const [toplevel, gitDir, commonDir] = stdout.trim().split('\n');
+  return toplevel !== undefined && gitDir !== undefined && commonDir !== undefined
+    ? { toplevel, gitDir, commonDir }
+    : undefined;
+};
 
 /** A name-based UUID (RFC 9562 version 5, SHA-1) in the dev namespace. */
 export function uuidV5(name: string): string {

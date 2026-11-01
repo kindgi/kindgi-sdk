@@ -80,6 +80,7 @@ import type {
   TestRunStartInput,
   TokenResolver,
 } from '../src/index.js';
+import { SuggestedChangeSchema } from '../src/openapi/schemas.js';
 import { expectCompileBudgetRefused } from './support/compile-budget.js';
 import { environmentOrders } from './support/environment-orders.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
@@ -958,6 +959,7 @@ describe('POST /v1/suggested-changes', () => {
       changes: [{ kind: 'block', blockId: WEIGHTS, from: '1.0.0', to: '1.0.1' }],
       why: CARD.why,
       fixes: [],
+      correctionCount: 0,
       check: { status: 'running', testSetId: FROZEN.testSetId },
       status: 'checking',
     });
@@ -1138,7 +1140,7 @@ describe('POST /v1/suggested-changes', () => {
     return id;
   }
 
-  test('its `fixes` are corrections in its own project, and the answer lists them (201)', async () => {
+  test('its `fixes` are corrections in its own project, and the answer lists and counts them (201)', async () => {
     const corrections = inMemoryCorrections();
     const { call, pinStore } = await harness({ correctionRegistry: corrections });
     pinStore.pin(PROJECT, '1.0.0');
@@ -1147,6 +1149,7 @@ describe('POST /v1/suggested-changes', () => {
     const res = await call('POST', '/v1/suggested-changes', { ...CARD, fixes: [one, two] });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(res.body.fixes).toEqual([one, two]);
+    expect(res.body.correctionCount).toBe(2);
   });
 
   test("an id in `fixes` that's no correction in its project is refused (400 validation-failed), naming each, and nothing is made", async () => {
@@ -2699,7 +2702,7 @@ describe('authorization on the agent', () => {
 });
 
 describe('a suggested change a drafter wrote (not a person)', () => {
-  test('it answers with the corrections it fixes, and that a service made it', async () => {
+  test('it answers with the corrections it fixes, how many in all, and that a service made it', async () => {
     const h = await harness();
     const service = createSuggestedChangeService({
       store: h.suggestedChanges,
@@ -2721,11 +2724,23 @@ describe('a suggested change a drafter wrote (not a person)', () => {
       drafter: { kind: 'settings-optimizer', version: '1' },
     });
     if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
-    const res = await h.call('GET', `/v1/suggested-changes/${drafted.value.suggestedChange.id}`);
+    const id = drafted.value.suggestedChange.id;
+    const res = await h.call('GET', `/v1/suggested-changes/${id}`);
     expect(res.status).toBe(200);
+    // `fixes` names only the first ones; `correctionCount` counts them all.
     expect(res.body).toMatchObject({
       fixes: ['j-1', 'j-2'],
+      correctionCount: 140,
       madeBy: { kind: 'service', id: 'settings-optimizer' },
+    });
+    // The spec's schema allows no other keys, so each one answered must be one it lists.
+    expect(SuggestedChangeSchema.additionalProperties).toBe(false);
+    const specKeys = Object.keys(SuggestedChangeSchema.properties as Record<string, unknown>);
+    expect(Object.keys(res.body).filter((key) => !specKeys.includes(key))).toEqual([]);
+    const listed = (await h.call('GET', '/v1/suggested-changes')).body.data;
+    expect(listed.find((s: { id: string }) => s.id === id)).toMatchObject({
+      fixes: ['j-1', 'j-2'],
+      correctionCount: 140,
     });
   });
 

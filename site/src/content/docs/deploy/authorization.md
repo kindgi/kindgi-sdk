@@ -276,11 +276,11 @@ checks every call.
   set the tenant's own line, `console.readOnlyNotice`, it shows instead,
   such as "Ask Ana Ruiz for edit access."
 - **An editor** may also "run agents and flows, work on agent versions,
-  publish prompts and settings, correct runs, try versions on test sets", in
-  the console's words. An agent's page offers them **Register new
-  version** and **Start run**, which a viewer's doesn't.
-- **A project admin** may also "pin versions, register agents and
-  tools, build test sets, rescore test runs, set corrector groups", and
+  publish prompts and settings, correct runs, sort corrections, add and
+  retire test cases", in the console's words. An agent's page offers them
+  **Start a run**, which a viewer's doesn't.
+- **A project admin** may also "pin versions, register agents and tools,
+  rescore test runs, set corrector groups, remove others' corrections", and
   changes who works in the project ([Members](#in-the-console-members)).
 - **The tenant's sections** show to those they're for:
   - People, Service accounts, Policies, Webhooks, Sign-in, Access audit and
@@ -299,7 +299,7 @@ lets you do and doesn't. You can have a role directly, through a team, as an
 admin of the org, or as a tenant admin. **The detail** holds your ids and
 what each role allows on each kind of object.
 
-![My access as Eda Brooks: "You're an editor in 1 project." and "Tenant: member. Its people, keys and settings are its admins'."; a table with Support, Editor, directly, and what it lets her do: "run agents and flows, work on agent versions, publish prompts and settings, correct runs, try versions on the test cases; not pin versions, register agents and tools, build test cases, rescore runs on the test cases, set corrector groups"; and The detail, closed.](../../../assets/access/my-access.png)
+![My access as Eda Brooks: "You're an editor in 1 project." and "Tenant: member. Its people, keys and settings are its admins'."; a table with Support, Editor, directly, and what it lets her do: "run agents and flows, work on agent versions, publish prompts and settings, correct runs, sort corrections, add and retire test cases; not pin versions, register agents and tools, rescore test runs, set corrector groups, remove others' corrections"; and The detail, closed.](../../../assets/access/my-access.png)
 
 ## Project memberships
 
