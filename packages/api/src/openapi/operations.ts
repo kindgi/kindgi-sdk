@@ -4301,7 +4301,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'releaseGates.list',
     summary: 'List release gates',
     description:
-      "Each release gate's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.",
+      "Each release gate's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's. A retired gate (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.",
     tags: ['release-gates'],
     security: 'bearer',
     parameters: [
@@ -4317,6 +4317,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       PinScopeKindQueryParam,
       ScopeIdQueryParam,
       SegmentQueryParam,
+      IncludeRetiredQueryParam,
     ],
     responses: {
       '200': { description: 'Page of release gates.', schema: ref('ReleaseGatePage') },
@@ -6503,7 +6504,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mcp.endpoints.get',
     summary: 'Fetch an MCP endpoint',
     description:
-      'Returns the wire-safe `MCPEndpoint` (secrets never cross the wire — `secretRef` names a secret the runtime resolves inside the deployment).',
+      "Returns the wire-safe `MCPEndpoint` (secrets never cross the wire — `secretRef`, `auth` and `secretEnv` name secrets the runtime resolves inside the deployment). A stdio endpoint's `config.env` values read back as `[redacted]`, their names kept.",
     tags: ['mcp'],
     security: 'bearer',
     parameters: [MCPEndpointIdPathParam],
@@ -6520,7 +6521,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mcp.endpoints.register',
     summary: 'Register an MCP endpoint',
     description:
-      "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef` names a secret in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
+      "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). A credential in plaintext `config.headers` or a stdio endpoint's `config.env` is refused (`400 invalid-mcp-endpoint`, reason `credential-in-headers` or `credential-in-env`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
     tags: ['mcp'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6820,7 +6821,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'policies.list',
     summary: 'List tenant policies',
     description:
-      'Cursor-paginated. Optional `?kind=` narrows to a single policy kind (exact match); optional `?name=` is a prefix match on `Policy.id`. Sort order: policy id ascending. Latest version per id.',
+      'Cursor-paginated. Optional `?kind=` narrows to a single policy kind (exact match); optional `?name=` is a prefix match on `Policy.id`. Sort order: policy id ascending. Latest version per id. A retired policy (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.',
     tags: ['policies'],
     security: 'bearer',
     parameters: [
@@ -6828,6 +6829,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CursorQueryParam,
       PolicyKindFilterQueryParam,
       PolicyNameFilterQueryParam,
+      IncludeRetiredQueryParam,
     ],
     responses: {
       '200': { description: 'Page of policies.', schema: ref('PolicyCollectionPage') },
@@ -7186,7 +7188,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'blocks.list',
     summary: 'List data blocks (latest version of each)',
     description:
-      'Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do.',
+      'Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do. A retired block (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.',
     tags: ['blocks'],
     security: 'bearer',
     parameters: [
@@ -7196,6 +7198,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       BlockNameFilterQueryParam,
       ScopeKindQueryParam,
       ScopeIdQueryParam,
+      IncludeRetiredQueryParam,
     ],
     responses: {
       '200': { description: 'Page of blocks.', schema: ref('BlockCollectionPage') },

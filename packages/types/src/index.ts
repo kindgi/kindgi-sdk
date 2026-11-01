@@ -24,6 +24,10 @@ export { makeEnvName } from './ids.js';
 // header's name before fetch, whose own error would quote it.
 export { bearerValueProblem, headerValueProblem } from './header-value.js';
 
+// Whether a header's or an env variable's name says it carries a credential:
+// the API refuses such a name in plaintext, and the CLI names the ones kept.
+export { isCredentialName } from './credential-name.js';
+
 // A cloud secret's version, by its resource name: the API checks it on
 // every write, and the CLI before it sends one.
 export { CLOUD_SECRET_FORM, parseCloudSecretVersion } from './cloud-secret.js';

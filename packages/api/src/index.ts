@@ -665,13 +665,16 @@ export {
   valuesDepsFor,
 } from './routes/deployment-promotions.js';
 export {
+  isCredentialEnvName,
   isCredentialHeaderName,
   MCP_AUTH_HEADERS_MAX,
   MCP_AUTH_SCHEMES,
   MCP_OAUTH_CLIENT_AUTH,
+  MCP_SECRET_ENV_MAX,
   MCP_TRANSPORTS,
   mcpAuthSecretRefs,
   mcpEndpointSecretNames,
+  REDACTED_ENV_VALUE,
   REDACTED_HEADER_VALUE,
 } from './mcp-endpoint-binding.js';
 export type {
