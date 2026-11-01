@@ -244,7 +244,8 @@
     const reload = () => renderInbox();
     const list = { you: mine, others, decided: loaded.decided ?? [] }[state.filter];
     // More waits than one page held: the oldest show, and the counts say "12+".
-    const counted = (n) => (loaded.more ? `${n}+` : String(n));
+    // "12+" when more may wait than the page held; none of yours on it reads "0".
+    const counted = (n) => (loaded.more && n > 0 ? `${n}+` : String(n));
     root.replaceChildren(
       ...[
         linkedCard(loaded.linked, reload),
