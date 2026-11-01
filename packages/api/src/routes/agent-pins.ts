@@ -27,6 +27,7 @@ import type {
   AgentUnpinInput,
   Pin,
   PinActor,
+  PinFilesWarnings,
 } from '../agent-pin-binding.js';
 import type { CorrectedComparisonSummary } from '../corrected-dispatcher.js';
 import type { CorrectionRegistryBinding } from '../correction-binding.js';
@@ -117,6 +118,12 @@ export interface AgentPinGateDeps {
   readonly testSets?: Pick<TestSetFreezeBinding, 'freezeTestSet'>;
   readonly corrections?: Pick<CorrectionRegistryBinding, 'list' | 'applyRunOutcome' | 'listCases'>;
   readonly itemProjects?: Pick<ItemProjectsBinding, 'projectsOf'>;
+  /**
+   * Under `kindgi dev`: the files a pin would write over that git hasn't
+   * committed, which `…/pinned/check` warns about when the gate lets the
+   * pin through. Absent: no warning.
+   */
+  readonly pinFiles?: PinFilesWarnings;
 }
 
 /**
@@ -282,6 +289,11 @@ export function mountAgentPinRoutes(
     );
     if (gate.kind === 'err') return failed(c, requestId, gate.error);
     const { result } = gate;
+    const warning =
+      result.passed && deps.pinFiles !== undefined
+        ? await deps.pinFiles({ tenantId, agentId, version: parsed.value.version })
+        : undefined;
+    const uncommitted = warning?.uncommittedFiles ?? [];
     return c.json({
       outcome: !result.passed
         ? 'gate-failed'
@@ -292,6 +304,8 @@ export function mountAgentPinRoutes(
         releaseGate === null ? null : { id: releaseGate.id, version: releaseGate.version },
       checks: result.checks,
       ...(result.approval !== undefined && { approval: result.approval }),
+      ...(uncommitted.length > 0 && { uncommittedFiles: uncommitted }),
+      ...(warning?.notInGit === true && { notInGit: true }),
     });
   });
 

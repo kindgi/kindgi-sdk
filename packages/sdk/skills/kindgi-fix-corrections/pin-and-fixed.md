@@ -77,8 +77,14 @@ A pin there is for the whole workspace (`--tenant`; an `--org` or
 an approval there, which the person gives themselves (`kindgi dev` registers
 them as a reviewer), from the suggested change's page. Approved, it writes
 the version's prompts and settings into the pack's files: tell the person to
-commit them first. `kindgi dev` reloads them, and the pin's test runs check
-the agent's project, the default one, and mark what it fixes, as above.
+commit them first. The pin says on stderr which of the files it writes over
+that git hasn't committed (the pin check's `uncommittedFiles`), or that the
+pack isn't in git (`notInGit`), and still goes; `kindgi agents pin --check`
+says the same without pinning. An Improve run's pin writes only once the
+person approves it, so when the pin names files, have the person commit
+them before they approve. Once the pin writes the files, `kindgi dev`
+reloads them, and the pin's test runs check the agent's project, the
+default one, and mark what it fixes, as above.
 Going back is a pin of the version before, for the whole workspace too: it
 writes the files back as they were right before the pin, and its test runs
 reopen what that version fails. An unpin is refused there. After a block is

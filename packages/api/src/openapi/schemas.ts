@@ -917,6 +917,19 @@ export const PinCheckSchema: JsonSchema = {
     },
     checks: { type: 'array', items: { $ref: '#/components/schemas/GateCheck' } },
     approval: { $ref: '#/components/schemas/GateApproval' },
+    uncommittedFiles: {
+      type: 'array',
+      items: { type: 'string' },
+      minItems: 1,
+      description:
+        "Under `kindgi dev`, where pinning a version writes it into the pack's files: the files this pin would write over that git hasn't committed (changed, staged, untracked or ignored, or in a nested repository such as a submodule), relative to the pack's folder. Git can't bring back what they hold once they're written over, so commit them first. A warning: the pin still goes. Absent when there are none, when the pin writes nothing, when the gate fails, when git can't say (no git, or no answer in time), and on every other runtime.",
+    },
+    notInGit: {
+      type: 'boolean',
+      const: true,
+      description:
+        "Under `kindgi dev`: the pack isn't in a git repository, so git can't bring back the files this pin would write over. A warning: the pin still goes. Absent otherwise.",
+    },
   },
 };
 
