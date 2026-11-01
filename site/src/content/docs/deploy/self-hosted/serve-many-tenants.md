@@ -385,16 +385,17 @@ that don't an installation each
    its project); and each tool it deployed without a version, a newer
    deployment in its project deploys without one too (runtime 0.4.0 or later;
    before, `superseded` meant newer deployments in its project shipped every
-   tool version and check it does). One whose endpoint an earlier runtime
-   made or last set is `superseded` as well, for good, once newer deployments
-   in its project ship every tool version and check it does and deploy each
-   tool it deployed without a version the same way (step 1). Otherwise it's
-   listed as needing a service again once something it serves that no newer
-   deployment in its project serves is wanted again: a tool, agent or flow
-   version registered again, pinned by a flow or agent version a run can
-   reach or used by an unfinished run, or a check a newly registered
-   guardrail runs in its project. A tenant sees what keeps each one in its
-   endpoint's `keptFor`.
+   tool version and check it does and deployed each tool it deployed without
+   a version the same way). One whose endpoint an earlier runtime made or
+   last set is `superseded` as well, for good, once newer deployments in its
+   project ship every tool version and check it does and deploy each tool it
+   deployed without a version the same way (step 1). Otherwise it's listed as
+   needing a service again once something it serves that no newer deployment
+   in its project serves is wanted again: a tool, agent or flow version
+   registered again, pinned by a flow or agent version a run can reach or
+   used by an unfinished run, or a check a newly registered guardrail runs in
+   its project. A tenant sees what keeps each one in its endpoint's
+   `keptFor`.
 7. **Keep the warm ones up:** `GET /v1/system/deployments?endpoint=ready`
    lists deployments whose service is ready and stays, oldest first across
    tenants. Here and in `endpoint=missing`, `warm: true` means calls in its
