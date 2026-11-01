@@ -189,14 +189,23 @@
           "required": ["title"],
           "description": "How an approval of a call to the tool reads (`tool.schema.json` `approval`): a title, a summary and what the call is about, with `{field}` placeholders a call's arguments fill in. Absent, an approval reads `Approve a call to <tool id>`.",
           "properties": {
-            "title": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[^\\r\\n]*$" },
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[^\\r\\n]*$"
+            },
             "summary": { "type": "string", "minLength": 1, "maxLength": 1000 },
             "about": {
               "type": "object",
               "additionalProperties": false,
               "required": ["kind", "id"],
               "properties": {
-                "kind": { "type": "string", "maxLength": 100, "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$" },
+                "kind": {
+                  "type": "string",
+                  "maxLength": 100,
+                  "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$"
+                },
                 "id": { "type": "string", "minLength": 1, "maxLength": 200 }
               }
             }
