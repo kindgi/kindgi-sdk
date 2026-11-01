@@ -146,7 +146,7 @@ describe('workspace-source-aliases', () => {
     assert.equal(resolveWith(aliases, '@kindgi/lib/package.json'), undefined);
   });
 
-  test('an exports object of conditions only is the "." export', () => {
+  test('an exports object of conditions only is the "." export, one of subpaths only is not', () => {
     for (const exports of [
       entry('./dist/index.js'),
       { import: './dist/index.js', default: './dist/index.js' },
@@ -158,6 +158,20 @@ describe('workspace-source-aliases', () => {
       assert.equal(sugar.length, 1);
       assert.equal(resolveWith(sugar, '@kindgi/app'), join(dirs('@kindgi/app'), 'src/index.ts'));
     }
+    // Subpaths only: no "." export, so no alias for the bare name.
+    const { dirOf: dirs } = workspace({
+      '@kindgi/app': {
+        manifest: { exports: { './testing': entry('./dist/testing.js') } },
+        sources: ['src/testing.ts'],
+      },
+    });
+    const subpaths = workspaceSourceAliases(dirs('@kindgi/app'));
+    assert.equal(subpaths.length, 1);
+    assert.equal(
+      resolveWith(subpaths, '@kindgi/app/testing'),
+      join(dirs('@kindgi/app'), 'src/testing.ts'),
+    );
+    assert.equal(resolveWith(subpaths, '@kindgi/app'), undefined);
   });
 
   test('a ./dist/ export with no source file throws, naming the package and the export', () => {
