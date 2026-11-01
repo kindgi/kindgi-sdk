@@ -41,7 +41,8 @@ Scaffolded by `kindgi init --template=woocommerce`.
 │   └── store-agent-prompt.liquid               # their text
 ├── flows/
 │   └── order-review/index.ts                   # order event → check → order reviewer
-└── fixtures/order-created.json                 # a sample order event
+├── fixtures/order-created.json                 # a sample order event
+└── scripts/connect-store.mjs                   # connect a store: its owner approves in wp-admin
 ```
 
 ## What runs on its own, and what waits for a person
@@ -146,32 +147,75 @@ so both refund tools put it on the refund (in its `meta_data`) and look for it:
 ## Connect your store
 
 The tools sign in to your store as a WordPress user made for the agent,
-with an Application Password. WordPress has had these since 5.6. Never use
-your own account.
+`kindgi-agent`, with an Application Password, so what they do in the store
+shows as that user's. Never use your own account.
+
+With `{{KINDGI}} dev` running, from another terminal:
+
+```sh
+{{RUN}} connect-store https://shop.example.com
+```
+
+It opens the store's wp-admin in your browser, where one of the store's
+administrators approves Kindgi on WordPress's own **Authorize Application**
+page. Then it:
+
+1. makes `kindgi-agent` a **Shop Manager**, who can manage orders and
+   products but not the site (or reuses it, from a connect before);
+2. makes that user's Application Password, and checks that it signs in to
+   WooCommerce;
+3. saves `WOO_STORE_URL`, `WOO_USER` and the secret `WOO_APP_PASSWORD` in
+   this pack's local env (`--env=local --scope=tenant`);
+4. revokes the password WordPress made for the approval, so only the
+   agent's is left.
+
+Nobody copies a password, and none is printed or written to a file. Run it
+again to replace the agent's password. The approval comes back to this
+machine (`127.0.0.1`), so approve in a browser here; `--no-browser` prints
+the link instead of opening it. WordPress offers Application Passwords from
+5.6, over HTTPS, or on a site whose `WP_ENVIRONMENT_TYPE` is `local`.
+
+For a deployed pack, name the env it runs in and its client's project
+([One project and one pack per client](#one-project-and-one-pack-per-client)):
+
+```sh
+{{RUN}} connect-store -- https://shop.example.com --hosted --env=<env> --scope=project:<client project id>
+```
+
+Each pack and env has its own password, named `Kindgi (<pack>, <env>)`
+under `kindgi-agent`'s Application Passwords: connecting `kindgi dev` and a
+deploy to one store keeps both, and removing one there disconnects only
+that one.
+
+The password is a secret, and Kindgi hands it only to the tools that
+declare it (`needsSpec` in `lib/woo.ts`). Under `kindgi dev` it's kept in a
+file in this folder that only you can read and git ignores; a deployed
+runtime keeps it in its secrets store. Never write it in the code, a config
+file or the chat.
+
+### Connect it by hand
+
+On a machine with no browser (over SSH, say), or a store whose security
+plugin turns off the Authorize Application page, make the user and its
+password yourself:
 
 1. **Make the user.** In WordPress, go to Users → Add User (Add New User
-   before WordPress 6.8). Use a username like `shop-agent` and the **Shop Manager** role, which can
-   manage orders and products but not the site.
+   before WordPress 6.8). Use the username `kindgi-agent` and the **Shop
+   Manager** role.
 2. **Make its Application Password.** Edit that user (Users → All Users →
-   `shop-agent`), find **Application Passwords**, name it `kindgi`, and
+   `kindgi-agent`), find **Application Passwords**, name it `kindgi`, and
    choose **Add Application Password** (**Add New Application Password**
    before WordPress 6.8). WordPress shows it once.
-   WordPress offers Application Passwords only over HTTPS, except on a
-   site whose `WP_ENVIRONMENT_TYPE` is `local`.
 3. **Give them to Kindgi.** With `{{KINDGI}} dev` running, from another
    terminal:
 
    ```sh
    {{KINDGI}} env set WOO_STORE_URL https://shop.example.com --env=local --scope=tenant
-   {{KINDGI}} env set WOO_USER shop-agent --env=local --scope=tenant
+   {{KINDGI}} env set WOO_USER kindgi-agent --env=local --scope=tenant
    {{KINDGI}} secrets set WOO_APP_PASSWORD --env=local --scope=tenant   # no-echo prompt: paste the password
    ```
 
-   The password is a secret, and Kindgi hands it only to the tools that
-   declare it (`needsSpec` in `lib/woo.ts`). Under `kindgi dev` it's kept in
-   a file in this folder that only you can read and git ignores; a deployed
-   runtime keeps it in its secrets store. Never write it in the code, a
-   config file or the chat.
+### Refunds through the payment gateway
 
 Refunds are recorded in WooCommerce, and the money moves however your shop
 moves it. To have the payment gateway refund the money too, set
