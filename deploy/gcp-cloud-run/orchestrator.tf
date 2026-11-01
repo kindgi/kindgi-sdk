@@ -6,11 +6,19 @@
 # makes a Cloud Run service for each deployment that needs one, gives running
 # ones their changed pack env, and retires what should go: through the
 # server's system routes, and as its own account. The server never makes or
-# deletes a service. A deployment waits up to a minute for its service.
+# deletes a service, but it starts the Job right after a deploy or promotion
+# that needs one (KINDGI_PACK_ORCHESTRATOR_JOB). A deployment waits for the
+# next minute's run only when that start fails or meets a running pass.
 
 locals {
   # The Job and its schedule exist once its key does (orchestrator_key_version).
   orchestrator = var.orchestrator_key_version != null
+
+  # The Job's full name, which the server starts it by. Built from its name,
+  # not read from the Job: the Job reads the server's URI, so that would be a
+  # cycle. The same before the key apply as after, so that apply changes no
+  # server setting.
+  orchestrator_job = "projects/${var.project_id}/locations/${var.region}/jobs/${var.name_prefix}-pack-orchestrator"
 
   # The server behind Cloud Run IAM (neither server_public nor
   # server_invoker_iam_disabled): the Job sends it a Google ID token as well.
@@ -170,6 +178,17 @@ resource "google_cloud_run_v2_service_iam_member" "orchestrator_invokes_server" 
   location = var.region
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.orchestrator.email}"
+}
+
+# The server starts this Job right after a deploy (KINDGI_PACK_ORCHESTRATOR_JOB),
+# and no other: its project grant invokes services only (server_invokes_packs).
+# roles/run.invoker on a Job runs it with no overrides.
+resource "google_cloud_run_v2_job_iam_member" "server_runs_orchestrator" {
+  count    = local.orchestrator ? 1 : 0
+  name     = google_cloud_run_v2_job.orchestrator[0].name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.server.email}"
 }
 
 # ---- the Job and its schedule ---------------------------------------------------

@@ -950,6 +950,14 @@ run "the_cloud_secrets_switch_is_the_modules" {
   expect_failures = [google_cloud_run_v2_service.server]
 }
 
+run "the_orchestrator_job_is_the_modules" {
+  command = plan
+  variables {
+    server_env = { KINDGI_PACK_ORCHESTRATOR_JOB = "projects/acme-app-dev/locations/northamerica-northeast2/jobs/acme" }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
 run "the_endpoint_hosts_are_the_modules" {
   command = plan
   variables {
@@ -997,6 +1005,17 @@ run "the_orchestrator_waits_for_its_key" {
   assert {
     condition     = contains(keys(google_project_service.apis), "cloudscheduler.googleapis.com")
     error_message = "Cloud Scheduler is on from the first apply."
+  }
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
+      if e.name == "KINDGI_PACK_ORCHESTRATOR_JOB"
+    ]) == "projects/acme-app-dev/locations/northamerica-northeast2/jobs/kindgi-dev-pack-orchestrator"
+    error_message = "Before the key apply, the server already names the Job it starts after a deploy, so that apply changes no server setting."
+  }
+  assert {
+    condition     = length(google_cloud_run_v2_job_iam_member.server_runs_orchestrator) == 0
+    error_message = "Without the Job, the server has no grant on it."
   }
 }
 
@@ -1059,6 +1078,21 @@ run "the_orchestrator_runs_once_a_minute_with_its_key" {
     error_message = "Cloud Scheduler runs the Job once a minute, one attempt each."
   }
   assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
+      if e.name == "KINDGI_PACK_ORCHESTRATOR_JOB"
+    ]) == "projects/acme-app-dev/locations/${google_cloud_run_v2_job.orchestrator[0].location}/jobs/${google_cloud_run_v2_job.orchestrator[0].name}"
+    error_message = "The server names the Job it starts after a deploy by the Job's full name, as before the key apply."
+  }
+  assert {
+    condition = (
+      google_cloud_run_v2_job_iam_member.server_runs_orchestrator[0].name == "kindgi-dev-pack-orchestrator" &&
+      google_cloud_run_v2_job_iam_member.server_runs_orchestrator[0].location == "northamerica-northeast2" &&
+      google_cloud_run_v2_job_iam_member.server_runs_orchestrator[0].role == "roles/run.invoker"
+    )
+    error_message = "The server may run the orchestrator's Job: roles/run.invoker on that Job alone."
+  }
+  assert {
     condition     = google_cloud_scheduler_job.orchestrator[0].http_target[0].oauth_token[0].scope == "https://www.googleapis.com/auth/cloud-platform"
     error_message = "Cloud Scheduler runs the Job with an OAuth token."
   }
@@ -1110,6 +1144,19 @@ run "a_server_behind_iam_takes_the_jobs_id_token" {
       if e.name == "KINDGI_ORCHESTRATOR_RUNTIME_AUTH"
     ]) == "google-id-token"
     error_message = "Behind Cloud Run IAM, the Job sends a Google ID token beside its system key."
+  }
+}
+
+run "the_job_grant_is_the_servers" {
+  # Applied against the mock, so the server's account email is known. The
+  # test's teardown passes over the key's prevent_destroy.
+  command = apply
+  variables {
+    orchestrator_key_version = "1"
+  }
+  assert {
+    condition     = google_cloud_run_v2_job_iam_member.server_runs_orchestrator[0].member == "serviceAccount:${google_service_account.server.email}"
+    error_message = "The Job grant is the server's own account's."
   }
 }
 

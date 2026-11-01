@@ -211,7 +211,7 @@ The runtime's KMS key needs `roles/cloudkms.cryptoKeyEncrypterDecrypter`. A runt
 
 ## 5. The pack orchestrator
 
-The pack orchestrator is `kindgi-runtime packs orchestrate`, run from the server's image as the Cloud Run Job `$N-pack-orchestrator`. Cloud Scheduler runs it once a minute. Each pass makes a service for each deployment that needs one, gives running ones their changed pack env, and retires what should go, through the server's system routes and as its own account (`$N-orch`). The server never makes or deletes a service.
+The pack orchestrator is `kindgi-runtime packs orchestrate`, run from the server's image as the Cloud Run Job `$N-pack-orchestrator`. Cloud Scheduler runs it once a minute, and the server starts it right after a deploy or promotion that needs a service (`KINDGI_PACK_ORCHESTRATOR_JOB`, from runtime `<x>`). Each pass makes a service for each deployment that needs one, gives running ones their changed pack env, and retires what should go, through the server's system routes and as its own account (`$N-orch`). The server never makes or deletes a service.
 
 It works with a system key of its own, which only a server that already routes per deployment can mint. So it takes two applies. The first (step 4) makes the orchestrator's account, its grants and the `$N-orchestrator-key` secret. The second, once the key is in that secret, makes the Job and its schedule. Until then `terraform output orchestrator_key_steps` prints these steps, with your names in them.
 
@@ -236,7 +236,7 @@ It works with a system key of its own, which only a server that already routes p
      -H @<(printf 'X-Serverless-Authorization: Bearer %s\n' "$(gcloud auth print-identity-token)") \
    ```
 
-2. Set `orchestrator_key_version` to the version it printed (`"1"` the first time), and apply again. That makes the Job and its schedule, and `orchestrator_key_steps` is null from then on. Pin it, never `"latest"`: a version added by mistake must not reach the Job.
+2. Set `orchestrator_key_version` to the version it printed (`"1"` the first time), and apply again. That makes the Job and its schedule, and `orchestrator_key_steps` is null from then on. Until this apply there's no Job for the server to start, so each deploy logs a warning that it couldn't start the orchestrator Job. Pin it, never `"latest"`: a version added by mistake must not reach the Job.
 
    ```sh
    terraform apply -var-file=dev.tfvars
@@ -244,7 +244,7 @@ It works with a system key of its own, which only a server that already routes p
 
 3. Deploy each pack (step 6). After an upgrade from the module's single pack service, deploy each one again: `kindgi deploy` with the same image is enough, with `--idempotency-key <new value>` so it isn't answered as the earlier deploy was. Until then, a deployment from before the server routed per deployment has no routes, and its tool calls answer `pack-route-missing`.
 
-A new deployment waits up to about a minute for its service, until the next pass. Until then its tool calls answer `pack-endpoint-pending`.
+A new deployment gets its service from the pass the server starts after the deploy, without waiting for the schedule. It waits up to about a minute, for the next scheduled pass, when that start fails or another pass is running. Until then its tool calls answer `pack-endpoint-pending`.
 
 **The Job:** 1 vCPU and 1 GiB, and a 600 s timeout as a backstop. Cloud Scheduler starts it at `* * * * *` (UTC), with an OAuth token of the orchestrator's account. Neither retries: next minute's run is the retry, and a pass that starts while another runs exits doing nothing. The Job reads the key's pinned version.
 
@@ -256,6 +256,8 @@ A new deployment waits up to about a minute for its service, until the next pass
 - **Making those secrets, and finding what a stopped pass left:** a second custom role, `<prefix>_secret_create_list`, creates secrets and lists the project's secrets, names and labels only. A create and a list name the project, not one secret, so it has no condition. A new secret holds no value until a version is added, which only the `kp-` role allows.
 - **Its key:** read access to `$N-orchestrator-key`.
 - **The server:** behind Cloud Run IAM, `roles/run.invoker` on it, and the Job sends a Google ID token with each call (`KINDGI_ORCHESTRATOR_RUNTIME_AUTH=google-id-token`).
+
+**The runtime's account:** `roles/run.invoker` on the Job, so a deploy starts it at once.
 
 ## 6. Register the pack
 
@@ -269,7 +271,7 @@ kindgi deploy --env dev --endpoint "$URL" --token <api token>
 
 `kindgi deploy` answers `201 Created` and lists what it registered. The runtime reads the image from Artifact Registry with its own identity (`KINDGI_IMAGE_REGISTRY_AUTH=google`).
 
-The deployment's tools answer once the orchestrator has made its pack service, at its next pass, within about a minute. Until then a tool call answers `pack-endpoint-pending`. `kindgi deployments get <deployment-id>` shows whether its service is ready, and the command that sets a name it's missing (`kindgi deployments list --table` lists the ids).
+The deployment's tools answer once the orchestrator has made its pack service, in the pass the server starts after the deploy, or else at the next scheduled pass, within about a minute. Until then a tool call answers `pack-endpoint-pending`. `kindgi deployments get <deployment-id>` shows whether its service is ready, and the command that sets a name it's missing (`kindgi deployments list --table` lists the ids).
 
 A deploy that was refused (say, before the key was trusted) runs again when you retry it as is, after fixing the cause: a refusal isn't kept for its `Idempotency-Key`. A deploy that went through is: the default key is the request body's hash, so the same image deployed again answers the same deployment, unless you give `--idempotency-key <new value>`.
 

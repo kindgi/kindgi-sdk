@@ -195,6 +195,8 @@ export const ENV_DEFAULTS = {
     'none: with `KINDGI_PACK_ROUTING=per-deployment`, the server refuses to start',
   KINDGI_PACK_ENDPOINT_KMS_KEY:
     "none: the secrets' own key, which `KINDGI_SECRETS_BACKEND=postgres` has; with any other backend, per-deployment routing refuses to start",
+  KINDGI_PACK_ORCHESTRATOR_JOB:
+    "none: no start after a deploy; the Job's schedule alone makes each deployment's pack service",
   KINDGI_ENV_CLOUD_SECRETS: '`off`: no cloud secrets are kept, and their routes answer 501',
   KINDGI_IMAGE_REGISTRY_HOST: 'none: every registry is read anonymously',
   KINDGI_IMAGE_REGISTRY_USERNAME: 'none: no credentials (anonymous reads)',

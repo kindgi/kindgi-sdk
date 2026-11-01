@@ -31,7 +31,8 @@ locals {
     "KINDGI_EXPORT_SIGNING_KEY", "KINDGI_EXPORT_SIGNING_KMS_KEY", "KINDGI_IMAGE_REGISTRY_AUTH",
     "KINDGI_IMAGE_REGISTRY_HOST", "KINDGI_LICENSE_KEY", "KINDGI_OPENFGA_API_URL",
     "KINDGI_PACK_CALL_TIMEOUT_MS", "KINDGI_PACK_ENDPOINT_HOSTS", "KINDGI_PACK_ENDPOINT_KMS_KEY",
-    "KINDGI_PACK_ROUTING", "KINDGI_PUBLIC_TOKEN_SIGNING_KEY", "KINDGI_PUBLIC_URL",
+    "KINDGI_PACK_ORCHESTRATOR_JOB", "KINDGI_PACK_ROUTING", "KINDGI_PUBLIC_TOKEN_SIGNING_KEY",
+    "KINDGI_PUBLIC_URL",
     "KINDGI_SECRETS_AAD_KEY", "KINDGI_SECRETS_BACKEND", "KINDGI_SECRETS_BACKEND_KMS",
     "KINDGI_SECRETS_GCP_KEY_ID", "KINDGI_SECRETS_GCP_KEY_RING_ID", "KINDGI_SECRETS_GCP_LOCATION_ID",
     "KINDGI_SECRETS_GCP_PROJECT_ID", "KINDGI_SEED_USER_ID", "KINDGI_TENANCY", "KINDGI_TENANT_ID",
@@ -257,6 +258,14 @@ resource "google_cloud_run_v2_service" "server" {
       env {
         name  = "KINDGI_PACK_ENDPOINT_KMS_KEY"
         value = google_kms_crypto_key.secrets.id
+      }
+      # The pack orchestrator's Job, which the server starts right after a
+      # deploy that needs a pack service, so it needn't wait for the Job's
+      # next minute. Set on every apply: before the key apply there's no Job
+      # yet, and a start only warns.
+      env {
+        name  = "KINDGI_PACK_ORCHESTRATOR_JOB"
+        value = local.orchestrator_job
       }
       # A pack's env may name a secret of yours in Secret Manager, pinned to
       # a version (a cloud secret), whatever the secrets backend: each

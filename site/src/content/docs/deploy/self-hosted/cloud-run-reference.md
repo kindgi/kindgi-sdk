@@ -185,7 +185,9 @@ every call:
 A tool call the runtime can't route answers with a code of its own:
 
 - `pack-endpoint-pending`: the deployment's service isn't ready yet. A new
-  deployment waits for the orchestrator's next pass, within about a minute.
+  deployment gets it from the pass the runtime starts after the deploy, or,
+  when that start fails or another pass is running, from the next scheduled
+  pass, within about a minute.
 - `pack-endpoint-cleared`: the deployment's service was taken down.
 - `pack-route-missing`: no deployment into the run's project (the default
   project, for a run with none) shipped that version. A deployment registered before the runtime
@@ -197,6 +199,7 @@ A tool call the runtime can't route answers with a code of its own:
 | Who | Role | On |
 |---|---|---|
 | The runtime's service account | `roles/run.servicesInvoker` | the project, so it may invoke each pack service |
+| | `roles/run.invoker`, with the orchestrator on | the orchestrator Job: it starts the Job after a deploy |
 | | `roles/cloudkms.cryptoKeyEncrypterDecrypter` | the KMS key (it seals the pack services' tokens, and the startup checks encrypt and decrypt with it) |
 | | `roles/cloudkms.viewer` | the KMS key; needed only by older runtimes, whose startup check read the key's metadata |
 | | `roles/artifactregistry.reader` | the repository, or yours (`image_repository`) |

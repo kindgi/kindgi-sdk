@@ -357,7 +357,9 @@ KMS probe OK (gcp-cloud-kms): gcp-cloud-kms v1 (encrypt/decrypt round trip, key 
 
 The pack orchestrator is a Cloud Run Job, `$N-pack-orchestrator`, from the
 runtime's image. It runs `kindgi-runtime packs orchestrate` as its own
-account, `$N-orch`, and Cloud Scheduler starts it once a minute. Each pass
+account, `$N-orch`, and Cloud Scheduler starts it once a minute. The
+runtime starts it too, right after a deploy or promotion that needs a
+service (`KINDGI_PACK_ORCHESTRATOR_JOB`, from runtime `<x>`). Each pass
 makes a service for each deployment that needs one, gives running ones
 their changed env, and retires what should go, through the runtime's system
 routes. The runtime never makes or deletes a service itself.
@@ -410,13 +412,17 @@ names in them.
    ```
 
    That makes the Job and its schedule, and `orchestrator_key_steps` is null
-   from then on. The module refuses `latest`: a version added by mistake
-   must not reach the Job.
+   from then on. Until this apply there's no Job for the runtime to start,
+   so each deploy logs a warning that it couldn't start the orchestrator
+   Job. The module refuses `latest`: a version added by mistake must not
+   reach the Job.
 
 Then deploy your pack
 ([5. Trust your key, and deploy](#5-trust-your-key-and-deploy)). A new
-deployment waits up to about a minute for its service, until the next pass.
-Until then its tool calls answer `pack-endpoint-pending`.
+deployment gets its service from the pass the runtime starts after the
+deploy. It waits up to about a minute, for the next scheduled pass, when
+that start fails or another pass is running. Until then its tool calls
+answer `pack-endpoint-pending`.
 
 The Job has 1 vCPU and 1 GiB, and a 600-second timeout as a backstop. Cloud
 Scheduler starts it at `* * * * *`, in UTC, with an OAuth token of the
@@ -807,8 +813,9 @@ It prints the deployment as JSON, then each step. The last steps:
 ```
 
 The deployment's tools answer once the orchestrator has made its pack
-service, at its next pass, within about a minute. Until then a tool call
-answers `pack-endpoint-pending`. `kindgi deployments get <deployment-id>`
+service, in the pass the runtime starts after the deploy, or else at the
+next scheduled pass, within about a minute. Until then a tool call answers
+`pack-endpoint-pending`. `kindgi deployments get <deployment-id>`
 shows whether its service is ready, and the command that sets a name its env
 is missing (`kindgi deployments list --table` lists the ids).
 

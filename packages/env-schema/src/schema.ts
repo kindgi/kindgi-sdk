@@ -1564,6 +1564,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'pack-service',
   },
   {
+    name: 'KINDGI_PACK_ORCHESTRATOR_JOB',
+    description:
+      "Used from runtime `<x>`; earlier runtimes ignore it. With `KINDGI_PACK_ROUTING=per-deployment` on Cloud Run: the pack orchestrator's Cloud Run Job, by its full name (`projects/<project>/locations/<region>/jobs/<name>`). The server starts it right after a deploy or promotion whose deployment still needs a pack service, so the deployment needn't wait for the Job's next scheduled run. It runs the Job with no overrides (`POST https://run.googleapis.com/v2/<name>:run`) as its own account, which needs `roles/run.invoker` on the Job. One start at a time per server, and none within 10 s of the last one's beginning: deploys meanwhile make one more start after it. The deploy's answer never waits for it. A start that fails is one warning, naming the Job and Google's status, and the Job's next scheduled run still makes the service. The Cloud Run module sets it on every apply. Any other shape stops the server at boot, and so does setting it with `KINDGI_PACK_ROUTING=single`. Unset: no start, and the Job's schedule alone makes each service.",
+    example: 'projects/acme-prod/locations/us-central1/jobs/kindgi-pack-orchestrator',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'pack-service',
+  },
+  {
     name: 'KINDGI_ENV_CLOUD_SECRETS',
     description:
       "Used from runtime 0.4.0; earlier runtimes ignore it. Whether the operator may set a pack's env name to a cloud secret: a numbered version of a Google Cloud Secret Manager secret (`projects/<project>/secrets/<secret>/versions/<number>`). The runtime keeps that path, never the value, and the pack service is given it by its env name: Cloud Run reads the value as the pack service's own account, so turn it on only where that account can read the secrets you name (the Cloud Run module grants it on each secret listed in `pack_secret_readers`). `on`: a system key holding `system:env-refs` sets and removes them (`kindgi env set NAME --cloud-secret <path> --tenant=<tenantId> --scope=<kind>[:id] --env=<name>`, or `PUT /v1/system/tenants/<tenantId>/env/<name>`), and each deployment's pack env answer carries them. It needs `KINDGI_PACK_ROUTING=per-deployment`: on without it, the server refuses to start, naming both. Unset or `off`: none is kept, and those routes answer 501 (`cloud-secrets-unsupported`), as on Kindgi Cloud.",

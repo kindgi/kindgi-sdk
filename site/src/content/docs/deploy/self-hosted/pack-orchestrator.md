@@ -77,6 +77,12 @@ gcloud scheduler jobs create http kindgi-pack-orchestrator --location=<region> \
 - **The task timeout** is a backstop: a pass returns by itself before its
   round ends. Leave retries off: next minute's run is the retry.
 - **The scheduler's account** needs `roles/run.invoker` on the Job.
+- **The runtime's account** needs it too when the runtime sets
+  `KINDGI_PACK_ORCHESTRATOR_JOB` to the Job's full name,
+  `projects/<project>/locations/<region>/jobs/kindgi-pack-orchestrator`
+  (runtime `<x>` or later). The runtime then starts the Job right after a
+  deploy or promotion that needs a service, so the deployment needn't wait
+  for the next minute.
 - **Elsewhere:** cron or a systemd timer that runs
   `kindgi-runtime packs orchestrate` every minute works the same. Runs that
   overlap are fine: the round keeps one pass at a time.
