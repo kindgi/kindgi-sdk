@@ -357,6 +357,11 @@ async function saveSetting(bin, name, value, target) {
   return {};
 }
 
+/** Only the store before can revoke this pack's password there: Kindgi no longer signs in to it. */
+function storeBefore(storeWas, app) {
+  return `WOO_STORE_URL named ${storeWas} before. If that's another store, this pack's password there still signs in: remove "${app.name}" there, under Users → All Users → ${AGENT_USER} → Application Passwords.`;
+}
+
 /**
  * Revokes one of the agent's passwords, and says whether it went; one that
  * won't go is said, for the person to remove.
@@ -466,6 +471,7 @@ async function connect(api, approval, { bin, store, target, app }) {
     } else if (err instanceof Failure) {
       const still = err.was === undefined ? '' : `, while WOO_USER still says "${err.was}"`;
       err.message += `\nKindgi holds the store's new password (WOO_APP_PASSWORD) and its address (WOO_STORE_URL) now${still}: the password stays in the store, and running this again once kindgi can set WOO_USER finishes the connect.`;
+      if (storeWas !== undefined) err.message += `\n${storeBefore(storeWas, app)}`;
     }
     throw err;
   }
@@ -477,12 +483,7 @@ async function connect(api, approval, { bin, store, target, app }) {
       left: `the agent's password from the connect before, an older "${app.name}"`,
     });
   }
-  // Only the store before can revoke its own: Kindgi no longer signs in there.
-  if (storeWas !== undefined) {
-    say(
-      `! WOO_STORE_URL named ${storeWas} before. If that's another store, this pack's password there still signs in: remove "${app.name}" there, under Users → All Users → ${AGENT_USER} → Application Passwords.`,
-    );
-  }
+  if (storeWas !== undefined) say(`! ${storeBefore(storeWas, app)}`);
 }
 
 /** The approver's own password was only for this; it goes either way. */

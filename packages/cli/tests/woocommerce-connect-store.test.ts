@@ -742,6 +742,10 @@ describe("the woocommerce starter's connect-store", () => {
     expect(out.stderr).toContain(
       "kindgi env set WOO_USER failed:\nError [auth]: Bearer token is not recognized\nKindgi holds the store's new password (WOO_APP_PASSWORD) and its address (WOO_STORE_URL) now: the password stays in the store, and running this again once kindgi can set WOO_USER finishes the connect.",
     );
+    // The address moved, so the failure names the store before: the run stops before its own line on it.
+    expect(out.stderr).toContain(
+      `finishes the connect.\nWOO_STORE_URL named ${first.url} before. If that's another store, this pack's password there still signs in: remove "Kindgi (acme-shop, local)" there, under Users → All Users → kindgi-agent → Application Passwords.`,
+    );
     expect(page).toContain('Not connected');
     const state = await kindgiState();
     expect(state.env['tenant in env local WOO_STORE_URL']).toBe(shop.url);
