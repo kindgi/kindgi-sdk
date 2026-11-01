@@ -25,6 +25,17 @@ export interface GateCheck {
   readonly threshold?: number | string;
   /** The cases it names: for `cases.noNewFailures`, the ones that passed before and fail now. */
   readonly caseIds?: readonly string[];
+  /**
+   * `cases.noNewFailures` only: the cases that passed before that the run
+   * had and couldn't check. They fail it too. Absent when there are none.
+   */
+  readonly uncheckedCaseIds?: readonly string[];
+  /**
+   * `cases.noNewFailures` only: the cases that passed before that no run
+   * can check as they were saved. Named, not counted. Absent when there
+   * are none.
+   */
+  readonly asSavedCaseIds?: readonly string[];
 }
 
 /** What a passing pin still needs: a reviewer's approval. */
@@ -152,12 +163,15 @@ export function evaluateGate(input: GateInput): GateResult {
 /**
  * A refusal's figures for the gate's `cases` rule, read off its checks:
  * `passing` and `needs` with `minPassing`, and `newlyFailing` with
- * `noNewFailures` once it could tell. Empty without the rule.
+ * `noNewFailures` once it could tell, with `unchecked` and `asSaved` when
+ * it names any. Empty without the rule.
  */
 export function casesDetails(checks: readonly GateCheck[]): {
   readonly passing?: number;
   readonly needs?: number;
   readonly newlyFailing?: readonly string[];
+  readonly unchecked?: readonly string[];
+  readonly asSaved?: readonly string[];
 } {
   const min = checks.find((c) => c.name === 'cases.minPassing');
   const none = checks.find((c) => c.name === 'cases.noNewFailures');
@@ -165,6 +179,8 @@ export function casesDetails(checks: readonly GateCheck[]): {
     ...(typeof min?.value === 'number' && { passing: min.value }),
     ...(typeof min?.threshold === 'number' && { needs: min.threshold }),
     ...(none?.caseIds !== undefined && { newlyFailing: none.caseIds }),
+    ...(none?.uncheckedCaseIds !== undefined && { unchecked: none.uncheckedCaseIds }),
+    ...(none?.asSavedCaseIds !== undefined && { asSaved: none.asSavedCaseIds }),
   };
 }
 
@@ -407,7 +423,7 @@ function replayChecks(
   });
 }
 
-/** Cases a failing check lists by id in its message; `caseIds` has them all. */
+/** Cases a check lists by id in its message; its lists of ids have them all. */
 const LISTED_CASES = 5;
 
 /** How many of the comparison's cases pass, and whether one that passed before fails now. */
@@ -429,13 +445,16 @@ function casesChecks(
       threshold: needs,
     });
   }
-  if (cases.noNewFailures === true) checks.push(noNewFailuresCheck(graded, passedBefore));
+  if (cases.noNewFailures === true) {
+    checks.push(noNewFailuresCheck(graded, passedBefore, summary.unchecked));
+  }
   return checks;
 }
 
 function noNewFailuresCheck(
   graded: CorrectedComparisonSummary['corrections'],
   passedBefore: readonly string[] | undefined,
+  unchecked: CorrectedComparisonSummary['unchecked'],
 ): GateCheck {
   const name = 'cases.noNewFailures';
   if (passedBefore === undefined) {
@@ -455,26 +474,44 @@ function noNewFailuresCheck(
     };
   }
   const before = new Set(passedBefore);
-  const { checked, caseIds } = newlyFailing(graded?.results ?? [], before);
+  const found = newlyFailing(graded?.results ?? [], unchecked, before);
+  const { caseIds, uncheckedCaseIds, asSavedCaseIds } = found;
   return {
     name,
-    passed: caseIds.length === 0,
-    message: noNewFailuresMessage(checked, before.size, caseIds),
-    value: caseIds.length,
+    passed: caseIds.length === 0 && uncheckedCaseIds.length === 0,
+    message: noNewFailuresMessage(found, before.size),
+    value: caseIds.length + uncheckedCaseIds.length,
     threshold: 0,
     caseIds,
+    ...(uncheckedCaseIds.length > 0 && { uncheckedCaseIds }),
+    ...(asSavedCaseIds.length > 0 && { asSavedCaseIds }),
   };
 }
 
+/** What `cases.noNewFailures` found among the cases fixed now. */
+interface NewlyFailing {
+  /** How many the run graded. */
+  readonly checked: number;
+  /** The ones that fail now. */
+  readonly caseIds: readonly string[];
+  /** The ones the run had and couldn't check, which a new run can. */
+  readonly uncheckedCaseIds: readonly string[];
+  /** The ones no run can check as they were saved. */
+  readonly asSavedCaseIds: readonly string[];
+}
+
 /**
- * Of the graded corrections that passed before: how many the run
- * checked, and the ones it failed. A correction graded on more than one
- * case fails when any of them does.
+ * Of the corrections that passed before: how many the run graded, the
+ * ones it failed, and the ones it had and couldn't check (`unchecked`),
+ * split by whether a new run can. A correction on more than one case fails
+ * when any of them does; otherwise one of them unchecked leaves it
+ * unchecked, unless each such case is as saved.
  */
 function newlyFailing(
   results: readonly { readonly correctionId: string; readonly pass: boolean }[],
+  unchecked: CorrectedComparisonSummary['unchecked'],
   before: ReadonlySet<string>,
-): { checked: number; caseIds: string[] } {
+): NewlyFailing {
   const checked = new Set<string>();
   const failing = new Set<string>();
   for (const r of results) {
@@ -482,24 +519,66 @@ function newlyFailing(
     checked.add(r.correctionId);
     if (!r.pass) failing.add(r.correctionId);
   }
-  return { checked: checked.size, caseIds: [...failing] };
+  const asSaved = new Set(unchecked?.asSavedCaseIds ?? []);
+  const unknown = (unchecked?.caseIds ?? []).filter((id) => before.has(id) && !failing.has(id));
+  const uncheckedCaseIds = new Set(unknown.filter((id) => !asSaved.has(id)));
+  return {
+    checked: checked.size,
+    caseIds: [...failing],
+    uncheckedCaseIds: [...uncheckedCaseIds],
+    asSavedCaseIds: [...new Set(unknown.filter((id) => !uncheckedCaseIds.has(id)))],
+  };
 }
 
 /**
  * What the check found, always with how many of the cases fixed now the
- * run graded: one it didn't grade isn't counted either way.
+ * run graded. One it had and couldn't check fails it too, unless no run
+ * can check it as it was saved: that one is named and isn't counted. One
+ * it didn't have isn't counted either way.
  */
-function noNewFailuresMessage(checked: number, fixed: number, caseIds: readonly string[]): string {
+function noNewFailuresMessage(found: NewlyFailing, fixed: number): string {
   if (fixed === 0) return 'No case is fixed now, so none that passed before can fail.';
+  const { checked, caseIds, uncheckedCaseIds, asSavedCaseIds } = found;
   const of = `${checked === 0 ? 'none' : checked} of the ${count(fixed, 'case')} fixed now`;
-  if (caseIds.length > 0) {
-    const listed = caseIds.slice(0, LISTED_CASES).join(', ');
-    const more = caseIds.length - LISTED_CASES;
-    const verb = caseIds.length === 1 ? 'fails' : 'fail';
-    return `${count(caseIds.length, 'case')} that passed before ${verb} now: ${listed}${more > 0 ? `, and ${more} more` : ''}. The test run checked ${of}.`;
-  }
+  const outcome =
+    caseIds.length > 0 || uncheckedCaseIds.length > 0
+      ? notPassing(caseIds, uncheckedCaseIds, of)
+      : stillPassing(checked, of);
+  return `${outcome}${asSavedSentence(asSavedCaseIds)}`;
+}
+
+/** The cases that fail now and those the run couldn't check, then how many it checked (`of`). */
+function notPassing(
+  caseIds: readonly string[],
+  uncheckedCaseIds: readonly string[],
+  of: string,
+): string {
+  const failing =
+    caseIds.length > 0
+      ? `${count(caseIds.length, 'case')} that passed before ${caseIds.length === 1 ? 'fails' : 'fail'} now: ${listed(caseIds)}. `
+      : '';
+  const n = uncheckedCaseIds.length;
+  if (n === 0) return `${failing}The test run checked ${of}.`;
+  return `${failing}${count(n, 'case')} that passed before couldn't be checked now: ${listed(uncheckedCaseIds)}. The test run checked ${of}. The test run's \`unchecked\` says why; run it again once ${n === 1 ? 'it' : 'they'} can be checked.`;
+}
+
+/** How many it checked (`of`), when none fails and none is unchecked. */
+function stillPassing(checked: number, of: string): string {
   if (checked === 0) return `The test run checked ${of}.`;
   return `The test run checked ${of}, and ${checked === 1 ? 'it still passes' : 'they all still pass'}.`;
+}
+
+/** The cases fixed now that no run can check as they were saved, or nothing. */
+function asSavedSentence(asSavedCaseIds: readonly string[]): string {
+  const n = asSavedCaseIds.length;
+  if (n === 0) return '';
+  return ` ${count(n, 'case')} fixed now can't be checked as ${n === 1 ? 'it was' : 'they were'} saved: ${listed(asSavedCaseIds)}.`;
+}
+
+/** The first `LISTED_CASES` of `caseIds`, and how many more. */
+function listed(caseIds: readonly string[]): string {
+  const more = caseIds.length - LISTED_CASES;
+  return `${caseIds.slice(0, LISTED_CASES).join(', ')}${more > 0 ? `, and ${more} more` : ''}`;
 }
 
 function metricLabel(name: GateMetricName, metric: ComparisonMetric): string {

@@ -245,6 +245,18 @@ class GateCheck(BaseModel):
     """
     The cases it names: for `cases.noNewFailures`, the ones that passed before and fail now (empty when none does). Absent when it could not tell, and on other checks.
     """
+    unchecked_case_ids: Annotated[
+        list[str] | None, Field(alias="uncheckedCaseIds", min_length=1)
+    ] = None
+    """
+    `cases.noNewFailures` only: the cases that passed before that the test run had and couldn't check (its `unchecked`). They refuse it too: a new test run can check them. Absent when there are none, and from older servers.
+    """
+    as_saved_case_ids: Annotated[list[str] | None, Field(alias="asSavedCaseIds", min_length=1)] = (
+        None
+    )
+    """
+    `cases.noNewFailures` only: the cases that passed before that no run can check as they were saved (the test run's `unchecked.asSavedCaseIds`). Named, not counted. Absent when there are none, and from older servers.
+    """
 
 
 class ReleaseGateRef(BaseModel):
@@ -336,7 +348,7 @@ class Cases(BaseModel):
     """
     no_new_failures: Annotated[bool | None, Field(alias="noNewFailures")] = None
     """
-    No case that passed before fails: none of the comparison's corrections that are `fixed` now fails it. One the comparison didn't grade isn't counted; the check's message says how many of the cases fixed now it graded.
+    No case that passed before fails: none of the comparison's corrections that are `fixed` now fails it. One the comparison had and couldn't check fails it too, unless no run can check it as it was saved: that one is named and isn't counted. One it didn't have, or that has nothing to check, isn't counted. The check's message says how many of the cases fixed now it graded.
     """
 
 
@@ -7563,7 +7575,7 @@ class Corrections(BaseModel):
 
 class Unchecked(BaseModel):
     """
-    Cases whose pass isn't known: a part of their `expect` couldn't be checked, each naming it in its entry's `unchecked`, and none that was checked failed. Say every case's answer, when the version has no model settings. They're left out of `corrections`. Absent from older servers, and when there are none.
+    Cases whose pass isn't known: a part of their `expect` couldn't be checked, each naming it in its entry's `unchecked`, and none that was checked failed. Say every case's answer, when the version has no model settings. They're left out of `corrections`, and a release gate's `cases.noNewFailures` refuses one of them that passed before, unless no run can check it as it was saved. Absent from older servers, and when there are none.
     """
 
     model_config = ConfigDict(
@@ -7572,11 +7584,21 @@ class Unchecked(BaseModel):
     )
     cases: Annotated[int, Field(ge=1)]
     """
-    How many cases.
+    How many cases: `caseIds` is as long.
+    """
+    case_ids: Annotated[list[str], Field(alias="caseIds", min_length=1)]
+    """
+    The cases, by id. A correction's case has the correction's id.
+    """
+    as_saved_case_ids: Annotated[list[str] | None, Field(alias="asSavedCaseIds", min_length=1)] = (
+        None
+    )
+    """
+    The ones among `caseIds` that no run can check as they were saved: each part left unchecked was the case's own doing, say `decisions: right` on a recorded run whose tool calls can't be read, or an answer with nothing to check it against. Absent when there are none.
     """
     why: Annotated[str | None, Field(min_length=1)] = None
     """
-    The first reason the answer checker gave for an answer of theirs it couldn't check. Absent when it gave none: no checker, a test run stopped before a check, or only decisions unchecked.
+    The first reason one of them couldn't be checked that a new run can fix: no answer checker, a candidate that isn't an agent version, a test run stopped before a check, or the reason the answer checker gave. When every one is in `asSavedCaseIds`, the first reason one of them can't be checked as it was saved. Absent only when the answer checker gave no reason.
     """
 
 
@@ -16593,7 +16615,7 @@ class CorrectedComparisonSummary(BaseModel):
     """
     unchecked: Unchecked | None = None
     """
-    Cases whose pass isn't known: a part of their `expect` couldn't be checked, each naming it in its entry's `unchecked`, and none that was checked failed. Say every case's answer, when the version has no model settings. They're left out of `corrections`. Absent from older servers, and when there are none.
+    Cases whose pass isn't known: a part of their `expect` couldn't be checked, each naming it in its entry's `unchecked`, and none that was checked failed. Say every case's answer, when the version has no model settings. They're left out of `corrections`, and a release gate's `cases.noNewFailures` refuses one of them that passed before, unless no run can check it as it was saved. Absent from older servers, and when there are none.
     """
     cost_usd: Annotated[CorrectedComparisonCost | None, Field(alias="costUsd")] = None
 

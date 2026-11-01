@@ -19,9 +19,13 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   were checked, and the new `unchecked` (`"decisions"`, `"answer"`) names the
   rest: such a case doesn't pass. A part that failed beside an unchecked one
   counts in `pass_rate` and, as a fail, in the summary's `corrections`. The
-  summary's new `unchecked` has `cases`, how many cases' pass isn't known
-  (a part unchecked and none failed), and `why`, the first reason an answer
-  of theirs couldn't be checked. Both are `None` from an older runtime.
+  summary's new `unchecked` lists the cases whose pass isn't known (a part
+  unchecked and none failed) by id, in `case_ids` (`cases` of them), with
+  `as_saved_case_ids`, the ones no run can check as they were saved, and
+  `why`. A release gate's `cases.noNewFailures` now refuses one of them that
+  passed before, unless it's as saved: the gate check names them in
+  `unchecked_case_ids` and `as_saved_case_ids`. All are `None` from an older
+  runtime.
 - `kindgi`: **a suggested change says how many corrections it fixes in all**:
   `SuggestedChange.correction_count`. `fixes` names the first 100 at most, and
   an Improve run can fix more. It's `None` from an older runtime: there, take

@@ -20,7 +20,7 @@ import type { FlowVersionOverrides } from '@kindgi/flow';
 import type { Cursor, RunId, TenantId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from './agent-binding.js';
-import type { AnswerCheckBinding } from './answer-check-binding.js';
+import type { AnswerCheck, AnswerCheckBinding } from './answer-check-binding.js';
 import {
   type ItemChanges,
   type ItemCorrections,
@@ -219,11 +219,19 @@ export interface CorrectedComparisonSummary {
   /**
    * The cases whose pass isn't known (`passKnown`): a part of their
    * `expect` couldn't be checked (each entry's `unchecked`), and none that
-   * was checked failed. They're the ones left out of `corrections`. `why`
-   * is the first reason the answer checker gave for an answer of theirs it
-   * couldn't check, when it gave one. Absent when there are none.
+   * was checked failed. They're the ones left out of `corrections`, by id
+   * (`caseIds`; `cases` is how many). `asSavedCaseIds` are the ones no run
+   * can check as they were saved: each part left unchecked was the case's
+   * own doing. `why` is the first reason a new run can fix, or, when every
+   * one is as saved, the first reason one can't be checked. Absent when
+   * there are none.
    */
-  readonly unchecked?: { readonly cases: number; readonly why?: string };
+  readonly unchecked?: {
+    readonly cases: number;
+    readonly caseIds: readonly string[];
+    readonly asSavedCaseIds?: readonly string[];
+    readonly why?: string;
+  };
   /**
    * What the candidate's replays cost in model calls, as the runtime
    * reported it: each repetition's total over the cases whose every
@@ -458,8 +466,8 @@ async function replayAll(
   // Erased after they were listed: the replay was refused (`run-erased`).
   const erasedLate = new Set<string>();
   let halt: Halt | undefined;
-  // The first reason the checker gave for an answer it couldn't check.
-  let uncheckedWhy: string | undefined;
+  // Why each case whose pass the run couldn't know isn't known, in the order they ran.
+  const unknowns = new Map<string, CaseUnknown>();
   for (const correctedCase of all) {
     if (ctx.abortSignal.aborted) break;
     const done = await runCase(ctx, comparison, correctedCase, models, options.answers);
@@ -472,14 +480,22 @@ async function replayAll(
       break;
     }
     results.push(done.result);
-    uncheckedWhy ??= done.uncheckedWhy;
+    if (done.unknown !== undefined) unknowns.set(correctedCase.caseId, done.unknown);
     ctx.onProgress(done.result as unknown as Readonly<Record<string, unknown>>);
   }
   const pinsDigest = await candidatePins(options.agents, ctx);
   const ran = all.filter((c) => !erasedLate.has(c.caseId));
   const erasedAll = erased + erasedLate.size;
   const summary = {
-    ...summarize(ctx, comparison, ran, results, [...models.values()], pinsDigest, uncheckedWhy),
+    ...summarize(
+      ctx,
+      comparison,
+      ran,
+      results,
+      [...models.values()],
+      pinsDigest,
+      unknownsOf(unknowns),
+    ),
     ...(erasedAll > 0 && { erased: erasedAll }),
   };
   return {
@@ -712,15 +728,43 @@ async function runCase(
       : await gradeExpect(ctx, correctedCase, correctedCase.expect, tally.repetitions, answers);
   return {
     result: tally.result(baseline, graded),
-    ...(graded?.uncheckedWhy !== undefined && { uncheckedWhy: graded.uncheckedWhy }),
+    ...(graded?.unknown !== undefined && { unknown: graded.unknown }),
   };
 }
 
-/** A case that ran: its result, and why the checker couldn't check its answer, when it said. */
+/** A case that ran: its result, and why its pass isn't known, when it isn't. */
 interface CaseRan {
   readonly result: CorrectedCaseResult;
-  readonly uncheckedWhy?: string;
+  readonly unknown?: CaseUnknown;
 }
+
+/** Why a case's pass isn't known (`passKnown`). */
+interface CaseUnknown {
+  /** No run can check it as it was saved: each part it left unchecked was the case's own doing. */
+  readonly asSaved: boolean;
+  /** The first reason given for a part of its kind: one a new run can check, unless `asSaved`. */
+  readonly why?: string;
+}
+
+/** A part of a case's `expect` left unchecked, and why. */
+interface UncheckedPart {
+  readonly part: 'decisions' | 'answer';
+  /** The case's own doing, so no run can check it as it was saved. */
+  readonly asSaved: boolean;
+  readonly why: string | undefined;
+}
+
+/** Why `decisions: right` can't be checked when the recorded run's calls can't be read. */
+const DECISIONS_AS_SAVED = "The case's recorded tool calls can't be read.";
+
+/** Why an answer isn't checked when the host passed no checker (`answers`). */
+const NO_ANSWER_CHECKER = "This runtime can't check an answer: it has no answer checker.";
+
+/** Why an answer isn't checked when the candidate isn't an agent version, such as a flow. */
+const ANSWERS_NEED_AN_AGENT_VERSION = "Only an agent version's answers are checked.";
+
+/** Why an answer isn't checked when the test run stopped first. */
+const STOPPED_BEFORE_ANSWER = 'The test run stopped before an answer was checked.';
 
 /** One repetition, as a case's `expect` is graded on it. */
 interface Repetition {
@@ -743,8 +787,8 @@ interface ExpectGraded {
   };
   /** What checking each repetition's answer cost, by repetition (0-based). */
   readonly judgingCosts: readonly (number | undefined)[];
-  /** Why the checker couldn't check the answer, when it said and the case's pass isn't known. */
-  readonly uncheckedWhy?: string;
+  /** Why the case's pass isn't known, when it isn't. */
+  readonly unknown?: CaseUnknown;
 }
 
 /**
@@ -759,15 +803,17 @@ interface ExpectGraded {
  *   order, stopping at the first answer that fails, so a failed answer
  *   costs one call at most. It's checked on a repetition whose decisions
  *   failed too: it's a check of its own in `passRate`. Unchecked without a
- *   checker, when it answers `unchecked`, or when the test run is stopped
- *   before a check.
+ *   checker, when it answers `unchecked`, when the test run is stopped
+ *   before a check, or, with no call, when the case says nothing to check
+ *   it against (`answerAsSavedProblem`).
  *
  * A repetition that errored or stopped fails every part; its answer isn't
  * checked, nor any after it. A repetition passes when every part passed on
  * it, and each part (`parts`) passes when it passed on every repetition.
  * The entry is left out when the case expects only items (they count
  * toward `weightedPrecisionAtK`); a part that couldn't be checked is named
- * in `unchecked`, and no repetition passes. What checking cost counts
+ * in `unchecked`, and no repetition passes. When the case's pass isn't
+ * known, `unknown` says why (`unknownOf`). What checking cost counts
  * either way.
  */
 async function gradeExpect(
@@ -779,23 +825,23 @@ async function gradeExpect(
 ): Promise<ExpectGraded> {
   const { decisions, answer } = expect;
   if (decisions === undefined && answer === undefined) return { judgingCosts: [] };
-  const unchecked: ('decisions' | 'answer')[] = [];
+  const unchecked: UncheckedPart[] = [];
   const decided = gradeDecisions(correctedCase, decisions, repetitions);
-  // Decisions that can't be checked are unchecked; the answer is still checked.
-  if (decided === undefined) unchecked.push('decisions');
+  // Decisions that can't be checked are unchecked, as saved; the answer is still checked.
+  if (decided === undefined) {
+    unchecked.push({ part: 'decisions', asSaved: true, why: DECISIONS_AS_SAVED });
+  }
   const differences = decided?.differences;
   let answered: readonly (boolean | undefined)[] | undefined = repetitions.map(() => true);
   let judgingCosts: readonly (number | undefined)[] = [];
   let why: string | undefined;
-  let uncheckedWhy: string | undefined;
   if (answer !== undefined) {
     const checked = await checkAnswers(ctx, correctedCase, answer, repetitions, answers);
     // What a check cost counts even when a later one couldn't be made.
     judgingCosts = checked.costs;
     if (checked.unchecked === true) {
-      unchecked.push('answer');
+      unchecked.push({ part: 'answer', asSaved: checked.asSaved === true, why: checked.reason });
       answered = undefined;
-      uncheckedWhy = checked.reason;
     } else {
       answered = checked.passes;
       why = checked.why;
@@ -813,15 +859,25 @@ async function gradeExpect(
     repetitions: n,
     ...(why !== undefined && { why }),
     parts: partsPassed(expect, decided?.passes, answered, n),
-    ...(unchecked.length > 0 && { unchecked }),
+    ...(unchecked.length > 0 && { unchecked: unchecked.map((u) => u.part) }),
   };
   return {
     entry,
     ...(differences !== undefined && { differences }),
     judgingCosts,
-    // The summary's reason is for a case whose pass the run couldn't know.
-    ...(uncheckedWhy !== undefined && !passKnown(entry) && { uncheckedWhy }),
+    ...(!passKnown(entry) && { unknown: unknownOf(unchecked) }),
   };
+}
+
+/**
+ * Why a case's pass isn't known, from the parts it left unchecked: as saved
+ * when each was the case's own doing, and then the first reason one gave;
+ * otherwise the first reason a part a new run can check gave.
+ */
+function unknownOf(parts: readonly UncheckedPart[]): CaseUnknown {
+  const asSaved = parts.every((p) => p.asSaved);
+  const why = parts.find((p) => p.asSaved === asSaved && p.why !== undefined)?.why;
+  return { asSaved, ...(why !== undefined && { why }) };
 }
 
 /**
@@ -889,11 +945,14 @@ interface AnswersChecked {
   readonly why?: string;
   /**
    * Set when the answers couldn't be checked: no checker, a candidate that
-   * isn't an agent version, a check the checker couldn't make, or a test
-   * run stopped before a check.
+   * isn't an agent version, a check the checker couldn't make, a test run
+   * stopped before a check, or a case that says nothing to check them
+   * against (`asSaved`).
    */
   readonly unchecked?: true;
-  /** Why the checker couldn't check one, when it said (`AnswerCheck`). */
+  /** Set with `unchecked` when no run can check them as the case was saved. */
+  readonly asSaved?: true;
+  /** Why they couldn't be checked: the run's reason or the case's. Absent only when the checker gave none (`AnswerCheck`). */
   readonly reason?: string;
 }
 
@@ -902,7 +961,8 @@ interface AnswersChecked {
  * that fails: the answer has failed then, and checking more would only
  * cost more. A repetition whose decisions failed is still checked. One that
  * errored or stopped fails with no call. A test run stopped before a check
- * leaves the answers unchecked.
+ * leaves the answers unchecked, and so does a case that says nothing to
+ * check them against, with no call (`checkAnswer`).
  */
 async function checkAnswers(
   ctx: DispatchContext,
@@ -912,10 +972,11 @@ async function checkAnswers(
   answers: AnswerCheckBinding | undefined,
 ): Promise<AnswersChecked> {
   const target = ctx.target;
-  if (answers === undefined || !('agentId' in target) || target.version === undefined) {
-    return { passes: [], costs: [], unchecked: true };
+  if (answers === undefined)
+    return { passes: [], costs: [], unchecked: true, reason: NO_ANSWER_CHECKER };
+  if (!('agentId' in target) || target.version === undefined) {
+    return { passes: [], costs: [], unchecked: true, reason: ANSWERS_NEED_AN_AGENT_VERSION };
   }
-  const judging = ctx.judging ?? { version: target.version };
   const passes: (boolean | undefined)[] = repetitions.map(() => undefined);
   const costs: (number | undefined)[] = repetitions.map(() => undefined);
   for (const [i, r] of repetitions.entries()) {
@@ -923,24 +984,23 @@ async function checkAnswers(
       passes[i] = false;
       return { passes, costs };
     }
-    if (ctx.abortSignal.aborted) return { passes, costs, unchecked: true };
-    const checked = await answers.check({
-      tenantId: ctx.tenantId,
-      ...(ctx.projectId !== undefined && { projectId: ctx.projectId }),
-      testRunId: ctx.testRunId,
-      caseId: correctedCase.caseId,
+    if (ctx.abortSignal.aborted)
+      return { passes, costs, unchecked: true, reason: STOPPED_BEFORE_ANSWER };
+    const checked = await checkAnswer(ctx, correctedCase, expect, r.output, answers, {
       agentId: target.agentId,
-      judging,
-      input: correctedCase.input,
-      recorded: correctedCase.output,
-      answer: r.output,
-      expect,
+      version: target.version,
     });
     // A call whose reply couldn't be read still cost what it did.
     costs[i] = checked.costUsd;
     if (checked.kind === 'unchecked') {
       const reason = checked.reason.trim();
-      return { passes, costs, unchecked: true, ...(reason.length > 0 && { reason }) };
+      return {
+        passes,
+        costs,
+        unchecked: true,
+        ...('asSaved' in checked && { asSaved: true }),
+        ...(reason.length > 0 && { reason }),
+      };
     }
     passes[i] = checked.pass;
     if (!checked.pass) {
@@ -948,6 +1008,70 @@ async function checkAnswers(
     }
   }
   return { passes, costs };
+}
+
+/** One answer's check: the checker's, or, with no call, the case's own problem (`asSaved`). */
+type AnswerChecked =
+  | AnswerCheck
+  | {
+      readonly kind: 'unchecked';
+      readonly reason: string;
+      readonly asSaved: true;
+      readonly costUsd?: undefined;
+    };
+
+/**
+ * Check one repetition's answer with the host's checker, unless the case
+ * says nothing to check it against (`answerAsSavedProblem`): then no call
+ * is made, and no run can check it as it was saved.
+ */
+async function checkAnswer(
+  ctx: DispatchContext,
+  correctedCase: CorrectedTestCase,
+  expect: TestCaseAnswer,
+  answer: unknown,
+  answers: AnswerCheckBinding,
+  target: {
+    readonly agentId: AgentRef['agentId'];
+    readonly version: NonNullable<AgentRef['version']>;
+  },
+): Promise<AnswerChecked> {
+  const asSaved = answerAsSavedProblem(correctedCase, expect);
+  if (asSaved !== undefined) return { kind: 'unchecked', reason: asSaved, asSaved: true };
+  return answers.check({
+    tenantId: ctx.tenantId,
+    ...(ctx.projectId !== undefined && { projectId: ctx.projectId }),
+    testRunId: ctx.testRunId,
+    caseId: correctedCase.caseId,
+    agentId: target.agentId,
+    judging: ctx.judging ?? { version: target.version },
+    input: correctedCase.input,
+    recorded: correctedCase.output,
+    answer,
+    expect,
+  });
+}
+
+/**
+ * Why a case's answer can't be checked as it was saved, in the answer
+ * checker's own words: `right` with no recorded answer to compare with, or
+ * `wrong` where neither `shouldSay` nor `why` has text once trimmed.
+ * `undefined` when it can be. The runtime's checker refuses the same two
+ * shapes with the same words, so they're never sent to it; the two change
+ * together.
+ */
+function answerAsSavedProblem(
+  correctedCase: CorrectedTestCase,
+  expect: TestCaseAnswer,
+): string | undefined {
+  if (expect.verdict === 'right') {
+    const recorded = correctedCase.output;
+    return recorded === undefined || recorded === null
+      ? 'The case has no recorded answer to compare with.'
+      : undefined;
+  }
+  const says = [expect.shouldSay, expect.why].some((text) => (text ?? '').trim().length > 0);
+  return says ? undefined : 'The case says nothing its answer should do.';
 }
 
 /** Whether a repetition called the same tools as the recorded run, by id, in any order. */
@@ -1020,7 +1144,7 @@ async function rescore(
       results,
       priorModels(prior),
       pinsDigest,
-      priorUncheckedWhy(prior),
+      priorUnknowns(prior),
     ),
     rescoreOf: of,
     ...(notRescored > 0 && { notRescored }),
@@ -1121,14 +1245,43 @@ function priorModels(run: {
 }
 
 /**
- * The first reason the checker gave in the run rescored: a rescore checks
- * no answer, and keeps that run's entries.
+ * What the run rescored knew of the cases whose pass it couldn't know: a
+ * rescore checks no answer, and keeps that run's entries. Its `why` was an
+ * as-saved one only when every such case was as saved.
  */
-function priorUncheckedWhy(run: {
-  readonly result?: Readonly<Record<string, unknown>>;
-}): string | undefined {
-  const summary = run.result?.summary as CorrectedComparisonSummary | undefined;
-  return summary?.unchecked?.why;
+function priorUnknowns(run: { readonly result?: Readonly<Record<string, unknown>> }): Unknowns {
+  const unchecked = (run.result?.summary as CorrectedComparisonSummary | undefined)?.unchecked;
+  const asSaved = new Set(unchecked?.asSavedCaseIds ?? []);
+  const why = unchecked?.why;
+  if (why === undefined) return { asSaved };
+  return asSaved.size === unchecked?.caseIds.length
+    ? { asSaved, asSavedWhy: why }
+    : { asSaved, why };
+}
+
+/**
+ * What a test run knows of the cases whose pass it couldn't know, for its
+ * summary's `unchecked`: the ones no run can check as they were saved, and
+ * the first reason of each kind.
+ */
+interface Unknowns {
+  readonly asSaved: ReadonlySet<string>;
+  /** The first reason a new run can fix. */
+  readonly why?: string;
+  /** The first reason a case can't be checked as it was saved. */
+  readonly asSavedWhy?: string;
+}
+
+/** A replay's `Unknowns`, from each case's, in the order the cases ran. */
+function unknownsOf(cases: ReadonlyMap<string, CaseUnknown>): Unknowns {
+  const all = [...cases.values()];
+  const why = all.find((u) => !u.asSaved && u.why !== undefined)?.why;
+  const asSavedWhy = all.find((u) => u.asSaved && u.why !== undefined)?.why;
+  return {
+    asSaved: new Set([...cases].filter(([, u]) => u.asSaved).map(([caseId]) => caseId)),
+    ...(why !== undefined && { why }),
+    ...(asSavedWhy !== undefined && { asSavedWhy }),
+  };
 }
 
 function refusedCount(outcome: TestRunSubjectInvokeOutcome): number {
@@ -1323,7 +1476,7 @@ function summarize(
   results: readonly CorrectedCaseResult[],
   models: readonly { providerId: string; model: string; runs: number }[],
   pinsDigest: string | undefined,
-  uncheckedWhy: string | undefined,
+  unknowns: Unknowns,
 ): CorrectedComparisonSummary {
   const errors = results.filter((r) => r.error !== undefined).length;
   const stopped = results.filter((r) => r.stopped !== undefined).length;
@@ -1346,7 +1499,7 @@ function summarize(
       : (ctx.projectId as unknown as string | undefined);
   const correctedWeight = (s: OutputScore) => s.totalWeight;
   const corrections = correctionsOf(results);
-  const unchecked = uncheckedOf(results, uncheckedWhy);
+  const unchecked = uncheckedOf(results, unknowns);
   const costUsd = costOf(results, comparison.repetitions);
   return {
     testRunId: ctx.testRunId as unknown as string,
@@ -1423,16 +1576,26 @@ function correctionsOf(
 }
 
 /**
- * The cases whose pass isn't known (`passKnown`), and the first reason the
- * checker gave for one (`why`); none, undefined.
+ * The cases whose pass isn't known (`passKnown`), by id, with the ones no
+ * run can check as they were saved, and a reason (`why`): the first a new
+ * run can fix, unless every one is as saved. None, undefined.
  */
 function uncheckedOf(
   results: readonly CorrectedCaseResult[],
-  why: string | undefined,
+  unknowns: Unknowns,
 ): CorrectedComparisonSummary['unchecked'] {
-  const cases = results.filter((r) => (r.corrections ?? []).some((c) => !passKnown(c))).length;
-  if (cases === 0) return undefined;
-  return { cases, ...(why !== undefined && { why }) };
+  const caseIds = results.flatMap((r) =>
+    (r.corrections ?? []).filter((c) => !passKnown(c)).map((c) => c.correctionId),
+  );
+  if (caseIds.length === 0) return undefined;
+  const asSavedCaseIds = caseIds.filter((caseId) => unknowns.asSaved.has(caseId));
+  const why = asSavedCaseIds.length === caseIds.length ? unknowns.asSavedWhy : unknowns.why;
+  return {
+    cases: caseIds.length,
+    caseIds,
+    ...(asSavedCaseIds.length > 0 && { asSavedCaseIds }),
+    ...(why !== undefined && { why }),
+  };
 }
 
 /**

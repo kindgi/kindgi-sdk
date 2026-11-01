@@ -458,6 +458,31 @@ describe('POST /v1/agents/:agentId/pinned/pin, through the gate', () => {
     });
   });
 
+  test("the cases rule: the 422's details name the cases the run couldn't check, and those it can't as they were saved", async () => {
+    const { app, state } = setup({ fixed: ['c-1', 'c-7', 'c-9'] });
+    state.releaseGate = releaseGate({ cases: { noNewFailures: true } });
+    state.testRun = testRun(
+      summary({
+        corrections: { checked: 1, passed: 1, results: [{ correctionId: 'c-1', pass: true }] },
+        unchecked: {
+          cases: 2,
+          caseIds: ['c-7', 'c-9'],
+          asSavedCaseIds: ['c-9'],
+          why: "The judging model's call failed.",
+        },
+      }),
+    );
+    const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody());
+    expect(res.status).toBe(422);
+    const { error } = (await res.json()) as {
+      error: { code: string; message: string; details: Record<string, unknown> };
+    };
+    expect(error.code).toBe('gate-failed');
+    expect(error.details).toMatchObject({ newlyFailing: [], unchecked: ['c-7'], asSaved: ['c-9'] });
+    expect(error.message).toContain("1 case that passed before couldn't be checked now: c-7.");
+    expect(error.message).toContain("1 case fixed now can't be checked as it was saved: c-9.");
+  });
+
   test('without noNewFailures the gate reads no corrections, and the details have no newlyFailing', async () => {
     const { app, calls, state } = setup({ fixed: ['c-1'] });
     state.releaseGate = releaseGate({ cases: { minPassing: 1 } });

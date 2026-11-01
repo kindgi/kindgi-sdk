@@ -458,17 +458,22 @@ answer fails, `why` has the judging model's reason:
   part that couldn't be checked adds no check either, and the case's other
   part still does: an answer, say, when the version has no model settings
   or the call to the judging model failed, or `decisions: "right"` when the
-  recorded run's tool calls can't be read. The entry's `unchecked` names
-  that part, and the case doesn't pass. A case none of whose parts could be
-  checked has an entry too: its `parts` is empty, `unchecked` names every
-  part, and it adds no check. A failed call doesn't stop the test run. The
-  summary's `unchecked` counts the cases whose pass isn't known, a part
-  unchecked and none failed (`cases`), with the first reason an answer of
-  theirs couldn't be checked (`why`). `why` is absent when there's no
-  checker, the test run stopped before a check, or only decisions couldn't
-  be checked. The entry's and the summary's `unchecked` are from runtime
-  \<x> or later. An earlier runtime gives a case with a part unchecked no
-  entry, so none of its parts counts, even one that failed.
+  recorded run's tool calls can't be read. So does an answer with nothing
+  to check it against, with no call: `answer: "right"` on a case with no
+  recorded answer, or `answer: "wrong"` whose `shouldSay` and `why` are
+  both blank. The entry's `unchecked` names that part, and the case doesn't
+  pass. A case none of whose parts could be checked has an entry too: its
+  `parts` is empty, `unchecked` names every part, and it adds no check. A
+  failed call doesn't stop the test run. The summary's `unchecked` lists
+  the cases whose pass isn't known, a part unchecked and none failed
+  (`caseIds`, `cases` of them). `asSavedCaseIds` are the ones no run can
+  check as they were saved: each part unchecked was the case's own doing,
+  its recorded calls or its answer's. `why` is the first reason a new run
+  can fix, or, when every one is as saved, why one can't be checked. It's
+  absent only when the checker gave no reason. The entry's and the
+  summary's `unchecked` are from runtime \<x> or later. An earlier runtime
+  gives a case with a part unchecked no entry, so none of its parts counts,
+  even one that failed.
 - **A repetition that errored or stopped** fails every part, and its answer
   isn't checked, nor any after it.
 

@@ -418,6 +418,155 @@ describe('cases', () => {
     });
   });
 
+  /** `run` with `caseIds` the cases whose pass it couldn't know, `asSaved` of them as saved. */
+  const unknown = (
+    run: CorrectedComparisonSummary,
+    caseIds: readonly string[],
+    asSaved: readonly string[] = [],
+  ): CorrectedComparisonSummary => ({
+    ...run,
+    unchecked: {
+      cases: caseIds.length,
+      caseIds,
+      ...(asSaved.length > 0 && { asSavedCaseIds: asSaved }),
+      why: "The judging model's call failed.",
+    },
+  });
+
+  test("noNewFailures: a case fixed now that the run had and couldn't check fails it, named apart", () => {
+    const r = gate(
+      { cases: { noNewFailures: true } },
+      { summary: unknown(graded(passes(['c-1'])), ['c-7']), passedBefore: ['c-1', 'c-7'] },
+    );
+    expect(check(r, 'cases.noNewFailures')).toEqual({
+      name: 'cases.noNewFailures',
+      passed: false,
+      message:
+        "1 case that passed before couldn't be checked now: c-7. The test run checked 1 of the 2 cases fixed now. The test run's `unchecked` says why; run it again once it can be checked.",
+      value: 1,
+      threshold: 0,
+      caseIds: [],
+      uncheckedCaseIds: ['c-7'],
+    });
+    expect(r.passed).toBe(false);
+  });
+
+  test("noNewFailures: a case the run couldn't check that isn't fixed now isn't counted", () => {
+    const r = gate(
+      { cases: { noNewFailures: true } },
+      { summary: unknown(graded(passes(['c-1'])), ['c-8'], ['c-8']), passedBefore: ['c-1'] },
+    );
+    expect(check(r, 'cases.noNewFailures')).toEqual({
+      name: 'cases.noNewFailures',
+      passed: true,
+      message: 'The test run checked 1 of the 1 case fixed now, and it still passes.',
+      value: 0,
+      threshold: 0,
+      caseIds: [],
+    });
+  });
+
+  test("noNewFailures: one that fails and one the run couldn't check are each named in their own list", () => {
+    const r = gate(
+      { cases: { noNewFailures: true } },
+      { summary: unknown(graded(fails(['c-2'])), ['c-7']), passedBefore: ['c-2', 'c-7'] },
+    );
+    expect(check(r, 'cases.noNewFailures')).toMatchObject({
+      passed: false,
+      message:
+        "1 case that passed before fails now: c-2. 1 case that passed before couldn't be checked now: c-7. The test run checked 1 of the 2 cases fixed now. The test run's `unchecked` says why; run it again once it can be checked.",
+      value: 2,
+      caseIds: ['c-2'],
+      uncheckedCaseIds: ['c-7'],
+    });
+  });
+
+  test("noNewFailures: a case fixed now that can't be checked as it was saved is named, and isn't counted", () => {
+    const r = gate(
+      { cases: { noNewFailures: true } },
+      { summary: unknown(graded(passes(['c-1'])), ['c-9'], ['c-9']), passedBefore: ['c-1', 'c-9'] },
+    );
+    expect(check(r, 'cases.noNewFailures')).toEqual({
+      name: 'cases.noNewFailures',
+      passed: true,
+      message:
+        "The test run checked 1 of the 2 cases fixed now, and it still passes. 1 case fixed now can't be checked as it was saved: c-9.",
+      value: 0,
+      threshold: 0,
+      caseIds: [],
+      asSavedCaseIds: ['c-9'],
+    });
+    expect(r.passed).toBe(true);
+  });
+
+  test("noNewFailures: one the run couldn't check fails it beside one that can't be checked as it was saved", () => {
+    const r = gate(
+      { cases: { noNewFailures: true } },
+      {
+        summary: unknown(graded([]), ['c-7', 'c-8', 'c-9'], ['c-8', 'c-9']),
+        passedBefore: ['c-7', 'c-8', 'c-9'],
+      },
+    );
+    expect(check(r, 'cases.noNewFailures')).toEqual({
+      name: 'cases.noNewFailures',
+      passed: false,
+      message:
+        "1 case that passed before couldn't be checked now: c-7. The test run checked none of the 3 cases fixed now. The test run's `unchecked` says why; run it again once it can be checked. 2 cases fixed now can't be checked as they were saved: c-8, c-9.",
+      value: 1,
+      threshold: 0,
+      caseIds: [],
+      uncheckedCaseIds: ['c-7'],
+      asSavedCaseIds: ['c-8', 'c-9'],
+    });
+  });
+
+  test('noNewFailures: a run with no case graded and every case fixed now unchecked fails, listing five', () => {
+    const ids = ['c-1', 'c-2', 'c-3', 'c-4', 'c-5', 'c-6', 'c-7'];
+    const r = gate(
+      { cases: { noNewFailures: true } },
+      { summary: unknown(summary(), ids), passedBefore: ids },
+    );
+    expect(check(r, 'cases.noNewFailures')).toMatchObject({
+      passed: false,
+      message:
+        "7 cases that passed before couldn't be checked now: c-1, c-2, c-3, c-4, c-5, and 2 more. The test run checked none of the 7 cases fixed now. The test run's `unchecked` says why; run it again once they can be checked.",
+      value: 7,
+      caseIds: [],
+      uncheckedCaseIds: ids,
+    });
+  });
+
+  test("noNewFailures: a case that fails isn't also one the run couldn't check", () => {
+    // A correction graded on two cases: one fails, and the other's pass isn't known.
+    const r = gate(
+      { cases: { noNewFailures: true } },
+      { summary: unknown(graded(fails(['c-1'])), ['c-1']), passedBefore: ['c-1'] },
+    );
+    expect(check(r, 'cases.noNewFailures')).toMatchObject({
+      passed: false,
+      value: 1,
+      caseIds: ['c-1'],
+    });
+    expect(check(r, 'cases.noNewFailures')?.uncheckedCaseIds).toBeUndefined();
+  });
+
+  test('noNewFailures: a summary with no `unchecked` reads as one with none', () => {
+    const run = graded(passes(['c-1']));
+    const without = gate(
+      { cases: { noNewFailures: true } },
+      { summary: run, passedBefore: ['c-1', 'c-2'] },
+    );
+    expect(run.unchecked).toBeUndefined();
+    expect(check(without, 'cases.noNewFailures')).toEqual({
+      name: 'cases.noNewFailures',
+      passed: true,
+      message: 'The test run checked 1 of the 2 cases fixed now, and it still passes.',
+      value: 0,
+      threshold: 0,
+      caseIds: [],
+    });
+  });
+
   test("noNewFailures fails when it can't tell: the cases that passed before weren't read, or the run kept no case-by-case grades", () => {
     const unread = gate({ cases: { noNewFailures: true } }, { summary: graded(fails(['c-1'])) });
     expect(check(unread, 'cases.noNewFailures')).toEqual({
@@ -457,6 +606,18 @@ describe('cases', () => {
     expect(casesDetails(gate({}).checks)).toEqual({});
     const unread = gate({ cases: { noNewFailures: true } }, { summary: graded(fails(['c-1'])) });
     expect(casesDetails(unread.checks)).toEqual({});
+    const unchecked = gate(
+      { cases: { noNewFailures: true } },
+      {
+        summary: unknown(graded(fails(['c-3'])), ['c-7', 'c-9'], ['c-9']),
+        passedBefore: ['c-3', 'c-7', 'c-9'],
+      },
+    );
+    expect(casesDetails(unchecked.checks)).toEqual({
+      newlyFailing: ['c-3'],
+      unchecked: ['c-7'],
+      asSaved: ['c-9'],
+    });
   });
 });
 
