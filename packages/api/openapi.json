@@ -1050,7 +1050,13 @@
           }
         ],
         "discriminator": {
-          "propertyName": "kind"
+          "propertyName": "kind",
+          "mapping": {
+            "tenant": "#/components/schemas/PinScopeTenant",
+            "org": "#/components/schemas/PinScopeOrg",
+            "project": "#/components/schemas/PinScopeProject",
+            "segment": "#/components/schemas/PinScopeSegment"
+          }
         }
       },
       "AgentPinnedVersionResolution": {
@@ -1577,7 +1583,12 @@
           }
         ],
         "discriminator": {
-          "propertyName": "kind"
+          "propertyName": "kind",
+          "mapping": {
+            "tenant": "#/components/schemas/PinScopeTenant",
+            "org": "#/components/schemas/PinScopeOrg",
+            "project": "#/components/schemas/PinScopeProject"
+          }
         }
       },
       "PinActor": {
@@ -4800,7 +4811,12 @@
           }
         ],
         "discriminator": {
-          "propertyName": "kind"
+          "propertyName": "kind",
+          "mapping": {
+            "tenant-admin": "#/components/schemas/ServiceAccountGrantTenantAdmin",
+            "tenant-member": "#/components/schemas/ServiceAccountGrantTenantMember",
+            "project": "#/components/schemas/ServiceAccountGrantProject"
+          }
         }
       },
       "ServiceAccountGrantBody": {
@@ -4817,7 +4833,12 @@
           }
         ],
         "discriminator": {
-          "propertyName": "kind"
+          "propertyName": "kind",
+          "mapping": {
+            "tenant-admin": "#/components/schemas/ServiceAccountGrantTenantAdmin",
+            "tenant-member": "#/components/schemas/ServiceAccountGrantTenantMember",
+            "project": "#/components/schemas/ServiceAccountGrantProjectBody"
+          }
         }
       },
       "ServiceAccountUngrantProject": {
@@ -4855,7 +4876,12 @@
           }
         ],
         "discriminator": {
-          "propertyName": "kind"
+          "propertyName": "kind",
+          "mapping": {
+            "tenant-admin": "#/components/schemas/ServiceAccountGrantTenantAdmin",
+            "tenant-member": "#/components/schemas/ServiceAccountGrantTenantMember",
+            "project": "#/components/schemas/ServiceAccountUngrantProject"
+          }
         }
       },
       "ServiceAccount": {
@@ -4958,7 +4984,12 @@
                 }
               ],
               "discriminator": {
-                "propertyName": "kind"
+                "propertyName": "kind",
+                "mapping": {
+                  "tenant-admin": "#/components/schemas/ServiceAccountGrantTenantAdmin",
+                  "tenant-member": "#/components/schemas/ServiceAccountGrantTenantMember",
+                  "project": "#/components/schemas/ServiceAccountGrantProjectBody"
+                }
               }
             },
             "description": "Written before the account is returned, so its first key works at once."
@@ -12397,7 +12428,13 @@
           }
         ],
         "discriminator": {
-          "propertyName": "kind"
+          "propertyName": "kind",
+          "mapping": {
+            "suggested": "#/components/schemas/ImproveRunOutcomeSuggested",
+            "nothing-better": "#/components/schemas/ImproveRunOutcomeNothingBetter",
+            "cost-cap": "#/components/schemas/ImproveRunOutcomeCostCap",
+            "failed": "#/components/schemas/ImproveRunOutcomeFailed"
+          }
         }
       },
       "ImproveRunStart": {
@@ -14551,7 +14588,12 @@
           }
         ],
         "discriminator": {
-          "propertyName": "scheme"
+          "propertyName": "scheme",
+          "mapping": {
+            "basic": "#/components/schemas/MCPBasicAuth",
+            "oauth2-client-credentials": "#/components/schemas/MCPOAuth2ClientCredentialsAuth",
+            "header": "#/components/schemas/MCPHeaderAuth"
+          }
         }
       },
       "MCPBasicAuth": {
@@ -20412,7 +20454,13 @@
           }
         ],
         "discriminator": {
-          "propertyName": "kind"
+          "propertyName": "kind",
+          "mapping": {
+            "direct": "#/components/schemas/AccessPathDirect",
+            "team": "#/components/schemas/AccessPathTeam",
+            "org-admin": "#/components/schemas/AccessPathOrgAdmin",
+            "tenant-admin": "#/components/schemas/AccessPathTenantAdmin"
+          }
         }
       },
       "MyProjectAccess": {
@@ -23564,7 +23612,13 @@
           }
         ],
         "discriminator": {
-          "propertyName": "kind"
+          "propertyName": "kind",
+          "mapping": {
+            "direct": "#/components/schemas/ProjectAccessDirect",
+            "team": "#/components/schemas/ProjectAccessTeam",
+            "org-admin": "#/components/schemas/ProjectAccessOrgAdmin",
+            "tenant-admin": "#/components/schemas/ProjectAccessTenantAdmin"
+          }
         }
       },
       "ProjectAccess": {

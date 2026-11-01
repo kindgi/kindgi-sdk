@@ -275,7 +275,15 @@ export const AgentPinScopeSchema: JsonSchema = {
     { $ref: '#/components/schemas/PinScopeProject' },
     { $ref: '#/components/schemas/PinScopeSegment' },
   ],
-  discriminator: { propertyName: 'kind' },
+  discriminator: {
+    propertyName: 'kind',
+    mapping: {
+      tenant: '#/components/schemas/PinScopeTenant',
+      org: '#/components/schemas/PinScopeOrg',
+      project: '#/components/schemas/PinScopeProject',
+      segment: '#/components/schemas/PinScopeSegment',
+    },
+  },
 };
 
 export const AgentPinnedVersionResolutionSchema: JsonSchema = {
@@ -568,7 +576,14 @@ export const PinScopeSchema: JsonSchema = {
     { $ref: '#/components/schemas/PinScopeOrg' },
     { $ref: '#/components/schemas/PinScopeProject' },
   ],
-  discriminator: { propertyName: 'kind' },
+  discriminator: {
+    propertyName: 'kind',
+    mapping: {
+      tenant: '#/components/schemas/PinScopeTenant',
+      org: '#/components/schemas/PinScopeOrg',
+      project: '#/components/schemas/PinScopeProject',
+    },
+  },
 };
 
 export const PinActorSchema: JsonSchema = {
@@ -2478,7 +2493,14 @@ export const ServiceAccountGrantSchema: JsonSchema = {
     { $ref: '#/components/schemas/ServiceAccountGrantTenantMember' },
     { $ref: '#/components/schemas/ServiceAccountGrantProject' },
   ],
-  discriminator: { propertyName: 'kind' },
+  discriminator: {
+    propertyName: 'kind',
+    mapping: {
+      'tenant-admin': '#/components/schemas/ServiceAccountGrantTenantAdmin',
+      'tenant-member': '#/components/schemas/ServiceAccountGrantTenantMember',
+      project: '#/components/schemas/ServiceAccountGrantProject',
+    },
+  },
 };
 
 export const ServiceAccountGrantBodySchema: JsonSchema = {
@@ -2488,7 +2510,14 @@ export const ServiceAccountGrantBodySchema: JsonSchema = {
     { $ref: '#/components/schemas/ServiceAccountGrantTenantMember' },
     { $ref: '#/components/schemas/ServiceAccountGrantProjectBody' },
   ],
-  discriminator: { propertyName: 'kind' },
+  discriminator: {
+    propertyName: 'kind',
+    mapping: {
+      'tenant-admin': '#/components/schemas/ServiceAccountGrantTenantAdmin',
+      'tenant-member': '#/components/schemas/ServiceAccountGrantTenantMember',
+      project: '#/components/schemas/ServiceAccountGrantProjectBody',
+    },
+  },
 };
 
 export const ServiceAccountUngrantProjectSchema: JsonSchema = {
@@ -2509,7 +2538,14 @@ export const ServiceAccountUngrantBodySchema: JsonSchema = {
     { $ref: '#/components/schemas/ServiceAccountGrantTenantMember' },
     { $ref: '#/components/schemas/ServiceAccountUngrantProject' },
   ],
-  discriminator: { propertyName: 'kind' },
+  discriminator: {
+    propertyName: 'kind',
+    mapping: {
+      'tenant-admin': '#/components/schemas/ServiceAccountGrantTenantAdmin',
+      'tenant-member': '#/components/schemas/ServiceAccountGrantTenantMember',
+      project: '#/components/schemas/ServiceAccountUngrantProject',
+    },
+  },
 };
 
 export const ServiceAccountSchema: JsonSchema = {
@@ -7355,7 +7391,15 @@ export const ImproveRunOutcomeSchema: JsonSchema = {
     { $ref: '#/components/schemas/ImproveRunOutcomeCostCap' },
     { $ref: '#/components/schemas/ImproveRunOutcomeFailed' },
   ],
-  discriminator: { propertyName: 'kind' },
+  discriminator: {
+    propertyName: 'kind',
+    mapping: {
+      suggested: '#/components/schemas/ImproveRunOutcomeSuggested',
+      'nothing-better': '#/components/schemas/ImproveRunOutcomeNothingBetter',
+      'cost-cap': '#/components/schemas/ImproveRunOutcomeCostCap',
+      failed: '#/components/schemas/ImproveRunOutcomeFailed',
+    },
+  },
 };
 
 export const ImproveRunStartSchema: JsonSchema = {
@@ -8607,7 +8651,14 @@ export const MCPEndpointAuthSchema: JsonSchema = {
     { $ref: '#/components/schemas/MCPOAuth2ClientCredentialsAuth' },
     { $ref: '#/components/schemas/MCPHeaderAuth' },
   ],
-  discriminator: { propertyName: 'scheme' },
+  discriminator: {
+    propertyName: 'scheme',
+    mapping: {
+      basic: '#/components/schemas/MCPBasicAuth',
+      'oauth2-client-credentials': '#/components/schemas/MCPOAuth2ClientCredentialsAuth',
+      header: '#/components/schemas/MCPHeaderAuth',
+    },
+  },
 };
 
 /** An HTTP endpoint's `config.headers`: plain headers, never a credential. */
@@ -11716,7 +11767,15 @@ export const AccessPathSchema: JsonSchema = {
     { $ref: '#/components/schemas/AccessPathOrgAdmin' },
     { $ref: '#/components/schemas/AccessPathTenantAdmin' },
   ],
-  discriminator: { propertyName: 'kind' },
+  discriminator: {
+    propertyName: 'kind',
+    mapping: {
+      direct: '#/components/schemas/AccessPathDirect',
+      team: '#/components/schemas/AccessPathTeam',
+      'org-admin': '#/components/schemas/AccessPathOrgAdmin',
+      'tenant-admin': '#/components/schemas/AccessPathTenantAdmin',
+    },
+  },
 };
 
 export const MyProjectAccessSchema: JsonSchema = {
@@ -14060,7 +14119,15 @@ export const ProjectAccessPathSchema: JsonSchema = {
     { $ref: '#/components/schemas/ProjectAccessOrgAdmin' },
     { $ref: '#/components/schemas/ProjectAccessTenantAdmin' },
   ],
-  discriminator: { propertyName: 'kind' },
+  discriminator: {
+    propertyName: 'kind',
+    mapping: {
+      direct: '#/components/schemas/ProjectAccessDirect',
+      team: '#/components/schemas/ProjectAccessTeam',
+      'org-admin': '#/components/schemas/ProjectAccessOrgAdmin',
+      'tenant-admin': '#/components/schemas/ProjectAccessTenantAdmin',
+    },
+  },
 };
 
 export const ProjectAccessSchema: JsonSchema = {

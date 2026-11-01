@@ -274,6 +274,31 @@ describe('OpenAPI — generated document', () => {
       expect(known.has(name), `dangling $ref: ${ref}`).toBe(true);
     }
   });
+
+  // Without a `mapping`, a generator may take each member's schema name as
+  // its tag (openapi-typescript types `kind` as "ImproveRunOutcomeSuggested").
+  // A mapping that leaves a member out is no better: openapi-typescript keeps
+  // that member's schema name, and typed-openapi's zod output drops it.
+  test("every discriminated union maps each member's tag to that member", () => {
+    const doc = generateOpenApiDocument() as {
+      components: { schemas: Record<string, SchemaNode> };
+    };
+    const unions: DiscriminatedUnion[] = [];
+    collectDiscriminatedUnions(doc, '#', unions);
+    // The walk finds named unions, and ones inlined in a property.
+    expect(unions.map((u) => u.where)).toEqual(
+      expect.arrayContaining([
+        '#/components/schemas/ImproveRunOutcome',
+        '#/components/schemas/CreateServiceAccountBody/properties/grants/items',
+      ]),
+    );
+    for (const { where, union } of unions) {
+      expect(
+        union.discriminator.mapping,
+        `${where}: no mapping, or not each member's tag to that member`,
+      ).toEqual(mappingFromTags(where, union, doc.components.schemas));
+    }
+  });
 });
 
 describe('OpenAPI — RunEvent schema mirrors @kindgi/specs/run-event.schema.json', () => {
@@ -320,4 +345,69 @@ function collectRefs(node: unknown, out: string[]): void {
     if (key === '$ref' && typeof value === 'string') out.push(value);
     else collectRefs(value, out);
   }
+}
+
+interface SchemaNode {
+  readonly $ref?: string;
+  readonly oneOf?: readonly SchemaNode[];
+  readonly discriminator?: {
+    readonly propertyName: string;
+    readonly mapping?: Record<string, string>;
+  };
+  readonly properties?: Record<string, { readonly const?: unknown; readonly enum?: unknown[] }>;
+  readonly required?: readonly string[];
+}
+
+interface DiscriminatedSchema extends SchemaNode {
+  readonly discriminator: NonNullable<SchemaNode['discriminator']>;
+}
+
+interface DiscriminatedUnion {
+  readonly where: string;
+  readonly union: DiscriminatedSchema;
+}
+
+function collectDiscriminatedUnions(node: unknown, where: string, out: DiscriminatedUnion[]): void {
+  if (node === null || typeof node !== 'object') return;
+  if (Array.isArray(node)) {
+    for (const [i, item] of node.entries()) collectDiscriminatedUnions(item, `${where}/${i}`, out);
+    return;
+  }
+  const schema = node as SchemaNode;
+  if (typeof schema.discriminator?.propertyName === 'string') {
+    out.push({ where, union: schema as DiscriminatedSchema });
+  }
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    collectDiscriminatedUnions(value, `${where}/${key}`, out);
+  }
+}
+
+// The mapping a union should declare: each `oneOf` member, named once by
+// `$ref`, under the one value its required tag property takes.
+function mappingFromTags(
+  where: string,
+  union: DiscriminatedSchema,
+  schemas: Record<string, SchemaNode>,
+): Record<string, string> {
+  const { propertyName } = union.discriminator;
+  const refs = (union.oneOf ?? []).map((member) => member.$ref ?? '');
+  expect(refs.length, `${where}: no oneOf members`).toBeGreaterThan(0);
+  expect(new Set(refs).size, `${where}: a member named twice`).toBe(refs.length);
+  const mapping: Record<string, string> = {};
+  for (const ref of refs) {
+    expect(ref, `${where}: a member that isn't a $ref`).toMatch(/^#\/components\/schemas\//);
+    const member = schemas[ref.replace('#/components/schemas/', '')];
+    expect(member?.required ?? [], `${where}: ${ref} doesn't require ${propertyName}`).toContain(
+      propertyName,
+    );
+    const tag = member?.properties?.[propertyName];
+    const raw = tag?.const ?? (tag?.enum?.length === 1 ? tag.enum[0] : undefined);
+    expect(typeof raw, `${where}: ${ref} has no single ${propertyName} string`).toBe('string');
+    const value = String(raw);
+    expect(Object.keys(mapping), `${where}: two members share the tag ${value}`).not.toContain(
+      value,
+    );
+    mapping[value] = ref;
+  }
+  return mapping;
 }
