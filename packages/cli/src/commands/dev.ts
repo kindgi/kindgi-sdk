@@ -73,7 +73,12 @@ import {
 } from '@kindgi/env-schema';
 import { scrubText } from '@kindgi/log';
 
-import { indexerPredatesBlocks, packIndexerName } from '../build/pack-blocks.js';
+import {
+  type ReadFolder,
+  indexerPredatesBlocks,
+  misCasedBlockLines,
+  packIndexerName,
+} from '../build/pack-blocks.js';
 import type { CommandContext } from '../context.js';
 import { ALREADY_RUNNING_EXIT_CODE, alreadyRunning } from '../dev/already-running.js';
 import {
@@ -929,6 +934,7 @@ async function runDevForPack(
         })
       : emptyReport();
   emitBootIndex(bootIndex, bootReport, discoveryRoots(projectEnv.discoveryPatterns));
+  let bootMisCased: readonly string[] = [];
   if (bootIndex.kind === 'ok') {
     const predates = await indexerPredatesBlocks({
       packDir: args.packDir,
@@ -938,6 +944,12 @@ async function runDevForPack(
       release: CLI_VERSION,
     });
     if (predates !== undefined) emitProblem(`  ⚠ ${predates}`);
+    bootMisCased = await misCasedBlockWarnings(
+      args.packDir,
+      projectEnv.blocksPattern,
+      dev.readFolder,
+    );
+    for (const line of bootMisCased) emitProblem(`  ⚠ ${line}`);
   }
 
   // Hints run the project's own kindgi through its package manager — or,
@@ -1128,7 +1140,7 @@ async function runDevForPack(
   let lastWatchReport: RegistrationReport | undefined;
   // The warnings the last load showed: a reload prints only the new ones
   // (a renamed check's is new), so a save doesn't repeat them all.
-  let shownWarnings = warningsOf(bootIndex);
+  let shownWarnings: ReadonlySet<string> = new Set([...warningsOf(bootIndex), ...bootMisCased]);
   // Refresh ticks still running. Shutdown drains these so a tick never
   // registers against a server that is already shutting down.
   const inFlightTicks = new Set<Promise<void>>();
@@ -1158,7 +1170,14 @@ async function runDevForPack(
             packDir: args.packDir,
           });
           lastWatchReport = report;
-          const warnings = warningsOf(outcome);
+          const warnings = new Set([
+            ...warningsOf(outcome),
+            ...(await misCasedBlockWarnings(
+              args.packDir,
+              projectEnv.blocksPattern,
+              dev.readFolder,
+            )),
+          ]);
           emitWatchTick({
             elapsedMs: Date.now() - startedAt,
             counts: outcome.counts,
@@ -1943,6 +1962,22 @@ async function blocksWatch(
   const read = await readPackBlocks(packDir, pattern);
   const templates = read.files.filter((rel) => !matches(rel)).map((rel) => join(packDir, rel));
   return { patterns: [pattern], ...(templates.length > 0 && { files: templates }) };
+}
+
+/**
+ * The block files and templates the pack names in another case than the
+ * disk has, as warnings: this disk finds them, so dev loads them, and
+ * `kindgi build` refuses them.
+ */
+async function misCasedBlockWarnings(
+  packDir: string,
+  pattern: string,
+  readFolder: ReadFolder | undefined,
+): Promise<readonly string[]> {
+  const read = await readPackBlocks(packDir, pattern);
+  return (await misCasedBlockLines(packDir, pattern, read, readFolder)).map(
+    (line) => `${line} kindgi build refuses this: a Linux disk tells the two apart.`,
+  );
 }
 
 /** A load's warnings, by message (an indexer that reports none, or a failed load, has none). */

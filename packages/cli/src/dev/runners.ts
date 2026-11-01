@@ -15,6 +15,7 @@ import type {
   PackServiceSupervisor,
   PackServiceSupervisorEvent,
 } from '@kindgi/handler-runtime/pack-service';
+import type { ReadFolder } from '../build/pack-blocks.js';
 import type { DockerReach } from './blocked.js';
 import type { DevLockProcesses } from './dev-lock.js';
 import type { ProjectDatabases } from './project-database.js';
@@ -459,4 +460,6 @@ export interface DevRunners {
   readonly interactive?: () => boolean;
   /** Ask a yes/no question (default: on the terminal). */
   readonly confirm?: (question: string) => Promise<boolean>;
+  /** A folder's entry names, for the blocks' case check (default: the disk's). Tests pass their own. */
+  readonly readFolder?: ReadFolder;
 }

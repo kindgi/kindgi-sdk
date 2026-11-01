@@ -31,13 +31,14 @@ import {
   mkdtemp,
   open,
   readFile,
+  readdir,
   rm,
   stat,
   symlink,
   writeFile,
 } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
@@ -2084,6 +2085,66 @@ describe('kindgi dev — watch flow', () => {
       expect(warned(await reload())).toEqual([`      ⚠ ${message('cites')}`]);
       controller.abort();
       await promise;
+    } finally {
+      restore();
+    }
+  });
+
+  test('a template named in another case than the disk has: a warning at boot, standing on a reload, gone once renamed; each load goes on', async () => {
+    await mkdir(join(packDir, 'blocks'), { recursive: true });
+    await writeFile(
+      join(packDir, 'blocks', 'reply.json'),
+      JSON.stringify({
+        id: 'my-pack.reply-prompt',
+        version: '1.0.0',
+        kind: 'prompt',
+        content: { templateFile: 'reply.liquid' },
+      }),
+      'utf8',
+    );
+    await writeFile(join(packDir, 'blocks', 'reply.liquid'), 'Reply to {{ name }}.', 'utf8');
+    // This disk tells the cases apart; the case check is shown one that
+    // spells the template otherwise, until the file is renamed to match.
+    let template = 'Reply.liquid';
+    const fixtures = makeFixtures();
+    const devRunners: DevRunners = {
+      ...fixtures.runners,
+      readFolder: async (dir) => {
+        const names = await readdir(dir);
+        return basename(dir) === 'blocks'
+          ? names.map((name) => (name === 'reply.liquid' ? template : name))
+          : names;
+      },
+    };
+    const line = (indent: string): string =>
+      `${indent}⚠ blocks/reply.json: \`content.templateFile\` "reply.liquid" names blocks/reply.liquid, but the file is blocks/Reply.liquid. kindgi build refuses this: a Linux disk tells the two apart.`;
+    const controller = new AbortController();
+    const { writes, restore } = captureStderr();
+    const reload = async (): Promise<string> => {
+      const from = writes.length;
+      fixtures.triggerBlocksChange();
+      await vi.waitFor(
+        () => expect(writes.slice(from).join('')).toMatch(/✓ loaded \d+ primitives/),
+        WAIT,
+      );
+      return writes.slice(from).join('');
+    };
+    const warned = (log: string): string[] => log.split('\n').filter((l) => l.includes('⚠'));
+    try {
+      const promise = runCli({
+        ...baseInputs(fixtures, { stopSignal: controller.signal, devRunners }),
+        argv: ['dev', `--path=${packDir}`],
+      });
+      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(3), WAIT);
+      expect(warned(writes.join(''))).toContain(line('    '));
+      // Still mis-cased: not repeated.
+      expect(warned(await reload())).toEqual([
+        '      ⚠ 1 warning from the last load still applies',
+      ]);
+      template = 'reply.liquid';
+      expect(warned(await reload())).toEqual([]);
+      controller.abort();
+      expect((await promise).exitCode).toBe(0);
     } finally {
       restore();
     }

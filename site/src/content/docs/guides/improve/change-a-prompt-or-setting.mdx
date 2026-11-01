@@ -164,7 +164,8 @@ blocks/
 - **A long template can have its own file,** named by `templateFile` in
   place of `template`: `"templateFile": "reply-prompt.liquid"`. The path is
   from the block's file, and stays inside the blocks folder. The build reads
-  the file into the block.
+  the file into the block. Spell it as the file on disk: a Linux build tells
+  `Reply.liquid` and `reply.liquid` apart.
 - **`kindgi build` checks each block,** its template and its values against
   its schema, and refuses a pack whose blocks don't hold up, naming each file.
   `kindgi dev` shows the same problems as you edit, and its runtime reads
