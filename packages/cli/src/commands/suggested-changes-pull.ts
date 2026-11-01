@@ -478,7 +478,7 @@ function fromText(s: SuggestedChange): string {
     text.push(
       s.madeBy.scheduleId !== undefined ? 'From a scheduled Improve run.' : 'From an Improve run.',
     );
-  } else if (s.madeBy.kind === 'person' || s.madeBy.kind === 'service') {
+  } else if (s.madeBy.kind === 'person') {
     text.push('From a suggested change made by hand.');
   }
   const fixes = s.fixes.length;

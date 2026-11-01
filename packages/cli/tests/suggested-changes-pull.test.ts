@@ -16,7 +16,7 @@ import { join } from 'node:path';
 import { KindgiApiError } from '@kindgi/client';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
-import { consoleLinkOf, nameText } from '../src/commands/suggested-changes-pull.js';
+import { bodyOf, consoleLinkOf, nameText } from '../src/commands/suggested-changes-pull.js';
 import { runCli } from '../src/main.js';
 import { stubOutGitRepoVars } from './git-env.js';
 
@@ -718,6 +718,18 @@ describe('kindgi suggested-changes pull', () => {
       expect(out.exitCode, out.stderr).toBe(0);
       expect((await toneFile()).version).toBe('1.1.0');
     });
+  });
+
+  test("who made it: a person's is made by hand, a service's says nothing", () => {
+    const wrote = [{ blockId: 'acme.tone', from: '1.0.0', to: '1.1.0', file: 'blocks/tone.json' }];
+    const by = (madeBy: Record<string, unknown>) =>
+      bodyOf({ ...SUGGESTED, madeBy } as never, wrote, undefined, 'Ann').split('\n')[0];
+    expect(by({ kind: 'person', userId: 'u-1' })).toBe(
+      'From a suggested change made by hand. It fixes 2 corrections. Test set: 25 of 27, up from 23.',
+    );
+    expect(by({ kind: 'service', id: 'svc-1' })).toBe(
+      'It fixes 2 corrections. Test set: 25 of 27, up from 23.',
+    );
   });
 
   test('a git user.name is plain text in the pull request: no link, mention or markdown', () => {
