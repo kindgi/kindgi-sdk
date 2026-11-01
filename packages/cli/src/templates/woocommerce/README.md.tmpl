@@ -172,8 +172,10 @@ page. Then it:
 Nobody copies a password, and none is printed or written to a file. Run it
 again to replace the agent's password. The approval comes back to this
 machine (`127.0.0.1`), so approve in a browser here; `--no-browser` prints
-the link instead of opening it. WordPress offers Application Passwords from
-5.6, over HTTPS, or on a site whose `WP_ENVIRONMENT_TYPE` is `local`.
+the link instead of opening it. WordPress sends the approval there over
+plain http from 7.0; before 7.0, only on a site whose `WP_ENVIRONMENT_TYPE`
+is `local`. On an older store, wp-admin says the URL must be served over a
+secure connection: [connect it by hand](#connect-it-by-hand).
 
 For a deployed pack, name the env it runs in and its client's project
 ([One project and one pack per client](#one-project-and-one-pack-per-client)):
@@ -195,9 +197,11 @@ file or the chat.
 
 ### Connect it by hand
 
-On a machine with no browser (over SSH, say), or a store whose security
-plugin turns off the Authorize Application page, make the user and its
-password yourself:
+On a machine with no browser (over SSH, say), a store on WordPress before
+7.0 (wp-admin says the URL must be served over a secure connection), or a
+store whose security plugin turns off the Authorize Application page, make
+the user and its password yourself. Application Passwords need WordPress 5.6
+or later, over HTTPS:
 
 1. **Make the user.** In WordPress, go to Users → Add User (Add New User
    before WordPress 6.8). Use the username `kindgi-agent` and the **Shop

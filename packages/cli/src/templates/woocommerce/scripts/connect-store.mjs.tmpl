@@ -6,7 +6,9 @@
 //
 // 1. WordPress's own approval page (wp-admin/authorize-application.php) sends
 //    a new Application Password for whoever approves to a listener on
-//    127.0.0.1, which WordPress allows over plain http.
+//    127.0.0.1, which WordPress allows over plain http from 7.0. Before 7.0,
+//    it allows that only on a site whose environment type is `local`: an
+//    older store is connected by hand (the README's "Connect it by hand").
 // 2. With it, this script makes the agent's own user, `kindgi-agent`, a Shop
 //    Manager (or reuses it), and an Application Password for that user, so
 //    what the agent does in the store shows as that user's.
@@ -34,6 +36,9 @@ const USAGE = `Usage: {{RUN}} connect-store https://shop.example.com
   {{RUN}} connect-store -- https://shop.example.com --hosted --env=<env> --scope=project:<id>
   --no-browser prints the approval link instead of opening it.`;
 const PACK_ROOT = fileURLToPath(new URL('..', import.meta.url));
+// What wp-admin says when the store's WordPress is older than 7.0 (see above).
+const OLDER_WORDPRESS =
+  "If wp-admin says the URL must be served over a secure connection, the store's WordPress is older than 7.0: connect it by hand, as the README's \"Connect it by hand\" says";
 
 class Failure extends Error {}
 
@@ -220,11 +225,12 @@ async function waitForApproval(authorize, { app, openBrowser }) {
   say(`  ${link.href}`);
   if (openBrowser) openInBrowser(link.href);
   say('Waiting for the approval (5 minutes at most)…');
+  say(`${OLDER_WORDPRESS} (Ctrl-C stops this).`);
 
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       server.close();
-      reject(new Failure('Nobody approved within 5 minutes. Nothing changed; run this again.'));
+      reject(new Failure(`Nobody approved within 5 minutes. Nothing changed; run this again. ${OLDER_WORDPRESS}.`));
     }, WAIT_MS);
     server.on('request', (req, res) => {
       const url = new URL(req.url ?? '/', back);

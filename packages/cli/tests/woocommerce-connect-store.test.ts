@@ -474,6 +474,11 @@ describe("the woocommerce starter's connect-store", () => {
     expect(stdout).toContain(
       'Connected. Try the store agent: pnpm exec kindgi runs start --agent=acme-shop.store-agent',
     );
+    // Before 7.0, WordPress sends the approval to 127.0.0.1 only on a local
+    // site; the wait says what wp-admin shows then, and what to do.
+    expect(stdout).toContain(
+      `Waiting for the approval (5 minutes at most)…\nIf wp-admin says the URL must be served over a secure connection, the store's WordPress is older than 7.0: connect it by hand, as the README's "Connect it by hand" says (Ctrl-C stops this).\n`,
+    );
   });
 
   test('connecting again replaces only its own password; a deploy gets one of its own', async () => {
