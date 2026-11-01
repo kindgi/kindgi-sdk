@@ -203,9 +203,9 @@ export type PinErrorCode =
   /**
    * A registry that takes Improve's candidates (`RegistryReadOnly.takesCandidates`,
    * `kindgi dev`): pinning a version writes it into the pack's files,
-   * which serve every scope, so a narrower scope is refused; and a pin of
-   * an earlier version or an unpin is undone there, with git. The message
-   * says which.
+   * which serve every scope, so a narrower scope is refused; and an unpin
+   * is too, since a pin of the version before undoes a pin there. The
+   * message says which.
    */
   | 'registry-read-only'
   | 'persistence-error';

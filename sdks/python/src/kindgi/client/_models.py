@@ -5002,7 +5002,11 @@ class SuggestedChange(BaseModel):
     """
     fixes: list[str]
     """
-    The corrections it fixes, by id.
+    The corrections it fixes, by id: the first 100 at most. `correctionCount` says how many in all.
+    """
+    correction_count: Annotated[int | None, Field(alias="correctionCount", ge=0)] = None
+    """
+    How many corrections it fixes in all, those `fixes` names and any past its first 100. Absent from older servers: there, take the length of `fixes`.
     """
     check: SuggestedChangeCheck
     status: Annotated[

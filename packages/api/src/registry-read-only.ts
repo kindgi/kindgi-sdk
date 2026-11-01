@@ -24,24 +24,23 @@ export interface RegistryReadOnly {
    * be evaluated, never served by range), and a pin makes one pinned by
    * writing it where the definitions come from (under `kindgi dev`, the
    * pack's files). Of the agents router's writes, only `POST …/pinned/pin`
-   * and `…/pinned/check` get through. Unpinning stays
-   * refused, a suggested change's roll back too, with `undoReason`: there's one
-   * pinned version, and what undoes a change is where it was written. And
+   * and `…/pinned/check` get through. Unpinning stays refused, with
+   * `undoReason`: there's one pinned version, what the files are, and a
+   * pin of the version before undoes a pin, as on a deployed runtime. And
    * only the whole tenant is improved: a suggested change's draft or its
    * evaluation for a narrower scope is refused with `scopeReason`, as the
    * binding refuses pinning a version there. So an Improve run drafts its
    * change for the whole tenant, and its pin goes through the project its
    * version was made in. A suggested change made by hand, and a check
-   * again, are refused with `byHandReason`; an add as Latest with
-   * `latestReason` (each, when absent, with `reason`).
+   * again, go the same way: for the whole tenant, checked in the project
+   * its version was made in. An add as Latest is refused with
+   * `latestReason` (when absent, with `reason`).
    */
   readonly takesCandidates?: {
     /** Why an unpin is refused, and what to do instead. */
     readonly undoReason: string;
     /** Why a scope narrower than the whole tenant is refused, and what to do instead. */
     readonly scopeReason: string;
-    /** Why a suggested change isn't made by hand, or checked again, here, and what to do instead. */
-    readonly byHandReason?: string;
     /** Why a suggested change isn't added as Latest here, and what to do instead. */
     readonly latestReason?: string;
   };
