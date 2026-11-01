@@ -13,6 +13,16 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a project, org or team body is checked as the API checks it.** `ProjectSpec`,
+  `OrgSpec` and `TeamSpec` refuse a slug that isn't lowercase letters, digits and hyphens
+  starting with a letter or digit, of at most 63 characters, and a name of more than 100
+  characters, before the call is sent. The register bodies of schedules, mail triggers and
+  webhook triggers, and `MintTokenBody`, refuse a blank label or one of more than 100
+  characters, and `OpenConversationBody` a title of more than 200. The update bodies check
+  none of these: `ProjectPatch`, `OrgPatch` and `TeamPatch` no longer refuse `""` for a name
+  or a slug, and a trigger update's label stays unchecked. The API passes a stored value sent
+  back unchanged, and answers `400` for a new one that fails.
+
 ## 0.3.1
 
 - `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",
