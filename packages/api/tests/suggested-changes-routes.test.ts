@@ -846,14 +846,9 @@ const TAKES_CANDIDATES = {
   takesCandidates: {
     undoReason: "The pack's files are what's live: undo it with git.",
     scopeReason: "The pack's files serve every scope: improve the whole tenant.",
-    byHandReason: 'Suggested changes come from Improve runs here: run Improve.',
     latestReason: "The pack's files are what runs: pin it for the whole tenant.",
   },
 };
-
-/** What a read-only agent registry refuses a suggested change by hand with: its reason, or its by-hand one. */
-const byHand = (readOnly: true | 'takes-candidates') =>
-  readOnly === true ? TAKES_CANDIDATES.reason : TAKES_CANDIDATES.takesCandidates.byHandReason;
 
 /**
  * A suggested change made for the project, which runs its pin of 1.0.0;
@@ -1267,16 +1262,11 @@ describe('POST /v1/suggested-changes', () => {
     expect(suggestedChanges.rows.size).toBe(0);
   });
 
-  test.each([
-    [true, true],
-    [true, false],
-    ['takes-candidates', true],
-    ['takes-candidates', false],
-  ] as const)(
-    'a read-only agent registry (%s; freezes a test set: %s) refuses it first (409 registry-read-only), with its reason, and publishes nothing',
-    async (readOnly, freezes) => {
+  test.each([true, false])(
+    'a read-only agent registry that takes no candidates (freezes a test set: %s) refuses it first (409 registry-read-only), with its reason, and publishes nothing',
+    async (freezes) => {
       const { call, pinStore, blocks, suggestedChanges, testRuns } = await harness({
-        readOnly,
+        readOnly: true,
         freezes,
       });
       pinStore.pin(PROJECT, '1.0.0');
@@ -1284,7 +1274,7 @@ describe('POST /v1/suggested-changes', () => {
       expect(res.status, JSON.stringify(res.body)).toBe(409);
       expect(res.body.error).toMatchObject({
         code: 'registry-read-only',
-        message: byHand(readOnly),
+        message: TAKES_CANDIDATES.reason,
       });
       expect([...blocks.rows.keys()].filter((k) => k.startsWith(WEIGHTS))).toHaveLength(1);
       expect(suggestedChanges.rows.size).toBe(0);
@@ -1585,20 +1575,17 @@ describe('POST /v1/suggested-changes/:id/check', () => {
     expect(testRuns.started).toHaveLength(2);
   });
 
-  test.each([true, 'takes-candidates'] as const)(
-    'a read-only agent registry (%s) refuses it (409 registry-read-only), with its reason, and starts nothing',
-    async (readOnly) => {
-      const h = await harness({ readOnly });
-      const id = await oldRow(h, PROJECT);
-      const res = await h.call('POST', `/v1/suggested-changes/${id}/check`);
-      expect(res.status, JSON.stringify(res.body)).toBe(409);
-      expect(res.body.error).toMatchObject({
-        code: 'registry-read-only',
-        message: byHand(readOnly),
-      });
-      expect(h.testRuns.started).toEqual([]);
-    },
-  );
+  test('a read-only agent registry that takes no candidates refuses it (409 registry-read-only), with its reason, and starts nothing', async () => {
+    const h = await harness({ readOnly: true });
+    const id = await oldRow(h, PROJECT);
+    const res = await h.call('POST', `/v1/suggested-changes/${id}/check`);
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'registry-read-only',
+      message: TAKES_CANDIDATES.reason,
+    });
+    expect(h.testRuns.started).toEqual([]);
+  });
 
   test.each([
     ['the whole tenant', { kind: 'tenant' } as AgentPinScope],
@@ -4466,43 +4453,41 @@ describe("an agent registry that takes Improve's candidates (kindgi dev)", () =>
     expect(improveRuns.started.map((r) => r.projectId)).toEqual([projectId]);
   });
 
-  test("a suggested change by hand is refused with the by-hand reason, not the scope's (409 registry-read-only), and none is kept", async () => {
-    const h = await harness({ readOnly: 'takes-candidates', freezes: false });
-    h.pinStore.pin(PROJECT, '1.0.0');
+  test("a suggested change by hand is for the whole tenant, as an Improve run's is, and checked in the project its version was made in (201 checking)", async () => {
+    const h = await harness({ readOnly: 'takes-candidates' });
+    h.pinStore.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/suggested-changes', CARD);
-    expect(res.status, JSON.stringify(res.body)).toBe(409);
-    expect(res.body.error).toMatchObject({
-      code: 'registry-read-only',
-      message: TAKES_CANDIDATES.takesCandidates.byHandReason,
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body).toMatchObject({
+      projectId,
+      builtOn: { version: '1.0.0' },
+      version: '1.0.1',
+      status: 'checking',
     });
-    expect(res.body.error.message).not.toBe(NARROWER.message);
-    expect(h.suggestedChanges.rows.size).toBe(0);
+    expect(h.suggestedChanges.rows.get(res.body.id)?.scope).toEqual({ kind: 'tenant' });
+    expect(h.testRuns.started.map((r) => r.projectId)).toEqual([projectId, projectId]);
   });
 
-  test('one for a project from before is not checked again: nothing published or started', async () => {
+  test("one for a project from before is not checked again, with the scope's reason: nothing published or started", async () => {
     const h = await harness({ readOnly: 'takes-candidates', freezes: false });
     const id = await oldRow(h, PROJECT);
     const res = await h.call('POST', `/v1/suggested-changes/${id}/check`);
     expect(res.status, JSON.stringify(res.body)).toBe(409);
-    expect(res.body.error).toMatchObject({
-      code: 'registry-read-only',
-      message: TAKES_CANDIDATES.takesCandidates.byHandReason,
-    });
+    expect(res.body.error).toMatchObject(NARROWER);
     expect(h.testRuns.started).toEqual([]);
     expect([...h.blocks.rows.keys()].filter((k) => k.startsWith(WEIGHTS))).toEqual([
       `${WEIGHTS}@1.0.0`,
     ]);
   });
 
-  test("one for the whole tenant isn't checked again either: the by-hand reason, never not-for-a-project", async () => {
-    const h = await harness({ readOnly: 'takes-candidates', freezes: false });
+  test('one for the whole tenant is checked again in the project its version was made in, never not-for-a-project (202)', async () => {
+    const h = await harness({ readOnly: 'takes-candidates' });
     const id = await oldRow(h, { kind: 'tenant' });
+    h.pinStore.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', `/v1/suggested-changes/${id}/check`);
-    expect(res.status, JSON.stringify(res.body)).toBe(409);
-    expect(res.body.error).toMatchObject({
-      code: 'registry-read-only',
-      message: TAKES_CANDIDATES.takesCandidates.byHandReason,
-    });
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(res.body).toMatchObject({ status: 'checking', check: { status: 'running' } });
+    expect(h.testRuns.started.map((r) => r.projectId)).toEqual([projectId, projectId]);
   });
 
   test("an Improve run's change, for the whole tenant, is pinned for the whole tenant, through the project its version was made in", async () => {
@@ -4575,19 +4560,37 @@ describe("an agent registry that takes Improve's candidates (kindgi dev)", () =>
     expect(checkedIn(res.body), JSON.stringify(res.body)).toEqual([projectId, OTHER].sort());
   });
 
-  test("one built on a version that no longer runs isn't rebuilt: 409 out of date, run Improve again, nothing pinned", async () => {
-    const h = await harness({ readOnly: 'takes-candidates', freezes: false });
+  test('one built on a version that no longer runs is rebuilt on what runs, as on a deployed runtime: 409 out of date while it is, nothing pinned', async () => {
+    const h = await harness({ readOnly: 'takes-candidates' });
     const id = await oldRow(h, { kind: 'tenant' }, { checked: true });
-    // The pack's files changed to another version since it was built.
+    // The pack's files changed to another version since it was built: 1.0.0's definition as 1.0.2.
+    const got = await h.agents.getVersion({
+      tenantId,
+      agentId: AGENT as AgentId,
+      version: '1.0.0' as Semver,
+    });
+    if (got === null) throw new Error('no 1.0.0');
+    const { projectId: _in, ...agent } = got;
+    await h.agents.publish({
+      tenantId,
+      projectId,
+      agent: { ...agent, version: '1.0.2' } as unknown as Agent,
+      madeFor: 'latest',
+      enqueueTuples: () => [],
+    });
     h.pinStore.pin({ kind: 'tenant' }, '1.0.2');
     const before = h.pinStore.pins.length;
     const res = await h.call('POST', `/v1/suggested-changes/${id}/pin`, {});
     expect(res.status, JSON.stringify(res.body)).toBe(409);
     expect(res.body.error).toMatchObject({
       code: 'suggested-change-out-of-date',
-      message: `Suggested change ${id} is built on 1.0.0, and its project now runs 1.0.2, which it can't be rebuilt on: here only an Improve run makes and checks one, so run Improve again. Withdraw it`,
+      details: { builtOn: '1.0.0', runs: '1.0.2', rebuilding: true },
     });
     expect(h.pinStore.pins).toHaveLength(before);
+    expect((await h.call('GET', `/v1/suggested-changes/${id}`)).body).toMatchObject({
+      status: 'checking',
+      builtOn: { version: '1.0.2' },
+    });
   });
 
   test('adding one as Latest is refused with the Latest reason (409 registry-read-only)', async () => {
@@ -4601,9 +4604,9 @@ describe("an agent registry that takes Improve's candidates (kindgi dev)", () =>
     });
   });
 
-  test("without its own reasons, it refuses by hand and as Latest with the registry's reason", async () => {
+  test("without its own Latest reason, it refuses an add as Latest with the registry's reason", async () => {
     const h = await harness({ freezes: false });
-    const { byHandReason: _b, latestReason: _l, ...older } = TAKES_CANDIDATES.takesCandidates;
+    const { latestReason: _l, ...older } = TAKES_CANDIDATES.takesCandidates;
     const service = createSuggestedChangeService({
       store: h.suggestedChanges,
       agents: {
@@ -4618,10 +4621,6 @@ describe("an agent registry that takes Improve's candidates (kindgi dev)", () =>
     const suggestedChange = h.suggestedChanges.rows.get(id) as StoredSuggestedChange;
     const actor = { kind: 'user', id: 'user-1' } as const;
     const refusal = { code: 'registry-read-only', message: TAKES_CANDIDATES.reason };
-    expect(await service.check({ tenantId, suggestedChange, actor })).toMatchObject({
-      kind: 'err',
-      error: refusal,
-    });
     expect(await service.addAsLatest({ tenantId, suggestedChange, actor })).toMatchObject({
       kind: 'err',
       error: refusal,
