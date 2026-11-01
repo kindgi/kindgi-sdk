@@ -17,21 +17,24 @@
  */
 
 import { spawn } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
 
 import { KindgiApiError, type KindgiClient, type SuggestedChange } from '@kindgi/client';
 import { type IndexedBlock, writePackBlock } from '@kindgi/handler-runtime';
 import semver from 'semver';
 
-import { stableStringify } from '../build/envelope.js';
 import type { CommandContext } from '../context.js';
 import { repoOf } from '../deploy/source.js';
 import { UsageError } from '../errors.js';
 import { type Rendered, renderJson } from '../output.js';
 import { resolveProjectRef } from '../project-ref.js';
 import { gitCaller, gitEnv, uncommittedFiles } from '../uncommitted-files.js';
-import { type PulledBlock, packBlocksAt } from './blocks.js';
+import {
+  type PulledBlock,
+  fileVersionOf,
+  notPulledLine,
+  packBlocksAt,
+  templateFileOf,
+} from './blocks.js';
 import { consoleUrlOf } from './console.js';
 import { packDirOf } from './environments.js';
 import { requiredPositional, runSdkRendered, stringFlag } from './helpers.js';
@@ -46,8 +49,8 @@ interface Pull {
   readonly block: IndexedBlock;
   /** The block's file and, for a prompt that keeps one, its template file: relative to the pack. */
   readonly files: readonly string[];
-  /** When the file is at the version the change is built on: that version's content, which the file must still hold. */
-  readonly expected?: Readonly<Record<string, unknown>>;
+  /** The content of the version the file says it is, which the file must still hold when it's written. */
+  readonly expected: Readonly<Record<string, unknown>>;
 }
 
 /** The statuses whose version can be pulled: checked, and not withdrawn. */
@@ -92,16 +95,19 @@ function blockChangesOf(s: SuggestedChange): readonly (BlockChange & { readonly 
 /**
  * The pack's block for a change. Refused when the pack has none, when its
  * file isn't older than the change's version, and when it holds a version
- * newer than the one the change is built on, or that version with other
- * content: writing would drop those edits.
+ * newer than the one the change is built on: writing would drop those
+ * edits. A file that doesn't hold its own version as the runtime has it
+ * (`fileVersionOf`) comes back as the line that says so, so that every
+ * such block is named before any is written.
  */
 async function pullOf(
   client: KindgiClient,
   packDir: string,
   pattern: string,
   blocks: readonly IndexedBlock[],
+  suggestedChangeId: string,
   change: BlockChange & { readonly to: string },
-): Promise<Pull> {
+): Promise<Pull | { readonly refused: string }> {
   const block = blocks.find((b) => b.id === change.blockId);
   if (block === undefined) {
     throw new UsageError(
@@ -120,43 +126,19 @@ async function pullOf(
   }
   const template = await templateFileOf(packDir, block);
   const files = template === undefined ? [block.modulePath] : [block.modulePath, template];
-  const pull = { blockId: block.id, to: change.to, block, files };
-  if (semver.lt(block.version, change.from)) return pull;
-  return { ...pull, expected: await unchangedSince(client, pull, change.from) };
-}
-
-/** The content of the version the change is built on, refused when the pack's files hold other content at it. */
-async function unchangedSince(
-  client: KindgiClient,
-  pull: Pick<Pull, 'block' | 'files'>,
-  from: string,
-): Promise<Readonly<Record<string, unknown>>> {
-  const { block, files } = pull;
-  const expected = (await client.blocks.versions.get(block.id, from)).content as Readonly<
-    Record<string, unknown>
-  >;
-  if (stableStringify(block.content) !== stableStringify(expected)) {
-    const held =
-      files.length === 1
-        ? `${block.modulePath} holds`
-        : `${block.modulePath} and its template ${files[1]} hold`;
-    throw new Error(
-      `${held} ${block.id} ${block.version} with edits that aren't in the ${from} the suggested change is built on: pulling it would drop them. Make the change again on what the pack holds, or undo the edits.`,
-    );
+  const held = await fileVersionOf(client, block);
+  if (held.kind !== 'holds') {
+    return {
+      refused: notPulledLine(
+        block,
+        files,
+        held.kind,
+        `${suggestedChangeId}'s ${change.to}`,
+        'Make the change again on what the pack holds, or undo the edits.',
+      ),
+    };
   }
-  return expected;
-}
-
-/** A prompt's template file, where `readPackBlocks` reads it: relative to its block's file. */
-async function templateFileOf(packDir: string, block: IndexedBlock): Promise<string | undefined> {
-  if (block.kind !== 'prompt') return undefined;
-  const raw = JSON.parse(await readFile(path.join(packDir, block.modulePath), 'utf8')) as {
-    readonly content?: { readonly templateFile?: unknown };
-  };
-  const file = raw.content?.templateFile;
-  return typeof file === 'string'
-    ? path.posix.normalize(path.posix.join(path.posix.dirname(block.modulePath), file))
-    : undefined;
+  return { blockId: block.id, to: change.to, block, files, expected: held.content };
 }
 
 /** Each version written into its file, in order, into `wrote`: what's written when a later one fails. */
@@ -175,7 +157,7 @@ async function writeAll(
       id: p.blockId,
       version: p.to,
       content: contents[i] as Readonly<Record<string, unknown>>,
-      ...(p.expected !== undefined && { expected: p.expected }),
+      expected: p.expected,
     });
     if (outcome.kind === 'err') {
       throw new Error(
@@ -632,9 +614,14 @@ async function pullsFor(
   }
   if (!PULLABLE.has(suggested.status)) throw new Error(notPullable(suggested));
   const pulls: Pull[] = [];
+  const refused: string[] = [];
   for (const change of blockChangesOf(suggested)) {
-    pulls.push(await pullOf(client, packDir, pattern, blocks, change));
+    const pull = await pullOf(client, packDir, pattern, blocks, suggested.id, change);
+    if ('refused' in pull) refused.push(pull.refused);
+    else pulls.push(pull);
   }
+  // Every block is checked before any is written: a refusal leaves the pack as it was.
+  if (refused.length > 0) throw new Error(refused.join('\n'));
   return { suggested, pattern, pulls };
 }
 
@@ -850,7 +837,7 @@ export const pull: LeafCommand = {
   kind: 'leaf',
   name: 'pull',
   description:
-    "Write a suggested change's block version into the pack's block file, as `kindgi blocks pull` writes what runs: when it's newer than the file's, and the file holds no version newer than the one the change is built on, nor that version with edits. Allowed when `ready`, `waiting-for-second-person`, `pinned` or `added-as-latest`. With --pr, in the pack's git repository: a new branch `kindgi/<block>-<version>` from the one checked out, a commit of the block files alone, a push, and a pull request opened with `gh` (without gh, where to open one: its URL, when the remote gives one). The corrections it fixes that are still `open` are then `being-fixed`, linked to the pull request (needs `publish` on the agent, or `write` in the correction's project for an agent that several projects serve). The pull request says only fixed words and numbers: never the suggested change's why, nor a correction's words.",
+    "Write a suggested change's block version into the pack's block file, as `kindgi blocks pull` writes what runs: when it's newer than the file's, and the file holds no version newer than the one the change is built on, nor its own version with edits. Allowed when `ready`, `waiting-for-second-person`, `pinned` or `added-as-latest`. With --pr, in the pack's git repository: a new branch `kindgi/<block>-<version>` from the one checked out, a commit of the block files alone, a push, and a pull request opened with `gh` (without gh, where to open one: its URL, when the remote gives one). The corrections it fixes that are still `open` are then `being-fixed`, linked to the pull request (needs `publish` on the agent, or `write` in the correction's project for an agent that several projects serve). The pull request says only fixed words and numbers: never the suggested change's why, nor a correction's words.",
   usage:
     'kindgi suggested-changes pull <suggested-change-id> [--pr] [--project=<id|slug>] [--path=<dir>]',
   optionSpec: {
