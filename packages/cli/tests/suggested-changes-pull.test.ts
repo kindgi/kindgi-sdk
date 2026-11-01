@@ -480,6 +480,30 @@ describe('kindgi suggested-changes pull', () => {
     );
   });
 
+  test("the commit fails: what's written on the new branch, and the lines that go back", async () => {
+    await pack();
+    await writeFile(
+      join(cwd, '.git/hooks/pre-commit'),
+      '#!/bin/sh\necho "Commits are closed." >&2\nexit 1\n',
+    );
+    await chmod(join(cwd, '.git/hooks/pre-commit'), 0o755);
+    await fakeGh({ stdout: `${PR_URL}\n` });
+    const out = await pull(['sc-1', '--pr'], client());
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(`Couldn't commit the block files on ${BRANCH}`);
+    expect(out.stderr).toContain(
+      `You're on the new branch ${BRANCH}, made from main, where blocks/tone.json is written but not committed: \`git restore -- blocks/tone.json\` undoes it, \`git switch main\` goes back, then \`git branch -d ${BRANCH}\` deletes the branch.`,
+    );
+    expect((await toneFile()).version).toBe('1.1.0');
+    expect(await calls(ghLog)).toEqual([]);
+    inPack('restore', '--', 'blocks/tone.json');
+    inPack('switch', '-q', 'main');
+    inPack('branch', '-q', '-d', BRANCH);
+    expect(inPack('status', '--porcelain')).toBe('');
+    expect(inPack('branch', '--list', '--format=%(refname:short)').trim()).toBe('main');
+    expect((await toneFile()).version).toBe('1.0.0');
+  });
+
   test('the push fails: what git said, and the commit stays on the branch', async () => {
     await pack();
     await writeFile(

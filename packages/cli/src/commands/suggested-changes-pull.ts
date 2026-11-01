@@ -159,17 +159,17 @@ async function templateFileOf(packDir: string, block: IndexedBlock): Promise<str
     : undefined;
 }
 
-/** Each version written into its file, in order. */
+/** Each version written into its file, in order, into `wrote`: what's written when a later one fails. */
 async function writeAll(
   client: KindgiClient,
   packDir: string,
   pattern: string,
   pulls: readonly Pull[],
+  wrote: PulledBlock[] = [],
 ): Promise<PulledBlock[]> {
   const contents = await Promise.all(
     pulls.map(async (p) => (await client.blocks.versions.get(p.blockId, p.to)).content),
   );
-  const wrote: PulledBlock[] = [];
   for (const [i, p] of pulls.entries()) {
     const outcome = await writePackBlock(packDir, pattern, {
       id: p.blockId,
@@ -649,30 +649,40 @@ async function commitOnBranch(
   base: string,
 ): Promise<{ readonly wrote: PulledBlock[]; readonly title: string; readonly commit: string }> {
   await git(ctx, packDir, ['checkout', '-b', branch], `Couldn't make the branch ${branch}`);
-  let wrote: PulledBlock[];
+  const wrote: PulledBlock[] = [];
   let title: string;
   try {
-    wrote = await writeAll(client, packDir, pattern, pulls);
+    await writeAll(client, packDir, pattern, pulls, wrote);
     title = titleOf(wrote);
-    const files = wrote.flatMap((w) =>
-      w.templateFile === undefined ? [w.file] : [w.file, w.templateFile],
-    );
     await git(
       ctx,
       packDir,
-      ['commit', '--message', title, '--', ...files],
+      ['commit', '--message', title, '--', ...filesOf(wrote)],
       `Couldn't commit the block files on ${branch}`,
     );
   } catch (err) {
     if (!(err instanceof Error)) throw err;
-    throw new Error(
-      `${err.message} You're on the new branch ${branch}, made from ${base}, with nothing committed.`,
-    );
+    throw new Error(`${err.message} ${leftOn(branch, base, filesOf(wrote))}`);
   }
   const commit = (
     await git(ctx, packDir, ['rev-parse', 'HEAD'], "Couldn't read the commit")
   ).trim();
   return { wrote, title, commit };
+}
+
+/** The block files written, each with its template file when it keeps one. */
+function filesOf(wrote: readonly PulledBlock[]): string[] {
+  return wrote.flatMap((w) => (w.templateFile === undefined ? [w.file] : [w.file, w.templateFile]));
+}
+
+/** Where a failure after `checkout -b` leaves the pack, and the way back. */
+function leftOn(branch: string, base: string, written: readonly string[]): string {
+  const back = `\`git switch ${base}\` goes back, then \`git branch -d ${branch}\` deletes the branch.`;
+  if (written.length === 0) {
+    return `You're on the new branch ${branch}, made from ${base}, with nothing written or committed: ${back}`;
+  }
+  const one = written.length === 1;
+  return `You're on the new branch ${branch}, made from ${base}, where ${written.join(', ')} ${one ? 'is' : 'are'} written but not committed: \`git restore -- ${written.join(' ')}\` undoes ${one ? 'it' : 'them'}, ${back}`;
 }
 
 /** The branch pushed to the remote; what the push printed, where a remote may say how to open a pull request. */
