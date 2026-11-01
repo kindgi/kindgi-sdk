@@ -526,9 +526,21 @@ Behind Cloud Run IAM, add the ID token line after the `curl` line, as in
 step 1. `KINDGI_API_TOKEN=$KEY` gives the key to that one command, off the
 command line. The key stays valid until you revoke it. Once you've set what
 you need, revoke it: `POST /v1/system/keys/{keyId}/revoke`, with its id from
-`GET /v1/system/keys` (its label is `cloud secrets`). Serving many tenants, the API token holds the full system
-capability, `kindgi:system`, so set it with the API token in
-`KINDGI_API_TOKEN` ([Serve many tenants](#serve-many-tenants)).
+`GET /v1/system/keys` (its label is `cloud secrets`). Serving many tenants,
+the API token holds the full system capability, `kindgi:system`, so set it
+with the API token in `KINDGI_API_TOKEN`
+([Serve many tenants](#serve-many-tenants)).
+
+A revision whose account can't read a secret it's given (say it was set
+before its grant) doesn't start, and the last ready one keeps serving.
+`kindgi deployments get <deployment-id>` shows the service held as
+`pack-env-secret-unreadable`. The orchestrator tries the same values again,
+each time as a new revision, 5, 10 and 20 minutes after each start that
+didn't take, so four starts at most, then leaves them held. Grant the read
+(list the secret in `pack_secret_readers` and apply), and the next start
+clears the hold. After the fourth, set the name again with `--force` (the
+same cloud secret: without `--force`, that's no change). That counts as new
+values, with four starts of their own.
 
 Secret Manager logs a read of a secret's value only with its Data Access
 audit logs on. To record each read of a pack's secrets, turn on `DATA_READ`
@@ -788,7 +800,7 @@ It prints the deployment as JSON, then each step. The last steps:
 
   Deploy complete.
   Runs started from now use image sha256:bd7bfe4f7d9c8… (artifactVersion …).
-  Runs already in flight keep their tool versions: each tool call goes to the newest deployment that shipped the version it names.
+  Runs already in flight keep their tool versions: each tool call goes to the newest deployment in the run's project that shipped the version it names.
 ```
 
 The deployment's tools answer once the orchestrator has made its pack
