@@ -422,9 +422,10 @@ counted in the summary's `corrections`, unless a part couldn't be checked
 and none failed. A repetition passes when every part the case expects
 passed on it, and the case passes when every repetition did. Its `parts`
 names the parts that were checked, its decisions and its answer, and says
-whether each passed on every repetition. Each graded part is one check in
-`passRate`, beside the case's items, so a case that expects both is two
-checks, and a release gate on `passRate` counts them. The recorded run
+whether each passed on every repetition. Each part that was checked is one
+check in `passRate`, beside the case's items, so a case whose decisions and
+answer were both checked is two checks, and a release gate on `passRate`
+counts them. The recorded run
 passes a part when people marked it `right`, and each repetition that ran
 passes it when the part passed on every repetition. For
 `decisions: "wrong"`, `correctionDifferences` says what differed. When an
@@ -463,7 +464,11 @@ answer fails, `why` has the judging model's reason:
   part, and it adds no check. A failed call doesn't stop the test run. The
   summary's `unchecked` counts the cases whose pass isn't known, a part
   unchecked and none failed (`cases`), with the first reason an answer of
-  theirs couldn't be checked (`why`).
+  theirs couldn't be checked (`why`). `why` is absent when there's no
+  checker, the test run stopped before a check, or only decisions couldn't
+  be checked. Both are from runtime \<x> or later. An earlier runtime gives
+  a case with a part unchecked no entry, so none of its parts counts, even
+  one that failed.
 - **A repetition that errored or stopped** fails every part, and its answer
   isn't checked, nor any after it.
 
