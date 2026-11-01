@@ -10,7 +10,7 @@
   ```json
   "secretEnv": { "GITHUB_TOKEN": { "envName": "production", "name": "FILES_GITHUB_TOKEN" } }
   ```
-  It takes 1 to 16 variables. Each name has no `=` or NUL, and none is also in `config.env` (`secret-env-twice`); otherwise the reason is `invalid-secret-env`. It's `stdio` only: on an HTTP endpoint it's refused (`secret-env-on-http`). Each secret is read at the endpoint's recorded scope, and counts for the provider-key guard and for the env a runtime serves, as `secretRef`'s does. A value the server quotes back, in an error or a tool call's result, shows `[redacted]`, as an HTTP endpoint's credential does.
+  It takes 1 to 16 variables. Each name has no `=` or NUL, and none is also in `config.env` (`secret-env-twice`); otherwise the reason is `invalid-secret-env`. It's `stdio` only: on an HTTP endpoint it's refused (`secret-env-on-http`). Each secret is read at the endpoint's recorded scope, and counts for the provider-key guard and for the env a runtime serves, as `secretRef`'s does. A value the server quotes back in an error shows `[redacted]`, as an HTTP endpoint's credential does.
 - **A credential in `config.env` is refused at registration** (`invalid-mcp-endpoint`, reason `credential-in-env`). The message names the variable, never its value, and shows the `secretEnv` that replaces it.
   - **Which names count:** the ones `config.headers` refuses, with parts split on `_` as well as `-`: `GITHUB_TOKEN`, `OPENAI_API_KEY`, `AWS_SECRET_ACCESS_KEY`, `SLACK_BOT_TOKEN`, `DB_PASSWORD`. A lone `KEY` doesn't count: `CACHE_KEY` stays plain.
   - **Exported:** the rule is `isCredentialEnvName()`.
