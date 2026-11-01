@@ -555,7 +555,7 @@ export const ERROR_ENTRIES = {
   },
   'registry-read-only': {
     description:
-      "This registry takes no writes, for example when a local dev server serves the project's own files. The message says what to do instead.",
+      "This registry takes no writes, for example when a local dev server serves the project's own files: publishing, unregistering and reinstating are refused, and so is a deploy that would publish into it. Under `kindgi dev`, the agent registry still takes Improve runs, suggested changes, a check again and pins for the whole workspace, and a pin writes the version into the pack's files. It refuses an unpin, an add as Latest, and any of these for less than the whole workspace. The message says what to do instead.",
     details: [],
   },
   'agent-gone': {
@@ -2122,7 +2122,7 @@ export const ERROR_ENTRIES = {
   },
   'pin-superseded': {
     description:
-      "The scope's pinned version changed while the release gate was being checked, so the check no longer applies. Check the pin again against the new pinned version.",
+      "The scope's pinned version changed while the release gate was being checked, so the check no longer applies. Check the pin again against the new pinned version. Under `kindgi dev`, a pin is also refused with it when the pack's files changed since the check or since the suggested change was made, or when a file was edited by hand at a version `kindgi dev` already keeps. The message names the file.",
     details: [
       {
         key: 'pinned',
@@ -2796,7 +2796,7 @@ export const ERROR_ENTRIES = {
   },
   'dispatcher-input-invalid': {
     description:
-      "The test run's input doesn't fit the test set's kind: neither an agent nor a flow reference was given, or the kind's validation rejected the target or comparison.",
+      "The test run's input doesn't fit the test set's kind: neither an agent nor a flow reference was given, or the kind's validation rejected the target or comparison. Under `kindgi dev`, a test run is also refused with it when a file in the pack holds a version the run uses, with other content than `kindgi dev` keeps at that version. The message names the file.",
     details: [],
   },
   'mcp-endpoint-not-found': {

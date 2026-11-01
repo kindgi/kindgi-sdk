@@ -479,7 +479,10 @@ through Kindgi, plain ones with `kindgi env set`
 When a value changes, the orchestrator's next pass gives the running service
 its new env, with no deploy. While a name the pack requires has no value, a
 new deployment gets no service, and a running one keeps the values it was
-last given. `kindgi deployments get <deployment-id>` names what's missing.
+last given. A secret is the exception: once its name is no longer set as a
+secret, the service's copy of it in Secret Manager is deleted at once,
+without waiting for the missing names. `kindgi deployments get <deployment-id>`
+names what's missing.
 With `secrets_backend = "none"`, a pack gets no secret stored in Kindgi: its
 plain values, and cloud secrets
 ([Read a secret of yours](#read-a-secret-of-yours)).
