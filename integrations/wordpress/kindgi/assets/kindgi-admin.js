@@ -343,6 +343,7 @@
             card.facts.map((fact) => [el('dt', {}, fact.label), el('dd', {}, fact.value)]),
           )
         : null,
+      card.words.map(agentWords),
       el(
         'p',
         { className: 'kindgi-muted' },
@@ -367,6 +368,15 @@
       details(card),
     );
   }
+
+  /** Words the agent wrote in its call (a reason, a note): quoted, and said to be its own. */
+  const agentWords = (w) =>
+    el(
+      'figure',
+      { className: 'kindgi-said' },
+      el('figcaption', {}, sprintf(__("%s, in the agent's words", 'kindgi'), w.label)),
+      el('blockquote', {}, w.text),
+    );
 
   /** What a card ends with: the decision made, why it's someone else's, or the controls to make one. */
   function cardEnding(card, after) {
@@ -537,6 +547,14 @@
     ];
   }
 
+  /** A run's one-line summary: its agent's words quoted, or its fields as they are. */
+  function summaryLine(run) {
+    if (!run.summary) return null;
+    return run.said
+      ? el('div', {}, el('q', { className: 'kindgi-said' }, run.summary))
+      : el('div', {}, run.summary);
+  }
+
   function activityRow(run, nameOf) {
     const name = run.agentId !== null ? nameOf(run.agentId) : (run.flow ?? __('A run', 'kindgi'));
     return el(
@@ -547,7 +565,7 @@
         'td',
         { className: 'column-primary' },
         el('strong', {}, name),
-        run.summary ? el('div', {}, run.summary) : null,
+        summaryLine(run),
         run.conversationId
           ? el(
               'div',

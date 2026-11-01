@@ -186,3 +186,23 @@
 .kindgi .kindgi-note {
   font-style: italic;
 }
+
+/* The agent's own words: quoted, apart from the facts. */
+.kindgi figure.kindgi-said {
+  margin: 8px 0;
+}
+
+.kindgi .kindgi-said figcaption {
+  color: #646970;
+}
+
+.kindgi .kindgi-said blockquote {
+  margin: 4px 0 0;
+  padding-left: 10px;
+  border-left: 3px solid #dcdcde;
+  font-style: italic;
+}
+
+.kindgi q.kindgi-said {
+  font-style: italic;
+}

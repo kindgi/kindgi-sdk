@@ -64,13 +64,19 @@ function test_inbox_a_tool_calls_card_reads_in_words_not_kindgis(): void {
 				'label' => 'Amount',
 				'value' => '210',
 			),
-			array(
-				'label' => 'Reason',
-				'value' => 'One of the two vases arrived broken.',
-			),
 		),
 		$card['facts'],
 		'what would run, field by field'
+	);
+	kindgi_assert_same(
+		array(
+			array(
+				'label' => 'Reason',
+				'text'  => 'One of the two vases arrived broken.',
+			),
+		),
+		$card['words'],
+		"the agent's reason is its words, not a fact"
 	);
 	kindgi_assert_same( 'you', $card['waitsFor'], 'a standard reviewer decides it' );
 	kindgi_assert_same( 'kindgi', $card['asked']['kind'], 'asked by someone this site never signed in' );
@@ -92,7 +98,7 @@ function test_inbox_a_title_a_tool_gives_is_the_heading(): void {
 	);
 	kindgi_assert_same( 'Refund 210 on order #18', $card['heading'], 'the title' );
 	kindgi_assert_same( 'One of the two vases arrived broken.', $card['summary'], 'the description' );
-	kindgi_assert_same( 3, count( $card['facts'] ), 'the fields still show: a title can leave one out' );
+	kindgi_assert_same( 3, count( $card['facts'] ) + count( $card['words'] ), 'the fields still show: a title can leave one out' );
 }
 
 function test_inbox_sorts_what_waits_for_you_from_what_waits_for_others(): void {
@@ -247,6 +253,22 @@ function test_inbox_who_asked_in_words(): void {
 	kindgi_assert_same( 'none', Kindgi_Inbox::asked( 'service_account:sa-1', 'u-me', $names )['kind'], 'a service account is no person' );
 }
 
+function test_inbox_words_someone_wrote_are_not_values(): void {
+	$cases = array(
+		'a sentence'             => array( 'One of the two vases arrived broken.', true ),
+		'more than one line'     => array( "Sorry.\nIt's on its way.", true ),
+		'twelve words, no stop'  => array( 'please refund the customer for the broken vase and the chipped mug too', true ),
+		"a product's name"       => array( 'Blue glazed ceramic vase', false ),
+		'an address'             => array( '12 Long Road, Springfield', false ),
+		'four words and a stop'  => array( 'Ships to Canada today.', false ),
+		'a number'               => array( 210, false ),
+		'a list'                 => array( array( 'a b c d e.' ), false ),
+	);
+	foreach ( $cases as $what => list( $value, $prose ) ) {
+		kindgi_assert_same( $prose, Kindgi_Inbox::is_prose( $value ), $what );
+	}
+}
+
 function test_inbox_words_for_fields_and_values(): void {
 	$labels = array(
 		'orderId'        => 'Order ID',
@@ -376,6 +398,7 @@ function test_activity_a_webhook_runs_row(): void {
 	kindgi_assert_same( 'Order review', $row['flow'], 'the flow in words' );
 	kindgi_assert_same( 'webhook', $row['startedBy']['kind'], 'a webhook started it' );
 	kindgi_assert_same( 'Order ID 26 · Flags many-of-one-item', $row['summary'], 'its output in one line' );
+	kindgi_assert_same( false, $row['said'], 'its fields, not words of its own' );
 	kindgi_assert( false !== strpos( (string) $row['output'], '"many-of-one-item"' ), 'the whole output, a click away' );
 	kindgi_assert_same( null, $row['private'], 'for someone who can edit orders' );
 }
@@ -442,6 +465,7 @@ function test_activity_a_persons_run_and_its_answer(): void {
 	);
 	kindgi_assert_same( 'you', $mine['startedBy']['kind'], 'my own run' );
 	kindgi_assert_same( 'I refunded 210.00 on order 18.', $mine['summary'], "the answer's first line" );
+	kindgi_assert_same( true, $mine['said'], "the agent's own words, quoted" );
 	kindgi_assert_same( 'c-2', $mine['conversationId'], 'its conversation' );
 	kindgi_assert_same( null, $mine['private'], 'my own, orders or not' );
 	$started = array(

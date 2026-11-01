@@ -60,6 +60,8 @@ final class Kindgi_Inbox {
 			'summary'        => self::summary( $a ),
 			// What would run, always shown: a title can leave a field out.
 			'facts'          => null === $tool ? array() : self::facts( $ref['arguments'] ?? null ),
+			// The agent's own words among them (a reason, a note): quoted, apart from the facts.
+			'words'          => null === $tool ? array() : self::words_of( $ref['arguments'] ?? null ),
 			'status'         => (string) ( $a['status'] ?? '' ),
 			'createdAt'      => (string) ( $a['createdAt'] ?? '' ),
 			'expiresAt'      => is_string( $a['expiresAt'] ?? null ) ? $a['expiresAt'] : null,
@@ -171,23 +173,63 @@ final class Kindgi_Inbox {
 
 	/**
 	 * A call's fields as label and value: `orderId` → "Order ID", a list
-	 * or an object as its JSON, each cut short.
+	 * or an object as its JSON, each cut short. Words someone wrote
+	 * (`is_prose`) are left to `words_of`.
 	 *
 	 * @return array<int, array{label: string, value: string}>
 	 */
 	public static function facts( $arguments ): array {
-		// An object's fields; a list (or nothing) has none to name. PHP 7.4 has no array_is_list().
+		$facts = array();
+		foreach ( self::fields( $arguments ) as $key => $value ) {
+			if ( ! self::is_prose( $value ) ) {
+				$facts[] = array(
+					'label' => self::words( (string) $key ),
+					'value' => self::text_of( $value ),
+				);
+			}
+		}
+		return $facts;
+	}
+
+	/**
+	 * A call's fields that are words someone wrote, the agent that asked:
+	 * a reason, a note to the customer. Shown as theirs, never as a fact.
+	 *
+	 * @return array<int, array{label: string, text: string}>
+	 */
+	public static function words_of( $arguments ): array {
+		$words = array();
+		foreach ( self::fields( $arguments ) as $key => $value ) {
+			if ( self::is_prose( $value ) ) {
+				$text    = trim( $value );
+				$words[] = array(
+					'label' => self::words( (string) $key ),
+					'text'  => mb_strlen( $text ) > self::VALUE_MAX ? mb_substr( $text, 0, self::VALUE_MAX - 1 ) . '…' : $text,
+				);
+			}
+		}
+		return $words;
+	}
+
+	/**
+	 * Whether a value reads as someone's words rather than a value: more
+	 * than one line, a sentence of five words or more, or twelve words.
+	 */
+	public static function is_prose( $value ): bool {
+		if ( ! is_string( $value ) ) {
+			return false;
+		}
+		$text  = trim( $value );
+		$count = preg_match_all( '/\S+/u', $text );
+		return false !== strpos( $text, "\n" ) || $count >= 12 || ( $count >= 5 && 1 === preg_match( '/[.!?…]$/u', $text ) );
+	}
+
+	/** An object's first fields; a list (or nothing) has none to name. PHP 7.4 has no array_is_list(). */
+	private static function fields( $arguments ): array {
 		if ( ! is_array( $arguments ) || array_keys( $arguments ) === range( 0, count( $arguments ) - 1 ) ) {
 			return array();
 		}
-		$facts = array();
-		foreach ( array_slice( $arguments, 0, self::FACTS_MAX, true ) as $key => $value ) {
-			$facts[] = array(
-				'label' => self::words( (string) $key ),
-				'value' => self::text_of( $value ),
-			);
-		}
-		return $facts;
+		return array_slice( $arguments, 0, self::FACTS_MAX, true );
 	}
 
 	/** A field's name in words, as a label. */

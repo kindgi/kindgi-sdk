@@ -60,6 +60,8 @@ final class Kindgi_Activity {
 			'startedBy'      => $started,
 			'triggerKind'    => is_string( $trigger['kind'] ?? null ) ? $trigger['kind'] : null,
 			'summary'        => self::summary( $output ),
+			// Whether the summary is the agent's own words (else it's its fields).
+			'said'           => null !== self::said( $output ),
 			'output'         => self::output( $output ),
 			'failureMessage' => null === $private && is_string( $run['failureMessage'] ?? null ) ? $run['failureMessage'] : null,
 			'private'        => $private,
@@ -109,21 +111,28 @@ final class Kindgi_Activity {
 	}
 
 	/**
-	 * A run's output in one line: its text, a text field's, an agent's
-	 * answer, or the first field that holds words; else its first few
-	 * fields as "Label value"; else nothing.
+	 * What a run's output says in words, when it says any: its text, a
+	 * text field's, an agent's answer, or the first field that holds words.
+	 */
+	public static function said( $output ): ?string {
+		if ( is_string( $output ) ) {
+			return '' !== trim( $output ) ? $output : null;
+		}
+		return is_array( $output ) ? ( self::words_in( $output ) ?? self::answer( $output ) ) : null;
+	}
+
+	/**
+	 * A run's output in one line: what it says (`said`), else its first
+	 * few fields as "Label value", else nothing.
 	 */
 	public static function summary( $output ): ?string {
-		$text = is_string( $output ) ? $output : null;
-		if ( is_array( $output ) ) {
-			$text = self::words_in( $output ) ?? self::answer( $output );
-			if ( null === $text ) {
-				$parts = array();
-				foreach ( array_slice( Kindgi_Inbox::facts( $output ), 0, self::SUMMARY_FIELDS ) as $fact ) {
-					$parts[] = $fact['label'] . ' ' . $fact['value'];
-				}
-				$text = array() === $parts ? null : implode( ' · ', $parts );
+		$text = self::said( $output );
+		if ( null === $text && is_array( $output ) ) {
+			$parts = array();
+			foreach ( array_slice( Kindgi_Inbox::facts( $output ), 0, self::SUMMARY_FIELDS ) as $fact ) {
+				$parts[] = $fact['label'] . ' ' . $fact['value'];
 			}
+			$text = array() === $parts ? null : implode( ' · ', $parts );
 		}
 		$text = null === $text ? '' : trim( $text );
 		if ( '' === $text ) {
