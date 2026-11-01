@@ -493,9 +493,11 @@ resource "google_cloud_run_v2_service_iam_member" "server_public" {
 # The server calls each deployment's pack service with a Google ID token. The
 # pack orchestrator makes and deletes those services, and never sets a
 # service's own policy, so the server may invoke the project's Cloud Run
-# services: run one installation per project.
+# services: run one installation per project. roles/run.servicesInvoker
+# invokes services and nothing else: unlike roles/run.invoker, it doesn't
+# let the server run the project's Jobs.
 resource "google_project_iam_member" "server_invokes_packs" {
   project = var.project_id
-  role    = "roles/run.invoker"
+  role    = "roles/run.servicesInvoker"
   member  = "serviceAccount:${google_service_account.server.email}"
 }
