@@ -95,8 +95,9 @@ corrections it fixes that are still `open` are then `being-fixed`, linked to
 the pull request. Without `--pr`, it only writes the files. It refuses a
 block file that holds a newer version than the one the suggested change is
 built on, or that version with edits, and, with `--pr`, block files with
-changes that aren't committed. Under `kindgi dev` the pin writes them
-itself, and one is for the whole workspace: make it in the default project.
+changes that aren't committed. Under `kindgi dev` the pin writes the block's
+file itself, and a suggested change is for the whole workspace: make it in
+the default project.
 
 ## Wording, with Improve
 
