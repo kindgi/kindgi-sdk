@@ -39,7 +39,7 @@ pnpm exec kindgi artifacts upload report.pdf --run=<run-id> --content-type=appli
 It prints the artifact's record, with its `blobId`.
 
 - **Its project:** with `--run`, it's the run's project. Without `--run`,
-  it's `--project`'s, or else the tenant's Default project. A `--project`
+  it's `--project`'s, or else the tenant's default project. A `--project`
   that isn't the run's is refused, and so is a run that doesn't exist, with
   `404 run-not-found`. With an API key limited to a project, an upload that
   names no project goes to the key's project. One whose project, named or its

@@ -188,7 +188,7 @@
     },
     {
       "name": "projects",
-      "description": "Multi-tenant hierarchy — Project CRUD (list, create, get, patch, delete) + `/projects/default` shortcut + `ProjectMembership` sub-resource (list, add, updateRole, remove). Primary content scope: every content resource belongs to exactly one project. The Default project (`isDefault: true`) is auto-created per tenant at inception — exactly one per tenant, enforced at the storage layer."
+      "description": "Multi-tenant hierarchy — Project CRUD (list, create, get, patch, delete) + `/projects/default` shortcut + `ProjectMembership` sub-resource (list, add, updateRole, remove). Primary content scope: every content resource belongs to exactly one project. The default project (`isDefault: true`) is auto-created per tenant at inception — at most one per tenant, enforced at the storage layer."
     },
     {
       "name": "expert-queue",
@@ -269,6 +269,7 @@
           "fact-not-found": 404,
           "flow-not-found": 404,
           "wait-token-not-found": 404,
+          "tool-file-token-not-found": 404,
           "already-terminal": 409,
           "fact-changed": 409,
           "legal-hold": 409,
@@ -276,6 +277,7 @@
           "run-already-terminal": 409,
           "run-lease-lost": 409,
           "wait-token-closed": 409,
+          "tool-file-token-closed": 409,
           "run-held-by-parent": 409,
           "idempotency-key-body-mismatch": 409,
           "idempotency-key-in-flight": 409,
@@ -334,6 +336,7 @@
           "stuck": 500,
           "database-busy": 503,
           "idempotency-store-unavailable": 503,
+          "tool-files-busy": 503,
           "waitpoint-error": 409,
           "approval-not-found": 404,
           "reviewer-not-found": 404,
@@ -2575,7 +2578,7 @@
               "projectId": {
                 "type": "string",
                 "format": "uuid",
-                "description": "Project to run under; omit → the tenant's Default project."
+                "description": "Project to run under; omit → the tenant's default project."
               },
               "segments": {
                 "type": "array",
@@ -2623,7 +2626,7 @@
               "projectId": {
                 "type": "string",
                 "format": "uuid",
-                "description": "Project to run under; omit → the tenant's Default project."
+                "description": "Project to run under; omit → the tenant's default project."
               },
               "segments": {
                 "type": "array",
@@ -3553,7 +3556,7 @@
           },
           "projectId": {
             "type": "string",
-            "description": "The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project."
+            "description": "The deployment's project, as a call routes in it: the one it named, else the tenant's default. Absent only when the tenant has no default project."
           },
           "imageRef": {
             "type": "string",
@@ -3586,7 +3589,7 @@
               "project-suspended",
               "pack-suspended"
             ],
-            "description": "In the `retire` list only. `superseded`: newer deployments ship every tool version and check it does, so no new call reaches it. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one."
+            "description": "In the `retire` list only. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one."
           }
         }
       },
@@ -3705,7 +3708,7 @@
           "scope",
           "missing"
         ],
-        "description": "One name the deployment's pack declares: where it's set, and why it can't be given to the pack service, if it can't (for `ambiguous` only, `secretScope` names the secret's scope and `cloudSecretScope` the cloud secret's). Each name is looked for at the deployment's project, then its org, then the tenant (most specific wins); a tenant-wide deployment's, at the tenant's Default project. Never a value.",
+        "description": "One name the deployment's pack declares: where it's set, and why it can't be given to the pack service, if it can't (for `ambiguous` only, `secretScope` names the secret's scope and `cloudSecretScope` the cloud secret's). Each name is looked for at the deployment's project, then its org, then the tenant (most specific wins); a tenant-wide deployment's, at the tenant's default project. Never a value.",
         "properties": {
           "name": {
             "type": "string"
@@ -3881,7 +3884,7 @@
           },
           "projectId": {
             "type": "string",
-            "description": "The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project."
+            "description": "The deployment's project, as a call routes in it: the one it named, else the tenant's default. Absent only when the tenant has no default project."
           },
           "imageRef": {
             "type": "string",
@@ -9647,6 +9650,14 @@
             "type": "boolean",
             "description": "`true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`."
           },
+          "storesFiles": {
+            "type": "boolean",
+            "description": "`true` when the tool may store files for its run, such as a mail's attachments: each call can store up to 10, the runtime checks each one's bytes, and the tool returns the stored files in its result's top-level `files`, which an agent is shown. Only a pack tool with a handler can store files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`."
+          },
+          "readsFiles": {
+            "type": "boolean",
+            "description": "`true` when the tool may read stored files' bytes, such as a PDF an agent was given, to parse it: each call can read a file its run may be shown, by its file value's `artifactId`, as it was stored. Only a pack tool with a handler can read files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`."
+          },
           "resultIsOutsideData": {
             "type": "boolean",
             "description": "`true` when the tool's results are text from outside that nobody checked, such as a mail someone sent: an agent reads each result as data, not instructions, in that turn and in every later turn's history. Absent means `false`."
@@ -9768,6 +9779,14 @@
           "pauses": {
             "type": "boolean",
             "description": "`true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`."
+          },
+          "storesFiles": {
+            "type": "boolean",
+            "description": "`true` when the tool may store files for its run, such as a mail's attachments: each call can store up to 10, the runtime checks each one's bytes, and the tool returns the stored files in its result's top-level `files`, which an agent is shown. Only a pack tool with a handler can store files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`."
+          },
+          "readsFiles": {
+            "type": "boolean",
+            "description": "`true` when the tool may read stored files' bytes, such as a PDF an agent was given, to parse it: each call can read a file its run may be shown, by its file value's `artifactId`, as it was stored. Only a pack tool with a handler can read files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`."
           },
           "resultIsOutsideData": {
             "type": "boolean",
@@ -9946,6 +9965,14 @@
           "pauses": {
             "type": "boolean",
             "description": "`true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`."
+          },
+          "storesFiles": {
+            "type": "boolean",
+            "description": "`true` when the tool may store files for its run, such as a mail's attachments: each call can store up to 10, the runtime checks each one's bytes, and the tool returns the stored files in its result's top-level `files`, which an agent is shown. Only a pack tool with a handler can store files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`."
+          },
+          "readsFiles": {
+            "type": "boolean",
+            "description": "`true` when the tool may read stored files' bytes, such as a PDF an agent was given, to parse it: each call can read a file its run may be shown, by its file value's `artifactId`, as it was stored. Only a pack tool with a handler can read files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`."
           },
           "resultIsOutsideData": {
             "type": "boolean",
@@ -10552,7 +10579,7 @@
           "projectId": {
             "type": "string",
             "format": "uuid",
-            "description": "The project the conversation is in: the project of the run that opened it, or `projectId` on open (when omitted, the agent's own project, or the tenant's Default project for an agent filed under none). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope."
+            "description": "The project the conversation is in: the project of the run that opened it, or `projectId` on open (when omitted, the agent's own project, or the tenant's default project for an agent filed under none). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope."
           },
           "openedBy": {
             "type": "string",
@@ -10653,9 +10680,10 @@
               "gone",
               "changed",
               "refused",
+              "storage",
               "reading"
             ],
-            "description": "Set when the model isn't shown it, and reads a line naming it instead: `type` (not a type a model is shown), `size` (over its type's limit), `model` (the agent or its model doesn't take images and PDFs), `limit` (over a call's or a list's limits), `store` (no file store), `gone` (no longer stored), `changed` (not the bytes that were checked), `refused` (the model couldn't read it when it was attached), `reading` (what the model is sent in its place, an image or a text made from it, isn't made yet)."
+            "description": "Set when the model isn't shown it, and reads a line naming it instead: `type` (not a type a model is shown), `size` (over its type's limit), `model` (the agent or its model doesn't take images and PDFs), `limit` (over a call's or a list's limits), `store` (no file store), `gone` (no longer stored), `changed` (not the bytes that were checked), `refused` (the model couldn't read it when it was attached), `storage` (a tool's store found the tenant's storage full), `reading` (what the model is sent in its place, an image or a text made from it, isn't made yet)."
           }
         }
       },
@@ -10743,7 +10771,7 @@
           "projectId": {
             "type": "string",
             "format": "uuid",
-            "description": "The project the conversation is in; `GET /v1/conversations?scopeKind=project&scopeId=…` lists it. A project of the caller's tenant, else `400 bad-input`, that reaches the agent, else `400 reference-out-of-scope`. Omitted: the agent's own project, as for a run (the tenant's Default project for an agent filed under none)."
+            "description": "The project the conversation is in; `GET /v1/conversations?scopeKind=project&scopeId=…` lists it. A project of the caller's tenant, else `400 bad-input`, that reaches the agent, else `400 reference-out-of-scope`. Omitted: the agent's own project, as for a run (the tenant's default project for an agent filed under none)."
           },
           "scope": {
             "type": "object",
@@ -14403,7 +14431,7 @@
         }
       },
       "RecordedSecretScope": {
-        "description": "Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the Default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.",
+        "description": "Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.",
         "oneOf": [
           {
             "type": "object",
@@ -21148,7 +21176,7 @@
           },
           "retired": {
             "type": "string",
-            "description": "`cleared` only: why no pack service is wanted for it now. `superseded`: nothing a call can still ask for needs it: each tool version, pack check, agent and flow version it serves is unregistered and not held (a check: no registered guardrail runs it), or a newer deployment into its project serves it. Registering one of its versions again makes it needed again (from Kindgi 0.4.0; before, it was for good: newer deployments shipped every tool version and check it does). A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither."
+            "description": "`cleared` only: why no pack service is wanted for it now. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither."
           },
           "packEnvProblem": {
             "type": "object",
@@ -21287,7 +21315,7 @@
           "projectId": {
             "type": "string",
             "format": "uuid",
-            "description": "The project the deploy named, which its primitives were registered into. Absent for a tenant-wide deploy (the tenant's Default project)."
+            "description": "The project the deploy named, which its primitives were registered into. Absent for a tenant-wide deploy (the tenant's default project)."
           },
           "packEnv": {
             "$ref": "#/components/schemas/PackEnvDeclaration"
@@ -21389,7 +21417,7 @@
           "projectId": {
             "type": "string",
             "format": "uuid",
-            "description": "The project the deploy goes into: the check takes the deploy's own right, admin on it. Absent: the tenant's Default project, admin on the tenant. Every project of the pack's agents counts, whichever this is."
+            "description": "The project the deploy goes into: the check takes the deploy's own right, admin on it. Absent: the tenant's default project, admin on the tenant. Every project of the pack's agents counts, whichever this is."
           },
           "agents": {
             "type": "array",
@@ -22074,7 +22102,7 @@
           "projectId": {
             "type": "string",
             "format": "uuid",
-            "description": "The project to deploy into, one per client: its agents, flows, tools and guardrails are registered there, and its secret sync writes there. It takes admin on that project (a key limited to another project is refused). Absent: a tenant-wide deploy, into the tenant's Default project. An id that already lives in another project is `409` (`tool-project-mismatch` and the like): each client gets its own pack, whose ids carry its own pack id. Not covered by the signature, which attests the image."
+            "description": "The project to deploy into, one per client: its agents, flows, tools and guardrails are registered there, and its secret sync writes there. It takes admin on that project (a key limited to another project is refused). Absent: a tenant-wide deploy, into the tenant's default project. An id that already lives in another project is `409` (`tool-project-mismatch` and the like): each client gets its own pack, whose ids carry its own pack id. Not covered by the signature, which attests the image."
           },
           "source": {
             "$ref": "#/components/schemas/DeploymentSourceBody"
@@ -22119,7 +22147,7 @@
           "keptBuilds": {
             "type": "integer",
             "minimum": 0,
-            "description": "How many builds keep a pack service among the deployments the project filter selects, whatever the page and the other filters: those whose `endpoint.keptFor` isn't empty. With `?projectId=`, that project's (the Default's counts the deployments that name no project); without, the total over the tenant's projects the caller may read. Absent when builds aren't counted (one service serves every build), and from a runtime before Kindgi 0.4.0."
+            "description": "How many builds keep a pack service among the deployments the project filter selects, whatever the page and the other filters: those whose `endpoint.keptFor` isn't empty. With `?projectId=`, that project's (the default's counts the deployments that name no project); without, the total over the tenant's projects the caller may read. Absent when builds aren't counted (one service serves every build), and from a runtime before Kindgi 0.4.0."
           }
         }
       },
@@ -26180,6 +26208,62 @@
           }
         }
       },
+      "ToolFileStoreAnswer": {
+        "description": "What a pack tool's file store answers: the stored file (`file`), for the tool to return in its result's top-level `files`, or why nothing was stored (`notStored`).",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "file"
+            ],
+            "properties": {
+              "file": {
+                "$ref": "#/components/schemas/FileValue"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "notStored"
+            ],
+            "properties": {
+              "notStored": {
+                "type": "string",
+                "enum": [
+                  "type",
+                  "size",
+                  "limit",
+                  "storage"
+                ],
+                "description": "Why nothing was stored: `type` (not a type a model is shown, or the bytes aren't the type they claim), `size` (over its type's limit), `limit` (the call has stored 10 files), `storage` (the tenant's storage is full). The tool returns it as the file's `notShown` reason."
+              }
+            }
+          }
+        ]
+      },
+      "ToolFileNotRead": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Why a pack tool's read of a stored file answered no bytes. The read's bytes come as `application/octet-stream` instead.",
+        "required": [
+          "notRead"
+        ],
+        "properties": {
+          "notRead": {
+            "type": "string",
+            "enum": [
+              "rule",
+              "gone",
+              "changed",
+              "size"
+            ],
+            "description": "`rule` (the call's run may not be shown a file of that id, whether or not the id names a file elsewhere), `gone` (deleted, or its bytes are missing), `changed` (its bytes aren't the ones that were checked), `size` (over its type's limit)."
+          }
+        }
+      },
       "WebhookReceipt": {
         "type": "object",
         "additionalProperties": false,
@@ -26253,7 +26337,7 @@
           "projectId": {
             "type": "string",
             "format": "uuid",
-            "description": "The trigger's project; absent: the tenant's Default project."
+            "description": "The trigger's project; absent: the tenant's default project."
           },
           "config": {
             "type": "object",
@@ -34339,7 +34423,7 @@
             }
           }
         },
-        "description": "Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (the newest deployment with routes for some tool version or pack check), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=ready`: deployments whose endpoint is `ready` and whose pack service stays (no `retire` reason applies). Both lists say whether each service is `warm`: keep an instance running. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.",
+        "description": "Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each serves something a call can still ask for, and no newer deployment into its project serves it: a tool, agent or flow version that's registered or held (a flow or agent version a run can reach pins it, or an unfinished run uses it), a tool deployed without a version, or a pack check a registered guardrail runs in its project (from Kindgi 0.4.0; before, each was the newest into its project with routes for some tool version or pack check, and one whose endpoint an earlier runtime made or last set still needs that too). Each has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=ready`: deployments whose endpoint is `ready` and whose pack service stays (no `retire` reason applies). Both lists say whether each service is `warm`: keep an instance running. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.",
         "parameters": [
           {
             "name": "endpoint",
@@ -43640,7 +43724,7 @@
             }
           }
         },
-        "description": "Pins `(agentId, agentVersion)` at open time. `title` defaults to `\"Untitled conversation\"` when omitted; `projectId` puts it in a project, which must reach the agent (lists filter by it; omitted, the agent's own project, as for a run, or the Default project for an agent filed under none); `scope` accepts arbitrary JSON.",
+        "description": "Pins `(agentId, agentVersion)` at open time. `title` defaults to `\"Untitled conversation\"` when omitted; `projectId` puts it in a project, which must reach the agent (lists filter by it; omitted, the agent's own project, as for a run, or the default project for an agent filed under none); `scope` accepts arbitrary JSON.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -58994,7 +59078,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or, on a runtime serving many tenants (`KINDGI_TENANCY=multi`), where each tenant deploys only its own images: `image-not-allowed`, the image is outside the tenant's repository (`details.imagePrefix`, its own), or `image-prefix-unset`, the tenant has no repository set yet; both are checked before any registry read, and never on a runtime serving one tenant. Or `tool-project-mismatch`, `agent-project-mismatch`, `flow-project-mismatch` or `block-project-mismatch`: one of the image's tools, agents, flows or data blocks belongs to another project (`details.primitive`, `details.id`; the message doesn't name the project); nothing was deployed, even when it was unchanged. Or `block-already-registered`: the runtime holds one of the pack's data block versions with other content, and a version never changes; or holds versions of the pack's blocks unregistered, by hand or by the rollback of a deploy that failed after publishing them, and a deploy never reinstates one (`details.primitive` is `block`, `details.id` is `<id>@<version>`, the first such block); the message says to give it a new version, or names each unregistered one with the command that reinstates it; nothing was deployed. Or `tool-already-registered`: the runtime holds one of the pack's tool versions, active or unregistered, with another definition, and a version never changes (`details.primitive` is `tool`, `details.id` is `<id>@<version>`, `details.fields` the fields of its definition that differ: the manifest's top-level fields, and `modulePath` for where its code lives in the pack). A new image of the same tool isn't another definition: its image and artifact version aren't compared. The message says to give the tool a new version; nothing was deployed. Or `tool-kind-mismatch`: one of the image's tools has the id of an MCP endpoint's tool (`details.endpointId`; `details.primitive`, `details.id`), whose active versions are all the endpoint's; nothing was deployed. Or `project-suspended`: the project the deploy goes into (the named one, or the Default for a tenant-wide deploy) is suspended, and nothing deploys into it until it's restored. Or `environment-takes-promotions`: the project the deploy goes into is a later environment of an environment order, which takes builds only by promotion from the one before it; deploy into the order's first environment and promote the build from there (`details.firstProjectId`, when you can read that project; `details.position`, the project's place from 0). Nothing is written. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead. Or `deploy-would-put-back-older-blocks`: a newer version of one of the pack's data blocks than its files' runs now in a project of one of its agents (a project's own version, or a segment pin inside one), and the body's `replace` doesn't name it. `details.blocks` lists each (`DeployCheckStop`): the files' version and the newest that runs, where, who made it run there and when, and the pull request opened for it; in a project the caller can't read, the version only. Every project counts, whoever deploys. Nothing was deployed. A runtime that doesn't read the agents' pins and Latest doesn't check.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or, on a runtime serving many tenants (`KINDGI_TENANCY=multi`), where each tenant deploys only its own images: `image-not-allowed`, the image is outside the tenant's repository (`details.imagePrefix`, its own), or `image-prefix-unset`, the tenant has no repository set yet; both are checked before any registry read, and never on a runtime serving one tenant. Or `tool-project-mismatch`, `agent-project-mismatch`, `flow-project-mismatch` or `block-project-mismatch`: one of the image's tools, agents, flows or data blocks belongs to another project (`details.primitive`, `details.id`; the message doesn't name the project); nothing was deployed, even when it was unchanged. Or `block-already-registered`: the runtime holds one of the pack's data block versions with other content, and a version never changes; or holds versions of the pack's blocks unregistered, by hand or by the rollback of a deploy that failed after publishing them, and a deploy never reinstates one (`details.primitive` is `block`, `details.id` is `<id>@<version>`, the first such block); the message says to give it a new version, or names each unregistered one with the command that reinstates it; nothing was deployed. Or `tool-already-registered`: the runtime holds one of the pack's tool versions, active or unregistered, with another definition, and a version never changes (`details.primitive` is `tool`, `details.id` is `<id>@<version>`, `details.fields` the fields of its definition that differ: the manifest's top-level fields, and `modulePath` for where its code lives in the pack). A new image of the same tool isn't another definition: its image and artifact version aren't compared. The message says to give the tool a new version; nothing was deployed. Or `tool-kind-mismatch`: one of the image's tools has the id of an MCP endpoint's tool (`details.endpointId`; `details.primitive`, `details.id`), whose active versions are all the endpoint's; nothing was deployed. Or `project-suspended`: the project the deploy goes into (the named one, or the default for a tenant-wide deploy) is suspended, and nothing deploys into it until it's restored. Or `environment-takes-promotions`: the project the deploy goes into is a later environment of an environment order, which takes builds only by promotion from the one before it; deploy into the order's first environment and promote the build from there (`details.firstProjectId`, when you can read that project; `details.position`, the project's place from 0). Nothing is written. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead. Or `deploy-would-put-back-older-blocks`: a newer version of one of the pack's data blocks than its files' runs now in a project of one of its agents (a project's own version, or a segment pin inside one), and the body's `replace` doesn't name it. `details.blocks` lists each (`DeployCheckStop`): the files' version and the newest that runs, where, who made it run there and when, and the pull request opened for it; in a project the caller can't read, the version only. Every project counts, whoever deploys. Nothing was deployed. A runtime that doesn't read the agents' pins and Latest doesn't check.",
             "content": {
               "application/json": {
                 "schema": {
@@ -59044,7 +59128,7 @@
             }
           }
         },
-        "description": "Atomic transaction: check the signing key against the tenant's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the tenant's Default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. Its tools are checked the same way before anything is written: a tool version the runtime holds is kept only with the same definition (`409 tool-already-registered`). A runtime that does this lists `deploy-publishes-pack-blocks` in `info[\"x-kindgi-capabilities\"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.",
+        "description": "Atomic transaction: check the signing key against the tenant's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the tenant's default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. Its tools are checked the same way before anything is written: a tool version the runtime holds is kept only with the same definition (`409 tool-already-registered`). A runtime that does this lists `deploy-publishes-pack-blocks` in `info[\"x-kindgi-capabilities\"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -59131,7 +59215,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Only the deployments in projects the caller reads are listed (a deployment naming no project is the Default project's), so a page can hold fewer than `limit` with `hasMore` true: page by `nextCursor`, not by count. Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the Default also finds those naming no project); `?packId=` to one pack.",
+        "description": "Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Only the deployments in projects the caller reads are listed (a deployment naming no project is the default project's), so a page can hold fewer than `limit` with `hasMore` true: page by `nextCursor`, not by count. Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the default also finds those naming no project); `?packId=` to one pack.",
         "parameters": [
           {
             "name": "limit",
@@ -59179,7 +59263,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Filter to one environment's deployments. The tenant's Default project also finds those that name no project. Needs `read` on that project."
+            "description": "Filter to one environment's deployments. The tenant's default project also finds those that name no project. Needs `read` on that project."
           },
           {
             "name": "packId",
@@ -59561,7 +59645,7 @@
             }
           }
         },
-        "description": "Deployment-scoped bulk secret sync. Body carries `{ envName, secrets: Array<{ name, ref } | { name, value }> }`. `{ name, ref }` entries validate against `SecretBinding.get` — no bytes cross the wire; missing → 404 `secret-not-found`. `{ name, value }` entries write via `SecretBinding.set` with `writeMode: add-version` + `tags.deployment = deploymentId` and return the created reference. The write scope is derived from the deployment record itself (tenant scope, or project scope when the deployment carries a `projectId`) and CANNOT be overridden on the wire. A secret the tools of this deployment name that was set nowhere when a deploy or a promotion published them is read at that scope, when whoever published them administers it: a deploy needs `admin` there, while a promotion into the Default project needs it only on that project. Requires the `secrets:write` capability. Idempotency-Key applies.",
+        "description": "Deployment-scoped bulk secret sync. Body carries `{ envName, secrets: Array<{ name, ref } | { name, value }> }`. `{ name, ref }` entries validate against `SecretBinding.get` — no bytes cross the wire; missing → 404 `secret-not-found`. `{ name, value }` entries write via `SecretBinding.set` with `writeMode: add-version` + `tags.deployment = deploymentId` and return the created reference. The write scope is derived from the deployment record itself (tenant scope, or project scope when the deployment carries a `projectId`) and CANNOT be overridden on the wire. A secret the tools of this deployment name that was set nowhere when a deploy or a promotion published them is read at that scope, when whoever published them administers it: a deploy needs `admin` there, while a promotion into the default project needs it only on that project. Requires the `secrets:write` capability. Idempotency-Key applies.",
         "parameters": [
           {
             "name": "deploymentId",
@@ -59690,7 +59774,7 @@
               "format": "uuid"
             },
             "required": false,
-            "description": "The project the values are needed in. Default: the deployment's own project (the tenant's Default project for a tenant-wide deployment)."
+            "description": "The project the values are needed in. Default: the deployment's own project (the tenant's default project for a tenant-wide deployment)."
           }
         ],
         "security": [
@@ -62110,7 +62194,7 @@
     "/v1/projects/default": {
       "get": {
         "operationId": "projects.getDefault",
-        "summary": "Fetch the tenant's Default project",
+        "summary": "Fetch the tenant's default project",
         "tags": [
           "projects"
         ],
@@ -62136,7 +62220,7 @@
             }
           },
           "403": {
-            "description": "The caller can't read the Default project.",
+            "description": "The caller can't read the default project.",
             "content": {
               "application/json": {
                 "schema": {
@@ -62146,7 +62230,7 @@
             }
           },
           "404": {
-            "description": "Tenant has no Default project.",
+            "description": "Tenant has no default project.",
             "content": {
               "application/json": {
                 "schema": {
@@ -62166,7 +62250,7 @@
             }
           }
         },
-        "description": "Returns the row where `Project.isDefault = true` (exactly one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when no Default has been provisioned.",
+        "description": "Returns the row where `Project.isDefault = true` (at most one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when the tenant has none.",
         "security": [
           {
             "bearerAuth": []
@@ -62359,7 +62443,7 @@
             }
           }
         },
-        "description": "A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second Default, `409 project-default-already-exists`.",
+        "description": "A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second default project, `409 project-default-already-exists`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -69741,7 +69825,7 @@
             }
           }
         },
-        "description": "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the tenant that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's Default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
+        "description": "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the tenant that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -70926,7 +71010,7 @@
             }
           }
         },
-        "description": "Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's Default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
+        "description": "Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -72232,6 +72316,194 @@
             }
           }
         },
+        "security": []
+      }
+    },
+    "/v1/tool-files": {
+      "post": {
+        "operationId": "toolFiles.store",
+        "summary": "Store a file for a pack tool's call",
+        "tags": [
+          "runs"
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored file (`file`), for the tool to return in its result's top-level `files`; or nothing stored, and why (`notStored`): `type` (not a type a model is shown, or the bytes aren't the type they claim), `size` (over its type's limit, or a body past 10 MB, not read to its end), `limit` (the call has stored 10 files), `storage` (the tenant's storage is full).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolFileStoreAnswer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`bad-input`: `Kindgi-File-Name` is not percent-encoded UTF-8.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`tool-file-token-not-found`: no tool call's files match the bearer (none sent, an unknown token, a wrong secret, and a call that doesn't store files alike), or this runtime stores no files.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`tool-file-token-closed`: the call has answered, its time has passed, or its run has ended. `tenant-closing`, `tenant-suspended` (`details.state`) or `project-suspended`: nothing runs where the run is, so nothing was stored. Told only for a token that matches.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was stored. `Retry-After` says when to store the file again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`tenant-state-unavailable`: the run's tenant's state couldn't be read, so nothing was stored. `tool-files-busy`: the runtime's memory for files had no room for the bytes in time, so nothing was stored. `Retry-After` says when to store the file again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A pack tool that declares `storesFiles` gets the call's tool files with each call, and its pack service posts each file the tool stores here. No API key: `Authorization: Bearer` carries the call's token (`kgi_tf_…`), which names one call of one run and what it may do: store files for that call, read files its run may be shown (`GET /v1/tool-files/{artifactId}`), or both. The body is the file's bytes, at most 10 MB read; `Content-Type` is the type its source declares, and `Kindgi-File-Name` its name, percent-encoded UTF-8 (an empty name is stored as `unnamed`). The runtime checks the bytes, and only they decide the type. The stored file is owned by the call's run, in its project. The same bytes again in the same call, a re-run of it included, answer the first file. A call stores at most 10 files. The token closes when the call answers, when its time passes, or when its run ends.",
+        "x-kindgi-sender-only": true,
+        "parameters": [
+          {
+            "name": "Kindgi-File-Name",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "The file's name, percent-encoded UTF-8. Absent or empty: `unnamed`."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "The file's bytes, with the type its source declares as `Content-Type`.",
+          "content": {
+            "*/*": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/v1/tool-files/{artifactId}": {
+      "get": {
+        "operationId": "toolFiles.read",
+        "summary": "Read a file for a pack tool's call",
+        "tags": [
+          "runs"
+        ],
+        "responses": {
+          "200": {
+            "description": "The file's bytes, as it was stored (`application/octet-stream`, as an attachment, never sniffed); or no bytes, and why, as JSON (`notRead`).",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolFileNotRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`tool-file-token-not-found`: no tool call's files match the bearer (none sent, an unknown token, a wrong secret, and a call that doesn't read files alike), or this runtime stores no files.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`tool-file-token-closed`: the call has answered, its time has passed, or its run has ended.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was read. `Retry-After` says when to read the file again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`tool-files-busy`: the runtime's memory for files had no room for the bytes in time, so nothing was read. `database-busy`: the database was too busy to answer in time. `Retry-After` says when to read the file again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A pack tool that declares `readsFiles` gets the call's tool files with each call, and its pack service reads each file the tool asks for here, by its file value's `artifactId`. No API key: `Authorization: Bearer` carries the call's token (`kgi_tf_…`). The call reads a file its run may be shown, such as one in the run's input, in its conversation, or one a tool stored in it, with the bytes it was stored with, never a copy made for a model. A read isn't refused for a closing or suspended tenant or a suspended project: it changes nothing. The token closes when the call answers, when its time passes, or when its run ends.",
+        "x-kindgi-sender-only": true,
+        "parameters": [
+          {
+            "name": "artifactId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The file value's `artifactId`."
+          }
+        ],
         "security": []
       }
     },

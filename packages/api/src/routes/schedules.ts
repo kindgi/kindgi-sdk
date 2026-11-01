@@ -117,7 +117,7 @@ import { UUID_RE } from './uuid-param.js';
 export function schedulesRouter(
   binding: TriggerRegistryBinding,
   authorizer?: Authorizer,
-  /** The tenant's Default project: where a schedule that names no project goes. */
+  /** The tenant's default project: where a schedule that names no project goes. */
   projects?: Pick<ProjectBinding, 'getDefault'>,
   /** Where an owner's name is read (`owner.displayName`); see `TriggerOwnerNames`. */
   names?: TriggerOwnerNames,
@@ -364,8 +364,8 @@ export function schedulesRouter(
     if (input.kind === 'err') return bad(c, requestId, input.message);
 
     // An Improve schedule is in the project it improves. Any other that
-    // names no project goes in the tenant's Default project: checked and
-    // stored as that project. With no Default to find, the registry picks
+    // names no project goes in the tenant's default project: checked and
+    // stored as that project. With no default to find, the registry picks
     // it, and only a tenant admin may.
     const improves = target.value.kind === 'improve' ? target.value.projectId : undefined;
     if (improves !== undefined && projectId !== undefined && projectId !== improves) {

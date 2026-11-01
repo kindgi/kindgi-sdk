@@ -134,7 +134,7 @@ export interface BlockListVersionsInput {
 
 export interface BlockPublishInput {
   readonly tenantId: TenantId;
-  /** The project to publish into. REQUIRED; the store never falls back to Default. */
+  /** The project to publish into. REQUIRED; the store never falls back to the default. */
   readonly projectId: ProjectId;
   readonly block: BlockDefinition;
   /** Who publishes it: the request's principal. Stored with the version. */

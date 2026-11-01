@@ -1,0 +1,16 @@
+{
+  "v": 2,
+  "kind": "invoke",
+  "tool": { "id": "acme.mail.attachment-get", "version": "1.0.0" },
+  "input": { "messageId": "18c2f0a9d3b1e7f4", "attachment": 1 },
+  "ctx": {
+    "tenantId": "t-1",
+    "runId": "run-1",
+    "requestId": "toolu_01",
+    "idempotencyKey": "3f1c2b8e-6a4d-5e7f-9b0a-1c2d3e4f5a6b",
+    "toolFiles": {
+      "url": "https://kindgi.example.com/v1/tool-files",
+      "token": "kgi_tf_example"
+    }
+  }
+}

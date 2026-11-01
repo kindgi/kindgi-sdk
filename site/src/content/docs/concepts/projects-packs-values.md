@@ -16,7 +16,7 @@ own. Every id in it starts with the pack's id, such as `acme-desk.triage`
 ([Packs and primitives](../packs/)).
 
 `kindgi deploy` registers the whole pack in one project: the one
-`--project` names, else the tenant's Default project. Its agents, flows,
+`--project` names, else the tenant's default project. Its agents, flows,
 tools and guardrails belong to that project from then on. An item stays in
 the project its first version went into: publishing a version of it in
 another project is refused, and nothing is written.
@@ -118,9 +118,9 @@ A run uses four kinds of values, each kept in its own place.
   `--sync-secrets` writes: the project the deploy named, or the tenant for
   a deploy without `--project`. A promotion records where the promoted
   deployment's `--sync-secrets` writes: the project it promotes into, or
-  the tenant when that's the Default project. A tool registered any other
+  the tenant when that's the default project. A tool registered any other
   way records the broadest of those scopes: the tenant for a tenant admin,
-  the project for a project admin. So does a promotion into the Default
+  the project for a project admin. So does a promotion into the default
   project by someone who doesn't administer the tenant. That version then
   reads the secret there and nowhere else. A value set later at another scope isn't
   read until a new version of the tool is registered. An MCP endpoint's

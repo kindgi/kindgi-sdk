@@ -724,7 +724,7 @@ export const ERROR_ENTRIES = {
   },
   'environment-takes-promotions': {
     description:
-      "The project you named (or the Default project, when you named none) is a later environment of an environment order, and a later environment takes builds only by promotion from the one before it. Deploy into the order's first environment and promote the build from there. A publish through the API into a later environment is refused the same way, and so is an edited version of an agent that names one: new versions are made in the first environment. A tool's pin for a later environment is refused too: a tool's pin acts when an agent or flow version is made, which is in the first environment, so pin the tool there. Nothing is written.",
+      "The project you named (or the default project, when you named none) is a later environment of an environment order, and a later environment takes builds only by promotion from the one before it. Deploy into the order's first environment and promote the build from there. A publish through the API into a later environment is refused the same way, and so is an edited version of an agent that names one: new versions are made in the first environment. A tool's pin for a later environment is refused too: a tool's pin acts when an agent or flow version is made, which is in the first environment, so pin the tool there. Nothing is written.",
     details: [
       {
         key: 'firstProjectId',
@@ -1167,6 +1167,22 @@ export const ERROR_ENTRIES = {
           'why the wait is over: `answered` or `completed` (it took a different answer), `timed-out`, `cancelled` or `unused`',
       },
     ],
+  },
+  'tool-file-token-not-found': {
+    description:
+      "No tool call's files match the bearer of a request to `/v1/tool-files`: there's no token, the token is unknown, its secret is wrong, or its call may not do what was asked (a tool that only stores reading a file, or one that only reads storing one). The pack service's runner sends the token a call carries; a handler never sees it. Also the answer of a runtime that stores no files.",
+    details: [],
+  },
+  'tool-file-token-closed': {
+    description:
+      "The tool call's files are closed, so the call stores and reads no more: the call has answered, its time has passed, or its run has ended.",
+    details: [],
+  },
+  'tool-files-busy': {
+    description:
+      "The runtime's memory for files had no room for the file's bytes in time, so nothing was stored or read. Send the request again after the `Retry-After` header. The pack service's runner fails the tool's call with it, as it fails any 5xx.",
+    details: [],
+    seeAlso: ['POST /v1/tool-files'],
   },
   'wait-token-output-invalid': {
     description:
@@ -3195,7 +3211,7 @@ export const ERROR_ENTRIES = {
   },
   'project-suspended': {
     description:
-      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, an answer to one of its runs' waits (through the wait token's link or `POST /v1/runs/{runId}/resume`; a suspension cancels its runs, paused ones included), a test run started in it, an Improve run for one of its agents, or the operator setting the pack service of one of its deployments. What's already deployed stays. A test run or an Improve run already going stops at its next case: it ends `cancelled`, with `project-suspended` in its `cancelReason`. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or Improve run: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project. A promotion from it or into it is refused too: `details.environment` says which. So is making an agent version live in one of its scopes where nothing runs (its deployments are retired), with no `details`.",
+      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the default for a tenant-wide deploy), a run or a turn started in it, an answer to one of its runs' waits (through the wait token's link or `POST /v1/runs/{runId}/resume`; a suspension cancels its runs, paused ones included), a test run started in it, an Improve run for one of its agents, or the operator setting the pack service of one of its deployments. What's already deployed stays. A test run or an Improve run already going stops at its next case: it ends `cancelled`, with `project-suspended` in its `cancelReason`. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or Improve run: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project. A promotion from it or into it is refused too: `details.environment` says which. So is making an agent version live in one of its scopes where nothing runs (its deployments are retired), with no `details`.",
     details: [
       {
         key: 'environment',
@@ -3409,11 +3425,11 @@ export const ERROR_ENTRIES = {
   },
   'project-not-found': {
     description:
-      "The project doesn't exist in the tenant, or your key can't see it. For `GET /v1/projects/default`, the tenant has no Default project.",
+      "The project doesn't exist in the tenant, or your key can't see it. For `GET /v1/projects/default`, the tenant has no default project.",
     details: [
       {
         key: 'projectId',
-        meaning: "the project id that wasn't found; absent for the missing Default project",
+        meaning: "the project id that wasn't found; absent for the missing default project",
       },
     ],
   },
@@ -3607,7 +3623,7 @@ export const ERROR_ENTRIES = {
     seeAlso: ['POST /v1/orgs'],
   },
   'project-default-already-exists': {
-    description: "The tenant already has a Default project, so a second one can't be created.",
+    description: "The tenant already has a default project, so a second one can't be created.",
     details: [],
     seeAlso: ['POST /v1/projects'],
   },

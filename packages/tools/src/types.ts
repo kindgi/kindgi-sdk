@@ -6,6 +6,7 @@ import type { ZodLikeSchema } from '@kindgi/schema';
 import type { OrgId, ProjectId, TenantId, ToolId, UserId } from '@kindgi/types';
 
 import type { ConnectionNeed, ToolConnection } from './connections.js';
+import type { FileStore } from './files.js';
 
 /**
  * JSON Schema for a tool's input/output. Author-supplied, Draft 2020-12.
@@ -214,6 +215,23 @@ export interface ToolContext {
    * tool dispatch, a flow's tool step); absent outside a run.
    */
   readonly record?: <T>(key: string, decide: () => T | Promise<T>) => Promise<T>;
+  /**
+   * The call's files, only for a tool that declares `storesFiles` or
+   * `readsFiles`, with only what it declares:
+   * - `store` (`storesFiles`) checks a file's bytes, stores it as a file
+   *   the call's run owns, and answers the file value to return in the
+   *   result's top-level `files`, or why it stored nothing. At most
+   *   `MAX_STORED_FILES_PER_CALL` files a call. Absent when the call has no
+   *   `idempotencyKey`.
+   * - `read` (`readsFiles`) answers the bytes of a file the call's run may
+   *   be shown, or why there are none.
+   *
+   * Absent for any other tool, when the runtime has no file store, and from
+   * a runtime before pack protocol 2.10.0: a tool then says a file can't
+   * be stored (`notShown: 'store'`) without fetching it. A unit test passes
+   * its own.
+   */
+  readonly files?: FileStore;
 }
 
 /**
@@ -488,6 +506,28 @@ export interface ToolManifest {
    * `spec`, nor an MCP tool. Absent = `false`.
    */
   readonly pauses?: boolean;
+  /**
+   * `true` when the tool may store files it fetches, such as a mail's
+   * attachments, as files its run owns. The handler of each call with an
+   * `idempotencyKey` gets `ctx.files.store`: it stores a file there and
+   * returns the file value it gets back in its result's top-level `files`,
+   * so an agent is shown the file. At most `MAX_STORED_FILES_PER_CALL`
+   * files a call.
+   *
+   * Only a tool with a handler can store files: not one with a
+   * declarative `spec`, nor an MCP tool. Absent = `false`.
+   */
+  readonly storesFiles?: boolean;
+  /**
+   * `true` when the tool may read stored files' bytes, such as a PDF an
+   * agent was given, to parse it. Each call's handler gets
+   * `ctx.files.read`, which answers the bytes of a file the call's run may
+   * be shown, by its file value's `artifactId`.
+   *
+   * Only a tool with a handler can read files: not one with a declarative
+   * `spec`, nor an MCP tool. Absent = `false`.
+   */
+  readonly readsFiles?: boolean;
   /**
    * `true` when the tool's results are text from outside that nobody
    * checked, such as a mail someone sent or a page a search found. An

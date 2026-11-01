@@ -49,7 +49,7 @@ const list: LeafCommand = {
 const getDefault: LeafCommand = {
   kind: 'leaf',
   name: 'get-default',
-  description: "The tenant's Default project, the one used when none is named.",
+  description: "The tenant's default project, the one used when none is named.",
   usage: 'kindgi projects get-default',
   run: (ctx) =>
     runSdk(ctx, 'projects get-default', async () => await ctx.client().projects.getDefault()),

@@ -33,13 +33,22 @@ mock_provider "google" {
   }
 }
 
+# The pack account as Google names it: the orchestrator's grant to act as it
+# takes only that form, which the mock's own random name isn't.
+override_resource {
+  target = google_service_account.pack
+  values = {
+    name  = "projects/acme-app-dev/serviceAccounts/kindgi-dev-pack@acme-app-dev.iam.gserviceaccount.com"
+    email = "kindgi-dev-pack@acme-app-dev.iam.gserviceaccount.com"
+  }
+}
+
 variables {
   project_id              = "acme-app-dev"
   region                  = "northamerica-northeast2"
   name_prefix             = "kindgi-dev"
   kindgi_env              = "dev"
   server_image            = "northamerica-northeast2-docker.pkg.dev/acme-app-dev/kindgi-dev/runtime@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-  pack_image              = "northamerica-northeast2-docker.pkg.dev/acme-app-dev/kindgi-dev/acme-app@sha256:0000000000000000000000000000000000000000000000000000000000000000"
   seed_tenant_id          = "00000000-0000-0000-0000-000000000001"
   seed_user_id            = "00000000-0000-0000-0000-000000000002"
   secrets_aad_key_version = "1"
@@ -49,8 +58,12 @@ run "defaults_keep_kms_and_the_own_repository" {
   command = plan
 
   assert {
-    condition     = length(google_kms_crypto_key.secrets) == 1 && length(google_kms_key_ring.kindgi) == 1
-    error_message = "The default secrets backend (postgres) has a KMS key."
+    condition     = google_kms_crypto_key.secrets.name == "kindgi-dev-secrets" && google_kms_key_ring.kindgi.name == "kindgi-dev"
+    error_message = "The module has its KMS key ring and key."
+  }
+  assert {
+    condition     = contains([for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name], "KINDGI_PACK_ENDPOINT_KMS_KEY")
+    error_message = "The server seals each endpoint's token under the module's key, with the postgres secrets backend too."
   }
   assert {
     condition     = contains(keys(google_secret_manager_secret.server), "secrets_aad_key")
@@ -74,7 +87,7 @@ run "defaults_keep_kms_and_the_own_repository" {
   }
 }
 
-run "secrets_backend_none_has_no_kms" {
+run "secrets_backend_none_seals_endpoint_tokens_under_the_key" {
   command = plan
 
   variables {
@@ -83,20 +96,20 @@ run "secrets_backend_none_has_no_kms" {
   }
 
   assert {
-    condition     = length(google_kms_crypto_key.secrets) == 0 && length(google_kms_key_ring.kindgi) == 0
-    error_message = "secrets_backend = none creates no KMS key ring or key."
+    condition     = google_kms_crypto_key.secrets.name == "kindgi-dev-secrets"
+    error_message = "secrets_backend = none still has the KMS key: each pack endpoint's token is sealed under it."
   }
   assert {
-    condition     = length(google_kms_crypto_key_iam_member.server_wraps) == 0 && length(google_kms_crypto_key_iam_member.server_reads_key) == 0
-    error_message = "secrets_backend = none grants nothing on a key."
+    condition     = google_kms_crypto_key_iam_member.server_wraps.role == "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+    error_message = "secrets_backend = none still lets the server seal and open with the key."
+  }
+  assert {
+    condition     = contains(keys(google_project_service.apis), "cloudkms.googleapis.com")
+    error_message = "Cloud KMS is on whatever the secrets backend."
   }
   assert {
     condition     = !contains(keys(google_secret_manager_secret.server), "secrets_aad_key")
     error_message = "secrets_backend = none has no AAD-key secret."
-  }
-  assert {
-    condition     = !contains(keys(google_project_service.apis), "cloudkms.googleapis.com")
-    error_message = "secrets_backend = none doesn't enable Cloud KMS."
   }
   assert {
     condition = length([
@@ -104,6 +117,17 @@ run "secrets_backend_none_has_no_kms" {
       if startswith(e.name, "KINDGI_SECRETS_")
     ]) == 0
     error_message = "secrets_backend = none sets no KINDGI_SECRETS_* variable on the server."
+  }
+  assert {
+    condition     = contains([for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name], "KINDGI_PACK_ENDPOINT_KMS_KEY")
+    error_message = "secrets_backend = none still names the key the server seals endpoint tokens under."
+  }
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
+      if e.name == "KINDGI_ENV_CLOUD_SECRETS"
+    ]) == "on"
+    error_message = "secrets_backend = none still takes cloud secrets in a pack's env."
   }
 }
 
@@ -175,6 +199,10 @@ run "an_existing_repository_in_the_same_project" {
     error_message = "The server reads the named repository."
   }
   assert {
+    condition     = google_artifact_registry_repository_iam_member.orchestrator_reads_images.repository == "acme-images" && google_artifact_registry_repository_iam_member.orchestrator_reads_images.location == "us"
+    error_message = "The orchestrator reads the named repository, which the pack images are in."
+  }
+  assert {
     condition     = length(google_artifact_registry_repository_iam_member.run_agent_pulls_images) == 0
     error_message = "A repository in the same project needs no pull grant for the Cloud Run service agent."
   }
@@ -203,12 +231,10 @@ run "an_existing_repository_in_another_project" {
 
 run "the_pack_invokes_the_named_services" {
   # Applied against the mock, so the pack's service account email is
-  # known. Without KMS: the key's prevent_destroy would stop the teardown.
+  # known. The test's teardown passes over the key's prevent_destroy.
   command = apply
 
   variables {
-    secrets_backend         = "none"
-    secrets_aad_key_version = null
     pack_run_invokers = [
       { project = "acme-app-dev", location = "northamerica-northeast2", service = "acme-search" },
       { project = "acme-shared", location = "us-central1", service = "acme-ocr" },
@@ -222,7 +248,7 @@ run "the_pack_invokes_the_named_services" {
   assert {
     condition = alltrue([
       for g in google_cloud_run_v2_service_iam_member.pack_invokes :
-      g.role == "roles/run.invoker" && g.member == "serviceAccount:${google_service_account.pack[0].email}"
+      g.role == "roles/run.invoker" && g.member == "serviceAccount:${google_service_account.pack.email}"
     ])
     error_message = "Each grant gives the pack's service account roles/run.invoker."
   }
@@ -656,8 +682,8 @@ run "point_in_time_days_up_to_35_on_enterprise_plus" {
 
 # ---- tenancy ------------------------------------------------------------------
 
-# "single", the default: the tenant, the seed user and the one pack service,
-# as before tenancy existed.
+# "single", the default: the tenant and the seed user, as before tenancy
+# existed.
 run "single_sets_the_tenant_and_seed_user_and_no_tenancy" {
   command = plan
   assert {
@@ -683,44 +709,6 @@ run "single_sets_the_tenant_and_seed_user_and_no_tenancy" {
   }
 }
 
-run "with_a_pack_image_the_server_calls_the_one_pack_service" {
-  command = plan
-
-  assert {
-    condition     = length(google_cloud_run_v2_service.pack) == 1 && length(google_service_account.pack) == 1 && length(google_cloud_run_v2_service_iam_member.server_invokes_pack) == 1
-    error_message = "With pack_image: the pack service, its account, and the server's invoker grant, as before."
-  }
-  assert {
-    condition     = contains([for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name], "KINDGI_PACK_SERVICE_URL")
-    error_message = "The server calls the pack service at its URL."
-  }
-  assert {
-    condition     = length(google_secret_manager_secret_iam_member.pack_reads_token) == 1 && length(google_secret_manager_secret.shared) == 1
-    error_message = "The shared pack token exists, and the pack service reads it."
-  }
-  assert {
-    condition     = length(setintersection(toset([for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name]), toset(["KINDGI_PACK_SERVICE_TOKEN", "KINDGI_PACK_SERVICE_AUTH"]))) == 2
-    error_message = "The server calls the pack service with the shared token and an ID token."
-  }
-}
-
-run "the_pack_service_has_cpu_only_during_calls" {
-  command = plan
-
-  assert {
-    condition     = google_cloud_run_v2_service.pack[0].template[0].containers[0].resources[0].cpu_idle == true
-    error_message = "The pack service gets CPU only while a call runs, so its idle instance bills at the idle rate."
-  }
-  assert {
-    condition     = google_cloud_run_v2_service.pack[0].template[0].containers[0].resources[0].startup_cpu_boost == true
-    error_message = "The pack service starts with boosted CPU."
-  }
-  assert {
-    condition     = google_cloud_run_v2_service.server.template[0].containers[0].resources[0].cpu_idle == false
-    error_message = "The server keeps its CPU between requests: a run started with wait:false keeps executing after its 202."
-  }
-}
-
 run "single_needs_the_seed_tenant" {
   command = plan
   variables {
@@ -735,36 +723,6 @@ run "single_needs_the_seed_user" {
     seed_user_id = null
   }
   expect_failures = [google_cloud_run_v2_service.server]
-}
-
-run "single_needs_a_pack_image" {
-  command = plan
-  variables {
-    pack_image = ""
-  }
-  expect_failures = [google_cloud_run_v2_service.server]
-}
-
-run "single_refuses_per_deployment_routing" {
-  command = plan
-  variables {
-    server_env = { KINDGI_PACK_ROUTING = "per-deployment" }
-  }
-  expect_failures = [google_cloud_run_v2_service.server]
-}
-
-run "single_takes_a_padded_single_routing" {
-  command = plan
-  variables {
-    server_env = { KINDGI_PACK_ROUTING = " single " }
-  }
-}
-
-run "single_takes_an_empty_routing" {
-  command = plan
-  variables {
-    server_env = { KINDGI_PACK_ROUTING = "" }
-  }
 }
 
 run "tenancy_refuses_a_word" {
@@ -790,12 +748,9 @@ run "multi_sets_tenancy_and_neither_id" {
     tenancy         = "multi"
     seed_tenant_id  = null
     seed_user_id    = null
-    pack_image      = ""
     openfga_api_url = "https://openfga-acme.a.run.app"
     server_env = {
-      KINDGI_TENANT_HOST_ACCESS  = "isolated"
-      KINDGI_PACK_ROUTING        = "per-deployment"
-      KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example"
+      KINDGI_TENANT_HOST_ACCESS = "isolated"
     }
     server_secret_env = {
       KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-dev-openfga-key", version = "1" }
@@ -823,123 +778,41 @@ run "multi_sets_tenancy_and_neither_id" {
   }
 }
 
-run "multi_has_no_pack_service" {
+run "multi_takes_the_none_secrets_backend" {
   command = plan
   variables {
-    tenancy         = "multi"
-    seed_tenant_id  = null
-    seed_user_id    = null
-    pack_image      = ""
-    openfga_api_url = "https://openfga-acme.a.run.app"
+    tenancy                 = "multi"
+    seed_tenant_id          = null
+    seed_user_id            = null
+    openfga_api_url         = "https://openfga-acme.a.run.app"
+    secrets_backend         = "none"
+    secrets_aad_key_version = null
     server_env = {
-      KINDGI_TENANT_HOST_ACCESS  = "isolated"
-      KINDGI_PACK_ROUTING        = "per-deployment"
-      KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example"
+      KINDGI_TENANT_HOST_ACCESS = "isolated"
     }
     server_secret_env = {
       KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-dev-openfga-key", version = "1" }
     }
   }
   assert {
-    condition     = length(google_cloud_run_v2_service.pack) == 0 && length(google_service_account.pack) == 0 && length(google_cloud_run_v2_service_iam_member.server_invokes_pack) == 0
-    error_message = "With tenancy = \"multi\": no pack service, no pack account, no invoker grant."
+    condition     = contains([for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name], "KINDGI_PACK_ENDPOINT_KMS_KEY")
+    error_message = "Without the postgres secrets backend, the server still seals endpoint tokens under the module's key."
   }
-  assert {
-    condition     = length(google_secret_manager_secret_iam_member.pack_reads_token) == 0 && length(google_secret_manager_secret_iam_member.pack_reads_its_secrets) == 0
-    error_message = "No pack account, so none of its secret grants."
-  }
-  assert {
-    condition     = length(setintersection(toset([for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name]), toset(["KINDGI_PACK_SERVICE_URL", "KINDGI_PACK_SERVICE_TOKEN", "KINDGI_PACK_SERVICE_AUTH"]))) == 0 && length(google_secret_manager_secret.shared) == 0
-    error_message = "No pack service, so none of its URL, shared token or auth: each deployment's endpoint carries its own, and the server refuses these."
-  }
-  assert {
-    condition     = output.pack_service_url == null && output.service_accounts.pack == null
-    error_message = "No pack service URL or account in the outputs."
-  }
-}
-
-run "multi_in_connector_mode_needs_no_public_pack_ingress" {
-  command = plan
-  variables {
-    tenancy         = "multi"
-    seed_tenant_id  = null
-    seed_user_id    = null
-    pack_image      = ""
-    openfga_api_url = "https://openfga-acme.a.run.app"
-    server_env = {
-      KINDGI_TENANT_HOST_ACCESS  = "isolated"
-      KINDGI_PACK_ROUTING        = "per-deployment"
-      KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example"
-    }
-    server_secret_env = {
-      KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-dev-openfga-key", version = "1" }
-    }
-    network_mode  = "connector"
-    vpc_connector = "projects/acme-app-dev/locations/northamerica-northeast2/connectors/acme"
-  }
-  assert {
-    condition     = length(google_cloud_run_v2_service.pack) == 0
-    error_message = "Connector mode plans without a pack service, whatever pack_ingress says."
-  }
-}
-
-run "multi_refuses_a_pack_image" {
-  command = plan
-  variables {
-    tenancy         = "multi"
-    seed_tenant_id  = null
-    seed_user_id    = null
-    openfga_api_url = "https://openfga-acme.a.run.app"
-    server_env = {
-      KINDGI_TENANT_HOST_ACCESS  = "isolated"
-      KINDGI_PACK_ROUTING        = "per-deployment"
-      KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example"
-    }
-    server_secret_env = {
-      KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-dev-openfga-key", version = "1" }
-    }
-    pack_image = "northamerica-northeast2-docker.pkg.dev/acme-app-dev/kindgi-dev/acme-app@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-  }
-  expect_failures = [google_cloud_run_v2_service.server]
-}
-
-run "multi_refuses_pack_settings" {
-  command = plan
-  variables {
-    tenancy         = "multi"
-    seed_tenant_id  = null
-    seed_user_id    = null
-    pack_image      = ""
-    openfga_api_url = "https://openfga-acme.a.run.app"
-    server_env = {
-      KINDGI_TENANT_HOST_ACCESS  = "isolated"
-      KINDGI_PACK_ROUTING        = "per-deployment"
-      KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example"
-    }
-    server_secret_env = {
-      KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-dev-openfga-key", version = "1" }
-    }
-    pack_env = { ACME_MODE = "live" }
-  }
-  expect_failures = [google_cloud_run_v2_service.server]
 }
 
 run "multi_refuses_a_seed_tenant" {
   command = plan
   variables {
     tenancy         = "multi"
+    seed_tenant_id  = "00000000-0000-0000-0000-000000000001"
     seed_user_id    = null
-    pack_image      = ""
     openfga_api_url = "https://openfga-acme.a.run.app"
     server_env = {
-      KINDGI_TENANT_HOST_ACCESS  = "isolated"
-      KINDGI_PACK_ROUTING        = "per-deployment"
-      KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example"
+      KINDGI_TENANT_HOST_ACCESS = "isolated"
     }
     server_secret_env = {
       KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-dev-openfga-key", version = "1" }
     }
-    seed_tenant_id = "00000000-0000-0000-0000-000000000001"
   }
   expect_failures = [google_cloud_run_v2_service.server]
 }
@@ -949,17 +822,14 @@ run "multi_refuses_a_seed_user" {
   variables {
     tenancy         = "multi"
     seed_tenant_id  = null
-    pack_image      = ""
+    seed_user_id    = "00000000-0000-0000-0000-000000000002"
     openfga_api_url = "https://openfga-acme.a.run.app"
     server_env = {
-      KINDGI_TENANT_HOST_ACCESS  = "isolated"
-      KINDGI_PACK_ROUTING        = "per-deployment"
-      KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example"
+      KINDGI_TENANT_HOST_ACCESS = "isolated"
     }
     server_secret_env = {
       KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-dev-openfga-key", version = "1" }
     }
-    seed_user_id = "00000000-0000-0000-0000-000000000002"
   }
   expect_failures = [google_cloud_run_v2_service.server]
 }
@@ -970,11 +840,8 @@ run "multi_needs_openfga" {
     tenancy        = "multi"
     seed_tenant_id = null
     seed_user_id   = null
-    pack_image     = ""
     server_env = {
-      KINDGI_TENANT_HOST_ACCESS  = "isolated"
-      KINDGI_PACK_ROUTING        = "per-deployment"
-      KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example"
+      KINDGI_TENANT_HOST_ACCESS = "isolated"
     }
     server_secret_env = {
       KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-dev-openfga-key", version = "1" }
@@ -989,12 +856,9 @@ run "multi_needs_the_openfga_key" {
     tenancy         = "multi"
     seed_tenant_id  = null
     seed_user_id    = null
-    pack_image      = ""
     openfga_api_url = "https://openfga-acme.a.run.app"
     server_env = {
-      KINDGI_TENANT_HOST_ACCESS  = "isolated"
-      KINDGI_PACK_ROUTING        = "per-deployment"
-      KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example"
+      KINDGI_TENANT_HOST_ACCESS = "isolated"
     }
     server_secret_env = {}
   }
@@ -1007,12 +871,7 @@ run "multi_needs_isolated_host_access" {
     tenancy         = "multi"
     seed_tenant_id  = null
     seed_user_id    = null
-    pack_image      = ""
     openfga_api_url = "https://openfga-acme.a.run.app"
-    server_env = {
-      KINDGI_PACK_ROUTING        = "per-deployment"
-      KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example"
-    }
     server_secret_env = {
       KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-dev-openfga-key", version = "1" }
     }
@@ -1020,64 +879,420 @@ run "multi_needs_isolated_host_access" {
   expect_failures = [google_cloud_run_v2_service.server]
 }
 
-run "multi_needs_per_deployment_routing" {
+# ---- the pack services: one per deployment --------------------------------------
+
+# Any tenancy: the server calls each deployment's own pack service, which
+# the orchestrator makes in this project and region.
+run "the_server_routes_per_deployment" {
+  command = plan
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
+      if e.name == "KINDGI_PACK_ROUTING"
+    ]) == "per-deployment"
+    error_message = "The server routes each deployment to its own pack service."
+  }
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
+      if e.name == "KINDGI_PACK_ENDPOINT_HOSTS"
+    ]) == "*-123456789012.northamerica-northeast2.run.app"
+    error_message = "The server takes an endpoint only on Cloud Run's URLs in this project (by number) and region."
+  }
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
+      if e.name == "KINDGI_ENV_CLOUD_SECRETS"
+    ]) == "on"
+    error_message = "The server takes cloud secrets in a pack's env, which each deployment's own service reads."
+  }
+  assert {
+    condition     = length(setintersection(toset([for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name]), local.single_pack_env)) == 0
+    error_message = "The server gets none of the one pack service's settings."
+  }
+  assert {
+    condition     = google_project_iam_member.server_invokes_packs.role == "roles/run.invoker" && google_project_iam_member.server_invokes_packs.project == "acme-app-dev"
+    error_message = "The server may invoke the project's services, so every pack service the orchestrator makes."
+  }
+  assert {
+    condition     = google_cloud_run_v2_service.server.template[0].containers[0].resources[0].cpu_idle == false
+    error_message = "The server keeps its CPU between requests: a run started with wait:false keeps executing after its 202."
+  }
+}
+
+run "the_pack_routing_is_the_modules" {
   command = plan
   variables {
-    tenancy         = "multi"
-    seed_tenant_id  = null
-    seed_user_id    = null
-    pack_image      = ""
-    openfga_api_url = "https://openfga-acme.a.run.app"
-    server_env = {
-      KINDGI_TENANT_HOST_ACCESS  = "isolated"
-      KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example"
-    }
+    server_env = { KINDGI_PACK_ROUTING = "single" }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+# Its name reads as a secret's, so server_env refuses it already (as a
+# secret by name); server_secret_env, which takes such names, can't set it
+# either.
+run "the_cloud_secrets_switch_is_the_modules" {
+  command = plan
+  variables {
+    server_secret_env = { KINDGI_ENV_CLOUD_SECRETS = { secret = "acme-switch", version = "1" } }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "the_endpoint_hosts_are_the_modules" {
+  command = plan
+  variables {
+    server_env = { KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example" }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "the_one_pack_services_url_is_refused" {
+  command = plan
+  variables {
+    server_env = { KINDGI_PACK_SERVICE_URL = "https://kindgi-dev-pack-123456789012.northamerica-northeast2.run.app" }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "the_one_pack_services_token_is_refused" {
+  command = plan
+  variables {
     server_secret_env = {
-      KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-dev-openfga-key", version = "1" }
+      KINDGI_PACK_SERVICE_TOKEN = { secret = "kindgi-dev-pack-service-token", version = "1" }
     }
   }
   expect_failures = [google_cloud_run_v2_service.server]
 }
 
-run "multi_needs_the_endpoint_hosts" {
+# ---- the pack orchestrator --------------------------------------------------------
+
+# Its account, grants and key's secret come with the first apply; the Job
+# and its schedule only once its key is a version (orchestrator_key_version).
+run "the_orchestrator_waits_for_its_key" {
   command = plan
-  variables {
-    tenancy         = "multi"
-    seed_tenant_id  = null
-    seed_user_id    = null
-    pack_image      = ""
-    openfga_api_url = "https://openfga-acme.a.run.app"
-    server_env = {
-      KINDGI_TENANT_HOST_ACCESS = "isolated"
-      KINDGI_PACK_ROUTING       = "per-deployment"
-    }
-    server_secret_env = {
-      KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-dev-openfga-key", version = "1" }
-    }
+  assert {
+    condition     = length(google_cloud_run_v2_job.orchestrator) == 0 && length(google_cloud_scheduler_job.orchestrator) == 0
+    error_message = "Without orchestrator_key_version, no Job and no schedule: its key can be minted only once the server routes per deployment."
   }
-  expect_failures = [google_cloud_run_v2_service.server]
+  assert {
+    condition     = google_secret_manager_secret.orchestrator_key.secret_id == "kindgi-dev-orchestrator-key"
+    error_message = "The key's secret exists from the first apply, for the version the operator adds."
+  }
+  assert {
+    condition     = google_service_account.orchestrator.account_id == "kindgi-dev-orch"
+    error_message = "The orchestrator has an account of its own."
+  }
+  assert {
+    condition     = contains(keys(google_project_service.apis), "cloudscheduler.googleapis.com")
+    error_message = "Cloud Scheduler is on from the first apply."
+  }
 }
 
-run "multi_needs_the_postgres_secrets_backend" {
+run "the_orchestrator_runs_once_a_minute_with_its_key" {
   command = plan
   variables {
-    tenancy         = "multi"
-    seed_tenant_id  = null
-    seed_user_id    = null
-    pack_image      = ""
-    openfga_api_url = "https://openfga-acme.a.run.app"
-    server_env = {
-      KINDGI_TENANT_HOST_ACCESS  = "isolated"
-      KINDGI_PACK_ROUTING        = "per-deployment"
-      KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example"
-    }
-    server_secret_env = {
-      KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-dev-openfga-key", version = "1" }
-    }
-    secrets_backend         = "none"
-    secrets_aad_key_version = null
+    orchestrator_key_version = "3"
   }
-  expect_failures = [google_cloud_run_v2_service.server]
+  assert {
+    condition     = google_cloud_run_v2_job.orchestrator[0].name == "kindgi-dev-pack-orchestrator" && google_cloud_run_v2_job.orchestrator[0].location == "northamerica-northeast2"
+    error_message = "The Job is <name_prefix>-pack-orchestrator, in the region."
+  }
+  assert {
+    condition = (
+      google_cloud_run_v2_job.orchestrator[0].template[0].template[0].containers[0].image == var.server_image &&
+      google_cloud_run_v2_job.orchestrator[0].template[0].template[0].containers[0].args == tolist(["packs", "orchestrate"])
+    )
+    error_message = "The Job runs `kindgi-runtime packs orchestrate` from the server's image."
+  }
+  assert {
+    condition = (
+      google_cloud_run_v2_job.orchestrator[0].template[0].task_count == 1 &&
+      google_cloud_run_v2_job.orchestrator[0].template[0].template[0].max_retries == 0 &&
+      google_cloud_run_v2_job.orchestrator[0].template[0].template[0].timeout == "600s"
+    )
+    error_message = "One task, no retries (next minute's run is the retry), and a backstop timeout."
+  }
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_job.orchestrator[0].template[0].template[0].containers[0].env :
+      "${e.value_source[0].secret_key_ref[0].secret}@${e.value_source[0].secret_key_ref[0].version}" if e.name == "KINDGI_ORCHESTRATOR_SYSTEM_KEY"
+    ]) == "kindgi-dev-orchestrator-key@3"
+    error_message = "The Job reads its key at the version orchestrator_key_version pins."
+  }
+  assert {
+    condition = (
+      one([for e in google_cloud_run_v2_job.orchestrator[0].template[0].template[0].containers[0].env : e.value if e.name == "KINDGI_ORCHESTRATOR_PROJECT"]) == "acme-app-dev" &&
+      one([for e in google_cloud_run_v2_job.orchestrator[0].template[0].template[0].containers[0].env : e.value if e.name == "KINDGI_ORCHESTRATOR_REGION"]) == "northamerica-northeast2"
+    )
+    error_message = "The Job makes pack services in this project and region."
+  }
+  assert {
+    condition = jsondecode(one([
+      for e in google_cloud_run_v2_job.orchestrator[0].template[0].template[0].containers[0].env : e.value
+      if e.name == "KINDGI_ORCHESTRATOR_PACK_SERVICE"
+    ])) == { ingress = "internal", egress = { kind = "none" }, timeoutSeconds = 300, concurrency = 32, maxInstances = 8 }
+    error_message = "By default each pack service is internal, has no connector, and takes pack_timeout, pack_concurrency and pack_max_instances."
+  }
+  assert {
+    condition     = !contains([for e in google_cloud_run_v2_job.orchestrator[0].template[0].template[0].containers[0].env : e.name], "KINDGI_ORCHESTRATOR_RUNTIME_AUTH")
+    error_message = "A public server (server_public, the default) takes the Job's calls on the system key alone."
+  }
+  assert {
+    condition = (
+      google_cloud_scheduler_job.orchestrator[0].schedule == "* * * * *" &&
+      google_cloud_scheduler_job.orchestrator[0].retry_config[0].retry_count == 0 &&
+      google_cloud_scheduler_job.orchestrator[0].http_target[0].http_method == "POST" &&
+      google_cloud_scheduler_job.orchestrator[0].http_target[0].uri == "https://run.googleapis.com/v2/projects/acme-app-dev/locations/northamerica-northeast2/jobs/kindgi-dev-pack-orchestrator:run"
+    )
+    error_message = "Cloud Scheduler runs the Job once a minute, one attempt each."
+  }
+  assert {
+    condition     = google_cloud_scheduler_job.orchestrator[0].http_target[0].oauth_token[0].scope == "https://www.googleapis.com/auth/cloud-platform"
+    error_message = "Cloud Scheduler runs the Job with an OAuth token."
+  }
+  assert {
+    condition     = output.orchestrator_key_steps == null
+    error_message = "With the key set, there are no steps left to show."
+  }
+}
+
+run "the_orchestrator_names_the_connector_and_the_cloud_sql_instances" {
+  command = plan
+  variables {
+    orchestrator_key_version = "1"
+    network_mode             = "connector"
+    vpc_connector            = "projects/acme-app-dev/locations/northamerica-northeast2/connectors/acme"
+    pack_ingress             = "INGRESS_TRAFFIC_ALL"
+    pack_timeout             = "900s"
+    pack_cloud_sql_instances = ["acme-app-dev:northamerica-northeast2:acme-app-db"]
+  }
+  assert {
+    condition = jsondecode(one([
+      for e in google_cloud_run_v2_job.orchestrator[0].template[0].template[0].containers[0].env : e.value
+      if e.name == "KINDGI_ORCHESTRATOR_PACK_SERVICE"
+      ])) == {
+      ingress           = "all"
+      egress            = { kind = "connector", connector = "projects/acme-app-dev/locations/northamerica-northeast2/connectors/acme" }
+      timeoutSeconds    = 900
+      concurrency       = 32
+      maxInstances      = 8
+      cloudSqlInstances = ["acme-app-dev:northamerica-northeast2:acme-app-db"]
+    }
+    error_message = "In connector mode each pack service is public behind IAM, egresses through the connector, and mounts the named Cloud SQL instances."
+  }
+}
+
+run "a_server_behind_iam_takes_the_jobs_id_token" {
+  command = plan
+  variables {
+    orchestrator_key_version = "1"
+    server_public            = false
+  }
+  assert {
+    condition     = google_cloud_run_v2_service_iam_member.orchestrator_invokes_server[0].role == "roles/run.invoker" && google_cloud_run_v2_service_iam_member.orchestrator_invokes_server[0].name == "kindgi-dev-server"
+    error_message = "Behind Cloud Run IAM, the orchestrator may invoke the server."
+  }
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_job.orchestrator[0].template[0].template[0].containers[0].env : e.value
+      if e.name == "KINDGI_ORCHESTRATOR_RUNTIME_AUTH"
+    ]) == "google-id-token"
+    error_message = "Behind Cloud Run IAM, the Job sends a Google ID token beside its system key."
+  }
+}
+
+run "a_public_server_grants_the_orchestrator_nothing_on_it" {
+  command = plan
+  assert {
+    condition     = length(google_cloud_run_v2_service_iam_member.orchestrator_invokes_server) == 0
+    error_message = "A public server needs no invoker grant for the orchestrator."
+  }
+}
+
+run "the_orchestrator_has_only_its_own_rights" {
+  command = plan
+  assert {
+    condition = (
+      google_project_iam_member.orchestrator_runs_services.role == "roles/run.developer" &&
+      google_service_account_iam_member.orchestrator_acts_as_pack.role == "roles/iam.serviceAccountUser"
+    )
+    error_message = "The orchestrator manages the project's services, and runs them as the pack account."
+  }
+  assert {
+    condition     = google_artifact_registry_repository_iam_member.orchestrator_reads_images.role == "roles/artifactregistry.reader" && google_artifact_registry_repository_iam_member.orchestrator_reads_images.location == "northamerica-northeast2"
+    error_message = "The orchestrator reads the module's repository: Cloud Run checks that whoever makes a service may read its image."
+  }
+  assert {
+    condition = toset(google_project_iam_custom_role.pack_secrets.permissions) == toset([
+      "secretmanager.secrets.delete", "secretmanager.secrets.get",
+      "secretmanager.versions.add", "secretmanager.versions.destroy", "secretmanager.versions.list",
+    ]) && google_project_iam_custom_role.pack_secrets.role_id == "kindgi_dev_pack_secrets"
+    error_message = "On the pack services' own secrets the orchestrator gets, adds to, destroys and deletes, and never reads a value."
+  }
+  assert {
+    condition     = google_project_iam_member.orchestrator_pack_secrets.condition[0].expression == "resource.name.startsWith(\"projects/123456789012/secrets/kp-\")"
+    error_message = "Those rights hold on kp- secrets only, named as Secret Manager names them, by project number."
+  }
+  assert {
+    condition     = toset(google_project_iam_custom_role.secret_create_list.permissions) == toset(["secretmanager.secrets.create", "secretmanager.secrets.list"]) && google_project_iam_custom_role.secret_create_list.role_id == "kindgi_dev_secret_create_list" && length(google_project_iam_member.orchestrator_creates_lists_secrets.condition) == 0
+    error_message = "A create and a list name the project as their parent, so they're a role of their own with no condition: a new secret holds no value, and a list gives names only."
+  }
+  assert {
+    condition     = google_secret_manager_secret_iam_member.orchestrator_reads_key.role == "roles/secretmanager.secretAccessor"
+    error_message = "The orchestrator reads its own key."
+  }
+}
+
+run "the_pack_account_reads_its_own_secrets_and_the_listed_cloud_secrets" {
+  command = plan
+  variables {
+    pack_secret_readers = [
+      { secret = "acme-api-key" },
+      { secret = "acme-ocr-key", project = "acme-shared" },
+    ]
+  }
+  assert {
+    condition     = google_project_iam_member.pack_reads_pack_secrets.role == "roles/secretmanager.secretAccessor" && google_project_iam_member.pack_reads_pack_secrets.condition[0].expression == "resource.name.startsWith(\"projects/123456789012/secrets/kp-\")"
+    error_message = "The pack account reads the kp- secrets, its token and env values among them."
+  }
+  assert {
+    condition = toset([for g in google_secret_manager_secret_iam_member.pack_reads_cloud_secrets : g.secret_id]) == toset([
+      "projects/acme-app-dev/secrets/acme-api-key",
+      "projects/acme-shared/secrets/acme-ocr-key",
+    ])
+    error_message = "Each listed secret is granted where it is: this project when project is null."
+  }
+  assert {
+    condition     = alltrue([for g in google_secret_manager_secret_iam_member.pack_reads_cloud_secrets : g.role == "roles/secretmanager.secretAccessor"])
+    error_message = "The pack account reads each listed secret."
+  }
+}
+
+run "pack_secret_readers_refuses_a_kp_secret" {
+  command = plan
+  variables {
+    pack_secret_readers = [{ secret = "kp-acme-token" }]
+  }
+  expect_failures = [var.pack_secret_readers]
+}
+
+run "pack_secret_readers_refuses_a_path" {
+  command = plan
+  variables {
+    pack_secret_readers = [{ secret = "projects/acme-app-dev/secrets/acme-api-key" }]
+  }
+  expect_failures = [var.pack_secret_readers]
+}
+
+run "pack_secret_readers_refuses_a_secret_twice" {
+  command = plan
+  variables {
+    pack_secret_readers = [{ secret = "acme-api-key" }, { secret = "acme-api-key", project = null }]
+  }
+  expect_failures = [var.pack_secret_readers]
+}
+
+run "name_prefix_refuses_kp" {
+  command = plan
+  variables {
+    name_prefix = "kp"
+  }
+  expect_failures = [var.name_prefix]
+}
+
+run "name_prefix_refuses_a_kp_prefix" {
+  command = plan
+  variables {
+    name_prefix = "kp-acme"
+  }
+  expect_failures = [var.name_prefix]
+}
+
+run "orchestrator_key_version_refuses_latest" {
+  command = plan
+  variables {
+    orchestrator_key_version = "latest"
+  }
+  expect_failures = [var.orchestrator_key_version]
+}
+
+run "pack_timeout_refuses_more_than_an_hour" {
+  command = plan
+  variables {
+    pack_timeout = "3601s"
+  }
+  expect_failures = [var.pack_timeout]
+}
+
+run "pack_timeout_refuses_minutes" {
+  command = plan
+  variables {
+    pack_timeout = "5m"
+  }
+  expect_failures = [var.pack_timeout]
+}
+
+run "pack_concurrency_refuses_a_fraction" {
+  command = plan
+  variables {
+    pack_concurrency = 1.5
+  }
+  expect_failures = [var.pack_concurrency]
+}
+
+run "pack_max_instances_refuses_none" {
+  command = plan
+  variables {
+    pack_max_instances = 0
+  }
+  expect_failures = [var.pack_max_instances]
+}
+
+run "pack_cloud_sql_instances_refuses_more_than_ten" {
+  command = plan
+  variables {
+    pack_cloud_sql_instances = [for i in range(11) : "acme-app-dev:northamerica-northeast2:acme-db-${i}"]
+  }
+  expect_failures = [var.pack_cloud_sql_instances]
+}
+
+# Applied against the mock, so the server's URL is known in the steps.
+run "the_key_steps_mint_the_orchestrators_key_on_the_server" {
+  command = apply
+  assert {
+    condition = (
+      strcontains(output.orchestrator_key_steps, "${google_cloud_run_v2_service.server.uri}/v1/system/keys") &&
+      strcontains(output.orchestrator_key_steps, "\"scopes\": [\"system:deployments\", \"system:pack-env\"]") &&
+      strcontains(output.orchestrator_key_steps, "| jq -j '.token // error(.error.message)') && [ -n \"$KEY\" ] \\") &&
+      strcontains(output.orchestrator_key_steps, "&& printf '%s' \"$KEY\" | gcloud secrets versions add kindgi-dev-orchestrator-key --data-file=-") &&
+      strcontains(output.orchestrator_key_steps, "orchestrator_key_version")
+    )
+    error_message = "Until its key is set, the steps mint it on the server, add it as a version only if one came back, and name the variable to set."
+  }
+  assert {
+    condition     = toset(keys(output.service_accounts)) == toset(["server", "pack", "orchestrator"]) && output.service_accounts.orchestrator == google_service_account.orchestrator.email
+    error_message = "service_accounts names the server's, the pack services' and the orchestrator's accounts."
+  }
+}
+
+run "behind_iam_the_key_steps_carry_an_identity_token" {
+  command = apply
+  variables {
+    server_public = false
+  }
+  assert {
+    condition     = strcontains(output.orchestrator_key_steps, "-H @<(printf 'X-Serverless-Authorization: Bearer %s\\n' \"$(gcloud auth print-identity-token)\") \\")
+    error_message = "Behind Cloud Run IAM, the minting call sends the operator's ID token, from a process substitution, not on the command line."
+  }
+}
+
+run "a_public_server_s_key_steps_send_no_identity_token" {
+  command = apply
+  assert {
+    condition     = !strcontains(output.orchestrator_key_steps, "X-Serverless-Authorization")
+    error_message = "A public server's minting call needs the bearer token alone."
+  }
 }
 
 # ---- database_instance: serving from another instance ------------------------
@@ -1119,13 +1334,10 @@ run "the_cloudsql_socket_has_no_server_ca" {
 }
 
 run "private_ip_mode_checks_the_database_against_every_instance_ca" {
-  # Apply (mocked): the CAs are read once the instance exists. Without KMS:
-  # the key's prevent_destroy would stop a later run's apply and the teardown.
+  # Apply (mocked): the CAs are read once the instance exists.
   command = apply
   variables {
     database_private_network = "projects/acme-app-dev/global/networks/acme"
-    secrets_backend          = "none"
-    secrets_aad_key_version  = null
   }
 
   assert {
@@ -1511,8 +1723,8 @@ run "none_creates_no_vpc" {
     error_message = "network_mode = \"none\" creates no VPC and no NAT."
   }
   assert {
-    condition     = length(google_cloud_run_v2_service.pack[0].template[0].vpc_access) == 0
-    error_message = "The pack service gets no connector under \"none\"."
+    condition     = local.pack_service_settings.egress.kind == "none"
+    error_message = "The orchestrator gives each pack service no connector under \"none\"."
   }
   assert {
     condition     = length(google_cloud_run_v2_service.server.template[0].vpc_access) == 0
@@ -1706,11 +1918,8 @@ run "an_idle_backstop_in_part_milliseconds_is_refused" {
 
 run "the_first_apply_gives_the_connection_name_on_a_host" {
   command = apply
-  # Without KMS: the key's prevent_destroy would stop the teardown.
   variables {
-    database_host_instance  = "acme-app-db"
-    secrets_backend         = "none"
-    secrets_aad_key_version = null
+    database_host_instance = "acme-app-db"
   }
   override_data {
     target = data.google_sql_database_instance.host
@@ -1728,7 +1937,6 @@ run "the_first_apply_gives_the_connection_name_on_a_host" {
       google_kms_crypto_key_iam_member.server_wraps,
       google_sql_database.kindgi,
       google_secret_manager_secret_iam_member.server_reads,
-      google_secret_manager_secret_iam_member.pack_reads_token,
       google_project_iam_member.server_sql_client,
     ]
   }
@@ -1741,10 +1949,6 @@ run "the_first_apply_gives_the_connection_name_on_a_host" {
 
 run "the_first_apply_gives_the_connection_name_of_the_own_instance" {
   command = apply
-  variables {
-    secrets_backend         = "none"
-    secrets_aad_key_version = null
-  }
   plan_options {
     target = [
       google_project_service.apis,
@@ -1753,7 +1957,6 @@ run "the_first_apply_gives_the_connection_name_of_the_own_instance" {
       google_kms_crypto_key_iam_member.server_wraps,
       google_sql_database.kindgi,
       google_secret_manager_secret_iam_member.server_reads,
-      google_secret_manager_secret_iam_member.pack_reads_token,
       google_project_iam_member.server_sql_client,
     ]
   }
@@ -1784,7 +1987,6 @@ run "the_first_apply_checks_the_host" {
       google_kms_crypto_key_iam_member.server_wraps,
       google_sql_database.kindgi,
       google_secret_manager_secret_iam_member.server_reads,
-      google_secret_manager_secret_iam_member.pack_reads_token,
       google_project_iam_member.server_sql_client,
     ]
   }

@@ -444,6 +444,14 @@ export type {
 } from './public-run-token.js';
 export { runFailure } from './run-failure.js';
 export type { RunFailure } from './run-failure.js';
+export type {
+  ToolFileReadAnswer,
+  ToolFileReadInput,
+  ToolFileStoreAnswer,
+  ToolFilesBinding,
+  ToolFileStoreInput,
+  ToolFilesRefusal,
+} from './tool-files-binding.js';
 export { WAIT_TOKEN_STATES } from './wait-token-binding.js';
 export type {
   CompleteWaitTokenInput,

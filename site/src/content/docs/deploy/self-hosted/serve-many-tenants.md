@@ -39,7 +39,7 @@ the runtime's address from `$KINDGI_URL`.
   needs a captcha: set KINDGI_AUTH_TURNSTILE_SECRET (or
   KINDGI_AUTH_TURNSTILE_SECRET_PATH) and KINDGI_AUTH_TURNSTILE_SITE_KEY."
 - **Each tenant is created through `POST /v1/system/tenants`**, with its
-  setup: its Default project and its authorization store.
+  setup: its default project and its authorization store.
 - **The start sets nothing up per tenant.** After an upgrade that adds a
   step for each tenant, run [`tenants repair`](#after-each-upgrade-tenants-repair).
 - **Background work** keeps up every tenant that's set up, and starts new
@@ -66,7 +66,7 @@ apart, and the two that let you allow and count them:
 | Setting | What it does |
 |---|---|
 | `KINDGI_TENANT_HOST_ACCESS=isolated` | What a tenant registers reaches public hosts only: not the metadata server, this host or private networks, and never with the server's own cloud credentials. The server then refuses `KINDGI_DEV`, `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow` and `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`. |
-| `KINDGI_PACK_ROUTING=per-deployment` | Each call goes to the pack service of the newest deployment in the run's project that shipped the tool or check, never to one pack service every tenant shares. A run with no project uses the Default project, whose deployments include each one that named no project. It needs `KINDGI_SECRETS_BACKEND=postgres`, because each endpoint's token is sealed under the secrets' key. `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused. |
+| `KINDGI_PACK_ROUTING=per-deployment` | Each call goes to the pack service of the newest deployment in the run's project that shipped the tool or check, never to one pack service every tenant shares. A run with no project uses the default project, whose deployments include each one that named no project. It needs a key to seal each endpoint's token under: `KINDGI_PACK_ENDPOINT_KMS_KEY`, or else the secrets' own, with `KINDGI_SECRETS_BACKEND=postgres`. `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused. |
 | `KINDGI_PACK_ENDPOINT_HOSTS` | The hosts a deployment's pack service may be on, comma-separated: a host name, `*.` and a domain, or `*-`, a tail and a domain. |
 | `KINDGI_OPENFGA_API_URL` and `KINDGI_OPENFGA_PRESHARED_KEY` | The authorization store, and the key it requires of its callers, so only the server reads and writes tenants' grants ([Require a key for OpenFGA](../../authorization/#require-a-key-for-openfga)). |
 | `KINDGI_PRODUCTION_GATE=on` | A tenant puts a project in production only once you allow it ([Limits and production](#limits-and-production)). |
@@ -254,16 +254,33 @@ Each deployment runs in its own pack service, which you run: an orchestrator,
 or a script, with a `system:deployments` key. The runtime records where each
 service is, and checks it. It never creates or deletes one.
 
+A pack's code may read whatever its service's account may. On
+[Cloud Run](../cloud-run/#serve-many-tenants), every tenant's pack services
+run as the module's one pack account, `$N-pack`. So each tenant's pack code
+can read every `kp-` secret, other tenants' pack service tokens and secret
+env values among them, and every secret in `pack_secret_readers`. One such
+installation is for tenants that trust one another's pack code. Give tenants
+that don't an installation each
+([Your tools' code](../../../concepts/security/#your-tools-code)).
+
 1. **List the deployments that need a service:**
    `GET /v1/system/deployments?endpoint=missing`, oldest first across tenants.
-   A deployment needs one while it's routed: it's the newest in its project
-   with routes for some tool version or pack check, it has no endpoint or a
-   cleared one, and nothing about it is closing or suspended. Each entry has
-   the tenant's id, the deployment's id, its pack and project (the one it
-   named, else the tenant's Default), and its image: the digest-pinned
-   `imageRef`, its digest, the artifact version and when it went live, and
-   whether to start its service `warm` (step 7). It has nothing else of the
-   tenant.
+   A deployment needs one while it serves something a call can still ask for
+   that no newer deployment in its project serves: a tool, agent or flow
+   version that's registered, pinned by a flow or agent version a run can
+   reach, or used by an unfinished run; a tool deployed without a version; or
+   a pack check a registered guardrail runs in its project (runtime 0.4.0 or
+   later; before, while it was the newest in its project with routes for some
+   tool version or pack check). One whose endpoint an earlier runtime made or
+   last set also needs the earlier rule: once newer deployments in its
+   project ship every tool version and check it does, and deploy each tool it
+   deployed without a version the same way, it's retired for good. It also
+   has no endpoint or a cleared one, and nothing about it is closing or
+   suspended. Each entry has the tenant's id, the deployment's id, its pack
+   and project (the one it named, else the tenant's default), and its image:
+   the digest-pinned `imageRef`, its digest, the artifact version and when it
+   went live, and whether to start its service `warm` (step 7). It has
+   nothing else of the tenant.
 
    A deployment that ships no tools and no guardrail checks of its own, such
    as one of agents and flows whose guardrails use only built-in checks, has
@@ -360,14 +377,24 @@ service is, and checks it. It never creates or deletes one.
 6. **Retire what should go:** `GET /v1/system/deployments?endpoint=retire`
    lists deployments with an endpoint whose service should go, each with its
    `reason`. Clear the endpoint first, with `DELETE …/endpoint`, then delete
-   the service. Nothing a call can still ask for needs a `superseded`
-   deployment. Each tool version, check, agent and flow version it serves is
-   unregistered and not used by a pin or an unfinished run (a check: no
-   registered guardrail runs it), or a newer deployment in its project
-   serves it (runtime 0.4.0 or later; before, `superseded` meant newer
-   deployments in its project shipped every tool version and check it
-   does). Registering one of its versions again lists it as needing a
-   service again. A tenant sees what keeps each one in its endpoint's
+   the service. A deployment is `superseded` when nothing a call can still
+   ask for needs it: for each tool version, check, agent and flow version it
+   serves, a newer deployment in its project serves it too, or it's
+   unregistered, not pinned by a flow or agent version a run can reach and
+   not used by an unfinished run (a check: no registered guardrail runs it in
+   its project); and each tool it deployed without a version, a newer
+   deployment in its project deploys without one too (runtime 0.4.0 or later;
+   before, `superseded` meant newer deployments in its project shipped every
+   tool version and check it does and deployed each tool it deployed without
+   a version the same way). One whose endpoint an earlier runtime made or
+   last set is `superseded` as well, for good, once newer deployments in its
+   project ship every tool version and check it does and deploy each tool it
+   deployed without a version the same way (step 1). Otherwise it's listed as
+   needing a service again once something it serves that no newer deployment
+   in its project serves is wanted again: a tool, agent or flow version
+   registered again, pinned by a flow or agent version a run can reach or
+   used by an unfinished run, or a check a newly registered guardrail runs in
+   its project. A tenant sees what keeps each one in its endpoint's
    `keptFor`.
 7. **Keep the warm ones up:** `GET /v1/system/deployments?endpoint=ready`
    lists deployments whose service is ready and stays, oldest first across
@@ -489,7 +516,7 @@ restoring clears both. A closing tenant can't be suspended (`409 tenant-closing`
   endpoint is recorded for it. Its unfinished runs are cancelled, waiting
   ones included. Its schedules and webhooks are skipped, and its
   deployments list to retire. The rest of the tenant is untouched. While
-  the Default project is suspended, a pack call that names no project is
+  the default project is suspended, a pack call that names no project is
   refused too.
 - **A pack:** `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended`.
   Its calls fail with `pack-suspended`, never going to an older deployment,
@@ -707,7 +734,7 @@ tenant 5b52fd42-bd2b-4597-b324-84ec1a7033a4 (tenant-1792242381807-ed3afb): Defau
 1 tenant repaired.
 ```
 
-It adds what's missing: the Default project, the authorization store's
+It adds what's missing: the default project, the authorization store's
 tuples and current model, the access each active person and service account
 has on record (a person's tenant membership, a service account's grants), the
 shipped adapters, and the sign-in providers. It

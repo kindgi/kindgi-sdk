@@ -219,6 +219,7 @@ import { testRunsRouters } from './routes/test-runs.js';
 import { testSetsRouter } from './routes/test-sets.js';
 import { tokenSignInRouter } from './routes/token-sign-in.js';
 import { tokensRouter } from './routes/tokens.js';
+import { toolFilesRouter } from './routes/tool-files.js';
 import { toolsRouter } from './routes/tools.js';
 import type { TriggerOwnerNotices } from './routes/trigger-owners.js';
 import { usageRouter } from './routes/usage.js';
@@ -241,6 +242,7 @@ import type { TestRunBinding } from './test-run-binding.js';
 import type { TestSetFreezeBinding, TestSetRegistryBinding } from './test-set-binding.js';
 import type { TokenAdmin } from './token-admin.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
+import type { ToolFilesBinding } from './tool-files-binding.js';
 import { TRIGGER_KINDS, type TriggerKind, type TriggerRegistryBinding } from './trigger-binding.js';
 import type { AppEnv } from './types.js';
 import type { UsageBinding } from './usage.js';
@@ -484,6 +486,16 @@ export interface CreateAppInput {
    * `webhookReceiver` says (its defaults when it's absent).
    */
   readonly waitTokens?: WaitTokenBinding;
+  /**
+   * Files a pack tool that declares `storesFiles` stores for its call
+   * (`POST /v1/tool-files`), and one that declares `readsFiles` reads
+   * (`GET /v1/tool-files/{artifactId}`), with the call's token as the
+   * bearer (no API key). Absent: both answer `404 tool-file-token-not-found`.
+   * The Kindgi runtime supplies one. The route limits requests per client,
+   * telling clients apart and counting where `webhookReceiver` says (its
+   * defaults when it's absent).
+   */
+  readonly toolFiles?: ToolFilesBinding;
   /**
    * Optional. When present, mounts the reviewer roster sub-resource
    * at `/v1/approvals/reviewers` — list / get / register / unregister.
@@ -2666,7 +2678,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(itemRights !== undefined && { itemRights }),
           ...(deployCards !== undefined && { deployCards }),
           // The deployments router's agents publish loop resolves the
-          // Default project through this binding. Optional at wiring so
+          // default project through this binding. Optional at wiring so
           // app compositions without a project binding still boot; the loop
           // fails fast at runtime if agents are in the deployment index
           // but the binding is absent.
@@ -2848,6 +2860,22 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       }),
     }),
   );
+  // A pack service stores and reads files for a tool's call: outside the
+  // bearer chain (mounted ahead of `/v1`), since its bearer is the call's
+  // token, not an API key. Always mounted, so a runtime that stores no
+  // files answers a clear 404.
+  app.route(
+    '/v1/tool-files',
+    toolFilesRouter({
+      ...(input.toolFiles !== undefined && { binding: input.toolFiles }),
+      ...(input.webhookReceiver?.clientAddress !== undefined && {
+        clientAddress: input.webhookReceiver.clientAddress,
+      }),
+      ...(input.webhookReceiver?.rateLimitStore !== undefined && {
+        rateLimitStore: input.webhookReceiver.rateLimitStore,
+      }),
+    }),
+  );
   // A site enrolls its key, and signs its people in: outside the bearer
   // chain (mounted ahead of `/v1`), since nobody is signed in yet.
   if (input.sites !== undefined) {
@@ -2866,7 +2894,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     }
     const siteAuth = {
       binding: input.sites.binding,
-      // Default: the nearest X-Forwarded-For hop (the proxy in front wrote
+      // default: the nearest X-Forwarded-For hop (the proxy in front wrote
       // it), as the sign-in options limit tells clients apart.
       clientAddress:
         input.sites.clientAddress ?? ((request: Request) => nearestForwardedClient(request)),

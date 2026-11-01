@@ -49,8 +49,8 @@ import { parseAssignableProjectRole } from './project-roles.js';
  *                                          the tenant's projects without one)
  *                                          has a project with that slug, or
  *                                          `project-default-already-exists`
- *                                          for a second Default.
- *   - `GET    /default`                  — returns the tenant's Default
+ *                                          for a second default.
+ *   - `GET    /default`                  — returns the tenant's default
  *                                          project or 404 `project-not-found`;
  *                                          read on it, as `GET /:projectId`.
  *                                          MUST be mounted BEFORE `/:projectId`.
@@ -193,7 +193,7 @@ export function projectsRouter(
   }
 
   // ---------- GET /default (literal segment; must precede /:projectId) ----------
-  // Read on the Default project, as `GET /:projectId` checks it: someone
+  // Read on the default project, as `GET /:projectId` checks it: someone
   // with a role on another project only gets 403, not its settings.
   if (authorizer !== undefined) {
     r.use('/default', async (c, next) => {
@@ -215,7 +215,7 @@ export function projectsRouter(
         toWireError(
           {
             code: 'project-not-found',
-            message: 'Tenant has no Default project',
+            message: 'Tenant has no default project',
           },
           requestId,
         ),

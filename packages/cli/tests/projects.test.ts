@@ -68,7 +68,7 @@ describe('kindgi projects', () => {
     expect(calls).toEqual([['list', {}]]);
   });
 
-  test('get-default: the Default project', async () => {
+  test('get-default: the default project', async () => {
     const { out, calls } = await run(['projects', 'get-default']);
     expect(out.exitCode).toBe(0);
     expect(calls).toEqual([['getDefault']]);

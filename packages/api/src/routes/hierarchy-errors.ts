@@ -51,11 +51,11 @@ export function orgNotFoundError(orgId: string) {
   return { code: 'org-not-found', message: `No org with id "${orgId}"`, orgId } as const;
 }
 
-/** `409 project-default-already-exists`: the tenant has a Default project. */
+/** `409 project-default-already-exists`: the tenant has a default project. */
 export function projectDefaultAlreadyExistsError() {
   return {
     code: 'project-default-already-exists',
-    message: 'The tenant already has a Default project',
+    message: 'The tenant already has a default project',
   } as const;
 }
 

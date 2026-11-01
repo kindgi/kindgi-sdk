@@ -52,7 +52,7 @@ export interface SystemDeploymentEntry {
   /** The pack it deploys (the image index's `packId`). */
   readonly packId: string;
   /**
-   * The deployment's project: the one it named, else the tenant's Default;
+   * The deployment's project: the one it named, else the tenant's default;
    * absent only when the tenant has none.
    */
   readonly projectId?: string;
@@ -185,11 +185,17 @@ export interface SystemPackEnvServed extends SystemDeploymentEntry {
  */
 export interface SystemDeploymentsBinding {
   /**
-   * Across tenants, oldest `activatedAt` first: deployments that need a
-   * pack service. Each is routed (the newest deployment with routes for some
-   * tool version or pack check), has no endpoint or a cleared one, and
-   * nothing about it is closing or suspended. Each says whether its new
-   * service should start `warm`.
+   * Across tenants, oldest `activatedAt` first: deployments that need a pack
+   * service. Each serves something a call can still ask for, and no newer
+   * deployment into its project serves it: a tool, agent or flow version
+   * that's registered or held (a flow or agent version a run can reach pins
+   * it, or an unfinished run uses it), a tool deployed without a version, or
+   * a pack check a registered guardrail runs in its project (from runtime
+   * 0.4.0; before, each was the newest into its project with routes for some
+   * tool version or pack check, and one whose endpoint an earlier runtime
+   * made or last set still needs that too). Each has no endpoint or a
+   * cleared one, and nothing about it is closing or suspended. Each says
+   * whether its new service should start `warm`.
    */
   listNeedingEndpoint(input: {
     readonly cursor?: string;

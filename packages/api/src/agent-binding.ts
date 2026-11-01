@@ -251,10 +251,10 @@ export interface AgentPublishInput {
   /**
    * Project the agent is published into. REQUIRED. Callers that
    * don't naturally know a projectId
-   * (e.g. the deployments route) resolve the tenant's Default
+   * (e.g. the deployments route) resolve the tenant's default
    * via `projectBinding.getDefault(tenantId)` at THEIR layer and
    * thread the resolved id here — the storage adapter never
-   * silently falls back to Default.
+   * silently falls back to the default.
    */
   readonly projectId: ProjectId;
   /**

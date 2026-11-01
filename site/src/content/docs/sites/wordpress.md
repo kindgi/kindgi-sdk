@@ -109,7 +109,7 @@ pnpm exec kindgi sites register --project=<project-id> --name='Acme store' \
 It prints the site and its one-time code, shown once and good for 15
 minutes; `kindgi sites code <site-id>` gives a new one. Without
 `--project`, this and each `kindgi sites` command below use the tenant's
-Default project. From code, the client's `projects.sites.register` does
+default project. From code, the client's `projects.sites.register` does
 the same.
 
 - **`--name`** is how Kindgi shows the site's people: "Jane, via Acme

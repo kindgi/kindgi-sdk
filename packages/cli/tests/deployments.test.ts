@@ -510,7 +510,7 @@ describe('kindgi deployments get', () => {
     expect(superseded.out.stdout).toBe(
       lines(
         ...HEAD,
-        `  Pack service: cleared since ${since}: a later deploy ships every tool version and check this one does, so no new call reaches it (superseded)`,
+        `  Pack service: cleared since ${since}: no new call needs it, or a later deploy into its project ships every tool version and check it does (superseded)`,
       ),
     );
 
@@ -664,7 +664,7 @@ describe('kindgi deployments list', () => {
       expect(JSON.parse(out.stdout)).toEqual({ data, hasMore: false, projectId: STAGING_ID });
     });
 
-    test("the Default project's id: its deployments and those that name no project, as the API answers them", async () => {
+    test("the default project's id: its deployments and those that name no project, as the API answers them", async () => {
       const data = [
         { ...DEPLOYMENT, deploymentId: 'dep-acme-d', projectId: DEFAULT_ID },
         (({ projectId: _p, ...rest }) => ({ ...rest, deploymentId: 'dep-acme-n' }))(DEPLOYMENT),
