@@ -591,6 +591,7 @@ describe('kindgi deploy — response handling', () => {
     expect(out.stderr).toContain('deploymentId:    dep-created-01');
     expect(out.stderr).toContain('primitives:      1 tool');
     expect(out.stderr).toContain('Deploy complete.');
+    expect(out.stderr).toContain('already in flight');
     expect(out.stderr).not.toContain('Nothing new was deployed');
     const summary = JSON.parse(out.stdout) as { outcome: string; deployment: DeploymentRecord };
     expect(summary.outcome).toBe('created');
@@ -860,6 +861,7 @@ describe('kindgi deploy — response handling', () => {
     expect(out.stderr).toContain('was built, build it again first.');
     expect(out.stderr).not.toContain('Deploy complete.');
     expect(out.stderr).not.toContain('Runs started from now use image');
+    expect(out.stderr).not.toContain('already in flight');
     const summary = JSON.parse(out.stdout) as { outcome: string; idempotentReplay?: boolean };
     expect(summary.outcome).toBe('created');
     expect(summary.idempotentReplay).toBe(true);
@@ -883,6 +885,7 @@ describe('kindgi deploy — response handling', () => {
     expect(out.stderr).toContain('Nothing new was deployed');
     expect(out.stderr).toContain('previously landed');
     expect(out.stderr).not.toContain('Deploy complete.');
+    expect(out.stderr).not.toContain('already in flight');
     const summary = JSON.parse(out.stdout) as { outcome: string; idempotentReplay?: boolean };
     expect(summary.outcome).toBe('replayed');
     expect(summary.idempotentReplay).toBe(true);

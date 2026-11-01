@@ -182,7 +182,7 @@ export function renderResponse(
           `(artifactVersion ${result.record.artifactVersion}).`,
       );
     }
-    banner.push(inFlightLine(result.record));
+    if (!keyReplay) banner.push(inFlightLine(result.record));
     banner.push('');
     const summary: Record<string, unknown> = {
       envName: ctx.envName,
