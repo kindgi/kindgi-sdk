@@ -16,8 +16,8 @@ webhook](start-runs-from-webhooks/).
 
 **Kindgi tells your app when a run ends.** Instead of polling a run, register a
 **webhook endpoint**, a URL in your app, and Kindgi sends it a signed
-`run.finished` request each time a run you started completes, fails or is
-cancelled.
+`run.finished` request each time a run completes, fails or is cancelled,
+whatever started it. A run inside another run sends none.
 
 - [Get a webhook when a run finishes](receive-run-finished/): store the
   signing secret, register the endpoint, and answer each request.

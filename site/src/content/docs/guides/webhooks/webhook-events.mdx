@@ -12,7 +12,7 @@ them. To set an endpoint up, follow
 
 | Event | Sent when | Carries |
 |---|---|---|
-| `run.finished` | a run your app or the CLI started completes, fails or is cancelled | `data.run` |
+| `run.finished` | a run that isn't inside another run completes, fails or is cancelled | `data.run` |
 | `improve-run.finished` | an Improve run ends | `data.improveRun` |
 | `approval.requested` | an approval starts waiting for a reviewer | `data.approval` |
 
@@ -62,8 +62,9 @@ either way, answer 2xx and move on.
 - **`webhook-id`**, a request header, is the event's id, the same on every
   retry.
 - **The filter applies:** `flowIds`, `projectId` and `includeDryRuns`.
-- **Only runs your app or the CLI started send it.** The runs inside them,
-  such as an agent step's turn, don't.
+- **Every run that isn't inside another run sends it,** whatever started it:
+  your app, the CLI, a schedule, a webhook trigger or a mail trigger. The
+  runs inside it, such as an agent step's turn, don't.
 
 ### On an agent's run
 
