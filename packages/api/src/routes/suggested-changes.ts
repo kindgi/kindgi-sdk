@@ -691,6 +691,8 @@ export function serialize(
     changes: [changeWire(p, before)],
     why: p.why,
     fixes: p.evidence?.fixes ?? [],
+    // `fixes` names at most the first 100; `correctionCount` counts them all.
+    correctionCount: p.evidence?.correctionCount ?? p.evidence?.fixes?.length ?? 0,
     check: checkWire(p, f),
     status: f.status,
     ...(f.note !== undefined && { note: f.note }),
