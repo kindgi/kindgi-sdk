@@ -249,10 +249,8 @@ final class Kindgi_Admin {
 			wp_add_inline_style( 'admin-bar', '#wpadminbar #wp-admin-bar-kindgi-inbox.kindgi-none{display:none}#wpadminbar #wp-admin-bar-kindgi-inbox .ab-icon:before{top:2px}' );
 		}
 		if ( false !== self::$settings_hook && self::$settings_hook === $hook ) {
-			// Its heading is a Kindgi page's, connected or not.
+			// A Kindgi page's look, connected or not; its script copies the addresses before, and asks Kindgi after.
 			wp_enqueue_style( 'kindgi-admin', plugins_url( 'assets/kindgi-admin.css', KINDGI_PLUGIN_FILE ), array(), $version );
-		}
-		if ( false !== self::$settings_hook && self::$settings_hook === $hook && null !== Kindgi_Settings::site() ) {
 			wp_enqueue_script( 'kindgi-settings', plugins_url( 'assets/kindgi-settings.js', KINDGI_PLUGIN_FILE ), array( 'wp-api-fetch', 'wp-i18n' ), $version, true );
 			wp_set_script_translations( 'kindgi-settings', 'kindgi' );
 		}
@@ -363,9 +361,9 @@ final class Kindgi_Admin {
 	}
 
 	/**
-	 * Settings, for administrators: the connection in words, the agents
-	 * offered to staff, and the site's own details (its id, addresses and
-	 * key), folded away once it's connected.
+	 * Settings, for administrators. Connected: the connection at a glance,
+	 * the agents offered to staff, and the site's own details folded away.
+	 * Not connected yet: the two steps that connect it.
 	 */
 	public static function settings(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
@@ -380,40 +378,24 @@ final class Kindgi_Admin {
 			<?php if ( is_array( $notice ) ) : ?>
 				<div class="notice notice-<?php echo 'ok' === $notice['kind'] ? 'success' : 'error'; ?>"><p><?php echo esc_html( $notice['message'] ); ?></p></div>
 			<?php endif; ?>
-
-			<h2><?php esc_html_e( 'Connection', 'kindgi' ); ?></h2>
 			<?php if ( null === $site ) : ?>
-				<p><?php esc_html_e( 'Not connected yet. Register it in Kindgi first, on the project its staff will use, with these two addresses. Kindgi then gives you a one-time code to paste below.', 'kindgi' ); ?></p>
 				<?php self::webhooks_off(); ?>
-				<?php self::site_table( false ); ?>
-				<?php self::connect_form( null ); ?>
+				<?php self::connect_steps(); ?>
 			<?php else : ?>
-				<?php self::connected_words( $site ); ?>
-				<?php self::warnings( $site ); ?>
+				<?php self::status( $site ); ?>
 				<?php self::webhooks_off(); ?>
 				<?php self::waiting(); ?>
 
 				<h2><?php esc_html_e( 'Agents offered to staff', 'kindgi' ); ?></h2>
 				<?php self::offer_form(); ?>
 
-				<h2><?php esc_html_e( 'People and permissions', 'kindgi' ); ?></h2>
-				<p>
-					<?php
-					printf(
-						/* translators: %s: the command that shows a site's registration */
-						esc_html__( "Who here may ask the agents, and who decides approvals, is set by an admin at Kindgi on this site's registration (%s shows it): a site can't give itself rights.", 'kindgi' ),
-						'<code>kindgi sites get</code>'
-					);
-					?>
-				</p>
-
-				<h2><?php esc_html_e( 'Notifications', 'kindgi' ); ?></h2>
-				<p><?php esc_html_e( "A reviewer's email from Kindgi about an approval links to it here, in the Inbox. The Kindgi menu and the admin bar show each person how many wait for them.", 'kindgi' ); ?></p>
+				<h2><?php esc_html_e( 'Who may do what', 'kindgi' ); ?></h2>
+				<p class="kindgi-settings-text"><?php esc_html_e( "Who here may ask the agents, and who decides approvals, is set at Kindgi on this site's registration: a site can't give itself rights.", 'kindgi' ); ?></p>
 
 				<details class="kindgi-advanced">
-					<summary><?php esc_html_e( 'This site at Kindgi: its id, addresses and key, and connecting again', 'kindgi' ); ?></summary>
-					<?php self::site_table( true ); ?>
-					<?php self::connect_form( $site ); ?>
+					<summary><?php esc_html_e( 'Technical details', 'kindgi' ); ?></summary>
+					<?php self::site_table( $site ); ?>
+					<?php self::connect_form( true ); ?>
 				</details>
 			<?php endif; ?>
 		</div>
@@ -421,24 +403,196 @@ final class Kindgi_Admin {
 	}
 
 	/**
-	 * "Connected to Kindgi at …", from what the site keeps: Settings never
-	 * waits on Kindgi. The page's script adds the project's name once
-	 * Kindgi tells it (`kindgi-settings.js`).
+	 * The connection at a glance: a row each for the connection, signing
+	 * staff in, store events and changes on their way, from what the site
+	 * keeps, so Settings never waits on Kindgi. The page's script adds the
+	 * project's name and checks signing in (`kindgi-settings.js`).
 	 */
-	private static function connected_words( array $site ): void {
-		echo '<p id="kindgi-connected" data-audience="' . esc_attr( $site['audience'] ) . '">';
-		/* translators: %s: Kindgi's public URL */
-		printf( esc_html__( 'Connected to Kindgi at %s.', 'kindgi' ), '<code>' . esc_html( $site['audience'] ) . '</code>' );
-		echo '</p>';
+	private static function status( array $site ): void {
+		echo '<ul class="kindgi-status" role="list" aria-live="polite">';
+		self::status_row(
+			'ok',
+			__( 'Connected', 'kindgi' ),
+			/* translators: %s: Kindgi's public URL */
+			sprintf( esc_html__( 'To Kindgi at %s.', 'kindgi' ), '<code>' . esc_html( $site['audience'] ) . '</code>' ),
+			array(
+				'id'            => 'kindgi-connected',
+				'data-audience' => $site['audience'],
+			)
+		);
+		$problems = self::problems( $site );
+		if ( array() !== $problems ) {
+			self::status_row( 'err', __( "Staff can't sign in", 'kindgi' ), esc_html( implode( ' ', $problems ) ) );
+		} else {
+			self::status_row( 'checking', __( 'Staff sign in as themselves', 'kindgi' ), esc_html__( 'Checking with Kindgi…', 'kindgi' ), array( 'id' => 'kindgi-signin' ) );
+		}
+		self::store_events_row();
+		$waiting = count( Kindgi_People::waiting() );
+		if ( $waiting > 0 ) {
+			self::status_row(
+				'warn',
+				__( 'Changes on their way', 'kindgi' ),
+				esc_html(
+					sprintf(
+						/* translators: %s: how many people */
+						_n( "%s person's change hasn't reached Kindgi yet. WordPress keeps trying.", "%s people's changes haven't reached Kindgi yet. WordPress keeps trying.", $waiting, 'kindgi' ),
+						number_format_i18n( $waiting )
+					)
+				) . ' <a href="#kindgi-waiting">' . esc_html__( 'See them', 'kindgi' ) . '</a>'
+			);
+		}
+		echo '</ul>';
 	}
 
-	/** The site's details: its id once connected, the two addresses Kindgi registers, and its key. */
-	private static function site_table( bool $connected ): void {
-		$site = Kindgi_Settings::site();
+	/** Whether WooCommerce's events reach Kindgi: its webhooks to Kindgi, on and off. None without WooCommerce. */
+	private static function store_events_row(): void {
+		$on = Kindgi_Webhooks::on();
+		if ( null === $on ) {
+			return;
+		}
+		$off = count( Kindgi_Webhooks::off() );
+		if ( $off > 0 ) {
+			self::status_row(
+				'err',
+				__( "Store events don't all reach Kindgi", 'kindgi' ),
+				esc_html(
+					sprintf(
+						/* translators: %s: how many webhooks */
+						_n( 'WooCommerce turned off %s webhook to Kindgi: turn it on again below.', 'WooCommerce turned off %s webhooks to Kindgi: turn them on again below.', $off, 'kindgi' ),
+						number_format_i18n( $off )
+					)
+				)
+			);
+			return;
+		}
+		if ( $on > 0 ) {
+			self::status_row(
+				'ok',
+				__( 'Store events reach Kindgi', 'kindgi' ),
+				esc_html(
+					sprintf(
+						/* translators: %s: how many webhooks */
+						_n( '%s WooCommerce webhook delivers to Kindgi.', '%s WooCommerce webhooks deliver to Kindgi.', $on, 'kindgi' ),
+						number_format_i18n( $on )
+					)
+				)
+			);
+			return;
+		}
+		$where = esc_html__( 'WooCommerce → Settings → Advanced → Webhooks', 'kindgi' );
+		if ( current_user_can( 'manage_woocommerce' ) ) {
+			$where = '<a href="' . esc_url( admin_url( 'admin.php?page=wc-settings&tab=advanced&section=webhooks' ) ) . '">' . $where . '</a>';
+		}
+		$paused = Kindgi_Webhooks::paused();
+		if ( $paused > 0 ) {
+			self::status_row(
+				'warn',
+				__( 'Store events are paused', 'kindgi' ),
+				sprintf(
+					/* translators: 1: how many webhooks, 2: where WooCommerce's webhooks are set up */
+					esc_html( _n( '%1$s WooCommerce webhook to Kindgi is paused. Set it to Active under %2$s.', '%1$s WooCommerce webhooks to Kindgi are paused. Set one to Active under %2$s.', $paused, 'kindgi' ) ),
+					esc_html( number_format_i18n( $paused ) ),
+					$where
+				)
+			);
+			return;
+		}
+		self::status_row(
+			'none',
+			__( 'No store events go to Kindgi', 'kindgi' ),
+			/* translators: %s: where WooCommerce's webhooks are set up */
+			sprintf( esc_html__( 'No WooCommerce webhook delivers to Kindgi. An agent that starts on a store event needs one, under %s.', 'kindgi' ), $where )
+		);
+	}
+
+	/**
+	 * One row of the connection at a glance: its state as a dot and in its
+	 * title's words, then what it means.
+	 *
+	 * @param string                $state ok, err, warn, none or checking.
+	 * @param string                $title What the row says, in words: never the dot alone.
+	 * @param string                $html  The rest, escaped by the caller.
+	 * @param array<string, string> $attrs The row's own attributes.
+	 */
+	private static function status_row( string $state, string $title, string $html, array $attrs = array() ): void {
+		$more = '';
+		foreach ( $attrs as $name => $value ) {
+			$more .= ' ' . $name . '="' . esc_attr( $value ) . '"';
+		}
+		echo '<li class="kindgi-status-row kindgi-status-' . esc_attr( $state ) . '"' . $more . '>' // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- each value is escaped above.
+			. '<span class="kindgi-dot" aria-hidden="true"></span>'
+			. '<span class="kindgi-status-words"><strong class="kindgi-status-title">' . esc_html( $title ) . '</strong>'
+			. '<span class="kindgi-status-text">' . $html . '</span></span></li>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped by the caller.
+	}
+
+	/**
+	 * Not connected yet: the two steps, the addresses Kindgi registers to
+	 * copy, and the form for the code Kindgi gives back.
+	 */
+	private static function connect_steps(): void {
+		?>
+		<div class="kindgi-connect">
+			<h2><?php esc_html_e( 'Connect this site to Kindgi', 'kindgi' ); ?></h2>
+			<p class="kindgi-settings-text"><?php esc_html_e( 'Your staff then see what the agents want them to decide and what they did, and ask them about the site, each signed in as themselves.', 'kindgi' ); ?></p>
+			<ol class="kindgi-connect-steps" role="list">
+				<li>
+					<h3><?php esc_html_e( 'Ask your Kindgi administrator to register this site', 'kindgi' ); ?></h3>
+					<p><?php esc_html_e( 'On the project your staff will use, with these two addresses:', 'kindgi' ); ?></p>
+					<dl class="kindgi-addresses">
+						<dt><?php esc_html_e( 'Origin', 'kindgi' ); ?></dt>
+						<dd><code data-kindgi-copy><?php echo esc_html( Kindgi_Settings::home_origin() ); ?></code></dd>
+						<dt><?php esc_html_e( 'Approvals URL', 'kindgi' ); ?></dt>
+						<dd><code data-kindgi-copy><?php echo esc_html( Kindgi_Settings::approvals_url() ); ?></code></dd>
+					</dl>
+				</li>
+				<li>
+					<h3><?php esc_html_e( 'Paste the one-time code they send back', 'kindgi' ); ?></h3>
+					<p><?php esc_html_e( 'It works once, within 15 minutes. If it ran out, they can make a new one.', 'kindgi' ); ?></p>
+					<?php self::connect_form( false ); ?>
+				</li>
+			</ol>
+			<details class="kindgi-advanced">
+				<summary><?php esc_html_e( 'Technical details', 'kindgi' ); ?></summary>
+				<?php self::site_table( null ); ?>
+			</details>
+		</div>
+		<?php
+	}
+
+	/**
+	 * The site's details: its id once connected, the two addresses Kindgi
+	 * registers, where Kindgi is, and its key.
+	 */
+	private static function site_table( ?array $site ): void {
+		$url = Kindgi_Settings::url();
 		?>
 		<table class="form-table" role="presentation">
-			<?php if ( $connected && null !== $site ) : ?>
-				<tr><th scope="row"><?php esc_html_e( 'Site id', 'kindgi' ); ?></th><td><code><?php echo esc_html( $site['site_id'] ); ?></code></td></tr>
+			<?php if ( null !== $site ) : ?>
+				<tr>
+					<th scope="row"><?php esc_html_e( 'Site id', 'kindgi' ); ?></th>
+					<td>
+						<code><?php echo esc_html( $site['site_id'] ); ?></code>
+						<p class="description">
+							<?php
+							printf(
+								/* translators: %s: the command that shows a site's registration */
+								esc_html__( "Its registration at Kindgi, with who may do what and its keys: %s", 'kindgi' ),
+								'<code>' . esc_html( 'kindgi sites get ' . $site['site_id'] ) . '</code>'
+							);
+							?>
+						</p>
+					</td>
+				</tr>
+				<tr><th scope="row"><?php esc_html_e( 'Kindgi', 'kindgi' ); ?></th><td><code><?php echo esc_html( $site['audience'] ); ?></code></td></tr>
+				<?php if ( '' !== $url && rtrim( $site['audience'], '/' ) !== $url ) : ?>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Kindgi, from this server', 'kindgi' ); ?></th>
+						<td>
+							<code><?php echo esc_html( $url ); ?></code>
+							<p class="description"><?php esc_html_e( "This server reaches Kindgi here; browsers and Kindgi's links use the address above.", 'kindgi' ); ?></p>
+						</td>
+					</tr>
+				<?php endif; ?>
 			<?php endif; ?>
 			<tr><th scope="row"><?php esc_html_e( 'Origin', 'kindgi' ); ?></th><td><code><?php echo esc_html( Kindgi_Settings::home_origin() ); ?></code></td></tr>
 			<tr><th scope="row"><?php esc_html_e( 'Approvals URL', 'kindgi' ); ?></th><td><code><?php echo esc_html( Kindgi_Settings::approvals_url() ); ?></code></td></tr>
@@ -450,11 +604,11 @@ final class Kindgi_Admin {
 		<?php
 	}
 
-	/** Connect, or connect again, with a one-time code from Kindgi. */
-	private static function connect_form( ?array $site ): void {
+	/** Connect with a one-time code from Kindgi, or connect again with a new one. */
+	private static function connect_form( bool $again ): void {
 		?>
-		<h3><?php echo esc_html( null === $site ? __( 'Connect', 'kindgi' ) : __( 'Connect again', 'kindgi' ) ); ?></h3>
-		<?php if ( null !== $site ) : ?>
+		<?php if ( $again ) : ?>
+			<h3><?php esc_html_e( 'Connect again', 'kindgi' ); ?></h3>
 			<p><?php esc_html_e( "Connecting again (a new code from Kindgi) replaces the site's key at Kindgi and signs everyone out there.", 'kindgi' ); ?></p>
 		<?php endif; ?>
 		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
@@ -462,23 +616,23 @@ final class Kindgi_Admin {
 			<?php wp_nonce_field( self::CONNECT ); ?>
 			<table class="form-table" role="presentation">
 				<tr>
+					<th scope="row"><label for="kindgi-code"><?php esc_html_e( 'One-time code', 'kindgi' ); ?></label></th>
+					<td><input type="text" class="regular-text code" id="kindgi-code" name="kindgi_code" autocomplete="off" spellcheck="false" maxlength="200" required></td>
+				</tr>
+				<tr>
 					<th scope="row"><label for="kindgi-url"><?php esc_html_e( 'Kindgi URL', 'kindgi' ); ?></label></th>
 					<td>
 						<?php if ( Kindgi_Settings::url_is_constant() ) : ?>
 							<code><?php echo esc_html( Kindgi_Settings::url() ); ?></code>
 							<p class="description"><?php esc_html_e( 'Set by KINDGI_URL in wp-config.php.', 'kindgi' ); ?></p>
 						<?php else : ?>
-							<input type="url" class="regular-text" id="kindgi-url" name="kindgi_url" value="<?php echo esc_attr( Kindgi_Settings::url() ); ?>" placeholder="https://kindgi.acme.example" required>
-							<p class="description"><?php esc_html_e( 'Where this server reaches Kindgi.', 'kindgi' ); ?></p>
+							<input type="url" class="regular-text" id="kindgi-url" name="kindgi_url" value="<?php echo esc_attr( Kindgi_Settings::url() ); ?>" placeholder="https://platform.kindgi.com" required>
+							<p class="description"><?php esc_html_e( 'Where this server reaches Kindgi: your Kindgi administrator sends it with the code.', 'kindgi' ); ?></p>
 						<?php endif; ?>
 					</td>
 				</tr>
-				<tr>
-					<th scope="row"><label for="kindgi-code"><?php esc_html_e( 'One-time code', 'kindgi' ); ?></label></th>
-					<td><input type="text" class="regular-text code" id="kindgi-code" name="kindgi_code" autocomplete="off" spellcheck="false" maxlength="200" required></td>
-				</tr>
 			</table>
-			<?php submit_button( null === $site ? __( 'Connect', 'kindgi' ) : __( 'Connect again', 'kindgi' ) ); ?>
+			<?php submit_button( $again ? __( 'Connect again', 'kindgi' ) : __( 'Connect', 'kindgi' ), $again ? 'secondary' : 'primary' ); ?>
 		</form>
 		<?php
 	}
@@ -660,7 +814,7 @@ final class Kindgi_Admin {
 			return;
 		}
 		$when = get_option( 'date_format' ) . ' ' . get_option( 'time_format' );
-		echo '<h2>' . esc_html__( 'Waiting to reach Kindgi', 'kindgi' ) . '</h2>';
+		echo '<h2 id="kindgi-waiting">' . esc_html__( 'Waiting to reach Kindgi', 'kindgi' ) . '</h2>';
 		echo '<p>' . esc_html__( "Kindgi hasn't heard about these changes yet. Until it does, these people keep what they had there. WordPress tries again on its own (wp-cron), less often each time, and never gives up.", 'kindgi' ) . '</p>';
 		echo '<table class="widefat striped"><thead><tr>';
 		foreach ( array( __( 'Who', 'kindgi' ), __( 'Change', 'kindgi' ), __( 'Tries', 'kindgi' ), __( 'Last answer', 'kindgi' ), __( 'Next try', 'kindgi' ) ) as $heading ) {
@@ -677,8 +831,12 @@ final class Kindgi_Admin {
 		echo '</tbody></table>';
 	}
 
-	/** What's wrong with a connected site, as notices. */
-	private static function warnings( array $site ): void {
+	/**
+	 * What keeps a connected site from signing anyone in, in words.
+	 *
+	 * @return string[]
+	 */
+	private static function problems( array $site ): array {
 		$problems = array();
 		if ( Kindgi_Settings::home_origin() !== $site['origin'] ) {
 			$problems[] = sprintf(
@@ -694,9 +852,7 @@ final class Kindgi_Admin {
 		} elseif ( null === $seed || Kindgi_Keys::jwk( $seed )['kid'] !== $site['kid'] ) {
 			$problems[] = __( "The site's key isn't the one it connected with, so it signs nobody in: connect it again with a new code.", 'kindgi' );
 		}
-		foreach ( $problems as $problem ) {
-			echo '<div class="notice notice-error inline"><p>' . esc_html( $problem ) . '</p></div>';
-		}
+		return $problems;
 	}
 
 	private static function key_status( string $source ): void {

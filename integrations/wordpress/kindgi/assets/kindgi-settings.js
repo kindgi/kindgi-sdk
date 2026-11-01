@@ -3,9 +3,11 @@
 
 /**
  * Kindgi → Settings: what only Kindgi knows, asked once the page is drawn,
- * so Settings (and connecting again) never waits on Kindgi. The project's
- * name joins the connection line, and the project's agents fill the form
- * that offers them to staff. Everything is set as text.
+ * so Settings (and connecting again) never waits on Kindgi. Signing in is
+ * checked, the project's name joins the connection's row, and the
+ * project's agents fill the form that offers them to staff. Before the
+ * site is connected, the addresses Kindgi registers get a Copy button.
+ * Everything is set as text.
  */
 (() => {
   const { __ } = wp.i18n;
@@ -39,52 +41,93 @@
       return at === null ? part : nodes[Number(at[1]) - 1];
     });
 
-  /** The connection line, with the project's name once Kindgi tells it; without, it stays as drawn. */
-  async function projectName() {
-    const line = document.getElementById('kindgi-connected');
-    if (line === null) return;
+  /** A row of the connection at a glance, set to a state: the dot, its title's words, and the rest. */
+  function setRow(row, state, title, ...text) {
+    row.className = `kindgi-status-row kindgi-status-${state}`;
+    row.querySelector('.kindgi-status-title').textContent = title;
+    row.querySelector('.kindgi-status-text').replaceChildren(...text);
+  }
+
+  /**
+   * Answers that never reached Kindgi, or never came back from it: signing
+   * in wasn't checked, which isn't Kindgi refusing it.
+   */
+  const UNCHECKED = new Set(['fetch_error', 'invalid_json', 'kindgi_unreachable']);
+
+  /** The sign-in row once the project's read failed: Kindgi refused, or was never asked. */
+  function signinFailed(signin, error) {
+    const unchecked = UNCHECKED.has(error?.code);
+    setRow(
+      signin,
+      unchecked ? 'warn' : 'err',
+      unchecked
+        ? __("Signing in wasn't checked", 'kindgi')
+        : __("Kindgi didn't sign you in", 'kindgi'),
+      error?.message ?? __('Something went wrong.', 'kindgi'),
+    );
+  }
+
+  /**
+   * Signing in, checked: the project is asked for as this administrator,
+   * on the sign-in the site keeps for them or a new one, as it is for any
+   * of the staff. The connection's row gains the project's name; without
+   * one, it stays as drawn.
+   */
+  async function connection() {
+    const connected = document.getElementById('kindgi-connected');
+    const signin = document.getElementById('kindgi-signin');
+    if (connected === null) return;
     let project;
     try {
       project = await api('/project');
-    } catch {
+    } catch (error) {
+      if (signin !== null) signinFailed(signin, error);
       return;
     }
+    if (signin !== null) {
+      setRow(
+        signin,
+        'ok',
+        __('Staff sign in as themselves', 'kindgi'),
+        __('Kindgi answered as you just now.', 'kindgi'),
+      );
+    }
     if (!project.name) return;
-    line.replaceChildren(
+    setRow(
+      connected,
+      'ok',
+      __('Connected', 'kindgi'),
       ...withNodes(
-        /* translators: 1: Kindgi's public URL, 2: the project's name */
-        __(
-          'Connected to Kindgi at %1$s, for the project %2$s. Your staff sign in to it as themselves from the Kindgi pages.',
-          'kindgi',
-        ),
-        el('code', {}, line.dataset.audience),
+        /* translators: 1: the project's name, 2: Kindgi's public URL */
+        __('To the project %1$s, at %2$s.', 'kindgi'),
         el('strong', {}, project.name),
+        el('code', {}, connected.dataset.audience),
       ),
     );
   }
 
-  /** One agent's box: ticked when offered, with what it's for. */
-  const agentBox = (agent) =>
-    el(
-      'p',
-      {},
+  /** One agent's row: ticked when offered, with what it's for; the whole row ticks it. */
+  function agentRow(agent) {
+    const id = `kindgi-offer-${agent.id}`;
+    return el(
+      'div',
+      { className: 'kindgi-offer-row' },
       el('input', { type: 'hidden', name: 'kindgi_shown[]', value: agent.id }),
+      el('input', {
+        type: 'checkbox',
+        id,
+        name: 'kindgi_agents[]',
+        value: agent.id,
+        checked: agent.offered,
+      }),
       el(
         'label',
-        {},
-        el('input', {
-          type: 'checkbox',
-          name: 'kindgi_agents[]',
-          value: agent.id,
-          checked: agent.offered,
-        }),
-        ' ',
+        { for: id },
         el('strong', {}, agent.name || agent.id),
+        agent.description ? el('span', { className: 'description' }, agent.description) : null,
       ),
-      agent.description
-        ? [el('br'), el('span', { className: 'description' }, agent.description)]
-        : null,
     );
+  }
 
   /** The offer form's agents, from Kindgi; Save works once they're there. */
   async function agents() {
@@ -105,17 +148,42 @@
       list.replaceChildren(
         el(
           'p',
-          {},
+          { className: 'kindgi-offer-none' },
           __('The project has no agents yet. Once one is deployed, it shows here.', 'kindgi'),
         ),
       );
       return;
     }
-    list.replaceChildren(...answer.agents.map(agentBox));
+    list.replaceChildren(...answer.agents.map(agentRow));
     const save = form.querySelector('[type="submit"]');
     if (save !== null) save.disabled = false;
   }
 
-  projectName();
+  /** A Copy button after each address Kindgi registers, where the browser lets a page copy. */
+  function copyButtons() {
+    if (typeof navigator.clipboard?.writeText !== 'function') return;
+    for (const code of document.querySelectorAll('[data-kindgi-copy]')) {
+      const button = el(
+        'button',
+        { type: 'button', className: 'button button-small kindgi-copy' },
+        __('Copy', 'kindgi'),
+      );
+      button.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(code.textContent);
+          button.textContent = __('Copied', 'kindgi');
+        } catch {
+          button.textContent = __("Couldn't copy", 'kindgi');
+        }
+        setTimeout(() => {
+          button.textContent = __('Copy', 'kindgi');
+        }, 2000);
+      });
+      code.after(' ', button);
+    }
+  }
+
+  connection();
   agents();
+  copyButtons();
 })();
