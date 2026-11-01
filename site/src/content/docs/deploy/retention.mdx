@@ -458,6 +458,10 @@ purged:
   its purge runs, a sweep answers `409 tenant-closing`, naming the tenant
   in `details.tenantId`, and purges nothing: the purge deletes the
   tenant's rows itself.
+- **A sweep that loses its purge guard part way still stands** (runtime
+  `<x>` or later): what it purged stays purged. It warns under the
+  subsystem [`tenants.purge-guard`](../self-hosted/logs/#the-subsystems):
+  `tenant <id>: a retention sweep ran, but its purge guard was lost during it`.
 
 ### Sweep on a schedule
 
