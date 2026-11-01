@@ -466,9 +466,9 @@ answer fails, `why` has the judging model's reason:
   unchecked and none failed (`cases`), with the first reason an answer of
   theirs couldn't be checked (`why`). `why` is absent when there's no
   checker, the test run stopped before a check, or only decisions couldn't
-  be checked. Both are from runtime \<x> or later. An earlier runtime gives
-  a case with a part unchecked no entry, so none of its parts counts, even
-  one that failed.
+  be checked. The entry's and the summary's `unchecked` are from runtime
+  \<x> or later. An earlier runtime gives a case with a part unchecked no
+  entry, so none of its parts counts, even one that failed.
 - **A repetition that errored or stopped** fails every part, and its answer
   isn't checked, nor any after it.
 
