@@ -308,29 +308,32 @@
       },
       __('Send', 'kindgi'),
     );
+    // Unlike el, replaceChildren writes an absent child as the text "null".
     main.replaceChildren(
-      state.conversationId === null
-        ? el(
-            'p',
-            { className: 'kindgi-muted' },
-            sprintf(
-              __('A new conversation with %s.', 'kindgi'),
-              state.newAgent.name || state.newAgent.id,
-            ),
-          )
-        : null,
-      messages.earlier
-        ? el('p', { className: 'kindgi-muted' }, __("Earlier messages aren't shown.", 'kindgi'))
-        : null,
-      log,
-      progress,
-      el(
-        'label',
-        { for: 'kindgi-message', className: 'screen-reader-text' },
-        __('Your message', 'kindgi'),
-      ),
-      input,
-      send,
+      ...[
+        state.conversationId === null
+          ? el(
+              'p',
+              { className: 'kindgi-muted' },
+              sprintf(
+                __('A new conversation with %s.', 'kindgi'),
+                state.newAgent.name || state.newAgent.id,
+              ),
+            )
+          : null,
+        messages.earlier
+          ? el('p', { className: 'kindgi-muted' }, __("Earlier messages aren't shown.", 'kindgi'))
+          : null,
+        log,
+        progress,
+        el(
+          'label',
+          { for: 'kindgi-message', className: 'screen-reader-text' },
+          __('Your message', 'kindgi'),
+        ),
+        input,
+        send,
+      ].filter((child) => !absent(child)),
     );
     // A turn this page started is still running: follow it again.
     const running = state.running.get(state.conversationId);
@@ -506,8 +509,10 @@
     const opened = config.approval ?? null;
     config.approval = null;
     const parts = [];
-    if (opened !== null && !waiting.approvals.some((a) => a.id === opened)) {
-      // A link from an email: this one approval, whatever its state.
+    const listed = (list) => list.approvals.some((a) => a.id === opened);
+    if (opened !== null && !listed(waiting) && !listed(decided)) {
+      // A link from an email to an approval neither list holds: this one
+      // approval, whatever its state. One a list holds is scrolled to there.
       try {
         parts.push(
           el('h2', {}, __('From your link', 'kindgi')),
