@@ -1,5 +1,12 @@
 # Step 3 — A setting or the wording: suggest a change
 
+## Contents
+
+- Its check
+- Pin it, or add it as Latest
+- Bring the pack up to it
+- Wording, with Improve
+
 A setting's value, or the agent's wording when the person said exactly what
 it should say, is fixed with a suggested change: a new version of one block,
 made for one project on the version it runs, and checked on the agent's test
