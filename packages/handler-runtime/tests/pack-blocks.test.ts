@@ -620,6 +620,81 @@ describe('writePackBlock', () => {
     });
     expect(out).toMatchObject({ kind: 'err', reason: 'invalid' });
   });
+
+  describe('with `expected`: what the file must hold for the write to go', () => {
+    const made = { template: 'Reply to {{ customer_name }}, briefly.', parameters: [] };
+
+    test('a file that holds it is written, its keys in any order', async () => {
+      await write({ 'blocks/reply.json': json(prompt()) });
+      const out = await writePackBlock(packDir, BLOCKS, {
+        id: 'acme.reply-prompt',
+        version: '1.2.1',
+        content: made,
+        expected: { parameters: [], template: 'Reply to {{ customer_name }}.' },
+      });
+      expect(out).toMatchObject({ kind: 'ok', replaced: '1.2.0' });
+      expect(JSON.parse(await read('blocks/reply.json')).content).toEqual(made);
+    });
+
+    test('an edit that kept the version is refused as changed, naming the file, and nothing is written', async () => {
+      const edited = prompt({
+        content: { template: 'Reply to {{ customer_name }}, kindly.', parameters: [] },
+      });
+      await write({ 'blocks/reply.json': json(edited) });
+      const out = await writePackBlock(packDir, BLOCKS, {
+        id: 'acme.reply-prompt',
+        version: '1.2.1',
+        content: made,
+        expected: { template: 'Reply to {{ customer_name }}.', parameters: [] },
+      });
+      expect(out).toEqual({
+        kind: 'err',
+        reason: 'changed',
+        message:
+          "blocks/reply.json was edited since acme.reply-prompt 1.2.1 was made from it, so it isn't written over: make the change again from the file as it is",
+      });
+      expect(await read('blocks/reply.json')).toBe(json(edited));
+    });
+
+    test("a prompt's template file is part of what it holds: an edit there is refused too", async () => {
+      await write({
+        'blocks/reply.json': json(prompt({ content: { templateFile: 'reply.liquid' } })),
+        'blocks/reply.liquid': 'Reply to {{ customer_name }}, kindly.',
+      });
+      const out = await writePackBlock(packDir, BLOCKS, {
+        id: 'acme.reply-prompt',
+        version: '1.3.0',
+        content: { template: 'Reply to {{ customer_name }}, warmly.' },
+        expected: { template: 'Reply to {{ customer_name }}.' },
+      });
+      expect(out).toMatchObject({ kind: 'err', reason: 'changed' });
+      expect(await read('blocks/reply.liquid')).toBe('Reply to {{ customer_name }}, kindly.');
+    });
+
+    test("a settings block's whole content is compared, its values too", async () => {
+      await write({ 'blocks/style.json': json(settings()) });
+      const was = settings().content as Record<string, unknown>;
+      const out = await writePackBlock(packDir, BLOCKS, {
+        id: 'acme.reply-style',
+        version: '1.0.1',
+        content: { ...was, values: { tone: 'brief' } },
+        expected: { ...was, values: { tone: 'formal' } },
+      });
+      expect(out).toMatchObject({ kind: 'err', reason: 'changed' });
+      expect(await read('blocks/style.json')).toBe(json(settings()));
+    });
+
+    test('an `expected` that is not an object is refused as invalid', async () => {
+      await write({ 'blocks/reply.json': json(prompt()) });
+      const out = await writePackBlock(packDir, BLOCKS, {
+        id: 'acme.reply-prompt',
+        version: '1.2.1',
+        content: made,
+        expected: 'Reply to {{ customer_name }}.' as never,
+      });
+      expect(out).toMatchObject({ kind: 'err', reason: 'invalid' });
+    });
+  });
 });
 
 describe('blockFileText: the same write, without the disk', () => {
