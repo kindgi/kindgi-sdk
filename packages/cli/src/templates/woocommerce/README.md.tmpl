@@ -202,7 +202,7 @@ On a machine with no browser (over SSH, say), a store on WordPress before
 7.0 (wp-admin says the URL must be served over a secure connection), or a
 store whose security plugin turns off the Authorize Application page, make
 the user and its password yourself. Application Passwords need WordPress 5.6
-or later, over HTTPS:
+or later, over HTTPS or on a site whose `WP_ENVIRONMENT_TYPE` is `local`:
 
 1. **Make the user.** In WordPress, go to Users → Add User (Add New User
    before WordPress 6.8). Use the username `kindgi-agent` and the **Shop
