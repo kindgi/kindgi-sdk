@@ -108,7 +108,7 @@ export interface TeamMembership {
 // `Engagement` in accounting, `Episode` in healthcare, `Deal` in
 // finance).
 //
-// `isDefault` marks each tenant's default project, the one it was created with.
+// `isDefault` marks each tenant's default project (a new tenant gets one).
 // Implementations keep exactly one per tenant (the in-memory adapter
 // rejects a second default on `create`).
 // ============================================================
@@ -124,9 +124,9 @@ export interface Project {
   readonly name: string;
   readonly slug: string;
   /**
-   * `true` for the tenant's default project, the one it was created with. Exactly
+   * `true` for the tenant's default project (a new tenant gets one). Exactly
    * one row per tenant carries `isDefault = true`.
-   * `false` for every user-created project.
+   * `false` for every other project.
    */
   readonly isDefault: boolean;
   readonly description?: string;

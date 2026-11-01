@@ -11,7 +11,7 @@
  * approvals / evidence / provenance / observations) carries a
  * required `projectId` and is read/written filtered by it.
  *
- * `getDefault` returns the tenant's default project, the one it was created with.
+ * `getDefault` returns the tenant's default project (a new tenant gets one).
  * That row is the only one where `Project.isDefault = true`;
  * implementations keep exactly one per tenant (this binding's
  * in-memory adapter checks at write time, before the row lands in the

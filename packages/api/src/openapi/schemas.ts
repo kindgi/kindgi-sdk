@@ -13678,7 +13678,7 @@ export const AddTeamMembershipResultSchema: JsonSchema = {
 
 /**
  * `Project` — the primary content-scope. `isDefault: true`
- * marks the tenant's default project, the one it was created with.
+ * marks the tenant's default project (a new tenant gets one).
  */
 export const ProjectRoleSchema: JsonSchema = {
   type: 'string',

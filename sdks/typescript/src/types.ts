@@ -2266,7 +2266,7 @@ export interface Project {
   readonly name: string;
   readonly slug: string;
   /**
-   * `true` for the tenant's default project, the one it was created with. Exactly
+   * `true` for the tenant's default project (a new tenant gets one). Exactly
    * one row per tenant carries `isDefault = true`.
    */
   readonly isDefault: boolean;
