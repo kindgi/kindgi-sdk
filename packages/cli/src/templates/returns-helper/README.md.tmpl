@@ -83,12 +83,15 @@ its files, and under `kindgi dev` git is how you go back. Then:
    `returns-model.json` names no model.
 6. **Read its suggested change and pin it.** The agent's **Suggested
    changes** page shows what it found and its check: the correction should
-   pass on the new version and nothing should newly fail. Pin it. Under
-   `kindgi dev` that writes the new wording into `blocks/tone.liquid` and
-   the new versions into the blocks' JSON files, and `kindgi dev` reloads
-   them: `git diff` shows what changed. Commit it to keep it.
-7. **Watch it become Fixed.** The correction now reads Fixed, in the
-   version the pin made, and the pin's answer lists it under `fixed`.
+   pass on the new version and nothing should newly fail. Pin it. The pin
+   waits for an approval, which under `kindgi dev` you give yourself
+   (`kindgi dev` registers you as a reviewer), on the console's
+   **Approvals** page. Once it's approved, the new wording goes into
+   `blocks/tone.liquid` and the new versions into the blocks' JSON files,
+   and `kindgi dev` reloads them: `git diff` shows what changed. Commit it
+   to keep it.
+7. **Watch it become Fixed.** When the pin's test run ends, the
+   correction reads Fixed, in the version the pin made.
 8. **Go back.** Under `kindgi dev`, with git: `git checkout blocks/` (or
    revert the commit), and `kindgi dev` reloads the files. The correction
    stays Fixed there, since no pin checked the files you went back to.
