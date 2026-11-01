@@ -449,9 +449,15 @@ project and mark what it fixes there, as on a deployed runtime.
   and nothing is written. Run Improve again on the files as they are now.
 - **One built on a version that no longer runs** is
   `409 suggested-change-out-of-date`, and isn't rebuilt: run Improve again.
-- **Undoing a pin** is a change to the pack's files: undo it with git, and
-  `kindgi dev` reloads them. Commit the files before you pin, so there's
-  something to go back to.
+- **Undoing a pin** is a pin of the version before, as on a deployed
+  runtime: it writes the files back as they were right before the pin, and
+  its test runs reopen what that version fails. An unpin is refused with
+  `409 registry-read-only`. Commit the files before you pin, so
+  `git diff` shows what a pin changed.
+- **A block's file edited by hand without a new version,** at a version a
+  pin wrote or wrote over, refuses the next pin the same way: `kindgi dev`
+  keeps each of those versions as it was, for a pin of the version before
+  to bring back. Give a block a new version whenever you edit it by hand.
 
 Or change the block's file yourself, as
 [Keep them in the pack](../change-a-prompt-or-setting/#keep-them-in-the-pack)
