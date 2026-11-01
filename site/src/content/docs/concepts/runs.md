@@ -93,6 +93,9 @@ Within about a lease plus a sweep:
 - **A run whose wait was resolved** (its approval decided, or another
   system's answer taken) but that nothing resumed **is resumed**. After three failed attempts it fails:
   `Interrupted: the run was ready to continue, but every attempt to resume it failed.`
+  A run that can't be resumed at all (its flow or agent is gone, or its
+  flow's version changed, say) fails at the first attempt instead:
+  `Interrupted: the run was ready to continue, but it can't be resumed: <why>`
 - **A flow waiting on a child run that already ended is woken**, and goes on.
 - **A run whose parent run ended is ended too:** cancelled when the parent
   was cancelled, otherwise failed:
