@@ -1454,7 +1454,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_PACK_CALL_TIMEOUT_MS',
     description:
-      'How long one pack call (a tool or a guardrail check) may take, in milliseconds. Default 120000. The deadline travels with the call, and the pack service aborts the handler when it passes.',
+      'How long one pack call (a tool or a guardrail check) may take, in milliseconds. Default 120000. The deadline travels with the call, and the pack service aborts the handler's signal when it passes.',
     example: '120000',
     required: false,
     appliesTo: appliesToServerHttpPackTransport,
