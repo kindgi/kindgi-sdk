@@ -29,12 +29,12 @@
     "./openapi.json": "./openapi.json",
     "./package.json": "./package.json"
   },
-  "files": ["dist", "src", "scripts", "README.md", "openapi.json"],
+  "files": ["dist", "src", "README.md", "openapi.json"],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "gen:openapi": "tsc -p tsconfig.build.json && node scripts/emit-openapi.mjs",
+    "gen:openapi": "node scripts/emit-openapi.mjs",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {

@@ -43,7 +43,8 @@ pnpm --filter @kindgi/api gen:openapi
 
 This rewrites `packages/api/openapi.json` (exported as
 `@kindgi/api/openapi.json` — the SDK codegen input). Commit it with the
-route change.
+route change. It loads the API, and the workspace packages it imports,
+from their source, so it needs no build first.
 
 **Gate:** `packages/api/tests/openapi-artifact.test.ts` fails in CI when
 the committed file differs from the generator output.
