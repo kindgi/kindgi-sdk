@@ -825,7 +825,7 @@ function makeApp(opts: {
     flowRegistry,
     ...opts.extra,
     // Content-scope anchor — the deployments router's agents publish
-    // loop resolves Default project through this binding. Opt out via
+    // loop resolves default project through this binding. Opt out via
     // `omitProjectBinding: true` for the negative-path test.
     ...(opts.omitProjectBinding === true
       ? {}
@@ -3487,6 +3487,65 @@ describe('GET /v1/deployments — the endpoint, under per-deployment routing', (
     });
   });
 
+  test('what keeps a build: each entry as named fields only, whatever its status', async () => {
+    const keptFor = [
+      { kind: 'agent', id: 'acme.reply-drafter', version: '3', registered: true, held: true },
+      { kind: 'guardrail', id: 'acme.no-pii', registered: true },
+      { kind: 'tool', id: 'acme.lookup' },
+      { kind: 'tool', id: 'acme.search', version: '1.2.0', registered: true },
+    ] as const;
+    const since = '2026-10-11T12:00:00.000Z';
+    const extra = keptFor.map((k) => ({
+      ...k,
+      deploymentId: 'd-other',
+      held: 'held' in k ? k.held : false,
+    }));
+    for (const status of ['pending', 'ready'] as const) {
+      expect(
+        await endpointOf({ status, since, keptFor: extra } as unknown as Deployment['endpoint']),
+      ).toEqual({ status, since, keptFor });
+    }
+    expect(
+      await endpointOf({ ...CLEARED, retired: 'project-suspended', keptFor: [keptFor[2]] }),
+    ).toEqual({ ...CLEARED, retired: 'project-suspended', keptFor: [keptFor[2]] });
+  });
+
+  test('a build nothing keeps says so, with `[]`, so absent means only that builds aren’t counted', async () => {
+    expect(await endpointOf({ ...CLEARED, retired: 'superseded', keptFor: [] })).toEqual({
+      ...CLEARED,
+      retired: 'superseded',
+      keptFor: [],
+    });
+    expect(await endpointOf({ status: 'ready', since: CLEARED.since })).toEqual({
+      status: 'ready',
+      since: CLEARED.since,
+    });
+  });
+
+  test('a list page carries the total beside the entries the binding gives it', async () => {
+    const keptFor = [
+      { kind: 'tool', id: 'acme.lookup', version: '1.0.0', registered: true },
+    ] as const;
+    const { app } = await seeded({ ...CLEARED, waiting: true, keptFor, keptForTotal: 23 });
+    const listed = await app.request('/v1/deployments', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    const page = (await listed.json()) as { data: Record<string, unknown>[] };
+    expect(page.data[0]?.endpoint).toEqual({
+      ...CLEARED,
+      waiting: true,
+      keptFor,
+      keptForTotal: 23,
+    });
+  });
+
+  test('no total without the entries', async () => {
+    expect(await endpointOf({ ...CLEARED, waiting: true, keptForTotal: 3 })).toEqual({
+      ...CLEARED,
+      waiting: true,
+    });
+  });
+
   test('a ready deployment shows no problem, whatever the binding holds', async () => {
     const { app, deploymentId } = await seeded({
       status: 'ready',
@@ -3670,7 +3729,7 @@ describe('POST /v1/deployments — agents/flows/guardrails loops require project
     expect(body.error.message).toContain('projectBinding');
   });
 
-  test('agents loop threads Default projectId to agentRegistry.publish', async () => {
+  test('agents loop threads default projectId to agentRegistry.publish', async () => {
     const fixture = buildSignedDeploy({
       index: {
         v: 1,
@@ -3704,7 +3763,7 @@ describe('POST /v1/deployments — agents/flows/guardrails loops require project
     );
   });
 
-  test('flows loop threads Default projectId to flowRegistry.publish', async () => {
+  test('flows loop threads default projectId to flowRegistry.publish', async () => {
     const fixture = buildSignedDeploy({
       index: {
         v: 1,
@@ -3813,7 +3872,7 @@ describe('POST /v1/deployments — agents/flows/guardrails loops require project
     expect(body.error.message).toContain('projectBinding');
   });
 
-  test('guardrails loop threads Default projectId to guardrailRegistry.register', async () => {
+  test('guardrails loop threads default projectId to guardrailRegistry.register', async () => {
     const fixture = buildSignedDeploy({
       index: {
         v: 1,
@@ -3845,7 +3904,7 @@ describe('POST /v1/deployments — agents/flows/guardrails loops require project
     );
   });
 
-  test('tools loop threads Default projectId to toolRegistry.register', async () => {
+  test('tools loop threads default projectId to toolRegistry.register', async () => {
     const fixture = buildSignedDeploy({
       index: {
         v: 1,
@@ -4935,7 +4994,7 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
   test('a deploy into a named project is checked against what that project reaches', async () => {
     const pack = packNamingAnOutsideTool();
     const tools = makeVersionedToolRegistry();
-    // Registered already, by another pack: the Default project's to reach, not the client's.
+    // Registered already, by another pack: the default project's to reach, not the client's.
     await tools.publish({ tool: { id: 'acme.other-tool', version: '1.0.0' } } as never);
     const { app } = makeApp({
       toolRegistry: tools,
@@ -4961,7 +5020,7 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
     expect(intoClient.status).toBe(400);
     expect(body.error.code).toBe('reference-out-of-scope');
     expect(tools.versions('acme.score')).toEqual([]);
-    // The same pack, into the Default project, reaches it.
+    // The same pack, into the default project, reaches it.
     const intoDefault = await deploy(pack.wire);
     expect(intoDefault.status, await intoDefault.clone().text()).toBe(201);
   });
@@ -7228,7 +7287,7 @@ describe('POST /v1/deployments with projectId: one project per client', () => {
     expect(stored?.projectId).toBe(CLIENT_A);
   });
 
-  test('without projectId: tenant-wide, into the Default project, and the record names none', async () => {
+  test('without projectId: tenant-wide, into the default project, and the record names none', async () => {
     const fixture = clientPack('acme-shop');
     lastToolRegisterProjectId = undefined;
     const { app } = makeApp({ fixture });
@@ -7299,7 +7358,7 @@ describe('POST /v1/deployments with projectId: one project per client', () => {
     expect((await deploy(app, { ...fixture.wire, projectId: CLIENT_A }, KEY_A)).status).toBe(201);
   });
 
-  test('a suspended project takes no deploy, named or the Default; another project still does', async () => {
+  test('a suspended project takes no deploy, named or the default; another project still does', async () => {
     const suspended = new Set<string>([CLIENT_A, DEFAULT_PROJECT_ID]);
     const asked: string[] = [];
     const extra = {
@@ -7463,7 +7522,7 @@ describe("POST /v1/deployments: a pack check carries its pack's id where checks 
 // ---------------- environment orders: builds enter at the first environment ----------------
 
 describe('POST /v1/deployments into an environment order: a later environment takes builds by promotion only', () => {
-  // staging-1 (first), staging-2, then the Default project as prod.
+  // staging-1 (first), staging-2, then the default project as prod.
   const STAGING_1 = CLIENT_A;
   const STAGING_2 = CLIENT_B;
   const ORDER = [STAGING_1, STAGING_2, DEFAULT_PROJECT_ID] as const;
@@ -7513,7 +7572,7 @@ describe('POST /v1/deployments into an environment order: a later environment ta
     ).toBeNull();
   });
 
-  test('naming no project, with the Default project last in the order: refused the same way', async () => {
+  test('naming no project, with the default project last in the order: refused the same way', async () => {
     const { res, deploymentRegistry } = await deployInto(undefined);
     expect(res.status).toBe(409);
     const body = (await res.json()) as { error: { code: string; details?: unknown } };
@@ -7858,7 +7917,7 @@ describe('POST /v1/deployments into a project, then its secrets sync: a call rea
     });
   });
 
-  test('a deploy with no project: its tools go to the Default project, and it syncs the tenant', async () => {
+  test('a deploy with no project: its tools go to the default project, and it syncs the tenant', async () => {
     const pack = lookupPack('20260920.1');
     const { deploy, sync, read, synced } = setup([pack]);
     await sync(await deploy(pack));

@@ -15,9 +15,14 @@ variable "region" {
 }
 
 variable "name_prefix" {
-  description = "Prefix for every resource name (services, service accounts, secrets, the database)."
+  description = "Prefix for every resource name (services, service accounts, secrets, the database). Not \"kp\" and not starting with \"kp-\": names beginning with kp- are the pack services' own, and so are the secrets the pack account may read."
   type        = string
   default     = "kindgi"
+
+  validation {
+    condition     = var.name_prefix != "kp" && !startswith(var.name_prefix, "kp-")
+    error_message = "name_prefix can't be \"kp\" or start with \"kp-\": the pack orchestrator names each deployment's service and secrets kp-…, and every pack service may read the kp- secrets, so the module's own secrets would be theirs too."
+  }
 }
 
 variable "kindgi_env" {
@@ -34,17 +39,6 @@ variable "server_image" {
   validation {
     condition     = can(regex("@sha256:[0-9a-f]{64}$", var.server_image))
     error_message = "Pin the runtime image by digest (…@sha256:<64 hex>)."
-  }
-}
-
-variable "pack_image" {
-  description = "The pack image `kindgi build` produced, by digest, in Artifact Registry: the one pack service the server calls (KINDGI_PACK_SERVICE_URL). Needed with tenancy = \"single\". Unset with \"multi\", where each deployment is a service of its own: then there's no pack service, no pack account and none of its grants, and pack_env, pack_secret_env, pack_cloud_sql_instances, pack_bucket_readers and pack_run_invokers stay unset (the pack service's other settings do nothing)."
-  type        = string
-  default     = ""
-
-  validation {
-    condition     = var.pack_image == "" || can(regex("@sha256:[0-9a-f]{64}$", var.pack_image))
-    error_message = "Pin the pack image by digest (…@sha256:<64 hex>)."
   }
 }
 
@@ -145,7 +139,7 @@ variable "openfga_api_url" {
 }
 
 variable "tenancy" {
-  description = "KINDGI_TENANCY: how many tenants the server serves. \"single\" (the default): one, seed_tenant_id's, with the one pack service (pack_image). \"multi\" (runtime 0.1.8 or later): every tenant created through the system API, taking each request's tenant from its key or session, with each deployment a service of its own. It sets KINDGI_TENANCY = \"multi\" and no tenant or seed user, takes no pack_image, and needs openfga_api_url, secrets_backend = \"postgres\" and settings in server_env and server_secret_env, which the plan names: README."
+  description = "KINDGI_TENANCY: how many tenants the server serves. \"single\" (the default): one, seed_tenant_id's. \"multi\" (runtime 0.1.8 or later): every tenant created through the system API, taking each request's tenant from its key or session. It sets KINDGI_TENANCY = \"multi\" and no tenant or seed user, and needs openfga_api_url and settings in server_env and server_secret_env, which the plan names: README. Either way each deployment is a pack service of its own."
   type        = string
   default     = "single"
   validation {
@@ -174,56 +168,69 @@ variable "seed_user_id" {
   }
 }
 
-# ---- the pack service ---------------------------------------------------------
+# ---- the pack services ----------------------------------------------------------
+# Each deployment's pack service is made by the pack orchestrator, with these
+# settings (KINDGI_ORCHESTRATOR_PACK_SERVICE). A pinned version's stays warm
+# (1 instance, CPU only during calls); every other one scales to zero.
 
 variable "pack_concurrency" {
-  description = "Calls one pack service instance runs at once: both Cloud Run's concurrency and KINDGI_PACK_SERVICE_MAX_CONCURRENCY."
+  description = "Calls one pack service instance runs at once (Cloud Run's concurrency)."
   type        = number
   default     = 32
-}
 
-variable "pack_min_instances" {
-  description = "Minimum pack service instances (1 keeps the first tool call off a cold start)."
-  type        = number
-  default     = 1
+  validation {
+    condition     = var.pack_concurrency >= 1 && var.pack_concurrency <= 1000 && floor(var.pack_concurrency) == var.pack_concurrency
+    error_message = "pack_concurrency is a whole number from 1 to 1000."
+  }
 }
 
 variable "pack_max_instances" {
-  description = "Maximum pack service instances."
+  description = "Maximum instances of each pack service."
   type        = number
   default     = 8
+
+  validation {
+    condition     = var.pack_max_instances >= 1 && var.pack_max_instances <= 1000 && floor(var.pack_max_instances) == var.pack_max_instances
+    error_message = "pack_max_instances is a whole number from 1 to 1000."
+  }
 }
 
-variable "pack_env" {
-  description = "The pack's plain env values: `env` from `kindgi env plan --env <name>` (Terraform output)."
-  type        = map(string)
-  default     = {}
-}
-
-variable "pack_secret_env" {
-  description = "The pack's secret env, by reference: `secret_env` from `kindgi env plan`. The operator creates each secret; Cloud Run reads it with the pack service's identity."
-  type = map(object({
+variable "pack_secret_readers" {
+  description = "Secrets in Secret Manager that a pack's env names as cloud secrets (`kindgi env set <NAME> --cloud-secret projects/<project>/secrets/<secret>/versions/<n> --tenant=<id> --scope=<kind>[:id] --env=<name>`, with a system key): { secret, project } each, the secret's id, with project null for this one. The pack account gets roles/secretmanager.secretAccessor on each secret alone, never on its project, in the project the entry names: whoever applies needs to be able to grant there. Every pack service runs as that account, so each pack may read every one."
+  type = list(object({
     secret  = string
-    version = string
     project = optional(string)
   }))
-  default = {}
+  default = []
+  validation {
+    condition     = alltrue([for s in var.pack_secret_readers : can(regex("^[A-Za-z0-9_-]{1,255}$", s.secret)) && !startswith(s.secret, "kp-")])
+    error_message = "Each pack_secret_readers secret is a secret's id (letters, digits, - and _), not a path, and not a kp- one: those are the pack services' own, which the pack account reads already."
+  }
+  validation {
+    condition     = length(distinct([for s in var.pack_secret_readers : "${coalesce(s.project, "-")}/${s.secret}"])) == length(var.pack_secret_readers)
+    error_message = "pack_secret_readers names a secret twice."
+  }
 }
 
 variable "pack_cloud_sql_instances" {
-  description = "Cloud SQL instances the pack's own code connects to (connection names), mounted at /cloudsql."
+  description = "Cloud SQL instances the packs' own code connects to (connection names), mounted at /cloudsql in every pack service. The pack account gets roles/cloudsql.client."
   type        = list(string)
   default     = []
+
+  validation {
+    condition     = length(var.pack_cloud_sql_instances) <= 10
+    error_message = "A pack service mounts at most 10 Cloud SQL instances."
+  }
 }
 
 variable "pack_bucket_readers" {
-  description = "GCS buckets the pack's code reads (roles/storage.objectViewer for the pack service)."
+  description = "GCS buckets the packs' code reads (roles/storage.objectViewer for the pack account, which every pack service runs as)."
   type        = list(string)
   default     = []
 }
 
 variable "pack_run_invokers" {
-  description = "Cloud Run services the pack's code calls, IAM-protected (an app's own service): { project, location, service } each, the service's name, not its URL. The pack's service account gets roles/run.invoker on each. The call leaves through the pack's own egress, so the service's ingress must take it (see the README)."
+  description = "Cloud Run services the packs' code calls, IAM-protected (an app's own service): { project, location, service } each, the service's name, not its URL. The pack account gets roles/run.invoker on each. The call leaves through the pack service's own egress, so the service's ingress must take it (see the README)."
   type = list(object({
     project  = string
     location = string
@@ -367,10 +374,10 @@ variable "database_host_instance" {
 
 variable "network_mode" {
   description = <<-EOT
-    How both services reach a VPC.
-    "direct": greenfield. A new VPC and subnet, Direct VPC egress with all traffic, Cloud NAT, and an internal pack service.
-    "connector": an existing Serverless VPC Access connector (vpc_connector) with private-ranges-only egress. No VPC, router or NAT is created; internet-bound calls (model APIs, the pack service's URL, webhooks) use Cloud Run's own egress.
-    "none": no VPC at all; nothing is created. For a small dev deployment next to an app. The server reaches a public-IP database through /cloudsql and the pack service through its public URL (IAM still guards it); internet-bound calls use Cloud Run's own egress. No private-IP database and no static egress IP.
+    How the server and the pack services reach a VPC.
+    "direct": greenfield. A new VPC and subnet, Direct VPC egress with all traffic for the server, Cloud NAT, and internal pack services.
+    "connector": an existing Serverless VPC Access connector (vpc_connector) with private-ranges-only egress, for the server (with a private-IP database) and every pack service. No VPC, router or NAT is created; internet-bound calls (model APIs, the pack services' URLs, webhooks) use Cloud Run's own egress.
+    "none": no VPC at all; nothing is created. For a small dev deployment next to an app. The server reaches a public-IP database through /cloudsql and each pack service through its public URL (IAM still guards it); internet-bound calls use Cloud Run's own egress. No private-IP database and no static egress IP.
   EOT
   type        = string
   default     = "direct"
@@ -399,9 +406,14 @@ variable "server_memory" {
 }
 
 variable "pack_timeout" {
-  description = "The pack service's request timeout (Cloud Run). Above the slowest tool call, and above the server's KINDGI_PACK_CALL_TIMEOUT_MS, so the server reports a timeout before Cloud Run cuts the request."
+  description = "Each pack service's request timeout (Cloud Run), in whole seconds such as \"300s\", up to \"3600s\". Above the slowest tool call, and above the server's KINDGI_PACK_CALL_TIMEOUT_MS, so the server reports a timeout before Cloud Run cuts the request."
   type        = string
   default     = "300s"
+
+  validation {
+    condition     = can(regex("^[1-9][0-9]*s$", var.pack_timeout)) && try(tonumber(trimsuffix(var.pack_timeout, "s")) <= 3600, false)
+    error_message = "pack_timeout is whole seconds from \"1s\" to \"3600s\", such as \"300s\"."
+  }
 }
 
 variable "pack_call_timeout_ms" {
@@ -418,9 +430,9 @@ variable "pack_bucket_object_prefixes" {
 
 variable "pack_ingress" {
   description = <<-EOT
-    The pack service's ingress.
+    Each pack service's ingress.
     INGRESS_TRAFFIC_INTERNAL_ONLY (direct mode): only the VPC reaches it.
-    INGRESS_TRAFFIC_ALL (connector or none mode): a server without VPC egress can't reach an internal service. IAM still guards it: only the server's service account may invoke it, with a Google ID token (KINDGI_PACK_SERVICE_AUTH=google-id-token).
+    INGRESS_TRAFFIC_ALL (connector or none mode): a server without VPC egress can't reach an internal service. IAM still guards it: only an account that may invoke the project's services (the server's) may call it, with a Google ID token.
   EOT
   type        = string
   default     = "INGRESS_TRAFFIC_INTERNAL_ONLY"
@@ -443,7 +455,7 @@ variable "vertex_ai" {
 }
 
 variable "subnet_cidr" {
-  description = "The subnet Cloud Run's Direct VPC egress uses (the server reaches the internal pack service through it)."
+  description = "The subnet Cloud Run's Direct VPC egress uses (the server reaches the internal pack services through it)."
   type        = string
   default     = "10.10.0.0/24"
 }
@@ -458,8 +470,18 @@ variable "secrets_aad_key_version" {
   }
 }
 
+variable "orchestrator_key_version" {
+  description = "The Secret Manager version of <name_prefix>-orchestrator-key the pack orchestrator reads: its system key (system:deployments and system:pack-env), which only a server already routing per deployment mints. null (the default) leaves the Job and its schedule out, so no deployment gets a pack service: apply, mint the key and add it (the orchestrator_key_steps output), then set this (\"1\" the first time) and apply again. Pin it; never \"latest\"."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.orchestrator_key_version == null || can(regex("^[1-9][0-9]*$", var.orchestrator_key_version))
+    error_message = "orchestrator_key_version is a version number (\"1\" the first time), never \"latest\": a version added by mistake must not reach the Job."
+  }
+}
+
 variable "secrets_backend" {
-  description = "Where secrets set through Kindgi's API live (KINDGI_SECRETS_BACKEND). \"postgres\" (default): envelope-encrypted in Kindgi's database under a Cloud KMS key the module creates, with secrets_aad_key_version required. \"none\": the runtime stores no secrets of its own (no KMS key, no AAD key); for a deployment whose pack secrets all come by reference from Secret Manager and whose model uses the service's own credentials."
+  description = "Where secrets set through Kindgi's API live (KINDGI_SECRETS_BACKEND). \"postgres\" (default): envelope-encrypted in Kindgi's database under the module's Cloud KMS key, with secrets_aad_key_version required. \"none\": the runtime stores no secrets of its own (no AAD key), so a pack gets its plain env values and cloud secrets (pack_secret_readers), never a secret stored in Kindgi; for a deployment whose model uses the service's own credentials. The KMS key exists either way: each pack endpoint's token is sealed under it."
   type        = string
   default     = "postgres"
   validation {
@@ -469,7 +491,7 @@ variable "secrets_backend" {
 }
 
 variable "image_repository" {
-  description = "An existing Artifact Registry repository for the runtime and pack images, instead of the module's own (<name_prefix>): { project, location, repository }. The server's service account gets roles/artifactregistry.reader on it (and, in another project, this project's Cloud Run service agent too, to pull). Check its cleanup policies keep the digests a running revision pins."
+  description = "An existing Artifact Registry repository for the runtime and pack images, instead of the module's own (<name_prefix>): { project, location, repository }. The server's service account and the pack orchestrator's get roles/artifactregistry.reader on it (and, in another project, this project's Cloud Run service agent too, to pull). Check its cleanup policies keep the digests a running revision pins."
   type = object({
     project    = string
     location   = string

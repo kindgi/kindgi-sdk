@@ -12,7 +12,7 @@
 /**
  * Each string flag's default, by command path and flag name, as the
  * reference shows it: a value in backticks, or words ("none", "required",
- * "the tenant's Default project"). A boolean flag is `off` unless it's
+ * "the tenant's default project"). A boolean flag is `off` unless it's
  * listed.
  */
 export const CLI_DEFAULTS = {
@@ -75,7 +75,7 @@ export const CLI_DEFAULTS = {
     'idempotency-key': 'a hash of the request body',
     out: '`.kindgi/build` under the pack root',
     path: 'the current directory',
-    project: "none: a tenant-wide deploy, into the tenant's Default project",
+    project: "none: a tenant-wide deploy, into the tenant's default project",
     'published-at': 'for an inline build: the build time',
     reason: 'none; required with `--replace`, and only with it',
     'registry-push-creds': 'none',
@@ -100,19 +100,23 @@ export const CLI_DEFAULTS = {
     reporter: "vitest's own reporter",
   },
   'env list': {
-    env: '`staging`',
+    env: '`staging`; required with `--cloud-secret`',
     path: 'the current directory',
-    scope: 'none (reads the local env files)',
+    scope: 'none (reads the local env files); required with `--cloud-secret`',
+    tenant: 'none: required with `--cloud-secret`',
   },
   'env set': {
-    env: '`staging`',
+    env: '`staging`; required with `--cloud-secret`',
     path: 'the current directory',
-    scope: 'none (writes `.env.<env>`)',
+    scope: 'none (writes `.env.<env>`); required with `--cloud-secret`',
+    'cloud-secret': 'none: sets a value',
+    tenant: 'none: required with `--cloud-secret`',
   },
   'env unset': {
-    env: '`staging`',
+    env: '`staging`; required with `--cloud-secret`',
     path: 'the current directory',
-    scope: 'none (edits `.env.<env>`)',
+    scope: 'none (edits `.env.<env>`); required with `--cloud-secret`',
+    tenant: 'none: required with `--cloud-secret`',
   },
   'env pull': {
     env: '`staging`',
@@ -307,7 +311,7 @@ export const CLI_DEFAULTS = {
     'idempotency-key': 'none',
     input: 'required',
     'no-wait': 'off (the command waits for the run to finish or wait on an approval)',
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
     segment: 'none',
   },
   'runs resume': {
@@ -320,7 +324,7 @@ export const CLI_DEFAULTS = {
     name: 'none',
   },
   'agents publish': {
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
     spec: 'required',
   },
   'agents owner': {
@@ -375,7 +379,7 @@ export const CLI_DEFAULTS = {
   },
   'conversations open': {
     participant: 'none',
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
     title: '`Untitled conversation`',
   },
   'conversations messages': {
@@ -389,9 +393,31 @@ export const CLI_DEFAULTS = {
   },
   'tools publish': {
     manifest: 'required',
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
   },
   'tools versions': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+  },
+  'tools pinned': {
+    org: 'none',
+    project: 'none',
+  },
+  'tools pin': {
+    tenant: 'required: one of `--tenant`, `--org`, `--project`',
+    org: 'required: one of `--tenant`, `--org`, `--project`',
+    project: 'required: one of `--tenant`, `--org`, `--project`',
+    reason: 'none',
+    'idempotency-key': 'none',
+  },
+  'tools unpin': {
+    tenant: 'required: one of `--tenant`, `--org`, `--project`',
+    org: 'required: one of `--tenant`, `--org`, `--project`',
+    project: 'required: one of `--tenant`, `--org`, `--project`',
+    reason: 'none',
+    'idempotency-key': 'none',
+  },
+  'tools pin-history list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
@@ -401,7 +427,7 @@ export const CLI_DEFAULTS = {
     name: 'none',
   },
   'guardrails register': {
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
     spec: 'required',
   },
   'memory facts list': {
@@ -530,7 +556,7 @@ export const CLI_DEFAULTS = {
   'artifacts upload': {
     'content-type': '`application/octet-stream`',
     name: "the file's name",
-    project: "with `--run`, the run's project; else the tenant's Default project",
+    project: "with `--run`, the run's project; else the tenant's default project",
     run: 'none',
     tag: 'none',
   },
@@ -543,10 +569,32 @@ export const CLI_DEFAULTS = {
     name: 'none',
   },
   'flows publish': {
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
     spec: 'required',
   },
   'flows versions': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+  },
+  'flows pinned': {
+    org: 'none',
+    project: 'none',
+  },
+  'flows pin': {
+    tenant: 'required: one of `--tenant`, `--org`, `--project`',
+    org: 'required: one of `--tenant`, `--org`, `--project`',
+    project: 'required: one of `--tenant`, `--org`, `--project`',
+    reason: 'none',
+    'idempotency-key': 'none',
+  },
+  'flows unpin': {
+    tenant: 'required: one of `--tenant`, `--org`, `--project`',
+    org: 'required: one of `--tenant`, `--org`, `--project`',
+    project: 'required: one of `--tenant`, `--org`, `--project`',
+    reason: 'none',
+    'idempotency-key': 'none',
+  },
+  'flows pin-history list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
@@ -571,7 +619,7 @@ export const CLI_DEFAULTS = {
     input: '`{}`',
     label: 'none',
     overlap: '`skip`',
-    project: "the tenant's Default project; required with `--improve`, the project it improves",
+    project: "the tenant's default project; required with `--improve`, the project it improves",
     'run-as': 'none (you own the schedule)',
     'starting-deadline': '`600` (seconds)',
     timezone: '`UTC`',
@@ -614,7 +662,7 @@ export const CLI_DEFAULTS = {
     input: 'none (the flow gets the event)',
     label: 'none',
     preset: 'none (with no `--signature-header` either: a hex HMAC-SHA256 in `X-Kindgi-Signature`)',
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
     'rate-limit': '`600` a minute',
     'run-as': 'none (you own the trigger)',
     secret: 'required',
@@ -670,7 +718,7 @@ export const CLI_DEFAULTS = {
     label: 'none',
     mailbox: 'required',
     poll: '`60` (seconds)',
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
     'run-as': 'none (you own the trigger)',
     'runs-per-hour': '`60`',
   },
@@ -706,22 +754,22 @@ export const CLI_DEFAULTS = {
     'new-people-per-day': '`20`',
     origin: 'required',
     'people-cap': '`50`',
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
     'reviewer-ceiling': '`standard`',
     'role-map':
       'both default roles may ask, and decide as `standard` reviewers; with `--allowed-role` alone, the entries of the roles it allows',
     vouching: '`on`',
   },
   'sites code': {
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
   },
   'sites list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
   },
   'sites get': {
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
   },
   'sites update': {
     'allowed-role': 'unchanged',
@@ -730,25 +778,25 @@ export const CLI_DEFAULTS = {
     'new-people-per-day': 'unchanged',
     origin: 'unchanged',
     'people-cap': 'unchanged',
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
     'reviewer-ceiling': 'unchanged',
     'role-map': 'unchanged; with `--allowed-role` alone, the entries of the roles still allowed',
     vouching: 'unchanged',
   },
   'sites pause': {
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
   },
   'sites resume': {
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
   },
   'sites revoke-key': {
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
   },
   'sites restore-person': {
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
   },
   'sites unregister': {
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
   },
   'approvals list': {
     'assigned-to': 'none (all approvals your role can see)',
@@ -847,7 +895,7 @@ export const CLI_DEFAULTS = {
     weight: 'unchanged',
   },
   'queue-rules create': {
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
     name: 'required',
     agent: 'none (runs of any agent)',
     flow: 'none (runs of any flow)',
@@ -861,15 +909,15 @@ export const CLI_DEFAULTS = {
     'queue-since': 'none',
   },
   'queue-rules list': {
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
     limit: '`25` (at most `100`)',
     cursor: 'none',
   },
   'queue-rules show': {
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
   },
   'queue-rules update': {
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
     name: 'unchanged',
     agent: 'unchanged (any match flag replaces `when` whole)',
     flow: 'unchanged (any match flag replaces `when` whole)',
@@ -880,19 +928,19 @@ export const CLI_DEFAULTS = {
     group: 'unchanged',
   },
   'queue-rules remove': {
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
   },
   'queue-rules versions': {
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
     limit: '`25` (at most `100`)',
     cursor: 'none',
   },
   'queue-rules results': {
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
     since: 'none (every result)',
   },
   'queue-rules preview': {
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
     agent: 'none (runs of any agent)',
     flow: 'none (runs of any flow)',
     'agent-version': 'none (any version)',
@@ -902,12 +950,12 @@ export const CLI_DEFAULTS = {
     rule: 'none (preview the given flags, not an existing rule)',
   },
   'queue-rules queue-recent': {
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
     last: 'none (give `--last` and/or `--since`)',
     since: 'none (give `--last` and/or `--since`)',
   },
   'expert-queue list': {
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
     state: 'none (every state)',
     agent: 'none',
     rule: 'none',
@@ -918,11 +966,11 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
   },
   'expert-queue dismiss': {
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
     reason: 'none',
   },
   'expert-queue reopen': {
-    project: "the tenant's Default project",
+    project: "the tenant's default project",
   },
   'test-runs start': {
     project: 'required',
@@ -1240,7 +1288,7 @@ export const CLI_EXAMPLES = {
     },
     {
       purpose:
-        "One environment's deployments, by its project's slug or id. The Default project's include the deployments that name no project.",
+        "One environment's deployments, by its project's slug or id. The default project's include the deployments that name no project.",
       line: 'kindgi deployments list --project=staging --table',
     },
   ],
@@ -1440,7 +1488,7 @@ export const CLI_EXAMPLES = {
   ],
   'projects get-default': [
     {
-      purpose: "Show the tenant's Default project, the one used when no --project is given.",
+      purpose: "Show the tenant's default project, the one used when no --project is given.",
       line: 'kindgi projects get-default',
     },
   ],
@@ -1604,6 +1652,37 @@ export const CLI_EXAMPLES = {
       line: 'kindgi tools reinstate acme.stock-level 0.1.0',
     },
   ],
+  'tools pinned': [
+    {
+      purpose:
+        'Show the version of the tool that the next flow version made in a project would lock, and why.',
+      line: 'kindgi tools pinned acme.stock-level --project=<project-id>',
+    },
+  ],
+  'tools pinned-versions': [
+    {
+      purpose: 'List every scope with a pinned version of the tool.',
+      line: 'kindgi tools pinned-versions acme.stock-level',
+    },
+  ],
+  'tools pin': [
+    {
+      purpose: 'Pin a version of the tool in a project, before publishing a new one to try.',
+      line: "kindgi tools pin acme.stock-level 0.1.0 --project=<project-id> --reason='Keep 0.1.0 while 0.2.0 is tried'",
+    },
+  ],
+  'tools unpin': [
+    {
+      purpose: "Remove a project's own pin of the tool.",
+      line: 'kindgi tools unpin acme.stock-level --project=<project-id>',
+    },
+  ],
+  'tools pin-history list': [
+    {
+      purpose: "List the tool's pins and unpins, newest first.",
+      line: 'kindgi tools pin-history list acme.stock-level --limit=10',
+    },
+  ],
   'guardrails list': [
     {
       purpose: 'List the guardrails whose id starts with a prefix.',
@@ -1680,6 +1759,36 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Bring back an unregistered flow version.',
       line: 'kindgi flows reinstate acme.nightly-digest 0.1.0',
+    },
+  ],
+  'flows pinned': [
+    {
+      purpose: 'Show the version of the flow that a run in a project would use, and why.',
+      line: 'kindgi flows pinned acme.nightly-digest --project=<project-id>',
+    },
+  ],
+  'flows pinned-versions': [
+    {
+      purpose: 'List every scope with a pinned version of the flow.',
+      line: 'kindgi flows pinned-versions acme.nightly-digest',
+    },
+  ],
+  'flows pin': [
+    {
+      purpose: 'Pin a version of the flow in a project, before publishing a new one to try.',
+      line: "kindgi flows pin acme.nightly-digest 0.1.0 --project=<project-id> --reason='Keep 0.1.0 while 0.2.0 is tried'",
+    },
+  ],
+  'flows unpin': [
+    {
+      purpose: "Remove a project's own pin of the flow.",
+      line: 'kindgi flows unpin acme.nightly-digest --project=<project-id>',
+    },
+  ],
+  'flows pin-history list': [
+    {
+      purpose: "List the flow's pins and unpins, newest first.",
+      line: 'kindgi flows pin-history list acme.nightly-digest --limit=10',
     },
   ],
   'schedules get': [
@@ -1879,7 +1988,7 @@ export const CLI_EXAMPLES = {
   'sites register': [
     {
       purpose:
-        'Register a WordPress store on the Default project, with the origin and the approvals URL its Kindgi → Settings page shows; the one-time code is shown once.',
+        'Register a WordPress store on the default project, with the origin and the approvals URL its Kindgi → Settings page shows; the one-time code is shown once.',
       line: "kindgi sites register --name='Acme store' --origin=https://acme-store.example --approvals-url='https://acme-store.example/wp-admin/admin.php?page=kindgi&approval={approvalId}'",
     },
     {
@@ -1895,7 +2004,7 @@ export const CLI_EXAMPLES = {
   ],
   'sites list': [
     {
-      purpose: "The Default project's sites, with their state and keys.",
+      purpose: "The default project's sites, with their state and keys.",
       line: 'kindgi sites list --table',
     },
   ],

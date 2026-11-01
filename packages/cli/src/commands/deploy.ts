@@ -108,7 +108,7 @@ export const deployCommand: LeafCommand = {
   description:
     'Deploy a signed pack image to Kindgi. Reads deploy-envelope.json (or runs `kindgi build` inline) + POSTs to /v1/deployments. ' +
     "`--hosted` (or the env block's `build: 'hosted'`) deploys to Kindgi hosted: an inline build runs on the hosted build service (as `kindgi build --hosted`), and after the deploy it waits, up to 5 minutes, for the deployment's pack service to be ready. " +
-    "A deploy into the Default project with a pack tool whose id is an MCP endpoint's tool's is refused (`tool-kind-mismatch`), and nothing is deployed. " +
+    "A deploy into the default project with a pack tool whose id is an MCP endpoint's tool's is refused (`tool-kind-mismatch`), and nothing is deployed. " +
     "Before an image is built, the pack's blocks are checked against what runs: a deploy that would put back an older version of a block than runs now in a project of one of its agents stops, and exits 1 with nothing deployed, unless `--replace` names the block, with `--reason`.",
   hostedRun: { defaultEnv: 'staging' },
   usage:
@@ -142,7 +142,7 @@ export const deployCommand: LeafCommand = {
     project: {
       type: 'string',
       description:
-        "The project to deploy into, one per client: its id, or its slug. A slug two orgs share is refused: pass the id. Default: a tenant-wide deploy, into the tenant's Default project.",
+        "The project to deploy into, one per client: its id, or its slug. A slug two orgs share is refused: pass the id. Default: a tenant-wide deploy, into the tenant's default project.",
     },
     'idempotency-key': {
       type: 'string',
@@ -583,11 +583,21 @@ async function deployWith(
     packService = waited.endpoint;
   }
 
+  // ---- 13. Hosted: the builds the project keeps -------------------------
+  //
+  // Each kept build has its own pack service, and a version stays callable
+  // by its number until someone unregisters it, so say how many there are
+  // and how to let old ones go. Only when the runtime counts them.
+  const kept =
+    packService !== undefined ? await sayKeptBuilds(ctx, args, runners, line, project.id) : {};
+
   const jsonOut = renderJson(
     {
       ...rendered.summary,
       ...(args.syncSecrets && { syncSecrets: syncSummary }),
       ...(packService !== undefined && { packService }),
+      ...(kept.keptBuilds !== undefined && { keptBuilds: kept.keptBuilds }),
+      ...(kept.error !== undefined && { keptBuildsError: kept.error }),
     },
     ctx.globals.format,
   );
@@ -1101,6 +1111,54 @@ async function readPackService(
     ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
   });
   return got.kind === 'ok' ? { kind: 'ok', endpoint: got.record.endpoint } : got;
+}
+
+/**
+ * How many builds keep a pack service where the deploy went, said with how
+ * to let old ones go: in the project it named, or the tenant's when it
+ * named none (the deploy answer doesn't name the default it went into). A
+ * read that fails is said, with why, and given back as `error`, so the
+ * JSON tells it from a runtime that doesn't count them; one the stop cut
+ * short says nothing.
+ */
+async function sayKeptBuilds(
+  ctx: CommandContext,
+  args: ResolvedDeployArgs,
+  runners: DeployRunners,
+  line: (s: string) => void,
+  projectId: string | undefined,
+): Promise<{ readonly keptBuilds?: number; readonly error?: string }> {
+  const count = runners.countKeptBuilds;
+  if (count === undefined) return {};
+  const got = await count({
+    endpoint: args.endpoint,
+    token: args.token,
+    ...(projectId !== undefined && { projectId }),
+    fetchImpl: ctx.fetch,
+    ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
+  });
+  if (ctx.stopSignal?.aborted === true) return {};
+  if (got.kind === 'error') {
+    line(`  Couldn't count the builds kept: ${got.message}`);
+    line('');
+    return { error: got.message };
+  }
+  if (got.keptBuilds === undefined) return {};
+  for (const l of keptBuildsLines(got.keptBuilds, projectId !== undefined)) line(l);
+  return { keptBuilds: got.keptBuilds };
+}
+
+export function keptBuildsLines(keptBuilds: number, inProject: boolean): string[] {
+  return [
+    `  Builds kept in this ${inProject ? 'project' : 'workspace'}: ${keptBuilds}`,
+    '    Each keeps its pack service while something it serves is registered, pinned or',
+    '    running, or until a newer build ships it. To let old ones go, unregister what',
+    '    nothing calls:',
+    '      kindgi tools|agents|flows unregister <id> <version>',
+    '      kindgi guardrails unregister <guardrail-id>',
+    '    `kindgi deployments get <deployment-id>` says what keeps each one.',
+    '',
+  ];
 }
 
 /** The wait stopped, with the deployment in place: why, and how to wait again. */

@@ -89,7 +89,7 @@ import {
 } from '../deployment-binding.js';
 import { canonicalizeEnvelope, normaliseSha256Hex } from '../deployment-envelope.js';
 import { type DeploymentValuesDeps, deploymentValues } from '../deployment-values.js';
-import type { EnvBinding } from '../env-binding.js';
+import type { EnvBinding, EnvCloudSecretBinding } from '../env-binding.js';
 import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { type WireErrorBody, retryAfterSeconds, statusFor, toWireError } from '../errors.js';
@@ -142,6 +142,7 @@ import {
   mountDeploymentPromotions,
   readableDeployment,
   readableDeployments,
+  readableKeptBuilds,
   valuesDepsFor,
 } from './deployment-promotions.js';
 import { requireEnvName } from './env.js';
@@ -252,7 +253,7 @@ export interface DeploymentsRouterBindings {
   readonly perDeploymentPacks?: boolean;
   /**
    * Whether a project is suspended: nothing new deploys into one (the
-   * named project, or the Default for a tenant-wide deploy), refused
+   * named project, or the default for a tenant-wide deploy), refused
    * `409 project-suspended` before anything is written. Absent: no check,
    * for a runtime without project suspension.
    */
@@ -302,13 +303,13 @@ export interface DeploymentsRouterBindings {
    * `validated.agents.length > 0` OR `validated.flows.length > 0`
    * OR `validated.tools.length > 0` OR `validated.guardrails.length > 0`.
    * The agent / flow / tool / guardrail register loops resolve the
-   * tenant's Default project via `projectBinding.getDefault(tenantId)`
+   * tenant's default project via `projectBinding.getDefault(tenantId)`
    * and thread the resolved id through
    * `AgentRegistryBinding.publish(...)` /
    * `FlowRegistryBinding.publish(...)` /
    * `ToolRegistryBinding.register(...)` /
    * `GuardrailRegistryBinding.register(...)` (content-scoped writes
-   * always carry a project; deploys target the Default project).
+   * always carry a project; deploys target the default project).
    * A deployment that carries any of those primitives without this
    * binding wired fails fast at the loop entrypoint with a clear 500
    * message. All four register loops resolve the project the same way.
@@ -326,6 +327,11 @@ export interface DeploymentsRouterBindings {
   readonly packEnvServed?: boolean;
   /** Where a pack's declared names are looked for, with `secretsBinding` and `projectBinding`. */
   readonly envBinding?: EnvBinding;
+  /**
+   * The names the operator set to a cloud secret, where they're looked for
+   * too: one is set, and its path is never answered here. Absent: none is.
+   */
+  readonly cloudSecrets?: Pick<EnvCloudSecretBinding, 'get'>;
   /**
    * On a runtime that refuses other envs: a secret sync under another env
    * answers `409 env-not-served` before any write (`refuseUnservedValue`).
@@ -475,7 +481,7 @@ export function deploymentsRouter(
     const cursorRaw = c.req.query('cursor');
     const imageRefPrefixRaw = c.req.query('imageRefPrefix');
     const signerKeyIdRaw = c.req.query('signerKeyId');
-    // One environment's deployments (the Default's include those that name
+    // One environment's deployments (the default's include those that name
     // no project), and one pack's.
     const projectIdRaw = c.req.query('projectId');
     const packIdRaw = c.req.query('packId');
@@ -509,6 +515,10 @@ export function deploymentsRouter(
       ...(packIdRaw !== undefined && packIdRaw.length > 0 && { packId: packIdRaw }),
     });
     const readable = await readableDeployments(c, bindings, authorizer, page.data);
+    const keptBuilds =
+      page.keptBuilds === undefined
+        ? undefined
+        : await readableKeptBuilds(c, authorizer, page.keptBuilds);
     return c.json({
       data: readable.map(serializeDeployment),
       hasMore: page.nextCursor !== undefined,
@@ -518,6 +528,7 @@ export function deploymentsRouter(
       // The filters it applied, so a client can tell a runtime that ignored them.
       ...(oneProject && { projectId: projectIdRaw }),
       ...(packIdRaw !== undefined && packIdRaw.length > 0 && { packId: packIdRaw }),
+      ...(keptBuilds !== undefined && { keptBuilds }),
     });
   });
 
@@ -584,6 +595,7 @@ export function deploymentsRouter(
       {
         env,
         ...(bindings.secretsBinding !== undefined && { secrets: bindings.secretsBinding }),
+        ...(bindings.cloudSecrets !== undefined && { cloudSecrets: bindings.cloudSecrets }),
         ...(bindings.projectBinding !== undefined && { projects: bindings.projectBinding }),
       },
       {
@@ -1058,7 +1070,7 @@ export function deploymentsRouter(
     // Agent-registry, flow-registry, tool-registry, guardrail-registry and
     // block-registry writes are all project-scoped. All five loops write
     // into the deploy's project: the body's `projectId`, else the tenant's
-    // Default project via `projectBinding.getDefault(tenantId)`, resolved
+    // default project via `projectBinding.getDefault(tenantId)`, resolved
     // once per request and threaded into
     // `AgentRegistryBinding.publish(...)` /
     // `FlowRegistryBinding.publish(...)` /
@@ -1103,7 +1115,7 @@ export function deploymentsRouter(
             {
               code: 'internal-server-error',
               message:
-                'no Default project exists for this tenant; deployment blocked. Every tenant should auto-seed a Default project at creation.',
+                'no default project exists for this tenant; deployment blocked. Every tenant should auto-seed a default project at creation.',
             },
             requestId,
           ),
@@ -1131,7 +1143,7 @@ export function deploymentsRouter(
 
     // A later environment of an order takes builds by promotion only: the
     // deploy goes to the order's first environment. The project is the one
-    // named, else the Default's (where a deploy naming none lands).
+    // named, else the default's (where a deploy naming none lands).
     if (bindings.environmentOrders !== undefined) {
       const entryProjectId =
         targetProjectId ?? (await bindings.projectBinding?.getDefault(tenantId))?.id;
@@ -1883,7 +1895,7 @@ interface WireBody {
   readonly signerPublicKey: string;
   readonly signature: string;
   readonly publishedAt: string;
-  /** The project to deploy into; absent: the tenant's Default project. */
+  /** The project to deploy into; absent: the tenant's default project. */
   readonly projectId?: ProjectId;
   /** Where the pack lives in git, when the client said. */
   readonly source?: WireSource;

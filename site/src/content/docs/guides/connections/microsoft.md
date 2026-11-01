@@ -75,7 +75,10 @@ In the [Microsoft Entra admin center](https://entra.microsoft.com):
 3. **API permissions → Add a permission → Microsoft Graph → Delegated
    permissions:** `offline_access`, `User.Read`, and the mail permissions
    your tools need, `Mail.Send` to send mail and `Mail.Read` to read it,
-   and both to reply. Then choose **Add permissions**. Kindgi asks for
+   and both to reply. For the [calendar tools](../calendar/), add
+   `Calendars.ReadBasic` to list events and for free/busy, and
+   `Calendars.ReadWrite` to add and change them. Then choose **Add
+   permissions**. Kindgi asks for
    `offline_access` to keep access between sign-ins, and for `User.Read` to
    learn whose account it is.
 4. **Certificates & secrets → Client secrets → New client secret.** Pick
@@ -232,8 +235,10 @@ mailbox:
   one mailbox
   ([Microsoft: Throttling limits](https://learn.microsoft.com/en-us/graph/throttling-limits)).
 
-The ready-made tools that read mail count only against the second. A call
-whose `toolId` the entry doesn't list takes 1 unit of each, so your own
+The ready-made tools that read mail or a calendar count only against
+the second. A calendar create or update counts against both, as it can
+send meeting requests. A call whose `toolId` the entry doesn't list takes
+1 unit of each, so your own
 tool's calls to Graph through
 [`appFetch`](../use-a-connection/#read-the-token) count as sends too.
 

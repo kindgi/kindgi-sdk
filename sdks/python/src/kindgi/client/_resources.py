@@ -103,6 +103,19 @@ OPERATIONS: dict[str, Operation] = {
     "systemTenants.setLimits": Operation(
         "systemTenants.setLimits", "PUT", "/v1/system/tenants/{tenantId}/limits", "json", True
     ),
+    "systemEnv.setCloudSecret": Operation(
+        "systemEnv.setCloudSecret", "PUT", "/v1/system/tenants/{tenantId}/env/{name}", "json", True
+    ),
+    "systemEnv.deleteCloudSecret": Operation(
+        "systemEnv.deleteCloudSecret",
+        "DELETE",
+        "/v1/system/tenants/{tenantId}/env/{name}",
+        "json",
+        False,
+    ),
+    "systemEnv.listCloudSecrets": Operation(
+        "systemEnv.listCloudSecrets", "GET", "/v1/system/tenants/{tenantId}/env", "json", False
+    ),
     "systemUsage.read": Operation("systemUsage.read", "GET", "/v1/system/usage", "json", False),
     "usage.read": Operation("usage.read", "GET", "/v1/usage", "json", False),
     "systemDeployments.list": Operation(
@@ -1104,6 +1117,9 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "environments.list": Operation("environments.list", "GET", "/v1/environments", "json", False),
     "env.list": Operation("env.list", "GET", "/v1/env", "json", False),
+    "env.listCloudSecrets": Operation(
+        "env.listCloudSecrets", "GET", "/v1/env/cloud-secrets", "json", False
+    ),
     "env.get": Operation("env.get", "GET", "/v1/env/{name}", "json", False),
     "env.put": Operation("env.put", "PUT", "/v1/env/{name}", "json", True),
     "env.delete": Operation("env.delete", "DELETE", "/v1/env/{name}", "json", False),
@@ -2292,6 +2308,96 @@ class SystemTenantsResource:
         )
 
 
+class SystemEnvResource:
+    """`client.system_env` — the `systemEnv` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def set_cloud_secret(
+        self,
+        tenant_id: str | UUID,
+        name: str,
+        body: _models.EnvCloudSecretSetRequest | Mapping[str, Any] | None = None,
+        /,
+        *,
+        env_name: str,
+        scope_kind: Literal["tenant", "org", "project"],
+        scope_id: str | UUID | None = None,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.EnvCloudSecret:
+        """Set an env name to a cloud secret. `PUT /v1/system/tenants/{tenantId}/env/{name}`
+
+        Sets an env name, at a scope of the tenant and one env, to a version of a secret the operator's cloud holds. A pack service whose pack declares the name is given it by that name, and its host reads the value from the cloud as the pack service's own account: the runtime keeps the name, never a value. Every pack service runs as that one account, so only a system key sets one. The version is a number, so what a pack service runs changes only when this does. A name set both to this and to a plain value or a secret is `pack-env-ambiguous`. The tenant sees the name as set (`GET /v1/env/cloud-secrets`, the pack-env check), never the path. Recorded as `env-set` in the tenant's audit record, naming the system key and marked `cloudSecret`, never with the path. Every write bumps `revision`; `ifRevision` guards it. Takes `system:env-refs`. A closing tenant is frozen: `409 tenant-closing`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemEnv.setCloudSecret"],
+            path={"tenantId": tenant_id, "name": name},
+            query={"envName": env_name, "scopeKind": scope_kind, "scopeId": scope_id},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.EnvCloudSecretSetRequest, body, fields),
+            response=_models.EnvCloudSecret,
+            timeout=timeout,
+        )
+
+    def delete_cloud_secret(
+        self,
+        tenant_id: str | UUID,
+        name: str,
+        /,
+        *,
+        env_name: str,
+        scope_kind: Literal["tenant", "org", "project"],
+        scope_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.EnvDeleteResult:
+        """Remove an env name's cloud secret. `DELETE /v1/system/tenants/{tenantId}/env/{name}`
+
+        Removes the cloud secret an env name is set to, at that scope and env: its pack services lose the name at their next revision. Idempotent: `{ deleted: false }` when there's none. Recorded as `env-deleted` in the tenant's audit record, naming the system key and marked `cloudSecret`, never with the path. Takes `system:env-refs`. A closing tenant is frozen: `409 tenant-closing`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemEnv.deleteCloudSecret"],
+            path={"tenantId": tenant_id, "name": name},
+            query={"envName": env_name, "scopeKind": scope_kind, "scopeId": scope_id},
+            headers={},
+            response=_models.EnvDeleteResult,
+            timeout=timeout,
+        )
+
+    def list_cloud_secrets(
+        self,
+        tenant_id: str | UUID,
+        /,
+        *,
+        env_name: str,
+        scope_kind: Literal["tenant", "org", "project"],
+        scope_id: str | UUID | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.EnvCloudSecretPage:
+        """List a tenant's cloud secrets. `GET /v1/system/tenants/{tenantId}/env`
+
+        The env names set to a cloud secret at one scope of the tenant and one env, in name order, each with its `cloudSecret`. Takes `system:env-refs`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemEnv.listCloudSecrets"],
+            path={"tenantId": tenant_id},
+            query={
+                "envName": env_name,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.EnvCloudSecretPage,
+            timeout=timeout,
+        )
+
+
 class SystemUsageResource:
     """`client.system_usage` — the `systemUsage` operations."""
 
@@ -2392,14 +2498,14 @@ class SystemDeploymentsResource:
         self,
         /,
         *,
-        endpoint: Literal["missing", "retire"],
+        endpoint: Literal["missing", "ready", "retire"],
         cursor: str | None = None,
         limit: int | None = None,
         timeout: float | None = None,
     ) -> _models.SystemDeploymentPage:
-        """List deployments that need a pack service, or should lose theirs. `GET /v1/system/deployments`
+        """List deployments that need a pack service, have a ready one, or should lose theirs. `GET /v1/system/deployments`
 
-        Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (the newest deployment with routes for some tool version or pack check), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.
+        Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each serves something a call can still ask for, and no newer deployment into its project serves it: a tool, agent or flow version that's registered or held (a flow or agent version a run can reach pins it, or an unfinished run uses it), a tool deployed without a version, or a pack check a registered guardrail runs in its project (from Kindgi 0.4.0; before, each was the newest into its project with routes for some tool version or pack check, and one whose endpoint an earlier runtime made or last set still needs that too). Each has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=ready`: deployments whose endpoint is `ready` and whose pack service stays (no `retire` reason applies). Both lists say whether each service is `warm`: keep an instance running. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.
         """
         return self._client._request(
             _OPERATIONS["systemDeployments.list"],
@@ -2534,7 +2640,7 @@ class SystemDeploymentsResource:
     ) -> _models.SystemPackEnv:
         """Read the env a deployment's pack service is to be given. `GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env`
 
-        For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the values when nothing stands in the way. A name set both ways (`pack-env-ambiguous`), a required one set nowhere (`pack-env-missing`), or one set only as a secret whose value wasn't asked for (`pack-env-secret-not-yet`) is a `problem`, and then no value is given. With `secrets=values`, each name set only as a secret is given in `secrets`, read at the version its revision names; a secret that can't be read for a reason the platform fixes is `pack-env-secret-unreadable`, and then no value is given. Each value given out is on the audit record, a secret's written before the answer. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value, and `kindgi:system` no secret's.
+        For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the values when nothing stands in the way. A name set two ways (`pack-env-ambiguous`: two of a plain value, a secret and a cloud secret), a required one set nowhere (`pack-env-missing`), or one set only as a secret whose value wasn't asked for (`pack-env-secret-not-yet`) is a `problem`, and then no value is given. With `secrets=values`, each name set only as a secret is given in `secrets`, read at the version its revision names; a secret that can't be read for a reason the platform fixes is `pack-env-secret-unreadable`, and then no value is given. Each name set to a cloud secret is given in `cloudSecrets`, with its version's resource name, for the pack service's host to read as the pack service's own account. Each value given out is on the audit record, a secret's written before the answer. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value, and `kindgi:system` no secret's.
         """
         return self._client._request(
             _OPERATIONS["systemDeployments.getPackEnv"],
@@ -4353,7 +4459,7 @@ class ConversationsResource:
     ) -> _models.Conversation:
         """Open a conversation. `POST /v1/conversations`
 
-        Pins `(agentId, agentVersion)` at open time. `title` defaults to `"Untitled conversation"` when omitted; `projectId` puts it in a project, which must reach the agent (lists filter by it; omitted, the agent's own project, as for a run, or the Default project for an agent filed under none); `scope` accepts arbitrary JSON.
+        Pins `(agentId, agentVersion)` at open time. `title` defaults to `"Untitled conversation"` when omitted; `projectId` puts it in a project, which must reach the agent (lists filter by it; omitted, the agent's own project, as for a run, or the default project for an agent filed under none); `scope` accepts arbitrary JSON.
         """
         return self._client._request(
             _OPERATIONS["conversations.open"],
@@ -4731,7 +4837,7 @@ class MemoryResource:
     ) -> _models.MemoryErasure:
         """Resume an erasure. `POST /v1/memory/erasures/{erasureId}/resume`
 
-        Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people) stops waiting: the run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.
+        Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people, or a test run still going with a case from their runs) stops waiting: that run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.
         """
         return self._client._request(
             _OPERATIONS["memory.resumeErasure"],
@@ -7898,7 +8004,7 @@ class DeploymentsResource:
     ) -> _models.DeploymentCollectionPage:
         """List signed deployments. `GET /v1/deployments`
 
-        Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Only the deployments in projects the caller reads are listed (a deployment naming no project is the Default project's), so a page can hold fewer than `limit` with `hasMore` true: page by `nextCursor`, not by count. Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the Default also finds those naming no project); `?packId=` to one pack.
+        Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Only the deployments in projects the caller reads are listed (a deployment naming no project is the default project's), so a page can hold fewer than `limit` with `hasMore` true: page by `nextCursor`, not by count. Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the default also finds those naming no project); `?packId=` to one pack.
         """
         return self._client._request(
             _OPERATIONS["deployments.list"],
@@ -7927,7 +8033,7 @@ class DeploymentsResource:
     ) -> _models.DeploymentRecord:
         """Register a signed deployment. `POST /v1/deployments`
 
-        Atomic transaction: check the signing key against the tenant's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the tenant's Default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. Its tools are checked the same way before anything is written: a tool version the runtime holds is kept only with the same definition (`409 tool-already-registered`). A runtime that does this lists `deploy-publishes-pack-blocks` in `info["x-kindgi-capabilities"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.
+        Atomic transaction: check the signing key against the tenant's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the tenant's default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. Its tools are checked the same way before anything is written: a tool version the runtime holds is kept only with the same definition (`409 tool-already-registered`). A runtime that does this lists `deploy-publishes-pack-blocks` in `info["x-kindgi-capabilities"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.
         """
         return self._client._request(
             _OPERATIONS["deployments.register"],
@@ -8002,7 +8108,7 @@ class DeploymentsResource:
     ) -> _models.DeploymentSecretsSyncResponse:
         """Sync secrets against a deployment. `POST /v1/deployments/{deploymentId}/secrets`
 
-        Deployment-scoped bulk secret sync. Body carries `{ envName, secrets: Array<{ name, ref } | { name, value }> }`. `{ name, ref }` entries validate against `SecretBinding.get` — no bytes cross the wire; missing → 404 `secret-not-found`. `{ name, value }` entries write via `SecretBinding.set` with `writeMode: add-version` + `tags.deployment = deploymentId` and return the created reference. The write scope is derived from the deployment record itself (tenant scope, or project scope when the deployment carries a `projectId`) and CANNOT be overridden on the wire. A secret the tools of this deployment name that was set nowhere when a deploy or a promotion published them is read at that scope, when whoever published them administers it: a deploy needs `admin` there, while a promotion into the Default project needs it only on that project. Requires the `secrets:write` capability. Idempotency-Key applies.
+        Deployment-scoped bulk secret sync. Body carries `{ envName, secrets: Array<{ name, ref } | { name, value }> }`. `{ name, ref }` entries validate against `SecretBinding.get` — no bytes cross the wire; missing → 404 `secret-not-found`. `{ name, value }` entries write via `SecretBinding.set` with `writeMode: add-version` + `tags.deployment = deploymentId` and return the created reference. The write scope is derived from the deployment record itself (tenant scope, or project scope when the deployment carries a `projectId`) and CANNOT be overridden on the wire. A secret the tools of this deployment name that was set nowhere when a deploy or a promotion published them is read at that scope, when whoever published them administers it: a deploy needs `admin` there, while a promotion into the default project needs it only on that project. Requires the `secrets:write` capability. Idempotency-Key applies.
         """
         return self._client._request(
             _OPERATIONS["deployments.syncSecrets"],
@@ -9459,9 +9565,9 @@ class ProjectsResource:
         self.sites = ProjectsSitesResource(client)
 
     def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
-        """Fetch the tenant's Default project. `GET /v1/projects/default`
+        """Fetch the tenant's default project. `GET /v1/projects/default`
 
-        Returns the row where `Project.isDefault = true` (exactly one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when no Default has been provisioned.
+        Returns the row where `Project.isDefault = true` (at most one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when the tenant has none.
         """
         return self._client._request(
             _OPERATIONS["projects.getDefault"],
@@ -9511,7 +9617,7 @@ class ProjectsResource:
     ) -> _models.CreateResourceResult:
         """Create a project. `POST /v1/projects`
 
-        A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second Default, `409 project-default-already-exists`.
+        A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second default project, `409 project-default-already-exists`.
         """
         return self._client._request(
             _OPERATIONS["projects.create"],
@@ -9848,6 +9954,36 @@ class EnvResource:
             timeout=timeout,
         )
 
+    def list_cloud_secrets(
+        self,
+        /,
+        *,
+        env_name: str,
+        scope_kind: Literal["tenant", "org", "project"],
+        scope_id: str | UUID | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.EnvCloudSecretNamePage:
+        """List the names set to a cloud secret. `GET /v1/env/cloud-secrets`
+
+        The env names the operator set to a cloud secret at `(scope, envName)`, in name order: a version of a secret the operator's cloud holds, which a pack service's host reads as the pack service's own account. Which secret is the operator's to know, so it isn't given. The operator sets them with a system key (`PUT /v1/system/tenants/{tenantId}/env/{name}`).
+        """
+        return self._client._request(
+            _OPERATIONS["env.listCloudSecrets"],
+            path={},
+            query={
+                "envName": env_name,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.EnvCloudSecretNamePage,
+            timeout=timeout,
+        )
+
     def get(
         self,
         name: str,
@@ -9889,7 +10025,7 @@ class EnvResource:
     ) -> _models.EnvRecord:
         """Upsert an env entry. `PUT /v1/env/{name}`
 
-        Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`). Env values aren't secret: they're recorded with each run that uses them. A credential goes in `/v1/secrets`.
+        Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`). Env values aren't secret: they're recorded with each run that uses them. A credential goes in `/v1/secrets`. A body with `cloudSecret` is refused: only the operator sets a name to a cloud secret, with a system key.
         """
         return self._client._request(
             _OPERATIONS["env.put"],
@@ -10474,7 +10610,7 @@ class WebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Register a webhook trigger. `POST /v1/webhooks`
 
-        A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the tenant that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's Default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).
+        A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the tenant that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return self._client._request(
             _OPERATIONS["webhooks.register"],
@@ -10708,7 +10844,7 @@ class MailTriggersResource:
     ) -> _models.MailTriggerRecord:
         """Register a mail trigger. `POST /v1/mail-triggers`
 
-        Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's Default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).
+        Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return self._client._request(
             _OPERATIONS["mailTriggers.register"],
@@ -12303,6 +12439,96 @@ class AsyncSystemTenantsResource:
         )
 
 
+class AsyncSystemEnvResource:
+    """`client.system_env` — the `systemEnv` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def set_cloud_secret(
+        self,
+        tenant_id: str | UUID,
+        name: str,
+        body: _models.EnvCloudSecretSetRequest | Mapping[str, Any] | None = None,
+        /,
+        *,
+        env_name: str,
+        scope_kind: Literal["tenant", "org", "project"],
+        scope_id: str | UUID | None = None,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.EnvCloudSecret:
+        """Set an env name to a cloud secret. `PUT /v1/system/tenants/{tenantId}/env/{name}`
+
+        Sets an env name, at a scope of the tenant and one env, to a version of a secret the operator's cloud holds. A pack service whose pack declares the name is given it by that name, and its host reads the value from the cloud as the pack service's own account: the runtime keeps the name, never a value. Every pack service runs as that one account, so only a system key sets one. The version is a number, so what a pack service runs changes only when this does. A name set both to this and to a plain value or a secret is `pack-env-ambiguous`. The tenant sees the name as set (`GET /v1/env/cloud-secrets`, the pack-env check), never the path. Recorded as `env-set` in the tenant's audit record, naming the system key and marked `cloudSecret`, never with the path. Every write bumps `revision`; `ifRevision` guards it. Takes `system:env-refs`. A closing tenant is frozen: `409 tenant-closing`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemEnv.setCloudSecret"],
+            path={"tenantId": tenant_id, "name": name},
+            query={"envName": env_name, "scopeKind": scope_kind, "scopeId": scope_id},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.EnvCloudSecretSetRequest, body, fields),
+            response=_models.EnvCloudSecret,
+            timeout=timeout,
+        )
+
+    async def delete_cloud_secret(
+        self,
+        tenant_id: str | UUID,
+        name: str,
+        /,
+        *,
+        env_name: str,
+        scope_kind: Literal["tenant", "org", "project"],
+        scope_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.EnvDeleteResult:
+        """Remove an env name's cloud secret. `DELETE /v1/system/tenants/{tenantId}/env/{name}`
+
+        Removes the cloud secret an env name is set to, at that scope and env: its pack services lose the name at their next revision. Idempotent: `{ deleted: false }` when there's none. Recorded as `env-deleted` in the tenant's audit record, naming the system key and marked `cloudSecret`, never with the path. Takes `system:env-refs`. A closing tenant is frozen: `409 tenant-closing`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemEnv.deleteCloudSecret"],
+            path={"tenantId": tenant_id, "name": name},
+            query={"envName": env_name, "scopeKind": scope_kind, "scopeId": scope_id},
+            headers={},
+            response=_models.EnvDeleteResult,
+            timeout=timeout,
+        )
+
+    async def list_cloud_secrets(
+        self,
+        tenant_id: str | UUID,
+        /,
+        *,
+        env_name: str,
+        scope_kind: Literal["tenant", "org", "project"],
+        scope_id: str | UUID | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.EnvCloudSecretPage:
+        """List a tenant's cloud secrets. `GET /v1/system/tenants/{tenantId}/env`
+
+        The env names set to a cloud secret at one scope of the tenant and one env, in name order, each with its `cloudSecret`. Takes `system:env-refs`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemEnv.listCloudSecrets"],
+            path={"tenantId": tenant_id},
+            query={
+                "envName": env_name,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.EnvCloudSecretPage,
+            timeout=timeout,
+        )
+
+
 class AsyncSystemUsageResource:
     """`client.system_usage` — the `systemUsage` operations."""
 
@@ -12403,14 +12629,14 @@ class AsyncSystemDeploymentsResource:
         self,
         /,
         *,
-        endpoint: Literal["missing", "retire"],
+        endpoint: Literal["missing", "ready", "retire"],
         cursor: str | None = None,
         limit: int | None = None,
         timeout: float | None = None,
     ) -> _models.SystemDeploymentPage:
-        """List deployments that need a pack service, or should lose theirs. `GET /v1/system/deployments`
+        """List deployments that need a pack service, have a ready one, or should lose theirs. `GET /v1/system/deployments`
 
-        Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (the newest deployment with routes for some tool version or pack check), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.
+        Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each serves something a call can still ask for, and no newer deployment into its project serves it: a tool, agent or flow version that's registered or held (a flow or agent version a run can reach pins it, or an unfinished run uses it), a tool deployed without a version, or a pack check a registered guardrail runs in its project (from Kindgi 0.4.0; before, each was the newest into its project with routes for some tool version or pack check, and one whose endpoint an earlier runtime made or last set still needs that too). Each has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=ready`: deployments whose endpoint is `ready` and whose pack service stays (no `retire` reason applies). Both lists say whether each service is `warm`: keep an instance running. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.
         """
         return await self._client._request(
             _OPERATIONS["systemDeployments.list"],
@@ -12545,7 +12771,7 @@ class AsyncSystemDeploymentsResource:
     ) -> _models.SystemPackEnv:
         """Read the env a deployment's pack service is to be given. `GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env`
 
-        For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the values when nothing stands in the way. A name set both ways (`pack-env-ambiguous`), a required one set nowhere (`pack-env-missing`), or one set only as a secret whose value wasn't asked for (`pack-env-secret-not-yet`) is a `problem`, and then no value is given. With `secrets=values`, each name set only as a secret is given in `secrets`, read at the version its revision names; a secret that can't be read for a reason the platform fixes is `pack-env-secret-unreadable`, and then no value is given. Each value given out is on the audit record, a secret's written before the answer. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value, and `kindgi:system` no secret's.
+        For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the values when nothing stands in the way. A name set two ways (`pack-env-ambiguous`: two of a plain value, a secret and a cloud secret), a required one set nowhere (`pack-env-missing`), or one set only as a secret whose value wasn't asked for (`pack-env-secret-not-yet`) is a `problem`, and then no value is given. With `secrets=values`, each name set only as a secret is given in `secrets`, read at the version its revision names; a secret that can't be read for a reason the platform fixes is `pack-env-secret-unreadable`, and then no value is given. Each name set to a cloud secret is given in `cloudSecrets`, with its version's resource name, for the pack service's host to read as the pack service's own account. Each value given out is on the audit record, a secret's written before the answer. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value, and `kindgi:system` no secret's.
         """
         return await self._client._request(
             _OPERATIONS["systemDeployments.getPackEnv"],
@@ -14368,7 +14594,7 @@ class AsyncConversationsResource:
     ) -> _models.Conversation:
         """Open a conversation. `POST /v1/conversations`
 
-        Pins `(agentId, agentVersion)` at open time. `title` defaults to `"Untitled conversation"` when omitted; `projectId` puts it in a project, which must reach the agent (lists filter by it; omitted, the agent's own project, as for a run, or the Default project for an agent filed under none); `scope` accepts arbitrary JSON.
+        Pins `(agentId, agentVersion)` at open time. `title` defaults to `"Untitled conversation"` when omitted; `projectId` puts it in a project, which must reach the agent (lists filter by it; omitted, the agent's own project, as for a run, or the default project for an agent filed under none); `scope` accepts arbitrary JSON.
         """
         return await self._client._request(
             _OPERATIONS["conversations.open"],
@@ -14748,7 +14974,7 @@ class AsyncMemoryResource:
     ) -> _models.MemoryErasure:
         """Resume an erasure. `POST /v1/memory/erasures/{erasureId}/resume`
 
-        Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people) stops waiting: the run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.
+        Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people, or a test run still going with a case from their runs) stops waiting: that run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.
         """
         return await self._client._request(
             _OPERATIONS["memory.resumeErasure"],
@@ -17925,7 +18151,7 @@ class AsyncDeploymentsResource:
     ) -> _models.DeploymentCollectionPage:
         """List signed deployments. `GET /v1/deployments`
 
-        Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Only the deployments in projects the caller reads are listed (a deployment naming no project is the Default project's), so a page can hold fewer than `limit` with `hasMore` true: page by `nextCursor`, not by count. Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the Default also finds those naming no project); `?packId=` to one pack.
+        Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Only the deployments in projects the caller reads are listed (a deployment naming no project is the default project's), so a page can hold fewer than `limit` with `hasMore` true: page by `nextCursor`, not by count. Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the default also finds those naming no project); `?packId=` to one pack.
         """
         return await self._client._request(
             _OPERATIONS["deployments.list"],
@@ -17954,7 +18180,7 @@ class AsyncDeploymentsResource:
     ) -> _models.DeploymentRecord:
         """Register a signed deployment. `POST /v1/deployments`
 
-        Atomic transaction: check the signing key against the tenant's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the tenant's Default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. Its tools are checked the same way before anything is written: a tool version the runtime holds is kept only with the same definition (`409 tool-already-registered`). A runtime that does this lists `deploy-publishes-pack-blocks` in `info["x-kindgi-capabilities"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.
+        Atomic transaction: check the signing key against the tenant's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the tenant's default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. Its tools are checked the same way before anything is written: a tool version the runtime holds is kept only with the same definition (`409 tool-already-registered`). A runtime that does this lists `deploy-publishes-pack-blocks` in `info["x-kindgi-capabilities"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.
         """
         return await self._client._request(
             _OPERATIONS["deployments.register"],
@@ -18029,7 +18255,7 @@ class AsyncDeploymentsResource:
     ) -> _models.DeploymentSecretsSyncResponse:
         """Sync secrets against a deployment. `POST /v1/deployments/{deploymentId}/secrets`
 
-        Deployment-scoped bulk secret sync. Body carries `{ envName, secrets: Array<{ name, ref } | { name, value }> }`. `{ name, ref }` entries validate against `SecretBinding.get` — no bytes cross the wire; missing → 404 `secret-not-found`. `{ name, value }` entries write via `SecretBinding.set` with `writeMode: add-version` + `tags.deployment = deploymentId` and return the created reference. The write scope is derived from the deployment record itself (tenant scope, or project scope when the deployment carries a `projectId`) and CANNOT be overridden on the wire. A secret the tools of this deployment name that was set nowhere when a deploy or a promotion published them is read at that scope, when whoever published them administers it: a deploy needs `admin` there, while a promotion into the Default project needs it only on that project. Requires the `secrets:write` capability. Idempotency-Key applies.
+        Deployment-scoped bulk secret sync. Body carries `{ envName, secrets: Array<{ name, ref } | { name, value }> }`. `{ name, ref }` entries validate against `SecretBinding.get` — no bytes cross the wire; missing → 404 `secret-not-found`. `{ name, value }` entries write via `SecretBinding.set` with `writeMode: add-version` + `tags.deployment = deploymentId` and return the created reference. The write scope is derived from the deployment record itself (tenant scope, or project scope when the deployment carries a `projectId`) and CANNOT be overridden on the wire. A secret the tools of this deployment name that was set nowhere when a deploy or a promotion published them is read at that scope, when whoever published them administers it: a deploy needs `admin` there, while a promotion into the default project needs it only on that project. Requires the `secrets:write` capability. Idempotency-Key applies.
         """
         return await self._client._request(
             _OPERATIONS["deployments.syncSecrets"],
@@ -19486,9 +19712,9 @@ class AsyncProjectsResource:
         self.sites = AsyncProjectsSitesResource(client)
 
     async def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
-        """Fetch the tenant's Default project. `GET /v1/projects/default`
+        """Fetch the tenant's default project. `GET /v1/projects/default`
 
-        Returns the row where `Project.isDefault = true` (exactly one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when no Default has been provisioned.
+        Returns the row where `Project.isDefault = true` (at most one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when the tenant has none.
         """
         return await self._client._request(
             _OPERATIONS["projects.getDefault"],
@@ -19538,7 +19764,7 @@ class AsyncProjectsResource:
     ) -> _models.CreateResourceResult:
         """Create a project. `POST /v1/projects`
 
-        A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second Default, `409 project-default-already-exists`.
+        A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second default project, `409 project-default-already-exists`.
         """
         return await self._client._request(
             _OPERATIONS["projects.create"],
@@ -19877,6 +20103,36 @@ class AsyncEnvResource:
             timeout=timeout,
         )
 
+    async def list_cloud_secrets(
+        self,
+        /,
+        *,
+        env_name: str,
+        scope_kind: Literal["tenant", "org", "project"],
+        scope_id: str | UUID | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.EnvCloudSecretNamePage:
+        """List the names set to a cloud secret. `GET /v1/env/cloud-secrets`
+
+        The env names the operator set to a cloud secret at `(scope, envName)`, in name order: a version of a secret the operator's cloud holds, which a pack service's host reads as the pack service's own account. Which secret is the operator's to know, so it isn't given. The operator sets them with a system key (`PUT /v1/system/tenants/{tenantId}/env/{name}`).
+        """
+        return await self._client._request(
+            _OPERATIONS["env.listCloudSecrets"],
+            path={},
+            query={
+                "envName": env_name,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.EnvCloudSecretNamePage,
+            timeout=timeout,
+        )
+
     async def get(
         self,
         name: str,
@@ -19918,7 +20174,7 @@ class AsyncEnvResource:
     ) -> _models.EnvRecord:
         """Upsert an env entry. `PUT /v1/env/{name}`
 
-        Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`). Env values aren't secret: they're recorded with each run that uses them. A credential goes in `/v1/secrets`.
+        Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`). Env values aren't secret: they're recorded with each run that uses them. A credential goes in `/v1/secrets`. A body with `cloudSecret` is refused: only the operator sets a name to a cloud secret, with a system key.
         """
         return await self._client._request(
             _OPERATIONS["env.put"],
@@ -20503,7 +20759,7 @@ class AsyncWebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Register a webhook trigger. `POST /v1/webhooks`
 
-        A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the tenant that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's Default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).
+        A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the tenant that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return await self._client._request(
             _OPERATIONS["webhooks.register"],
@@ -20737,7 +20993,7 @@ class AsyncMailTriggersResource:
     ) -> _models.MailTriggerRecord:
         """Register a mail trigger. `POST /v1/mail-triggers`
 
-        Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's Default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).
+        Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return await self._client._request(
             _OPERATIONS["mailTriggers.register"],
@@ -21434,6 +21690,7 @@ class Resources:
     tokens: TokensResource
     system_keys: SystemKeysResource
     system_tenants: SystemTenantsResource
+    system_env: SystemEnvResource
     system_usage: SystemUsageResource
     usage: UsageResource
     system_deployments: SystemDeploymentsResource
@@ -21495,6 +21752,7 @@ class Resources:
         self.tokens = TokensResource(client)
         self.system_keys = SystemKeysResource(client)
         self.system_tenants = SystemTenantsResource(client)
+        self.system_env = SystemEnvResource(client)
         self.system_usage = SystemUsageResource(client)
         self.usage = UsageResource(client)
         self.system_deployments = SystemDeploymentsResource(client)
@@ -21558,6 +21816,7 @@ class AsyncResources:
     tokens: AsyncTokensResource
     system_keys: AsyncSystemKeysResource
     system_tenants: AsyncSystemTenantsResource
+    system_env: AsyncSystemEnvResource
     system_usage: AsyncSystemUsageResource
     usage: AsyncUsageResource
     system_deployments: AsyncSystemDeploymentsResource
@@ -21619,6 +21878,7 @@ class AsyncResources:
         self.tokens = AsyncTokensResource(client)
         self.system_keys = AsyncSystemKeysResource(client)
         self.system_tenants = AsyncSystemTenantsResource(client)
+        self.system_env = AsyncSystemEnvResource(client)
         self.system_usage = AsyncSystemUsageResource(client)
         self.usage = AsyncUsageResource(client)
         self.system_deployments = AsyncSystemDeploymentsResource(client)

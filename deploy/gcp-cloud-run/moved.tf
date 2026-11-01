@@ -1,24 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026 Kindgi Inc.
 
-# The pack service, its account and the server's invoker grant became
-# optional (pack_image unset: each deployment is a service of its own).
-# A deployment that sets pack_image keeps the same resources: these moves
-# give them their new addresses, so its plan shows no change.
+# Each deployment is a pack service of its own, made by the pack
+# orchestrator, and every one runs as the pack account, which is no longer
+# optional. A deployment that had the one pack service (pack_image) keeps
+# its account: this move gives it its address back, so it isn't replaced.
+# That pack service, the server's grant on it and its token's secret go.
+# A deployment from before pack_image was optional never had the index.
 
 moved {
-  from = google_service_account.pack
-  to   = google_service_account.pack[0]
-}
-
-moved {
-  from = google_cloud_run_v2_service.pack
-  to   = google_cloud_run_v2_service.pack[0]
-}
-
-moved {
-  from = google_cloud_run_v2_service_iam_member.server_invokes_pack
-  to   = google_cloud_run_v2_service_iam_member.server_invokes_pack[0]
+  from = google_service_account.pack[0]
+  to   = google_service_account.pack
 }
 
 # The module's own Cloud SQL instance became optional (database_host_instance:

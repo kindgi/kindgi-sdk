@@ -33,6 +33,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { DEPLOY_ENVELOPE_SCHEMA } from '../src/build/envelope.js';
 import { postDeploymentReal } from '../src/deploy/post.js';
 import type {
+  CountKeptBuildsOptions,
+  CountKeptBuildsResult,
   DeployRunners,
   DeploymentEndpointRecord,
   DeploymentRecord,
@@ -1903,6 +1905,10 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
       'pack-env-secrets-unaudited',
       "the platform can't give the pack its secrets just now: its team is told, and it's tried again",
     ],
+    [
+      'pack-env-cloud-secret-unsupported',
+      "a name the pack reads from its env is set to a cloud secret, which this pack service's host can't mount: set it as a value or a secret instead, or ask your operator",
+    ],
   ])('a pack service waiting on its secrets (%s) says why', async (problem, why) => {
     await writeAutoEnvelope();
     const run = hostedFixtures(pending(), [pending(problem), ready]);
@@ -2001,6 +2007,86 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     expect(run.readIds).toHaveLength(0);
   });
 
+  /** `hostedFixtures` whose runtime counts the kept builds with `answer`, and the reads it was asked. */
+  function counting(run: ReturnType<typeof hostedFixtures>, answer: CountKeptBuildsResult) {
+    const asked: CountKeptBuildsOptions[] = [];
+    const runners: DeployRunners = {
+      ...run.fixtures.runners,
+      countKeptBuilds: async (o) => {
+        asked.push(o);
+        return answer;
+      },
+    };
+    return { fixtures: { ...run.fixtures, runners }, asked };
+  }
+
+  const KEPT_LINES = [
+    '    Each keeps its pack service while something it serves is registered, pinned or',
+    '    running, or until a newer build ships it. To let old ones go, unregister what',
+    '    nothing calls:',
+    '      kindgi tools|agents|flows unregister <id> <version>',
+    '      kindgi guardrails unregister <guardrail-id>',
+    '    `kindgi deployments get <deployment-id>` says what keeps each one.',
+  ];
+
+  test('once its pack service is ready, it says how many builds the project keeps, and how to let old ones go', async () => {
+    await writeAutoEnvelope();
+    const run = counting(hostedFixtures(pending(), [ready]), { kind: 'ok', keptBuilds: 7 });
+    const out = await deploy(run.fixtures, '--hosted', `--project=${PROJECT}`);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(run.asked.map((o) => o.projectId)).toEqual([PROJECT]);
+    const after = out.stderr.slice(out.stderr.indexOf('    ✓ ready'));
+    expect(after.split('\n').slice(2, 9)).toEqual([
+      '  Builds kept in this project: 7',
+      ...KEPT_LINES,
+    ]);
+    expect((JSON.parse(out.stdout) as { keptBuilds?: number }).keptBuilds).toBe(7);
+  });
+
+  test('a deploy that names no project says the workspace’s, as its answer names no project', async () => {
+    await writeAutoEnvelope();
+    const run = counting(hostedFixtures(pending(), [ready]), { kind: 'ok', keptBuilds: 12 });
+    const out = await deploy(run.fixtures, '--hosted');
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(run.asked).toHaveLength(1);
+    expect('projectId' in (run.asked[0] ?? {})).toBe(false);
+    expect(out.stderr).toContain('  Builds kept in this workspace: 12\n');
+  });
+
+  test('a runtime that doesn’t count them (one service for every build, or older) says nothing of them', async () => {
+    await writeAutoEnvelope();
+    const run = counting(hostedFixtures(pending(), [ready]), { kind: 'ok' });
+    const out = await deploy(run.fixtures, '--hosted', `--project=${PROJECT}`);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).not.toContain('Builds kept');
+    const summary = JSON.parse(out.stdout) as object;
+    expect('keptBuilds' in summary || 'keptBuildsError' in summary).toBe(false);
+  });
+
+  test('a count that can’t be read is said, with why, and the deploy still succeeds', async () => {
+    await writeAutoEnvelope();
+    const run = counting(hostedFixtures(pending(), [ready]), {
+      kind: 'error',
+      message: 'GET … answered HTTP 503',
+    });
+    const out = await deploy(run.fixtures, '--hosted', `--project=${PROJECT}`);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain("  Couldn't count the builds kept: GET … answered HTTP 503\n");
+    const summary = JSON.parse(out.stdout) as Record<string, unknown>;
+    expect(summary.keptBuildsError).toBe('GET … answered HTTP 503');
+    expect('keptBuilds' in summary).toBe(false);
+  });
+
+  test('no count when the wait fails, nor without a pack service to wait for', async () => {
+    await writeAutoEnvelope();
+    const failed = counting(hostedFixtures(pending(), [cleared]), { kind: 'ok', keptBuilds: 1 });
+    expect((await deploy(failed.fixtures, '--hosted')).exitCode).toBe(1);
+    expect(failed.asked).toHaveLength(0);
+    const none = counting(hostedFixtures(undefined, [ready]), { kind: 'ok', keptBuilds: 1 });
+    expect((await deploy(none.fixtures, '--hosted')).exitCode).toBe(0);
+    expect(none.asked).toHaveLength(0);
+  });
+
   test('a cleared pack service from a server that says neither (before 0.1.9) fails, naming the deployment', async () => {
     await writeAutoEnvelope();
     const run = hostedFixtures(pending(), [cleared]);
@@ -2063,7 +2149,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     expect(out.exitCode).toBe(1);
     expect(run.readIds).toHaveLength(0);
     expect(out.stderr).toContain(
-      "The deployment's pack service was taken down (cleared, superseded): a later deploy ships every tool version and check this one does, so no new call reaches it. deploymentId dep-01H8XM.",
+      "The deployment's pack service was taken down (cleared, superseded): no new call needs it, or a later deploy into its project ships every tool version and check it does. deploymentId dep-01H8XM.",
     );
   });
 

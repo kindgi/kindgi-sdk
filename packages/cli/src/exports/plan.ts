@@ -636,6 +636,9 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/system/tenants/{tenantId}': "the server's operator routes",
   '/v1/system/tenants/{tenantId}/admins': "the server's operator routes",
   '/v1/system/tenants/{tenantId}/limits': "the server's operator routes",
+  '/v1/system/tenants/{tenantId}/env': "the server's operator routes",
+  '/v1/env/cloud-secrets':
+    "names the server's operator set to its own cloud's secrets: the operator's to set, not the workspace's to move",
   '/v1/system/whoami': "the server's operator routes",
   '/v1/system/deployments': "the server's operator routes",
   '/v1/system/pack-env': "the server's operator routes",
@@ -679,6 +682,8 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/projects/{projectId}/pinned-versions': 'the same records as agent-pinned-versions',
   '/v1/environment-orders/tenant': 'the same records as environment-orders',
   '/v1/environment-orders/orgs/{orgId}': 'the same records as environment-orders',
+  '/v1/tool-files/{artifactId}':
+    "the same bytes as artifacts, read by a pack tool's call with the call's own token",
   '/v1/providers/{providerId}/check': "a live check of a provider's settings",
   '/v1/deployments/{deploymentId}/values':
     'computed from deployments, tools, agents, providers, secrets and env values',

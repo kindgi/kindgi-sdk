@@ -49,7 +49,7 @@ export interface RegisterInputs {
   readonly client: KindgiClient;
   readonly fetchImpl: typeof fetch;
   /**
-   * Tenant's Default project id, resolved by `kindgi dev` from
+   * Tenant's default project id, resolved by `kindgi dev` from
    * `RunningApiServer.defaultProjectId`. Included in every POST body
    * because tools/agents/guardrails/flows routes require it.
    * Without this, all registrations fail with

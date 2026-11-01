@@ -79,7 +79,7 @@ describe('kindgi flows (T238)', () => {
     ]);
   });
 
-  test('publish: into the Default project unless --project names one; it prints the id and version', async () => {
+  test('publish: into the default project unless --project names one; it prints the id and version', async () => {
     const spec = JSON.stringify(FLOW);
     const plain = await flows(['publish', `--spec=${spec}`]);
     expect(plain.out.exitCode, plain.out.stderr).toBe(0);

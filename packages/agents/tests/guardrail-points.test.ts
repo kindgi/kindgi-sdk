@@ -15,7 +15,7 @@
 
 import { describe, expect, test } from 'vitest';
 
-import type { ModelMessage, ModelToolCall } from '@kindgi/capabilities';
+import type { MessageFile, ModelMessage, ModelToolCall } from '@kindgi/capabilities';
 import type {
   CheckRegistry,
   Guardrail,
@@ -27,11 +27,12 @@ import { createCheckRegistry } from '@kindgi/guardrails';
 import type { NodeContext } from '@kindgi/handler';
 import { defineTool } from '@kindgi/tools';
 import type { AnyTool } from '@kindgi/tools';
-import type { GuardrailId, NodeId, RunId, TenantId, ToolId } from '@kindgi/types';
+import type { FileValue, GuardrailId, NodeId, RunId, TenantId, ToolId } from '@kindgi/types';
 
 import type { TurnContext } from '../src/handlers/context.js';
 import { buildDispatchToolsHandler } from '../src/handlers/dispatch-tools.js';
 import { parseFailureMessage } from '../src/handlers/errors.js';
+import { type FileBinding, asMessageFile } from '../src/handlers/files.js';
 import { guardrailPointFaults } from '../src/handlers/guardrail-points.js';
 import {
   type LoopMessage,
@@ -195,6 +196,8 @@ interface TurnOptions {
   readonly storedBeforePark?: ConversationMessage[];
   /** The outcome sink's `record`. Default: each row appended to `seen.rows`. */
   readonly record?: (row: GuardrailOutcomeRecord) => Promise<void>;
+  /** The run's files binding: without it, a tool result keeps none of its files. */
+  readonly files?: FileBinding;
 }
 
 /** A turn of `acme.helper` with `guardrails`, its lookup and refund tools, and what it does. */
@@ -284,6 +287,7 @@ function turn(guardrails: readonly Guardrail[], options: TurnOptions = {}) {
     ...(options.storedBeforePark !== undefined && {
       storedBeforePark: [...options.storedBeforePark],
     }),
+    ...(options.files !== undefined && { files: options.files }),
   } as unknown as TurnContext;
   return { ctx, seen };
 }
@@ -696,6 +700,39 @@ describe('after-tool: what a call came to, before the model sees it', () => {
     expect(out.ranCalls).toEqual(['101:call-1']);
   });
 
+  test("a withheld result's files reach neither the conversation nor the model", async () => {
+    const file: FileValue = {
+      type: 'kindgi.file',
+      artifactId: 'art-1',
+      name: 'photo-1.jpg',
+      contentType: 'image/jpeg',
+      size: 1001,
+      sha256: '1'.padStart(64, '0'),
+    };
+    const files: FileBinding = {
+      admit: async (values) => values.map((v) => asMessageFile(v)),
+      read: async () => undefined,
+      store: async () => ({ notStored: 'limit' }),
+      readSource: async () => ({ notRead: 'rule' }),
+      shown: async () => {},
+      refuse: async () => {},
+    };
+    const lookup = () => ({ text: 'the secret code is 7', files: [file] });
+    // The same result with no guardrail to withhold it keeps its file.
+    const kept = turn([], { lookup, files });
+    const keptOut = await step(kept.ctx, kept.seen, [call('call-1', LOOKUP, { q: 'A-1042' })]);
+    expect(toolMessages(kept.seen)[0]?.files).toHaveLength(1);
+    expect(keptOut.nextMessages.at(-1)?.files).toHaveLength(1);
+
+    const { ctx, seen } = turn([SECRET], { lookup, files });
+    const out = await step(ctx, seen, [call('call-1', LOOKUP, { q: 'A-1042' })]);
+    const [stored] = toolMessages(seen);
+    expect(String(stored?.content)).toContain('its result is withheld');
+    expect(stored).not.toHaveProperty('files');
+    expect(out.nextMessages.at(-1)?.guardrailNote).toEqual(['acme.no-secret']);
+    expect(out.nextMessages.at(-1)).not.toHaveProperty('files');
+  });
+
   test("a withheld outside result's note stays outside data", async () => {
     const { ctx, seen } = turn([SECRET], { lookup: secretLookup, outside: true });
     await step(ctx, seen, [call('call-1', LOOKUP, { q: 'A-1042' })]);
@@ -1037,6 +1074,28 @@ describe("the loop's messages", () => {
     };
     expect(toWireMessages([marked])).toEqual([
       { role: 'tool', content: 'note', toolCallId: 'call-1' },
+    ]);
+  });
+
+  test('a note keeps the files its message carries', () => {
+    const files: MessageFile[] = [
+      {
+        artifactId: 'art-1',
+        name: 'photo-1.jpg',
+        contentType: 'image/jpeg',
+        size: 1001,
+        sha256: '1'.padStart(64, '0'),
+      },
+    ];
+    const marked: LoopMessage = {
+      role: 'tool',
+      content: 'note',
+      toolCallId: 'call-1',
+      files,
+      guardrailNote: ['acme.no-big-refund'],
+    };
+    expect(toWireMessages([marked])).toEqual([
+      { role: 'tool', content: 'note', toolCallId: 'call-1', files },
     ]);
   });
 });

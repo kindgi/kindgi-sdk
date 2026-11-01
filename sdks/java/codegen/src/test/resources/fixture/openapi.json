@@ -463,7 +463,7 @@
             }
           },
           {
-            "name": "X-Supervisor-Id",
+            "name": "X-Request-Id",
             "in": "header",
             "required": true,
             "schema": {

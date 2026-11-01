@@ -27,7 +27,7 @@ A run's `agent.via` says how it got its version:
 The most specific pinned version wins: a **segment** path in a project, then
 the **project**, the project's **org**, the **tenant**, and then the
 project's Latest. Without `--project`, a run is in its agent's own project,
-which is Default for what `kindgi deploy` registers.
+which is the default project for what `kindgi deploy` registers.
 
 A version is only pinned when you pin it: publishing a newer version
 doesn't change what a scope with a pinned version runs.
@@ -337,7 +337,7 @@ Pin that scope in place, and pin the version again.
   segment path in this project. It says what will happen before you pin it,
   such as "Runs in this project (Support) will use 1.3.0."
 - A run's page says why it ran its version, such as "Pinned for company = acme
-  in this project (Default)".
+  in this project (First Project)".
 - **Release gates,** on the Pinned versions page, has each release gate in
   sentences, with its versions, **New version** and **Add a release
   gate**. The sentences read like "Share marked right: at least 60%, and

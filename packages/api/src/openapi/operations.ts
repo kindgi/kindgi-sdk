@@ -48,6 +48,8 @@ export interface ResponseSpec {
    * Defaults to `application/json`.
    */
   readonly contentType?: string | readonly string[];
+  /** A JSON body the status may carry instead of `contentType`'s (`application/json`). */
+  readonly orJson?: JsonSchema;
 }
 
 export interface OperationSpec {
@@ -3057,6 +3059,123 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'put',
+    honoPath: '/v1/system/tenants/:tenantId/env/:name',
+    openapiPath: '/v1/system/tenants/{tenantId}/env/{name}',
+    operationId: 'systemEnv.setCloudSecret',
+    summary: 'Set an env name to a cloud secret',
+    description:
+      "Sets an env name, at a scope of the tenant and one env, to a version of a secret the operator's cloud holds. A pack service whose pack declares the name is given it by that name, and its host reads the value from the cloud as the pack service's own account: the runtime keeps the name, never a value. Every pack service runs as that one account, so only a system key sets one. The version is a number, so what a pack service runs changes only when this does. A name set both to this and to a plain value or a secret is `pack-env-ambiguous`. The tenant sees the name as set (`GET /v1/env/cloud-secrets`, the pack-env check), never the path. Recorded as `env-set` in the tenant's audit record, naming the system key and marked `cloudSecret`, never with the path. Every write bumps `revision`; `ifRevision` guards it. Takes `system:env-refs`. A closing tenant is frozen: `409 tenant-closing`.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      EnvEntryNamePathParam,
+      EnvNameQueryParam,
+      ScopeKindRequiredQueryParam,
+      ScopeIdQueryParam,
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('EnvCloudSecretSetRequest') },
+    responses: {
+      '200': { description: 'The cloud secret now.', schema: ref('EnvCloudSecret') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "`cloudSecret` isn't a numbered version of a secret, or names a `kp-` secret (`cloud-secret-invalid`); or a missing or malformed scope or `envName`, or another field in the body (`bad-input`).",
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:env-refs` (`system-scope-missing`). On a runtime serving one tenant, a system key reaches these only when it runs a pack service per deployment.",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '409': ErrorResponse(
+        `\`ifRevision\` mismatch (\`env-write-conflict\`); the tenant is closing (\`tenant-closing\`); or an Idempotency-Key reused with another body. Or ${ENV_NOT_SERVED_VALUE}`,
+      ),
+      '501': ErrorResponse(
+        'This runtime keeps no cloud secrets (`cloud-secrets-unsupported`): hosted, for one.',
+      ),
+    },
+  },
+  {
+    method: 'delete',
+    honoPath: '/v1/system/tenants/:tenantId/env/:name',
+    openapiPath: '/v1/system/tenants/{tenantId}/env/{name}',
+    operationId: 'systemEnv.deleteCloudSecret',
+    summary: "Remove an env name's cloud secret",
+    description:
+      "Removes the cloud secret an env name is set to, at that scope and env: its pack services lose the name at their next revision. Idempotent: `{ deleted: false }` when there's none. Recorded as `env-deleted` in the tenant's audit record, naming the system key and marked `cloudSecret`, never with the path. Takes `system:env-refs`. A closing tenant is frozen: `409 tenant-closing`.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      EnvEntryNamePathParam,
+      EnvNameQueryParam,
+      ScopeKindRequiredQueryParam,
+      ScopeIdQueryParam,
+    ],
+    responses: {
+      '200': { description: 'Delete outcome.', schema: ref('EnvDeleteResult') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Missing or malformed scope / envName.'),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:env-refs` (`system-scope-missing`). On a runtime serving one tenant, a system key reaches these only when it runs a pack service per deployment.",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '409': ErrorResponse('The tenant is closing (`tenant-closing`).'),
+      '501': ErrorResponse(
+        'This runtime keeps no cloud secrets (`cloud-secrets-unsupported`): hosted, for one.',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/system/tenants/:tenantId/env',
+    openapiPath: '/v1/system/tenants/{tenantId}/env',
+    operationId: 'systemEnv.listCloudSecrets',
+    summary: "List a tenant's cloud secrets",
+    description:
+      'The env names set to a cloud secret at one scope of the tenant and one env, in name order, each with its `cloudSecret`. Takes `system:env-refs`.',
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      EnvNameQueryParam,
+      ScopeKindRequiredQueryParam,
+      ScopeIdQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
+    responses: {
+      '200': { description: 'A page of them.', schema: ref('EnvCloudSecretPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Missing or malformed scope / envName.'),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:env-refs` (`system-scope-missing`). On a runtime serving one tenant, a system key reaches these only when it runs a pack service per deployment.",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '501': ErrorResponse(
+        'This runtime keeps no cloud secrets (`cloud-secrets-unsupported`): hosted, for one.',
+      ),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/system/usage',
     openapiPath: '/v1/system/usage',
@@ -3128,9 +3247,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/system/deployments',
     openapiPath: '/v1/system/deployments',
     operationId: 'systemDeployments.list',
-    summary: 'List deployments that need a pack service, or should lose theirs',
+    summary: 'List deployments that need a pack service, have a ready one, or should lose theirs',
     description:
-      "Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (the newest deployment with routes for some tool version or pack check), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.",
+      "Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each serves something a call can still ask for, and no newer deployment into its project serves it: a tool, agent or flow version that's registered or held (a flow or agent version a run can reach pins it, or an unfinished run uses it), a tool deployed without a version, or a pack check a registered guardrail runs in its project (from Kindgi 0.4.0; before, each was the newest into its project with routes for some tool version or pack check, and one whose endpoint an earlier runtime made or last set still needs that too). Each has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=ready`: deployments whose endpoint is `ready` and whose pack service stays (no `retire` reason applies). Both lists say whether each service is `warm`: keep an instance running. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.",
     tags: ['system-deployments'],
     security: 'bearer',
     parameters: [
@@ -3139,8 +3258,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
         in: 'query',
         required: true,
         description:
-          '`missing`: deployments that need a pack service. `retire`: deployments whose pack service should go.',
-        schema: { type: 'string', enum: ['missing', 'retire'] },
+          '`missing`: deployments that need a pack service. `ready`: deployments whose pack service is ready and stays. `retire`: deployments whose pack service should go.',
+        schema: { type: 'string', enum: ['missing', 'ready', 'retire'] },
       },
       CursorQueryParam,
       LimitQueryParam,
@@ -3149,7 +3268,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'One page of deployments.', schema: ref('SystemDeploymentPage') },
       ...CommonAuthErrors,
       '400': ErrorResponse(
-        '`endpoint` missing or neither `missing` nor `retire`; a `limit` out of range; a cursor refused.',
+        '`endpoint` missing or not one of `missing`, `ready` and `retire`; a `limit` out of range; a cursor refused.',
       ),
       '403': ErrorResponse(
         "A tenant's key or session (`system-principal-required`), or a system key without `system:deployments` (`system-scope-missing`).",
@@ -3286,7 +3405,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemDeployments.getPackEnv',
     summary: "Read the env a deployment's pack service is to be given",
     description:
-      "For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the values when nothing stands in the way. A name set both ways (`pack-env-ambiguous`), a required one set nowhere (`pack-env-missing`), or one set only as a secret whose value wasn't asked for (`pack-env-secret-not-yet`) is a `problem`, and then no value is given. With `secrets=values`, each name set only as a secret is given in `secrets`, read at the version its revision names; a secret that can't be read for a reason the platform fixes is `pack-env-secret-unreadable`, and then no value is given. Each value given out is on the audit record, a secret's written before the answer. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value, and `kindgi:system` no secret's.",
+      "For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the values when nothing stands in the way. A name set two ways (`pack-env-ambiguous`: two of a plain value, a secret and a cloud secret), a required one set nowhere (`pack-env-missing`), or one set only as a secret whose value wasn't asked for (`pack-env-secret-not-yet`) is a `problem`, and then no value is given. With `secrets=values`, each name set only as a secret is given in `secrets`, read at the version its revision names; a secret that can't be read for a reason the platform fixes is `pack-env-secret-unreadable`, and then no value is given. Each name set to a cloud secret is given in `cloudSecrets`, with its version's resource name, for the pack service's host to read as the pack service's own account. Each value given out is on the audit record, a secret's written before the answer. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value, and `kindgi:system` no secret's.",
     tags: ['system-deployments'],
     security: 'bearer',
     parameters: [SystemTenantIdPathParam, SystemDeploymentIdPathParam, PackEnvSecretsQueryParam],
@@ -4863,7 +4982,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'conversations.open',
     summary: 'Open a conversation',
     description:
-      'Pins `(agentId, agentVersion)` at open time. `title` defaults to `"Untitled conversation"` when omitted; `projectId` puts it in a project, which must reach the agent (lists filter by it; omitted, the agent\'s own project, as for a run, or the Default project for an agent filed under none); `scope` accepts arbitrary JSON.',
+      'Pins `(agentId, agentVersion)` at open time. `title` defaults to `"Untitled conversation"` when omitted; `projectId` puts it in a project, which must reach the agent (lists filter by it; omitted, the agent\'s own project, as for a run, or the default project for an agent filed under none); `scope` accepts arbitrary JSON.',
     tags: ['conversations'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -5233,7 +5352,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'memory.resumeErasure',
     summary: 'Resume an erasure',
     description:
-      "Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people) stops waiting: the run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.",
+      "Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people, or a test run still going with a case from their runs) stops waiting: that run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.",
     tags: ['memory'],
     security: 'bearer',
     parameters: [ErasureIdPathParam, IdempotencyKeyParam],
@@ -8141,7 +8260,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.register',
     summary: 'Register a signed deployment',
     description:
-      "Atomic transaction: check the signing key against the tenant's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the tenant's Default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. Its tools are checked the same way before anything is written: a tool version the runtime holds is kept only with the same definition (`409 tool-already-registered`). A runtime that does this lists `deploy-publishes-pack-blocks` in `info[\"x-kindgi-capabilities\"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.",
+      "Atomic transaction: check the signing key against the tenant's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the tenant's default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. Its tools are checked the same way before anything is written: a tool version the runtime holds is kept only with the same definition (`409 tool-already-registered`). A runtime that does this lists `deploy-publishes-pack-blocks` in `info[\"x-kindgi-capabilities\"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.",
     tags: ['deployments'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -8154,7 +8273,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body, or resource-state conflict. Or, on a runtime serving many tenants (`KINDGI_TENANCY=multi`), where each tenant deploys only its own images: `image-not-allowed`, the image is outside the tenant's repository (`details.imagePrefix`, its own), or `image-prefix-unset`, the tenant has no repository set yet; both are checked before any registry read, and never on a runtime serving one tenant. Or `tool-project-mismatch`, `agent-project-mismatch`, `flow-project-mismatch` or `block-project-mismatch`: one of the image's tools, agents, flows or data blocks belongs to another project (`details.primitive`, `details.id`; the message doesn't name the project); nothing was deployed, even when it was unchanged. Or `block-already-registered`: the runtime holds one of the pack's data block versions with other content, and a version never changes; or holds versions of the pack's blocks unregistered, by hand or by the rollback of a deploy that failed after publishing them, and a deploy never reinstates one (`details.primitive` is `block`, `details.id` is `<id>@<version>`, the first such block); the message says to give it a new version, or names each unregistered one with the command that reinstates it; nothing was deployed. Or `tool-already-registered`: the runtime holds one of the pack's tool versions, active or unregistered, with another definition, and a version never changes (`details.primitive` is `tool`, `details.id` is `<id>@<version>`, `details.fields` the fields of its definition that differ: the manifest's top-level fields, and `modulePath` for where its code lives in the pack). A new image of the same tool isn't another definition: its image and artifact version aren't compared. The message says to give the tool a new version; nothing was deployed. Or `tool-kind-mismatch`: one of the image's tools has the id of an MCP endpoint's tool (`details.endpointId`; `details.primitive`, `details.id`), whose active versions are all the endpoint's; nothing was deployed. Or `project-suspended`: the project the deploy goes into (the named one, or the Default for a tenant-wide deploy) is suspended, and nothing deploys into it until it's restored. Or `environment-takes-promotions`: the project the deploy goes into is a later environment of an environment order, which takes builds only by promotion from the one before it; deploy into the order's first environment and promote the build from there (`details.firstProjectId`, when you can read that project; `details.position`, the project's place from 0). Nothing is written. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead. Or `deploy-would-put-back-older-blocks`: a newer version of one of the pack's data blocks than its files' runs now in a project of one of its agents (a project's own version, or a segment pin inside one), and the body's `replace` doesn't name it. `details.blocks` lists each (`DeployCheckStop`): the files' version and the newest that runs, where, who made it run there and when, and the pull request opened for it; in a project the caller can't read, the version only. Every project counts, whoever deploys. Nothing was deployed. A runtime that doesn't read the agents' pins and Latest doesn't check.",
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or, on a runtime serving many tenants (`KINDGI_TENANCY=multi`), where each tenant deploys only its own images: `image-not-allowed`, the image is outside the tenant's repository (`details.imagePrefix`, its own), or `image-prefix-unset`, the tenant has no repository set yet; both are checked before any registry read, and never on a runtime serving one tenant. Or `tool-project-mismatch`, `agent-project-mismatch`, `flow-project-mismatch` or `block-project-mismatch`: one of the image's tools, agents, flows or data blocks belongs to another project (`details.primitive`, `details.id`; the message doesn't name the project); nothing was deployed, even when it was unchanged. Or `block-already-registered`: the runtime holds one of the pack's data block versions with other content, and a version never changes; or holds versions of the pack's blocks unregistered, by hand or by the rollback of a deploy that failed after publishing them, and a deploy never reinstates one (`details.primitive` is `block`, `details.id` is `<id>@<version>`, the first such block); the message says to give it a new version, or names each unregistered one with the command that reinstates it; nothing was deployed. Or `tool-already-registered`: the runtime holds one of the pack's tool versions, active or unregistered, with another definition, and a version never changes (`details.primitive` is `tool`, `details.id` is `<id>@<version>`, `details.fields` the fields of its definition that differ: the manifest's top-level fields, and `modulePath` for where its code lives in the pack). A new image of the same tool isn't another definition: its image and artifact version aren't compared. The message says to give the tool a new version; nothing was deployed. Or `tool-kind-mismatch`: one of the image's tools has the id of an MCP endpoint's tool (`details.endpointId`; `details.primitive`, `details.id`), whose active versions are all the endpoint's; nothing was deployed. Or `project-suspended`: the project the deploy goes into (the named one, or the default for a tenant-wide deploy) is suspended, and nothing deploys into it until it's restored. Or `environment-takes-promotions`: the project the deploy goes into is a later environment of an environment order, which takes builds only by promotion from the one before it; deploy into the order's first environment and promote the build from there (`details.firstProjectId`, when you can read that project; `details.position`, the project's place from 0). Nothing is written. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead. Or `deploy-would-put-back-older-blocks`: a newer version of one of the pack's data blocks than its files' runs now in a project of one of its agents (a project's own version, or a segment pin inside one), and the body's `replace` doesn't name it. `details.blocks` lists each (`DeployCheckStop`): the files' version and the newest that runs, where, who made it run there and when, and the pull request opened for it; in a project the caller can't read, the version only. Every project counts, whoever deploys. Nothing was deployed. A runtime that doesn't read the agents' pins and Latest doesn't check.",
       ),
       '400': ErrorResponse(
         "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. When `image-unverifiable` comes from a failed registry read, `details.cause` names why: `image-not-found`, `image-file-not-found`, `image-registry-unreachable`, `image-registry-unauthorized`, `image-unreadable` (a layer that isn't a readable archive), or `image-limit-exceeded`, with the bound in `details.limit` (`manifest`, `file`, `layer`, `read` or `unpack`: the image's own, so the same image is refused again). The tenant's hour of image reads passes, so it answers `429`. A tool that declares or sends a model provider's key, or a secret under the reserved `kindgi.` prefix, is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key or one of Kindgi's own secrets. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile is one too (`path` where it sits, such as `/output/schema` or `/nodes/<i>/branches/<k>/outputSchema`), as `defineAgent` and the flow loader refuse it: every turn or run would. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`. Or `reference-out-of-scope`: an agent or flow names a tool, agent, flow, guardrail or data block that neither the deployment brings nor its project reaches (`details.issues`, at `/agents/<i>/…` or `/flows/<i>/…`); nothing is registered.",
@@ -8209,7 +8328,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.list',
     summary: 'List signed deployments',
     description:
-      "Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Only the deployments in projects the caller reads are listed (a deployment naming no project is the Default project's), so a page can hold fewer than `limit` with `hasMore` true: page by `nextCursor`, not by count. Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the Default also finds those naming no project); `?packId=` to one pack.",
+      "Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Only the deployments in projects the caller reads are listed (a deployment naming no project is the default project's), so a page can hold fewer than `limit` with `hasMore` true: page by `nextCursor`, not by count. Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the default also finds those naming no project); `?packId=` to one pack.",
     tags: ['deployments'],
     security: 'bearer',
     parameters: [
@@ -8234,7 +8353,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         in: 'query',
         required: false,
         description:
-          "Filter to one environment's deployments. The tenant's Default project also finds those that name no project. Needs `read` on that project.",
+          "Filter to one environment's deployments. The tenant's default project also finds those that name no project. Needs `read` on that project.",
         schema: { type: 'string' },
       },
       {
@@ -8319,7 +8438,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.syncSecrets',
     summary: 'Sync secrets against a deployment',
     description:
-      'Deployment-scoped bulk secret sync. Body carries `{ envName, secrets: Array<{ name, ref } | { name, value }> }`. `{ name, ref }` entries validate against `SecretBinding.get` — no bytes cross the wire; missing → 404 `secret-not-found`. `{ name, value }` entries write via `SecretBinding.set` with `writeMode: add-version` + `tags.deployment = deploymentId` and return the created reference. The write scope is derived from the deployment record itself (tenant scope, or project scope when the deployment carries a `projectId`) and CANNOT be overridden on the wire. A secret the tools of this deployment name that was set nowhere when a deploy or a promotion published them is read at that scope, when whoever published them administers it: a deploy needs `admin` there, while a promotion into the Default project needs it only on that project. Requires the `secrets:write` capability. Idempotency-Key applies.',
+      'Deployment-scoped bulk secret sync. Body carries `{ envName, secrets: Array<{ name, ref } | { name, value }> }`. `{ name, ref }` entries validate against `SecretBinding.get` — no bytes cross the wire; missing → 404 `secret-not-found`. `{ name, value }` entries write via `SecretBinding.set` with `writeMode: add-version` + `tags.deployment = deploymentId` and return the created reference. The write scope is derived from the deployment record itself (tenant scope, or project scope when the deployment carries a `projectId`) and CANNOT be overridden on the wire. A secret the tools of this deployment name that was set nowhere when a deploy or a promotion published them is read at that scope, when whoever published them administers it: a deploy needs `admin` there, while a promotion into the default project needs it only on that project. Requires the `secrets:write` capability. Idempotency-Key applies.',
     tags: ['deployments'],
     security: 'bearer',
     parameters: [
@@ -8372,7 +8491,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         in: 'query',
         required: false,
         description:
-          "The project the values are needed in. Default: the deployment's own project (the tenant's Default project for a tenant-wide deployment).",
+          "The project the values are needed in. Default: the deployment's own project (the tenant's default project for a tenant-wide deployment).",
         schema: { type: 'string', format: 'uuid' },
       },
     ],
@@ -9208,16 +9327,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/projects/default',
     openapiPath: '/v1/projects/default',
     operationId: 'projects.getDefault',
-    summary: "Fetch the tenant's Default project",
+    summary: "Fetch the tenant's default project",
     description:
-      'Returns the row where `Project.isDefault = true` (exactly one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when no Default has been provisioned.',
+      'Returns the row where `Project.isDefault = true` (at most one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when the tenant has none.',
     tags: ['projects'],
     security: 'bearer',
     responses: {
       '200': { description: 'Default project.', schema: ref('Project') },
       ...CommonAuthErrors,
-      '403': ErrorResponse("The caller can't read the Default project."),
-      '404': ErrorResponse('Tenant has no Default project.'),
+      '403': ErrorResponse("The caller can't read the default project."),
+      '404': ErrorResponse('Tenant has no default project.'),
     },
   },
   {
@@ -9261,7 +9380,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.create',
     summary: 'Create a project',
     description:
-      "A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second Default, `409 project-default-already-exists`.",
+      "A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second default project, `409 project-default-already-exists`.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -10431,6 +10550,32 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
+    honoPath: '/v1/env/cloud-secrets',
+    openapiPath: '/v1/env/cloud-secrets',
+    operationId: 'env.listCloudSecrets',
+    summary: 'List the names set to a cloud secret',
+    description:
+      "The env names the operator set to a cloud secret at `(scope, envName)`, in name order: a version of a secret the operator's cloud holds, which a pack service's host reads as the pack service's own account. Which secret is the operator's to know, so it isn't given. The operator sets them with a system key (`PUT /v1/system/tenants/{tenantId}/env/{name}`).",
+    tags: ['env'],
+    security: 'bearer',
+    parameters: [
+      EnvNameQueryParam,
+      ScopeKindRequiredQueryParam,
+      ScopeIdQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
+    responses: {
+      '200': { description: 'A page of them.', schema: ref('EnvCloudSecretNamePage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Missing or malformed scope / envName.'),
+      '501': ErrorResponse(
+        'This runtime keeps no cloud secrets (`cloud-secrets-unsupported`): hosted, for one.',
+      ),
+    },
+  },
+  {
+    method: 'get',
     honoPath: '/v1/env/:name',
     openapiPath: '/v1/env/{name}',
     operationId: 'env.get',
@@ -10458,7 +10603,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'env.put',
     summary: 'Upsert an env entry',
     description:
-      "Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`). Env values aren't secret: they're recorded with each run that uses them. A credential goes in `/v1/secrets`.",
+      "Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`). Env values aren't secret: they're recorded with each run that uses them. A credential goes in `/v1/secrets`. A body with `cloudSecret` is refused: only the operator sets a name to a cloud secret, with a system key.",
     tags: ['env'],
     security: 'bearer',
     parameters: [
@@ -10472,9 +10617,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Env record.', schema: ref('EnvRecord') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('Bearer token missing `env:write` capability.'),
+      '403': ErrorResponse(
+        'Bearer token missing `env:write` capability; or a body with `cloudSecret`, which only the operator sets (`cloud-secret-system-only`).',
+      ),
       '409': ErrorResponse(
         `\`ifRevision\` mismatch (env-write-conflict). Or ${ENV_NOT_SERVED_VALUE}`,
+      ),
+      '501': ErrorResponse(
+        'A body with `cloudSecret`, on a runtime that keeps no cloud secrets (`cloud-secrets-unsupported`).',
       ),
     },
   },
@@ -11217,7 +11367,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.register',
     summary: 'Register a webhook trigger',
     description:
-      "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the tenant that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's Default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
+      "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the tenant that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -11455,7 +11605,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mailTriggers.register',
     summary: 'Register a mail trigger',
     description:
-      "Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's Default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
+      "Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
     tags: ['mail-triggers'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -11794,6 +11944,97 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '503': ErrorResponse(
         "`tenant-state-unavailable`: the run's tenant's state couldn't be read, so the answer wasn't taken. `Retry-After` says when to send it again.",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/tool-files',
+    openapiPath: '/v1/tool-files',
+    operationId: 'toolFiles.store',
+    senderOnly:
+      "A pack service stores a file for a tool's call with the tool files the call carries (pack protocol 2.10.0); a Kindgi client stores files with `POST /v1/artifacts`.",
+    summary: "Store a file for a pack tool's call",
+    description:
+      "A pack tool that declares `storesFiles` gets the call's tool files with each call, and its pack service posts each file the tool stores here. No API key: `Authorization: Bearer` carries the call's token (`kgi_tf_…`), which names one call of one run and what it may do: store files for that call, read files its run may be shown (`GET /v1/tool-files/{artifactId}`), or both. The body is the file's bytes, at most 10 MB read; `Content-Type` is the type its source declares, and `Kindgi-File-Name` its name, percent-encoded UTF-8 (an empty name is stored as `unnamed`). The runtime checks the bytes, and only they decide the type. The stored file is owned by the call's run, in its project. The same bytes again in the same call, a re-run of it included, answer the first file. A call stores at most 10 files. The token closes when the call answers, when its time passes, or when its run ends.",
+    tags: ['runs'],
+    security: 'public',
+    parameters: [
+      {
+        name: 'Kindgi-File-Name',
+        in: 'header',
+        required: false,
+        description: "The file's name, percent-encoded UTF-8. Absent or empty: `unnamed`.",
+        schema: { type: 'string' },
+      },
+    ],
+    requestBody: {
+      required: true,
+      description: "The file's bytes, with the type its source declares as `Content-Type`.",
+      schema: { type: 'string', format: 'binary' },
+      contentType: '*/*',
+    },
+    responses: {
+      '200': {
+        description:
+          "The stored file (`file`), for the tool to return in its result's top-level `files`; or nothing stored, and why (`notStored`): `type` (not a type a model is shown, or the bytes aren't the type they claim), `size` (over its type's limit, or a body past 10 MB, not read to its end), `limit` (the call has stored 10 files), `storage` (the tenant's storage is full).",
+        schema: ref('ToolFileStoreAnswer'),
+      },
+      '400': ErrorResponse('`bad-input`: `Kindgi-File-Name` is not percent-encoded UTF-8.'),
+      '404': ErrorResponse(
+        "`tool-file-token-not-found`: no tool call's files match the bearer (none sent, an unknown token, a wrong secret, and a call that doesn't store files alike), or this runtime stores no files.",
+      ),
+      '409': ErrorResponse(
+        '`tool-file-token-closed`: the call has answered, its time has passed, or its run has ended. `tenant-closing`, `tenant-suspended` (`details.state`) or `project-suspended`: nothing runs where the run is, so nothing was stored. Told only for a token that matches.',
+      ),
+      '429': ErrorResponse(
+        '`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was stored. `Retry-After` says when to store the file again.',
+      ),
+      '503': ErrorResponse(
+        "`tenant-state-unavailable`: the run's tenant's state couldn't be read, so nothing was stored. `tool-files-busy`: the runtime's memory for files had no room for the bytes in time, so nothing was stored. `Retry-After` says when to store the file again.",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/tool-files/:artifactId',
+    openapiPath: '/v1/tool-files/{artifactId}',
+    operationId: 'toolFiles.read',
+    senderOnly:
+      "A pack service reads a file for a tool's call with the token the call carries (pack protocol 2.10.0); a Kindgi client reads files with `GET /v1/artifacts/{blobId}`.",
+    summary: "Read a file for a pack tool's call",
+    description:
+      "A pack tool that declares `readsFiles` gets the call's tool files with each call, and its pack service reads each file the tool asks for here, by its file value's `artifactId`. No API key: `Authorization: Bearer` carries the call's token (`kgi_tf_…`). The call reads a file its run may be shown, such as one in the run's input, in its conversation, or one a tool stored in it, with the bytes it was stored with, never a copy made for a model. A read isn't refused for a closing or suspended tenant or a suspended project: it changes nothing. The token closes when the call answers, when its time passes, or when its run ends.",
+    tags: ['runs'],
+    security: 'public',
+    parameters: [
+      {
+        name: 'artifactId',
+        in: 'path',
+        required: true,
+        description: "The file value's `artifactId`.",
+        schema: { type: 'string' },
+      },
+    ],
+    responses: {
+      '200': {
+        description:
+          "The file's bytes, as it was stored (`application/octet-stream`, as an attachment, never sniffed); or no bytes, and why, as JSON (`notRead`).",
+        contentType: 'application/octet-stream',
+        schema: { type: 'string', format: 'binary' },
+        orJson: ref('ToolFileNotRead'),
+      },
+      '404': ErrorResponse(
+        "`tool-file-token-not-found`: no tool call's files match the bearer (none sent, an unknown token, a wrong secret, and a call that doesn't read files alike), or this runtime stores no files.",
+      ),
+      '409': ErrorResponse(
+        '`tool-file-token-closed`: the call has answered, its time has passed, or its run has ended.',
+      ),
+      '429': ErrorResponse(
+        '`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was read. `Retry-After` says when to read the file again.',
+      ),
+      '503': ErrorResponse(
+        "`tool-files-busy`: the runtime's memory for files had no room for the bytes in time, so nothing was read. `database-busy`: the database was too busy to answer in time. `Retry-After` says when to read the file again.",
       ),
     },
   },

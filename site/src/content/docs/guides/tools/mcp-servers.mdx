@@ -904,7 +904,7 @@ reconnects:
 
 ## When a tool id is taken
 
-An endpoint's tools are filed in your tenant's Default project, whatever
+An endpoint's tools are filed in your tenant's default project, whatever
 the endpoint's scope. A tool id there is one kind or the other (runtime
 0.1.9 or later): an endpoint's tool, or a tool published to the runtime, by
 `kindgi tools publish` or by a pack's deploy. Only active versions count:
@@ -914,7 +914,7 @@ once one kind's versions are unregistered, the id is free for the other.
   `tool-kind-mismatch`, and nothing is written. Its `details` name the tool
   and the version, and the endpoint (`endpointId`) when the id is an
   endpoint's tool. A refused reinstate leaves the version unregistered.
-- **A deploy into the Default project** of a pack with a tool whose id is an
+- **A deploy into the default project** of a pack with a tool whose id is an
   endpoint's tool's id, such as a pack `inventory` with a tool
   `inventory.stock_level`, is refused the same way, with `details.primitive`,
   `details.id` and `details.endpointId`. Nothing is deployed: the deploy

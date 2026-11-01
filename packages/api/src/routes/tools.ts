@@ -788,33 +788,41 @@ function kindMismatch(outcome: ToolKindMismatch, write: 'publish' | 'reinstate')
  * as a reference (`secretRef`), never a value.
  */
 function serializeTool(t: ToolRecord): Record<string, unknown> {
-  return {
+  const out: Record<string, unknown> = {
     id: t.id as unknown as string,
     ...(t.projectId !== undefined && { projectId: t.projectId as unknown as string }),
     description: t.description,
     ...(t.version !== undefined && { version: t.version }),
     input: t.input,
     output: t.output,
-    ...(t.needs !== undefined && { needs: t.needs }),
-    ...(t.effects !== undefined && { effects: t.effects }),
-    ...(t.transport !== undefined && { transport: t.transport }),
-    ...(t.mcpEndpoint !== undefined && { mcpEndpoint: t.mcpEndpoint }),
-    ...(t.metadata !== undefined && { metadata: t.metadata }),
-    ...(t.mutating !== undefined && { mutating: t.mutating }),
-    ...(t.needsApprovalWhenUnattended !== undefined && {
-      needsApprovalWhenUnattended: t.needsApprovalWhenUnattended,
-    }),
-    ...(t.pauses !== undefined && { pauses: t.pauses }),
-    ...(t.resultIsOutsideData !== undefined && { resultIsOutsideData: t.resultIsOutsideData }),
-    ...(t.sandbox !== undefined && { sandbox: t.sandbox }),
-    ...(t.limits !== undefined && { limits: t.limits }),
-    ...(t.network !== undefined && { network: t.network }),
-    ...(t.needsSpec !== undefined && { needsSpec: t.needsSpec }),
-    ...(t.codeArtifactRef !== undefined && { codeArtifactRef: t.codeArtifactRef }),
-    ...(t.spec !== undefined && { spec: t.spec }),
-    ...(t.secretScopes !== undefined && { secretScopes: t.secretScopes }),
   };
+  for (const field of OPTIONAL_TOOL_FIELDS) {
+    if (t[field] !== undefined) out[field] = t[field];
+  }
+  return out;
 }
+
+/** The fields the wire carries as the record holds them, each only when set, in the wire's order. */
+const OPTIONAL_TOOL_FIELDS = [
+  'needs',
+  'effects',
+  'transport',
+  'mcpEndpoint',
+  'metadata',
+  'mutating',
+  'needsApprovalWhenUnattended',
+  'pauses',
+  'storesFiles',
+  'readsFiles',
+  'resultIsOutsideData',
+  'sandbox',
+  'limits',
+  'network',
+  'needsSpec',
+  'codeArtifactRef',
+  'spec',
+  'secretScopes',
+] as const satisfies readonly (keyof ToolRecord)[];
 
 /**
  * Serializer for `listVersions` rows — the same shape as `serializeTool`

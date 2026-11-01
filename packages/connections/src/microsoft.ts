@@ -5,9 +5,10 @@ import { defineApp } from './define.js';
 
 /**
  * Microsoft, for a member's own work, school or personal account, or the
- * company's mailbox (a tenant admin signs in as that mailbox): mail sent
- * as them through Outlook, their mail read. Each tenant registers its
- * own app in Microsoft Entra (the setup guide says how).
+ * company's (a tenant admin signs in as it): mail sent as them through
+ * Outlook, their mail read, and their own Outlook calendar's events read,
+ * added and changed. Each tenant registers its own app in Microsoft
+ * Entra (the setup guide says how).
  *
  * - **Sign-in:** OAuth 2.0 with PKCE, in the directory the registration
  *   names: its tenant id or domain for a single-tenant app (a company's
@@ -29,9 +30,11 @@ import { defineApp } from './define.js';
  *   tokens, so a disconnect deletes Kindgi's, and the person removes the
  *   app at Microsoft (the setup guide says where).
  * - **Rate limits:** Graph's 10,000 requests per 10 minutes per mailbox,
- *   and Exchange's 30 messages a minute. Graph's 4 calls at once per
- *   mailbox, and Exchange's 10,000 recipients a day, are its own to
- *   enforce: a 429 says how long to wait.
+ *   calendar calls included, and Exchange's 30 messages a minute. A
+ *   calendar read isn't a message; a create or an update counts as one,
+ *   since one with attendees sends meeting requests. Graph's 4 calls at
+ *   once per mailbox, and Exchange's 10,000 recipients a day, are its own
+ *   to enforce: a 429 says how long to wait.
  */
 export const microsoft = defineApp({
   id: 'microsoft',
@@ -50,6 +53,16 @@ export const microsoft = defineApp({
   permissions: {
     'mail.send': { grants: 'Mail.Send', says: 'Send mail as you', changes: true },
     'mail.read': { grants: 'Mail.Read', says: 'Read your mail', changes: false },
+    'calendars.readbasic': {
+      grants: 'Calendars.ReadBasic',
+      says: "See your calendar's events, without their details",
+      changes: false,
+    },
+    'calendars.readwrite': {
+      grants: 'Calendars.ReadWrite',
+      says: 'Read, add and change events on your calendar',
+      changes: true,
+    },
   },
   account: {
     kind: 'profile',
@@ -68,8 +81,11 @@ export const microsoft = defineApp({
       costs: {
         'outlook.messages.list': 0,
         'outlook.messages.get': 0,
+        'outlook.attachments.get': 0,
         'outlook.messages.delta': 0,
         'outlook.folders.get': 0,
+        'outlook.calendar.view': 0,
+        'outlook.events.get': 0,
       },
     },
   ],
