@@ -41,15 +41,156 @@
 
   // The site's own date format and time zone (Settings → General).
   const when = (iso) => (iso ? wp.date.dateI18n(wp.date.getSettings().formats.datetime, iso) : '');
-  const failure = (error) => error?.message ?? __('Something went wrong.', 'kindgi');
-  const notice = (error) =>
+  /** Why Kindgi wouldn't sign the person in (its `reason`), in words for them. */
+  const SIGN_IN = {
+    'role-not-allowed': __(
+      "Your role on this site doesn't use Kindgi. An administrator can change which roles do.",
+      'kindgi',
+    ),
+    'person-removed': __(
+      'You were removed from Kindgi on this site. An administrator can bring you back.',
+      'kindgi',
+    ),
+    'people-cap': __(
+      'This site has as many people at Kindgi as it may have. An administrator can make room.',
+      'kindgi',
+    ),
+    'site-paused': __(
+      'Kindgi is paused for this site. An administrator can turn it back on.',
+      'kindgi',
+    ),
+  };
+  const CLOCK = ['expired', 'issued-in-the-future'];
+
+  const UNREACHABLE = __("Kindgi can't be reached right now. Try again in a moment.", 'kindgi');
+  const BETWEEN = __(
+    'Something went wrong between this site and Kindgi. Try again; if it keeps happening, an administrator can look under Details.',
+    'kindgi',
+  );
+
+  /** A sign-in Kindgi refused, in words for the person. */
+  function signInFailure(reason) {
+    if (SIGN_IN[reason] !== undefined) return SIGN_IN[reason];
+    if (CLOCK.includes(reason)) {
+      return __(
+        "Kindgi didn't sign you in: this site's clock is off. Its host can set it right.",
+        'kindgi',
+      );
+    }
+    // Each sign-in is new: one Kindgi took for a replay goes on a second try.
+    if (reason === 'replayed')
+      return __("Kindgi didn't sign you in this time. Try again.", 'kindgi');
+    // The site's own statement, made wrong: no one here can mend it but its developer.
+    if (reason === 'too-long-lived') return BETWEEN;
+    return __(
+      "Kindgi didn't sign you in: this site's connection needs an administrator to connect it again.",
+      'kindgi',
+    );
+  }
+
+  /**
+   * Errors worded for someone else: WordPress's own (the page lost the site,
+   * or the site answered with no JSON), and the plugin's that pass on
+   * WordPress's HTTP words, Kindgi's odd answer, or the key's setup.
+   */
+  const NOT_STAFF_WORDS = {
+    fetch_error: __(
+      "This page can't reach the site right now. Check the connection and try again.",
+      'kindgi',
+    ),
+    invalid_json: BETWEEN,
+    kindgi_unreachable: UNREACHABLE,
+    kindgi_error: UNREACHABLE,
+    kindgi_bad_answer: UNREACHABLE,
+    kindgi_key_invalid: __(
+      "Kindgi isn't set up right on this site. An administrator can see why under Details.",
+      'kindgi',
+    ),
+  };
+
+  /** Any other refusal, by its status. A 400 or 422 is the plugin's and Kindgi's to sort out, not staff's. */
+  const BY_STATUS = {
+    400: BETWEEN,
+    403: __(
+      "Kindgi doesn't let you do that here. An administrator decides what each role may do.",
+      'kindgi',
+    ),
+    404: __("That isn't at Kindgi any more.", 'kindgi'),
+    409: __('That changed meanwhile. Reload the page to see where it stands.', 'kindgi'),
+    422: BETWEEN,
+    429: __('Kindgi is busy. Try again in a minute.', 'kindgi'),
+  };
+
+  /** Whether an error's own words are for staff: the plugin's, other than those worded for someone else. */
+  const staffWords = (code) => code.startsWith('kindgi_') && !Object.hasOwn(NOT_STAFF_WORDS, code);
+
+  /**
+   * What went wrong, in words for staff. The plugin's own errors (`kindgi_…`)
+   * are mostly worded for them; the rest are words for developers, so
+   * they're replaced here and kept for administrators under Details.
+   */
+  function failure(error) {
+    const code = String(error?.code ?? '');
+    if (staffWords(code) && error?.message) return error.message;
+    if (Object.hasOwn(NOT_STAFF_WORDS, code)) return NOT_STAFF_WORDS[code];
+    if (code === 'site-sign-in-refused') return signInFailure(error?.data?.reason);
+    if (code === 'run-failed') {
+      return __("The agent couldn't finish this. Try again, or ask it another way.", 'kindgi');
+    }
+    return BY_STATUS[error?.data?.status] ?? UNREACHABLE;
+  }
+
+  /** Kindgi's own words about an error, for an administrator; null for anyone else. */
+  function technical(error) {
+    if (window.kindgiConfig?.admin !== true || staffWords(String(error?.code ?? ''))) return null;
+    const said = [error?.code, error?.message].filter(Boolean).join(': ');
+    return said === ''
+      ? null
+      : el(
+          'details',
+          { className: 'kindgi-technical' },
+          el('summary', {}, __('Details', 'kindgi')),
+          el('code', {}, said),
+        );
+  }
+
+  /** An error, in words for staff, with Try again when `retry` is given. */
+  const notice = (error, retry = null) =>
     el(
       'div',
-      { className: 'notice notice-error inline', role: 'alert' },
+      { className: 'kindgi-problem', role: 'alert' },
       el('p', {}, failure(error)),
+      retry === null
+        ? null
+        : el(
+            'button',
+            { type: 'button', className: 'button', onclick: retry },
+            __('Try again', 'kindgi'),
+          ),
+      technical(error),
     );
-  const loading = () => el('p', { className: 'kindgi-muted' }, __('Loading…', 'kindgi'));
+
+  /** Grey lines where something is on its way; read out as "Loading…". */
+  const loading = (lines = 3) =>
+    el(
+      'div',
+      { className: 'kindgi-skeleton', role: 'status' },
+      el('span', { className: 'screen-reader-text' }, __('Loading…', 'kindgi')),
+      Array.from({ length: lines }, () =>
+        el('span', { className: 'kindgi-skeleton-line', 'aria-hidden': 'true' }),
+      ),
+    );
   const muted = (text) => el('p', { className: 'kindgi-muted' }, text);
+
+  /** A list with nothing in it: what it is, what lands in it, and what to do now. */
+  const empty = ({ title, text = null, actions = [] }) =>
+    el(
+      'div',
+      { className: 'kindgi-empty' },
+      el('p', { className: 'kindgi-empty-title' }, title),
+      text === null ? null : el('p', {}, text),
+      actions.length === 0 ? null : el('p', { className: 'kindgi-empty-actions' }, actions),
+    );
 
   /** A field's or a tool's name in words, `orderId` → "Order ID", as the site's PHP has it. */
   function words(name) {
@@ -241,7 +382,9 @@
     };
     const decide = async (decision) => {
       if (decision === 'reject' && reason.value.trim() === '') {
-        result.replaceChildren(notice({ message: __('Say why you reject it.', 'kindgi') }));
+        result.replaceChildren(
+          notice({ code: 'kindgi_reason_needed', message: __('Say why you reject it.', 'kindgi') }),
+        );
         reason.focus();
         return;
       }
@@ -312,6 +455,7 @@
     notice,
     loading,
     muted,
+    empty,
     toolName,
     askUrl,
     approvalCard,
