@@ -81,9 +81,10 @@ uv run kindgi reviewers list
 }
 ```
 
-On any other runtime, register each person who reviews, with a role. Run it
-as that person: the reviewer is the user the API token belongs to. That
-covers any token of theirs, an API key or a console sign-in:
+On any other runtime, register each person who reviews, with a role.
+Without `userId`, the reviewer is the user the API token belongs to, by an
+API key or a console sign-in of theirs, so a person can register
+themselves:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -116,10 +117,48 @@ uv run kindgi reviewers register --spec='{"role":"standard","displayName":"Ada L
 </TabItem>
 </Tabs>
 
+With authorization on, registering needs `admin` on the tenant
+([Who can do what](../../../deploy/people-and-keys/#who-can-do-what)), so
+someone who isn't a tenant admin can't register themselves. A tenant admin
+registers them with their `userId` in the spec (`kindgi people list` shows
+it):
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```sh
+pnpm exec kindgi reviewers register --spec='{"userId":"002ee784-0b05-47fb-918e-34d192be94c1","role":"senior","displayName":"Sam Rivera"}'
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi reviewers register --spec='{"userId":"002ee784-0b05-47fb-918e-34d192be94c1","role":"senior","displayName":"Sam Rivera"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw reviewers register --spec='{"userId":"002ee784-0b05-47fb-918e-34d192be94c1","role":"senior","displayName":"Sam Rivera"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw reviewers register --spec='{"userId":"002ee784-0b05-47fb-918e-34d192be94c1","role":"senior","displayName":"Sam Rivera"}'
+```
+
+</TabItem>
+</Tabs>
+
 `--spec` is the reviewer, as JSON:
 
 - `role` is `standard`, `senior` or `admin`.
 - `displayName` is the name the console shows.
+- `userId` is the person to register. Without it, it's you.
 
 It prints the new reviewer:
 
