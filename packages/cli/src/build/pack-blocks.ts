@@ -16,8 +16,8 @@
  * rather than built without them.
  *
  * A path the pack names in another case than the disk has reads on a
- * disk that ignores case (macOS, Windows) and not on a Linux one, where
- * the image builds: `misCasedPaths` finds those.
+ * disk that ignores case (macOS, Windows), and a build on Linux won't
+ * find it: `misCasedPaths` finds those.
  */
 
 import { readFile, readdir } from 'node:fs/promises';
@@ -277,7 +277,7 @@ export async function checkPackBlocks(opts: {
   if (misCased.length > 0) {
     return {
       kind: 'err',
-      message: `The pack's blocks name files in another case than the disk has. A Linux disk, where the image builds, tells them apart and won't find them. Name them as the disk does:\n${misCased.map((line) => `  ${line}`).join('\n')}`,
+      message: `The pack's blocks name files in another case than the disk has. Linux tells them apart, so a build on Linux won't find them. Name them as the disk does:\n${misCased.map((line) => `  ${line}`).join('\n')}`,
     };
   }
   const problems = blockProblems(blocksOf(JSON.parse(await readFile(opts.indexPath, 'utf8'))));

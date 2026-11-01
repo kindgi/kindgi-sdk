@@ -63,9 +63,9 @@ const STYLE = {
 };
 
 /** The pack indexed as `kindgi build` indexes it, its blocks then checked (its folders listed by `readFolder`, or the disk). */
-async function check(readFolder?: ReadFolder) {
+async function check(readFolder?: ReadFolder, pattern = BLOCKS) {
   await write({
-    'kindgi.config.mjs': "export default { pack: { id: 'acme', version: '1.0.0' } };\n",
+    'kindgi.config.mjs': `export default { pack: { id: 'acme', version: '1.0.0' }, discovery: { blocks: ${JSON.stringify(pattern)} } };\n`,
   });
   const indexPath = join(packDir, 'out', 'index.json');
   const indexed = await runIndexer({
@@ -78,7 +78,7 @@ async function check(readFolder?: ReadFolder) {
   expect(indexed.value.fileErrors).toEqual([]);
   return checkPackBlocks({
     packDir,
-    pattern: BLOCKS,
+    pattern,
     indexPath,
     blocksCounted: true,
     indexer: packIndexerName('python'),
@@ -120,7 +120,7 @@ const DISK_IGNORES_CASE = (() => {
 })();
 
 const MIS_CASED =
-  "The pack's blocks name files in another case than the disk has. A Linux disk, where the image builds, tells them apart and won't find them. Name them as the disk does:";
+  "The pack's blocks name files in another case than the disk has. Linux tells them apart, so a build on Linux won't find them. Name them as the disk does:";
 
 describe('misCasedPaths', () => {
   const ROOT = join(tmpdir(), 'kindgi-no-such-pack');
@@ -277,6 +277,42 @@ describe('checkPackBlocks', () => {
         '  The blocks pattern "blocks/**/*.json" names blocks/, but the folder is Blocks/.',
         '  blocks/support/reply.json: `content.templateFile` "reply.liquid" names blocks/support/reply.liquid, but the file is Blocks/support/REPLY.liquid.',
       ].join('\n'),
+    });
+  });
+
+  test("a pattern that starts two folders down, either in another case: one line for the pattern's folder", async () => {
+    const pattern = 'blocks/support/**/*.json';
+    await write({
+      'blocks/support/reply.json': JSON.stringify(REPLY),
+      'blocks/support/reply.liquid': 'Reply to {{ customer_name }}.',
+    });
+    const root = ['kindgi.config.mjs', 'out'];
+    const template = ['reply.json', 'reply.liquid'];
+    expect(
+      await check(
+        fakeDisk(packDir, {
+          '': ['blocks', ...root],
+          blocks: ['Support'],
+          'blocks/Support': template,
+        }).readFolder,
+        pattern,
+      ),
+    ).toEqual({
+      kind: 'err',
+      message: `${MIS_CASED}\n  The blocks pattern "${pattern}" names blocks/support/, but the folder is blocks/Support/.`,
+    });
+    expect(
+      await check(
+        fakeDisk(packDir, {
+          '': ['Blocks', ...root],
+          Blocks: ['support'],
+          'Blocks/support': template,
+        }).readFolder,
+        pattern,
+      ),
+    ).toEqual({
+      kind: 'err',
+      message: `${MIS_CASED}\n  The blocks pattern "${pattern}" names blocks/support/, but the folder is Blocks/support/.`,
     });
   });
 
