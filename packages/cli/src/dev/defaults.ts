@@ -34,6 +34,7 @@ import {
 } from '@kindgi/handler-runtime';
 import { createPackServiceSupervisor } from '@kindgi/handler-runtime/pack-service';
 
+import { programPath } from '../program-path.js';
 import { blockFilesState } from './block-files-state.js';
 import { type DockerReach, dockerReach, dockerUnreachable } from './blocked.js';
 import { createDevPackBuilder } from './bundler.js';
@@ -160,23 +161,27 @@ export function createPackServiceReal(opts: DevPackServiceOptions): DevPackServi
     return isJvmPackCode(opts.code) ? javaEnv(opts.code, base) : base;
   };
   const { sandbox } = opts;
-  const command = packServiceCommand(opts.code);
+  const [program, ...args] = packServiceCommand(opts.code);
   return createPackServiceSupervisor({
-    // Sandboxed: worked out at every start, for what that start runs.
-    command:
-      sandbox === undefined
-        ? command
-        : async () =>
-            (
-              await sandboxedCommand(sandbox, {
-                packDir: opts.packDir,
-                code: opts.code,
-                command,
-                env: await env(),
-                node: { execPath: process.execPath, entry: resolvePackServiceEntrypoint() },
-                ...(opts.onNotice !== undefined && { onNotice: opts.onNotice }),
-              })
-            ).command,
+    // Worked out at every start: the program on the service's PATH, never
+    // one in the pack's folder (found before a sandbox wraps it, since the
+    // sandbox would look for a bare name itself), and the sandbox for what
+    // that start runs, which gives its own programs by their paths too.
+    command: async () => {
+      const childEnv = await env();
+      const command = [await programPath(program, childEnv), ...args] as const;
+      if (sandbox === undefined) return command;
+      return (
+        await sandboxedCommand(sandbox, {
+          packDir: opts.packDir,
+          code: opts.code,
+          command,
+          env: childEnv,
+          node: { execPath: process.execPath, entry: resolvePackServiceEntrypoint() },
+          ...(opts.onNotice !== undefined && { onNotice: opts.onNotice }),
+        })
+      ).command;
+    },
     moduleRoot: opts.packDir,
     cwd: opts.packDir,
     env,
@@ -249,18 +254,22 @@ interface IndexerChildContext {
 }
 
 /**
- * An indexer child, to its end (`runChild`). A sandbox that can't be set
- * up for it (a program its wrapper runs isn't on its env's PATH) is the
- * same outcome as a child that doesn't start.
+ * An indexer child, to its end (`runChild`): its program the one on its
+ * env's PATH, never one in the pack's folder, found before a sandbox
+ * wraps it (the sandbox would look for a bare name itself). No such
+ * program, or a sandbox that can't be set up for it (a program its
+ * wrapper runs isn't on its env's PATH), is the same outcome as a child
+ * that doesn't start.
  */
 async function runIndexerChild(
   command: readonly [string, ...string[]],
   ctx: IndexerChildContext,
   onOutput?: (line: string, stream: 'stdout' | 'stderr') => void,
 ): Promise<ChildRun> {
+  const [program, ...args] = command;
   let child: Awaited<ReturnType<typeof indexerChild>>;
   try {
-    child = await indexerChild(command, ctx);
+    child = await indexerChild([await programPath(program, ctx.env), ...args], ctx);
   } catch (cause) {
     return { stdout: '', stderr: (cause as Error).message, code: null };
   }
@@ -466,9 +475,10 @@ function outcomeOfChild(run: ChildRun): IndexerOutcome {
 }
 
 /**
- * Run an indexer child to the end: its output, and each line of it to
- * `onOutput` as it comes, except its last stdout line when that's the
- * indexer's result (held back until the next line shows it isn't).
+ * Run an indexer child to the end, `command` by its path
+ * (`runIndexerChild`): its output, and each line of it to `onOutput` as
+ * it comes, except its last stdout line when that's the indexer's result
+ * (held back until the next line shows it isn't).
  */
 function runChild(
   command: string,

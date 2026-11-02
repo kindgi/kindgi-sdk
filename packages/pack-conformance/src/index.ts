@@ -49,7 +49,13 @@ export interface PackServiceTarget {
   readonly packDir: string;
   /** Index the fixture pack into `outputPath` with the given pins. */
   buildIndex(outputPath: string, pins: IndexPins): Promise<void>;
-  /** The argv that starts the service; the suite appends `--index`, `--module-root`, `--host`. */
+  /**
+   * The argv that starts the service; the suite appends `--index`,
+   * `--module-root`, `--host`. Give `command[0]` as an absolute path
+   * (`process.execPath`, a venv's `bin/python`): the suite starts it as
+   * given, in the fixture pack's folder, where a bare name could find a
+   * program in that folder first (Windows looks there before `PATH`).
+   */
   readonly command: readonly string[];
   /** Extra environment for the service process. */
   readonly env?: Readonly<Record<string, string>>;

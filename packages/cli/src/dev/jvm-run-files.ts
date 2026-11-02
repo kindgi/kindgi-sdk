@@ -14,6 +14,7 @@ import { spawn } from 'node:child_process';
 import { readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { delimiter } from 'node:path';
 
+import { programPath } from '../program-path.js';
 import { type JvmPackCode, javaArgsFile, javaLauncher } from './pack-code.js';
 
 /** A classpath as a `java` `@argfile` line: quoted, with `\` and `"` escaped. */
@@ -78,18 +79,27 @@ export async function writeAtomically(file: string, text: string): Promise<void>
 }
 
 /**
- * A child process, to its end: its exit code and output. With `timeoutMs`,
- * a child still running then is killed (`SIGTERM`) and its code is null.
+ * A child process, to its end: its exit code and output. `program` is the
+ * one on `env`'s PATH (`programPath`), never one in `cwd`; with no such
+ * program, as with one that doesn't start, the code is null. With
+ * `timeoutMs`, a child still running then is killed (`SIGTERM`) and its
+ * code is null.
  */
-export function runProcess(
+export async function runProcess(
   program: string,
   args: readonly string[],
   env: Readonly<Record<string, string>>,
   cwd: string,
   timeoutMs?: number,
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  let file: string;
+  try {
+    file = await programPath(program, env);
+  } catch (cause) {
+    return { code: null, stdout: '', stderr: (cause as Error).message };
+  }
   return new Promise((resolvePromise) => {
-    const child = spawn(program, [...args], { env, cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(file, [...args], { env, cwd, stdio: ['ignore', 'pipe', 'pipe'] });
     const timer =
       timeoutMs === undefined
         ? undefined

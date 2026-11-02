@@ -23,7 +23,7 @@
 
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { accessSync, constants, readFileSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
@@ -184,6 +184,31 @@ async function discover(store) {
   throw new Failure(`${store} doesn't answer as a WordPress site (no /wp-json/).`);
 }
 
+// `name` from PATH's absolute folders only (as `<name>.com`, then `<name>.exe`,
+// on Windows), or undefined. Given a bare name, Windows would look in this
+// folder, the pack's, first; and an empty or relative entry is this folder
+// on any system.
+function onPath(name) {
+  const win = process.platform === 'win32';
+  const [key] = Object.keys(process.env)
+    .filter((k) => (win ? k.toUpperCase() === 'PATH' : k === 'PATH'))
+    .sort();
+  for (const dir of (key === undefined ? '' : process.env[key]).split(win ? ';' : ':')) {
+    if (!(win ? /^([A-Za-z]:[\\/]|[\\/]{2}[^\\/])/.test(dir) : dir.startsWith('/'))) continue;
+    for (const file of win ? [`${name}.com`, `${name}.exe`] : [name]) {
+      try {
+        const found = join(dir, file);
+        if (!statSync(found).isFile()) continue;
+        if (!win) accessSync(found, constants.X_OK);
+        return found;
+      } catch {
+        // Not here.
+      }
+    }
+  }
+  return undefined;
+}
+
 function openInBrowser(url) {
   const [cmd, cmdArgs] =
     process.platform === 'darwin'
@@ -191,8 +216,11 @@ function openInBrowser(url) {
       : process.platform === 'win32'
         ? ['rundll32', ['url.dll,FileProtocolHandler', url]]
         : ['xdg-open', [url]];
+  const file = onPath(cmd);
+  // The link is printed too.
+  if (file === undefined) return;
   try {
-    const child = spawn(cmd, cmdArgs, { detached: true, stdio: 'ignore' });
+    const child = spawn(file, cmdArgs, { detached: true, stdio: 'ignore' });
     child.on('error', () => {});
     child.unref();
   } catch {
