@@ -701,8 +701,10 @@ by a column's header, and **Columns** chooses which columns it shows.
 
 A flow's page has its name and description, with **Download its JSON** and
 **Start a run** as icons at the top. **Start a run** shows while a version
-is in use, to people who may run the flow. Its tabs are **Overview**,
-**Runs** and **Corrections**.
+is in use, to people who may run the flow. Its pages are **Overview**,
+**Runs** and **Corrections**. The breadcrumbs at the top end on the one
+you're on, such as **Flows › Refunds › Overview ▾**, and its ▾ lists the
+others.
 
 **Overview** starts with the version it shows: its **ID**, its **Version**,
 tagged **Latest** for the newest ("The newest version: runs use it unless
@@ -721,10 +723,10 @@ Below it:
 - **Recent runs:** its latest 10 runs in the project, at any version, each
   with when it started, its status, its version and how long it took.
   **Cost →** opens the project's costs filtered to the flow, and **All runs
-  →** its **Runs** tab.
+  →** its **Runs** page.
 - **Versions:** every version, each with what it does, its steps, what it's
   **Locked by**, such as a schedule that starts it, and **Runs →**, its
-  **Runs** tab filtered to that version. A retired version is listed only
+  **Runs** page filtered to that version. A retired version is listed only
   under **Show retired**.
 - **Full spec:** the version's definition, as the runtime sent it.
 
@@ -732,7 +734,7 @@ Below it:
 [Runs](../../runs/list-runs/#in-the-console) page does, and **Corrections**
 has what people said about them.
 
-![Refunds' page at 2.0.0: Download its JSON and Start a run at the top, then the tabs Overview, Runs and Corrections; ID acme.refunds, Version 2.0.0 with its Latest tag, Versions locked: Yes; the steps Start, triage, a step repeating for each of the run's items, answer, End, each agent locked at 1.0.0; and Agents and tools: Dev-Echo Agent at 1.0.0.](../../../../assets/flows/flow-page.png)
+![Refunds' page at 2.0.0: Download its JSON and Start a run at the top; ID acme.refunds, Version 2.0.0 with its Latest tag, Versions locked: Yes; the steps Start, triage, a step repeating for each of the run's items, answer, End, each agent locked at 1.0.0; and Agents and tools: Dev-Echo Agent at 1.0.0.](../../../../assets/flows/flow-page.png)
 
 For flow admins, each version in use has **Retire**: the archive icon at the
 row's end, with the word only on hover. It asks first, saying what changes:

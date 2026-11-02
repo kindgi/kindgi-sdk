@@ -553,7 +553,7 @@ It has no `usage`, and it counts in `run.finished`'s `calls`.
 ## Cost in the console
 
 The console shows the same numbers on three pages: a project's **Cost**, a
-run's **Cost** tab, and the tenant's **Tenant costs**. Days are in UTC, and a
+run's **Cost** page, and the tenant's **Tenant costs**. Days are in UTC, and a
 failed call costs $0.
 
 ### A project's cost
@@ -588,10 +588,11 @@ link opens the same view.
 
 ### A run's cost
 
-Every run's page has a **Cost** tab: the [run's calls](#a-runs-calls), as
+Every run has a **Cost** page, in the ▾ at the end of its breadcrumbs: the
+[run's calls](#a-runs-calls), as
 `cost.usage.query` returns them.
 
-![A flow run's Cost tab: "$0.08 over 7 model calls, its child runs included." and "The costliest call: step 2 of answer · Dev-Echo Agent (large-model), $0.05.", then each child run's calls with step, model, tokens, cost and time.](../../../../assets/cost/run-cost-flow.png)
+![A flow run's Cost page: "$0.08 over 7 model calls, its child runs included." and "The costliest call: step 2 of answer · Dev-Echo Agent (large-model), $0.05.", then each child run's calls with step, model, tokens, cost and time.](../../../../assets/cost/run-cost-flow.png)
 
 - **The total,** with a [flow's child runs](#a-flows-whole-run) included:
   "$0.08 over 7 model calls, its child runs included."
@@ -604,9 +605,9 @@ Every run's page has a **Cost** tab: the [run's calls](#a-runs-calls), as
 - **Details,** for one call: the call's id, the provider and its request
   id, how it finished, its attempts, cache-read tokens and when it was made.
 
-![An agent turn's Cost tab with the first call's Details open: its call id, provider, provider request, finish, attempts and cache-read tokens; the second call failed with "upstream timeout" and cost $0.00.](../../../../assets/cost/run-cost-turn.png)
+![An agent turn's Cost page with the first call's Details open: its call id, provider, provider request, finish, attempts and cache-read tokens; the second call failed with "upstream timeout" and cost $0.00.](../../../../assets/cost/run-cost-turn.png)
 
-A flow run's **Overview** tab gives the same total: "Cost: $0.08 over 7
+A flow run's **Overview** page gives the same total: "Cost: $0.08 over 7
 model calls, its child runs included. Each call →".
 
 ### The tenant's costs

@@ -195,7 +195,7 @@ pnpm exec kindgi agents pin acme-desk.reply-drafter <version> --project=<project
 ```
 
 `kindgi projects list` lists the projects, with their ids. In the console,
-the agent's **Pinned versions** tab shows where each version is pinned.
+the agent's **Pinned versions** page shows where each version is pinned.
 
 **2. Put the project in production.**
 

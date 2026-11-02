@@ -386,7 +386,7 @@ A cron's words keep the schedule's own zone. The list has a search box
 and sorts by a
 column's header. **Columns** chooses which columns it shows. A schedule
 that starts Improve runs is listed too, and links its agent's **Suggested
-changes** tab, where **Schedule…** makes one
+changes** page, where **Schedule…** makes one
 ([Schedule Improve in the console](#schedule-improve-in-the-console)).
 
 ![The Schedules page, with Schedule Improve at the top, a search box and the Columns menu: the active nightly digest (every day at 2:00 AM UTC, 0 2 * * *; the agent Dev-Echo Agent (its pinned version, or the latest); next in 23h) with Pause, and the paused weekly report (Mondays at 9:00 AM UTC, 0 9 * * 1; the flow Refunds 1.0.0) with Resume, neither fired yet, each with Runs it started →, Run now and Remove.](../../../../assets/schedules/schedules-list.png)
@@ -595,7 +595,7 @@ reviewers' approvals.
 
 ### Schedule Improve in the console
 
-**Schedule…**, on an agent's **Suggested changes** tab, makes the same
+**Schedule…**, on an agent's **Suggested changes** page, makes the same
 schedule in the console, for that agent. It asks for what `--input` and
 the flags take, with the same defaults: what to improve (settings values, or
 the agent's instructions with the model that drafts them), how many new
@@ -606,7 +606,7 @@ more than once an hour: "At most once an hour: name one minute (0 * * * * is
 every hour). Each fire may start an Improve run, which costs money."
 
 **Create** makes it, running as you, and opens its page. Under `kindgi dev`,
-**Schedule…** is off, and the tab says why: `kindgi dev` runs while you
+**Schedule…** is off, and the page says why: `kindgi dev` runs while you
 work, not around the clock, so a schedule is for a deployed runtime. A
 schedule's fire starts no Improve run there: start Improve by hand, as
 [Under `kindgi dev`](../../improve/suggest-a-change/#under-kindgi-dev) shows.

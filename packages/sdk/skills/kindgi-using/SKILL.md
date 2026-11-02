@@ -90,7 +90,7 @@ decided one opens its own page.
 | Dashboard | *(empty)* | how the project is doing |
 | Agents | `agents`, one: `agents/<agentId>`, `…/runs`, `…/corrections` | the agents, their versions, which one is pinned |
 | Runs | `runs` | every answer and flow run, newest first, with its cost |
-| One run | `agents/<agentId>/runs/<runId>` or `flows/<flowId>/runs/<runId>`, tabs `/journal`, `/provenance`, `/cost`, `/corrections`; `runs/<runId>`, with no tab, finds either | the message, each tool it called with what it sent, the answer or what stopped it; then every step, what ran with what, what it cost, how it was rated |
+| One run | `agents/<agentId>/runs/<runId>` or `flows/<flowId>/runs/<runId>`, pages `/journal`, `/provenance`, `/cost`, `/corrections`; `runs/<runId>` alone finds either | the message, each tool it called with what it sent, the answer or what stopped it; then every step, what ran with what, what it cost, how it was rated |
 | What failed | `runs/failures` | failed runs, grouped by why |
 | Approvals | `approvals`, one: `approvals/<approvalId>` | what waits for a person's decision |
 | Tools | `tools`, one: `tools/<toolId>` | the tools, what each may do and change |
@@ -156,7 +156,7 @@ say there were none.
   tool's `name` and `arguments`) and the `tool` messages with what came
   back. Say which records it looked up, and what it found.
 - In the console: `agents/<agentId>/runs/<runId>` shows each tool call and
-  its arguments; the `/journal` tab has every step.
+  its arguments; its `/journal` page has every step.
 
 **"Where do I see every answer it finished in the last day?"**
 - In the CLI: `kindgi runs list --agent <agentId> --limit 100`, keeping
@@ -254,7 +254,7 @@ say there were none.
   `madeBy` is that principal (same `kind` and `id`), and say each
   one's run, `answer` and `why`. In `kindgi dev`, the CLI and the
   console's sign-in are the same seed user.
-- In the console: each run's `/corrections` tab, and `corrections`.
+- In the console: each run's `/corrections` page, and `corrections`.
 
 **"What are people correcting, and what's being fixed?"**
 - In the CLI: `kindgi corrections list --agent=<agentId> --status=not-fixed`
@@ -270,7 +270,7 @@ say there were none.
   week's total.
 - In the console: `runs?agent=<agentId>&since=7d` (each run's cost is a
   column), and `cost?range=7d&agent=<agentId>` for the total; one run's
-  breakdown is its `/cost` tab.
+  breakdown is its `/cost` page.
 
 ## More
 
