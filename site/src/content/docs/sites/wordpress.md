@@ -256,8 +256,11 @@ About the Kindgi URL:
 Someone the site signs in, whose role may ask, asks the agents as
 themselves, in conversations of their own:
 
-- **The tools:** the agent may call the site project's tools, and, for a
-  site in an environment order, the tools of the order's projects too.
+- **The tools:** the agent may call the site project's tools (for a site
+  in an environment order, the tools of the order's projects too), and the
+  tools of each MCP endpoint whose scope holds the project, the store's
+  actions among them (see
+  [Give some projects its tools](../../guides/tools/mcp-servers/#give-some-projects-its-tools)).
 - **A read-only tool** runs as the agent's and the tenant's rules say. It
   counts as read-only when every version of it, retired ones included,
   says `mutating: false`.
@@ -275,7 +278,8 @@ themselves, in conversations of their own:
   agent turn they started in the site's project, never by calling a tool
   directly.
 - **When their role stops giving `ask`,** a call of theirs that still
-  waits is refused when it's decided.
+  waits is refused when it's decided, once Kindgi has the change (see
+  [A site's people in Kindgi](#a-sites-people-in-kindgi)).
 
 ## Reviewer email
 

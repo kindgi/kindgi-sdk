@@ -269,8 +269,9 @@ object StatusAgent {
   read-only, never asks.
 
 An agent without `hitl.tools` has no tool gates, unless your tenant has
-[approval rules](../approval-rules-for-every-agent/), or a person a site
-signs in asked: then every tool that isn't read-only waits for a yes (see
+[approval rules](../approval-rules-for-every-agent/). In an Ask from a
+person a site signs in, every call of a tool that isn't read-only waits
+for a yes, whatever `hitl.tools` says (see
 [What an Ask may do](../../../sites/wordpress/#what-an-ask-may-do)).
 
 ### Someone other than whoever asked
