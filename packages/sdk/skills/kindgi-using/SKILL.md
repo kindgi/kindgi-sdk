@@ -88,14 +88,14 @@ decided one opens its own page.
 | Page | `<page>` | Shows |
 |---|---|---|
 | Dashboard | *(empty)* | how the project is doing |
-| Agents | `agents`, one: `agents/<agentId>`, `…/corrections` | the agents, their versions, which one is pinned |
+| Agents | `agents`, one: `agents/<agentId>`, `…/runs`, `…/corrections` | the agents, their versions, which one is pinned |
 | Runs | `runs` | every answer and flow run, newest first, with its cost |
-| One run | `runs/<runId>`, with tabs `/journal`, `/provenance`, `/cost`, `/corrections` | the message, each tool it called with what it sent, the answer or what stopped it; then every step, what ran with what, what it cost, how it was rated |
+| One run | `agents/<agentId>/runs/<runId>` or `flows/<flowId>/runs/<runId>` (`runs/<runId>` finds either); tabs `/journal`, `/provenance`, `/cost`, `/corrections` | the message, each tool it called with what it sent, the answer or what stopped it; then every step, what ran with what, what it cost, how it was rated |
 | What failed | `runs/failures` | failed runs, grouped by why |
 | Approvals | `approvals`, one: `approvals/<approvalId>` | what waits for a person's decision |
 | Tools | `tools`, one: `tools/<toolId>` | the tools, what each may do and change |
 | Guardrails | `guardrails`, one: `guardrails/<guardrailId>` | each rule's settings, the agents it checks, what it caught |
-| Flows | `flows`, one: `flows/<flowId>`, `…/corrections` | the flows and their steps |
+| Flows | `flows`, one: `flows/<flowId>`, `…/runs`, `…/corrections` | the flows and their steps |
 | Schedules | `schedules`, one: `schedules/<triggerId>` | when each runs next, and its past runs |
 | Mail triggers | `mail-triggers`, one: `mail-triggers/<triggerId>` | the mailbox each watches and what it starts; its latest mails, and the run each started |
 | Conversations | `conversations`, one: `conversations/<conversationId>` | each conversation's turns |
@@ -109,11 +109,9 @@ decided one opens its own page.
 
 The runs list filters by its URL: `agent=<agentId>`, `status=` one of
 `pending`, `running`, `suspended`, `completed`, `failed`, `cancelled`,
-and `since=` one of `1h`, `1d`, `7d`, `30d`. For example
-`runs?agent=<agentId>&status=completed&since=1d` is every answer that
-agent finished in the last day. The cost page takes `range=` one of `7d`,
-`30d`, `90d`, `12m`, `agent=<agentId>` and `by=` one of `agent`, `model`,
-`flow`, `kind`.
+and `since=` one of `1h`, `1d`, `7d`, `30d`. The cost page takes `range=`
+one of `7d`, `30d`, `90d`, `12m`, `agent=<agentId>` and `by=` one of
+`agent`, `model`, `flow`, `kind`.
 
 ### Tenant pages
 
@@ -256,7 +254,7 @@ say there were none.
   `madeBy` is that principal (same `kind` and `id`), and say each
   one's run, `answer` and `why`. In `kindgi dev`, the CLI and the
   console's sign-in are the same seed user.
-- In the console: each run's `runs/<runId>/corrections`, and `corrections`.
+- In the console: each run's `/corrections` tab, and `corrections`.
 
 **"What are people correcting, and what's being fixed?"**
 - In the CLI: `kindgi corrections list --agent=<agentId> --status=not-fixed`
@@ -272,7 +270,7 @@ say there were none.
   week's total.
 - In the console: `runs?agent=<agentId>&since=7d` (each run's cost is a
   column), and `cost?range=7d&agent=<agentId>` for the total; one run's
-  breakdown is `runs/<runId>/cost`.
+  breakdown is its `/cost` tab.
 
 ## More
 
