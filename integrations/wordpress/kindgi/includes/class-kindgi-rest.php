@@ -87,6 +87,18 @@ final class Kindgi_Rest {
 		self::route( '/approvals/' . $id, 'GET', 'approval' );
 		self::route( '/activity', 'GET', 'activity', array( 'cursor' => self::optional_string( 512 ) ) );
 		self::route(
+			'/dashboard',
+			'GET',
+			'dashboard',
+			array(
+				// Opening the dashboard signs no one in: its box asks to, when the person says so.
+				'signIn' => array(
+					'type'    => 'boolean',
+					'default' => false,
+				),
+			)
+		);
+		self::route(
 			'/orders/(?P<order>[1-9][0-9]{0,17})',
 			'GET',
 			'order',
@@ -581,6 +593,67 @@ final class Kindgi_Rest {
 			$answer['more'] = $answer['more'] || true === ( $page['body']['hasMore'] ?? false );
 		}
 		return $answer;
+	}
+
+	/**
+	 * What the dashboard's Kindgi box shows: how many approvals wait for the
+	 * person and the oldest two of them, and the project's latest runs.
+	 * Opening the dashboard signs no one in: without a live session the
+	 * answer says so, and the box offers to (`signIn`).
+	 */
+	public static function dashboard( WP_REST_Request $request ) {
+		$user = wp_get_current_user();
+		$get  = static function ( string $path, array $query = array() ) use ( $user, $request ) {
+			return true === $request['signIn'] ? Kindgi_Api::body( $user, 'GET', $path, $query ) : Kindgi_Api::kept_get( $user, $path, $query );
+		};
+		$permissions = $get( '/v1/identity/me/permissions' );
+		if ( ! is_array( $permissions ) ) {
+			return null === $permissions ? array( 'signedIn' => false ) : $permissions;
+		}
+		$reviewer = Kindgi_Inbox::reviewer_of( $permissions['body'] );
+		$me       = (string) $permissions['session']['user_id'];
+		$project  = (string) $permissions['session']['project_id'];
+		$reads    = array(
+			'waiting' => array(
+				'/v1/approvals',
+				array(
+					'scopeKind' => 'project',
+					'scopeId'   => $project,
+					'status'    => implode( ',', Kindgi_Inbox::WAITING ),
+					'order'     => 'asc',
+					'limit'     => Kindgi_Inbox::COUNT_PAGE,
+				),
+			),
+			'runs'    => array(
+				'/v1/runs',
+				array(
+					'scopeKind' => 'project',
+					'scopeId'   => $project,
+					'topLevel'  => 'true',
+					'limit'     => Kindgi_Dashboard::RUNS,
+					'include'   => 'output',
+				),
+			),
+			'agents'  => array(
+				'/v1/agents',
+				array(
+					'scopeKind' => 'project',
+					'scopeId'   => $project,
+					'limit'     => 100,
+				),
+			),
+		);
+		$pages = array();
+		foreach ( $reads as $key => $read ) {
+			$page = $get( $read[0], $read[1] );
+			if ( ! is_array( $page ) ) {
+				return null === $page ? array( 'signedIn' => false ) : $page;
+			}
+			$pages[ $key ] = $page['body'];
+		}
+		$count = Kindgi_Inbox::count_of( $pages['waiting'], $me, $reviewer );
+		Kindgi_Inbox::keep_count( $user->ID, $count );
+		return Kindgi_Dashboard::answer( $pages, $count, $me, $reviewer );
 	}
 
 	/** Approve or reject, as this person; the run resumes in the same call. */

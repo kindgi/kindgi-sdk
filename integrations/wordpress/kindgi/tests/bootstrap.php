@@ -179,6 +179,30 @@ function __( string $text, string $domain = 'default' ): string {
 	return $text;
 }
 
+function _n( string $single, string $plural, int $number, string $domain = 'default' ): string {
+	return 1 === $number ? $single : $plural;
+}
+
+function esc_html( string $text ): string {
+	return htmlspecialchars( $text, ENT_QUOTES, 'UTF-8' );
+}
+
+function esc_html__( string $text, string $domain = 'default' ): string {
+	return esc_html( $text );
+}
+
+function esc_url( string $url ): string {
+	return htmlspecialchars( $url, ENT_QUOTES, 'UTF-8' );
+}
+
+function admin_url( string $path = '' ): string {
+	return home_url() . '/wp-admin/' . $path;
+}
+
+function number_format_i18n( $number ): string {
+	return number_format( (float) $number );
+}
+
 function get_option( string $name, $fallback = false ) {
 	return array_key_exists( $name, $GLOBALS['kindgi_test']['options'] ) ? $GLOBALS['kindgi_test']['options'][ $name ] : $fallback;
 }
@@ -370,3 +394,4 @@ require_once dirname( __DIR__ ) . '/includes/class-kindgi-activity.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-rest.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-admin.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-order.php';
+require_once dirname( __DIR__ ) . '/includes/class-kindgi-dashboard.php';

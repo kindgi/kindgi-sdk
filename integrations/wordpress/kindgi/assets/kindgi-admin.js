@@ -35,6 +35,7 @@
     toolName,
     askUrl,
     approvalCard,
+    runState,
   } = window.kindgiCards;
   const absent = (value) => value === undefined || value === null || value === false;
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -106,6 +107,8 @@
     newAgent: null,
     // "Ask about this order": a new conversation whose first words name the order, until it's sent.
     order: config.view === 'ask' ? (config.order ?? null) : null,
+    // The dashboard box's question: a new conversation's first words, until it's sent.
+    question: config.view === 'ask' ? (config.question ?? null) : null,
     // Bumped by every redraw: a poll started before it stops.
     view: 0,
     // Each conversation's turn still running, by its run: followed again on return.
@@ -314,29 +317,6 @@
     return sprintf(__('%s asked', 'kindgi'), by.name);
   }
 
-  /** A run's state: the tone its chip is drawn in, and its words. */
-  const STATUS = {
-    completed: ['ok', __('Done', 'kindgi')],
-    failed: ['err', __('Failed', 'kindgi')],
-    cancelled: ['none', __('Cancelled', 'kindgi')],
-    suspended: ['warn', __('Waiting', 'kindgi')],
-    running: ['run', __('Running', 'kindgi')],
-    pending: ['run', __('Running', 'kindgi')],
-  };
-
-  /** A run's state as a chip; one waiting for an approval links to the Inbox. */
-  function stateChip(run) {
-    if (run.waiting) {
-      return el(
-        'a',
-        { className: 'kindgi-state kindgi-state-warn', href: urls.inbox },
-        __('Waits for an approval', 'kindgi'),
-      );
-    }
-    const [tone, words] = STATUS[run.status] ?? ['none', run.status];
-    return el('span', { className: `kindgi-state kindgi-state-${tone}` }, words);
-  }
-
   /** A day's key and heading: "Today", "Yesterday", else its weekday and the site's date. */
   function dayOf(iso) {
     const { dateI18n, getSettings } = wp.date;
@@ -451,7 +431,7 @@
       el(
         'div',
         { className: 'kindgi-run-body' },
-        el('div', { className: 'kindgi-run-head' }, el('strong', {}, name), stateChip(run)),
+        el('div', { className: 'kindgi-run-head' }, el('strong', {}, name), runState(run)),
         run.summary ? el('p', { className: 'kindgi-run-summary' }, run.summary) : null,
         run.status === 'failed' ? failedWhy(run) : null,
         run.private === 'orders'
@@ -811,6 +791,14 @@
       ? __('Ask about orders, products or customers…', 'kindgi')
       : __('Ask a question…', 'kindgi');
 
+  /** What a new conversation's box starts with: the dashboard box's question, or the order it's about. */
+  function writtenIn() {
+    if (state.question !== null) return state.question;
+    if (state.order === null) return '';
+    /* translators: %s: the order's number */
+    return sprintf(__('About order #%s: ', 'kindgi'), state.order);
+  }
+
   /** Whether the page is used by touch, where Enter starts a new line. */
   const touch = () => window.matchMedia?.('(pointer: coarse)').matches === true;
 
@@ -838,10 +826,7 @@
         if (!send.disabled) send.click();
       },
     });
-    if (conversation === null && state.order !== null) {
-      /* translators: %s: the order's number */
-      input.value = sprintf(__('About order #%s: ', 'kindgi'), state.order);
-    }
+    if (conversation === null) input.value = writtenIn();
     const send = el(
       'button',
       {
@@ -897,6 +882,8 @@
         ),
       ),
       focus: () => {
+        // Grown to fit what it starts with, once it's on the page and has a height.
+        fit();
         input.focus();
         input.setSelectionRange(input.value.length, input.value.length);
       },
@@ -939,6 +926,7 @@
         state.conversationId = opened.id;
         state.newAgent = null;
         state.order = null;
+        state.question = null;
         window.history.replaceState(null, '', askUrl(opened.id));
         onOpen();
       }
@@ -1070,7 +1058,7 @@
         ? el(
             'span',
             { className: 'kindgi-calls' },
-            /* translators: %s: the tools' names, separated by commas */
+            /* translators: %s: a tool's name, or several separated by commas */
             sprintf(__('Used %s', 'kindgi'), m.calls.map(toolName).join(', ')),
           )
         : null;
@@ -1117,7 +1105,7 @@
       since = run.since;
       steps.append(
         ...run.steps.map((step) =>
-          /* translators: %s: a tool's name */
+          /* translators: %s: a tool's name, or several separated by commas */
           el('li', {}, sprintf(__('Used %s', 'kindgi'), toolName(step.toolId))),
         ),
       );

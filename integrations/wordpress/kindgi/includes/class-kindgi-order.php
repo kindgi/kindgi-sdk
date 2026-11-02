@@ -34,6 +34,7 @@ final class Kindgi_Order {
 		add_action( 'woocommerce_shop_order_list_table_custom_column', array( self::class, 'order_cell' ), 10, 2 );
 		add_filter( 'manage_edit-shop_order_columns', array( self::class, 'columns' ) );
 		add_action( 'manage_shop_order_posts_custom_column', array( self::class, 'post_cell' ), 10, 2 );
+		add_action( 'admin_enqueue_scripts', array( self::class, 'list_styles' ) );
 	}
 
 	/** Whether the site is a store: WooCommerce's order functions, which this class calls, are there. */
@@ -121,19 +122,47 @@ final class Kindgi_Order {
 		return self::shown() ? self::with_column( $columns ) : $columns;
 	}
 
-	/** The columns with "Kindgi" after the status, or last when there's none. */
+	/**
+	 * The columns with Kindgi's after the status, or last when there's none.
+	 * Its heading is Kindgi's mark, its name in words for screen readers;
+	 * WordPress strips the mark where it shows the name as text (Screen
+	 * Options, and each cell's label on a phone).
+	 */
 	public static function with_column( array $columns ): array {
-		$out = array();
+		$heading = Kindgi_Admin::mark( 18 ) . '<span class="screen-reader-text">' . esc_html__( 'Kindgi', 'kindgi' ) . '</span>';
+		$out     = array();
 		foreach ( $columns as $key => $label ) {
 			$out[ $key ] = $label;
 			if ( 'order_status' === $key ) {
-				$out[ self::COLUMN ] = __( 'Kindgi', 'kindgi' );
+				$out[ self::COLUMN ] = $heading;
 			}
 		}
 		if ( ! isset( $out[ self::COLUMN ] ) ) {
-			$out[ self::COLUMN ] = __( 'Kindgi', 'kindgi' );
+			$out[ self::COLUMN ] = $heading;
 		}
 		return $out;
+	}
+
+	/**
+	 * The column's look on the Orders list, in either order storage: narrow,
+	 * and what waits as a pill in WooCommerce's own colors for its statuses.
+	 */
+	public static function list_styles(): void {
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( null === $screen || ! in_array( $screen->id, array( 'edit-shop_order', 'woocommerce_page_wc-orders' ), true ) || ! self::shown() ) {
+			return;
+		}
+		wp_register_style( 'kindgi-orders', false, array(), KINDGI_PLUGIN_VERSION );
+		wp_enqueue_style( 'kindgi-orders' );
+		wp_add_inline_style(
+			'kindgi-orders',
+			'.wp-list-table .column-kindgi{width:10em}'
+			. '.wp-list-table th.column-kindgi .kindgi-mark{display:block;border-radius:4px}'
+			. '.kindgi-order-waits:empty{display:none}'
+			. '.kindgi-order-waits{display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;line-height:1.5;white-space:nowrap}'
+			. '.kindgi-waits-you{background:#f8dda7;color:#6b4a00}'
+			. '.kindgi-waits-others{background:#e5e5e5;color:#454545}'
+		);
 	}
 
 	/**
@@ -162,9 +191,10 @@ final class Kindgi_Order {
 	 */
 	private static function cell( int $order ): void {
 		$state = self::state( Kindgi_Inbox::kept_count( get_current_user_id() ), $order );
+		$class = null === $state ? ' kindgi-unknown' : ( '' === $state ? '' : ' kindgi-waits-' . $state );
 		printf(
 			'<span class="kindgi-order-waits%1$s" data-kindgi-order="%2$d">%3$s</span>',
-			null === $state ? ' kindgi-unknown' : '',
+			esc_attr( $class ),
 			(int) $order,
 			esc_html( self::waits_words( (string) $state ) )
 		);

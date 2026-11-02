@@ -265,6 +265,7 @@ final class Kindgi_Admin {
 		$approval     = isset( $_GET['approval'] ) ? sanitize_text_field( wp_unslash( $_GET['approval'] ) ) : '';
 		$conversation = isset( $_GET['conversation'] ) ? sanitize_text_field( wp_unslash( $_GET['conversation'] ) ) : '';
 		$order        = isset( $_GET['order'] ) ? absint( $_GET['order'] ) : 0;
+		$question     = isset( $_GET['question'] ) ? trim( sanitize_textarea_field( wp_unslash( $_GET['question'] ) ) ) : '';
 		// phpcs:enable
 		$id     = '/^' . Kindgi_Rest::ID . '$/';
 		$config = array(
@@ -273,6 +274,8 @@ final class Kindgi_Admin {
 			'conversation' => preg_match( $id, $conversation ) ? $conversation : null,
 			// "Ask about this order", from the order's box: a new conversation's first words name it.
 			'order'        => $order > 0 && Kindgi_Order::shown() ? $order : null,
+			// The dashboard box's question: a new conversation's first words, to send on Ask.
+			'question'     => '' !== $question ? mb_substr( $question, 0, Kindgi_Rest::MESSAGE_MAX ) : null,
 			'pollMs'       => 1500,
 			'urls'         => self::urls(),
 			// Administrators see Kindgi's own words about an error, under Details.
@@ -298,11 +301,24 @@ final class Kindgi_Admin {
 	 * the box draws, so only an order's screen with the box loads them.
 	 */
 	public static function order_assets(): void {
+		self::box_assets( 'kindgi-order' );
+	}
+
+	/**
+	 * The dashboard box's script and styles (`Kindgi_Dashboard::box`),
+	 * enqueued as the box draws, so only a dashboard with the box loads them.
+	 */
+	public static function dashboard_assets(): void {
+		self::box_assets( 'kindgi-dashboard' );
+	}
+
+	/** A box's script on another screen than Kindgi's, with the cards it draws with and their styles. */
+	private static function box_assets( string $handle ): void {
 		$version = KINDGI_PLUGIN_VERSION;
 		wp_enqueue_style( 'kindgi-admin', plugins_url( 'assets/kindgi-admin.css', KINDGI_PLUGIN_FILE ), array(), $version );
 		self::register_cards();
-		wp_enqueue_script( 'kindgi-order', plugins_url( 'assets/kindgi-order.js', KINDGI_PLUGIN_FILE ), array( 'kindgi-cards' ), $version, true );
-		wp_set_script_translations( 'kindgi-order', 'kindgi' );
+		wp_enqueue_script( $handle, plugins_url( 'assets/' . $handle . '.js', KINDGI_PLUGIN_FILE ), array( 'kindgi-cards' ), $version, true );
+		wp_set_script_translations( $handle, 'kindgi' );
 		wp_add_inline_script(
 			'kindgi-cards',
 			'window.kindgiConfig = ' . wp_json_encode(
@@ -338,8 +354,8 @@ final class Kindgi_Admin {
 	}
 
 	/** Kindgi's mark: its tile and K, drawn inline (no request, and no color from WordPress's menu). */
-	public static function mark(): string {
-		return '<svg class="kindgi-mark" viewBox="0 0 32 32" width="28" height="28" aria-hidden="true" focusable="false"><rect width="32" height="32" rx="7" fill="#6c1a5a"/><path d="M9 8v16M9 16l7-8M9 16l7 8M20 8v16M20 16h5" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+	public static function mark( int $size = 28 ): string {
+		return '<svg class="kindgi-mark" viewBox="0 0 32 32" width="' . $size . '" height="' . $size . '" aria-hidden="true" focusable="false"><rect width="32" height="32" rx="7" fill="#6c1a5a"/><path d="M9 8v16M9 16l7-8M9 16l7 8M20 8v16M20 16h5" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 	}
 
 	/** A Kindgi page before the site is connected: the way to connect it, for whoever can. */
@@ -521,8 +537,8 @@ final class Kindgi_Admin {
 		}
 		echo '<li class="kindgi-status-row kindgi-status-' . esc_attr( $state ) . '"' . $more . '>' // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- each value is escaped above.
 			. '<span class="kindgi-dot" aria-hidden="true"></span>'
-			. '<span class="kindgi-status-words"><strong class="kindgi-status-title">' . esc_html( $title ) . '</strong>'
-			. '<span class="kindgi-status-text">' . $html . '</span></span></li>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped by the caller.
+			. '<div class="kindgi-status-words"><strong class="kindgi-status-title">' . esc_html( $title ) . '</strong>'
+			. '<div class="kindgi-status-text">' . $html . '</div></div></li>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped by the caller.
 	}
 
 	/**

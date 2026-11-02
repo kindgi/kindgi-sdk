@@ -1224,3 +1224,70 @@
 .kindgi.kindgi-order-box .kindgi-order-section {
   margin: var(--kindgi-space-3) 0 6px;
 }
+
+/* ---------- The dashboard's box: what waits, what the agents did last, and a box to ask ---------- */
+
+.kindgi.kindgi-dash > * + *,
+.kindgi .kindgi-dash-live > * + * {
+  margin-top: var(--kindgi-space-4);
+}
+
+.kindgi .kindgi-dash-waits {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.kindgi .kindgi-dash-waits a {
+  text-decoration: none;
+}
+
+.kindgi .kindgi-dash-list {
+  margin: var(--kindgi-space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.kindgi .kindgi-dash-list > li {
+  margin: 0;
+  padding: var(--kindgi-space-2) 0;
+  border-top: 1px solid var(--kindgi-border);
+}
+
+.kindgi .kindgi-dash-latest h3 {
+  margin: 0;
+  color: var(--kindgi-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.kindgi .kindgi-dash-summary {
+  display: -webkit-box;
+  margin: 2px 0;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.kindgi .kindgi-dash-latest > p:last-child {
+  margin: var(--kindgi-space-2) 0 0;
+}
+
+.kindgi .kindgi-dash-ask {
+  display: flex;
+  gap: var(--kindgi-space-2);
+  align-items: flex-end;
+  padding-top: var(--kindgi-space-4);
+  border-top: 1px solid var(--kindgi-border);
+}
+
+.kindgi .kindgi-dash-ask textarea {
+  flex: 1;
+  min-width: 0;
+  resize: vertical;
+}
+
+.kindgi.kindgi-order-box .kindgi-order-ask {
+  margin: var(--kindgi-space-3) 0 0;
+}

@@ -21,10 +21,10 @@
   const askAbout = () =>
     el(
       'p',
-      {},
+      { className: 'kindgi-order-ask' },
       el(
         'a',
-        { href: `${urls.ask}&order=${encodeURIComponent(order)}` },
+        { className: 'button', href: `${urls.ask}&order=${encodeURIComponent(order)}` },
         __('Ask about this order', 'kindgi'),
       ),
     );

@@ -189,6 +189,29 @@
     );
   const muted = (text) => el('p', { className: 'kindgi-muted' }, text);
 
+  /** A run's state: the tone its pill is drawn in, and its words. */
+  const RUN_STATES = {
+    completed: ['ok', __('Done', 'kindgi')],
+    failed: ['err', __('Failed', 'kindgi')],
+    cancelled: ['none', __('Cancelled', 'kindgi')],
+    suspended: ['warn', __('Waiting', 'kindgi')],
+    running: ['run', __('Running', 'kindgi')],
+    pending: ['run', __('Running', 'kindgi')],
+  };
+
+  /** A run's state as a pill (Activity, the dashboard); one waiting for an approval links to the Inbox. */
+  function runState(run) {
+    if (run.waiting) {
+      return el(
+        'a',
+        { className: 'kindgi-state kindgi-state-warn', href: window.kindgiConfig?.urls?.inbox },
+        __('Waits for an approval', 'kindgi'),
+      );
+    }
+    const [tone, words] = RUN_STATES[run.status] ?? ['none', run.status];
+    return el('span', { className: `kindgi-state kindgi-state-${tone}` }, words);
+  }
+
   /** A list with nothing in it: what it is, what lands in it, and what to do now. */
   const empty = ({ title, text = null, actions = [] }) =>
     el(
@@ -566,5 +589,6 @@
     toolName,
     askUrl,
     approvalCard,
+    runState,
   };
 })();
