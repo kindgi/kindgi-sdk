@@ -82,6 +82,7 @@ import {
 } from '../feedback/entries.js';
 import { runStatus, runSubmit, runWithdraw } from '../feedback/run.js';
 import { renderJson, successNote } from '../output.js';
+import { programPath } from '../program-path.js';
 import { resolveSdkPackageRoot } from '../sdk-package.js';
 import { commandResultFromThrown, stringFlag } from './helpers.js';
 import type { Command, CommandResult, LeafCommand } from './types.js';
@@ -298,7 +299,7 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-async function runInteractiveEditor(seed: string): Promise<string> {
+export async function runInteractiveEditor(seed: string): Promise<string> {
   const editor = process.env.EDITOR ?? process.env.VISUAL ?? 'vi';
   const tmpPath = join(
     tmpdir(),
@@ -306,8 +307,10 @@ async function runInteractiveEditor(seed: string): Promise<string> {
   );
   // The draft may get a pasted secret, and the temp folder may be shared.
   await writeFile(tmpPath, seed, { encoding: 'utf8', mode: 0o600 });
+  // A bare name is the editor on PATH, never one in this folder.
+  const file = await programPath(editor);
   await new Promise<void>((resolve_, reject) => {
-    const child = spawn(editor, [tmpPath], { stdio: 'inherit' });
+    const child = spawn(file, [tmpPath], { stdio: 'inherit' });
     child.on('exit', (code) => {
       if (code === 0) resolve_();
       else reject(new Error(`Editor exited with code ${code}`));

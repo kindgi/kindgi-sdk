@@ -757,8 +757,8 @@ console.log(check.outcome);
 for (const c of check.checks.filter((c) => !c.passed)) console.log(c.message);
 
 if (check.outcome !== 'gate-failed') {
-  const change = await kindgi.agents.pinned.pin('acme.order-desk', request);
-  console.log(change.status, change.approvalId ?? '');
+  const { pin } = await kindgi.agents.pinned.pin('acme.order-desk', request);
+  console.log(pin.status, pin.approvalId ?? '');
 }
 ```
 
@@ -787,8 +787,8 @@ for c in check.checks:
         print(c.message)
 
 if check.outcome != "gate-failed":
-    change = kindgi.agents.pinned.pin("acme.order-desk", **request)
-    print(change.status, change.approval_id or "")
+    pin = kindgi.agents.pinned.pin("acme.order-desk", **request).pin
+    print(pin.status, pin.approval_id or "")
 ```
 
 </TabItem>

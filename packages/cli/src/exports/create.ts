@@ -403,7 +403,7 @@ function linesOf(
     : childLines(ctx, kind, kind.parent, tally);
 }
 
-/** A child kind's lines: for each parent record, its children, each with its parent. */
+/** A child kind's lines: for each parent record, its children, each with what the parent filled. */
 async function* childLines(
   ctx: KindContext,
   kind: ExportKind,

@@ -14,6 +14,7 @@
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { type ConnectWaitResult, computeConnectWaitToken } from '@kindgi/agents';
+import { comparableName, fitName } from '@kindgi/api';
 import type {
   ConnectFinishInput,
   ConnectFinishOutcome,
@@ -24,6 +25,9 @@ import type {
   ConnectionAppRecord,
   ConnectionAppUpdateInput,
   ConnectionBinding,
+  ConnectionChoiceRecord,
+  ConnectionChoiceSetInput,
+  ConnectionChoiceTarget,
   ConnectionError,
   ConnectionErrorCode,
   ConnectionListInput,
@@ -38,6 +42,7 @@ import type { PrincipalRef } from '@kindgi/authz';
 import { type AppEntry, SIGN_IN_TENANT_PATTERN } from '@kindgi/connections';
 import {
   type ConnectionAccount,
+  type ConnectionPick,
   ConnectionRenewError,
   type ConnectionResolver,
   type ResolveConnectionsInput,
@@ -61,6 +66,10 @@ const MAX_RENEW_MARGIN_MS = 60_000;
  */
 const ACCESS_END_MARGIN_MS = 60_000;
 const HOUR_MS = 60 * 60_000;
+/** A connection's label, in characters, as a server's. */
+const MAX_LABEL_LENGTH = 100;
+/** The states of a connection a choice may name: live, never `removing` or `removed`. */
+const LIVE: ReadonlySet<ConnectionState> = new Set(['working', 'needs-reconnecting']);
 
 /** What the fake app answers a code with. */
 export interface FakeAppExchange {
@@ -173,6 +182,17 @@ export interface InMemoryConnectionsOptions {
     readonly waitToken: string;
     readonly result: ConnectWaitResult;
   }) => Promise<void>;
+  /**
+   * Whether an agent or a flow is one of a project's, for a choice
+   * (`setChoice`). Without it none is: every choice answers
+   * `agent-not-found` or `flow-not-found`.
+   */
+  readonly inProject?: (input: {
+    readonly tenantId: TenantId;
+    readonly projectId: ProjectId;
+    readonly kind: 'agent' | 'flow';
+    readonly id: string;
+  }) => boolean | Promise<boolean>;
 }
 
 /** A connection put in place without a connect. */
@@ -184,6 +204,8 @@ export interface SeedConnectionInput {
   readonly appId?: string;
   readonly owner: ConnectionOwner;
   readonly account: ConnectionAccount;
+  /** Absent: none, as on a connection made before connections had names. */
+  readonly label?: string;
   readonly permissions: readonly string[];
   readonly state?: ConnectionState;
   readonly installationId?: string;
@@ -241,9 +263,16 @@ interface Wait {
 }
 
 type Resolved =
-  | { readonly kind: 'ready'; readonly connection: ToolConnection }
+  | { readonly kind: 'ready'; readonly connection: ToolConnection; readonly pick: ConnectionPick }
   | { readonly kind: 'wait'; readonly wait: Wait }
   | Refused;
+
+/** Why a company connection picked for a need can't serve it, and whether reconnecting would. */
+interface Unserved {
+  readonly why: string;
+  readonly reconnect: boolean;
+  readonly lacks?: readonly string[];
+}
 
 /** Who a code signed in as, and through which GitHub App installation. */
 interface SignedIn {
@@ -283,6 +312,19 @@ function page<T>(items: readonly T[], limit: number, cursor?: Cursor): Connectio
   return { data, ...(next < items.length && { nextCursor: String(next) as Cursor }) };
 }
 
+/** The agent or the flow alone, from an input that names one. */
+function targetOf(input: ConnectionChoiceTarget): ConnectionChoiceTarget {
+  return input.agentId !== undefined ? { agentId: input.agentId } : { flowId: input.flowId };
+}
+
+function sameTarget(a: ConnectionChoiceTarget, b: ConnectionChoiceTarget): boolean {
+  return a.agentId !== undefined ? a.agentId === b.agentId : a.flowId === b.flowId;
+}
+
+function oldestFirst(a: ConnectionChoiceRecord, b: ConnectionChoiceRecord): number {
+  return a.createdAt.localeCompare(b.createdAt) || a.choiceId.localeCompare(b.choiceId);
+}
+
 function challengeOf(verifier: string): string {
   return createHash('sha256').update(verifier).digest('base64url');
 }
@@ -308,6 +350,7 @@ export function createInMemoryConnections(
   const apps = new Map<string, ConnectionAppRecord>();
   const connections = new Map<string, StoredConnection>();
   const requests = new Map<string, StoredRequest>();
+  const choices = new Map<string, ConnectionChoiceRecord>();
   const calls: FakeAppCall[] = [];
 
   // ---------------- registrations ----------------
@@ -420,6 +463,59 @@ export function createInMemoryConnections(
     );
   }
 
+  /** The refusal when the agent or the flow isn't one of the project's. */
+  async function outsideProject(
+    input: ConnectionChoiceSetInput,
+    target: ConnectionChoiceTarget,
+  ): Promise<Outcome<never> | undefined> {
+    const kind = target.agentId !== undefined ? 'agent' : 'flow';
+    const id = (target.agentId ?? target.flowId) as string;
+    const { tenantId, projectId } = input;
+    if (await (options.inProject?.({ tenantId, projectId, kind, id }) ?? false)) return undefined;
+    return refuse(`${kind}-not-found`, `No ${kind} "${id}" in the project`, {
+      field: `${kind}Id`,
+    });
+  }
+
+  /**
+   * The connection a choice names, when it's a candidate. A person's live
+   * connection in the env says why it can't be; any other that isn't a
+   * candidate is the same `connection-not-found` as an id that isn't there,
+   * so an id tells nothing more.
+   */
+  function choosable(input: ConnectionChoiceSetInput): Outcome<ConnectionRecord> {
+    const stored = connections.get(input.connectionId);
+    const connection =
+      stored !== undefined && stored.record.tenantId === input.tenantId
+        ? current(stored)
+        : undefined;
+    if (
+      connection?.owner.kind === 'member' &&
+      LIVE.has(connection.state) &&
+      connection.envName === input.envName
+    ) {
+      return refuse(
+        'bad-input',
+        "A person's own connection is used for them; choices are for the company's.",
+        { field: 'connectionId' },
+      );
+    }
+    if (connection === undefined || !candidate(connection, input.projectId, input.envName)) {
+      return refuse('connection-not-found', 'No such connection', { field: 'connectionId' });
+    }
+    return ok(connection);
+  }
+
+  /**
+   * Whether a choice in the project may name the connection: the company's,
+   * live (working, or needing a reconnect), in the env.
+   */
+  function candidate(c: ConnectionRecord, projectId: ProjectId, envName: EnvName): boolean {
+    if (c.owner.kind !== 'company' || !LIVE.has(c.state) || c.envName !== envName) return false;
+    const app = liveApp(c.tenantId, c.appId);
+    return app !== undefined && allows(app, projectId);
+  }
+
   /**
    * A project uses one registration of an app, so a run's connect is never a
    * guess: another live registration of the app may not serve a project
@@ -443,7 +539,12 @@ export function createInMemoryConnections(
       if (other.projects === undefined || projects === undefined) {
         return refuse(
           'connection-app-invalid',
-          `Registration ${other.appId} of ${entry.name} already serves every project this one would; a project uses one registration of an app, so name projects that don't overlap`,
+          everyProjectOverlap(
+            entry,
+            other.appId,
+            other.projects === undefined,
+            projects === undefined,
+          ),
           { field: 'projects' },
         );
       }
@@ -457,6 +558,23 @@ export function createInMemoryConnections(
       }
     }
     return undefined;
+  }
+
+  /** Why a registration that serves every project, or would, overlaps another: what to change first. */
+  function everyProjectOverlap(
+    entry: AppEntry,
+    id: string,
+    liveEvery: boolean,
+    thisEvery: boolean,
+  ): string {
+    const one = `Registration ${id} of ${entry.name}`;
+    if (liveEvery && thisEvery) {
+      return `${one} already serves every project, as this one would; a project uses one registration of an app, so remove ${id} first, or give each a list of projects that don't overlap`;
+    }
+    if (liveEvery) {
+      return `${one} already serves every project; a project uses one registration of an app, so give ${id} a list of projects this one doesn't name, or remove it, first`;
+    }
+    return `${one} already serves its own list of projects, and this one would serve every project; a project uses one registration of an app, so give this one a list of projects ${id} doesn't serve`;
   }
 
   /** The field naming a change of the client the registration's connections were granted to, if any. */
@@ -556,6 +674,94 @@ export function createInMemoryConnections(
       }
     }
     return undefined;
+  }
+
+  /** The live connection `connectionId`, if it's the owner's through the registration in the env. */
+  function ownConnection(
+    of: Pick<ConnectRequestRecord, 'tenantId' | 'appId' | 'owner' | 'envName'>,
+    connectionId: string,
+  ): StoredConnection | undefined {
+    const stored = connections.get(connectionId);
+    const c = stored?.record;
+    return c !== undefined &&
+      c.tenantId === of.tenantId &&
+      c.appId === of.appId &&
+      c.envName === of.envName &&
+      ownerKey(c.owner) === ownerKey(of.owner) &&
+      c.state !== 'removed'
+      ? stored
+      : undefined;
+  }
+
+  /** The company's live connection of the account through the registration in the env. */
+  function companyConnection(
+    of: Pick<ConnectRequestRecord, 'tenantId' | 'appId' | 'envName'>,
+    accountId: string,
+  ): StoredConnection | undefined {
+    for (const stored of connections.values()) {
+      const c = stored.record;
+      if (
+        c.tenantId === of.tenantId &&
+        c.appId === of.appId &&
+        c.envName === of.envName &&
+        c.owner.kind === 'company' &&
+        c.account.id === accountId &&
+        c.state !== 'removed'
+      ) {
+        return stored;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Another live connection of the app, owner and env named `label`, by
+   * `comparableName` (names that look the same);
+   * `except` is the connection being named.
+   */
+  function labelTaken(
+    of: Pick<ConnectionRecord, 'tenantId' | 'app' | 'owner' | 'envName'>,
+    label: string,
+    except?: string,
+  ): boolean {
+    const key = ownerKey(of.owner);
+    const wanted = comparableName(label);
+    for (const { record: c } of connections.values()) {
+      if (
+        c.connectionId !== except &&
+        c.tenantId === of.tenantId &&
+        c.app === of.app &&
+        c.envName === of.envName &&
+        ownerKey(c.owner) === key &&
+        c.state !== 'removed' &&
+        c.label !== undefined &&
+        comparableName(c.label) === wanted
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * A new connection's label: the request's, else the account's made to fit
+   * in 100 characters (`fitName`). When another has it, the first free
+   * `<label> 2`, `<label> 3`, and so on, the label cut to fit the number, and
+   * `taken` is the one it was to get: a finish isn't failed for it.
+   */
+  function newLabel(
+    request: ConnectRequestRecord,
+    account: ConnectionAccount,
+  ): { readonly label?: string; readonly taken?: string } {
+    const label = request.label ?? fitName(account.label, MAX_LABEL_LENGTH);
+    if (label.length === 0) return {};
+    if (!labelTaken(request, label)) return { label };
+    for (let n = 2; ; n += 1) {
+      const suffix = ` ${n}`;
+      // A label of one character longer than the cut leaves only the number.
+      const next = `${fitName(label, MAX_LABEL_LENGTH - suffix.length)}${suffix}`.trimStart();
+      if (!labelTaken(request, next)) return { label: next, taken: label };
+    }
   }
 
   function issueToken(stored: StoredConnection): void {
@@ -677,6 +883,7 @@ export function createInMemoryConnections(
     readonly owner: ConnectionOwner;
     readonly permissions: readonly string[];
     readonly reconnects?: string;
+    readonly label?: string;
     readonly run?: { readonly runId: string; readonly waitToken: string; readonly name: string };
     readonly expiresAtMs: number;
     readonly createdBy: string;
@@ -692,6 +899,7 @@ export function createInMemoryConnections(
       permissions: input.permissions,
       says: input.permissions.map((p) => input.entry.permissions[p]?.says ?? p),
       ...(input.reconnects !== undefined && { reconnects: input.reconnects }),
+      ...(input.label !== undefined && { label: input.label }),
       ...(input.run !== undefined && input.run),
       state: 'pending',
       connectUrl: `${publicUrl}/console/connect/${requestId}`,
@@ -748,6 +956,29 @@ export function createInMemoryConnections(
       : ok(app);
   }
 
+  /**
+   * The connection a connect reconnects: the one `reconnects` names, which
+   * must be the owner's through the registration in the env, else a
+   * person's own. The company's of an account is known only at the finish.
+   */
+  function reconnectedBy(
+    input: ConnectRequestCreateInput,
+    appId: string,
+  ): Outcome<StoredConnection | undefined> {
+    if (input.reconnects === undefined) {
+      return ok(
+        input.owner.kind === 'member'
+          ? liveConnection(input.tenantId, appId, input.owner, input.envName)
+          : undefined,
+      );
+    }
+    const named = ownConnection({ ...input, appId }, input.reconnects);
+    // Another owner's, registration's or env's, a removed one or none: one answer.
+    return named !== undefined
+      ? ok(named)
+      : refuse('connection-not-found', 'No such connection to reconnect', { field: 'reconnects' });
+  }
+
   function createRequest(input: ConnectRequestCreateInput): Outcome<ConnectRequestRecord> {
     const entry = entries.get(input.app);
     if (entry === undefined) {
@@ -759,7 +990,15 @@ export function createInMemoryConnections(
     if (asked.kind === 'err') return asked;
     const app = registrationFor(entry, input);
     if (app.kind === 'err') return app;
-    const existing = liveConnection(input.tenantId, app.value.appId, input.owner, input.envName);
+    const reconnects = reconnectedBy(input, app.value.appId);
+    if (reconnects.kind === 'err') return reconnects;
+    const existing = reconnects.value;
+    // A reconnect keeps the connection's label, so the one asked isn't checked.
+    if (existing === undefined && input.label !== undefined && labelTaken(input, input.label)) {
+      return refuse('connection-label-taken', `Another connection is named "${input.label}"`, {
+        field: 'label',
+      });
+    }
     return ok(
       newRequest({
         tenantId: input.tenantId,
@@ -769,6 +1008,7 @@ export function createInMemoryConnections(
         owner: input.owner,
         permissions: union(input.permissions, existing?.record.permissions ?? []),
         ...(existing !== undefined && { reconnects: existing.record.connectionId }),
+        ...(input.label !== undefined && { label: input.label }),
         expiresAtMs: now() + REQUEST_LIFE_MS,
         createdBy: principalKey(input.by),
       }),
@@ -1015,12 +1255,15 @@ export function createInMemoryConnections(
     return ok(found);
   }
 
-  /** The connection a finish makes or reconnects, with what was granted. */
+  /**
+   * The connection a finish makes or reconnects, with what was granted. A
+   * reconnect keeps its label; a new one's may have been taken.
+   */
   function storeConnection(
     request: ConnectRequestRecord,
     live: StoredConnection | undefined,
     made: SignedIn & { readonly granted: readonly string[] },
-  ): StoredConnection {
+  ): { readonly stored: StoredConnection; readonly labelTaken?: string } {
     const at = iso();
     const installation = made.installationId !== undefined && {
       installationId: made.installationId,
@@ -1036,8 +1279,9 @@ export function createInMemoryConnections(
         connectedAt: at,
         updatedAt: at,
       };
-      return live;
+      return { stored: live };
     }
+    const { label, taken } = newLabel(request, made.account);
     const connection: StoredConnection = {
       record: {
         connectionId: randomUUID(),
@@ -1047,6 +1291,7 @@ export function createInMemoryConnections(
         app: request.app,
         owner: request.owner,
         account: made.account,
+        ...(label !== undefined && { label }),
         permissions: made.granted,
         state: 'working',
         ...installation,
@@ -1057,7 +1302,7 @@ export function createInMemoryConnections(
       },
     };
     connections.set(connection.record.connectionId, connection);
-    return connection;
+    return { stored: connection, ...(taken !== undefined && { labelTaken: taken }) };
   }
 
   /**
@@ -1082,6 +1327,7 @@ export function createInMemoryConnections(
           { kind: 'connected', connectionId },
         ),
         connection: live.record,
+        reconnected: true,
       });
     }
     const missing = union(request.permissions, held).filter((p) => !kept.includes(p));
@@ -1091,12 +1337,21 @@ export function createInMemoryConnections(
     });
   }
 
-  /** The working connection a finish lands on: the one it reconnects, or the owner's. */
-  function landsOn(request: ConnectRequestRecord): StoredConnection | undefined {
-    const target =
-      (request.reconnects !== undefined ? connections.get(request.reconnects) : undefined) ??
-      liveConnection(request.tenantId, request.appId, request.owner, request.envName);
-    return target !== undefined && target.record.state !== 'removed' ? target : undefined;
+  /**
+   * The live connection a finish lands on: the one it reconnects, while
+   * it's still live; else a person's own, or the company's of the account
+   * signed in to.
+   */
+  function landsOn(
+    request: ConnectRequestRecord,
+    account: ConnectionAccount,
+  ): StoredConnection | undefined {
+    const named =
+      request.reconnects !== undefined ? ownConnection(request, request.reconnects) : undefined;
+    if (named !== undefined) return named;
+    return request.owner.kind === 'member'
+      ? liveConnection(request.tenantId, request.appId, request.owner, request.envName)
+      : companyConnection(request, account.id);
   }
 
   /**
@@ -1139,7 +1394,9 @@ export function createInMemoryConnections(
     gave: { readonly refreshToken: boolean; readonly expiresIn: boolean },
   ): Promise<Outcome<ConnectFinishOutcome>> {
     const request = stored.record;
-    const live = landsOn(request);
+    // Nothing is awaited from here to the store, so two finishes of one
+    // account can't both make a connection.
+    const live = landsOn(request, signedIn.account);
     if (live !== undefined && live.record.account.id !== signedIn.account.id) {
       await settle(stored, { state: 'failed', failure: 'account-mismatch' });
       return refuse(
@@ -1171,7 +1428,10 @@ export function createInMemoryConnections(
       await settle(stored, { state: 'failed', failure: 'app-refused' });
       return refuse('connection-app-refused', refused);
     }
-    const connection = storeConnection(request, live, { ...signedIn, granted: kept });
+    const { stored: connection, labelTaken } = storeConnection(request, live, {
+      ...signedIn,
+      granted: kept,
+    });
     issueFirstToken(connection, renews === 'renews');
     const connectionId = connection.record.connectionId;
     if (missing.length > 0) {
@@ -1192,6 +1452,8 @@ export function createInMemoryConnections(
         { kind: 'connected', connectionId },
       ),
       connection: connection.record,
+      reconnected: live !== undefined,
+      ...(labelTaken !== undefined && { labelTaken }),
     });
   }
 
@@ -1373,6 +1635,119 @@ export function createInMemoryConnections(
       return ok(remove(stored, principalKey(input.by), 'disconnected', withdrawAtApp(stored)));
     },
 
+    async update(input) {
+      const stored = connections.get(input.connectionId);
+      if (
+        stored === undefined ||
+        stored.record.tenantId !== input.tenantId ||
+        stored.record.state === 'removed'
+      ) {
+        return refuse('connection-not-found', 'No such connection');
+      }
+      if (labelTaken(stored.record, input.label, input.connectionId)) {
+        return refuse('connection-label-taken', `Another connection is named "${input.label}"`, {
+          field: 'label',
+        });
+      }
+      stored.record = { ...stored.record, label: input.label, updatedAt: iso() };
+      return ok(current(stored));
+    },
+
+    async listChoices(input) {
+      const data = [...choices.values()]
+        .filter(
+          (c) =>
+            c.tenantId === input.tenantId &&
+            c.projectId === input.projectId &&
+            c.envName === input.envName &&
+            (input.includeRemoved === true || c.removedAt === undefined) &&
+            (input.agentId === undefined || c.agentId === input.agentId) &&
+            (input.flowId === undefined || c.flowId === input.flowId) &&
+            (input.app === undefined || c.app === input.app),
+        )
+        .sort(oldestFirst);
+      return page(data, input.limit, input.cursor);
+    },
+
+    async getChoice(input) {
+      const choice = choices.get(input.choiceId);
+      return choice !== undefined && choice.tenantId === input.tenantId ? choice : null;
+    },
+
+    async setChoice(input) {
+      const { tenantId, projectId, envName } = input;
+      const target = targetOf(input);
+      const outside = await outsideProject(input, target);
+      if (outside !== undefined) return outside;
+      const chosen = choosable(input);
+      if (chosen.kind !== 'ok') return chosen;
+      const connection = chosen.value;
+      const history = [...choices.values()].filter(
+        (c) =>
+          c.tenantId === tenantId &&
+          c.projectId === projectId &&
+          c.envName === envName &&
+          c.app === connection.app &&
+          sameTarget(c, target),
+      );
+      const live = history.find((c) => c.removedAt === undefined);
+      if (live?.connectionId === connection.connectionId) return ok(live);
+      const at = iso();
+      const by = principalKey(input.by);
+      if (live !== undefined) choices.set(live.choiceId, { ...live, removedAt: at, removedBy: by });
+      const choice: ConnectionChoiceRecord = {
+        ...target,
+        choiceId: randomUUID(),
+        tenantId,
+        projectId,
+        envName,
+        app: connection.app,
+        connectionId: connection.connectionId,
+        version: Math.max(0, ...history.map((c) => c.version)) + 1,
+        createdAt: at,
+        createdBy: by,
+      };
+      choices.set(choice.choiceId, choice);
+      return ok(choice);
+    },
+
+    async removeChoice(input) {
+      const choice = choices.get(input.choiceId);
+      if (
+        choice === undefined ||
+        choice.tenantId !== input.tenantId ||
+        choice.removedAt !== undefined
+      ) {
+        return refuse('connection-choice-not-found', 'No such connection choice');
+      }
+      const removed = { ...choice, removedAt: iso(), removedBy: principalKey(input.by) };
+      choices.set(choice.choiceId, removed);
+      return ok(removed);
+    },
+
+    async listCandidates(input) {
+      const data = [...connections.values()]
+        .map(current)
+        .filter(
+          (c) =>
+            c.tenantId === input.tenantId &&
+            (input.app === undefined || c.app === input.app) &&
+            candidate(c, input.projectId, input.envName),
+        )
+        .sort(
+          (a, b) =>
+            a.createdAt.localeCompare(b.createdAt) || a.connectionId.localeCompare(b.connectionId),
+        )
+        .map((c) => ({
+          connectionId: c.connectionId,
+          name: c.label ?? c.account.label,
+          app: c.app,
+          accountLabel: c.account.label,
+          state: c.state,
+        }));
+      return page(data, input.limit, input.cursor);
+    },
+
     async createRequest(input) {
       return createRequest(input);
     },
@@ -1481,6 +1856,7 @@ export function createInMemoryConnections(
       appName: entries.get(c.app)?.name ?? c.app,
       accessToken: `fake-${c.connectionId}-${issued.n}`,
       account: c.account,
+      name: nameOf(c),
       expiresAt: iso(issued.expiresAtMs),
     };
   }
@@ -1545,6 +1921,206 @@ export function createInMemoryConnections(
     return { entry, app };
   }
 
+  /** A connection's name: its label, else its account's label. */
+  function nameOf(c: ConnectionRecord): string {
+    return c.label ?? c.account.label;
+  }
+
+  /**
+   * A registration as a call's record names it: its label, else its app's
+   * name and its id's first 8 characters, as a runtime does.
+   */
+  function registrationSeen(
+    app: ConnectionAppRecord,
+    entry: AppEntry,
+  ): ConnectionPick['registration'] {
+    return { id: app.appId, name: app.label ?? `${entry.name} (${app.appId.slice(0, 8)})` };
+  }
+
+  /** The company's connections a need of the app may use in the project, in the env. */
+  function companyCandidates(app: string, input: ResolveConnectionsInput): ConnectionRecord[] {
+    return [...connections.values()]
+      .filter((s) => s.record.tenantId === input.tenantId && s.record.app === app)
+      .map(current)
+      .filter((c) => candidate(c, input.projectId, input.envName));
+  }
+
+  /**
+   * The connection the run's mailbox names for the app (the company's), else
+   * the one the call's agent or flow chose for it in the project and env.
+   */
+  function pickedFor(
+    app: string,
+    input: ResolveConnectionsInput,
+  ):
+    | { readonly by: 'mailbox'; readonly connectionId: string }
+    | { readonly by: 'choice'; readonly connectionId: string; readonly choiceId: string }
+    | undefined {
+    const { mailbox, target } = input;
+    if (mailbox?.as === 'company' && mailbox.app === app && mailbox.connectionId !== undefined) {
+      return { by: 'mailbox', connectionId: mailbox.connectionId };
+    }
+    if (target === undefined) return undefined;
+    const wanted: ConnectionChoiceTarget =
+      'agentId' in target ? { agentId: target.agentId } : { flowId: target.flowId };
+    const chosen = [...choices.values()].find(
+      (c) =>
+        c.tenantId === input.tenantId &&
+        c.projectId === input.projectId &&
+        c.envName === input.envName &&
+        c.app === app &&
+        c.removedAt === undefined &&
+        sameTarget(c, wanted),
+    );
+    return chosen === undefined
+      ? undefined
+      : { by: 'choice', connectionId: chosen.connectionId, choiceId: chosen.choiceId };
+  }
+
+  /** Several company connections, and none chosen: the turn stops, listing them. */
+  function notChosen(
+    name: string,
+    entry: AppEntry,
+    candidates: readonly ConnectionRecord[],
+    input: ResolveConnectionsInput,
+  ): Refused {
+    const listed = candidates
+      .map((c) => ({ connectionId: c.connectionId, name: nameOf(c) }))
+      .sort((a, b) => a.name.localeCompare(b.name) || a.connectionId.localeCompare(b.connectionId));
+    const has = `This project has ${listed.length} company ${entry.name} connections (${listed.map((c) => c.name).join(', ')})`;
+    const target = input.target;
+    const [kind, id, page] =
+      target === undefined
+        ? []
+        : 'agentId' in target
+          ? ['agent', target.agentId, 'Agents']
+          : ['flow', target.flowId, 'Flows'];
+    return {
+      kind: 'refused',
+      code: 'connection-not-chosen',
+      name,
+      app: entry.id,
+      choices: listed,
+      message:
+        kind === undefined
+          ? `${has}, and this call is no agent's or flow's, so none can be chosen for it.`
+          : `${has}, and ${kind} ${id} has no choice of one. A project admin chooses it: Project, ${page}, ${id}, Connections, or kindgi connection-choices set.`,
+    };
+  }
+
+  /** Why the company's connection isn't a candidate any more. */
+  function notCandidate(
+    c: ConnectionRecord,
+    entry: AppEntry,
+    input: ResolveConnectionsInput,
+  ): string {
+    if (!LIVE.has(c.state)) return 'was disconnected';
+    if (c.envName !== input.envName) return `is in env ${c.envName}, not ${input.envName}`;
+    return `is on a ${entry.name} registration that no longer allows this project`;
+  }
+
+  /**
+   * A company need: the run's mailbox's connection, else the agent's or
+   * flow's choice, else the only candidate. One of those that can't serve
+   * the call refuses, naming it, and never falls back to another. The
+   * runtime keeps, per run tree, agent or flow, and app, the connection the
+   * first ready call took through a choice, even once the choice changes or
+   * is removed; this reference, which has no run tree (a call names its own
+   * run alone), answers each call from the current choice.
+   */
+  function resolveCompany(
+    name: string,
+    need: Need,
+    entry: AppEntry,
+    app: ConnectionAppRecord,
+    input: ResolveConnectionsInput,
+  ): Resolved {
+    const candidates = companyCandidates(need.app, input);
+    const picked = pickedFor(need.app, input);
+    if (picked === undefined && candidates.length > 1) {
+      return notChosen(name, entry, candidates, input);
+    }
+    const stored = companyOf(picked?.connectionId ?? candidates[0]?.connectionId, need, input);
+    // Only the company's connection of the app is named: any other id answers as none does.
+    if (stored === undefined) return missingRefusal(name, entry, undefined, need.permissions);
+    const answer = companyToken(stored, name, need, candidates, entry, input);
+    if (!('why' in answer)) {
+      return { kind: 'ready', connection: answer, pick: companyPick(picked, app, entry) };
+    }
+    return companyRefusal(name, entry, stored.record, picked?.by ?? 'only', answer);
+  }
+
+  /** How a company need's connection was picked: the mailbox's, a choice, else the only one. */
+  function companyPick(
+    picked: ReturnType<typeof pickedFor>,
+    app: ConnectionAppRecord,
+    entry: AppEntry,
+  ): ConnectionPick {
+    const registration = registrationSeen(app, entry);
+    if (picked === undefined) return { by: 'only', registration };
+    if (picked.by === 'choice') return { by: 'choice', choiceId: picked.choiceId, registration };
+    return { by: 'mailbox', registration };
+  }
+
+  /** The tenant's company connection of the need's app with that id, if it's one. */
+  function companyOf(
+    id: string | undefined,
+    need: Need,
+    input: ResolveConnectionsInput,
+  ): StoredConnection | undefined {
+    const stored = id === undefined ? undefined : connections.get(id);
+    return stored?.record.tenantId === input.tenantId &&
+      stored.record.owner.kind === 'company' &&
+      stored.record.app === need.app
+      ? stored
+      : undefined;
+  }
+
+  /** The picked company connection's token, or why it can't serve the need. */
+  function companyToken(
+    stored: StoredConnection,
+    name: string,
+    need: Need,
+    candidates: readonly ConnectionRecord[],
+    entry: AppEntry,
+    input: ResolveConnectionsInput,
+  ): ToolConnection | Unserved {
+    const c = current(stored);
+    if (!candidates.some((k) => k.connectionId === c.connectionId)) {
+      return { why: notCandidate(c, entry, input), reconnect: false };
+    }
+    const lacks = need.permissions.filter((p) => !c.permissions.includes(p));
+    if (lacks.length > 0) return { why: `lacks ${lacks.join(', ')}`, reconnect: true, lacks };
+    const token =
+      c.state === 'working'
+        ? tokenFor(stored, name, input.renew?.includes(name) === true)
+        : 'needs-reconnecting';
+    return token === 'needs-reconnecting' ? { why: 'needs reconnecting', reconnect: true } : token;
+  }
+
+  /** The picked company connection can't serve the need: naming it by its name, and how to fix it. */
+  function companyRefusal(
+    name: string,
+    entry: AppEntry,
+    c: ConnectionRecord,
+    by: 'mailbox' | 'choice' | 'only',
+    answer: Unserved,
+  ): Refused {
+    const subject = by === 'mailbox' ? `${nameOf(c)}, the mailbox this run reads,` : nameOf(c);
+    const fixes = [
+      ...(answer.reconnect ? ['reconnect it'] : []),
+      ...(by === 'choice' ? [answer.reconnect ? 'or choose another' : 'choose another'] : []),
+    ];
+    return {
+      kind: 'refused',
+      code: 'connection-missing',
+      name,
+      app: entry.id,
+      ...(answer.lacks !== undefined && { missing: answer.lacks }),
+      message: [`${subject} ${answer.why}`, fixes.join(', ')].filter((p) => p !== '').join('; '),
+    };
+  }
+
   /** One need: its token, a connect to wait for, or why it can't be met. */
   function resolveOne(name: string, need: Need, input: ResolveConnectionsInput): Resolved {
     const registration = registrationOf(name, need, input);
@@ -1552,16 +2128,18 @@ export function createInMemoryConnections(
     const { entry, app } = registration;
     const owner = ownerFor(name, need, entry, input);
     if (owner.kind === 'refused') return owner;
+    if (owner.kind === 'company') return resolveCompany(name, need, entry, app, input);
     const found = liveConnection(input.tenantId, app.appId, owner, input.envName);
     const lacks = need.permissions.filter((p) => !found?.record.permissions.includes(p));
     if (found?.record.state === 'working' && lacks.length === 0) {
       const token = tokenFor(found, name, input.renew?.includes(name) === true);
-      if (token !== 'needs-reconnecting') return { kind: 'ready', connection: token };
+      if (token !== 'needs-reconnecting') {
+        const pick: ConnectionPick = { by: 'own', registration: registrationSeen(app, entry) };
+        return { kind: 'ready', connection: token, pick };
+      }
     }
     const existing = liveConnection(input.tenantId, app.appId, owner, input.envName);
-    if (need.as === 'company' || input.waitMs <= 0) {
-      return missingRefusal(name, entry, existing, lacks);
-    }
+    if (input.waitMs <= 0) return missingRefusal(name, entry, existing, lacks);
     return {
       kind: 'wait',
       wait: {
@@ -1617,12 +2195,14 @@ export function createInMemoryConnections(
     input: ResolveConnectionsInput,
   ): Promise<ResolveConnectionsOutcome> {
     const ready: Record<string, ToolConnection> = {};
+    const picks: Record<string, ConnectionPick> = {};
     const waits = new Map<string, Wait>();
     for (const name of Object.keys(input.needs).sort()) {
       const resolved = resolveOne(name, input.needs[name] as Need, input);
       if (resolved.kind === 'refused') return resolved;
       if (resolved.kind === 'ready') {
         ready[name] = resolved.connection;
+        picks[name] = resolved.pick;
         continue;
       }
       // One request per connection, for all the call's needs of it.
@@ -1635,11 +2215,20 @@ export function createInMemoryConnections(
       wait.names.push(name);
       wait.permissions = union(wait.permissions, resolved.wait.permissions);
     }
-    if (waits.size === 0) return { kind: 'ready', connections: ready };
+    if (waits.size === 0) return { kind: 'ready', connections: ready, picks };
     return { kind: 'wait', requests: [...waits.values()].map((w) => waitingFor(w, input)) };
   }
 
   // ---------------- seeding ----------------
+
+  /** A seeded connection's label, unique among the live ones as a rename's is. */
+  function seededLabel(input: SeedConnectionInput): { readonly label?: string } {
+    if (input.label === undefined) return {};
+    if (input.state !== 'removed' && labelTaken(input, input.label)) {
+      throw new TypeError(`Another connection is named "${input.label}"`);
+    }
+    return { label: input.label };
+  }
 
   const seed = {
     app(input: ConnectionAppCreateInput): ConnectionAppRecord {
@@ -1656,9 +2245,15 @@ export function createInMemoryConnections(
           : registrationsFor(input.tenantId, input.app, undefined)[0];
       if (app === undefined)
         throw new TypeError(`No registration of ${entry.name}: seed one first`);
-      if (liveConnection(input.tenantId, app.appId, input.owner, input.envName) !== undefined) {
+      // A person has one live connection through the registration; the company one per account.
+      const held =
+        input.owner.kind === 'member'
+          ? liveConnection(input.tenantId, app.appId, input.owner, input.envName)
+          : companyConnection({ ...input, appId: app.appId }, input.account.id);
+      if (held !== undefined) {
         throw new TypeError('That owner already has a connection through the registration');
       }
+      const label = seededLabel(input);
       const at = iso();
       const stored: StoredConnection = {
         record: {
@@ -1669,6 +2264,7 @@ export function createInMemoryConnections(
           app: input.app,
           owner: input.owner,
           account: input.account,
+          ...label,
           permissions: [...input.permissions],
           state: input.state ?? 'working',
           ...(input.installationId !== undefined && { installationId: input.installationId }),

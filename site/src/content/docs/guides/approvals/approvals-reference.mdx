@@ -123,10 +123,13 @@ first email goes at once, then a digest every five minutes at most.
   reviewer seat at its `requiredRole` or above, as
   [Approvals](../../connections/use-a-connection/#approvals) in Use a
   connection in a tool describes.
-- **`connection`** is the account such a call would use:
+- **`connection`** is the connection a call would use, a person's own or
+  the company's:
   `{ "app": "google", "appName": "Google", "account": "lee@acme.com" }`.
   `app` is the app's entry id, and `account` is the account's label at the
-  app, such as an email address or a login.
+  app, such as an email address or a login. For the company's connection,
+  it also has the connection's `name`, such as `"support"`. For a
+  person's, it has no `name`: it names the app and the account only.
 - **`withdrawnBecause`** is `run-cancelled` or `run-ended` on an approval its
   run withdrew, as [Withdrawn by its run](#withdrawn-by-its-run) describes.
 
@@ -313,8 +316,13 @@ first. Its headline says how many and for how long, such as "4 approvals
 wait for you: the oldest for 3 h. 1 is assigned to you.", or "Nothing waits
 for you."
 
+- **Each row names its kind** under its title: **Tool calls and turns**,
+  where a run waits on a tool call, a turn or a fact to remember, or
+  **Versions to pin**, where a pin waits for a reviewer to approve the
+  version.
 - **Filters** by project, tier, **Assigned to you** or **No one assigned**,
-  kept in the page's link.
+  and **Kind**, kept in the page's link. A filter shows once the rows
+  differ in it.
 - **Who it's assigned to** reads "You", "A reviewer" or "No one", never a
   name.
 - **Choose one** to see it beside the list, or in the list's place on a

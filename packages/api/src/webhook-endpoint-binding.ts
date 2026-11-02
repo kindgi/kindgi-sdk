@@ -80,10 +80,10 @@ export type WebhookEventType = (typeof WEBHOOK_EVENT_TYPES)[number];
 /**
  * Which events reach the endpoint. Every field narrows; absent fields
  * don't. `run.finished` is sent for top-level runs only (never for a
- * child run, such as an agent step's turn). `projectId` narrows
- * `improve-run.finished` and `approval.requested` too (the Improve run's or
- * the approval's project); `flowIds` and `includeDryRuns` are about runs
- * only.
+ * child run, such as an agent step's turn, or for a test run's replay).
+ * `projectId` narrows `improve-run.finished` and `approval.requested` too
+ * (the Improve run's or the approval's project); `flowIds` and
+ * `includeDryRuns` are about runs only.
  */
 export interface WebhookEndpointFilter {
   /** Only runs in this project. */

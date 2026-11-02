@@ -11,8 +11,12 @@
  *
  * `config.mailbox` names the app (`google`: Gmail; `microsoft`: Outlook)
  * and whose mailbox it is: `person`, the owner's own, through their
- * connection; or `company`, the company's, through the company's
- * connection, which a project admin registers.
+ * connection; or `company`, the company's, through a company connection
+ * of the app, which a project admin registers. `connectionId` names which
+ * one (only with `company`); with none named, the project's only one is
+ * stored, and with several the call fails with a `conflict` whose
+ * `reason` is `connection-not-chosen` and whose `fields.choices` lists
+ * them.
  *
  * A trigger is shared when a service account owns it (the company's
  * mailbox, with `runAsServiceAccountId`, or `runAsProject` for the

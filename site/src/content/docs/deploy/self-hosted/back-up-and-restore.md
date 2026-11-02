@@ -12,7 +12,8 @@ fresh one, with every erasure still in force.
 
 - **A runtime running as [Self-host Kindgi](../self-host/) sets it up:** the
   `kindgi-server` and `kindgi-db` containers, on the `kindgi` network, with
-  `kindgi.env`.
+  `kindgi.env`. With [authorization](../../authorization/) on, also the
+  `kindgi-openfga` container.
 - **Docker**, on the machine that runs the containers.
 - **`KINDGI_API_TOKEN` exported in your shell** as the runtime's API token,
   where the `kindgi` commands read it, and **`DB_PASSWORD`** set to the
@@ -38,6 +39,31 @@ docker exec kindgi-db pg_dump -U kindgi -Fc kindgi > kindgi-backup.dump
 
 It prints nothing, and writes `kindgi-backup.dump`. The dump holds your
 runs' inputs and outputs, so store it like the database.
+
+With [authorization](../../authorization/) on, OpenFGA keeps who may do what
+in a database of its own, `openfga`, on the same Postgres. Dump it with the
+runtime's, with the runtime stopped, in place of the dump above:
+
+```sh
+docker stop -t 30 kindgi-server
+docker exec kindgi-db pg_dump -U kindgi -Fc kindgi > kindgi-backup.dump
+docker exec kindgi-db pg_dump -U kindgi -Fc openfga > openfga-backup.dump
+docker start kindgi-server
+```
+
+- `docker stop -t 30` gives the runtime 30 seconds to stop, as
+  [Restart the runtime](../restart-and-check-health/#restart-the-runtime)
+  does. Each `pg_dump` takes its database as it is when the dump starts, so
+  with the runtime running, a permission change made between the two dumps
+  could be in one and not the other. With it stopped, nothing changes who
+  may do what, and the two agree.
+- The first `pg_dump` is the one above. The second dumps `openfga`.
+- `docker start` starts the same container again, with the settings it had.
+
+It writes `kindgi-backup.dump` and `openfga-backup.dump`. Keep the two dumps
+together. The runtime's database names its OpenFGA store, and the store is in
+`openfga`, so a restore needs both. The `openfga` dump holds who may do what,
+by person and team id, so store it like the database too.
 
 If the runtime stores model keys, as
 [Models that need a key](../self-host/#8-add-a-model-and-run-a-flow)
@@ -112,6 +138,53 @@ is the database password:
 KINDGI_DATABASE_URL=postgres://kindgi:<DB_PASSWORD>@kindgi-db-restored:5432/kindgi
 ```
 
+With authorization on, restore `openfga` into the new Postgres too, and move
+OpenFGA onto it, before the runtime starts on the new database:
+
+```sh
+docker exec kindgi-db-restored psql -U kindgi -c 'CREATE DATABASE openfga'
+docker exec -i kindgi-db-restored pg_restore -U kindgi -d openfga --no-privileges < openfga-backup.dump
+docker run --rm --network kindgi openfga/openfga:v1.22.0 migrate \
+  --datastore-engine postgres \
+  --datastore-uri "postgres://kindgi:$DB_PASSWORD@kindgi-db-restored:5432/openfga?sslmode=disable"
+
+docker stop -t 30 kindgi-server
+docker stop kindgi-openfga && docker rm kindgi-openfga
+docker run -d --name kindgi-openfga --network kindgi --restart unless-stopped \
+  openfga/openfga:v1.22.0 run \
+  --datastore-engine postgres \
+  --datastore-uri "postgres://kindgi:$DB_PASSWORD@kindgi-db-restored:5432/openfga?sslmode=disable" \
+  --playground-enabled=false
+```
+
+- `CREATE DATABASE openfga` makes OpenFGA's database in the new Postgres,
+  and `pg_restore` fills it with OpenFGA's tables.
+- `migrate` is the one from
+  [Run OpenFGA next to the runtime](../../authorization/#run-openfga-next-to-the-runtime),
+  against the new database. It brings the tables to the version `run`
+  starts, for a backup from an older OpenFGA, and leaves tables already at
+  that version as they are.
+- `docker stop -t 30 kindgi-server` stops the runtime first. Until it starts
+  on the new database, it would take who may do what from the backup, and
+  send the permission changes it makes into the restored store, where the
+  new database has no record of them.
+- `run` is the one from
+  [Run OpenFGA next to the runtime](../../authorization/#run-openfga-next-to-the-runtime),
+  with `kindgi-db-restored` in `--datastore-uri`. If OpenFGA requires a key,
+  keep its `--authn-method` and `--authn-preshared-keys` flags
+  ([Require a key for OpenFGA](../../authorization/#require-a-key-for-openfga)).
+- The container keeps its name, so `KINDGI_OPENFGA_API_URL` in `kindgi.env`
+  stays as it is.
+
+Move OpenFGA first, even for a
+[passive](#look-at-a-restored-copy-before-it-serves-kindgi_passive) look.
+Each time a runtime that serves one tenant starts, as Self-host Kindgi's
+does, passive or not, it writes to its OpenFGA store:
+the seed person and the runtime's own identity as admins, its permission
+model when the store has an older one, and its resources, each under its
+parent. The backup names the live store, so a runtime started on the new
+database with the old OpenFGA would write into it.
+
 Before the runtime serves it, check that the secrets' keys open the secrets
 the backup brought back. The check reads the database with the settings in
 `kindgi.env`, and starts nothing. If the keys are in files, mount them as the
@@ -129,7 +202,6 @@ It decrypts each live version of every stored secret, and prints ids and
 counts, never a value. When each one decrypts, it exits `0`:
 
 ```text
-KMS probe OK (libsodium): chacha20-poly1305-node (0ms)
 stored-secrets: every stored secret decrypts, 2 versions (1 tenant checked):
   tenant f2885e16-4039-44b4-a5f9-321b39e06dbe: 2 versions decrypt
 ```
@@ -139,12 +211,11 @@ each version a read would fail on, and exits `1`. A KMS key that can't open
 them is named the same way, with the KMS's code:
 
 ```text
-KMS probe OK (libsodium): chacha20-poly1305-node (0ms)
 stored-secrets: 2 of 2 stored secret versions don't decrypt (1 tenant checked):
   tenant f2885e16-4039-44b4-a5f9-321b39e06dbe: 0 of 2 versions decrypt
-    secret 0491be6e-cf77-435e-9a01-74fe5407ee03 version 1 (key local:d639cc713bfa3041): its AAD doesn't match: the AAD key isn't the one it was written with, or its row changed since
-    secret afe8ad9d-07c7-4b7e-b8fb-df8173f27211 version 1 (key local:d639cc713bfa3041): its AAD doesn't match: the AAD key isn't the one it was written with, or its row changed since
-A read of each version named fails. Check that the KMS key, the runtime's access to it, and KINDGI_SECRETS_AAD_KEY are the ones those secrets were written with: a restore brings back the database, not the keys.
+    secret 0491be6e-cf77-435e-9a01-74fe5407ee03 version 1 (key local:d639cc713bfa3041): its AAD doesn't match: the AAD key isn't the one it was written with, its row changed since, or its row isn't this tenant's
+    secret afe8ad9d-07c7-4b7e-b8fb-df8173f27211 version 1 (key local:d639cc713bfa3041): its AAD doesn't match: the AAD key isn't the one it was written with, its row changed since, or its row isn't this tenant's
+A read of each version named fails. The check only decrypts, never encrypts. Check that the KMS key and KINDGI_SECRETS_AAD_KEY are the ones those secrets were written with, and that the runtime may decrypt (unwrap) with that key. A restore brings back the database, not the keys.
 ```
 
 Set the keys the secrets were written with, and check again. Without
@@ -288,7 +359,7 @@ can export them all:
 
 - **`KINDGI_ERASURE_LEDGER_EXPORT`:** where. `local:<absolute dir>`,
   `gcs:<bucket>[/<prefix>]` through Application Default Credentials, or
-  `s3:<bucket>[/<prefix>]` (runtime 0.3.0 or later). In a GCS bucket,
+  `s3:<bucket>[/<prefix>]` (runtime 0.4.0 or later). In a GCS bucket,
   creating objects is all it needs (`roles/storage.objectCreator` on the
   bucket). [Choose where the runtime keeps files](../store-files/#files-written-once)
   has what each needs, and the checks at startup.
@@ -378,6 +449,14 @@ So a restored database can be inspected without a schedule firing, a
 webhook going out, or a run calling your tools.
 - **Requests are still served,** and a run started through the API still
   runs, so keep a passive runtime where only you can reach it.
+- **It still writes to OpenFGA as it starts,** as
+  [Restore into a fresh database](#restore-into-a-fresh-database) says. With
+  authorization on, move OpenFGA onto the restored database first. Most
+  permission changes made while it's passive wait in the runtime's
+  database, and go to OpenFGA once the runtime starts without
+  `KINDGI_PASSIVE`. A person's tenant admin or membership, a service
+  account's grants, a site person's sign-in and a tenant the system API
+  sets up go to OpenFGA at once.
 - **It says so:** the startup log has a `⚠ Passive (KINDGI_PASSIVE=on)`
   line, and `/ready` answers `"passive": true`.
 

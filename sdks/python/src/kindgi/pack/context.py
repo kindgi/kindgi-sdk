@@ -138,6 +138,11 @@ class ToolConnection:
     account: ConnectionAccount
     expires_at: str | None = None
     """When the token expires (ISO 8601), when the app says."""
+    name: str | None = None
+    """The connection's name: its label, else its account's.
+
+    `None` from a runtime before pack protocol 2.11.0.
+    """
 
     @classmethod
     def from_wire(cls, value: Any) -> ToolConnection | None:
@@ -152,6 +157,7 @@ class ToolConnection:
         account_id = cast("Mapping[str, Any]", account).get("id")
         label = cast("Mapping[str, Any]", account).get("label")
         expires_at = raw.get("expiresAt")
+        name = raw.get("name")
         if not isinstance(account_id, str) or not isinstance(label, str):
             return None
         return cls(
@@ -161,6 +167,7 @@ class ToolConnection:
             access_token=cast(str, texts[3]),
             account=ConnectionAccount(id=account_id, label=label),
             expires_at=expires_at if isinstance(expires_at, str) else None,
+            name=name if isinstance(name, str) else None,
         )
 
 

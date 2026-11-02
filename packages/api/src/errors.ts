@@ -702,10 +702,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'webhook-url-refused': 400,
   'webhook-secret-not-found': 400,
   'webhook-secret-too-weak': 400,
-  // Connections (`/v1/connection-apps`, `/v1/connections`).
+  // Connections (`/v1/connection-apps`, `/v1/connections`, `/v1/connection-choices`).
   'connection-app-not-found': 404,
   'connection-not-found': 404,
   'connection-request-not-found': 404,
+  /** A choice that isn't there, or is removed: `details.choiceId` names it. */
+  'connection-choice-not-found': 404,
   /** A registration that doesn't fit its entry; `field` names what. */
   'connection-app-invalid': 400,
   'connection-app-unknown-entry': 400,
@@ -725,6 +727,22 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'connection-state-expired': 410,
   /** A reconnect signed in to an account other than the connection's. */
   'connection-account-mismatch': 409,
+  /**
+   * A connect's or a rename's `label` another live connection of the same
+   * app, owner and env has, by `comparableName`: `details.field` is
+   * `label`.
+   */
+  'connection-label-taken': 409,
+  /**
+   * A call needs a company connection of an app, the project has several
+   * in the env, and the agent or flow has no choice of one: the turn
+   * fails. `details.choices` names them. Or a mail trigger's create or
+   * patch puts it on the company's mailbox with no
+   * `config.mailbox.connectionId` and the project has several of the app:
+   * `details.choices` lists them (`{connectionId, name}`, sorted by name),
+   * `details.field` is `config.mailbox.connectionId`, and nothing changes.
+   */
+  'connection-not-chosen': 409,
   /**
    * A connect, or its finish, for a connection still being disconnected:
    * disconnect it again to finish, then connect.
