@@ -35,6 +35,7 @@
     showOrders(count.orders);
     const { n } = count;
     const text = count.more === true && n > 0 ? `${n}+` : String(n);
+    /* translators: %s: how many, such as 3 or 12+ */
     const words = sprintf(_n('%s waits for you', '%s wait for you', n, 'kindgi'), text);
     for (const bubble of document.querySelectorAll('.kindgi-count')) {
       bubble.className = bubble.className.replace(/\bcount-\d+\b/, `count-${n}`);

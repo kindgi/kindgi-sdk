@@ -308,8 +308,11 @@
     mail: __('Email', 'kindgi'),
     key: __('Service key', 'kindgi'),
   };
-  const sourceWords = (by) =>
-    by.kind === 'person' ? sprintf(__('%s asked', 'kindgi'), by.name) : (SOURCE[by.kind] ?? null);
+  function sourceWords(by) {
+    if (by.kind !== 'person') return SOURCE[by.kind] ?? null;
+    /* translators: %s: a person's name */
+    return sprintf(__('%s asked', 'kindgi'), by.name);
+  }
 
   /** A run's state: the tone its chip is drawn in, and its words. */
   const STATUS = {
@@ -339,14 +342,17 @@
     const { dateI18n, getSettings } = wp.date;
     const key = (at) => dateI18n('Y-m-d', at);
     const day = key(iso);
-    if (day === key(new Date())) return [day, __('Today', 'kindgi')];
-    if (day === key(new Date(Date.now() - 24 * 60 * 60 * 1000))) {
+    const today = key(new Date());
+    if (day === today) return [day, __('Today', 'kindgi')];
+    // The date before today's, not 24 hours ago: a day the clocks change is 23 or 25 hours long.
+    const [y, m, d] = today.split('-').map(Number);
+    if (day === new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10)) {
       return [day, __('Yesterday', 'kindgi')];
     }
-    /* translators: 1: a weekday, 2: a date in the site's format */
     return [
       day,
       sprintf(
+        /* translators: 1: a weekday, 2: a date in the site's format */
         __('%1$s, %2$s', 'kindgi'),
         dateI18n('l', iso),
         dateI18n(getSettings().formats.date, iso),
@@ -372,7 +378,12 @@
    */
   function outputSheet(run, name) {
     const close = el('button', { type: 'button', className: 'button' }, __('Close', 'kindgi'));
-    const title = el('h2', {}, sprintf(__('What %s returned', 'kindgi'), name));
+    const title = el(
+      'h2',
+      {},
+      /* translators: %s: the agent's or flow's name */
+      sprintf(__('What %s returned', 'kindgi'), name),
+    );
     const sheet = el(
       'dialog',
       { className: 'kindgi-sheet' },
@@ -388,8 +399,13 @@
     sheet.setAttribute('aria-labelledby', title.id);
     close.addEventListener('click', () => sheet.close());
     // The sheet's own box is its inner one: a click on the dialog itself is on the backdrop.
+    // Pressed there too, so a text selection let go past the sheet's edge leaves it open.
+    let pressedOutside = false;
+    sheet.addEventListener('pointerdown', (event) => {
+      pressedOutside = event.target === sheet;
+    });
     sheet.addEventListener('click', (event) => {
-      if (event.target === sheet) sheet.close();
+      if (pressedOutside && event.target === sheet) sheet.close();
     });
     sheet.addEventListener('close', () => sheet.remove());
     return sheet;
@@ -634,6 +650,7 @@
       if (conversation === null) return;
       if (conversation.mine === false) {
         othersLine.textContent = sprintf(
+          /* translators: %s: the conversation's title, or its agent's name */
           __("Open: %s, someone else's", 'kindgi'),
           conversation.title || nameOf(conversation.agentId),
         );
@@ -758,6 +775,7 @@
     const title = el('h2', {});
     const about = el('p', { className: 'kindgi-muted kindgi-about' });
     const show = (a) => {
+      /* translators: %s: the agent's name */
       title.textContent = sprintf(__('Ask %s', 'kindgi'), a.name || a.id);
       about.textContent = a.description;
     };
@@ -774,6 +792,7 @@
       el(
         'p',
         { className: 'kindgi-muted' },
+        /* translators: %s: the agent's name */
         sprintf(__('With %s', 'kindgi'), nameOf(conversation.agentId)),
       ),
       conversation.mine
@@ -820,6 +839,7 @@
       },
     });
     if (conversation === null && state.order !== null) {
+      /* translators: %s: the order's number */
       input.value = sprintf(__('About order #%s: ', 'kindgi'), state.order);
     }
     const send = el(
@@ -1038,6 +1058,7 @@
         el(
           'details',
           {},
+          /* translators: %s: a tool's name */
           el('summary', {}, sprintf(__('%s answered', 'kindgi'), toolName(m.toolId))),
           el('pre', {}, JSON.stringify(m.result, null, 2)),
         ),
@@ -1049,6 +1070,7 @@
         ? el(
             'span',
             { className: 'kindgi-calls' },
+            /* translators: %s: the tools' names, separated by commas */
             sprintf(__('Used %s', 'kindgi'), m.calls.map(toolName).join(', ')),
           )
         : null;
@@ -1095,6 +1117,7 @@
       since = run.since;
       steps.append(
         ...run.steps.map((step) =>
+          /* translators: %s: a tool's name */
           el('li', {}, sprintf(__('Used %s', 'kindgi'), toolName(step.toolId))),
         ),
       );
@@ -1145,6 +1168,7 @@
     const box = el(
       'div',
       { className: 'kindgi-wait' },
+      /* translators: %s: what waits for approval */
       el('p', {}, sprintf(__('Waiting for a person to approve: %s', 'kindgi'), wait.heading)),
     );
     if (state.me.reviewerRole !== null) {
