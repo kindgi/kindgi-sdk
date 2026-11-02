@@ -591,7 +591,7 @@ final class Kindgi_Rest {
 		}
 		$reviewer = Kindgi_Inbox::reviewer_of( $permissions['body'] );
 		$me       = (string) $permissions['session']['user_id'];
-		$names    = self::agent_names( $user, $get );
+		$names    = self::agent_names( $user, $get, (string) $permissions['session']['project_id'] );
 		$answer   = array(
 			'signedIn' => true,
 			'more'     => false,
@@ -781,9 +781,8 @@ final class Kindgi_Rest {
 		return $conversation === $card['conversationId'] && Kindgi_Inbox::reviews( $card );
 	}
 
-	/** An approval as its card, with a link to the order it's about for someone who may edit orders. */
 	/**
-	 * An approval's card, with the order it's about linked.
+	 * An approval's card, with the order it's about linked for someone who may edit orders.
 	 *
 	 * @param callable(string): ?string $names `agent_names`, shared by a page's cards.
 	 */
@@ -800,15 +799,16 @@ final class Kindgi_Rest {
 	 * agent Kindgi doesn't name, or a read that fails, is null: the card
 	 * says its id in words.
 	 *
-	 * @param callable|null $get `(path, query)` to Kindgi's answer, null or an error; else `Kindgi_Api::body`.
+	 * @param callable|null $get     `(path, query)` to Kindgi's answer, null or an error; else `Kindgi_Api::body`.
+	 * @param string|null   $project The project, when the caller has it from `$get`'s reads; else the person's session's.
 	 * @return callable(string): ?string
 	 */
-	private static function agent_names( WP_User $user, ?callable $get = null ): callable {
+	private static function agent_names( WP_User $user, ?callable $get = null, ?string $project = null ): callable {
 		$names = null;
-		return static function ( string $id ) use ( $user, $get, &$names ): ?string {
+		return static function ( string $id ) use ( $user, $get, $project, &$names ): ?string {
 			if ( null === $names ) {
 				$names   = array();
-				$project = self::project( $user );
+				$project = $project ?? self::project( $user );
 				$query   = array(
 					'scopeKind' => 'project',
 					'scopeId'   => $project,
