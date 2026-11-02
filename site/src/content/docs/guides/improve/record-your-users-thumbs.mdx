@@ -247,9 +247,9 @@ shows.
 - **A user who changes their mind** replaces their earlier thumbs: a second
   correction of the run, by the same token for the same `participantId`,
   replaces the first, which stays in the history.
-- **A thumbs down without `why`** is refused with a 400, `answer: "wrong"
-  needs shouldSay or why.`, which the client raises as an invalid-request
-  error.
+- **A thumbs down without `why`,** or with a `why` of only spaces, is
+  refused with a 400, `answer: "wrong" needs shouldSay or why.`, which the
+  client raises as an invalid-request error.
 
 ## See the thumbs
 

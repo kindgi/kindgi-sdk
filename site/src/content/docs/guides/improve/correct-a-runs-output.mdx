@@ -205,7 +205,8 @@ object RecordCorrection {
 </Tabs>
 
 - **`answer`** is `right` or `wrong`. A wrong answer needs what it should
-  have said, `shouldSay`, or why it was wrong, `why`.
+  have said, `shouldSay`, or why it was wrong, `why`. A text of only spaces
+  counts as not given.
 - **`participantId`** is your app's own opaque id for the user who made the
   correction. Who called comes from the token, as `madeBy`. Your users'
   corrections stay `open` and unsorted until a person sorts them, unless

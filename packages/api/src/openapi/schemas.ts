@@ -5939,7 +5939,7 @@ export const CreateCorrectionBodySchema: JsonSchema = {
   additionalProperties: false,
   required: ['runId'],
   description:
-    'At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`.',
+    'At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`. A text of only spaces counts as not given.',
   properties: {
     runId: { type: 'string', minLength: 1 },
     decisions: verdictProperty,

@@ -353,6 +353,7 @@ describe('a case added by hand', () => {
     const h = harness([r, other, running, replay, erased]);
     for (const [body, status, says] of [
       [{ runId: r.runId }, 400, 'at least one of decisions, answer and items'],
+      [{ runId: r.runId, answer: 'wrong', shouldSay: '  ' }, 400, 'needs shouldSay or why'],
       [
         { runId: r.runId, ...WRONG_ANSWER, correctorGroupId: 'jc-1' },
         400,

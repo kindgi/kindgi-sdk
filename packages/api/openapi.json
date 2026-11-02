@@ -7282,7 +7282,7 @@
         "required": [
           "runId"
         ],
-        "description": "At least one of `decisions`, `answer` and `items`. `decisions: \"wrong\"` needs an entry in `shouldCall` or `mustNotCall`; `answer: \"wrong\"` needs `shouldSay` or `why`.",
+        "description": "At least one of `decisions`, `answer` and `items`. `decisions: \"wrong\"` needs an entry in `shouldCall` or `mustNotCall`; `answer: \"wrong\"` needs `shouldSay` or `why`. A text of only spaces counts as not given.",
         "properties": {
           "runId": {
             "type": "string",
@@ -7388,7 +7388,7 @@
         "required": [
           "runId"
         ],
-        "description": "A correction's body on one of the agent's runs. At least one of `decisions`, `answer` and `items`. `decisions: \"wrong\"` needs an entry in `shouldCall` or `mustNotCall`; `answer: \"wrong\"` needs `shouldSay` or `why`.",
+        "description": "A correction's body on one of the agent's runs. At least one of `decisions`, `answer` and `items`. `decisions: \"wrong\"` needs an entry in `shouldCall` or `mustNotCall`; `answer: \"wrong\"` needs `shouldSay` or `why`. A text of only spaces counts as not given.",
         "properties": {
           "runId": {
             "type": "string",

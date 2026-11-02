@@ -369,6 +369,21 @@ describe('POST /v1/corrections', () => {
     expect(res.body.error.message).toBe('shouldSay goes with answer: "wrong".');
   });
 
+  test('a text of only spaces counts as not given, as an empty one does', async () => {
+    const run = row();
+    const h = harness([run]);
+    for (const text of [{ shouldSay: '  ' }, { shouldSay: '' }, { why: '  ' }, { why: '' }]) {
+      const res = await h.call('POST', '/v1/corrections', {
+        runId: run.runId,
+        answer: 'right',
+        ...text,
+      });
+      expect(res.status, JSON.stringify(text)).toBe(201);
+      expect(res.body).not.toHaveProperty('shouldSay');
+      expect(res.body).not.toHaveProperty('why');
+    }
+  });
+
   test('answer wrong needs shouldSay or why', async () => {
     const run = row();
     const h = harness([run]);
@@ -384,6 +399,24 @@ describe('POST /v1/corrections', () => {
       expect(res.status).toBe(201);
       expect(res.body).toMatchObject(text);
     }
+    for (const blank of [{ shouldSay: '  ' }, { why: '\n' }, { shouldSay: ' ', why: '\t' }]) {
+      const res = await h.call('POST', '/v1/corrections', {
+        runId: run.runId,
+        answer: 'wrong',
+        ...blank,
+      });
+      expect(res.status, JSON.stringify(blank)).toBe(400);
+      expect(res.body.error.message).toBe('answer: "wrong" needs shouldSay or why.');
+    }
+    const spaced = await h.call('POST', '/v1/corrections', {
+      runId: run.runId,
+      answer: 'wrong',
+      shouldSay: ' \t',
+      why: 'It named the wrong company.',
+    });
+    expect(spaced.status).toBe(201);
+    expect(spaced.body).toMatchObject({ why: 'It named the wrong company.' });
+    expect(spaced.body).not.toHaveProperty('shouldSay');
   });
 
   test('shouldSay or why over 4000 characters is a 400', async () => {
