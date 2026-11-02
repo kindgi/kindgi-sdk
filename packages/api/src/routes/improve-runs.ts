@@ -22,7 +22,7 @@ import {
 } from '../improve-run-binding.js';
 import { type ItemRights, writeWhereMade } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
-import { refuseReadOnly } from '../registry-read-only.js';
+import { refuseReadOnly, refusesCandidates } from '../registry-read-only.js';
 import type { SuggestedChangeObjective } from '../supervisor-binding.js';
 import type { TestRunGroupWeights } from '../test-run-binding.js';
 import type { AppEnv } from '../types.js';
@@ -35,7 +35,11 @@ type Ctx = Context<AppEnv>;
 /** What `POST /v1/improve-runs` checks an Improve run against before it starts. */
 export interface ImproveDeps {
   readonly improveRuns?: ImproveRunBinding;
-  /** The agent registry: read-only under `kindgi dev`, where no Improve run starts (`readOnly`). */
+  /**
+   * The agent registry: whether it takes the versions an Improve run makes
+   * (`readOnly`). Under `kindgi dev` it takes them, and the run's change is
+   * for the whole tenant, which the pack's files serve.
+   */
   readonly agents: AgentRegistryBinding;
   /** Whether a project is suspended: no Improve run starts in one. Absent: no check. */
   readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
@@ -234,11 +238,12 @@ function running(c: Ctx, parsed: StartImproveRunBody, improveRunId: string) {
 
 /**
  * What a start and a check both do first: read the body, ask for `publish` on
- * the agent and for Improve in this runtime, and refuse under `kindgi dev`,
- * where an Improve run is refused as any suggested change is: its change is
- * for one project, and the pack's files serve every one. Then the runtime's
- * check, as the readiness list. The response to send, or what the route
- * goes on with.
+ * the agent and for Improve in this runtime, and refuse where the agent
+ * registry takes no Improve candidates (`refusesCandidates`). Under `kindgi
+ * dev` it takes them: the run counts in its project (its corrections, its
+ * test set and its cost), and its change is for the whole tenant, which the
+ * pack's files serve. Then the runtime's check, as the readiness list. The
+ * response to send, or what the route goes on with.
  */
 async function askCheck(
   c: Ctx,
@@ -265,7 +270,8 @@ async function askCheck(
   if (denied !== undefined) return denied;
   const improveRuns = deps.improveRuns;
   if (improveRuns === undefined) return unsupported(c);
-  if (deps.agents.readOnly !== undefined) return refuseReadOnly(c, deps.agents.readOnly);
+  const readOnly = deps.agents.readOnly;
+  if (readOnly !== undefined && refusesCandidates(readOnly)) return refuseReadOnly(c, readOnly);
   const groupWeights = await resolveGroupWeights(
     deps,
     tenantId,

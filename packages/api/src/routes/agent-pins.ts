@@ -27,6 +27,7 @@ import type {
   AgentUnpinInput,
   Pin,
   PinActor,
+  PinFilesWarnings,
 } from '../agent-pin-binding.js';
 import type { CorrectedComparisonSummary } from '../corrected-dispatcher.js';
 import type { CorrectionRegistryBinding } from '../correction-binding.js';
@@ -117,6 +118,12 @@ export interface AgentPinGateDeps {
   readonly testSets?: Pick<TestSetFreezeBinding, 'freezeTestSet'>;
   readonly corrections?: Pick<CorrectionRegistryBinding, 'list' | 'applyRunOutcome' | 'listCases'>;
   readonly itemProjects?: Pick<ItemProjectsBinding, 'projectsOf'>;
+  /**
+   * Under `kindgi dev`: the files a pin would write over that git hasn't
+   * committed, which `…/pinned/check` warns about when the gate lets the
+   * pin through. Absent: no warning.
+   */
+  readonly pinFiles?: PinFilesWarnings;
 }
 
 /**
@@ -282,6 +289,11 @@ export function mountAgentPinRoutes(
     );
     if (gate.kind === 'err') return failed(c, requestId, gate.error);
     const { result } = gate;
+    const warning =
+      result.passed && deps.pinFiles !== undefined
+        ? await deps.pinFiles({ tenantId, agentId, version: parsed.value.version })
+        : undefined;
+    const uncommitted = warning?.uncommittedFiles ?? [];
     return c.json({
       outcome: !result.passed
         ? 'gate-failed'
@@ -292,6 +304,8 @@ export function mountAgentPinRoutes(
         releaseGate === null ? null : { id: releaseGate.id, version: releaseGate.version },
       checks: result.checks,
       ...(result.approval !== undefined && { approval: result.approval }),
+      ...(uncommitted.length > 0 && { uncommittedFiles: uncommitted }),
+      ...(warning?.notInGit === true && { notInGit: true }),
     });
   });
 
@@ -923,12 +937,26 @@ export function coordinatesOf(
   }
 }
 
-/** A finished comparison's summary, or `null` for any other test run. */
+/**
+ * A completed comparison's summary, or `null` for any other test run. A
+ * comparison cancelled or failed part way can keep the summary of the cases
+ * it got through, which doesn't say how the version does on the test cases.
+ */
 function summaryOf(run: TestRun): CorrectedComparisonSummary | null {
   const summary = run.result?.summary;
-  return run.kind === 'corrections' && summary !== null && typeof summary === 'object'
+  return run.kind === 'corrections' &&
+    run.status === 'completed' &&
+    summary !== null &&
+    typeof summary === 'object'
     ? (summary as CorrectedComparisonSummary)
     : null;
+}
+
+/** Why a gate doesn't read test run `testRunId` (`summaryOf` gave none). */
+function notACompletedComparison(testRunId: string, run: TestRun): string {
+  return run.kind === 'corrections' && run.status !== 'completed'
+    ? `Test run ${testRunId} isn't a completed comparison: it's ${run.status}. Name a run that completed.`
+    : `Test run ${testRunId} isn't a completed comparison: it has no comparison summary`;
 }
 
 /** Whether two pin scopes are the same scope. */
@@ -1044,10 +1072,7 @@ async function runGate(
     if (run === null) return err('test-run-not-found', `No test run ${req.testRunId}`);
     summary = summaryOf(run);
     if (summary === null) {
-      return err(
-        'bad-input',
-        `Test run ${req.testRunId} isn't a finished comparison: it has no comparison summary`,
-      );
+      return err('bad-input', notACompletedComparison(req.testRunId, run));
     }
   }
   let summaryProjectOrgId: string | undefined;

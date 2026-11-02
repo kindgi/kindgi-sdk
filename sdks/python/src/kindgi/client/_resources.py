@@ -3271,7 +3271,7 @@ class AgentsPinnedResource:
     ) -> _models.PinCheck:
         """Check a pin against its gate. `POST /v1/agents/{agentId}/pinned/check`
 
-        What `POST …/pinned/pin` with the same body would do, with nothing recorded: `would-pin`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, pin. Needs `read` on the agent.
+        What `POST …/pinned/pin` with the same body would do, with nothing recorded: `would-pin`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, pin. Under `kindgi dev`, where a pin writes the version into the pack's files, it also warns about the files it would write over that git hasn't committed (`uncommittedFiles`), or that the pack isn't in git (`notInGit`). Needs `read` on the agent.
         """
         return self._client._request(
             _OPERATIONS["agents.pinned.check"],
@@ -3671,11 +3671,12 @@ class ReleaseGatesResource:
         scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
         scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
+        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.ReleaseGatePage:
         """List release gates. `GET /v1/release-gates`
 
-        Each release gate's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.
+        Each release gate's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's. A retired gate (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return self._client._request(
             _OPERATIONS["releaseGates.list"],
@@ -3687,6 +3688,7 @@ class ReleaseGatesResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "segment": _segments(segments),
+                "includeRetired": include_retired,
             },
             headers={},
             response=_models.ReleaseGatePage,
@@ -4924,7 +4926,7 @@ class SuggestedChangesResource:
     ) -> _models.SuggestedChange:
         """Suggest a change to a block, for a project. `POST /v1/suggested-changes`
 
-        New settings values or a new prompt template for one block, in what the project runs: its pin, or Latest. Checked as publishing that block version would be (its schema carries over; for the version's model-settings block, as model settings), and refused when it equals the content the version pins. Then the block version is published, an agent version is derived from what the project runs with that one block changed (it serves nothing until it's pinned or added as Latest), and the check starts on the project's test set, frozen now: the new version and what the project runs replay the same cases. The same change on the same version for the same project is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`, unchecked again. Needs `publish` on the agent.
+        New settings values or a new prompt template for one block, in what the project runs: its pin, or Latest. Checked as publishing that block version would be (its schema carries over; for the version's model-settings block, as model settings), and refused when it equals the content the version pins. Then the block version is published, an agent version is derived from what the project runs with that one block changed (it serves nothing until it's pinned or added as Latest), and the check starts on the project's test set, frozen now: the new version and what the project runs replay the same cases. The same change on the same version for the same project is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`, unchecked again. Under `kindgi dev`, it's for the whole workspace (the `tenant` scope), as an Improve run's is, and checked in the project the version it's built on was made in. Needs `publish` on the agent.
         """
         return self._client._request(
             _OPERATIONS["suggestedChanges.create"],
@@ -4941,7 +4943,7 @@ class SuggestedChangesResource:
     ) -> _models.SuggestedChange:
         """Fetch a suggested change. `GET /v1/suggested-changes/{suggestedChangeId}`
 
-        With its block's content before and after (`changes[].before`, `changes[].after`). Needs `read` on its agent.
+        With its block's content before and after (`changes[].before`, `changes[].after`): before is the block as the change was drafted, or last rebuilt. Needs `read` on its agent.
         """
         return self._client._request(
             _OPERATIONS["suggestedChanges.get"],
@@ -4985,7 +4987,7 @@ class SuggestedChangesResource:
     ) -> _models.SuggestedChangePinAnswer:
         """Pin a suggested change's version for its project. `POST /v1/suggested-changes/{suggestedChangeId}/pin`
 
-        A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. A project on Latest takes the change as its Latest (`add-as-latest`); a pin there is refused with `409 pin-stops-latest`, before any rebuild, unless the body has `stopFollowingLatest: true`, which takes the project off Latest. Needs `pin` on the agent. Allowed from `ready`.
+        A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. A project on Latest takes the change as its Latest (`add-as-latest`); a pin there is refused with `409 pin-stops-latest`, before any rebuild, unless the body has `stopFollowingLatest: true`, which takes the project off Latest. Under `kindgi dev`, a suggested change is for the whole workspace (the `tenant` scope): it's pinned there, through the project its version was made in. Needs `pin` on the agent. Allowed from `ready`.
         """
         return self._client._request(
             _OPERATIONS["suggestedChanges.pin"],
@@ -5093,7 +5095,7 @@ class ImproveRunsResource:
     ) -> _models.ImproveRun:
         """Start an Improve run. `POST /v1/improve-runs`
 
-        Starts an Improve run for an agent in a project. From the version the project runs (pinned there, else its Latest), it looks for better wording (the prompt tier) or settings values (the settings tier) on the project's test set, learning from the project's open corrections sorted to improve, within the budget. Its best change is proven on every case of the test set, at the reference's repetitions: when it passes more cases than that version and fails none that passed, it becomes a suggested change for a reviewer. It answers at once with the Improve run, `running`. The readiness check (`POST /v1/improve-runs/check`) runs first: when something the Improve run needs is missing, it's refused with `409 improve-not-ready`, listing every missing item at once (`details.items`, each with its fix); while the agent has a running Improve run in the project, with `409 improve-run-running` (`details.improveRunId`). An Improve run going when its project is suspended ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent; for an agent more than one project serves, `write` where its versions are made. Without Improve runs in this runtime, `501 improve-unsupported`.
+        Starts an Improve run for an agent in a project. From the version the project runs (pinned there, else its Latest), it looks for better wording (the prompt tier) or settings values (the settings tier) on the project's test set, learning from the project's open corrections sorted to improve, within the budget. Its best change is proven on every case of the test set, at the reference's repetitions: when it passes more cases than that version and fails none that passed, it becomes a suggested change for a reviewer. It answers at once with the Improve run, `running`. Under `kindgi dev`, the run counts in its project (its corrections, its test set and its cost), and its suggested change is for the whole workspace (the `tenant` scope), which the pack's files serve: pinning it writes its block into the pack's files. The readiness check (`POST /v1/improve-runs/check`) runs first: when something the Improve run needs is missing, it's refused with `409 improve-not-ready`, listing every missing item at once (`details.items`, each with its fix); while the agent has a running Improve run in the project, with `409 improve-run-running` (`details.improveRunId`). An Improve run going when its project is suspended ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent; for an agent more than one project serves, `write` where its versions are made. Without Improve runs in this runtime, `501 improve-unsupported`.
         """
         return self._client._request(
             _OPERATIONS["improveRuns.start"],
@@ -6127,7 +6129,7 @@ class McpEndpointsResource:
     ) -> _models.RegisterMCPEndpointResult:
         """Register an MCP endpoint. `POST /v1/mcp/endpoints`
 
-        Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef` names a secret in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.
+        Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). A credential in plaintext `config.headers` or a stdio endpoint's `config.env` is refused (`400 invalid-mcp-endpoint`, reason `credential-in-headers` or `credential-in-env`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.
         """
         return self._client._request(
             _OPERATIONS["mcp.endpoints.register"],
@@ -6144,7 +6146,7 @@ class McpEndpointsResource:
     ) -> _models.MCPEndpoint:
         """Fetch an MCP endpoint. `GET /v1/mcp/endpoints/{endpointId}`
 
-        Returns the wire-safe `MCPEndpoint` (secrets never cross the wire — `secretRef` names a secret the runtime resolves inside the deployment).
+        Returns the wire-safe `MCPEndpoint` (secrets never cross the wire — `secretRef`, `auth` and `secretEnv` name secrets the runtime resolves inside the deployment). A stdio endpoint's `config.env` values read back as `[redacted]`, their names kept.
         """
         return self._client._request(
             _OPERATIONS["mcp.endpoints.get"],
@@ -6508,16 +6510,23 @@ class PoliciesResource:
         ]
         | None = None,
         name: str | None = None,
+        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.PolicyCollectionPage:
         """List tenant policies. `GET /v1/policies`
 
-        Cursor-paginated. Optional `?kind=` narrows to a single policy kind (exact match); optional `?name=` is a prefix match on `Policy.id`. Sort order: policy id ascending. Latest version per id.
+        Cursor-paginated. Optional `?kind=` narrows to a single policy kind (exact match); optional `?name=` is a prefix match on `Policy.id`. Sort order: policy id ascending. Latest version per id. A retired policy (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return self._client._request(
             _OPERATIONS["policies.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "kind": kind, "name": name},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "kind": kind,
+                "name": name,
+                "includeRetired": include_retired,
+            },
             headers={},
             response=_models.PolicyCollectionPage,
             timeout=timeout,
@@ -7033,11 +7042,12 @@ class BlocksResource:
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
+        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.BlockCollectionPage:
         """List data blocks (latest version of each). `GET /v1/blocks`
 
-        Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do.
+        Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do. A retired block (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return self._client._request(
             _OPERATIONS["blocks.list"],
@@ -7049,6 +7059,7 @@ class BlocksResource:
                 "name": name,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
+                "includeRetired": include_retired,
             },
             headers={},
             response=_models.BlockCollectionPage,
@@ -13406,7 +13417,7 @@ class AsyncAgentsPinnedResource:
     ) -> _models.PinCheck:
         """Check a pin against its gate. `POST /v1/agents/{agentId}/pinned/check`
 
-        What `POST …/pinned/pin` with the same body would do, with nothing recorded: `would-pin`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, pin. Needs `read` on the agent.
+        What `POST …/pinned/pin` with the same body would do, with nothing recorded: `would-pin`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, pin. Under `kindgi dev`, where a pin writes the version into the pack's files, it also warns about the files it would write over that git hasn't committed (`uncommittedFiles`), or that the pack isn't in git (`notInGit`). Needs `read` on the agent.
         """
         return await self._client._request(
             _OPERATIONS["agents.pinned.check"],
@@ -13806,11 +13817,12 @@ class AsyncReleaseGatesResource:
         scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
         scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
+        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.ReleaseGatePage:
         """List release gates. `GET /v1/release-gates`
 
-        Each release gate's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.
+        Each release gate's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's. A retired gate (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return await self._client._request(
             _OPERATIONS["releaseGates.list"],
@@ -13822,6 +13834,7 @@ class AsyncReleaseGatesResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "segment": _segments(segments),
+                "includeRetired": include_retired,
             },
             headers={},
             response=_models.ReleaseGatePage,
@@ -15061,7 +15074,7 @@ class AsyncSuggestedChangesResource:
     ) -> _models.SuggestedChange:
         """Suggest a change to a block, for a project. `POST /v1/suggested-changes`
 
-        New settings values or a new prompt template for one block, in what the project runs: its pin, or Latest. Checked as publishing that block version would be (its schema carries over; for the version's model-settings block, as model settings), and refused when it equals the content the version pins. Then the block version is published, an agent version is derived from what the project runs with that one block changed (it serves nothing until it's pinned or added as Latest), and the check starts on the project's test set, frozen now: the new version and what the project runs replay the same cases. The same change on the same version for the same project is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`, unchecked again. Needs `publish` on the agent.
+        New settings values or a new prompt template for one block, in what the project runs: its pin, or Latest. Checked as publishing that block version would be (its schema carries over; for the version's model-settings block, as model settings), and refused when it equals the content the version pins. Then the block version is published, an agent version is derived from what the project runs with that one block changed (it serves nothing until it's pinned or added as Latest), and the check starts on the project's test set, frozen now: the new version and what the project runs replay the same cases. The same change on the same version for the same project is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`, unchecked again. Under `kindgi dev`, it's for the whole workspace (the `tenant` scope), as an Improve run's is, and checked in the project the version it's built on was made in. Needs `publish` on the agent.
         """
         return await self._client._request(
             _OPERATIONS["suggestedChanges.create"],
@@ -15078,7 +15091,7 @@ class AsyncSuggestedChangesResource:
     ) -> _models.SuggestedChange:
         """Fetch a suggested change. `GET /v1/suggested-changes/{suggestedChangeId}`
 
-        With its block's content before and after (`changes[].before`, `changes[].after`). Needs `read` on its agent.
+        With its block's content before and after (`changes[].before`, `changes[].after`): before is the block as the change was drafted, or last rebuilt. Needs `read` on its agent.
         """
         return await self._client._request(
             _OPERATIONS["suggestedChanges.get"],
@@ -15122,7 +15135,7 @@ class AsyncSuggestedChangesResource:
     ) -> _models.SuggestedChangePinAnswer:
         """Pin a suggested change's version for its project. `POST /v1/suggested-changes/{suggestedChangeId}/pin`
 
-        A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. A project on Latest takes the change as its Latest (`add-as-latest`); a pin there is refused with `409 pin-stops-latest`, before any rebuild, unless the body has `stopFollowingLatest: true`, which takes the project off Latest. Needs `pin` on the agent. Allowed from `ready`.
+        A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. A project on Latest takes the change as its Latest (`add-as-latest`); a pin there is refused with `409 pin-stops-latest`, before any rebuild, unless the body has `stopFollowingLatest: true`, which takes the project off Latest. Under `kindgi dev`, a suggested change is for the whole workspace (the `tenant` scope): it's pinned there, through the project its version was made in. Needs `pin` on the agent. Allowed from `ready`.
         """
         return await self._client._request(
             _OPERATIONS["suggestedChanges.pin"],
@@ -15230,7 +15243,7 @@ class AsyncImproveRunsResource:
     ) -> _models.ImproveRun:
         """Start an Improve run. `POST /v1/improve-runs`
 
-        Starts an Improve run for an agent in a project. From the version the project runs (pinned there, else its Latest), it looks for better wording (the prompt tier) or settings values (the settings tier) on the project's test set, learning from the project's open corrections sorted to improve, within the budget. Its best change is proven on every case of the test set, at the reference's repetitions: when it passes more cases than that version and fails none that passed, it becomes a suggested change for a reviewer. It answers at once with the Improve run, `running`. The readiness check (`POST /v1/improve-runs/check`) runs first: when something the Improve run needs is missing, it's refused with `409 improve-not-ready`, listing every missing item at once (`details.items`, each with its fix); while the agent has a running Improve run in the project, with `409 improve-run-running` (`details.improveRunId`). An Improve run going when its project is suspended ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent; for an agent more than one project serves, `write` where its versions are made. Without Improve runs in this runtime, `501 improve-unsupported`.
+        Starts an Improve run for an agent in a project. From the version the project runs (pinned there, else its Latest), it looks for better wording (the prompt tier) or settings values (the settings tier) on the project's test set, learning from the project's open corrections sorted to improve, within the budget. Its best change is proven on every case of the test set, at the reference's repetitions: when it passes more cases than that version and fails none that passed, it becomes a suggested change for a reviewer. It answers at once with the Improve run, `running`. Under `kindgi dev`, the run counts in its project (its corrections, its test set and its cost), and its suggested change is for the whole workspace (the `tenant` scope), which the pack's files serve: pinning it writes its block into the pack's files. The readiness check (`POST /v1/improve-runs/check`) runs first: when something the Improve run needs is missing, it's refused with `409 improve-not-ready`, listing every missing item at once (`details.items`, each with its fix); while the agent has a running Improve run in the project, with `409 improve-run-running` (`details.improveRunId`). An Improve run going when its project is suspended ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent; for an agent more than one project serves, `write` where its versions are made. Without Improve runs in this runtime, `501 improve-unsupported`.
         """
         return await self._client._request(
             _OPERATIONS["improveRuns.start"],
@@ -16264,7 +16277,7 @@ class AsyncMcpEndpointsResource:
     ) -> _models.RegisterMCPEndpointResult:
         """Register an MCP endpoint. `POST /v1/mcp/endpoints`
 
-        Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef` names a secret in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.
+        Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). A credential in plaintext `config.headers` or a stdio endpoint's `config.env` is refused (`400 invalid-mcp-endpoint`, reason `credential-in-headers` or `credential-in-env`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.
         """
         return await self._client._request(
             _OPERATIONS["mcp.endpoints.register"],
@@ -16281,7 +16294,7 @@ class AsyncMcpEndpointsResource:
     ) -> _models.MCPEndpoint:
         """Fetch an MCP endpoint. `GET /v1/mcp/endpoints/{endpointId}`
 
-        Returns the wire-safe `MCPEndpoint` (secrets never cross the wire — `secretRef` names a secret the runtime resolves inside the deployment).
+        Returns the wire-safe `MCPEndpoint` (secrets never cross the wire — `secretRef`, `auth` and `secretEnv` name secrets the runtime resolves inside the deployment). A stdio endpoint's `config.env` values read back as `[redacted]`, their names kept.
         """
         return await self._client._request(
             _OPERATIONS["mcp.endpoints.get"],
@@ -16647,16 +16660,23 @@ class AsyncPoliciesResource:
         ]
         | None = None,
         name: str | None = None,
+        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.PolicyCollectionPage:
         """List tenant policies. `GET /v1/policies`
 
-        Cursor-paginated. Optional `?kind=` narrows to a single policy kind (exact match); optional `?name=` is a prefix match on `Policy.id`. Sort order: policy id ascending. Latest version per id.
+        Cursor-paginated. Optional `?kind=` narrows to a single policy kind (exact match); optional `?name=` is a prefix match on `Policy.id`. Sort order: policy id ascending. Latest version per id. A retired policy (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return await self._client._request(
             _OPERATIONS["policies.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "kind": kind, "name": name},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "kind": kind,
+                "name": name,
+                "includeRetired": include_retired,
+            },
             headers={},
             response=_models.PolicyCollectionPage,
             timeout=timeout,
@@ -17174,11 +17194,12 @@ class AsyncBlocksResource:
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
+        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.BlockCollectionPage:
         """List data blocks (latest version of each). `GET /v1/blocks`
 
-        Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do.
+        Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do. A retired block (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return await self._client._request(
             _OPERATIONS["blocks.list"],
@@ -17190,6 +17211,7 @@ class AsyncBlocksResource:
                 "name": name,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
+                "includeRetired": include_retired,
             },
             headers={},
             response=_models.BlockCollectionPage,

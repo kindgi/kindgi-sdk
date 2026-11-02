@@ -35,6 +35,7 @@ import {
 import { createPackServiceSupervisor } from '@kindgi/handler-runtime/pack-service';
 
 import { programPath } from '../program-path.js';
+import { blockFilesState } from './block-files-state.js';
 import { type DockerReach, dockerReach, dockerUnreachable } from './blocked.js';
 import { createDevPackBuilder } from './bundler.js';
 import { createJavaPackBuilder } from './java-builder.js';
@@ -165,12 +166,12 @@ export function createPackServiceReal(opts: DevPackServiceOptions): DevPackServi
     // Worked out at every start: the program on the service's PATH, never
     // one in the pack's folder (found before a sandbox wraps it, since the
     // sandbox would look for a bare name itself), and the sandbox for what
-    // that start runs.
+    // that start runs, which gives its own programs by their paths too.
     command: async () => {
       const childEnv = await env();
       const command = [await programPath(program, childEnv), ...args] as const;
       if (sandbox === undefined) return command;
-      const [wrapper, ...wrapped] = (
+      return (
         await sandboxedCommand(sandbox, {
           packDir: opts.packDir,
           code: opts.code,
@@ -180,7 +181,6 @@ export function createPackServiceReal(opts: DevPackServiceOptions): DevPackServi
           ...(opts.onNotice !== undefined && { onNotice: opts.onNotice }),
         })
       ).command;
-      return [await programPath(wrapper, childEnv), ...wrapped];
     },
     moduleRoot: opts.packDir,
     cwd: opts.packDir,
@@ -193,6 +193,8 @@ export function createPackServiceReal(opts: DevPackServiceOptions): DevPackServi
       if (outcome.kind === 'ok') opts.blocks.onWritten(write, outcome);
       return outcome;
     },
+    // And before it's written, which of those files git hasn't committed.
+    blockFilesState: blockFilesState(opts.packDir, opts.blocks.pattern),
     ...(opts.port !== undefined && { port: opts.port }),
     ...(opts.token !== undefined && { token: opts.token }),
   });
@@ -255,7 +257,9 @@ interface IndexerChildContext {
  * An indexer child, to its end (`runChild`): its program the one on its
  * env's PATH, never one in the pack's folder, found before a sandbox
  * wraps it (the sandbox would look for a bare name itself). No such
- * program is the same outcome as one that doesn't start.
+ * program, or a sandbox that can't be set up for it (a program its
+ * wrapper runs isn't on its env's PATH), is the same outcome as a child
+ * that doesn't start.
  */
 async function runIndexerChild(
   command: readonly [string, ...string[]],
@@ -263,13 +267,12 @@ async function runIndexerChild(
   onOutput?: (line: string, stream: 'stdout' | 'stderr') => void,
 ): Promise<ChildRun> {
   const [program, ...args] = command;
-  let file: string;
+  let child: Awaited<ReturnType<typeof indexerChild>>;
   try {
-    file = await programPath(program, ctx.env);
+    child = await indexerChild([await programPath(program, ctx.env), ...args], ctx);
   } catch (cause) {
     return { stdout: '', stderr: (cause as Error).message, code: null };
   }
-  const child = await indexerChild([file, ...args], ctx);
   const [cmd, ...rest] = child.command;
   return runChild(cmd, rest, child.env, onOutput);
 }
@@ -435,7 +438,13 @@ async function runIndexerInChild(
   ];
   const run = await runIndexerChild(
     [process.execPath, ...args],
-    { packDir, code: { language: 'node' } as PackCode, env: await env(), entry: script, sandbox },
+    {
+      packDir,
+      code: { language: 'node' } as PackCode,
+      env: await env(),
+      entry: script,
+      sandbox,
+    },
     onOutput,
   );
   return outcomeOfChild(run);
@@ -466,25 +475,19 @@ function outcomeOfChild(run: ChildRun): IndexerOutcome {
 }
 
 /**
- * Run an indexer child to the end, `command` the one on `env`'s PATH (a
- * sandbox's `sh`): its output, and each line of it to `onOutput` as it
- * comes, except its last stdout line when that's the indexer's result
+ * Run an indexer child to the end, `command` by its path
+ * (`runIndexerChild`): its output, and each line of it to `onOutput` as
+ * it comes, except its last stdout line when that's the indexer's result
  * (held back until the next line shows it isn't).
  */
-async function runChild(
+function runChild(
   command: string,
   args: readonly string[],
   env: Readonly<Record<string, string>>,
   onOutput?: (line: string, stream: 'stdout' | 'stderr') => void,
 ): Promise<ChildRun> {
-  let file: string;
-  try {
-    file = await programPath(command, env);
-  } catch (cause) {
-    return { stdout: '', stderr: (cause as Error).message, code: null };
-  }
   return new Promise((resolvePromise) => {
-    const child = spawn(file, [...args], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(command, [...args], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
     let stdout = '';
@@ -1391,7 +1394,7 @@ export const REAL_DEV_RUNNERS: DevRunners = {
   runIndexer: runIndexerReadReal,
   createPackBuilder: createPackBuilderReal,
   createPackService: createPackServiceReal,
-  detectSandbox: () => detectDevSandbox(process.platform, probeReal),
+  detectSandbox: (env) => detectDevSandbox(process.platform, probeReal, env),
   checkPackPython,
   checkPackJvm,
   publishIndex: publishIndexReal,

@@ -141,6 +141,13 @@ export interface ReleaseGateListInput {
   readonly scope?: AgentPinScope;
   readonly limit: number;
   readonly cursor?: Cursor;
+  /**
+   * `true` lists retired gates too (every version unregistered), each
+   * as its highest version, with that version's `unregisteredAt`, so a
+   * client can find one to reinstate. Default: gates with an active
+   * version only.
+   */
+  readonly includeRetired?: boolean;
 }
 
 export interface ReleaseGateVersionInput {
@@ -166,7 +173,11 @@ export interface ReleaseGateBinding {
     readonly tenantId: TenantId;
     readonly id: string;
   }): Promise<readonly ReleaseGate[]>;
-  /** Each gate's latest active version. */
+  /**
+   * Each gate's latest active version. With `includeRetired`, a retired
+   * gate (every version unregistered) too, as its highest version with
+   * `unregisteredAt`.
+   */
   list(input: ReleaseGateListInput): Promise<{
     readonly data: readonly ReleaseGate[];
     readonly nextCursor?: Cursor;

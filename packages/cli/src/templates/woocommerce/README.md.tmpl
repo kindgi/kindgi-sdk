@@ -245,11 +245,22 @@ calls the first tool. For Claude, with `kindgi dev` running:
 
 The `kindgi-authoring-providers` skill has the other providers.
 
-Ask the store agent something:
+Ask the store agent something. Start with a question about your orders:
 
 ```sh
-{{KINDGI}} runs start --agent={{PACK_ID}}.store-agent --input='{"userMessage": "Refund 40 on order 1043: the jacket arrived torn."}'
+{{KINDGI}} runs start --agent={{PACK_ID}}.store-agent --input='{"userMessage": "Which orders are still processing?"}'
 ```
+
+A refund of up to 100 on an order (in its currency, counting what it was
+refunded already) runs as soon as you ask, with no approval, and it's a real
+refund in your store. So try one on a test order of 40 or more:
+
+```sh
+{{KINDGI}} runs start --agent={{PACK_ID}}.store-agent --input='{"userMessage": "Refund 40 on order <order number>: it arrived torn."}'
+```
+
+`<order number>` is the test order's number, as **WooCommerce → Orders**
+shows it.
 
 ## One project and one pack per client
 

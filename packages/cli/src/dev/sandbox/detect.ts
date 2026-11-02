@@ -21,7 +21,7 @@ import { spawn } from 'node:child_process';
 
 import { docsUrl } from '@kindgi/client/sso-handoff';
 
-import { programPath } from '../../program-path.js';
+import { findOnPath, programPath } from '../../program-path.js';
 import { CLI_VERSION } from '../../version-info.js';
 
 /** The page that says how to set the sandbox up, and what it does, on this CLI's release line. */
@@ -82,17 +82,30 @@ function notStarted(err: NodeJS.ErrnoException): ProbeResult {
   };
 }
 
+/**
+ * `env` is the CLI's own: Linux's probe runs the `bwrap` on its `PATH`,
+ * by full path ({@link findOnPath}), the `PATH` the pack service inherits.
+ * The sandbox looks `bwrap` up again on the service's own env when it
+ * starts it, so an app's env file that sets `PATH` is followed there.
+ */
 export async function detectDevSandbox(
   platform: NodeJS.Platform,
   run: ProbeRunner,
+  env: Readonly<Record<string, string | undefined>>,
 ): Promise<SandboxAvailability> {
   if (platform === 'darwin') {
     return seatbeltAvailability(
       await run(SANDBOX_EXEC, ['-p', '(version 1)(allow default)', '/usr/bin/true']),
     );
   }
-  if (platform === 'linux')
-    return bwrapAvailability(await run('bwrap', ['--ro-bind', '/', '/', 'true']));
+  if (platform === 'linux') {
+    const bwrap = await findOnPath('bwrap', env);
+    return bwrapAvailability(
+      bwrap === undefined
+        ? { code: null, stderr: 'spawn bwrap ENOENT', errorCode: 'ENOENT' }
+        : await run(bwrap, ['--ro-bind', '/', '/', 'true']),
+    );
+  }
   if (platform === 'win32') {
     return unavailable(
       'Windows has no sandbox kindgi dev can use',

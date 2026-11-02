@@ -74,11 +74,35 @@ case "$*" in
     exit "${STUB_JOB_CREATE_RC:-0}" ;;
   "run jobs execute"*) exit "${STUB_CHECK_RC:-0}" ;;
   "sql export sql"*)
-    # Counts each try; the first STUB_EXPORT_412 tries are refused as Cloud SQL
-    # refuses one before its bucket grant takes effect.
+    # Counts each try; the first STUB_EXPORT_412 (or STUB_EXPORT_403) tries are
+    # refused as Cloud SQL refuses one before its bucket grant takes effect, in
+    # its 412 (or its 403) form. STUB_EXPORT_403_OTHER refuses every try with a
+    # 403 on the upload that no grant fixes.
     n=$(( $(cat "$STUB_EXPORT_TRIES" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$STUB_EXPORT_TRIES"
     if (( n <= ${STUB_EXPORT_412:-0} )); then
       echo 'ERROR: (gcloud.sql.export.sql) HTTPError 412: The service account does not have the required permissions for the bucket.' >&2
+      exit 1
+    fi
+    if (( n <= ${STUB_EXPORT_403:-0} )); then
+      cat >&2 <<'ERR'
+ERROR: (gcloud.sql.export.sql) [ERROR_RDBMS] failed to initiate resumable upload to GCS URL gs://backups/upgrade/x.sql.gz: googleapi: Error 403: {
+  "error": {
+    "code": 403,
+    "message": "p-sql@demo-proj.iam.gserviceaccount.com does not have storage.objects.create access to the Google Cloud Storage object. Permission 'storage.objects.create' denied on resource (or it may not exist).",
+    "errors": [
+      {
+        "message": "p-sql@demo-proj.iam.gserviceaccount.com does not have storage.objects.create access to the Google Cloud Storage object. Permission 'storage.objects.create' denied on resource (or it may not exist).",
+        "domain": "global",
+        "reason": "forbidden"
+      }
+    ]
+  }
+}
+ERR
+      exit 1
+    fi
+    if [[ -n ${STUB_EXPORT_403_OTHER:-} ]]; then
+      echo "ERROR: (gcloud.sql.export.sql) [ERROR_RDBMS] failed to initiate resumable upload to GCS URL gs://backups/upgrade/x.sql.gz: googleapi: Error 403: Request is prohibited by organization's policy. vpcServiceControlsUniqueIdentifier: 0123456789abcdef, forbidden" >&2
       exit 1
     fi
     : >"${STUB_MARKER_EXPORT:-/dev/null}"; exit "${STUB_EXPORT_RC:-0}" ;;
@@ -266,7 +290,7 @@ fail() { FAIL=$((FAIL + 1)); printf '  FAIL: %s\n' "$*"; }
 # second read (the -chdir stub) finds in the var-file.
 reset_env() {
   unset STUB_TAGS STUB_DB_VERSION STUB_DB_PUBLIC STUB_JOB_CREATE_RC STUB_CHECK_RC \
-        STUB_EXPORT_RC STUB_EXPORT_412 STUB_PLAN_RC STUB_APPLY_RC STUB_MIRROR_RC STUB_INSPECT_ERR STUB_SQL_SA \
+        STUB_EXPORT_RC STUB_EXPORT_412 STUB_EXPORT_403 STUB_EXPORT_403_OTHER STUB_PLAN_RC STUB_APPLY_RC STUB_MIRROR_RC STUB_INSPECT_ERR STUB_SQL_SA \
         STUB_DB_CA STUB_PACK_BEFORE STUB_PLAN_CHANGES STUB_SERVER_ENV STUB_PLAN_KEEP_IMAGE STUB_SHOW_RC \
         STUB_REMOVED_RC \
         V_NET V_HOST V_TENANCY V_AAD V_PREFIX V_DBI V_CONNECTOR V_DB_PRIVATE V_SECRETS V_OKV V_HOSTS V_SENV V_SSENV
@@ -486,8 +510,7 @@ reset_env; export STUB_TAGS="0.1.8"
 run "yes" --to 0.4.0-rc.0
 assert_rc 0 "to an rc runs"
 assert_out "crossing: 0.1.9 0.1.10 0.2.0 0.3.0 0.3.1 0.4.0$"
-assert_out "STEPS-PENDING"
-assert_out "First start runs sixteen migrations"
+assert_out "Eighteen new migrations: four new tables"
 assert_out "autoCloseAfterInactiveSeconds"
 
 # 11. An rc promoted to its final carries both tags: the final is the version.
@@ -594,7 +617,8 @@ assert_export_tries() {
 }
 
 # 21. A new bucket grant that hasn't reached Cloud SQL yet: the export waits
-# for it, saying so, then goes on.
+# for it, saying so, then goes on. Cloud SQL refuses it as HTTPError 412, or as
+# a 403 on its upload to the bucket.
 case_start "export waits for the bucket grant"
 reset_env; export STUB_TAGS="0.1.8" STUB_EXPORT_412=2
 run "yes"
@@ -603,6 +627,17 @@ assert_export_tries 3 "two refusals, then the export"
 assert_out "hasn't taken effect yet"
 assert_out "trying the export again (30s waited)"
 if [[ "$(grep -c 'HTTPError 412' "$OUT")" == 1 ]]; then pass; else fail "gcloud's refusal should be shown once"; fi
+if grep -q "Fix the cause" "$OUT"; then fail "a grant still taking effect was called a cause to fix"; else pass; fi
+assert_present "$STUB_MARKER_APPLY" "apply"
+
+case_start "export waits for the bucket grant, refused as a 403"
+reset_env; export STUB_TAGS="0.1.8" STUB_EXPORT_403=2
+run "yes"
+assert_rc 0 "the export goes on once the grant takes effect"
+assert_export_tries 3 "two refusals, then the export"
+assert_out "hasn't taken effect yet"
+assert_out "trying the export again (30s waited)"
+if [[ "$(grep -c 'failed to initiate resumable upload' "$OUT")" == 1 ]]; then pass; else fail "gcloud's refusal should be shown once"; fi
 if grep -q "Fix the cause" "$OUT"; then fail "a grant still taking effect was called a cause to fix"; else pass; fi
 assert_present "$STUB_MARKER_APPLY" "apply"
 
@@ -618,13 +653,25 @@ assert_out "get-iam-policy gs://backups"
 assert_absent "$STUB_MARKER_APPLY" "apply"
 assert_varfile_unchanged
 
-# 23. Any other export failure stops at once.
+# 23. Any other export failure stops at once, a 403 that no grant fixes among
+# them.
 case_start "export fails otherwise"
 reset_env; export STUB_TAGS="0.1.8" STUB_EXPORT_RC=1
 run "yes"
 assert_rc 1 "an export failure stops it"
 assert_export_tries 1 "no second try"
 assert_out "the export failed (above). Nothing has changed."
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
+
+case_start "export refused by another 403"
+reset_env; export STUB_TAGS="0.1.8" STUB_EXPORT_403_OTHER=1
+run "yes"
+assert_rc 1 "a 403 that no grant fixes stops it"
+assert_export_tries 1 "no second try"
+assert_out "prohibited by organization's policy"
+assert_out "the export failed (above). Nothing has changed."
+if grep -q "hasn't taken effect yet" "$OUT"; then fail "a 403 no grant fixes was waited out"; else pass; fi
 assert_absent "$STUB_MARKER_APPLY" "apply"
 assert_varfile_unchanged
 
@@ -830,7 +877,7 @@ run "yes" --to 0.4.0.1
 assert_rc 0 "0.4.0 -> 0.4.0.1 runs"
 assert_out "upgrading 0.4.0 -> 0.4.0.1, a server fix for 0.4.0: no release crossed"
 assert_out "none: 0.4.0.1 is a server fix for 0.4.0."
-if grep -q -e "STEPS-PENDING" -e "First start runs sixteen migrations" -e "Steps that finish the switch" "$OUT"; then fail "0.4.0's steps shown for 0.4.0 -> 0.4.0.1"; else pass; fi
+if grep -q -e "Eighteen new migrations" -e "Steps that finish the switch" "$OUT"; then fail "0.4.0's steps shown for 0.4.0 -> 0.4.0.1"; else pass; fi
 assert_file_has "$STUB_DOCKER_LOG" "buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.4.0.1 " "the server fix's own tag is read"
 assert_file_has "$STUB_DOCKER_LOG" "--tag $REPO/runtime:0.4.0.1 registry.kindgi.com/kindgi/runtime:0.4.0.1@$NEW_DIGEST" "the mirror tags it 0.4.0.1"
 assert_present "$STUB_MARKER_EXPORT" "backup"
@@ -844,7 +891,7 @@ reset_env; export STUB_TAGS="0.3.1"
 run "yes" --to 0.4.0.1
 assert_rc 0 "0.3.1 -> 0.4.0.1 runs"
 assert_out "crossing: 0.4.0$"
-assert_out "STEPS-PENDING"
+assert_out "Eighteen new migrations: four new tables"
 if grep -q "none: " "$OUT"; then fail "a crossing upgrade said there are no steps"; else pass; fi
 assert_out "Steps that finish the switch to 0.4.0's packs"
 assert_out "0.3.1 -> 0.4.0.1 applied"
@@ -1041,7 +1088,7 @@ jq -n '{pack_min_instances: 2,
 run "yes" --var-file "$PACK_ENV_FILE"
 assert_rc 0 "0.3.1 -> 0.4.0 runs"
 assert_out "crossing: 0.4.0$"
-assert_out "STEPS-PENDING: this copy's 0.4.0 runtime steps below aren't final yet."
+assert_out "Eighteen new migrations: four new tables"
 assert_out "The plan moves the deployment to a pack service for each deployment,"
 if grep -qxF "console -var-file=$VAR_FILE -var-file=$PACK_ENV_FILE" "$STUB_REMOVED_SAW"; then pass
 else fail "the variables 0.4.0 took out weren't read from both files: $(cat "$STUB_REMOVED_SAW")"; fi
@@ -1105,11 +1152,19 @@ if grep -q "0.3.0's kindgi-runtime" "$OUT"; then fail "a run to 0.4.0 named 0.3.
 assert_out "First start runs no migrations. The steps are the packs'"
 assert_out "kindgi guardrails unregister <id>"
 assert_out "0.3.1 doesn't change the module."
-assert_out "STEPS-PENDING: this copy's 0.4.0 runtime steps below aren't final yet."
-assert_out "First start runs sixteen migrations: one new table, new columns that"
-assert_out "FROM judgments; and the same FROM"
+assert_out "Eighteen new migrations: four new tables (block_version_prs,"
+assert_out "keeps judgments locked while it indexes every"
 assert_out "grant roles/storage.legacyBucketReader on the bucket,"
-assert_out "kindgi mail-triggers update <trigger-id> --mailbox=google"
+assert_out "A site person's Ask gets the project's tools at their next sign-in."
+assert_out "Projects gain a sort_end_user_corrections column, a yes or no."
+assert_out "Right after the upgrade, a project no pin covers runs its Latest"
+assert_out "An Improve schedule saved at 0.3.x is read in 0.4.0's shape."
+assert_out "Corrections made at 0.3.x go to nobody, so Improve doesn't learn from"
+assert_out "An Improve run still going when you upgrade ends, and doesn't carry"
+assert_out "Upgrade your clients, the CLI and your own callers with the runtime."
+assert_out "Console links saved before 0.4.0 can answer Page not found."
+assert_out "A webhook receiver, or code that reads approvals, sees 0.4.0's names."
+assert_out "A stdio MCP server that keeps a credential in config.env still works,"
 assert_out "change judging=<level> to"
 assert_out "The plan moves the deployment to a pack service for each deployment,"
 if grep -q "the module here is this copy's" "$OUT"; then fail "the newest release warned of a module past it"; else pass; fi
@@ -1127,7 +1182,7 @@ reset_env; export STUB_TAGS="0.3.1"
 run "yes" --to 0.4.0-rc.0
 assert_rc 0 "0.3.1 -> 0.4.0-rc.0 runs"
 assert_out "crossing: 0.4.0$"
-assert_out "STEPS-PENDING: this copy's 0.4.0 runtime steps below aren't final yet."
+assert_out "Eighteen new migrations: four new tables"
 if grep -q "kindgi guardrails unregister <id>" "$OUT"; then fail "0.3.1's steps printed for a run from 0.3.1"; else pass; fi
 assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.4.0-rc.0@$NEW_DIGEST" "the rc is copied from registry.kindgi.com"
 assert_out "plan check: it changes the image(s)"
@@ -1845,6 +1900,28 @@ if grep -q "^removed pack_image" "$STUB_WARNED"; then fail "the removed variable
 assert_file_has "$STUB_PLAN_SAW" "$NEW_IMAGE" "the plan read the new image"
 assert_out "nothing to build: the apply deletes the one pack service"
 assert_out "plan check: it changes the image(s), and only what the releases crossed change."
+
+# 82. A switch from the one pack service at pack_min_instances 1, the old
+# default: it kept an instance up, so the steps say a pack service scales to
+# zero from 0.4.0.
+case_start "a switch from a pack service at pack_min_instances 1"
+reset_env "$OLD_PACK"; unset STUB_PACK_BEFORE
+export STUB_TAGS="0.3.1" STUB_PLAN_CHANGES="$SWITCH_PLAN" STUB_SERVER_ENV="$SWITCH_SERVER_ENV"
+run "yes"
+assert_rc 0 "it runs"
+assert_file_has "$OUT" "    pack_min_instances was 1. From 0.4.0 a pack service" "the scale-to-zero note"
+
+# 83. At pack_min_instances 0 the pack service started cold already: nothing
+# changes for it, and nothing is said.
+case_start "a switch from a pack service at pack_min_instances 0"
+reset_env "$OLD_PACK"; unset STUB_PACK_BEFORE
+export STUB_TAGS="0.3.1" STUB_PLAN_CHANGES="$SWITCH_PLAN" STUB_SERVER_ENV="$SWITCH_SERVER_ENV"
+PACK_ENV_FILE="$CASE_DIR/dev.pack-env.tfvars.json"
+jq -n '{pack_min_instances: 0}' >"$PACK_ENV_FILE"
+run "yes" --var-file "$PACK_ENV_FILE"
+assert_rc 0 "it runs"
+assert_out "Steps that finish the switch to 0.4.0's packs, by hand"
+if grep -q "pack_min_instances was" "$OUT"; then fail "a pack service at 0 got the scale-to-zero note"; else pass; fi
 
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

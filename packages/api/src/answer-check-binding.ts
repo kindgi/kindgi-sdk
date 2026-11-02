@@ -57,9 +57,12 @@ export interface AnswerCheckInput {
  * What the check found. `checked`: whether the answer passed, with the
  * judging model's reason when it gave one, and what the call cost
  * (counted in the test run's cost). `unchecked`: it couldn't be checked,
- * say because the version has no model settings, the call to the judging
- * model failed, or its reply couldn't be read (what that call cost still
- * counts); the case then has no pass.
+ * say because the version's model settings name no model, the call to the
+ * judging model failed, or its reply couldn't be read (what that call cost
+ * still counts); the case then has no pass. Its `reason` is shown on the
+ * case's result and in the comparison's summary (`unchecked`), which an
+ * erasure doesn't clear: so it should name no secret and quote nothing of
+ * the case.
  */
 export type AnswerCheck =
   | {

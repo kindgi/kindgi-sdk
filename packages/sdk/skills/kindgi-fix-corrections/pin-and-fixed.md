@@ -69,3 +69,29 @@ earlier version fails reopen. `kindgi agents unpin <agent-id> --project=<project
 takes the pin away instead: the project follows its Latest again.
 `kindgi agents pin-history list <agent-id>` shows every pin and unpin, with
 who asked and why.
+
+## Under `kindgi dev`
+
+A pin there is for the whole workspace (`--tenant`; an `--org` or
+`--project` pin is 409 `registry-read-only`). An Improve run's pin waits for
+an approval there, which the person gives themselves (`kindgi dev` registers
+them as a reviewer), from the suggested change's page. Approved, it writes
+the version's prompts and settings into the pack's files: tell the person to
+commit them first. The pin says on stderr which of the files it writes over
+that git hasn't committed (the pin check's `uncommittedFiles`), or that the
+pack isn't in git (`notInGit`), and still goes; `kindgi agents pin --check`
+says the same without pinning. An Improve run's pin writes only once the
+person approves it, so when the pin names files, have the person commit
+them before they approve. Once the pin writes the files, `kindgi dev`
+reloads them, and the pin's test runs check the agent's project, the
+default one, and mark what it fixes, as above.
+Going back is a pin of the version before, for the whole workspace too: it
+writes the files back as they were right before the pin, and its test runs
+reopen what that version fails. An unpin is refused there. After a block is
+edited by hand and given a new version since the pin, the files read as the
+pack's own version again, so a pin of the version before writes nothing: git
+is the way back then. Going back with git changes the files with no pin, so
+the corrections the pin fixed stay `fixed`. Tell the person to give a block
+a new version whenever they edit it by hand: a pin refuses a file that
+changed at a version `kindgi dev` already has (kept before a pin, or an
+Improve version), and says so.

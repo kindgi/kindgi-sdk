@@ -12,7 +12,7 @@ description: >
   authoring agents is covered by kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.5.2"
+version: "0.5.3"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -70,6 +70,14 @@ makes `defineTool` return an `invalid-tool-definition` error.
 | A read-only tool, a person's yes in unattended runs, results that are outside text | [tool-flags.md](tool-flags.md) |
 | Changing a tool, its `version`, its tests, code several tools share | [iterating-and-testing.md](iterating-and-testing.md) |
 | An error, or a tool that won't index or load | [common-mistakes.md](common-mistakes.md) |
+| Work that takes minutes or hours, or a call that hits its deadline | [long-work.md](long-work.md) |
+
+## Work that takes longer than a call
+
+A tool call has a deadline: 120 s by default. NEVER write a tool that
+waits for work taking minutes or hours (a report, a batch job, a person's
+answer elsewhere), and don't raise the deadline for it: read
+[long-work.md](long-work.md) first.
 
 ## Tool id convention
 

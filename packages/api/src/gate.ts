@@ -106,7 +106,7 @@ export function evaluateGate(input: GateInput): GateResult {
         name: 'comparison.required',
         passed: false,
         message:
-          'This release gate needs a test run: name one with `testRunId` (a finished test run that tried this version on the test cases).',
+          'This release gate needs a test run: name one with `testRunId` (a completed test run that tried this version on the test cases).',
       });
     }
     return result(checks, approval);

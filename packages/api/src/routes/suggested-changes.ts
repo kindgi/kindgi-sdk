@@ -564,8 +564,10 @@ function actorWire(by: string): PinActor {
 }
 
 /**
- * The content of the block version a suggested change changes; `undefined`
- * when it's gone, or for a deploy card, which changes no one block.
+ * The content of the block version a suggested change changes: as it was
+ * kept when the change was drafted (`ProposedChange` `before`), else read
+ * from that version; `undefined` when it's gone, or for a deploy card,
+ * which changes no one block.
  */
 async function blockBefore(
   blocks: BlockRegistryBinding,
@@ -573,6 +575,7 @@ async function blockBefore(
 ): Promise<ProposedChange['change']['content'] | undefined> {
   const changed = blockChangeOf(p);
   if (changed === undefined) return undefined;
+  if (changed.change.before !== undefined) return changed.change.before;
   const { blockId, fromVersion } = changed.change;
   const block = await blocks.getVersion({ tenantId: p.tenantId, blockId, version: fromVersion });
   if (block === null) return undefined;
