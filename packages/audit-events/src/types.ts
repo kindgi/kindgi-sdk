@@ -23,7 +23,7 @@ import type { ProjectId, TenantId, Timestamp } from '@kindgi/types';
  *   for query scoping).
  */
 export interface AuditEvent {
-  /** Caller-supplied semantic id — must be unique per tenant. */
+  /** Caller-supplied semantic id — must be unique per workspace. */
   readonly id: string;
   readonly tenantId: TenantId;
   /**
@@ -98,7 +98,7 @@ export interface AuditEventFilter {
   /**
    * Caller-supplied event id (matches `AuditEvent.id`). Combined with
    * the query's `tenantId`, it matches at most one event (ids are
-   * unique per tenant) — the single-record lookup path.
+   * unique per workspace) — the single-record lookup path.
    */
   readonly id?: string;
   readonly kind?: string;

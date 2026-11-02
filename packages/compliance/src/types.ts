@@ -249,7 +249,7 @@ export type EvidenceSigner = (bytes: Uint8Array, tenantId: TenantId) => Promise<
 /**
  * Filter for `ComplianceProvider.list`. `tenantId` is required; the other
  * fields are optional and compose as AND — with only `tenantId` set, it
- * matches all evidence for the tenant.
+ * matches all evidence for the workspace.
  */
 export interface ListEvidenceFilter {
   readonly tenantId: TenantId;
@@ -397,7 +397,7 @@ export interface RecordFromRunOptions {
   /** Optional provenance DAG back-reference. */
   readonly provenanceRef?: ProvenanceRef;
   /**
-   * When the tenant has explicitly opted in to raw-message retention,
+   * When the workspace has explicitly opted in to raw-message retention,
    * caller passes the raw messages here. They land verbatim under
    * `payload.rawMessages`. Without this opt-in, raw content stays out
    * of the record entirely.
@@ -415,7 +415,7 @@ export interface RecordFromRunOptions {
  * Filter shape shared by evidence listing and the signed compliance
  * export (`@kindgi/api` collects, then signs). `ComplianceProvider.list`
  * takes `ListEvidenceFilter` instead. Every field is optional; an empty
- * filter is "everything in the tenant". Composition is AND — all
+ * filter is "everything in the workspace". Composition is AND — all
  * populated fields must match.
  */
 export interface EvidenceFilter {

@@ -9,9 +9,9 @@ import { modelThinkingProblem } from './thinking.js';
 import type { ModelProvider, ModelThinking, ProviderRegistry } from './types.js';
 
 /**
- * Create an in-memory registry of model providers. Tenant-scoped:
- * each tenant owns its own `providerId → ModelProvider` map. The
- * router receives a tenant's slice, so cross-tenant leakage is
+ * Create an in-memory registry of model providers. Workspace-scoped:
+ * each workspace owns its own `providerId → ModelProvider` map. The
+ * router receives a workspace's slice, so cross-tenant leakage is
  * impossible at the routing layer.
  *
  * Registration is validated for shape: provider `id` + `region`
@@ -19,7 +19,7 @@ import type { ModelProvider, ModelThinking, ProviderRegistry } from './types.js'
  * per-model `contextWindow` positive integer; per-model `cost`
  * non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens`
  * well-shaped; `labels` within their limits (`provider-labels.ts`);
- * `invoke` is a function. Duplicate ids within a tenant
+ * `invoke` is a function. Duplicate ids within a workspace
  * are refused — accidental clobber of a running provider would be
  * catastrophic under a live workload. The same `providerId` may be
  * registered under different tenants (that's the whole point).

@@ -45,13 +45,13 @@ export type Unbranded<T> = T extends string & { readonly __brand: string }
       ? { readonly [K in keyof T]: Unbranded<T[K]> }
       : T;
 
-/** Tenant — the sovereignty boundary. Cross-tenant access is denied by policy. */
+/** Workspace — the sovereignty boundary. Cross-tenant access is denied by policy. */
 export type TenantId = Brand<string, 'TenantId'>;
 
-/** User within a tenant. */
+/** User within a workspace. */
 export type UserId = Brand<string, 'UserId'>;
 
-/** Organization scope within a tenant — optional structural subdivision (a firm's litigation department, a hospital's cardiology). Small tenants ignore this; large tenants use it. */
+/** Organization scope within a workspace — optional structural subdivision (a firm's litigation department, a hospital's cardiology). Small workspaces ignore this; large workspaces use it. */
 export type OrgId = Brand<string, 'OrgId'>;
 
 /** Team scope — a people-group. A named collection of users who work together; users can belong to many teams. Same team works on many projects; same project can have many teams collaborating. Distinct from Org (structural) — Team is about working groups. */
@@ -119,7 +119,7 @@ export type ToolId = Brand<string, 'ToolId'>;
  */
 export type GuardrailId = Brand<string, 'GuardrailId'>;
 
-/** A tenant policy document. */
+/** A workspace policy document. */
 export type PolicyId = Brand<string, 'PolicyId'>;
 
 /** A pack manifest (installable vertical application). */
@@ -191,7 +191,7 @@ export type WebhookEventId = Brand<string, 'WebhookEventId'>;
 /** One event's delivery to one outbound endpoint, across all its attempts. */
 export type WebhookDeliveryId = Brand<string, 'WebhookDeliveryId'>;
 
-/** An installed pack instance for a tenant. Reserved: no package in this repository issues one. */
+/** An installed pack instance for a workspace. Reserved: no package in this repository issues one. */
 export type InstallationId = Brand<string, 'InstallationId'>;
 
 /** A signing key — identifies a key pair in a caller-provided key store (see `SigningKeyBinding` in `@kindgi/crypto`). Keys themselves are opaque `Uint8Array` values; this ID is how consumers reference them at runtime without owning the store. */

@@ -127,7 +127,7 @@ export interface KeyMaterial {
  * without the private material.
  */
 export interface KeyProvider {
-  /** Return the key to use for signing for this tenant. */
+  /** Return the key to use for signing for this workspace. */
   signingKey(tenantId: TenantId): KeyMaterial;
   /**
    * Return the key that matches a `keyId` from an existing signature. Used

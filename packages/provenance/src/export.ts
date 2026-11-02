@@ -11,7 +11,7 @@ import type { Provenance } from './types.js';
  * so `verifyExported` still verifies against the provided public key.
  *
  * Use this to hand a customer a self-verifying artifact. They store the
- * JSON alongside the deployment's (or tenant's) public key; anyone with
+ * JSON alongside the deployment's (or workspace's) public key; anyone with
  * both can prove the DAG was signed by that key and hasn't been altered.
  */
 export function exportProvenance(provenance: Provenance): string {

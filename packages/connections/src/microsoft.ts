@@ -8,7 +8,7 @@ import { defineApp } from './define.js';
  * company's (a tenant admin signs in as it): mail sent as them through
  * Outlook, their mail read, their Outlook calendars listed and their
  * events read, and events on their main calendar added and changed. Each
- * tenant registers its own app in Microsoft Entra (the setup guide says
+ * workspace registers its own app in Microsoft Entra (the setup guide says
  * how).
  *
  * - **Sign-in:** OAuth 2.0 with PKCE, in the directory the registration

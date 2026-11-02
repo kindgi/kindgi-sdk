@@ -28,7 +28,7 @@ export interface BlobRef {
   readonly sha256: ContentHash;
   /** MIME type. */
   readonly contentType: string;
-  /** Owning tenant. Cross-tenant access is denied by policy. */
+  /** Owning workspace. Cross-tenant access is denied by policy. */
   readonly tenantId: TenantId;
   /** When the blob was written. */
   readonly createdAt: Timestamp;
@@ -49,7 +49,7 @@ export interface BlobRef {
 export interface DatasetRef {
   /** Dataset identifier. */
   readonly datasetId: string;
-  /** Owning tenant. */
+  /** Owning workspace. */
   readonly tenantId: TenantId;
   /** Version of the dataset (semver). */
   readonly version: string;

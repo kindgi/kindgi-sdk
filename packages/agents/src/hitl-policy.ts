@@ -32,7 +32,7 @@ export interface EffectiveHitlPolicy {
   /**
    * Tool-level policy. Absent = no tool gates (agents opt in
    * explicitly). Same shape as `agent.conversationPolicy.hitl.tools`,
-   * with string overrides normalized to rules and tenant overrides
+   * with string overrides normalized to rules and workspace overrides
    * applied; the per-tool default (from `Tool.mutating`) is applied at
    * dispatch time.
    */
@@ -41,9 +41,9 @@ export interface EffectiveHitlPolicy {
     readonly overrides: ReadonlyMap<string, ToolHitlRule>;
   };
   /**
-   * The tenant's per-tool rules: a floor under the agent's gate for
+   * The workspace's per-tool rules: a floor under the agent's gate for
    * that tool. A tool's gate is the stricter of the two; tools the
-   * tenant names nothing for keep the agent's.
+   * workspace names nothing for keep the agent's.
    */
   readonly toolFloors?: ReadonlyMap<string, ToolHitlRule>;
   readonly defaultReviewerRole: 'standard' | 'senior' | 'admin';
@@ -78,10 +78,10 @@ const FRAMEWORK_DEFAULTS = {
 } as const;
 
 /**
- * Compute the effective HITL policy for a given (tenant, agent) pair:
+ * Compute the effective HITL policy for a given (workspace, agent) pair:
  * framework defaults overlaid with the agent's policy, then held to the
- * tenant's `hitl` policy (only stricter). `tenant: undefined` — the
- * tenant has none.
+ * workspace's `hitl` policy (only stricter). `tenant: undefined` — the
+ * workspace has none.
  */
 export function resolveEffectiveHitlPolicy(input: {
   readonly tenant: HitlSpec | undefined;

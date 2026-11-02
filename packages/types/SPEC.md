@@ -45,8 +45,8 @@ The brand is lost by any operation that produces a new string. This is intention
 Kindgi models five scoping constructs. Every pack and every UI can rename these in its own vernacular (legal → "matter", HR → "case"), but Kindgi's code and specs always use the canonical terms.
 
 ```
-Tenant            — sovereignty boundary (customer). Cross-tenant access is absolutely denied.
-├── Org (opt)     — optional structural subdivision (litigation dept, cardiology). Small tenants ignore.
+Workspace         — sovereignty boundary (customer). Cross-tenant access is absolutely denied.
+├── Org (opt)     — optional structural subdivision (litigation dept, cardiology). Small workspaces ignore.
 ├── Team          — people-group (a working group). Users can belong to many teams.
 │                   Teams hold relations on projects; users inherit access via team membership.
 └── Project       — scoped work-context (matter/case/engagement/episode).
@@ -68,7 +68,7 @@ Entity kinds that appear in `@kindgi/specs/*.schema.json` and their branded IDs;
 
 | Schema entity | Type |
 |---|---|
-| Tenant (scope in `memory`, `policy`, `blob`, etc.) | `TenantId` |
+| Workspace (the `tenant` scope in `memory`, `policy`, `blob`, etc.) | `TenantId` |
 | User | `UserId` |
 | Organization (optional structural subdivision) | `OrgId` |
 | Team (people-group; holds relations, not context) | `TeamId` |
@@ -109,7 +109,7 @@ Entity kinds that appear in `@kindgi/specs/*.schema.json` and their branded IDs;
 
 ### References (`src/refs.ts`)
 
-- `BlobRef` — handle to bytes in object storage. Contains provider + bucket + key + size + hash + content type + tenant + timestamps. Never constructed by hand; always produced by the storage layer that wrote the bytes.
+- `BlobRef` — handle to bytes in object storage. Contains provider + bucket + key + size + hash + content type + workspace + timestamps. Never constructed by hand; always produced by the storage layer that wrote the bytes.
 - `DatasetRef` — handle to a versioned dataset: a collection of memory Facts of one declared type (e.g. eval corpora).
 
 ### Result (`src/result.ts`)

@@ -7,12 +7,12 @@ import type { AuditEventValidationError, InvalidCursorError, PersistenceError } 
 import type { AuditEvent, AuditEventFilter, AuditEventPage } from './types.js';
 
 /**
- * Caller-plugged, tenant-scoped write + query surface for the unified
+ * Caller-plugged, workspace-scoped write + query surface for the unified
  * audit substrate.
  *
  * Contracts:
- *   - `append` — batched write; groups by tenant, one insert per
- *     tenant per call. Duplicates on `(tenantId, id)` are silent
+ *   - `append` — batched write; groups by workspace, one insert per
+ *     workspace per call. Duplicates on `(tenantId, id)` are silent
  *     (idempotent — safer than throwing when the caller re-fires
  *     from a retry loop).
  *   - `query` — cursor-paginated read; opaque cursor tokens encode

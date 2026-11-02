@@ -45,11 +45,11 @@ export interface MemoryScope {
  * by the server from the run or the caller (never from a request body),
  * and applied inside every query. A fact is readable when each container
  * its scope names is one the reader has: its project, org, user,
- * participant and thread (a fact naming none of them is tenant-wide, and
- * every reader in the tenant sees it). A missing field grants none.
+ * participant and thread (a fact naming none of them is workspace-wide, and
+ * every reader in the workspace sees it). A missing field grants none.
  */
 export interface MemoryReaders {
-  /** Every fact in the tenant (a tenant admin). The other fields are then ignored. */
+  /** Every fact in the workspace (a tenant admin). The other fields are then ignored. */
   readonly all?: true;
   /** Projects whose facts it reads. */
   readonly projectIds?: readonly ProjectId[];

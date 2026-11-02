@@ -51,7 +51,7 @@ export interface RouteInput {
    */
   readonly preferredModel?: string;
   /**
-   * The tenant's registered providers that couldn't be set up
+   * The workspace's registered providers that couldn't be set up
    * (`ProviderRegistry.setupFailures`). They're never candidates. When
    * nothing routes, the error names each under the requirement
    * `provider set up`, and its message gives the first one's why.
@@ -62,7 +62,7 @@ export interface RouteInput {
 /**
  * Route a capability declaration against a provider slice. Returns
  * the highest-ranked `(provider, model)` tuple satisfying every
- * `needs` constraint plus tenant policy, with alternates in ranked
+ * `needs` constraint plus workspace policy, with alternates in ranked
  * order for failover.
  *
  * The router is pure: given the same (capability, providers, policy)
@@ -74,8 +74,8 @@ export interface RouteInput {
  * other provider satisfies the capability; the decision then says so
  * (`fallback: true`). Its tuples are never alternates to a regular pick.
  *
- * Tenant scoping happens BEFORE the router — callers pass a
- * `providers` array that already reflects the target tenant. This
+ * Workspace scoping happens BEFORE the router — callers pass a
+ * `providers` array that already reflects the target workspace. This
  * keeps the router decoupled from whether the underlying registry is
  * in-memory, postgres-backed, or a composed view.
  */
