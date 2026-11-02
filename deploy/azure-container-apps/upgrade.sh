@@ -77,7 +77,7 @@
 # Usage:
 #   ./upgrade.sh --var-file dev.tfvars [--var-file <another var file> ...] \
 #                --runtime-digest sha256:<64 hex> \
-#                [--to 0.4.0] [--from <version>] \
+#                [--to 0.5.0] [--from <version>] \
 #                [--pack-dir <path to the pack project>] \
 #                [--check-tenant <uuid>] [--dry-run]
 #
@@ -100,12 +100,12 @@
 #                      release's tag, then copied into the module's registry
 #                      by its whole index.
 #   --to               The target runtime version, 0.2.0 or later (default
-#                      0.4.0). An rc such as 0.4.0-rc.0 works too, and so does
+#                      0.5.0). An rc such as 0.5.0-rc.0 works too, and so does
 #                      a server-only release such as 0.2.0.1: a server fix for
 #                      0.2.0, with no SDK release of its own. Earlier
 #                      releases aren't on registry.kindgi.com: upgrade to
 #                      those by hand, as that release's README says. This
-#                      script knows the steps up to 0.4.0; for a later
+#                      script knows the steps up to 0.5.0; for a later
 #                      release, use this script as of that release's
 #                      @kindgi/sdk@<version> tag (for X.Y.Z.N, X.Y.Z's tag)
 #                      or, before that release is out, its newest
@@ -150,7 +150,7 @@ readonly RUNTIME_REPO="registry.kindgi.com/kindgi/runtime"
 readonly VERSION_FLOOR="0.1.8"         # upgrades from before this are refused
 readonly TARGET_FLOOR="0.2.0"          # the first release on registry.kindgi.com
 # Releases this script knows the upgrade steps for, oldest first.
-readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0")
+readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0")
 # The newest of them.
 readonly DEFAULT_TARGET="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
 
@@ -1101,6 +1101,51 @@ EOT
      subsystem logs under, and has no effect.
 EOT
       ;;
+    0.5.0)
+      # STEPS-PENDING marks a release whose runtime steps here aren't final
+      # yet: they come from its release notes' Upgrade steps before its rc,
+      # and the rc's cut stops while either script has the marker.
+      cat <<'EOT'
+   - STEPS-PENDING: this copy's 0.5.0 runtime steps below aren't final yet.
+     Don't upgrade a deployment you keep with it: read the 0.5.0 release
+     notes' Upgrade steps.
+   - One new migration: two new tables (connection_choices and
+     connection_choice_uses), and new columns on connections and
+     connection_requests that are empty, with nothing rewritten. The first
+     start runs it. It keeps connections locked while it reads every
+     connection to build three new indexes: meanwhile a call that needs a
+     connection waits, on the old revision too. That's short unless there
+     are very many:
+       SELECT count(*) FROM connections;
+     A long transaction holding connections or connection_requests makes
+     the new revision fail after about a minute, naming the session that
+     holds it (end it with pg_terminate_backend, or let it finish). The old
+     revision keeps serving meanwhile.
+   - The migration fills nothing in: each connection keeps working, with
+     no name, and no agent or flow has a choice of one. Name them when you
+     like.
+   - Before you upgrade, check your console links' labels. A runtime whose
+     KINDGI_CONSOLE_LINKS (server_env) holds a label with a character 0.5.0
+     refuses doesn't start, and says which link. It refuses a lone
+     surrogate, the characters that render as nothing (such as the Hangul
+     fillers and the combining grapheme joiner), and a variation selector
+     anywhere but in an emoji. Type the label again without it.
+   - Before you connect a second company account of an app, choose for the
+     agents and flows that use it. For each agent and flow whose tools use
+     the company's connection of that app, choose the connection it uses
+     now, and check that each company mail trigger of the app shows its
+     Connection, which it stores when it first reads after the upgrade.
+     Otherwise their runs stop with connection-not-chosen once the second
+     account is connected. A call that isn't an agent's or a flow's can't
+     have a choice, so it needs a project with one company connection of
+     the app.
+   - To list Google calendars, add this scope to your Google Cloud
+     project's consent screen:
+       https://www.googleapis.com/auth/calendar.calendarlist.readonly
+     A connection made before grants it once, when it's reconnected; the
+     permissions it had stay.
+EOT
+      ;;
   esac
 }
 # <<<
@@ -1129,6 +1174,11 @@ EOT
       cat <<'EOT'
    - 0.4.0's plan changes nothing in the module by itself: its one new
      variable, database_url_version, is empty unless a way back sets it.
+EOT
+      ;;
+    0.5.0)
+      cat <<'EOT'
+   - 0.5.0 doesn't change the module.
 EOT
       ;;
   esac
