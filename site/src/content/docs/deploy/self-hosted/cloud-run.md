@@ -43,11 +43,9 @@ password ([Pull the runtime image](../pull-the-runtime-image/)). Questions or tr
   ([Agent and tool versions](../../../guides/agents/agent-and-tool-versions/)).
   Internal ingress, and IAM-protected: the runtime calls it with a Google ID
   token and the service's own token. Its CPU is allocated only while a call
-  runs. A service keeps one instance warm, billed at Cloud Run's lower idle
-  rate between calls, while calls in its project go to it for something
-  always in use, such as a tool version a pinned agent or an unpinned agent's
-  latest version uses ([Your pack services](#your-pack-services)). Every
-  other one scales to zero.
+  runs. A service scales to zero when it's idle, and its first call after
+  that waits for an instance to start
+  ([Your pack services](#your-pack-services)).
 - **Cloud SQL** (Postgres 16) for the runtime's data, reached through the
   Cloud SQL socket, which encrypts the connection and checks the server
   ([Check the database's certificate](../database-tls/)).
@@ -435,13 +433,8 @@ module's `pack_*` settings. Every one runs as the one pack account,
 - **Scaling:** up to `pack_max_instances` instances, 8 by default, each
   running `pack_concurrency` calls at once, 32 by default. Both are whole
   numbers from 1 to 1000.
-- **Warm or at zero:** a service keeps one instance warm, with CPU only
-  while a call runs, while calls in its project go to it for something
-  always in use: a tool version a pinned agent, flow or tool version uses, a
-  tool version an unpinned agent's latest version uses, or a pack check a
-  registered guardrail runs. Its first call after a quiet spell doesn't wait
-  for an instance to start. Every other one scales to zero, and its first
-  call waits for an instance.
+- **At zero when idle:** a service scales to zero when it's idle, and its
+  first call after a quiet spell waits for an instance to start.
 - **Timeout:** `pack_timeout`, in whole seconds up to `"3600s"`, `"300s"` by
   default. Keep it above the runtime's `pack_call_timeout_ms`, so the runtime
   reports a timeout before Cloud Run cuts the call.
@@ -454,12 +447,9 @@ module's `pack_*` settings. Every one runs as the one pack account,
 - **Buckets:** `pack_bucket_readers`, read with `roles/storage.objectViewer`,
   and `pack_bucket_object_prefixes` to narrow a bucket to some prefixes.
 
-**What it costs.** A warm service bills at Cloud Run's idle rate between
-calls. At these defaults, with one instance, that's about $13 a month for
-each warm service in a Tier 1 region
-([Cloud Run pricing](https://cloud.google.com/run/pricing)).
-A service at zero bills only while it runs. The Job is billed per second of
-each pass.
+**What it costs.** A pack service bills only while it runs
+([Cloud Run pricing](https://cloud.google.com/run/pricing)). The Job is
+billed per second of each pass.
 
 **How many.** Cloud Run allows 1,000 services per region in a project,
 which a quota request can raise
@@ -1443,8 +1433,8 @@ After the apply:
 4. **Deploy each pack again,** with the same image and a new
    `--idempotency-key`
    ([5. Trust your key, and deploy](#5-trust-your-key-and-deploy)). A pack
-   service keeps one instance warm while something in use calls it, and
-   scales to zero otherwise, whatever `pack_min_instances` was.
+   service scales to zero when it's idle, whatever `pack_min_instances`
+   was.
 5. **With `"multi"`,** each tenant deploys its packs again, with a key of
    the tenant. An endpoint your orchestrator recorded stays as it is, and
    its calls keep reaching your service while its host matches

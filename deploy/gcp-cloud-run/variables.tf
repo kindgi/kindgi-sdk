@@ -170,8 +170,8 @@ variable "seed_user_id" {
 
 # ---- the pack services ----------------------------------------------------------
 # Each deployment's pack service is made by the pack orchestrator, with these
-# settings (KINDGI_ORCHESTRATOR_PACK_SERVICE). A pinned version's stays warm
-# (1 instance, CPU only during calls); every other one scales to zero.
+# settings (KINDGI_ORCHESTRATOR_PACK_SERVICE). Each one scales to zero when
+# it's idle.
 
 variable "pack_concurrency" {
   description = "Calls one pack service instance runs at once (Cloud Run's concurrency)."

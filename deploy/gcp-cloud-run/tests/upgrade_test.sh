@@ -1846,6 +1846,28 @@ assert_file_has "$STUB_PLAN_SAW" "$NEW_IMAGE" "the plan read the new image"
 assert_out "nothing to build: the apply deletes the one pack service"
 assert_out "plan check: it changes the image(s), and only what the releases crossed change."
 
+# 82. A switch from the one pack service at pack_min_instances 1, the old
+# default: it kept an instance up, so the steps say a pack service scales to
+# zero from 0.4.0.
+case_start "a switch from a pack service at pack_min_instances 1"
+reset_env "$OLD_PACK"; unset STUB_PACK_BEFORE
+export STUB_TAGS="0.3.1" STUB_PLAN_CHANGES="$SWITCH_PLAN" STUB_SERVER_ENV="$SWITCH_SERVER_ENV"
+run "yes"
+assert_rc 0 "it runs"
+assert_file_has "$OUT" "    pack_min_instances was 1. From 0.4.0 a pack service" "the scale-to-zero note"
+
+# 83. At pack_min_instances 0 the pack service started cold already: nothing
+# changes for it, and nothing is said.
+case_start "a switch from a pack service at pack_min_instances 0"
+reset_env "$OLD_PACK"; unset STUB_PACK_BEFORE
+export STUB_TAGS="0.3.1" STUB_PLAN_CHANGES="$SWITCH_PLAN" STUB_SERVER_ENV="$SWITCH_SERVER_ENV"
+PACK_ENV_FILE="$CASE_DIR/dev.pack-env.tfvars.json"
+jq -n '{pack_min_instances: 0}' >"$PACK_ENV_FILE"
+run "yes" --var-file "$PACK_ENV_FILE"
+assert_rc 0 "it runs"
+assert_out "Steps that finish the switch to 0.4.0's packs, by hand"
+if grep -q "pack_min_instances was" "$OUT"; then fail "a pack service at 0 got the scale-to-zero note"; else pass; fi
+
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [[ $FAIL -eq 0 ]]
