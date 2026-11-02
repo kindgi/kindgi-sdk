@@ -359,7 +359,7 @@ describe('envVarsForTarget — S3 targets', () => {
     const server = new Map(envVarsForTarget({ component: 'server' }).map((v) => [v.name, v]));
     for (const name of S3_VARS) {
       expect(server.get(name)).toMatchObject({ required: false, group: 'core' });
-      expect(server.get(name)?.description).toMatch(/^Used from runtime 0\.3\.0; /);
+      expect(server.get(name)?.description).toMatch(/^Used from runtime 0\.4\.0; /);
     }
     expect(server.get('KINDGI_S3_REGION')?.description).toContain(
       'required with any of them, and with any other `KINDGI_S3_*` setting',
@@ -372,7 +372,7 @@ describe('envVarsForTarget — S3 targets', () => {
     for (const name of S3_VARS) expect(packService).not.toContain(name);
   });
 
-  test('each setting that puts files somewhere takes an `s3:` bucket, from runtime 0.3.0', () => {
+  test('each setting that puts files somewhere takes an `s3:` bucket, from runtime 0.4.0', () => {
     const server = new Map(envVarsForTarget({ component: 'server' }).map((v) => [v.name, v]));
     for (const name of [
       'KINDGI_ARTIFACTS',
@@ -380,7 +380,7 @@ describe('envVarsForTarget — S3 targets', () => {
       'KINDGI_TENANT_PURGE_RECORD',
     ]) {
       expect(server.get(name)?.description).toContain(
-        'or, from runtime 0.3.0, `s3:<bucket>[/<prefix>]`',
+        'or, from runtime 0.4.0, `s3:<bucket>[/<prefix>]`',
       );
       expect(server.get('KINDGI_S3_REGION')?.description).toContain(`\`${name}\``);
     }
