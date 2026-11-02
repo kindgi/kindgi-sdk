@@ -546,9 +546,10 @@ A run an event trigger starts reads the same, with `startedBy: "event"`.
   resuming doesn't bring them back.
 - **`kindgi webhooks update <trigger-id>`** changes the flow version with
   `--flow-version`, which needs `execute` on the flow. It also changes the
-  secret with `--secret`, the scheme, the delivery-id header, the limits and
-  the tools allowed unattended (`--allow-unattended`, which replaces the
-  list, or `none` to clear it).
+  secret with `--secret`, the scheme, the delivery-id header, the limits,
+  the label (`--label`, or `--clear-label` to take it off) and the tools
+  allowed unattended (`--allow-unattended`, which replaces the list, or
+  `none` to clear it).
   A delivery-id header of `none` stops deduping. The flow itself stays:
   register another trigger for another flow. To rotate the secret's value, use `kindgi secrets rotate`, then paste
   the new value into the sender. Deliveries in between are refused (`401`),

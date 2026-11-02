@@ -256,6 +256,27 @@ describe('kindgi mail-triggers', () => {
     }
   });
 
+  test('update --clear-label takes the label off; an empty --label names it, and a label is saved trimmed', async () => {
+    const cleared = await mailTriggers(['update', ID, '--clear-label']);
+    expect(cleared.out.exitCode, cleared.out.stderr).toBe(0);
+    expect(cleared.calls).toEqual([['update', ID, { label: null }]]);
+    for (const empty of ['--label=', '--label= ']) {
+      const run = await mailTriggers(['update', ID, empty]);
+      expect(run.out.exitCode).toBe(2);
+      expect(run.out.stderr).toContain('--label takes a value: --clear-label clears it');
+      expect(run.calls).toEqual([]);
+    }
+    const both = await mailTriggers(['update', ID, '--label=x', '--clear-label']);
+    expect(both.out.exitCode).toBe(2);
+    expect(both.out.stderr).toContain('Give --label or --clear-label, not both');
+    expect(both.calls).toEqual([]);
+    const trimmed = await mailTriggers(['update', ID, '--label= x ']);
+    expect(trimmed.calls).toEqual([['update', ID, { label: 'x' }]]);
+    const help = (await mailTriggers(['update', '--help'])).out;
+    expect(help.stdout).toContain('--clear-label');
+    expect(help.stdout).toContain('Take the label off.');
+  });
+
   test('--allow-unattended: repeatable on create and update; `none` clears on update only', async () => {
     const made = await mailTriggers([
       'create',
