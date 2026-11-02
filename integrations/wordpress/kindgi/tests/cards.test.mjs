@@ -122,7 +122,7 @@ const toolCall = (changes = {}) => ({
   next: null,
   asked: { kind: 'none', name: null },
   agent: 'Support desk',
-  promotion: null,
+  pin: null,
   waitsFor: 'you',
   notYours: null,
   conversationId: null,
@@ -139,12 +139,12 @@ const reply = toolCall({
   reply: { to: 'pat@example.com' },
 });
 
-const promotion = toolCall({
-  id: 'ap-promote',
+const pin = toolCall({
+  id: 'ap-pin',
   heading: 'Update Ceramics help to version 0.1.2',
   facts: [],
   agent: null,
-  promotion: { agent: 'Ceramics help', version: '0.1.2', segment: null },
+  pin: { agent: 'Ceramics help', version: '0.1.2', segment: null },
 });
 
 /** Kindgi's answer to a decision: the card decided by the person, and what it did to a run. */
@@ -195,7 +195,7 @@ test('a reply that is not sent says so once Kindgi records it', async () => {
 
 test('a new version of an agent reads as an update, asked from Kindgi', () => {
   const { cards } = loadCards(null);
-  const node = cards.approvalCard(promotion);
+  const node = cards.approvalCard(pin);
   assert.match(node.textContent, /^Update Ceramics help to version 0\.1\.2/);
   assert.match(node.textContent, /Asked from Kindgi · 3 hours ago/);
   assert.ok(button(node, 'Approve the update'));
@@ -208,9 +208,9 @@ test('a new version of an agent reads as an update, asked from Kindgi', () => {
 
 test('an approved update says what Kindgi does next: no run waits on it', async () => {
   const { cards } = loadCards(
-    answered(promotion, 'approve', { waitpointResolved: false, runStatus: null }),
+    answered(pin, 'approve', { waitpointResolved: false, runStatus: null }),
   );
-  const node = cards.approvalCard(promotion);
+  const node = cards.approvalCard(pin);
   button(node, 'Approve the update').listeners.click();
   await settled();
   assert.match(node.textContent, /Approved by you, 3 hours ago/);
@@ -220,9 +220,9 @@ test('an approved update says what Kindgi does next: no run waits on it', async 
 
 test('a rejected update says the agent keeps its version', async () => {
   const { cards } = loadCards(
-    answered(promotion, 'reject', { waitpointResolved: false, runStatus: null }),
+    answered(pin, 'reject', { waitpointResolved: false, runStatus: null }),
   );
-  const node = cards.approvalCard(promotion);
+  const node = cards.approvalCard(pin);
   await reject(node, "Don't update…", "Don't update");
   assert.match(node.textContent, /Not updated: Ceramics help keeps the version it runs now\./);
   assert.doesNotMatch(node.textContent, /moved on/);

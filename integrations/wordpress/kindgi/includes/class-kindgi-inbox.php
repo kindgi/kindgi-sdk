@@ -14,8 +14,8 @@ final class Kindgi_Inbox {
 	/** Kindgi's subject kind for a tool call waiting for a person. */
 	const TOOL_CALL = 'tool-call:pending';
 
-	/** Kindgi's subject kind for a version of an agent waiting to go live: its promotion. */
-	const PROMOTION = 'agent-promotion';
+	/** Kindgi's subject kind for a version of an agent waiting to go live: its pin. */
+	const AGENT_PIN = 'agent-pin';
 
 	/** An approval waits while it's in one of these states; it's closed in the others. */
 	const WAITING = array( 'pending', 'assigned', 'in_review' );
@@ -89,7 +89,7 @@ final class Kindgi_Inbox {
 			// The agent that asked on its own, when no person did: its name at Kindgi, else its id in words.
 			'agent'          => null === $agent_id || 'none' !== $asked['kind'] ? null : self::agent_called( $agent_id, $agent_name ),
 			// A version of an agent waiting to go live: the agent, the version, and where.
-			'promotion'      => self::promotion_of( $a, $agent_name ),
+			'pin'            => self::pin_of( $a, $agent_name ),
 			// Waiting: 'you' when this person may decide it, else 'others' and why not.
 			'waitsFor'       => $pending ? ( null === $not_mine ? 'you' : 'others' ) : null,
 			'notYours'       => $not_mine,
@@ -186,15 +186,15 @@ final class Kindgi_Inbox {
 	}
 
 	/**
-	 * An approval's heading as its card has it: a promotion's in words
-	 * (`promotion_heading`), any other's from the approval (`heading`).
+	 * An approval's heading as its card has it: a pin's in words
+	 * (`pin_heading`), any other's from the approval (`heading`).
 	 *
 	 * @param callable|null $agent_name An agent's id to its name at Kindgi, or null when it has none there.
 	 */
 	public static function heading_of( array $a, ?callable $agent_name = null ): string {
-		$promotion = self::promotion_of( $a, $agent_name );
-		if ( null !== $promotion ) {
-			return self::promotion_heading( $promotion );
+		$pin = self::pin_of( $a, $agent_name );
+		if ( null !== $pin ) {
+			return self::pin_heading( $pin );
 		}
 		$tool = self::tool_of( $a );
 		return self::heading( $a, $tool, null === $tool ? null : self::reply_of( $a['subjectRef']['arguments'] ?? null ) );
@@ -202,7 +202,7 @@ final class Kindgi_Inbox {
 
 	/**
 	 * A version of an agent waiting to go live, from the approval Kindgi
-	 * opens for its promotion: the agent by its name, the version, and the
+	 * opens for its pin: the agent by its name, the version, and the
 	 * part of the project it's for (a segment, as "key: value"), or null
 	 * for the whole project. Null for any other approval, and for one
 	 * that's for more than a project: its own title says that.
@@ -210,11 +210,11 @@ final class Kindgi_Inbox {
 	 * @param callable|null $agent_name An agent's id to its name at Kindgi, or null when it has none there.
 	 * @return array{agent: string, version: string, segment: string|null}|null
 	 */
-	public static function promotion_of( array $a, ?callable $agent_name = null ): ?array {
+	public static function pin_of( array $a, ?callable $agent_name = null ): ?array {
 		$ref   = is_array( $a['subjectRef'] ?? null ) ? $a['subjectRef'] : array();
 		$scope = is_array( $ref['scope'] ?? null ) ? $ref['scope'] : array();
 		$kind  = $scope['kind'] ?? null;
-		if ( self::PROMOTION !== ( $a['subjectKind'] ?? '' ) || ! is_string( $ref['agentId'] ?? null ) || ! is_string( $ref['version'] ?? null ) || ! in_array( $kind, array( 'project', 'segment' ), true ) ) {
+		if ( self::AGENT_PIN !== ( $a['subjectKind'] ?? '' ) || ! is_string( $ref['agentId'] ?? null ) || ! is_string( $ref['version'] ?? null ) || ! in_array( $kind, array( 'project', 'segment' ), true ) ) {
 			return null;
 		}
 		$segment = array();
@@ -233,14 +233,14 @@ final class Kindgi_Inbox {
 		);
 	}
 
-	/** "Update Support desk to version 0.1.2": a promotion (`promotion_of`), with where when it's for part of the project. */
-	private static function promotion_heading( array $promotion ): string {
-		if ( null === $promotion['segment'] ) {
+	/** "Update Support desk to version 0.1.2": a pin (`pin_of`), with where when it's for part of the project. */
+	private static function pin_heading( array $pin ): string {
+		if ( null === $pin['segment'] ) {
 			/* translators: 1: an agent's name, 2: a version of the agent, such as 0.1.2 */
-			return sprintf( __( 'Update %1$s to version %2$s', 'kindgi' ), $promotion['agent'], $promotion['version'] );
+			return sprintf( __( 'Update %1$s to version %2$s', 'kindgi' ), $pin['agent'], $pin['version'] );
 		}
 		/* translators: 1: an agent's name, 2: a version of the agent, such as 0.1.2, 3: the part of the project it's for, such as "company: acme" */
-		return sprintf( __( 'Update %1$s to version %2$s for %3$s', 'kindgi' ), $promotion['agent'], $promotion['version'], $promotion['segment'] );
+		return sprintf( __( 'Update %1$s to version %2$s for %3$s', 'kindgi' ), $pin['agent'], $pin['version'], $pin['segment'] );
 	}
 
 	/** An agent by its name at Kindgi, else its id in words. */

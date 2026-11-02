@@ -275,13 +275,13 @@ function test_inbox_a_title_a_tool_gives_is_the_heading(): void {
 }
 
 /** A version of an agent waiting to go live, as Kindgi opens its approval, for the given scope. */
-function kindgi_test_promotion( array $scope = array( 'kind' => 'project', 'projectId' => 'p-store' ) ): array {
+function kindgi_test_pin( array $scope = array( 'kind' => 'project', 'projectId' => 'p-store' ) ): array {
 	return array(
-		'id'           => 'ap-promote',
-		'subjectKind'  => 'agent-promotion',
+		'id'           => 'ap-pin',
+		'subjectKind'  => 'agent-pin',
 		'subjectRef'   => array(
 			'agentId'          => 'acme-desk.support-desk',
-			'promotionId'      => 'pr-1',
+			'changeId'         => 'ch-1',
 			'version'          => '0.1.2',
 			'scope'            => $scope,
 			'requestedBy'      => array(
@@ -290,7 +290,7 @@ function kindgi_test_promotion( array $scope = array( 'kind' => 'project', 'proj
 			),
 			'separateApprover' => false,
 		),
-		'title'        => 'Promote acme-desk.support-desk 0.1.2 for project:p-store',
+		'title'        => 'Pin acme-desk.support-desk 0.1.2 for project:p-store',
 		'status'       => 'pending',
 		'requiredRole' => 'senior',
 		'createdAt'    => '2026-11-01T05:40:00Z',
@@ -307,7 +307,7 @@ function kindgi_test_agent_names(): callable {
 }
 
 function test_inbox_a_new_version_of_an_agent_reads_as_an_update(): void {
-	$card = Kindgi_Inbox::card( kindgi_test_promotion(), 'u-me', kindgi_test_reviewer( 'senior' ), kindgi_test_names(), kindgi_test_agent_names() );
+	$card = Kindgi_Inbox::card( kindgi_test_pin(), 'u-me', kindgi_test_reviewer( 'senior' ), kindgi_test_names(), kindgi_test_agent_names() );
 	kindgi_assert_same( 'Update Ceramics help to version 0.1.2', $card['heading'], "by the agent's name, not Kindgi's title" );
 	kindgi_assert_same(
 		array(
@@ -315,13 +315,13 @@ function test_inbox_a_new_version_of_an_agent_reads_as_an_update(): void {
 			'version' => '0.1.2',
 			'segment' => null,
 		),
-		$card['promotion'],
+		$card['pin'],
 		'what its decision does, for the buttons'
 	);
 	kindgi_assert_same( array( '', array(), array(), null ), array( $card['summary'], $card['facts'], $card['words'], $card['whole'] ), 'nothing else to read' );
 	kindgi_assert_same( array( 'none', null ), array( $card['asked']['kind'], $card['agent'] ), 'asked for with a key: no person, and no agent asked' );
 	kindgi_assert_same( 'you', $card['waitsFor'], 'a senior reviewer decides it' );
-	kindgi_assert_same( 'Update Support desk to version 0.1.2', Kindgi_Inbox::heading_of( kindgi_test_promotion() ), 'an agent with no name at Kindgi, by its id in words' );
+	kindgi_assert_same( 'Update Support desk to version 0.1.2', Kindgi_Inbox::heading_of( kindgi_test_pin() ), 'an agent with no name at Kindgi, by its id in words' );
 	$segment = array(
 		'kind'      => 'segment',
 		'projectId' => 'p-store',
@@ -336,17 +336,17 @@ function test_inbox_a_new_version_of_an_agent_reads_as_an_update(): void {
 			),
 		),
 	);
-	kindgi_assert_same( 'Update Support desk to version 0.1.2 for company: acme, region: eu', Kindgi_Inbox::heading_of( kindgi_test_promotion( $segment ) ), 'for part of the project: which part' );
-	$org = kindgi_test_promotion(
+	kindgi_assert_same( 'Update Support desk to version 0.1.2 for company: acme, region: eu', Kindgi_Inbox::heading_of( kindgi_test_pin( $segment ) ), 'for part of the project: which part' );
+	$org = kindgi_test_pin(
 		array(
 			'kind'  => 'org',
 			'orgId' => 'o-1',
 		)
 	);
-	kindgi_assert_same( array( null, 'Promote acme-desk.support-desk 0.1.2 for project:p-store' ), array( Kindgi_Inbox::promotion_of( $org ), Kindgi_Inbox::heading_of( $org ) ), "for more than the project: Kindgi's title says so" );
+	kindgi_assert_same( array( null, 'Pin acme-desk.support-desk 0.1.2 for project:p-store' ), array( Kindgi_Inbox::pin_of( $org ), Kindgi_Inbox::heading_of( $org ) ), "for more than the project: Kindgi's title says so" );
 	$segment['path'] = array();
-	kindgi_assert_same( null, Kindgi_Inbox::promotion_of( kindgi_test_promotion( $segment ) ), 'a segment it names no part of reads as its title too' );
-	kindgi_assert_same( null, Kindgi_Inbox::card( kindgi_test_approval(), 'u-me', kindgi_test_reviewer(), kindgi_test_names() )['promotion'], 'a tool call is no promotion' );
+	kindgi_assert_same( null, Kindgi_Inbox::pin_of( kindgi_test_pin( $segment ) ), 'a segment it names no part of reads as its title too' );
+	kindgi_assert_same( null, Kindgi_Inbox::card( kindgi_test_approval(), 'u-me', kindgi_test_reviewer(), kindgi_test_names() )['pin'], 'a tool call is no pin' );
 }
 
 function test_inbox_sorts_what_waits_for_you_from_what_waits_for_others(): void {

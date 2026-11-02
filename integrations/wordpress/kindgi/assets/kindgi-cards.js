@@ -271,8 +271,7 @@
       /* translators: %s: a person's name */
       return sprintf(__('%s asked', 'kindgi'), asked.name);
     }
-    if (asked.kind === 'kindgi' || card.promotion !== null)
-      return __('Asked from Kindgi', 'kindgi');
+    if (asked.kind === 'kindgi' || card.pin !== null) return __('Asked from Kindgi', 'kindgi');
     if (card.agent === null) return __('An agent asked on its own', 'kindgi');
     return card.reply
       ? /* translators: %s: the agent's name */
@@ -500,7 +499,7 @@
    * checks nothing changed since it was asked for; rejecting it keeps the
    * version the agent runs now.
    */
-  function promotionWords({ agent }) {
+  function pinWords({ agent }) {
     return {
       approve: __('Approve the update', 'kindgi'),
       reject: __("Don't update…", 'kindgi'),
@@ -523,10 +522,10 @@
    * turn: the agent reads the reason and may try again, and a call that
    * needs approval comes back as a new one. A reply that isn't sent goes nowhere:
    * the person it was to hears nothing from Kindgi. A new version of an
-   * agent has words of its own (`promotionWords`).
+   * agent has words of its own (`pinWords`).
    */
   function decisionWords(card) {
-    if (card.promotion !== null) return promotionWords(card.promotion);
+    if (card.pin !== null) return pinWords(card.pin);
     const tryAgain = card.reply
       ? __(
           'The agent reads what you write here and may write a new reply, which comes back for approval.',
