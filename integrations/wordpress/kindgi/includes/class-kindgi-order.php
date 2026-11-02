@@ -10,7 +10,9 @@ defined( 'ABSPATH' ) || exit;
  * it, to decide there, and what was decided), a "Kindgi" column on the
  * Orders list (what waits), and a private note on the order at each
  * decision made on this site. An approval is about an order when its
- * tool says so: Kindgi puts it in the approval's `context.about`.
+ * tool says so: Kindgi puts it in the approval's `context.about`. A mail
+ * tool's reply doesn't say what order it's about: the box shows the
+ * replies to the order's customer apart.
  */
 final class Kindgi_Order {
 
@@ -85,6 +87,33 @@ final class Kindgi_Order {
 			}
 		}
 		return $found;
+	}
+
+	/**
+	 * The mail replies on Kindgi's page to the order's customer: a mail
+	 * tool's reply (`Kindgi_Inbox::reply_of`) to the order's billing
+	 * address. A reply its tool says is about an order shows on that
+	 * order's box with what else is about it.
+	 */
+	public static function to_customer( array $page, string $email ): array {
+		$email = self::address( $email );
+		$found = array();
+		foreach ( is_array( $page['data'] ?? null ) ? $page['data'] : array() as $a ) {
+			if ( '' === $email || ! is_array( $a ) || null !== self::of( Kindgi_Inbox::about_of( $a ) ) || null === Kindgi_Inbox::tool_of( $a ) ) {
+				continue;
+			}
+			$reply = Kindgi_Inbox::reply_of( $a['subjectRef']['arguments'] ?? null );
+			if ( null !== $reply && self::address( $reply['to'] ) === $email ) {
+				$found[] = $a;
+			}
+		}
+		return $found;
+	}
+
+	/** An address as two are compared: the part in angle brackets when a name comes with it, in lower case. */
+	private static function address( string $to ): string {
+		$to = trim( $to );
+		return strtolower( trim( 1 === preg_match( '/<([^<>]+)>$/', $to, $m ) ? $m[1] : $to ) );
 	}
 
 	/** The box, on an order's screen in either order storage (`wc_get_page_screen_id` names it). */

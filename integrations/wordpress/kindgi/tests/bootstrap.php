@@ -119,12 +119,14 @@ final class WP_REST_Request implements ArrayAccess {
 class WC_Order {
 	private $id;
 	private $status;
+	private $billing_email;
 	/** The notes added, each `array( note, is_customer_note, added_by_user )`. */
 	public $notes = array();
 
-	public function __construct( int $id, string $status = 'processing' ) {
-		$this->id     = $id;
-		$this->status = $status;
+	public function __construct( int $id, string $status = 'processing', string $billing_email = '' ) {
+		$this->id            = $id;
+		$this->status        = $status;
+		$this->billing_email = $billing_email;
 	}
 
 	public function get_id(): int {
@@ -133,6 +135,10 @@ class WC_Order {
 
 	public function get_status(): string {
 		return $this->status;
+	}
+
+	public function get_billing_email(): string {
+		return $this->billing_email;
 	}
 
 	public function add_order_note( string $note, int $is_customer_note = 0, bool $added_by_user = false ): int {

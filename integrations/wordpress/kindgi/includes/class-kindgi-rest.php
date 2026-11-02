@@ -604,13 +604,15 @@ final class Kindgi_Rest {
 	/**
 	 * What Kindgi has about a WooCommerce order, for the order's box: the
 	 * approvals about it that wait (oldest first) and those closed (newest
-	 * first). For someone who may edit orders only. Opening an order signs
-	 * no one in: without a live session the answer says so, and the box
+	 * first), then the mail replies to its customer (`customer`), the same
+	 * way. For someone who may edit orders only. Opening an order signs no
+	 * one in: without a live session the answer says so, and the box
 	 * offers to (`signIn`).
 	 */
 	public static function order( WP_REST_Request $request ) {
 		$order = (int) $request['order'];
-		if ( ! Kindgi_Order::store() || ! current_user_can( 'edit_shop_orders' ) || ! wc_get_order( $order ) instanceof WC_Order ) {
+		$wc    = Kindgi_Order::store() && current_user_can( 'edit_shop_orders' ) ? wc_get_order( $order ) : null;
+		if ( ! $wc instanceof WC_Order ) {
 			return new WP_Error( 'kindgi_order_not_found', __( 'No order you may edit has that number.', 'kindgi' ), array( 'status' => 404 ) );
 		}
 		$user = wp_get_current_user();
@@ -627,6 +629,7 @@ final class Kindgi_Rest {
 		$answer   = array(
 			'signedIn' => true,
 			'more'     => false,
+			'customer' => array( 'email' => (string) $wc->get_billing_email() ),
 		);
 		foreach ( array( 'waiting' => Kindgi_Inbox::WAITING, 'closed' => Kindgi_Inbox::CLOSED ) as $view => $statuses ) {
 			$page = $get(
@@ -648,6 +651,10 @@ final class Kindgi_Rest {
 			$answer[ $view ] = array();
 			foreach ( Kindgi_Order::about_order( $page['body'], $order ) as $a ) {
 				$answer[ $view ][] = Kindgi_Inbox::card( $a, $me, $reviewer, array( self::class, 'who' ), $names );
+			}
+			$answer['customer'][ $view ] = array();
+			foreach ( Kindgi_Order::to_customer( $page['body'], $answer['customer']['email'] ) as $a ) {
+				$answer['customer'][ $view ][] = Kindgi_Inbox::card( $a, $me, $reviewer, array( self::class, 'who' ), $names );
 			}
 			// The box looked through one page: older approvals about the order may be on the next.
 			$answer['more'] = $answer['more'] || true === ( $page['body']['hasMore'] ?? false );
