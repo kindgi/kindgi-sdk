@@ -8,8 +8,18 @@
  * exercising the full runCli path.
  */
 
+import {
+  packEnvHeldText,
+  packServiceProblemText,
+  packServiceRetiredText,
+} from './pack-service-text.js';
 import { type PromotionStop, promotionHint } from './promotion-path.js';
-import type { DeployedVersionRecord, DeploymentRecord, PostDeploymentResult } from './runners.js';
+import type {
+  DeployedVersionRecord,
+  DeploymentEndpointRecord,
+  DeploymentRecord,
+  PostDeploymentResult,
+} from './runners.js';
 
 /**
  * Human-friendly hint text keyed by server wire-error code. Each hint
@@ -147,12 +157,15 @@ export function renderResponse(
     readonly idempotencyKey: string;
     /** On a `409 environment-takes-promotions`: each environment on the way there, when they could be read. */
     readonly promotionPath?: readonly PromotionStop[] | undefined;
+    /** The deploy goes on to wait for the pack service (`--hosted`), and says its state there. */
+    readonly waitsForPackService: boolean;
   },
 ): RenderedResponse {
   if (result.kind === 'created' || result.kind === 'replayed') {
     const banner: string[] = [];
     banner.push('  Registering deployment');
-    const statusLabel = result.kind === 'created' ? '201 Created' : '200 OK (idempotent replay)';
+    const statusLabel =
+      result.kind === 'created' ? '201 Created' : '200 OK (this image was deployed before)';
     banner.push(`    ✓ POST /v1/deployments  →  ${statusLabel}`);
     banner.push(`      deploymentId:    ${result.record.deploymentId}`);
     banner.push(`      artifactVersion: ${result.record.artifactVersion}`);
@@ -173,7 +186,10 @@ export function renderResponse(
     }
     if (result.kind === 'replayed') {
       banner.push(
-        `  Note: same imageDigest (${result.record.imageDigest.slice(0, 20)}…) previously landed. Server returned the existing record.`,
+        `  Note: this image (${result.record.imageDigest.slice(0, 20)}…) was deployed before, so the server answered with that deployment.`,
+      );
+      banner.push(
+        ...replayPackServiceLines(result.record, { keyReplay, waits: ctx.waitsForPackService }),
       );
     } else if (!keyReplay) {
       banner.push('  Deploy complete.');
@@ -329,6 +345,48 @@ function inFlightLine(record: DeploymentRecord): string {
   return record.endpoint !== undefined
     ? "  Runs already in flight keep their tool versions: each tool call goes to the newest deployment in the run's project that shipped the version it names."
     : "  With one pack service, runs already in flight call that service's current build, as new runs do: a call naming a tool version that build doesn't have fails with tool-version-mismatch.";
+}
+
+/**
+ * On a runtime that routes per deployment, a same-image deploy's answer asks
+ * for the deployment's pack service when it has none (as after an upgrade):
+ * its line, unless the answer is a key replay, which deployed nothing, or the
+ * deploy waits for the pack service (`--hosted`) and says its state there.
+ */
+function replayPackServiceLines(
+  record: DeploymentRecord,
+  said: { readonly keyReplay: boolean; readonly waits: boolean },
+): string[] {
+  if (record.endpoint === undefined || said.keyReplay || said.waits) return [];
+  return [packServiceLine(record.endpoint, record.deploymentId)];
+}
+
+/**
+ * A same-image deploy's line for the deployment's pack service, in
+ * `kindgi deployments get`'s words: asked for (pending, or cleared and
+ * waiting for one again), ready (or ready on the values it was last given),
+ * or taken down. A pending one's tools answer once it's made.
+ */
+function packServiceLine(endpoint: DeploymentEndpointRecord, deploymentId: string): string {
+  const get = `\`kindgi deployments get ${deploymentId}\``;
+  if (endpoint.status === 'ready') {
+    const held = endpoint.packEnvProblem;
+    if (held === undefined) return `  Its pack service is ready (since ${endpoint.since}).`;
+    const why = packEnvHeldText(held.code);
+    return `  Its pack service is ready (since ${endpoint.since}), on the values it was last given: ${why !== undefined ? `${why} (${held.code})` : held.code}. ${get} says how to fix it.`;
+  }
+  if (endpoint.status === 'cleared' && endpoint.waiting !== true) {
+    const r = endpoint.retired;
+    return `  Its pack service was taken down (cleared since ${endpoint.since}${r !== undefined ? `: ${packServiceRetiredText(r)} (${r})` : ''}).`;
+  }
+  const state =
+    endpoint.status === 'cleared'
+      ? `asked for again (cleared since ${endpoint.since}, waiting for one again`
+      : `asked for (pending since ${endpoint.since}`;
+  const problem = endpoint.problem;
+  const why =
+    problem === undefined ? '' : `: ${packServiceProblemText(problem.code)} (${problem.code})`;
+  return `  Its pack service is ${state}${why}): its tools answer once it's made. ${get} says when it's ready.`;
 }
 
 /** `versionLines` for a deployment's agents then flows, followed by a blank line; none when there are none. */

@@ -119,6 +119,11 @@ export interface DeploymentEndpointRecord {
   /** `cleared` only: why no pack service is wanted for it now (`superseded`, `pack-suspended`, …). */
   readonly retired?: string;
   /**
+   * `ready` only: it runs on the values it was last given, since `since`,
+   * for this fixed code (`pack-env-update-failed`, …).
+   */
+  readonly packEnvProblem?: { readonly code: string; readonly since: string };
+  /**
    * What keeps its pack service, on a runtime that runs one per build
    * (from Kindgi 0.4.0): `[]` when nothing does. On a list page, the first
    * 20, with `keptForTotal`.

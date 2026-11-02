@@ -666,7 +666,7 @@ export type DeploymentRegisterOutcome =
       /**
        * Same `imageDigest` was already registered for this tenant. The
        * binding returns the existing row unchanged; the route surfaces
-       * as `200 OK` (idempotent replay), NOT `409`.
+       * as `200 OK` with the deployment it has, NOT `409`.
        */
       readonly kind: 'already-registered';
       readonly deployment: Deployment;
