@@ -288,7 +288,7 @@ can export them all:
 
 - **`KINDGI_ERASURE_LEDGER_EXPORT`:** where. `local:<absolute dir>`,
   `gcs:<bucket>[/<prefix>]` through Application Default Credentials, or
-  `s3:<bucket>[/<prefix>]` (runtime 0.3.0 or later). In a GCS bucket,
+  `s3:<bucket>[/<prefix>]` (runtime 0.4.0 or later). In a GCS bucket,
   creating objects is all it needs (`roles/storage.objectCreator` on the
   bucket). [Choose where the runtime keeps files](../store-files/#files-written-once)
   has what each needs, and the checks at startup.
