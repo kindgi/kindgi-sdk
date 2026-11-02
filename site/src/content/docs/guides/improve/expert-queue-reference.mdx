@@ -411,7 +411,7 @@ test set and suggested changes are pages of its own, as
 
 ### To review
 
-![The Quality section's To correct tab, showing Waiting and For me: the Show and Whose filters, "2 more wait for other judges.", the Columns menu, and three runs of Dev-Echo Agent 1.0.0 queued by the Everything and Support sample rules, each needing an expert correction, with a Dismiss icon.](../../../../assets/quality/quality-waiting.png)
+![The Corrections section's To review tab, showing Waiting and For me: the Show and Whose filters, "2 more wait for other correctors.", the Columns menu, and three runs of Dev-Echo Agent 1.0.0 queued by the Everything and Support sample rules, each needing an expert correction, with a Dismiss icon.](../../../../assets/quality/quality-waiting.png)
 
 Each row is a run in the queue:
 
@@ -420,14 +420,14 @@ Each row is a run in the queue:
   [Correct a run's answer](../correct-a-runs-output/#correct-a-runs-answer) shows.
 - **Why it's here:** the rules that queued it.
 - **Where it stands:** what it still needs, such as "Needs an expert
-  correction (1 so far, unclassified)", or how a closed one ended.
+  correction (1 so far, ungrouped)", or how a closed one ended.
 
 Filter it by state, **Waiting**, **Corrected**, **Dismissed** or **Erased**. Or
-by **For me** or **Everyone's** ("2 more wait for other judges."), by rule
+by **For me** or **Everyone's** ("2 more wait for other correctors."), by rule
 and by agent. **Dismiss** takes a run out of the queue with a reason, and
 **Reopen** puts a dismissed one back.
 
-![The To correct tab filtered to Dismissed and Everyone's: a run of Dev-Echo Agent 1.0.0 queued by the Everything and Support sample rules, "Dismissed by you 24 Oct 2026, 9:02 PM EDT: A test order", with a Reopen icon.](../../../../assets/quality/quality-dismissed.png)
+![The To review tab filtered to Dismissed and Everyone's: a run of Dev-Echo Agent 1.0.0 queued by the Everything and Support sample rules, "Dismissed by you 1 Nov 2026, 9:51 PM EST: A test order", with a Reopen icon.](../../../../assets/quality/quality-dismissed.png)
 
 ### To fix
 
@@ -447,13 +447,13 @@ fix: every correction here is Fixed, Won't fix or Removed."
 
 ### Who corrects
 
-![The Corrector groups tab: New class, the Columns menu, and two classes, both Restricted. The expert class "Counts 3× an unclassified one", applies to this project, may be given only by people and is wanted by the Echo half and Support sample rules; the bot class counts the same, only services, and no rule wants it. Below: "A share weights each correction by its class."](../../../../assets/quality/quality-classes.png)
+![The Who corrects tab's Corrector groups: New group, the Columns menu, and two groups, both tagged Expert. The expert group "Counts 3× one with no group", applies to this project, may be given only by people and is wanted by the Echo half and Support sample rules; the bot group counts the same as one with no group, only services, and no rule wants it. Below: "A share weights each correction by its group."](../../../../assets/quality/quality-classes.png)
 
 **Who corrects** lists, under **Corrector groups**, each
 [corrector group](#corrector-groups) that applies to the project's runs, in
 words:
 
-- how much it counts, such as "Counts 3× an unclassified one";
+- how much it counts, such as "Counts 3× one with no group";
 - where it applies, such as "This project";
 - who may give it, such as "Only people" or "Only services". Who may give an
   expert group is counted here, never listed;
@@ -466,11 +466,11 @@ only those."
 Project admins add, change and remove a project's groups, and tenant admins
 a tenant's. Removing a group names the rules that want it.
 
-![The Remove expert? dialog, over the Corrector groups tab: "No new correction can name it. Corrections that named it keep it, and still count with its weight in trends." and "2 rules want its correction (Echo half, Support sample): change them first, or their items wait for a class nobody can give."](../../../../assets/quality/quality-class-remove.png)
+![The Remove expert? dialog, over the Who corrects tab: "No new correction can name it. Corrections that named it keep it, and still count with its weight in trends." and "2 rules want its correction (Echo half, Support sample): change them first, or their items wait for a group nobody can give."](../../../../assets/quality/quality-class-remove.png)
 
 ### Rules
 
-![The Rules tab: New rule, a search box and the Columns menu, and the Support sample, Everything and Bot review rules, each with which runs it takes, what it wants, its cap, its open items, and History, Change and Remove icons.](../../../../assets/quality/quality-rules.png)
+![The Rules tab's Queue rules, "Each picks completed runs for people to correct, as they end. It never runs a model.": New rule, a search box and the Columns menu, and the Support sample, Everything and Bot review rules, each at version 1 with which runs it takes, what it wants, its cap, its open items, and History, Change and Remove icons.](../../../../assets/quality/quality-rules.png)
 
 Each rule is in words:
 
@@ -492,11 +492,11 @@ in the queue.
 
 ![The New queue rule dialog, over the Rules tab.](../../../../assets/quality/quality-rule-editor.png)
 
-![Echo half: its versions, over the Rules tab: "Version 2 · a person (11111111…) · 24 Oct 2026, 9:03 PM EDT" changed "Cap: No new items while 5 are open → No cap" and "Wants: any correction → an expert correction"; Version 1, by the same person a minute earlier, "Created".](../../../../assets/quality/quality-rule-history.png)
+![Echo half: its versions, over the Rules tab: "Version 2 · a person (11111111…) · 1 Nov 2026, 9:52 PM EST" changed "Cap: No new items while 5 are open → No cap" and "Wants: any correction → an expert correction"; Version 1, by the same person in the same minute, "Created".](../../../../assets/quality/quality-rule-history.png)
 
 ### Trends
 
-![The Trends tab: per rule, by its latest version, the share of people's corrections of each agent version that marked its answer right, weighted by corrector group. The Trend check rule's chart shows 1.1.0 at about 95% marked right and 1.0.0 at about 25%, from 12 corrections each, and "1.1.0 is marked right more often than 1.0.0."](../../../../assets/quality/quality-trends.png)
+![The Trends tab: per rule, by its latest version, the share of people's corrections of each agent version that marked its answer right, weighted by corrector group, with the Period choices All time, Last 90 days and Last 30 days. The Trend check rule's chart shows 1.1.0 at about 95% marked right and 1.0.0 at about 25%, from 12 corrections each, and "1.1.0 is marked right more often than 1.0.0."](../../../../assets/quality/quality-trends.png)
 
 **Trends** shows, per rule and by its latest version, the share marked
 right among people's corrections of each agent version, over all time or the
@@ -510,8 +510,8 @@ last 90 or 30 days. These are [a rule's results](#a-rules-results):
 - **A comparison only when the ranges are apart:** "1.1.0 is marked right
   more often than 1.0.0."
 - **The weights, in words:** "Weighted by corrector group: An expert's
-  correction counts 3× an unclassified one; a bot's correction counts the
-  same as an unclassified one."
+  correction counts 3× one with no group; a bot's correction counts the
+  same as one with no group."
 - **What the numbers leave out:** an earlier version of the rule is "shown
   apart, never added in". Runs the cap kept out are counted: "1 matched run
   wasn't queued because the rule already had its most open runs waiting, so

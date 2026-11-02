@@ -692,8 +692,13 @@ parallel. Each step can take the output of the steps before it. A step
 can't run another flow yet." Each row has the flow's name, with its
 description under it, its **Latest version**, its **Steps** ("3 (2 agents,
 1 repeating step)") and **Versions locked**: **Yes**, **No, latest at each
-run** or **Nothing to lock**, with what that means on hover. A flow whose
-every version is retired is marked **retired**, and is listed only under
+run** or **Nothing to lock**, with what that means on hover. In a later
+environment of an
+[environment order](../../../concepts/projects-packs-values/#a-pack-goes-into-one-project),
+the version column is **Newest you can see**: the newest version in any of
+the order's projects you can see, which may not be promoted there yet. The
+flow's page shows the version that environment serves. A flow whose every
+version is retired is marked **retired**, and is listed only under
 **Show retired**, in the **Columns** menu. The list has a search box, sorts
 by a column's header, and **Columns** chooses which columns it shows.
 
@@ -734,7 +739,7 @@ Below it:
 [Runs](../../runs/list-runs/#in-the-console) page does, and **Corrections**
 has what people said about them.
 
-![Refunds' page at 2.0.0: Download its JSON and Start a run at the top; ID acme.refunds, Version 2.0.0 with its Latest tag, Versions locked: Yes; the steps Start, triage, a step repeating for each of the run's items, answer, End, each agent locked at 1.0.0; and Agents and tools: Dev-Echo Agent at 1.0.0.](../../../../assets/flows/flow-page.png)
+![Refunds' page at 2.0.0: Download its JSON and Start a run at the top; ID acme.refunds, Version 2.0.0 with its Latest tag, Versions locked: Yes; the steps Start, triage, a step repeating for each of the run's items at most 50 times, answer, End, each agent locked at 1.0.0; Agents and tools: Dev-Echo Agent at 1.0.0; What triggers it: the nightly refunds schedule and the Refund requests webhook, each at 2.0.0; Recent runs, none yet; Versions, with 2.0.0 locked by both; and Full spec.](../../../../assets/flows/flow-page.png)
 
 For flow admins, each version in use has **Retire**: the archive icon at the
 row's end, with the word only on hover. It asks first, saying what changes:
