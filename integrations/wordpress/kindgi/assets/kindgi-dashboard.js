@@ -14,7 +14,7 @@
   if (root === null) return;
   const live = root.querySelector('.kindgi-dash-live');
   const { __, _n, sprintf } = wp.i18n;
-  const { api, el, notice, loading, muted, timeEl, runState } = window.kindgiCards;
+  const { api, el, notice, loading, muted, timeEl, runState, runUrl } = window.kindgiCards;
   const urls = window.kindgiConfig?.urls ?? {};
   // The count the box was drawn with: it stays while Kindgi isn't asked.
   const drawn = live.querySelector('.kindgi-dash-waits');
@@ -57,7 +57,7 @@
           ),
         );
 
-  /** One run: its agent or flow, its state, its first line, and when. */
+  /** One run: its agent or flow, linked to the run on Activity, its state, its first line, and when. */
   const runRow = (run) =>
     el(
       'li',
@@ -65,7 +65,7 @@
       el(
         'div',
         { className: 'kindgi-run-head' },
-        el('strong', {}, run.name || __('A run', 'kindgi')),
+        el('a', { href: runUrl(run.id) }, el('strong', {}, run.name || __('A run', 'kindgi'))),
         runState(run),
       ),
       run.summary ? el('p', { className: 'kindgi-dash-summary' }, run.summary) : null,

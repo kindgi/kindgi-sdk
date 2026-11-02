@@ -86,6 +86,7 @@ final class Kindgi_Rest {
 		);
 		self::route( '/approvals/' . $id, 'GET', 'approval' );
 		self::route( '/activity', 'GET', 'activity', array( 'cursor' => self::optional_string( 512 ) ) );
+		self::route( '/activity/' . $id, 'GET', 'activity_run' );
 		self::route(
 			'/dashboard',
 			'GET',
@@ -502,6 +503,30 @@ final class Kindgi_Rest {
 		}
 		$answer = Kindgi_Api::body( $user, 'GET', '/v1/approvals/' . rawurlencode( $request['id'] ) );
 		return is_wp_error( $answer ) ? $answer : self::card( $answer['body'], (string) $answer['session']['user_id'], $r['reviewer'] );
+	}
+
+	/**
+	 * One of the project's runs, as Activity's feed has it: for a link to
+	 * it (`&run=<id>`) when it isn't on the feed's first page. A run in
+	 * another project isn't this site's, whatever the person may read at
+	 * Kindgi; one Kindgi doesn't show them reads as none, as a link to it
+	 * says no more than that.
+	 */
+	public static function activity_run( WP_REST_Request $request ) {
+		$user    = wp_get_current_user();
+		$project = self::project( $user );
+		if ( is_wp_error( $project ) ) {
+			return $project;
+		}
+		$answer = Kindgi_Api::body( $user, 'GET', '/v1/runs/' . rawurlencode( $request['id'] ) );
+		$status = is_wp_error( $answer ) ? ( $answer->get_error_data()['status'] ?? null ) : null;
+		if ( is_wp_error( $answer ) && ! in_array( $status, array( 403, 404 ), true ) ) {
+			return $answer;
+		}
+		if ( is_wp_error( $answer ) || ( $answer['body']['projectId'] ?? null ) !== $project ) {
+			return new WP_Error( 'kindgi_run_not_found', __( "The site's project has no run with that id that you can see.", 'kindgi' ), array( 'status' => 404 ) );
+		}
+		return Kindgi_Activity::row( $answer['body'], (string) $answer['session']['user_id'], array( self::class, 'who' ), Kindgi_Order::reads_orders() );
 	}
 
 	/**

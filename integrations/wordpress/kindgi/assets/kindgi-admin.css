@@ -1061,6 +1061,16 @@
   border-top: 0;
 }
 
+/* The run a link names, marked as the Inbox marks a linked card. */
+.kindgi .kindgi-run.kindgi-target {
+  background: color-mix(in srgb, var(--kindgi-accent) 6%, var(--kindgi-surface));
+  box-shadow: inset 3px 0 0 var(--kindgi-accent);
+}
+
+.kindgi .kindgi-linked .kindgi-runs {
+  margin-bottom: var(--kindgi-space-5);
+}
+
 .kindgi .kindgi-mark-round {
   display: grid;
   flex: none;
@@ -1110,6 +1120,18 @@
 .kindgi .kindgi-run-meta .button-link {
   font-size: 13px;
   vertical-align: baseline;
+}
+
+/* The time is the run's link: it reads as the time until it's pointed at. */
+.kindgi .kindgi-run-meta .kindgi-run-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.kindgi .kindgi-run-meta .kindgi-run-link:hover,
+.kindgi .kindgi-run-meta .kindgi-run-link:focus {
+  color: var(--kindgi-accent);
+  text-decoration: underline;
 }
 
 /* A run's state: a pill in its tone, its words always in it. */

@@ -34,6 +34,7 @@
     empty,
     toolName,
     askUrl,
+    runUrl,
     approvalCard,
     runState,
   } = window.kindgiCards;
@@ -348,6 +349,16 @@
       wp.date.dateI18n(wp.date.getSettings().formats.time, iso),
     );
 
+  /** Marks a run's row as the one the address names; with `scroll`, brings it into view. */
+  function markRun(runId, scroll = true) {
+    for (const row of root.querySelectorAll('.kindgi-run.kindgi-target')) {
+      row.classList.remove('kindgi-target');
+    }
+    const row = root.querySelector(`[data-run="${CSS.escape(runId)}"]`);
+    row?.classList.add('kindgi-target');
+    if (scroll) row?.scrollIntoView({ block: 'center' });
+  }
+
   /** A name's first letter, for its round mark. */
   const initial = (name) => [...name.trim()][0]?.toUpperCase() ?? '•';
 
@@ -387,8 +398,21 @@
     sheet.addEventListener('click', (event) => {
       if (pressedOutside && event.target === sheet) sheet.close();
     });
-    sheet.addEventListener('close', () => sheet.remove());
+    sheet.addEventListener('close', () => {
+      sheet.remove();
+      // The run stays the one the address names, marked; what it returned is shut.
+      window.history.replaceState(null, '', runUrl(run.id));
+      markRun(run.id, false);
+    });
     return sheet;
+  }
+
+  /** Opens what a run returned, and names it in the address: a reload or a link opens it again. */
+  function openOutput(run, name) {
+    const sheet = outputSheet(run, name);
+    root.append(sheet);
+    window.history.replaceState(null, '', runUrl(run.id, true));
+    sheet.showModal();
   }
 
   /** Why a run failed, in words for staff; Kindgi's own words for it under Details, for an administrator. */
@@ -410,23 +434,26 @@
             {
               type: 'button',
               className: 'button-link',
-              onclick: () => {
-                const sheet = outputSheet(run, name);
-                root.append(sheet);
-                sheet.showModal();
-              },
+              onclick: () => openOutput(run, name),
             },
             __('What it returned', 'kindgi'),
           ),
     ].filter((link) => link !== null);
   }
 
+  /** A run's name: its agent's, else its flow's. */
+  const runName = (run, nameOf) =>
+    run.agentId !== null ? nameOf(run.agentId) : (run.flow ?? __('A run', 'kindgi'));
+
   function activityRow(run, nameOf) {
-    const name = run.agentId !== null ? nameOf(run.agentId) : (run.flow ?? __('A run', 'kindgi'));
+    const name = runName(run, nameOf);
     const source = sourceWords(run.startedBy);
+    // The time links to the run: its row, marked, as the address names it.
+    const time = inPage(runUrl(run.id), () => markRun(run.id), timeOf(run.createdAt));
+    time.className = 'kindgi-run-link';
     return el(
       'li',
-      { className: 'kindgi-run' },
+      { className: 'kindgi-run', 'data-run': run.id },
       el('span', { className: 'kindgi-mark-round', 'aria-hidden': 'true' }, initial(name)),
       el(
         'div',
@@ -440,7 +467,7 @@
         el(
           'p',
           { className: 'kindgi-run-meta' },
-          timeOf(run.createdAt),
+          time,
           source ? [' · ', source] : null,
           runLinks(run, name).flatMap((link) => [' · ', link]),
         ),
@@ -467,17 +494,44 @@
     return { node, add };
   }
 
+  /**
+   * The run a link names (`&run=<id>`), when the feed's first page doesn't
+   * hold it: read on its own, or what kept it from being read.
+   */
+  async function linkedRun(opened, page) {
+    if (opened === null || page.runs.some((run) => run.id === opened)) return null;
+    return api(`/activity/${encodeURIComponent(opened)}`).catch((error) => ({ error }));
+  }
+
+  /** The linked run above the feed, as the Inbox shows a linked approval. */
+  function linkedRow(linked, nameOf) {
+    if (linked === null) return null;
+    return el(
+      'div',
+      { className: 'kindgi-linked' },
+      el('h2', {}, __('From your link', 'kindgi')),
+      linked.error !== undefined
+        ? notice(linked.error)
+        : el('ul', { className: 'kindgi-runs', role: 'list' }, activityRow(linked, nameOf)),
+    );
+  }
+
   async function renderActivity() {
     state.view += 1;
     root.replaceChildren(loading());
+    const opened = config.run ?? null;
+    const output = new URLSearchParams(window.location.search).get('show') === 'output';
     let agents;
     let page;
+    let linked;
     try {
       [agents, page] = await Promise.all([api('/agents'), api('/activity')]);
+      linked = await linkedRun(opened, page);
     } catch (error) {
       root.replaceChildren(notice(error, () => renderActivity()));
       return;
     }
+    config.run = null;
     const nameOf = (id) => agents.agents.find((a) => a.id === id)?.name || id;
     if (page.runs.length === 0) {
       root.replaceChildren(
@@ -502,6 +556,7 @@
     runs.add(page.runs);
     root.replaceChildren(
       ...[
+        linkedRow(linked, nameOf),
         muted(
           __(
             "What the project's agents and flows did, newest first, whoever or whatever started it.",
@@ -512,6 +567,11 @@
         olderButton('/activity', page.nextCursor, (more) => runs.add(more.runs)),
       ].filter((child) => !absent(child)),
     );
+    if (opened === null) return;
+    markRun(opened);
+    // `&show=output`: what the run returned, open as it was when the link was made.
+    const run = page.runs.find((r) => r.id === opened) ?? (linked?.error ? null : linked);
+    if (output && run && run.output !== null) openOutput(run, runName(run, nameOf));
   }
 
   // ---------- Ask ----------

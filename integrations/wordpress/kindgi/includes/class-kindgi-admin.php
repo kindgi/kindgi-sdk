@@ -264,6 +264,7 @@ final class Kindgi_Admin {
 		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- links to open, not actions.
 		$approval     = isset( $_GET['approval'] ) ? sanitize_text_field( wp_unslash( $_GET['approval'] ) ) : '';
 		$conversation = isset( $_GET['conversation'] ) ? sanitize_text_field( wp_unslash( $_GET['conversation'] ) ) : '';
+		$run          = isset( $_GET['run'] ) ? sanitize_text_field( wp_unslash( $_GET['run'] ) ) : '';
 		$order        = isset( $_GET['order'] ) ? absint( $_GET['order'] ) : 0;
 		$question     = isset( $_GET['question'] ) ? trim( sanitize_textarea_field( wp_unslash( $_GET['question'] ) ) ) : '';
 		// phpcs:enable
@@ -272,6 +273,8 @@ final class Kindgi_Admin {
 			'view'         => self::$views[ $hook ],
 			'approval'     => preg_match( $id, $approval ) ? $approval : null,
 			'conversation' => preg_match( $id, $conversation ) ? $conversation : null,
+			// A run's link on Activity: its row, marked.
+			'run'          => 'activity' === self::$views[ $hook ] && preg_match( $id, $run ) ? $run : null,
 			// "Ask about this order", from the order's box: a new conversation's first words name it.
 			'order'        => $order > 0 && Kindgi_Order::shown() ? $order : null,
 			// The dashboard box's question: a new conversation's first words, to send on Ask.

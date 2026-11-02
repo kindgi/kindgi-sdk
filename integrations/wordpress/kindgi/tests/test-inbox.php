@@ -622,3 +622,29 @@ function test_admin_the_offer_form_offers_all_some_or_none(): void {
 	kindgi_assert_same( array( 'acme-desk.store-agent' ), Kindgi_Admin::offered_after( $shown, array( 'acme-desk.store-agent' ) ), 'some: only those' );
 	kindgi_assert_same( array(), Kindgi_Admin::offered_after( $shown, array() ), 'none ticked: none offered' );
 }
+
+function test_activity_a_link_opens_only_one_of_the_sites_runs(): void {
+	kindgi_test_jane_at_work();
+	kindgi_test_answer( 200, kindgi_test_run( array( 'projectId' => '5a2f0c3e-8d91-4b7a-a6e2-91c4d3b0f817' ) ) );
+	$row = Kindgi_Rest::activity_run( new WP_REST_Request( array( 'id' => 'r-1' ) ) );
+	kindgi_assert_same( 'r-1', $row['id'], 'its row, as the feed has it' );
+	kindgi_assert_same( 'Order 18 shipped on Monday.', $row['summary'], 'her own run, what it said' );
+	kindgi_assert_same( 1, count( $GLOBALS['kindgi_test']['requests'] ), 'read on its own, on her live session' );
+	kindgi_assert( false !== strpos( $GLOBALS['kindgi_test']['requests'][0][0], '/v1/runs/r-1' ), 'by its id' );
+
+	kindgi_test_jane_at_work();
+	kindgi_test_answer( 200, kindgi_test_run( array( 'projectId' => 'p-other' ) ) );
+	$other = Kindgi_Rest::activity_run( new WP_REST_Request( array( 'id' => 'r-1' ) ) );
+	kindgi_assert_same( 'kindgi_run_not_found', $other->get_error_code(), "another project's run isn't the site's, whatever she may read at Kindgi" );
+	kindgi_assert_same( 404, $other->get_error_data()['status'], 'as no such run' );
+
+	kindgi_test_jane_at_work();
+	kindgi_test_answer( 403, array( 'error' => array( 'code' => 'forbidden', 'message' => 'Not allowed.' ) ) );
+	$hidden = Kindgi_Rest::activity_run( new WP_REST_Request( array( 'id' => 'r-1' ) ) );
+	kindgi_assert_same( 'kindgi_run_not_found', $hidden->get_error_code(), "a run Kindgi doesn't show her reads as none, not as a right she lacks" );
+
+	kindgi_test_jane_at_work();
+	kindgi_test_answer( 503, array( 'error' => array( 'code' => 'unavailable', 'message' => 'Try later.' ) ) );
+	$down = Kindgi_Rest::activity_run( new WP_REST_Request( array( 'id' => 'r-1' ) ) );
+	kindgi_assert_same( 'unavailable', $down->get_error_code(), 'Kindgi down is said as such' );
+}
