@@ -647,13 +647,20 @@ describe('refreshSkillsForDev — kindgi dev as it starts', () => {
       warned('  ⚠ Framework skills: 1 out of date.'),
       warned(unrecorded),
     ]);
-    await syncSkills({
+    const forced = await syncSkills({
       skillsRoot,
       targetDir: packDir,
       language: 'node',
       force: true,
       dryRun: false,
     });
+    const overwrote = 'Overwrote a copy with no record of what was installed (--force)';
+    expect(forced.outcomes.map((o) => [o.folder, o.name, o.status, o.reason])).toEqual([
+      ['.claude/skills', 'one', 'updated', overwrote],
+      ['.claude/skills', 'two', 'unchanged', undefined],
+      ['.agents/skills', 'one', 'updated', overwrote],
+      ['.agents/skills', 'two', 'unchanged', undefined],
+    ]);
     expect(await start()).toEqual([]);
     for (const folder of ['.claude/skills', '.agents/skills']) {
       expect(await copy(folder)).toContain('# one, again');

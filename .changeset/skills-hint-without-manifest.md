@@ -12,4 +12,4 @@
 
 - A copy missing a file is said as "missing a file: `kindgi skills sync` brings it back".
 - With a manifest, a copy it has no entry for is said the same way after a refresh ("with no record of what was installed"), not as one you edited.
-- `kindgi skills sync` gives such a copy the reason "No record of what was installed; --force to overwrite.". A copy you edited keeps "Local edits detected; --force to overwrite.".
+- `kindgi skills sync` gives such a copy the reason "No record of what was installed; --force to overwrite.", and with `--force`, "Overwrote a copy with no record of what was installed (--force)". A copy you edited keeps "Local edits detected; --force to overwrite." and "Overwrote local edits (--force)".

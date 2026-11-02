@@ -682,7 +682,7 @@ async function syncCopy(inputs: {
       ...from,
       written: stale.map(([file]) => file),
       ...(dropped.length > 0 && { removed: dropped }),
-      ...(force && userModified && { reason: 'Overwrote local edits (--force)' }),
+      ...(force && userModified && { reason: overwroteReason(prior) }),
     },
     installed: skill.entry,
   };
@@ -696,6 +696,13 @@ function keptReason(prior: ManifestEntry | undefined): string {
   return prior === undefined
     ? 'No record of what was installed; --force to overwrite.'
     : 'Local edits detected; --force to overwrite.';
+}
+
+/** What `--force` did to a copy that `keptReason` says why it keeps. */
+function overwroteReason(prior: ManifestEntry | undefined): string {
+  return prior === undefined
+    ? 'Overwrote a copy with no record of what was installed (--force)'
+    : 'Overwrote local edits (--force)';
 }
 
 /**
