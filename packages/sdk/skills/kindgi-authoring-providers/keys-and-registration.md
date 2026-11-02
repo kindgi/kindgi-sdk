@@ -60,8 +60,9 @@ refused, naming the ones it takes. It needs runtime 0.3.0 or later; an
 older one refuses it. The registration is per tenant, so each tenant's
 registration sets its own. An agent's model-settings `thinking` wins over
 it, and without either the call sends no level, so the model thinks as its
-vendor sets. A guardrail's or an eval's model judge asks for `lowest`. The
-presets set no `default`: for one, register the model as a spec.
+vendor sets. A guardrail's model judge, or a test run's judging model, asks
+for `lowest`. The presets set no `default`: for one, register the model as a
+spec.
 
 **Fallbacks:** `"fallback": true` in `metadata` makes a provider a
 fallback — the router considers it only when no other provider satisfies

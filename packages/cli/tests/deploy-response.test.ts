@@ -137,7 +137,7 @@ describe('renderResponse: a deploy that landed', () => {
     for (const kind of ['created', 'replayed'] as const) {
       const text = banner(landed(kind, perDeployment));
       expect(text).toContain(
-        'Runs already in flight keep their tool versions: each tool call goes to the newest deployment that shipped the version it names.',
+        "Runs already in flight keep their tool versions: each tool call goes to the newest deployment in the run's project that shipped the version it names.",
       );
       expect(text).not.toContain('pinned image');
       expect(text).not.toContain('With one pack service');

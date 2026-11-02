@@ -23,7 +23,7 @@ type Settings = Parameters<SitesClient['update']>[2];
 const PROJECT_FLAG: Readonly<Record<string, ParseArgsOption>> = {
   project: {
     type: 'string',
-    description: "The site's project, by id (default: the tenant's Default project).",
+    description: "The site's project, by id (default: the tenant's default project).",
   },
 };
 

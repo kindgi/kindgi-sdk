@@ -201,10 +201,10 @@ export interface GuardrailRegisterInput {
   /**
    * Project the guardrail is registered into. REQUIRED. Callers that
    * don't naturally know a projectId
-   * (deployment route) resolve the tenant's Default via
+   * (deployment route) resolve the tenant's default via
    * `projectBinding.getDefault(tenantId)` at THEIR layer and thread
    * the resolved id here — the storage adapter never silently falls
-   * back to Default.
+   * back to the default.
    */
   readonly projectId: ProjectId;
   readonly guardrail: Guardrail;

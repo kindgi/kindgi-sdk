@@ -286,7 +286,7 @@ describe.each([
     });
   });
 
-  test('a second Default project → 409 project-default-already-exists', async () => {
+  test('a second default project → 409 project-default-already-exists', async () => {
     const app = makeApp({ authorized });
     await created(app, '/v1/projects', { name: 'Default', slug: 'default', isDefault: true });
     const second = await send(app, 'POST', '/v1/projects', {

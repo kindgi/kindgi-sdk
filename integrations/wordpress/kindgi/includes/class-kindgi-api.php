@@ -55,15 +55,42 @@ final class Kindgi_Api {
 	 */
 	public static function body( WP_User $user, string $method, string $path, array $query = array(), ?array $body = null ) {
 		$response = self::call( $user, $method, $path, $query, $body );
-		if ( is_wp_error( $response ) ) {
-			return $response;
+		return is_wp_error( $response ) ? $response : self::answer( $response, $response['session'] );
+	}
+
+	/**
+	 * A read on the person's kept session only, never a new sign-in: what
+	 * every admin page asks in the background (the Inbox's count) mustn't
+	 * send Kindgi the person's name again. Null when they have no live
+	 * session, or Kindgi ended it (then it's forgotten, and the next
+	 * Kindgi page they open signs them in).
+	 *
+	 * @param WP_User $user  The person.
+	 * @param string  $path  Under the Kindgi URL.
+	 * @param array   $query Query parameters.
+	 * @return array{body: array, session: array}|WP_Error|null
+	 */
+	public static function kept_get( WP_User $user, string $path, array $query = array() ) {
+		$session = Kindgi_Sessions::kept( $user->ID );
+		if ( null === $session ) {
+			return null;
 		}
+		$response = Kindgi_Http::request( 'GET', $path, $query, null, $session['token'] );
+		if ( ! is_wp_error( $response ) && 401 === $response['status'] ) {
+			Kindgi_Sessions::forget( $user->ID );
+			return null;
+		}
+		return is_wp_error( $response ) ? $response : self::answer( $response, $session );
+	}
+
+	/** Kindgi's answer as its body, or its refusal as a WP_Error. */
+	private static function answer( array $response, array $session ) {
 		if ( $response['status'] < 200 || $response['status'] >= 300 ) {
 			return Kindgi_Http::error( $response );
 		}
 		return array(
 			'body'    => (array) $response['body'],
-			'session' => $response['session'],
+			'session' => $session,
 		);
 	}
 }

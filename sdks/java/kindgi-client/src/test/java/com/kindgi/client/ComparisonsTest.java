@@ -6,38 +6,38 @@ package com.kindgi.client;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.kindgi.client.models.EvalRun;
-import com.kindgi.client.models.JudgedComparisonResult;
+import com.kindgi.client.models.TestRun;
+import com.kindgi.client.models.CorrectedComparisonResult;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 
 /**
- * {@link Comparisons#comparisonOf} reads a comparison eval run's result as the OpenAPI {@code
- * JudgedComparisonResult}. The run and result below are the same fixture the TypeScript and Python
+ * {@link Comparisons#comparisonOf} reads a comparison test run's result as the OpenAPI {@code
+ * CorrectedComparisonResult}. The run and result below are the same fixture the TypeScript and Python
  * clients' tests use, so the three read it alike.
  */
 class ComparisonsTest {
-  /** A comparison eval run, as the runtime returns it, with its result. */
-  private static final String JUDGED =
+  /** A comparison test run, as the runtime returns it, with its result. */
+  private static final String CORRECTIONS_RUN =
       """
       {
-        "runId": "00000000-0000-4000-8000-00000000e001",
+        "testRunId": "00000000-0000-4000-8000-00000000e001",
         "tenantId": "00000000-0000-4000-8000-000000000002",
-        "suiteId": "acme.set",
-        "suiteVersion": "1.0.0",
-        "kind": "judged",
+        "testSetId": "acme.set",
+        "testSetVersion": "1.0.0",
+        "kind": "corrections",
         "flowRef": { "flowId": "acme.intake", "version": "1.1.0" },
         "status": "completed",
         "dryRun": false,
         "startedAt": "2026-10-06T08:00:00Z",
         "result": {
           "summary": {
-            "evalRunId": "er-1",
+            "testRunId": "er-1",
             "status": "completed",
             "completedAt": "2026-10-06T08:00:00.000Z",
-            "suite": { "id": "acme.set", "version": "1.0.0" },
+            "testSet": { "id": "acme.set", "version": "1.0.0" },
             "candidate": {
               "kind": "flow",
               "flowId": "acme.intake",
@@ -58,11 +58,11 @@ class ComparisonsTest {
             "sampling": { "models": [{ "providerId": "acme", "model": "m-1", "runs": 1 }] },
             "repetitions": 1,
             "metrics": {
-              "weightedYesShare": {
+              "passRate": {
                 "baseline": 0.5, "candidate": 0.75, "delta": 0.25,
                 "n": 2, "weight": 2, "baselineN": 2, "baselineWeight": 2, "direction": "higher"
               },
-              "judgedCoverage": {
+              "caseCoverage": {
                 "baseline": 1, "candidate": 1, "delta": 0,
                 "n": 2, "weight": 2, "baselineN": 2, "baselineWeight": 2, "direction": "higher"
               },
@@ -77,11 +77,11 @@ class ComparisonsTest {
               "caseId": "run-1",
               "runIds": ["replay-1"],
               "baseline": {
-                "yesWeight": 1, "totalWeight": 2, "items": 2, "judgedItems": 2,
+                "yesWeight": 1, "totalWeight": 2, "items": 2, "correctedItems": 2,
                 "topK": { "yesWeight": 1, "totalWeight": 2 }
               },
               "candidate": [{
-                "yesWeight": 1.5, "totalWeight": 2, "items": 2, "judgedItems": 2,
+                "yesWeight": 1.5, "totalWeight": 2, "items": 2, "correctedItems": 2,
                 "topK": { "yesWeight": 1.5, "totalWeight": 2 }
               }],
               "changes": {
@@ -102,7 +102,7 @@ class ComparisonsTest {
               "caseId": "run-2",
               "runIds": ["replay-2"],
               "baseline": {
-                "yesWeight": 0, "totalWeight": 1, "items": 1, "judgedItems": 1,
+                "yesWeight": 0, "totalWeight": 1, "items": 1, "correctedItems": 1,
                 "topK": { "yesWeight": 0, "totalWeight": 1 }
               },
               "candidate": [],
@@ -118,23 +118,23 @@ class ComparisonsTest {
       }
       """;
 
-  /** The run with its map edited, round-tripped back to an {@link EvalRun}. */
-  private static EvalRun runWith(Consumer<Map<String, Object>> edit) {
+  /** The run with its map edited, round-tripped back to an {@link TestRun}. */
+  private static TestRun runWith(Consumer<Map<String, Object>> edit) {
     @SuppressWarnings("unchecked")
-    Map<String, Object> map = KindgiJson.read(JUDGED, Map.class);
+    Map<String, Object> map = KindgiJson.read(CORRECTIONS_RUN, Map.class);
     edit.accept(map);
-    return KindgiJson.read(KindgiJson.write(map), EvalRun.class);
+    return KindgiJson.read(KindgiJson.write(map), TestRun.class);
   }
 
   @Test
   void readsAComparisonsResultTyped() {
-    EvalRun judged = KindgiJson.read(JUDGED, EvalRun.class);
+    TestRun run = KindgiJson.read(CORRECTIONS_RUN, TestRun.class);
 
-    Optional<JudgedComparisonResult> result = Comparisons.comparisonOf(judged);
+    Optional<CorrectedComparisonResult> result = Comparisons.comparisonOf(run);
 
     assertThat(result).isPresent();
-    JudgedComparisonResult comparison = result.orElseThrow();
-    assertThat(comparison.summary().metrics().weightedYesShare().delta()).isEqualTo(0.25);
+    CorrectedComparisonResult comparison = result.orElseThrow();
+    assertThat(comparison.summary().metrics().passRate().delta()).isEqualTo(0.25);
     assertThat(comparison.summary().stopped()).isEqualTo(1L);
     assertThat(comparison.perCase()).hasSize(2);
     assertThat(comparison.perCase().get(1).stopped()).isNotNull();
@@ -144,15 +144,15 @@ class ComparisonsTest {
   @Test
   void emptyForEachReasonOnItsOwn() {
     // Each run below trips exactly one of the four conditions in comparisonOf, so dropping any
-    // single guard would make this test fail — a non-judged kind, no result yet, a result with no
+    // single guard would make this test fail — a non-corrections kind, no result yet, a result with no
     // summary, and a result with no perCase list.
 
-    // Another kind of run, but with the judged result kept — only the kind guard makes it empty.
-    EvalRun otherKind = runWith(run -> run.put("kind", "accuracy"));
+    // Another kind of run, but with the corrections result kept — only the kind guard makes it empty.
+    TestRun otherKind = runWith(run -> run.put("kind", "accuracy"));
     assertThat(Comparisons.comparisonOf(otherKind)).isEmpty();
 
-    // A judged run that hasn't finished — no result yet — only the result-present guard.
-    EvalRun unfinished =
+    // A corrections run that hasn't finished — no result yet — only the result-present guard.
+    TestRun unfinished =
         runWith(
             run -> {
               run.put("status", "running");
@@ -160,9 +160,9 @@ class ComparisonsTest {
             });
     assertThat(Comparisons.comparisonOf(unfinished)).isEmpty();
 
-    // A judged run whose result has the perCase list but no summary — only the summary guard.
+    // A corrections run whose result has the perCase list but no summary — only the summary guard.
     // Without that guard this would throw (summary is required), not return empty.
-    EvalRun noSummary =
+    TestRun noSummary =
         runWith(
             run -> {
               @SuppressWarnings("unchecked")
@@ -171,8 +171,8 @@ class ComparisonsTest {
             });
     assertThat(Comparisons.comparisonOf(noSummary)).isEmpty();
 
-    // A judged run whose result has a summary but no perCase list — only the perCase guard.
-    EvalRun noPerCase =
+    // A corrections run whose result has a summary but no perCase list — only the perCase guard.
+    TestRun noPerCase =
         runWith(
             run -> {
               @SuppressWarnings("unchecked")
@@ -184,7 +184,7 @@ class ComparisonsTest {
 
   @Test
   void aResultThatDoesNotFitIsAnError() {
-    EvalRun broken =
+    TestRun broken =
         runWith(
             run -> {
               @SuppressWarnings("unchecked")

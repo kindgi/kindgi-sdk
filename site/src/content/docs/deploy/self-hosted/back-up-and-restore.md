@@ -180,10 +180,10 @@ Move OpenFGA first, even for a
 [passive](#look-at-a-restored-copy-before-it-serves-kindgi_passive) look.
 Each time a runtime that serves one tenant starts, as Self-host Kindgi's
 does, passive or not, it writes to its OpenFGA store:
-the seed person as an admin, its permission model when the store has an
-older one, and its resources, each under its parent. The backup names the
-live store, so a runtime started on the new database with the old OpenFGA
-would write into it.
+the seed person and the runtime's own identity as admins, its permission
+model when the store has an older one, and its resources, each under its
+parent. The backup names the live store, so a runtime started on the new
+database with the old OpenFGA would write into it.
 
 Before the runtime serves it, check that the secrets' keys open the secrets
 the backup brought back. The check reads the database with the settings in
@@ -202,7 +202,6 @@ It decrypts each live version of every stored secret, and prints ids and
 counts, never a value. When each one decrypts, it exits `0`:
 
 ```text
-KMS probe OK (libsodium): chacha20-poly1305-node (0ms)
 stored-secrets: every stored secret decrypts, 2 versions (1 tenant checked):
   tenant f2885e16-4039-44b4-a5f9-321b39e06dbe: 2 versions decrypt
 ```
@@ -212,12 +211,11 @@ each version a read would fail on, and exits `1`. A KMS key that can't open
 them is named the same way, with the KMS's code:
 
 ```text
-KMS probe OK (libsodium): chacha20-poly1305-node (0ms)
 stored-secrets: 2 of 2 stored secret versions don't decrypt (1 tenant checked):
   tenant f2885e16-4039-44b4-a5f9-321b39e06dbe: 0 of 2 versions decrypt
-    secret 0491be6e-cf77-435e-9a01-74fe5407ee03 version 1 (key local:d639cc713bfa3041): its AAD doesn't match: the AAD key isn't the one it was written with, or its row changed since
-    secret afe8ad9d-07c7-4b7e-b8fb-df8173f27211 version 1 (key local:d639cc713bfa3041): its AAD doesn't match: the AAD key isn't the one it was written with, or its row changed since
-A read of each version named fails. Check that the KMS key, the runtime's access to it, and KINDGI_SECRETS_AAD_KEY are the ones those secrets were written with: a restore brings back the database, not the keys.
+    secret 0491be6e-cf77-435e-9a01-74fe5407ee03 version 1 (key local:d639cc713bfa3041): its AAD doesn't match: the AAD key isn't the one it was written with, its row changed since, or its row isn't this tenant's
+    secret afe8ad9d-07c7-4b7e-b8fb-df8173f27211 version 1 (key local:d639cc713bfa3041): its AAD doesn't match: the AAD key isn't the one it was written with, its row changed since, or its row isn't this tenant's
+A read of each version named fails. The check only decrypts, never encrypts. Check that the KMS key and KINDGI_SECRETS_AAD_KEY are the ones those secrets were written with, and that the runtime may decrypt (unwrap) with that key. A restore brings back the database, not the keys.
 ```
 
 Set the keys the secrets were written with, and check again. Without
@@ -346,15 +344,25 @@ Then:
    }
    ```
 
+3. **Empty the database you moved off.** When the restore went into a new
+   database or a new instance, and the runtime moved onto it, the one it
+   left doesn't get the erasures made later, so it keeps whom they erase.
+   Once the restored one is checked, drop that database. A backup
+   restored over the serving database overwrites it, so nothing is left
+   to empty.
+
 ### Copies the runtime keeps on its own
 
 The runtime can also keep copies of the ledger itself, every tenant's at
 once. That suits a runtime that serves several tenants, where no one admin
 can export them all:
 
-- **`KINDGI_ERASURE_LEDGER_EXPORT`:** where. Either `local:<absolute dir>`, or
-  `gcs:<bucket>[/<prefix>]` through Application Default Credentials. Creating
-  objects is all it needs (`roles/storage.objectCreator` on the bucket).
+- **`KINDGI_ERASURE_LEDGER_EXPORT`:** where. `local:<absolute dir>`,
+  `gcs:<bucket>[/<prefix>]` through Application Default Credentials, or
+  `s3:<bucket>[/<prefix>]` (runtime 0.4.0 or later). In a GCS bucket,
+  creating objects is all it needs (`roles/storage.objectCreator` on the
+  bucket). [Choose where the runtime keeps files](../store-files/#files-written-once)
+  has what each needs, and the checks at startup.
 - **`KINDGI_ERASURE_LEDGER_EXPORT_INTERVAL_MS`:** how often. Default an hour.
   Under a minute, or set without `KINDGI_ERASURE_LEDGER_EXPORT`, and the
   runtime refuses to start. An erasure made after both the last copy and the
@@ -387,11 +395,12 @@ As above, `registry.kindgi.com` has 0.2.0 and later; for an earlier
 version, use the image your server already runs.
 
 - **`--from`** takes a directory (`local:<dir>`, mounted into the container
-  as above), a bucket (`gcs:<bucket>[/<prefix>]`), or one file by its
-  absolute path.
+  as above), a bucket (`gcs:<bucket>[/<prefix>]` or
+  `s3:<bucket>[/<prefix>]`), or one file by its absolute path.
 - **From a bucket, replay reads it:** it lists and downloads, so whatever
-  runs it needs read access (`roles/storage.objectViewer`), which the
-  runtime's own writing identity doesn't have. In a container elsewhere, that
+  runs it needs read access (`roles/storage.objectViewer` on GCS;
+  `s3:GetObject` and `s3:ListBucket` on S3), which the runtime's own
+  writing identity may not have. In a container elsewhere, that
   means Google credentials inside it. On Google Cloud, run it as a Cloud Run
   job with the runtime image and a service account that can read the bucket.
 - **Which copy:** the one whose pass started last, by what the file says,
@@ -416,7 +425,7 @@ with `--ledger` where the copies are (`KINDGI_ERASURE_LEDGER_EXPORT` by
 default). The newest copy names every
 tenant purged before it was written, even one whose purge record is gone.
 
-`erasures export --out <local:<dir> | gcs:<bucket>[/<prefix>]>` writes a copy
+`erasures export --out <local:<dir> | gcs:<bucket>[/<prefix>] | s3:<bucket>[/<prefix>]>` writes a copy
 now, before an upgrade say, and says what it holds (`already there:` in
 place of `wrote` when a copy holding the same is there):
 
@@ -442,10 +451,12 @@ webhook going out, or a run calling your tools.
   runs, so keep a passive runtime where only you can reach it.
 - **It still writes to OpenFGA as it starts,** as
   [Restore into a fresh database](#restore-into-a-fresh-database) says. With
-  authorization on, move OpenFGA onto the restored database first. A
-  permission change made while it's passive waits in the runtime's
-  database, and goes to OpenFGA once the runtime starts without
-  `KINDGI_PASSIVE`.
+  authorization on, move OpenFGA onto the restored database first. Most
+  permission changes made while it's passive wait in the runtime's
+  database, and go to OpenFGA once the runtime starts without
+  `KINDGI_PASSIVE`. A person's tenant admin or membership, a service
+  account's grants, a site person's sign-in and a tenant the system API
+  sets up go to OpenFGA at once.
 - **It says so:** the startup log has a `⚠ Passive (KINDGI_PASSIVE=on)`
   line, and `/ready` answers `"passive": true`.
 

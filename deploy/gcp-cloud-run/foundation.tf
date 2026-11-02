@@ -1,12 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026 Kindgi Inc.
 
-# APIs, network, identities, the image repository, the KMS key: what both
-# services stand on.
+# APIs, network, identities, the image repository, the KMS key: what the
+# server, the pack services and the pack orchestrator stand on.
 
 locals {
-  # The KMS key exists only for KINDGI_SECRETS_BACKEND=postgres (var.secrets_backend).
-  kms = var.secrets_backend == "postgres"
+  # KINDGI_SECRETS_BACKEND=postgres (var.secrets_backend): secrets set through
+  # the API are kept in Kindgi's database, under the KMS key.
+  postgres_secrets = var.secrets_backend == "postgres"
 
   # The module's own Cloud Resource Manager calls (the project IAM members,
   # the project read) are billed to the caller's project, so they don't need
@@ -15,13 +16,19 @@ locals {
   # it on itself: a data source reads before any resource is made.
   apis = concat([
     "artifactregistry.googleapis.com",
+    "cloudkms.googleapis.com",
     "cloudresourcemanager.googleapis.com",
+    "cloudscheduler.googleapis.com",
     "compute.googleapis.com",
     "iam.googleapis.com",
     "run.googleapis.com",
     "secretmanager.googleapis.com",
     "sqladmin.googleapis.com",
-  ], local.kms ? ["cloudkms.googleapis.com"] : [], var.vertex_ai ? ["aiplatform.googleapis.com"] : [])
+  ], var.vertex_ai ? ["aiplatform.googleapis.com"] : [])
+
+  # The project's number, which Cloud Run's deterministic URLs and Secret
+  # Manager's resource names carry.
+  project_number = data.google_project.this.number
 }
 
 resource "google_project_service" "apis" {
@@ -31,15 +38,13 @@ resource "google_project_service" "apis" {
 }
 
 # ---- network ------------------------------------------------------------------
-# The pack service accepts only internal traffic. The server reaches it
-# through Direct VPC egress with all its traffic routed into this VPC, so
-# its internet-bound calls (a model provider's API, webhooks) leave through
-# Cloud NAT, and Google APIs through Private Google Access.
+# The pack services accept only internal traffic (pack_ingress). The server
+# reaches them through Direct VPC egress with all its traffic routed into
+# this VPC, so its internet-bound calls (a model provider's API, webhooks)
+# leave through Cloud NAT, and Google APIs through Private Google Access.
 
 locals {
   direct = var.network_mode == "direct"
-  # The one pack service, its account and its grants: only with a pack image.
-  pack = var.pack_image != ""
 }
 
 resource "google_compute_network" "kindgi" {
@@ -97,7 +102,9 @@ resource "google_compute_router_nat" "nat" {
 }
 
 # ---- identities ---------------------------------------------------------------
-# Each service runs as its own service account: no key files anywhere.
+# The server, the pack services and the pack orchestrator each run as a
+# service account of their own: no key files anywhere. Every pack service
+# runs as the one pack account, so whatever one pack may read, each may.
 
 resource "google_service_account" "server" {
   account_id   = "${var.name_prefix}-server"
@@ -106,14 +113,13 @@ resource "google_service_account" "server" {
 }
 
 resource "google_service_account" "pack" {
-  count        = local.pack ? 1 : 0
   account_id   = "${var.name_prefix}-pack"
-  display_name = "Kindgi pack service"
+  display_name = "Kindgi pack services"
   depends_on   = [google_project_service.apis]
 }
 
-# The server reaches Kindgi's database; the pack service reaches the
-# databases its own code uses.
+# The server reaches Kindgi's database; the pack services reach the
+# databases their own code uses.
 # Only for the /cloudsql socket (a private-IP database is reached over
 # TCP, with no IAM check), and only on Kindgi's instance — the module's own,
 # or database_host_instance's shared one: the project may hold other
@@ -172,17 +178,17 @@ resource "google_project_iam_member" "server_vertex_ai" {
 }
 
 resource "google_project_iam_member" "pack_sql_client" {
-  count   = local.pack && length(var.pack_cloud_sql_instances) > 0 ? 1 : 0
+  count   = length(var.pack_cloud_sql_instances) > 0 ? 1 : 0
   project = var.project_id
   role    = "roles/cloudsql.client"
-  member  = "serviceAccount:${google_service_account.pack[0].email}"
+  member  = "serviceAccount:${google_service_account.pack.email}"
 }
 
 resource "google_storage_bucket_iam_member" "pack_reads" {
-  for_each = local.pack ? toset(var.pack_bucket_readers) : toset([])
+  for_each = toset(var.pack_bucket_readers)
   bucket   = each.value
   role     = "roles/storage.objectViewer"
-  member   = "serviceAccount:${google_service_account.pack[0].email}"
+  member   = "serviceAccount:${google_service_account.pack.email}"
 
   # Narrowed to object prefixes when the bucket has them (it holds more
   # than the pack's own data).
@@ -199,15 +205,15 @@ resource "google_storage_bucket_iam_member" "pack_reads" {
   }
 }
 
-# The Cloud Run services the pack's code calls (C-PK-6): additive, one
+# The Cloud Run services the pack's code calls: additive, one
 # member per service; nothing else of the service changes.
 resource "google_cloud_run_v2_service_iam_member" "pack_invokes" {
-  for_each = { for s in var.pack_run_invokers : "${s.project}/${s.location}/${s.service}" => s if local.pack }
+  for_each = { for s in var.pack_run_invokers : "${s.project}/${s.location}/${s.service}" => s }
   project  = each.value.project
   location = each.value.location
   name     = each.value.service
   role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.pack[0].email}"
+  member   = "serviceAccount:${google_service_account.pack.email}"
 }
 
 # ---- images -------------------------------------------------------------------
@@ -248,7 +254,6 @@ resource "google_artifact_registry_repository_iam_member" "server_reads_images" 
 }
 
 data "google_project" "this" {
-  count      = local.cross_project_repository ? 1 : 0
   project_id = var.project_id
 }
 
@@ -258,25 +263,25 @@ resource "google_artifact_registry_repository_iam_member" "run_agent_pulls_image
   repository = var.image_repository.repository
   location   = var.image_repository.location
   role       = "roles/artifactregistry.reader"
-  member     = "serviceAccount:service-${data.google_project.this[0].number}@serverless-robot-prod.iam.gserviceaccount.com"
+  member     = "serviceAccount:service-${local.project_number}@serverless-robot-prod.iam.gserviceaccount.com"
 }
 
 # ---- the key that wraps Kindgi's secrets --------------------------------------
-# KINDGI_SECRETS_BACKEND=postgres with KMS gcp: secrets set through the API
-# are envelope-encrypted in Postgres under this key. With
-# secrets_backend = "none" the runtime stores no secrets, and there is no key.
+# Every deployment's pack endpoint token is sealed under this key (the
+# server's KINDGI_PACK_ENDPOINT_KMS_KEY), so it exists with either
+# secrets_backend. With "postgres"
+# (KINDGI_SECRETS_BACKEND=postgres with KMS gcp), secrets set through the API
+# are envelope-encrypted in Postgres under it too.
 
 resource "google_kms_key_ring" "kindgi" {
-  count      = local.kms ? 1 : 0
   name       = var.name_prefix
   location   = var.region
   depends_on = [google_project_service.apis]
 }
 
 resource "google_kms_crypto_key" "secrets" {
-  count           = local.kms ? 1 : 0
   name            = "${var.name_prefix}-secrets"
-  key_ring        = google_kms_key_ring.kindgi[0].id
+  key_ring        = google_kms_key_ring.kindgi.id
   rotation_period = "7776000s" # 90 days
 
   lifecycle {
@@ -285,8 +290,7 @@ resource "google_kms_crypto_key" "secrets" {
 }
 
 resource "google_kms_crypto_key_iam_member" "server_wraps" {
-  count         = local.kms ? 1 : 0
-  crypto_key_id = google_kms_crypto_key.secrets[0].id
+  crypto_key_id = google_kms_crypto_key.secrets.id
   role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
   member        = "serviceAccount:${google_service_account.server.email}"
 }
@@ -297,30 +301,31 @@ resource "google_kms_crypto_key_iam_member" "server_wraps" {
 # kms-unauthorized"). From 0.1.3 the probe is an encrypt/decrypt round trip
 # and needs only the role above.
 resource "google_kms_crypto_key_iam_member" "server_reads_key" {
-  count         = local.kms ? 1 : 0
-  crypto_key_id = google_kms_crypto_key.secrets[0].id
+  crypto_key_id = google_kms_crypto_key.secrets.id
   role          = "roles/cloudkms.viewer"
   member        = "serviceAccount:${google_service_account.server.email}"
 }
 
-# A deployment from before secrets_backend keeps its key: the resources
-# gained a count, and their state moves to index 0, so it plans no change.
+# A deployment with secrets_backend = "postgres" keeps its key: the
+# resources lost their count, and their state moves from index 0, so it
+# plans no change. One from before secrets_backend, whose state never had
+# an index, plans none either. With "none" there was no key, and it's made.
 moved {
-  from = google_kms_key_ring.kindgi
-  to   = google_kms_key_ring.kindgi[0]
+  from = google_kms_key_ring.kindgi[0]
+  to   = google_kms_key_ring.kindgi
 }
 
 moved {
-  from = google_kms_crypto_key.secrets
-  to   = google_kms_crypto_key.secrets[0]
+  from = google_kms_crypto_key.secrets[0]
+  to   = google_kms_crypto_key.secrets
 }
 
 moved {
-  from = google_kms_crypto_key_iam_member.server_wraps
-  to   = google_kms_crypto_key_iam_member.server_wraps[0]
+  from = google_kms_crypto_key_iam_member.server_wraps[0]
+  to   = google_kms_crypto_key_iam_member.server_wraps
 }
 
 moved {
-  from = google_kms_crypto_key_iam_member.server_reads_key
-  to   = google_kms_crypto_key_iam_member.server_reads_key[0]
+  from = google_kms_crypto_key_iam_member.server_reads_key[0]
+  to   = google_kms_crypto_key_iam_member.server_reads_key
 }

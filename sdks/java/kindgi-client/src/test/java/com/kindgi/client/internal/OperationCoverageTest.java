@@ -32,7 +32,10 @@ class OperationCoverageTest {
     return Json.mapper().readValue(OPENAPI.toFile(), Map.class);
   }
 
-  /** operationId → {method, path, "sender-only" when an outside sender's path}. */
+  /**
+   * operationId → {method, path, why it has no method: "sender-only" for an outside sender's path,
+   * "streamed" for a body streamed as it arrives, else ""}.
+   */
   @SuppressWarnings("unchecked")
   private static Map<String, String[]> operations() {
     Map<String, String[]> out = new java.util.LinkedHashMap<>();
@@ -46,7 +49,9 @@ class OperationCoverageTest {
               new String[] {
                 m.getKey().toUpperCase(Locale.ROOT),
                 p.getKey(),
-                Boolean.TRUE.equals(op.get("x-kindgi-sender-only")) ? "sender-only" : ""
+                Boolean.TRUE.equals(op.get("x-kindgi-sender-only"))
+                    ? "sender-only"
+                    : Boolean.TRUE.equals(op.get("x-kindgi-streamed")) ? "streamed" : ""
               });
         }
       }
@@ -60,8 +65,9 @@ class OperationCoverageTest {
     List<String> missing = new ArrayList<>();
     for (Map.Entry<String, String[]> e : ops.entrySet()) {
       if (Operations.WITHOUT_METHOD.contains(e.getKey())) {
-        // Without a method: a HEAD, or an outside sender's path (the inbound webhook receiver).
-        if (!e.getValue()[2].equals("sender-only")) {
+        // Without a method: a HEAD, an outside sender's path (the inbound webhook receiver), or a
+        // streamed body (corrections.export, which the TypeScript and Python clients read).
+        if (e.getValue()[2].isEmpty()) {
           assertThat(e.getValue()[0]).as(e.getKey()).isEqualTo("HEAD");
         }
         continue;

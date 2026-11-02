@@ -255,13 +255,13 @@ describe('POST /v1/webhook-endpoints', () => {
     expect(read.json.secretRef).toEqual(SECRET_REF);
   });
 
-  test('an endpoint can take improvement-pass.finished as well', async () => {
+  test('an endpoint can take improve-run.finished as well', async () => {
     const { app } = makeApp();
     const res = await createEndpoint(app, {
-      events: ['run.finished', 'improvement-pass.finished'],
+      events: ['run.finished', 'improve-run.finished'],
     });
     expect(res.status).toBe(201);
-    expect(res.json.events).toEqual(['run.finished', 'improvement-pass.finished']);
+    expect(res.json.events).toEqual(['run.finished', 'improve-run.finished']);
   });
 
   test('an endpoint can take approval.requested, alone or with the others', async () => {
@@ -270,7 +270,7 @@ describe('POST /v1/webhook-endpoints', () => {
     expect(alone.status).toBe(201);
     expect(alone.json.events).toEqual(['approval.requested']);
     const all = await createEndpoint(app, {
-      events: ['run.finished', 'improvement-pass.finished', 'approval.requested'],
+      events: ['run.finished', 'improve-run.finished', 'approval.requested'],
     });
     expect(all.status).toBe(201);
   });

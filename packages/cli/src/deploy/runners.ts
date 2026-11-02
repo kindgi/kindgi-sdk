@@ -27,6 +27,7 @@
 import type { DeployEnvelope } from '../build/envelope.js';
 import type { PackEnvNameRecord } from '../env/pack-env-hint.js';
 import type { ServedEnv } from '../value-target.js';
+import type { DeploySource } from './source.js';
 
 // ---------------------------------------------------------------------
 // Envelope loader
@@ -65,8 +66,12 @@ export interface PostDeploymentBody {
   readonly signerPublicKey: string;
   readonly signature: string;
   readonly publishedAt: string;
-  /** The project to deploy into (`--project`); absent: tenant-wide, the Default project. */
+  /** The project to deploy into (`--project`); absent: tenant-wide, the default project. */
   readonly projectId?: string;
+  /** Where the pack lives in git, when it's in a work tree (`source.ts`). */
+  readonly source?: DeploySource;
+  /** `--replace` with `--reason`: the blocks the deploy puts back on purpose. */
+  readonly replace?: readonly { readonly blockId: string; readonly reason: string }[];
 }
 
 /**
@@ -113,6 +118,23 @@ export interface DeploymentEndpointRecord {
   readonly waiting?: true;
   /** `cleared` only: why no pack service is wanted for it now (`superseded`, `pack-suspended`, …). */
   readonly retired?: string;
+  /**
+   * What keeps its pack service, on a runtime that runs one per build
+   * (from Kindgi 0.4.0): `[]` when nothing does. On a list page, the first
+   * 20, with `keptForTotal`.
+   */
+  readonly keptFor?: readonly KeptForRecord[];
+  readonly keptForTotal?: number;
+}
+
+/** One thing a build's pack service is kept for (`DeploymentKeptFor` in `@kindgi/api`). */
+export interface KeptForRecord {
+  /** `tool`, `agent`, `flow` or `guardrail`; a later runtime may add kinds. */
+  readonly kind: string;
+  readonly id: string;
+  readonly version?: string;
+  readonly registered?: true;
+  readonly held?: true;
 }
 
 /** An agent or flow a deployment shipped (`DeployedVersion` in `@kindgi/api`). */
@@ -367,6 +389,20 @@ export type GetDeploymentResult =
   | { readonly kind: 'ok'; readonly record: DeploymentRecord }
   | { readonly kind: 'error'; readonly message: string };
 
+export interface CountKeptBuildsOptions {
+  readonly endpoint: string;
+  readonly token: string;
+  /** The project deployed into; absent for a deploy that named none. */
+  readonly projectId?: string;
+  readonly fetchImpl: typeof fetch;
+  readonly signal?: AbortSignal;
+}
+
+export type CountKeptBuildsResult =
+  /** `keptBuilds` absent: the runtime doesn't count them (one service serves every build, or it's older). */
+  | { readonly kind: 'ok'; readonly keptBuilds?: number }
+  | { readonly kind: 'error'; readonly message: string };
+
 /** `GET /v1/deployments/:id/pack-env`: where each name the deployment's pack declares is set, never a value. */
 export interface PackEnvRecord {
   /** The env the values are read at. */
@@ -426,8 +462,19 @@ export interface DeployRunners {
   readonly getDeployment?: (opts: GetDeploymentOptions) => Promise<GetDeploymentResult>;
   /** `--hosted`: where each name the pack declares is set, when a required one stands in the way. */
   readonly getPackEnv?: (opts: GetDeploymentOptions) => Promise<GetPackEnvResult>;
+  /**
+   * `--hosted`, once the pack service is ready: how many builds keep a pack
+   * service in the project deployed into, or the tenant when the deploy
+   * named none (`GET /v1/deployments?limit=1`, its `keptBuilds`).
+   */
+  readonly countKeptBuilds?: (opts: CountKeptBuildsOptions) => Promise<CountKeptBuildsResult>;
   /** `--hosted`: the pause between those reads. Default: a timer, cut short by Ctrl+C. */
   readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   /** `--hosted`: the clock the wait is measured on, in milliseconds. Default: `Date.now()`. */
   readonly now?: () => number;
+  /**
+   * Where the pack at `packDir` lives in git, sent as the body's `source`
+   * (`readDeploySource`). Absent: the body has none.
+   */
+  readonly readSource?: (packDir: string) => Promise<DeploySource | undefined>;
 }

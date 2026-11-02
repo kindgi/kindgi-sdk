@@ -43,7 +43,7 @@
   {
     "name": "union-tag",
     "description": "A union variant this client doesn't know, told apart by its tag.",
-    "operation": "agents.live.unpin",
+    "operation": "agents.pinned.unpin",
     "args": ["acme.triage"],
     "body": {
       "scope": {
@@ -58,7 +58,7 @@
   {
     "name": "union-text",
     "description": "Text this client doesn't know, in a union of known text and objects.",
-    "operation": "evalRuns.start",
+    "operation": "testRuns.start",
     "args": ["acme.suite"],
     "body": {
       "projectId": "f531e37d-f29f-463c-81d2-ffad65e4d4e9",

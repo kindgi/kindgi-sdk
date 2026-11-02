@@ -46,6 +46,13 @@ pack's code), append an entry to `FEEDBACK.md` at the pack root via
 Send entries to Kindgi only after the person has seen the preview and said
 yes: `kindgi feedback submit --preview`, then `--yes=<its digest>`.
 
+After the agents ship, people correct their answers, and each correction
+becomes a case in the agent's test set. To fix what they corrected, see the
+`kindgi-fix-corrections` skill: a setting or the wording becomes a
+suggested change, checked on that test set; a rule changes in code, with a
+pack test. Pinning stays with the person, and a correction that would
+loosen a rule goes to the agent's owner.
+
 ## Commands for the person's own terminal
 
 Two commands are always the person's to run, in their own terminal, since

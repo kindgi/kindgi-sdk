@@ -1081,6 +1081,8 @@ describe('kindgi secrets — the scope it prints and sends', () => {
     );
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('stripe.key already exists (version 3)');
+    // The woocommerce starter's connect-store script adds a version on these words.
+    expect(out.stderr).toMatch(/^Version conflict: /);
     expect(out.stderr).not.toContain('Set stripe.key');
   });
 

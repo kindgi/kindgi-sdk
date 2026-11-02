@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { LiveScope } from '@kindgi/types';
+import type { AgentPinScope } from '@kindgi/types';
 import type { Context, MiddlewareHandler } from 'hono';
 
 import { statusFor, toWireError } from './errors.js';
@@ -20,22 +20,29 @@ export interface RegistryReadOnly {
   readonly reason: string;
   /**
    * Set (on an agent registry) when it still takes Improve's candidates:
-   * a pass runs, an evaluation derives its candidate version (kept to be
-   * evaluated, never served by range), and a promotion makes one live by
+   * a suggested change's evaluation derives its candidate version (kept to
+   * be evaluated, never served by range), and a pin makes one pinned by
    * writing it where the definitions come from (under `kindgi dev`, the
-   * pack's files). Of the agents router's writes, only `POST …/promotions`
-   * and `…/promotions/check` get through. Rolling back and unpinning stay
-   * refused, a proposal's roll back too, with `undoReason`: there's one
-   * live version, and what undoes a change is where it was written. And
-   * only the whole tenant is improved: a pass, a proposal or its
-   * evaluation for a narrower scope is refused with `scopeReason`, as
-   * the binding refuses making a version live there.
+   * pack's files). Of the agents router's writes, only `POST …/pinned/pin`
+   * and `…/pinned/check` get through. Unpinning stays refused, with
+   * `undoReason`: there's one pinned version, what the files are, and a
+   * pin of the version before undoes a pin, as on a deployed runtime. And
+   * only the whole tenant is improved: a suggested change's draft or its
+   * evaluation for a narrower scope is refused with `scopeReason`, as the
+   * binding refuses pinning a version there. So an Improve run drafts its
+   * change for the whole tenant, and its pin goes through the project its
+   * version was made in. A suggested change made by hand, and a check
+   * again, go the same way: for the whole tenant, checked in the project
+   * its version was made in. An add as Latest is refused with
+   * `latestReason` (when absent, with `reason`).
    */
   readonly takesCandidates?: {
-    /** Why a roll back or an unpin is refused, and what to do instead. */
+    /** Why an unpin is refused, and what to do instead. */
     readonly undoReason: string;
     /** Why a scope narrower than the whole tenant is refused, and what to do instead. */
     readonly scopeReason: string;
+    /** Why a suggested change isn't added as Latest here, and what to do instead. */
+    readonly latestReason?: string;
   };
 }
 
@@ -50,7 +57,7 @@ export function refusesCandidates(readOnly: RegistryReadOnly | undefined): boole
  */
 export function refusesScope(
   readOnly: RegistryReadOnly | undefined,
-  scope: LiveScope,
+  scope: AgentPinScope,
 ): string | undefined {
   const takes = readOnly?.takesCandidates;
   return takes !== undefined && scope.kind !== 'tenant' ? takes.scopeReason : undefined;

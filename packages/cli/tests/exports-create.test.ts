@@ -244,6 +244,65 @@ describe('kindgi exports create', () => {
     expect(journals.filter((l) => l.parent.runId === 'run-0').map((l) => l.item)).toEqual(journal);
   });
 
+  test('test sets of every kind: an agent’s frozen one too, which the list holds only when asked by kind', async () => {
+    const frozen = 'agent.acme.desk.p-1';
+    const page = (data: readonly unknown[]) => json(200, { data, hasMore: false });
+    const fake = server({
+      '/v1/test-sets': (url) =>
+        page(
+          url.searchParams.get('kind') === 'corrections'
+            ? [{ id: frozen, kind: 'corrections', version: '1.0.0' }]
+            : [{ id: 'acme.smoke', kind: 'custom', version: '1.0.0' }],
+        ),
+      [`/v1/test-sets/${frozen}/versions`]: [{ id: frozen, version: '1.0.0' }],
+      [`/v1/test-sets/${frozen}/versions/1.0.0/cases`]: [{ caseId: 'c-1', runId: 'run-1' }],
+    });
+    const res = await cli(fake);
+    expect(res.exitCode, res.stderr).toBe(0);
+    expect(fake.calls).toContain(
+      'GET /v1/test-sets?includeRetired=true&kind=corrections&limit=100',
+    );
+    expect(((await lines('test-sets')) as { id: string }[]).map((s) => s.id)).toEqual([
+      'acme.smoke',
+      frozen,
+    ]);
+    const cases = (await lines('eval-cases')) as {
+      parent: Record<string, string>;
+      item: unknown;
+    }[];
+    expect(cases).toEqual([
+      { parent: { testSetId: frozen, version: '1.0.0' }, item: { caseId: 'c-1', runId: 'run-1' } },
+    ]);
+  });
+
+  test('an agent’s test set in each project it serves: a hand case and a retired one, as stored', async () => {
+    const hand = { id: 'case-1', kind: 'hand', runId: 'run-1' };
+    const retired = {
+      id: 'case-2',
+      kind: 'hand',
+      runId: 'run-2',
+      retired: { reason: 'Old policy', at: '2026-10-20T10:00:00.000Z' },
+    };
+    const fake = server({
+      '/v1/agents': [{ id: 'acme.desk' }],
+      '/v1/agents/acme.desk/projects': [{ projectId: 'p-1' }],
+      '/v1/agents/acme.desk/test-set/cases': (url) =>
+        json(200, {
+          data: url.searchParams.get('projectId') === 'p-1' ? [hand, retired] : [],
+          hasMore: false,
+        }),
+    });
+    const res = await cli(fake);
+    expect(res.exitCode, res.stderr).toBe(0);
+    expect(fake.calls).toContain(
+      'GET /v1/agents/acme.desk/test-set/cases?include=retired&projectId=p-1&limit=100',
+    );
+    expect(await lines('agent-test-set-cases')).toEqual([
+      { parent: { agentId: 'acme.desk', projectId: 'p-1' }, item: hand },
+      { parent: { agentId: 'acme.desk', projectId: 'p-1' }, item: retired },
+    ]);
+  });
+
   test('env and secrets are read for each env name at each scope; a secret’s versions at its own', async () => {
     const fake = server({
       '/v1/environments': [{ envName: 'prod' }],
@@ -338,7 +397,7 @@ describe('kindgi exports create', () => {
       '/v1/environments': () =>
         json(501, { error: { code: 'environments-unsupported', message: 'No env names here' } }),
       '/v1/projects': [{ id: 'proj-1' }],
-      '/v1/projects/proj-1/judging-rules': notMounted,
+      '/v1/projects/proj-1/queue-rules': notMounted,
       '/v1/provenance': [{ runId: 'run-1' }],
       '/v1/provenance/run-1': () =>
         json(501, { error: { code: 'provenance-unsupported', message: 'No provenance here' } }),
@@ -361,19 +420,19 @@ describe('kindgi exports create', () => {
       status: 'skipped',
       reason: "it's made for each record of compliance-evidence, which wasn't exported",
     });
-    expect(m.kinds['judging-rules']).toEqual({
+    expect(m.kinds['queue-rules']).toEqual({
       status: 'skipped',
-      reason: "this server doesn't serve /v1/projects/{projectId}/judging-rules (404)",
+      reason: "this server doesn't serve /v1/projects/{projectId}/queue-rules (404)",
     });
-    expect(m.kinds['judging-rule-versions']).toEqual({
+    expect(m.kinds['queue-rule-versions']).toEqual({
       status: 'skipped',
-      reason: "it's read for each record of judging-rules, which wasn't exported",
+      reason: "it's read for each record of queue-rules, which wasn't exported",
     });
     expect(m.kinds.provenance).toEqual({
       status: 'skipped',
       reason: "this server doesn't serve /v1/provenance/{runId} (501)",
     });
-    expect(m.kinds['judging-queue']).toMatchObject({ status: 'ok' });
+    expect(m.kinds['expert-queue']).toMatchObject({ status: 'ok' });
     expect(m.kinds.artifacts).toEqual({
       status: 'skipped',
       reason: "this server doesn't serve /v1/artifacts/{blobId} (404)",

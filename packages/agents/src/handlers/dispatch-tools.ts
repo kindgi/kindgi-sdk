@@ -25,6 +25,7 @@ import type {
 } from '@kindgi/tools';
 import type { Result } from '@kindgi/types';
 
+import type { AppendMessageInput } from '../conversation-binding.js';
 import { toolResultForModel } from '../event-data.js';
 import { REMEMBER_TOOL_ID, rememberStaysInProject } from '../remember.js';
 import { emitTurnEvent } from '../streaming.js';
@@ -53,6 +54,7 @@ import {
   approvalsPendingLimitOf,
   throwAgentTurnFailure,
 } from './errors.js';
+import { admitHistoryFiles, admitToolResultFiles, asMessageFile, callFileStore } from './files.js';
 import { TOOL_CALL_GATE_SUBJECT, readGateDecision, withdrawnGateFailure } from './gate-decision.js';
 import { guardrailsAt, markCallRan, recordNote, reusedCallState } from './guardrail-points.js';
 import {
@@ -554,12 +556,18 @@ function sameCalls(m: ConversationMessage, callIds: readonly string[]): boolean 
   );
 }
 
-/** A stored tool result, as the model sees it. */
-function toolMessageOf(stored: ConversationMessage, callId: string): ModelMessage {
+/** A stored tool result, as the model sees it, with its files as the run's rule admits them now. */
+async function toolMessageOf(
+  ctx: TurnContext,
+  stored: ConversationMessage,
+  callId: string,
+): Promise<ModelMessage> {
+  const [files = []] = await admitHistoryFiles(ctx, [stored.files]);
   return {
     role: 'tool',
     content: toolResultForModel(stored.content, stored.fromEvent === true),
     toolCallId: callId,
+    ...(files.length > 0 && { files }),
   };
 }
 
@@ -1201,7 +1209,7 @@ async function finishCall(
       // A guardrail's note keeps its mark, from the step's record of it.
       iterationAppended.push(started.message);
       const { note } = await reusedCallState(ctx, step.kctx, step.replySequence, call.id);
-      const message = toolMessageOf(started.message, call.id);
+      const message = await toolMessageOf(ctx, started.message, call.id);
       return [...nextMessages, note !== undefined ? markedNote(message, note) : message];
     }
     case 'unresolved': {
@@ -1620,15 +1628,8 @@ async function persistResult(
     }
   | { readonly kind: 'err'; readonly error: ToolInvocationError }
 > {
-  const persist = await ctx.bindings.conversationBinding.appendMessage({
-    tenantId: ctx.input.tenantId,
-    conversationId: ctx.input.conversationId,
-    role: 'tool',
-    content: (value as string | Record<string, unknown>) ?? '',
-    toolCall: { toolId: tool.id, invocationId: call.id },
-    // Outside data stays data in every later turn's history.
-    ...(fromOutside && { fromEvent: true as const }),
-  });
+  const kept = await keptToolResult(ctx, tool, call, value, fromOutside);
+  const persist = await ctx.bindings.conversationBinding.appendMessage(kept.message);
   if (persist.kind === 'err') {
     // A DB failure persisting the tool result surfaces as the more
     // generic invocation-failed to keep the caller's error shape stable.
@@ -1644,13 +1645,40 @@ async function persistResult(
   }
   return {
     kind: 'ok',
-    value: {
-      persisted: persist.value,
-      toolMessage: {
-        role: 'tool',
-        content: toolResultForModel(value, fromOutside),
-        toolCallId: call.id,
-      },
+    value: { persisted: persist.value, toolMessage: kept.toolMessage },
+  };
+}
+
+/**
+ * A tool's result as the conversation keeps it and as the model reads it.
+ * The file values the run's rule admits become the message's files; the
+ * rest of the result is its text.
+ */
+async function keptToolResult(
+  ctx: TurnContext,
+  tool: Tool,
+  call: ModelToolCall,
+  result: unknown,
+  fromOutside: boolean,
+): Promise<{ readonly message: AppendMessageInput; readonly toolMessage: ModelMessage }> {
+  const { result: value, files } = await admitToolResultFiles(ctx, result);
+  const hasFiles = files.length > 0;
+  return {
+    message: {
+      tenantId: ctx.input.tenantId,
+      conversationId: ctx.input.conversationId,
+      role: 'tool',
+      content: (value as string | Record<string, unknown> | undefined) ?? '',
+      toolCall: { toolId: tool.id, invocationId: call.id },
+      // Outside data stays data in every later turn's history.
+      ...(fromOutside && { fromEvent: true as const }),
+      ...(hasFiles && { files }),
+    },
+    toolMessage: {
+      role: 'tool',
+      content: toolResultForModel(value, fromOutside),
+      toolCallId: call.id,
+      ...(hasFiles && { files: files.map(asMessageFile) }),
     },
   };
 }
@@ -1666,6 +1694,14 @@ function toolContextFor(
 ): ToolContext {
   const runId = kctx.runId as unknown as string;
   const toolId = tool.id as unknown as string;
+  // The same every time this call runs, so the tool can dedupe a side
+  // effect on it; with the step's scope, since a model's call id is only
+  // unique within one answer (two loop iterations may share one).
+  const idempotencyKey =
+    kctx.stepScope === undefined
+      ? undefined
+      : toolIdempotencyKey({ runId, stepScope: kctx.stepScope, toolId, callId: call.id });
+  const files = callFileStore(ctx.files, tool, idempotencyKey, ctx.turnAbort.signal);
   return {
     tenantId: ctx.input.tenantId,
     runId,
@@ -1673,17 +1709,10 @@ function toolContextFor(
     projectId: ctx.input.projectId,
     ...(ctx.input.orgId !== undefined && { orgId: ctx.input.orgId }),
     requestId: call.id,
-    // The same every time this call runs, so the tool can dedupe a side
-    // effect on it; with the step's scope, since a model's call id is only
-    // unique within one answer (two loop iterations may share one).
-    ...(kctx.stepScope !== undefined && {
-      idempotencyKey: toolIdempotencyKey({
-        runId,
-        stepScope: kctx.stepScope,
-        toolId,
-        callId: call.id,
-      }),
-    }),
+    ...(idempotencyKey !== undefined && { idempotencyKey }),
+    // Files the call stores, as files its run owns, and reads
+    // (`Tool.storesFiles`, `Tool.readsFiles`).
+    ...(files !== undefined && { files }),
     ...(kctx.attempt !== undefined && { attempt: kctx.attempt }),
     // The turn's, and its batch's: a call running alongside one that fails
     // the turn is stopped.

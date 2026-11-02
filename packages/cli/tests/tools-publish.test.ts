@@ -52,7 +52,7 @@ async function publish(flags: readonly string[]) {
 }
 
 describe('kindgi tools publish', () => {
-  test('a manifest from a file, in the Default project', async () => {
+  test('a manifest from a file, in the default project', async () => {
     await writeFile(join(cwd, 'tool.json'), JSON.stringify(MANIFEST));
     // `@<file>` reads from the process's working directory; an absolute path here.
     const { out, calls } = await publish([`--manifest=@${join(cwd, 'tool.json')}`]);

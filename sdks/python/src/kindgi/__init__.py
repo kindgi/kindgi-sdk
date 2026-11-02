@@ -38,9 +38,19 @@ from .pack.define import (
     http_tool,
     tool,
 )
+from .pack.files import (
+    MAX_STORED_FILE_BYTES,
+    MAX_STORED_FILES_PER_CALL,
+    FileReadAnswer,
+    FileStore,
+    FileStoreAnswer,
+    FileStoreError,
+)
 from .pack.trace import CheckResult, ModelCallRecord, RunTrace, ToolCallRecord, ToolResultRecord
 
 __all__ = [
+    "MAX_STORED_FILES_PER_CALL",
+    "MAX_STORED_FILE_BYTES",
     "Agent",
     "CallCancelled",
     "Cancellation",
@@ -48,6 +58,10 @@ __all__ = [
     "ConnectionAccount",
     "ConnectionRejected",
     "DefinitionError",
+    "FileReadAnswer",
+    "FileStore",
+    "FileStoreAnswer",
+    "FileStoreError",
     "Flow",
     "Guardrail",
     "ModelCallRecord",

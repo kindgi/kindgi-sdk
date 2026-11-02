@@ -5,7 +5,7 @@ import { Hono } from 'hono';
 
 import type { AuditEvent, AuditEventBinding, AuditEventFilter } from '@kindgi/audit-events';
 import type { ComplianceEvidence, EvidenceFilter, LoadedClassifier } from '@kindgi/compliance';
-import { auditEventToEvidence, collectEvidence } from '@kindgi/compliance';
+import { EVIDENCE_KINDS, auditEventToEvidence, collectEvidence } from '@kindgi/compliance';
 import type { ExportSigningBinding } from '@kindgi/crypto';
 import type {
   AgentId,
@@ -73,6 +73,10 @@ export function complianceRouter(
   const isExportable = (kind: string): boolean => classifier.resolve(kind).exportable;
   const exportableKinds = (): readonly string[] =>
     Object.keys(classifier.file.byKind).filter(isExportable);
+  /** A kind the API knows: a built-in evidence kind, or one the classifier names. */
+  const isEvidenceKind = (kind: string): boolean =>
+    (EVIDENCE_KINDS as readonly string[]).includes(kind) ||
+    Object.hasOwn(classifier.file.byKind, kind);
 
   // ---------- GET /evidence (list, cursor-paginated) ----------
   r.get('/evidence', async (c) => {
@@ -82,7 +86,7 @@ export function complianceRouter(
     const rawCursor = c.req.query('cursor');
     const cursor = rawCursor !== undefined && rawCursor.length > 0 ? rawCursor : undefined;
 
-    const parsedFilter = parseFilterFromQuery(c.req.query());
+    const parsedFilter = parseFilterFromQuery(c.req.query(), isEvidenceKind);
     if (parsedFilter.kind === 'err') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: parsedFilter.message }, requestId));
@@ -251,6 +255,7 @@ type ParseResult<T> =
 
 function parseFilterFromQuery(
   query: Readonly<Record<string, string | undefined>>,
+  isEvidenceKind: (kind: string) => boolean,
 ): ParseResult<EvidenceFilter | undefined> {
   const filter: {
     runId?: RunId;
@@ -268,6 +273,9 @@ function parseFilterFromQuery(
   if (flowId !== undefined && flowId.length > 0) filter.flowId = flowId as unknown as FlowId;
   const kind = query.kind;
   if (kind !== undefined && kind.length > 0) {
+    if (!isEvidenceKind(kind)) {
+      return { kind: 'err', message: `\`kind\` must be an evidence kind, and ${kind} is not one` };
+    }
     filter.evidenceKind = kind as unknown as EvidenceFilter['evidenceKind'];
   }
   const from = query.from;

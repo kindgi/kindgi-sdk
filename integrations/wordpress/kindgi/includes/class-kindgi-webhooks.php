@@ -50,27 +50,57 @@ final class Kindgi_Webhooks {
 	 * @return array<int, array{id: int, name: string, since: int|null}>
 	 */
 	public static function off(): array {
-		if ( ! class_exists( 'WC_Data_Store' ) || ! function_exists( 'wc_get_webhook' ) ) {
-			return array();
-		}
 		$since = (array) get_option( self::DISABLED_AT, array() );
 		$off   = array();
-		foreach ( (array) WC_Data_Store::load( 'webhook' )->get_webhooks_ids( 'disabled' ) as $id ) {
-			$webhook = wc_get_webhook( (int) $id );
-			// Its own status too: before WooCommerce 3.6 the list ignores the status asked for.
-			if ( ! $webhook || 'disabled' !== $webhook->get_status() ) {
-				continue;
-			}
-			if ( ! self::delivers_to_kindgi( (string) $webhook->get_delivery_url() ) ) {
-				continue;
-			}
+		foreach ( self::kindgis( 'disabled' ) as $webhook ) {
+			$id    = (int) $webhook->get_id();
 			$off[] = array(
-				'id'    => (int) $webhook->get_id(),
+				'id'    => $id,
 				'name'  => (string) $webhook->get_name(),
-				'since' => isset( $since[ (int) $id ] ) ? (int) $since[ (int) $id ] : null,
+				'since' => isset( $since[ $id ] ) ? (int) $since[ $id ] : null,
 			);
 		}
 		return $off;
+	}
+
+	/** How many Kindgi webhooks WooCommerce delivers; null without WooCommerce. */
+	public static function on(): ?int {
+		if ( ! self::woocommerce() ) {
+			return null;
+		}
+		return count( self::kindgis( 'active' ) );
+	}
+
+	/** How many Kindgi webhooks someone paused in WooCommerce; none without WooCommerce. */
+	public static function paused(): int {
+		return count( self::kindgis( 'paused' ) );
+	}
+
+	/**
+	 * WooCommerce's webhooks with a status that deliver to Kindgi.
+	 *
+	 * @return WC_Webhook[]
+	 */
+	private static function kindgis( string $status ): array {
+		if ( ! self::woocommerce() ) {
+			return array();
+		}
+		$kindgis = array();
+		foreach ( (array) WC_Data_Store::load( 'webhook' )->get_webhooks_ids( $status ) as $id ) {
+			$webhook = wc_get_webhook( (int) $id );
+			// Its own status too: before WooCommerce 3.6 the list ignores the status asked for.
+			if ( ! $webhook || $status !== $webhook->get_status() ) {
+				continue;
+			}
+			if ( self::delivers_to_kindgi( (string) $webhook->get_delivery_url() ) ) {
+				$kindgis[] = $webhook;
+			}
+		}
+		return $kindgis;
+	}
+
+	private static function woocommerce(): bool {
+		return class_exists( 'WC_Data_Store' ) && function_exists( 'wc_get_webhook' );
 	}
 
 	/** WooCommerce's hook: a webhook turned off after refused deliveries. Kindgi's are dated. */

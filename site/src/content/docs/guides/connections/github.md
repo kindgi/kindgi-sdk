@@ -44,7 +44,10 @@ GitHub Apps → New GitHub App**
 - **Webhook:** untick **Active**. You turn it on in step 3, with the
   address Kindgi gives you.
 - **Permissions:** what your tools need, such as **Repository → Issues:
-  Read and write**. **Metadata: Read-only** comes with every app.
+  Read and write**. For a project's repo connection, which opens a draft
+  pull request when a block change is pinned there, add **Repository →
+  Contents: Read and write** and **Repository → Pull requests: Read and
+  write**. **Metadata: Read-only** comes with every app.
 - **Where can this GitHub App be installed? Only on this account.** Only
   your organization can then install it.
 

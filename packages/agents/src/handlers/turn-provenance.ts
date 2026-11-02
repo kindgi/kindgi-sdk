@@ -9,6 +9,7 @@
  * is the same.
  */
 
+import type { MessageFile } from '@kindgi/capabilities';
 import type { ProvenanceBuilder } from '@kindgi/provenance';
 import type { Timestamp } from '@kindgi/types';
 
@@ -150,6 +151,25 @@ export interface ModelCallFacts {
   readonly finishReason: string;
   readonly thinking?: CallThinking;
   readonly at: Timestamp;
+  /**
+   * The stored files the call planned to read in (`callFiles`): at most
+   * what it read in, since a provider's lower limit, or a file found gone
+   * or changed, can leave one out.
+   */
+  readonly files: readonly FileRead[];
+}
+
+/**
+ * A stored file a model call planned to read in: its artifact id, and the
+ * sha256 the runtime's record of it holds.
+ */
+export type FileRead = Pick<MessageFile, 'artifactId' | 'sha256'>;
+
+/** The files a call planned to read, as its step's output keeps them: none when there are none. */
+export function filesReadOf(files: readonly FileRead[]): { readonly files?: readonly FileRead[] } {
+  return files.length === 0
+    ? {}
+    : { files: files.map(({ artifactId, sha256 }) => ({ artifactId, sha256 })) };
 }
 
 /**
@@ -175,6 +195,7 @@ export function addModelCallNode(
       providerId: call.provider.id,
       model: call.provider.model,
       finishReason: call.finishReason,
+      ...filesReadOf(call.files),
       ...(call.thinking !== undefined && { thinking: { ...call.thinking } }),
     },
   });

@@ -27,11 +27,11 @@ import { validateAgainst } from './support/openapi-schema.js';
 import { createApp } from '../src/index.js';
 import type {
   AgentRegistryBinding,
-  EvalSuite,
-  EvalSuiteRegistryBinding,
   FlowRegistryBinding,
   GuardrailRegistryBinding,
   RunHandlerBinding,
+  TestSet,
+  TestSetRegistryBinding,
   TokenResolver,
   ToolRegistryBinding,
 } from '../src/index.js';
@@ -70,7 +70,7 @@ const flow = {
   ],
 } as unknown as Flow;
 
-const suite: EvalSuite = {
+const testSet: TestSet = {
   id: 'acme.invoice-cases',
   tenantId,
   version: '1.0.0',
@@ -118,14 +118,14 @@ function registries(project: ProjectId | undefined) {
     headExists: async () => true,
     listVersions: async () => ({ data: [at(flow)] }),
   } as unknown as FlowRegistryBinding;
-  const evalSuiteRegistry = {
-    list: async () => ({ data: [at(suite)] }),
-    get: async () => at(suite),
-    getVersion: async () => at(suite),
+  const testSetRegistry = {
+    list: async () => ({ data: [at(testSet)] }),
+    get: async () => at(testSet),
+    getVersion: async () => at(testSet),
     headExists: async () => true,
-    listVersions: async () => ({ data: [at(suite)] }),
-  } as unknown as EvalSuiteRegistryBinding;
-  return { agentRegistry, toolRegistry, guardrailRegistry, flowRegistry, evalSuiteRegistry };
+    listVersions: async () => ({ data: [at(testSet)] }),
+  } as unknown as TestSetRegistryBinding;
+  return { agentRegistry, toolRegistry, guardrailRegistry, flowRegistry, testSetRegistry };
 }
 
 async function read(project: ProjectId | undefined, path: string) {
@@ -158,10 +158,10 @@ const READS = [
   ['/v1/flows/acme.ingest-invoice/versions/1.0.0', 'Flow', (b: any) => [b]],
   ['/v1/flows', 'FlowCollectionPage', (b: any) => b.data],
   ['/v1/flows/acme.ingest-invoice/versions', 'FlowCollectionPage', (b: any) => b.data],
-  ['/v1/eval-suites/acme.invoice-cases', 'EvalSuite', (b: any) => [b]],
-  ['/v1/eval-suites/acme.invoice-cases/versions/1.0.0', 'EvalSuite', (b: any) => [b]],
-  ['/v1/eval-suites', 'EvalSuiteCollectionPage', (b: any) => b.data],
-  ['/v1/eval-suites/acme.invoice-cases/versions', 'EvalSuiteCollectionPage', (b: any) => b.data],
+  ['/v1/test-sets/acme.invoice-cases', 'TestSet', (b: any) => [b]],
+  ['/v1/test-sets/acme.invoice-cases/versions/1.0.0', 'TestSet', (b: any) => [b]],
+  ['/v1/test-sets', 'TestSetCollectionPage', (b: any) => b.data],
+  ['/v1/test-sets/acme.invoice-cases/versions', 'TestSetCollectionPage', (b: any) => b.data],
   ['/v1/guardrails/acme.no-fabricated-quotes', 'Guardrail', (b: any) => [b]],
   ['/v1/guardrails', 'GuardrailCollectionPage', (b: any) => b.data],
 ] as const;

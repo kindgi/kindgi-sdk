@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kindgi.com/schemas/v1/test-set.schema.json",
+  "$comment": "schema-version: 1.0.0",
+  "title": "Test set",
+  "description": "Tenant-scoped test set definition — the *registry* shape (`/v1/test-sets`). A test set defines WHAT a version is checked on; test runs + per-kind grader dispatch are separate concerns. `kind` selects the shape of `spec`; the registry treats `spec` as opaque JSON so new kinds can extend the catalog without breaking existing readers. Each kind's runtime consumer (eval-judge adapter for `accuracy` / `pairwise` / `regression`, HITL bridge for `human-review`, sandbox handler for `custom`) deserializes `spec` against its own contract. Case data lives in `spec`.",
+  "type": "object",
+  "required": ["id", "tenantId", "version", "kind", "spec"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable test set id chosen by the caller (e.g. `acme.drafting-accuracy`)."
+    },
+    "tenantId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Tenant owning the test set. When published via HTTP, must match the caller tenant (server-derived from the token). Cross-tenant publish is rejected."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semver — publishing a modified test set produces a new version. Test runs are traceable back to the version in force at the time."
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "accuracy",
+        "pairwise",
+        "regression",
+        "human-review",
+        "benchmark",
+        "custom",
+        "corrections"
+      ],
+      "description": "Closed enum, extended additively — new kinds require a spec + validator update in tandem so the registry never accepts a kind no runtime consumer honors. `accuracy` — metric-based grading against ground truth (input → expectedOutput pairs; grader is an eval-judge adapter). `pairwise` — A/B comparisons between two agent/flow versions. `regression` — compare against a stored baseline run. `human-review` — delegates rubric grading to HITL. `benchmark` — reference to a standardized test set (name + version). `custom` — caller-supplied evaluator handler (sandboxed handler-as-code). `corrections` — built from corrections of past runs: each case is a copy of a corrected run."
+    },
+    "description": {
+      "type": "string"
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Kind-specific test set body. Registry validates only that this is an object; deeper validation is the runtime consumer's responsibility per kind. For `accuracy`, typically `{ cases: [{ input, expectedOutput }], grader?: { adapterId, config? } }`. For `pairwise`, typically `{ prompts: [...], variantA: { agentId, version }, variantB: { agentId, version } }`. For `regression`, typically `{ baseline: { runId } | { testSetId, version }, cases: [...] }`. For `human-review`, typically `{ rubric: [...], reviewerRole }`. For `benchmark`, typically `{ benchmark: { name, version } }`. For `custom`, typically `{ handler: { modulePath, entrypointPath }, cases: [...] }`."
+    }
+  }
+}

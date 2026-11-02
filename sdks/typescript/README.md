@@ -74,7 +74,7 @@ try {
 
 - **`createClient(options: ClientOptions)`** — returns a `KindgiClient` with one resource client per property (see [Resources](#resources)). `ClientOptions`: `apiUrl` (no trailing slash), `auth` (`{ kind: 'apiToken', token }` or `{ kind: 'oauth', accessToken, refresh? }`; `refresh` isn't called yet: on an `auth` error with reason `token-expired`, get a new token and make the call again), an optional `fetch`, and an optional `timeoutMs` (below). Creating a client opens no connections.
 - **Errors** — every method throws **`KindgiApiError`**, whose `error` is a **`KindgiError`** discriminated on `code`: `network`, `auth`, `rate-limited`, `not-found`, `conflict`, `invalid-request`, `guardrail-violation`, `server`, `not-implemented-in-preview`, `not-yet-wired`. **`fromWire(body)`** maps an API error (`{ code, message, details? }`) onto that union; wire codes it does not recognize become `server`, with the original code in `serverCode`. **`notYetWired`** and **`notImplementedInPreview`** build the two preview variants.
-- **Streaming** — **`readSse`** and **`unwrapSseData`** read a `text/event-stream` response as an `AsyncIterable`, reconnecting with exponential backoff and `Last-Event-Id`. `runs.follow`, `evalRuns.events`, `adapters.prepare` and the `secrets` rotation event stream are built on them.
+- **Streaming** — **`readSse`** and **`unwrapSseData`** read a `text/event-stream` response as an `AsyncIterable`, reconnecting with exponential backoff and `Last-Event-Id`. `runs.follow`, `testRuns.events`, `adapters.prepare` and the `secrets` rotation event stream are built on them.
 - **Types** — the input, filter, page and record types of every resource; branded ids and `Filter` / `Page` re-exported from [`@kindgi/types`](../../packages/types/); `DefineAgentSpec` and `RunStatus`.
 - **`Transport`** / **`TransportRequest`** — the request contract the resource clients call.
 - **`@kindgi/client/sso-handoff`** (its own entry, with no dependencies, so a browser app can take it alone) — **`identityProviderHandoff(urls, preset?, { version }?)`** gives the message an admin sends whoever runs their identity provider: the URLs from `auth.providers.signIn`, what to send back (the secret goes into Kindgi's secrets by name), with `preset` (`google`, `entra`, `okta`, `keycloak`: **`IDENTITY_PROVIDER_PRESETS`**) the clicks in that provider's console, and the guide, linked for the Kindgi `version` you pass (that release line's docs; the docs' root without one). **`docsUrl(path, version?)`** builds such a link. `kindgi sso providers start` prints the same text.
@@ -101,8 +101,8 @@ The transport makes one attempt per call and does not retry. Mutating calls acce
 | `conversations` | `/v1/conversations` | — |
 | `memory` | `/v1/memory` | `logs.append`, `logs.list`, `logs.verify` |
 | `provenance` | `/v1/provenance` | `verify` |
-| `proposals` | `/v1/proposals` | — |
-| `supervisor` | — | `define`, `get`, `list`, `versions`, `delete`, and every `proposals.*` method (removed in 0.1.5: use `client.proposals`) |
+| `suggested-changes` | `/v1/suggested-changes` | — |
+| `supervisor` | — | `define`, `get`, `list`, `versions`, `delete` |
 | `observations` | `/v1/observations` | — |
 | `approvals` | `/v1/approvals` | `batch`, `assign`, `reviewers.updateRole`, `audit.get`, `audit.list`, `audit.verify` |
 | `tenant` | `/v1/tenant` | — |
@@ -117,8 +117,8 @@ The transport makes one attempt per call and does not retry. Mutating calls acce
 | `deployments` | `/v1/deployments` | — |
 | `compliance` | `/v1/compliance` | — |
 | `audit` | `/v1/audit` | — |
-| `evalSuites` | `/v1/eval-suites` | — |
-| `evalRuns` | `/v1/eval-runs`, `/v1/eval-suites/{suiteId}/runs` | — |
+| `testSets` | `/v1/test-sets` | — |
+| `testRuns` | `/v1/test-runs`, `/v1/test-sets/{testSetId}/runs` | — |
 | `users` | `/v1/identity/users` | `create`, `update`, `deactivate`, `sessions.revoke` |
 | `identity` | `/v1/identity` | — |
 | `auth` | `/v1/auth` | — |

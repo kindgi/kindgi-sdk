@@ -110,6 +110,8 @@ npx --yes @kindgi/cli@0.2 connections connect google --permissions=gmail.send
 - [Google](google/): register your Google OAuth client and connect Gmail.
 - [Microsoft](microsoft/): register your Microsoft Entra app and connect
   Outlook.
+- [Calendars](calendar/): find events, see when someone is free, and add
+  or change events on their Google or Outlook calendar.
 - [GitHub](github/): create your GitHub App, register it, and install it on
   your organization.
 - [LinkedIn](linkedin/): create your LinkedIn app, register it, and connect

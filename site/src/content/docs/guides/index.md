@@ -43,7 +43,7 @@ Kindgi these docs describe.
   the enterprise sign-in options Kindgi builds with you.
 - [Cost and provenance](observability/trace-an-answer/): trace an answer to
   the model and tool calls behind it, and what each call cost.
-- [Evals](evals/judge-a-runs-output/): correct runs' answers, build test
+- [Improve](improve/correct-a-runs-output/): correct runs' answers, build test
   cases from them, change a prompt or a setting without a deploy, try the new
   version on the test cases, and release it. You can also suggest a change
   through review, let Improve look for a better setting or prompt, or fix what

@@ -1,0 +1,58 @@
+// {{PACK_ID}}.find-order — looks a sample order up by its id: the item, the
+// total, when it was delivered and what it has been refunded so far.
+
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+import { daysSinceDelivery, findOrder, refunded } from '../../lib/orders.js';
+
+const FindOrderInput = z.object({
+  orderId: z.string().min(1).max(40),
+});
+
+const FindOrderOutput = z.union([
+  z.object({
+    found: z.literal(true),
+    orderId: z.string(),
+    item: z.string(),
+    total: z.number(),
+    currency: z.string(),
+    delivered: z.boolean(),
+    daysSinceDelivery: z.number().int().nonnegative().optional(),
+    refundedSoFar: z.number(),
+  }),
+  z.object({ found: z.literal(false), orderId: z.string() }),
+]);
+
+const defined = defineTool({
+  id: '{{PACK_ID}}.find-order' as ToolId,
+  description:
+    'Look an order up by its id (like A-1001): the item, the total, whether it was delivered and how many days ago, and what it has been refunded so far.',
+  version: '{{PACK_VERSION}}',
+  input: FindOrderInput,
+  output: FindOrderOutput,
+  effects: [{ kind: 'reads', resource: 'memory:sample-orders' }],
+  mutating: false,
+  handler: async ({ orderId }) => {
+    const order = findOrder(orderId);
+    if (order === undefined) return { found: false as const, orderId };
+    const days = daysSinceDelivery(order);
+    return {
+      found: true as const,
+      orderId: order.id,
+      item: order.item,
+      total: order.total,
+      currency: order.currency,
+      delivered: days !== undefined,
+      ...(days !== undefined && { daysSinceDelivery: days }),
+      refundedSoFar: refunded.get(order.id) ?? 0,
+    };
+  },
+});
+
+if (defined.kind === 'err') {
+  throw new Error(`{{PACK_ID}}.find-order failed to compile: ${defined.error.message}`);
+}
+
+export default defined.value;

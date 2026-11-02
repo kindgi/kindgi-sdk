@@ -33,6 +33,9 @@ def context(input: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         out["settings"] = {block: dict(values) for block, values in ctx.settings.items()}
     if ctx.connections:
         out["connections"] = {name: _connection(c) for name, c in ctx.connections.items()}
+    # Read with getattr: the 0.1.1 compatibility suite's SDK has no file store.
+    if getattr(ctx, "files", None) is not None:
+        out["files"] = True
     return out
 
 

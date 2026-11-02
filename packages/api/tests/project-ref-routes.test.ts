@@ -104,7 +104,7 @@ async function harness() {
 const concrete = (route: string): string =>
   route
     .replace(':agentId', 'acme.agent')
-    .replace(':suiteId', 'acme.suite')
+    .replace(':testSetId', 'acme.testSet')
     .replace(':serviceAccountId', 'acme-ci');
 
 describe('a projectId the route cannot use (T247)', () => {

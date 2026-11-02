@@ -344,6 +344,17 @@ variable "erasure_ledger_key_version" {
   }
 }
 
+variable "database_url_version" {
+  description = "The version of the `database-url` secret the server reads, pinned: a new revision then reads exactly that version, not whatever Key Vault's refresh has picked up. upgrade.sh's way back sets it to the version that names the restored server. Leave it empty otherwise (the server reads the latest version), and clear it once the restored server is the one you keep; upgrade.sh refuses to start while it's set."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.database_url_version == "" || can(regex("^[0-9a-f]{32}$", var.database_url_version))
+    error_message = "database_url_version: a 32-hex Key Vault secret version id."
+  }
+}
+
 # ---- the server's own settings ------------------------------------------------------
 
 variable "public_url" {

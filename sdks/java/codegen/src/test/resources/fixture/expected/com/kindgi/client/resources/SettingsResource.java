@@ -47,7 +47,7 @@ public final class SettingsResource {
         params.validate();
         RequestSpec request = RequestSpec.of(Operations.SETTINGS_PUT)
                 .path("domain", domain)
-                .header("X-Supervisor-Id", params.supervisorId())
+                .header("X-Request-Id", params.requestId())
                 .json(body);
         return transport.json(request, SettingsPutResponse.class);
     }

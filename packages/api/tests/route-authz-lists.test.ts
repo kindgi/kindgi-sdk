@@ -3,7 +3,7 @@
 
 /**
  * Content lists hold only what the caller may read (T243 A): agents,
- * flows, tools, guardrails, eval suites and MCP endpoints are filtered
+ * flows, tools, guardrails, test sets and MCP endpoints are filtered
  * by `read` on each row's object, as `GET …/:id` asks. With no grants,
  * every list is empty, having asked about every row.
  */
@@ -58,7 +58,8 @@ function harness() {
     flowRegistry: listing(two),
     toolRegistry: listing(two),
     guardrailRegistry: listing(two),
-    evalSuiteRegistry: listing(two),
+    // A test set's kind is an eval kind, and the list holds those it lists.
+    testSetRegistry: listing(two.map((r) => ({ ...r, kind: 'custom' }))),
     mcpEndpointRegistry: listing([{ endpointId: 'acme.one' }, { endpointId: 'acme.two' }]),
     authz: {
       fgaApiUrl: 'http://fga.invalid',
@@ -77,7 +78,7 @@ describe('content lists hold only what the caller may read', () => {
     ['/v1/flows', 'flow'],
     ['/v1/tools', 'tool'],
     ['/v1/guardrails', 'guardrail'],
-    ['/v1/eval-suites', 'eval_suite'],
+    ['/v1/test-sets', 'test_set'],
     ['/v1/mcp/endpoints', 'mcp_endpoint'],
   ])('GET %s asks read on each %s', async (path, type) => {
     const { app, asked } = harness();

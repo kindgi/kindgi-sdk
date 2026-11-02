@@ -35,7 +35,7 @@ The Java pack SDK (`RegExpTest` in `kindgi-pack`) and the Python pack SDK (`test
 A request body holding a value the client doesn't know: an enum value, a union variant, or text in a union of known text and objects, as a newer runtime may send one. A client reads such a value and keeps it, but must refuse it before sending, so the server never gets the request. `cases.json` lists the cases:
 
 - `name`: the case.
-- `operation` and `args`: the client method (`agents.live.unpin`) and the arguments before the body.
+- `operation` and `args`: the client method (`agents.pinned.unpin`) and the arguments before the body.
 - `body`: the request body, as JSON.
 - `at`: where the value is, as steps (a property name, or a list index). For a union variant, `tag` names the property that tells the variants apart.
 - `names`: one of the known values, which the refusal must list.

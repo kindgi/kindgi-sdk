@@ -20,7 +20,7 @@ describe('error tags', () => {
       {
         code: 'gate-failed',
         message:
-          'The release gate policy refused acme.agent 1.2.0: Precision at 5 is 0.75; the policy needs at least 0.8.',
+          'The release gate refused acme.agent 1.2.0: Precision at 5 is 0.75; the gate needs at least 0.8.',
       },
       422,
       'gate-failed',

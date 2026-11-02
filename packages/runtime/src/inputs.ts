@@ -5,10 +5,10 @@ import type { Principal } from '@kindgi/authz';
 import type { Flow, FlowVersionOverrides } from '@kindgi/flow';
 import type { HandlerRegistry } from '@kindgi/handler';
 import type {
+  AgentPinScope,
   AgentVersionVia,
   ConversationId,
   FlowVersionVia,
-  LiveScope,
   NodeId,
   PinScope,
   ProjectId,
@@ -70,14 +70,16 @@ export interface RunAgentRef {
   readonly conversationId: ConversationId;
   /** Why this version ran (absent on runs from before it was recorded). */
   readonly via?: AgentVersionVia;
-  /** The pin that chose it, when `via` is `live`. */
-  readonly liveScope?: LiveScope;
+  /** The pin that chose it, when `via` is `pinned`. */
+  readonly pinnedScope?: AgentPinScope;
 }
 
-/** Marks a run as a replay: an eval run re-running a past run (`of`). */
+/** Marks a run as a replay: a test run re-running a past run (`of`). */
 export interface RunReplayRef {
   readonly of: RunId;
-  readonly evalRunId: string;
+  readonly testRunId: string;
+  /** The test case the replay ran, by its id in the test set; a test run sets it on each replay. */
+  readonly caseId?: string;
 }
 
 /** Every value of `RunTriggerRef.kind`. */
@@ -291,7 +293,7 @@ export interface RunFlowInput {
   /**
    * Content-scope anchor. REQUIRED — every kernel run is bound to
    * exactly one project inside the tenant. Callers without a natural
-   * project id resolve to the tenant's Default via
+   * project id resolve to the tenant's default via
    * `projectBinding.getDefault(tenantId)` at the caller layer.
    */
   readonly projectId: ProjectId;
@@ -316,7 +318,7 @@ export interface RunFlowInput {
   readonly parent?: ParentRunRef;
   /** The agent this run is a turn of; see `RunAgentRef`. */
   readonly agent?: RunAgentRef;
-  /** Set when an eval run is replaying a past run; see `RunReplayRef`. */
+  /** Set when a test run is replaying a past run; see `RunReplayRef`. */
   readonly replay?: RunReplayRef;
   /**
    * Set when the run doesn't exist yet (no `runId`): start it at most once
@@ -369,7 +371,7 @@ export interface RunFlowInput {
   readonly flowVersionVia?: FlowVersionVia;
   readonly flowPinnedScope?: PinScope;
   /**
-   * The run's segment path (ordered, coarse to fine), which picks live agent
+   * The run's segment path (ordered, coarse to fine), which picks pinned agent
    * versions; a child run inherits its parent's.
    */
   readonly segments?: readonly ScopeSegment[];
@@ -447,7 +449,7 @@ export interface StartRunParams {
   readonly parent?: ParentRunRef;
   /** The agent this run is a turn of; see `RunAgentRef`. */
   readonly agent?: RunAgentRef;
-  /** Set when an eval run is replaying a past run; see `RunReplayRef`. */
+  /** Set when a test run is replaying a past run; see `RunReplayRef`. */
   readonly replay?: RunReplayRef;
   /** Start it at most once per key; see `RunIdempotencyKey`. */
   readonly idempotencyKey?: RunIdempotencyKey;

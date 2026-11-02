@@ -3,6 +3,7 @@
 
 import type { ProjectId, RunId, TenantId } from '@kindgi/types';
 
+import type { FileForm, MessageFile } from './message-files.js';
 import type { ThinkingLevel } from './thinking.js';
 
 /**
@@ -42,7 +43,7 @@ export type Feature = (typeof FEATURES)[number];
 export const FEATURE_DESCRIPTIONS: Readonly<Record<Feature, string>> = {
   'structured-output':
     'Answers in JSON that matches a schema the caller gives (a response format), not only free text.',
-  vision: 'Reads images in its input.',
+  vision: 'Reads images and PDFs in its input.',
   'audio-input': 'Reads audio in its input.',
   'audio-output': 'Produces audio as its answer.',
   'tool-use':
@@ -415,6 +416,12 @@ export interface ModelMessage {
   readonly toolCallId?: string;
   /** For role='assistant': tool calls the model wants executed. */
   readonly toolCalls?: readonly ModelToolCall[];
+  /**
+   * For role='user' or 'tool': stored files the message carries, shown
+   * after its text. References only: the adapter reads the bytes for the
+   * call (`ModelCallInput.readFile`) and keeps none (`fileParts`).
+   */
+  readonly files?: readonly MessageFile[];
 }
 
 export interface ModelToolCall {
@@ -496,6 +503,19 @@ export interface ModelCallInput {
    * ignore it.
    */
   readonly traceparent?: string;
+  /**
+   * Reads a stored file's bytes for this call, or a form made of it
+   * (`form`: its `rendition` or its `extracted` text): `undefined` when
+   * it's no longer stored, or the form isn't. The caller checks the file is
+   * one this call may show before it reads. Adapters read only the files they send, and keep
+   * nothing. Absent: no file is read, and each is a line saying so.
+   *
+   * A rejection (the store is down) fails the call with that rejection,
+   * unchanged, before anything is sent: an outage isn't shown to the model
+   * as a missing file. An agent turn then fails with
+   * `model-invocation-failed`, its cause the rejection.
+   */
+  readonly readFile?: (artifactId: string, form?: FileForm) => Promise<Uint8Array | undefined>;
 }
 
 /**
@@ -622,9 +642,9 @@ export interface ModelUsageRecord {
   readonly durationMs: number;
   /**
    * Set on a replay turn's calls: the past run it re-runs (`of`) and the
-   * eval run it's for, so eval spend can be told apart from production.
+   * test run it's for, so eval spend can be told apart from production.
    */
-  readonly replay?: { readonly of: string; readonly evalRunId: string };
+  readonly replay?: { readonly of: string; readonly testRunId: string };
 }
 
 /**
