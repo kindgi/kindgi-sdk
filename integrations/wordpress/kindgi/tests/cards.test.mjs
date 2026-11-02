@@ -4,9 +4,10 @@
 /**
  * An approval's card (`assets/kindgi-cards.js`), as a person decides it:
  * what its buttons say, and what it says once Kindgi has recorded the
- * decision. The script runs as WordPress loads it, against small
- * stand-ins for the page's elements and `wp`; the cards are as the
- * plugin's routes answer them (`Kindgi_Inbox::card`).
+ * decision; and a conversation's steps: whether each call ran. The script
+ * runs as WordPress loads it, against small stand-ins for the page's
+ * elements and `wp`; the cards are as the plugin's routes answer them
+ * (`Kindgi_Inbox::card`).
  */
 
 import assert from 'node:assert/strict';
@@ -237,4 +238,57 @@ test('a decision on a run that had already ended says so', async () => {
   button(node, 'Approve').listeners.click();
   await settled();
   assert.match(node.textContent, /The run had already moved on \(cancelled\)\./);
+});
+
+/** A step's words, as plain fields: made in the script's own realm. */
+const stepOf = (cards, ...args) => ({ ...cards.stepWords(...args) });
+
+test("a step whose call has no answer yet doesn't say the tool was used", () => {
+  const { cards } = loadCards(null);
+  assert.deepEqual(stepOf(cards, 'acme.reply'), {
+    ran: false,
+    line: 'Asked to use Reply',
+    why: null,
+  });
+});
+
+test("a call Kindgi didn't allow says so, and why", () => {
+  const { cards } = loadCards(null);
+  const result = { status: 'denied', reason: " You don't have permission to use the tool. " };
+  assert.deepEqual(stepOf(cards, 'woo.find-orders', { result }), {
+    ran: false,
+    line: "Couldn't use Find orders",
+    why: "You don't have permission to use the tool.",
+  });
+});
+
+test('a call whose approval was rejected says so, with the reason when one was given', () => {
+  const { cards } = loadCards(null);
+  assert.deepEqual(
+    stepOf(cards, 'woo.refund-large', { result: { status: 'rejected', rationale: 'Not yet.' } }),
+    { ran: false, line: "Didn't use Refund large: its approval was rejected", why: 'Not yet.' },
+  );
+  assert.deepEqual(stepOf(cards, 'woo.refund-large', { result: { status: 'rejected' } }), {
+    ran: false,
+    line: "Didn't use Refund large: its approval was rejected",
+    why: null,
+  });
+});
+
+test("a tool's own answer reads as used, whatever its fields", () => {
+  const { cards } = loadCards(null);
+  for (const result of [
+    { status: 'denied', reason: 'Card declined.', orderId: 18 },
+    { status: 'rejected', by: 'bank' },
+    { orders: [] },
+    [],
+    'done',
+    null,
+  ]) {
+    assert.deepEqual(stepOf(cards, 'woo.find-orders', { result }), {
+      ran: true,
+      line: 'Used Find orders',
+      why: null,
+    });
+  }
 });

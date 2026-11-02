@@ -242,6 +242,48 @@
   /** A tool's id in words: its last part, `woo.refund-large` → "Refund large". */
   const toolName = (id) => (id ? words(id.split('.').pop()) : __('A tool', 'kindgi'));
 
+  /** A plain sentence, or null when there is none. */
+  const sentence = (text) => (typeof text === 'string' && text.trim() !== '' ? text.trim() : null);
+
+  /**
+   * A tool call's step in words, by its answer (the tool's message), if one
+   * came: until then the agent only asked to use the tool. Kindgi answers a
+   * call that ran nothing in one of two shapes, which say why: `{ status:
+   * 'denied', reason }` when the call wasn't allowed, and `{ status:
+   * 'rejected', rationale? }` when its approval was rejected. Any other
+   * answer is the tool's own.
+   */
+  function stepWords(id, answer) {
+    const name = toolName(id);
+    if (answer === undefined) {
+      /* translators: %s: a tool's name */
+      return { ran: false, line: sprintf(__('Asked to use %s', 'kindgi'), name), why: null };
+    }
+    const result = answer.result;
+    const fields =
+      result !== null && typeof result === 'object' && !Array.isArray(result)
+        ? Object.keys(result).sort().join()
+        : '';
+    if (fields === 'reason,status' && result.status === 'denied') {
+      return {
+        ran: false,
+        /* translators: %s: a tool's name */
+        line: sprintf(__("Couldn't use %s", 'kindgi'), name),
+        why: sentence(result.reason),
+      };
+    }
+    if ((fields === 'status' || fields === 'rationale,status') && result.status === 'rejected') {
+      return {
+        ran: false,
+        /* translators: %s: a tool's name */
+        line: sprintf(__("Didn't use %s: its approval was rejected", 'kindgi'), name),
+        why: sentence(result.rationale),
+      };
+    }
+    /* translators: %s: a tool's name */
+    return { ran: true, line: sprintf(__('Used %s', 'kindgi'), name), why: null };
+  }
+
   /**
    * A conversation's address on the Ask page; someone else's names the
    * approval it opens through, which its reader reviews.
@@ -685,6 +727,7 @@
     muted,
     empty,
     toolName,
+    stepWords,
     askUrl,
     approvalUrl,
     runUrl,

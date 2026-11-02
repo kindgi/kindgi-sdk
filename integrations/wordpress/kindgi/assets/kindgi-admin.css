@@ -366,6 +366,17 @@
   background: var(--kindgi-border);
 }
 
+/* A call that ran nothing (yet): an open dot, and why under its words. */
+.kindgi .kindgi-step-not-run::before {
+  box-sizing: border-box;
+  border: 1px solid var(--kindgi-muted);
+  background: transparent;
+}
+
+.kindgi .kindgi-step-why {
+  display: block;
+}
+
 .kindgi .kindgi-answer summary {
   color: var(--kindgi-accent);
   cursor: pointer;
