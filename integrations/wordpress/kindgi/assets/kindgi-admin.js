@@ -16,7 +16,7 @@
 (() => {
   const root = document.getElementById('kindgi-app');
   if (root === null) return;
-  const { __, sprintf } = wp.i18n;
+  const { __, _n, sprintf } = wp.i18n;
   const config = window.kindgiConfig ?? {};
   const urls = config.urls ?? {};
   const pollMs = config.pollMs ?? 1500;
@@ -37,6 +37,7 @@
     runUrl,
     approvalCard,
     runState,
+    timeEl,
   } = window.kindgiCards;
   const absent = (value) => value === undefined || value === null || value === false;
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -667,8 +668,6 @@
       { className: 'kindgi-conversations' },
       conversations.conversations.map(item),
     );
-    // Someone else's open conversation, on a line of its own: it isn't in the person's list.
-    const othersLine = el('p', { className: 'kindgi-muted', hidden: true });
     const rail = el(
       'nav',
       { className: 'kindgi-rail', 'aria-label': __('Your conversations', 'kindgi') },
@@ -683,7 +682,6 @@
         __('New conversation', 'kindgi'),
       ),
       el('h2', {}, __('Your conversations', 'kindgi')),
-      othersLine,
       conversations.conversations.length === 0
         ? muted(__('What you ask shows here, to come back to.', 'kindgi'))
         : null,
@@ -694,17 +692,10 @@
     );
     const chat = el('section', { className: 'kindgi-chat' });
     root.replaceChildren(el('div', { className: 'kindgi-ask' }, chat, rail));
-    // The open conversation shows in the list even when it's older.
+    // The person's open conversation shows in the list even when it's older; someone else's isn't theirs to list.
     const follows = (conversation) => {
-      if (conversation === null) return;
-      if (conversation.mine === false) {
-        othersLine.textContent = sprintf(
-          /* translators: %s: the conversation's title, or its agent's name */
-          __("Open: %s, someone else's", 'kindgi'),
-          conversation.title || nameOf(conversation.agentId),
-        );
-        othersLine.hidden = false;
-      } else if (!conversations.conversations.some((c) => c.id === conversation.id)) {
+      if (conversation === null || conversation.mine === false) return;
+      if (!conversations.conversations.some((c) => c.id === conversation.id)) {
         list.prepend(item(conversation));
       }
     };
@@ -748,15 +739,16 @@
     chat.replaceChildren(loading());
     let conversation;
     let messages;
+    let approval;
     try {
-      [conversation, messages] = await loadConversation();
+      [conversation, messages, approval] = await loadConversation();
     } catch (error) {
       chat.replaceChildren(notice(error, () => renderAsk()));
       return;
     }
     if (view !== state.view) return;
     follows(conversation);
-    const page = conversationPage(chat, conversation, messages, { nameOf, offered });
+    const page = conversationPage(chat, conversation, messages, { nameOf, offered, approval });
     chat.classList.toggle('kindgi-started', conversation !== null);
     chat.replaceChildren(...page.children);
     if (conversation === null) page.box.focus();
@@ -768,15 +760,19 @@
 
   /**
    * What the chat shows: the conversation's head (or a new one's), its
-   * messages, the box to write in when it's the person's own, and starters
-   * for a new one.
+   * messages, the approval it was opened from where the agent waits on it,
+   * the box to write in when it's the person's own, and starters for a
+   * new one.
    */
-  function conversationPage(chat, conversation, messages, { nameOf, offered }) {
+  function conversationPage(chat, conversation, messages, { nameOf, offered, approval = null }) {
     const log = el(
       'ol',
       { className: 'kindgi-messages', 'aria-live': 'polite' },
-      messages.messages.map(message).filter((m) => m !== null),
+      logItems(messages.messages),
+      approval === null ? null : awaits(approval),
     );
+    // Mail that started it: its thread's subject heads the page.
+    const thread = messages.messages.find((m) => m.mail)?.mail ?? null;
     const progress = el('div', { className: 'kindgi-progress', 'aria-live': 'polite' });
     const fresh = conversation === null ? freshHead(state.newAgent) : null;
     const box =
@@ -794,7 +790,7 @@
       el(
         'div',
         { className: 'kindgi-thread' },
-        fresh === null ? conversationHead(conversation, nameOf) : fresh.node,
+        fresh === null ? conversationHead(conversation, nameOf, thread) : fresh.node,
         messages.earlier ? muted(__("Earlier messages aren't shown.", 'kindgi')) : null,
         log,
         progress,
@@ -807,15 +803,18 @@
 
   /**
    * The open conversation and its newest messages, or none for a new one.
-   * Someone else's opens through the approval named in the address.
+   * Someone else's opens through the approval named in the address, which
+   * comes too (null when it can't be read: the conversation still shows).
    */
   function loadConversation() {
-    if (state.conversationId === null) return [null, { messages: [], earlier: false }];
+    if (state.conversationId === null) return [null, { messages: [], earlier: false }, null];
     const id = encodeURIComponent(state.conversationId);
-    const through = state.through === null ? '' : `?approval=${encodeURIComponent(state.through)}`;
+    const approval = state.through === null ? '' : encodeURIComponent(state.through);
+    const through = approval === '' ? '' : `?approval=${approval}`;
     return Promise.all([
       api(`/conversations/${id}${through}`),
       api(`/conversations/${id}/messages${through}`),
+      approval === '' ? null : api(`/approvals/${approval}`).catch(() => null),
     ]);
   }
 
@@ -832,25 +831,49 @@
     return { node: el('div', { className: 'kindgi-fresh' }, title, about), show };
   }
 
-  /** The conversation's title and agent; someone else's says it's there to read. */
-  function conversationHead(conversation, nameOf) {
+  /**
+   * The conversation's title and agent, or, when mail started it, the
+   * thread's subject and the agent answering it. Someone else's says it's
+   * there to read.
+   */
+  function conversationHead(conversation, nameOf, thread) {
+    const agent = nameOf(conversation.agentId);
     return el(
       'div',
       { className: 'kindgi-thread-head' },
-      el('h2', {}, conversation.title || nameOf(conversation.agentId)),
+      el('h2', {}, thread?.subject ?? (conversation.title || agent)),
       el(
         'p',
         { className: 'kindgi-muted' },
-        /* translators: %s: the agent's name */
-        sprintf(__('With %s', 'kindgi'), nameOf(conversation.agentId)),
+        thread
+          ? /* translators: %s: the agent's name */
+            sprintf(__('Email thread · answered by %s', 'kindgi'), agent)
+          : /* translators: %s: the agent's name */
+            sprintf(__('With %s', 'kindgi'), agent),
       ),
-      conversation.mine
-        ? null
-        : el(
-            'p',
-            { className: 'kindgi-note' },
-            __("Someone else's conversation: you can read it, not continue it.", 'kindgi'),
-          ),
+      conversation.mine ? null : readOnly(),
+    );
+  }
+
+  /** Someone else's conversation is there to read; opened from an approval, with the way back to it. */
+  function readOnly() {
+    if (state.through === null) {
+      return el(
+        'p',
+        { className: 'kindgi-note' },
+        __("Someone else's conversation: you can read it, not continue it.", 'kindgi'),
+      );
+    }
+    return el(
+      'p',
+      { className: 'kindgi-note' },
+      __('Read only: you opened it from an approval.', 'kindgi'),
+      ' ',
+      el(
+        'a',
+        { href: `${urls.inbox}&approval=${encodeURIComponent(state.through)}` },
+        __('Back to the Inbox', 'kindgi'),
+      ),
     );
   }
 
@@ -1106,38 +1129,181 @@
     return runs.filter((run) => run.kind !== 'blank').flatMap((run) => BLOCKS[run.kind](run.lines));
   }
 
-  /** One message: words, the tools an agent used, or a tool's answer (its raw result a click away). */
-  function message(m) {
-    if (m.role === 'tool') {
-      return el(
-        'li',
-        { className: 'kindgi-message kindgi-tool' },
-        el(
-          'details',
-          {},
-          /* translators: %s: a tool's name */
-          el('summary', {}, sprintf(__('%s answered', 'kindgi'), toolName(m.toolId))),
-          el('pre', {}, JSON.stringify(m.result, null, 2)),
-        ),
-      );
+  /**
+   * The conversation's messages as the page lists them: words, mail, and
+   * the tools the agent used, each tool's answer folded under its step.
+   */
+  function logItems(messages) {
+    const items = [];
+    // The steps still without their answer, by the call each makes.
+    const open = new Map();
+    for (const m of messages) {
+      if (m.role === 'tool') {
+        placeAnswer(m, open, items);
+        continue;
+      }
+      const item = message(m);
+      if (item === null) continue;
+      items.push(item);
+      for (const step of item.querySelectorAll('[data-call]')) open.set(step.dataset.call, step);
     }
+    return items;
+  }
+
+  /** A tool's answer: under the step whose call it answers, or on its own line when no step waits for it. */
+  function placeAnswer(m, open, items) {
+    const step = m.callId === null ? undefined : open.get(m.callId);
+    open.delete(m.callId);
+    if (step) step.append(answerOf(m));
+    else
+      items.push(
+        el('li', { className: 'kindgi-message kindgi-used' }, answerOf(m, toolName(m.toolId))),
+      );
+  }
+
+  /** What a tool answered, folded: its raw result, for whoever wants to see what the agent saw. */
+  const answerOf = (m, name = null) =>
+    el(
+      'details',
+      { className: 'kindgi-answer' },
+      el(
+        'summary',
+        {},
+        name === null
+          ? __('What it answered', 'kindgi')
+          : /* translators: %s: a tool's name */
+            sprintf(__('What %s answered', 'kindgi'), name),
+      ),
+      el('pre', {}, JSON.stringify(m.result, null, 2)),
+    );
+
+  /** The tools a message calls, a step each: the answer to its call joins it when it comes. */
+  const stepsOf = (calls) =>
+    calls.length === 0
+      ? null
+      : el(
+          'ul',
+          { className: 'kindgi-steps-done', role: 'list' },
+          calls.map((call) =>
+            el(
+              'li',
+              { className: 'kindgi-step', 'data-call': call.id },
+              /* translators: %s: a tool's name */
+              el('span', {}, sprintf(__('Used %s', 'kindgi'), toolName(call.name))),
+            ),
+          ),
+        );
+
+  /** One message: the person's words or the mail that started the turn, the agent's words, and its steps. */
+  function message(m) {
     if (m.role !== 'user' && m.role !== 'agent') return null;
-    const calls =
-      m.calls.length > 0
-        ? el(
-            'span',
-            { className: 'kindgi-calls' },
-            /* translators: %s: a tool's name, or several separated by commas */
-            sprintf(__('Used %s', 'kindgi'), m.calls.map(toolName).join(', ')),
-          )
-        : null;
-    if (m.text === '' && calls === null) return null;
-    if (m.text === '') return el('li', { className: 'kindgi-message kindgi-used' }, calls);
+    if (m.mail) return mailTurn(m.mail);
+    const steps = stepsOf(m.calls);
+    if (m.text === '' && steps === null) return null;
+    if (m.text === '') return el('li', { className: 'kindgi-message kindgi-used' }, steps);
     return el(
       'li',
       { className: `kindgi-message kindgi-${m.role}` },
       m.role === 'agent' ? rich(m.text) : m.text,
-      calls,
+      steps,
+    );
+  }
+
+  /** Whom a new mail went to, by kind, in words. */
+  const RECIPIENTS = {
+    To: __('To', 'kindgi'),
+    Cc: __('Cc', 'kindgi'),
+    'Reply-To': __('Reply to', 'kindgi'),
+  };
+
+  /** Mail that started a turn: each mail of its thread as an email, oldest first. */
+  const mailTurn = (thread) =>
+    el(
+      'li',
+      { className: 'kindgi-message kindgi-mail-turn' },
+      thread.leftOut > 0
+        ? muted(
+            sprintf(
+              /* translators: %d: how many mails */
+              _n(
+                '%d mail of the thread was left out, for its length.',
+                '%d mails of the thread were left out, for their length.',
+                thread.leftOut,
+                'kindgi',
+              ),
+              thread.leftOut,
+            ),
+          )
+        : null,
+      thread.mails.map(mailItem),
+    );
+
+  /** One mail: who it's from and when, whom it went to, its text, and what it carries. */
+  const mailItem = (mail) =>
+    el(
+      'article',
+      { className: `kindgi-mail${mail.new ? ' kindgi-mail-new' : ''}` },
+      mailHead(mail),
+      mail.from.unsure
+        ? el(
+            'p',
+            { className: 'kindgi-note' },
+            __("It bears this mailbox's address, but this mailbox didn't send it.", 'kindgi'),
+          )
+        : null,
+      mail.subject === null ? null : el('p', { className: 'kindgi-mail-subject' }, mail.subject),
+      el(
+        'div',
+        { className: 'kindgi-mail-text' },
+        mail.text === '' ? el('em', {}, __('No text', 'kindgi')) : mail.text,
+      ),
+      mail.cut ? muted(__('The rest of this mail was cut short for the agent.', 'kindgi')) : null,
+      mail.attachments === null
+        ? null
+        : el(
+            'p',
+            { className: 'kindgi-muted kindgi-mail-files' },
+            /* translators: %s: the mail's attachments, numbered */
+            sprintf(__('Attachments: %s', 'kindgi'), mail.attachments),
+          ),
+    );
+
+  /** Who a mail is from, whom it went to, and when it came. */
+  function mailHead(mail) {
+    const { name, address, mine } = mail.from;
+    let who = name ?? address ?? __('No sender', 'kindgi');
+    if (mine) who = __('This mailbox', 'kindgi');
+    const to = mail.recipients.map((r) => `${RECIPIENTS[r.kind] ?? r.kind}: ${r.who}`).join(' · ');
+    return el(
+      'header',
+      { className: 'kindgi-mail-head' },
+      el('span', { className: 'kindgi-mark-round', 'aria-hidden': 'true' }, initial(who)),
+      el(
+        'div',
+        { className: 'kindgi-mail-who' },
+        el('strong', {}, who),
+        address !== null && who !== address
+          ? el('span', { className: 'kindgi-muted' }, ` ${address}`)
+          : null,
+        to === '' ? null : el('span', { className: 'kindgi-mail-to kindgi-muted' }, to),
+      ),
+      mail.at === null ? null : el('span', { className: 'kindgi-mail-at' }, timeEl(mail.at)),
+    );
+  }
+
+  /**
+   * The approval the conversation was opened from, where the agent waits
+   * on it: decided there, the page reads again to show what followed.
+   */
+  function awaits(card) {
+    let words = __('Its approval', 'kindgi');
+    if (card.waitsFor === 'you') words = __('Waits for your approval', 'kindgi');
+    else if (card.waitsFor === 'others') words = __("Waits for a reviewer's approval", 'kindgi');
+    return el(
+      'li',
+      { className: 'kindgi-message kindgi-awaits' },
+      el('h3', { className: 'kindgi-awaits-head' }, words),
+      approvalCard(card, { inConversation: true, after: () => renderAsk() }),
     );
   }
 

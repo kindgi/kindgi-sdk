@@ -31,6 +31,7 @@ require_once __DIR__ . '/includes/class-kindgi-people.php';
 require_once __DIR__ . '/includes/class-kindgi-webhooks.php';
 require_once __DIR__ . '/includes/class-kindgi-api.php';
 require_once __DIR__ . '/includes/class-kindgi-inbox.php';
+require_once __DIR__ . '/includes/class-kindgi-mail.php';
 require_once __DIR__ . '/includes/class-kindgi-activity.php';
 require_once __DIR__ . '/includes/class-kindgi-rest.php';
 require_once __DIR__ . '/includes/class-kindgi-admin.php';
