@@ -1471,11 +1471,17 @@ if grep -q "0.3.0's kindgi-runtime" "$OUT"; then fail "a run to 0.4.0 named 0.3.
 assert_out "First start runs no migrations. The steps are the packs'"
 assert_out "kindgi guardrails unregister <id>"
 assert_out "0.3.1 doesn't change the module."
-assert_out "STEPS-PENDING: this copy's 0.4.0 runtime steps below aren't final yet."
-assert_out "First start runs sixteen migrations: one new table, new columns that"
-assert_out "FROM judgments; and the same FROM"
+assert_out "Eighteen new migrations: four new tables (block_version_prs,"
+assert_out "keeps judgments locked while it indexes every"
 assert_out "grant roles/storage.legacyBucketReader on the bucket,"
-assert_out "kindgi mail-triggers update <trigger-id> --mailbox=google"
+assert_out "Right after the upgrade, a project no pin covers runs its Latest"
+assert_out "An Improve schedule saved at 0.3.x is read in 0.4.0's shape."
+assert_out "Corrections made at 0.3.x go to nobody, so Improve doesn't learn from"
+assert_out "An Improve run still going when you upgrade ends, and doesn't carry"
+assert_out "Upgrade your clients, the CLI and your own callers with the runtime."
+assert_out "Console links saved before 0.4.0 can answer Page not found."
+assert_out "A webhook receiver, or code that reads approvals, sees 0.4.0's names."
+assert_out "A stdio MCP server that keeps a credential in config.env still works,"
 assert_out "change judging=<level> to"
 assert_out "0.4.0's plan changes nothing in the module by itself"
 if grep -q "the module here is this copy's" "$OUT"; then fail "the newest release's run says the module goes ahead"; else pass; fi
@@ -1498,16 +1504,13 @@ assert_out "plan check: it changes the image(s)"
 assert_out "0.3.0 -> 0.3.1-rc.0 applied"
 
 # 47c. 0.3.1 -> 0.4.0's candidate: it crosses 0.4.0 alone, whose module
-# changes nothing by itself, so the plan changes only the image. Until 0.4.0's
-# runtime steps are final, they start with the STEPS-PENDING line, which the
-# rc's cut stops on.
+# changes nothing by itself, so the plan changes only the image.
 case_start "0.3.1 to 0.4.0-rc.0"
 reset_env; export STUB_TAGS="0.3.1"
 run "yes" --to 0.4.0-rc.0
 assert_rc 0 "0.3.1 -> 0.4.0-rc.0 runs"
 assert_out "crossing: 0.4.0$"
-assert_out "STEPS-PENDING: this copy's 0.4.0 runtime steps below aren't final yet."
-assert_out "First start runs sixteen migrations"
+assert_out "Eighteen new migrations: four new tables"
 assert_out "0.4.0's plan changes nothing in the module by itself"
 if grep -q "First start runs no migrations. The steps are the packs'" "$OUT"; then fail "0.3.1's steps printed for a run from 0.3.1"; else pass; fi
 if grep -q "the module here is this copy's" "$OUT"; then fail "a run to the newest release's rc says the module goes ahead"; else pass; fi
