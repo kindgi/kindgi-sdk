@@ -137,7 +137,7 @@ const exportCmd: LeafCommand = {
   kind: 'leaf',
   name: 'export',
   description:
-    "Export a decided approval's audit bundle, signed with the deployment's export key: who decided, when, why, and its evidence. Check it with kindgi exports verify.",
+    "Export a decided approval's audit bundle, signed with the deployment's export key: who decided, when, why, and its evidence. A reviewer exports the approvals it reads, and with authorization on, so does a tenant admin. Check it with kindgi exports verify.",
   usage:
     'kindgi approvals export <approval-id> [--signing-key=<key-id>] [--include-messages] > bundle.json',
   optionSpec: {

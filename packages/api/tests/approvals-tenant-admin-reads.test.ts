@@ -11,7 +11,9 @@
  * its own limits. The tenant-admin check goes through the authorization
  * binding with the request's id, so a binding that records its checks
  * records it; it's made only where it changes what the roster gives, so a
- * reviewer reading their own tier records none.
+ * reviewer reading their own tier records none. What they read, they may
+ * export as a signed audit bundle, with its run's conversation: exporting
+ * decides nothing.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -26,6 +28,7 @@ import type {
   Principal,
   ResourceRef,
 } from '@kindgi/authz';
+import { createEd25519ExportSigner, generateEd25519KeyPair } from '@kindgi/crypto';
 import type { TenantId, UserId } from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -90,11 +93,23 @@ function approval(id: string, requiredRole: Approval['requiredRole'], projectId:
     updatedAt: '2026-10-14T08:00:00.000Z',
   } as unknown as Approval;
 }
+/** A decided one, whose audit bundle may be signed, from a run with a conversation. */
+function decided(id: string, requiredRole: Approval['requiredRole'], projectId: string): Approval {
+  return {
+    ...approval(id, requiredRole, projectId),
+    status: 'approved',
+    decidedAt: '2026-10-14T08:05:00.000Z',
+    provenanceRef: { runId: randomUUID() },
+  } as unknown as Approval;
+}
 const APPROVALS = [
   approval('appr-standard', 'standard', MINE),
+  decided('appr-senior', 'senior', MINE),
   approval('appr-admin', 'admin', MINE),
   approval('appr-theirs', 'standard', THEIRS),
 ];
+/** The run's conversation, as the conversation binding reads it. */
+const MESSAGES = [{ role: 'user', content: 'Refund order 1043' }];
 
 interface Check {
   readonly actor: string;
@@ -166,13 +181,30 @@ function harness() {
         ? { kind: 'err', error: { code: 'approval-not-found', message: 'x' } }
         : { kind: 'ok', value: found };
     },
+    loadReviewDecision: async () => ({
+      kind: 'ok',
+      value: {
+        decision: 'approve',
+        reviewerId: 'rev-1',
+        reviewerRoleAtDecision: 'senior',
+        decidedAt: '2026-10-14T08:05:00.000Z',
+      },
+    }),
   } as unknown as HitlBinding;
+  const signer = createEd25519ExportSigner({ privateKey: generateEd25519KeyPair().privateKey });
+  if (signer.kind !== 'ok') throw new Error(signer.error.message);
+  const stubs = createStubAppBindings();
   const app = createApp({
-    ...createStubAppBindings(),
+    ...stubs,
+    conversationBinding: {
+      ...stubs.conversationBinding,
+      readMessages: async () => ({ kind: 'ok', value: MESSAGES }),
+    } as typeof stubs.conversationBinding,
     hitlBinding,
     reviewerBinding,
     resolveToken,
     runHandler: {} as RunHandlerBinding,
+    exportSigning: signer.value,
     authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding: binding },
   });
   const call = async (token: string, method: string, path: string, body?: unknown) => {
@@ -188,11 +220,17 @@ function harness() {
     };
   };
   const ids = (json: Record<string, unknown>) => (json.data as { id: string }[]).map((a) => a.id);
+  /** A signed export's body. */
+  const signed = (json: Record<string, unknown>) =>
+    JSON.parse(Buffer.from(json.bundle as string, 'base64').toString('utf8')) as Record<
+      string,
+      unknown
+    >;
   /** The tenant-admin checks the binding was asked, by whom, with what answer and which request's id. */
   const adminChecks = () => checks.filter((c) => c.action === 'admin');
   /** The tenant-admin refusals decided before the binding (an API key's limits), as recorded. */
   const adminRefusalsRecorded = () => recorded.filter((c) => c.action === 'admin');
-  return { call, ids, adminChecks, adminRefusalsRecorded };
+  return { call, ids, signed, adminChecks, adminRefusalsRecorded };
 }
 
 describe('a person who is the tenant admin, with no roster entry, reads as an admin reviewer', () => {
@@ -200,7 +238,7 @@ describe('a person who is the tenant admin, with no roster entry, reads as an ad
     const h = harness();
     const answer = await h.call('admin', 'GET', '/v1/approvals');
     expect(answer.status).toBe(200);
-    expect(h.ids(answer.json)).toEqual(['appr-standard', 'appr-admin']);
+    expect(h.ids(answer.json)).toEqual(['appr-standard', 'appr-senior', 'appr-admin']);
   });
 
   test("one approval: an admin-tier one is found; another project's is not", async () => {
@@ -232,16 +270,16 @@ describe('a person who is the tenant admin, with no roster entry, reads as an ad
     ]);
   });
 
-  test("it can't decide, or sign an audit bundle: those stay the roster's", async () => {
+  test("it can't decide: that stays the roster's", async () => {
     const h = harness();
-    for (const [path, body] of [
-      ['/v1/approvals/appr-standard/complete', { decision: 'approve' }],
-      ['/v1/approvals/appr-standard/audit-bundle', {}],
-    ] as const) {
-      const answer = await h.call('admin', 'POST', path, body);
-      expect(answer.status, path).toBe(403);
-      expect(answer.json.error, path).toMatchObject({ code: 'permission-denied' });
-    }
+    const answer = await h.call('admin', 'POST', '/v1/approvals/appr-standard/complete', {
+      decision: 'approve',
+    });
+    expect(answer.status).toBe(403);
+    expect(answer.json.error).toMatchObject({
+      code: 'permission-denied',
+      details: { action: 'admin' },
+    });
     // A write makes no tenant-admin check.
     expect(h.adminChecks()).toEqual([]);
   });
@@ -250,7 +288,61 @@ describe('a person who is the tenant admin, with no roster entry, reads as an ad
     const h = harness();
     const answer = await h.call('admin-key', 'GET', '/v1/approvals');
     expect(answer.status).toBe(200);
-    expect(h.ids(answer.json)).toEqual(['appr-standard', 'appr-admin']);
+    expect(h.ids(answer.json)).toEqual(['appr-standard', 'appr-senior', 'appr-admin']);
+  });
+});
+
+describe('the tenant admin exports what it reads: a signed audit bundle', () => {
+  const path = '/v1/approvals/appr-senior/audit-bundle';
+
+  test("with no roster entry: one of any tier, with its run's conversation", async () => {
+    const h = harness();
+    const answer = await h.call('admin', 'POST', path, { includeMessages: true });
+    expect(answer.status).toBe(200);
+    expect(h.signed(answer.json)).toMatchObject({
+      approvalId: 'appr-senior',
+      requiredRole: 'senior',
+      evidence: { messages: MESSAGES },
+    });
+    expect(h.adminChecks().map((c) => [c.actor, c.allowed])).toEqual([[ADMIN, true]]);
+  });
+
+  test('on the roster below its tier: one above it, as get reads it', async () => {
+    const h = harness();
+    expect((await h.call('admin-standard', 'GET', '/v1/approvals/appr-senior')).status).toBe(200);
+    const answer = await h.call('admin-standard', 'POST', path, {});
+    expect(answer.status).toBe(200);
+    expect(h.signed(answer.json)).toMatchObject({ approvalId: 'appr-senior' });
+    expect(h.adminChecks().map((c) => [c.actor, c.allowed])).toEqual([
+      [ADMIN_STANDARD, true],
+      [ADMIN_STANDARD, true],
+    ]);
+  });
+
+  test("another project's is not found", async () => {
+    const h = harness();
+    const answer = await h.call('admin', 'POST', '/v1/approvals/appr-theirs/audit-bundle', {});
+    expect(answer.status).toBe(404);
+    expect(answer.json.error).toMatchObject({ code: 'approval-not-found' });
+  });
+
+  test("who isn't the tenant admin is answered as before: below its tier, not found", async () => {
+    const h = harness();
+    const answer = await h.call('standard', 'POST', path, {});
+    expect(answer.status).toBe(404);
+    expect(answer.json.error).toMatchObject({ code: 'approval-not-found' });
+  });
+
+  test('a person who is neither, or an API key with no user (even an admin one): refused, as a read', async () => {
+    const h = harness();
+    for (const token of ['member', 'key']) {
+      const answer = await h.call(token, 'POST', path, {});
+      expect(answer.status, token).toBe(403);
+      expect(answer.json.error, token).toMatchObject({
+        code: 'permission-denied',
+        details: { action: 'read' },
+      });
+    }
   });
 });
 
@@ -305,7 +397,7 @@ describe('a reviewer below admin', () => {
   test('an admin reviewer reads as it did: no tenant-admin check', async () => {
     const h = harness();
     const answer = await h.call('admin-reviewer', 'GET', '/v1/approvals');
-    expect(h.ids(answer.json)).toEqual(['appr-standard', 'appr-admin']);
+    expect(h.ids(answer.json)).toEqual(['appr-standard', 'appr-senior', 'appr-admin']);
     expect((await h.call('admin-reviewer', 'GET', '/v1/approvals/appr-admin')).status).toBe(200);
     expect(h.adminChecks()).toEqual([]);
   });
@@ -320,6 +412,16 @@ describe('the reads it opens', () => {
         !op.openapiPath.startsWith('/v1/approvals/reviewers'),
     ).map((op) => op.openapiPath);
     expect(gets.sort()).toEqual(['/v1/approvals', '/v1/approvals/{approvalId}']);
+  });
+
+  test("and the export: the one POST it opens, by its path, is an approval's audit bundle", () => {
+    const posts = OPERATIONS.filter(
+      (op) =>
+        op.method === 'post' &&
+        op.openapiPath.startsWith('/v1/approvals') &&
+        op.openapiPath.endsWith('/audit-bundle'),
+    ).map((op) => op.openapiPath);
+    expect(posts).toEqual(['/v1/approvals/{approvalId}/audit-bundle']);
   });
 });
 

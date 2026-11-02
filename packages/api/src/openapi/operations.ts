@@ -3885,7 +3885,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'approvals.auditBundle',
     summary: 'Export a signed audit bundle for a decided approval',
     description:
-      "Signs the approval, its decision and its evidence with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports, so one verifier reads all three; check `publicKey` against `GET /v1/export-signing-keys`. For a decided approval only (approved, rejected, escalated, expired, withdrawn): a pending one is `409 approval-not-decided`. A deployment with no export key answers `404 signing-not-configured`.",
+      "Signs the approval, its decision and its evidence with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports, so one verifier reads all three; check `publicKey` against `GET /v1/export-signing-keys`. Requires a reviewer, or (with authorization on) a person who is the tenant's admin, as get does: the caller exports the approvals it reads, and the tenant's admin reads one of any tier. Exporting decides nothing. For a decided approval only (approved, rejected, escalated, expired, withdrawn): a pending one is `409 approval-not-decided`. A deployment with no export key answers `404 signing-not-configured`.",
     tags: ['approvals'],
     security: 'bearer',
     parameters: [ApprovalIdPathParam, IdempotencyKeyParam],
@@ -3893,7 +3893,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Signed audit bundle.', schema: ref('ExportAuditBundleResult') },
       ...CommonMutationErrors,
-      '403': ErrorResponse("The caller isn't a reviewer."),
+      '403': ErrorResponse("The caller isn't a reviewer or the tenant's admin."),
       '404': ErrorResponse(
         'Approval not found, signing key id unknown, or signing not configured on this deployment.',
       ),

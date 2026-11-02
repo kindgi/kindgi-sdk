@@ -3076,7 +3076,7 @@ class ApprovalsResource:
     ) -> _models.ExportAuditBundleResult:
         """Export a signed audit bundle for a decided approval. `POST /v1/approvals/{approvalId}/audit-bundle`
 
-        Signs the approval, its decision and its evidence with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports, so one verifier reads all three; check `publicKey` against `GET /v1/export-signing-keys`. For a decided approval only (approved, rejected, escalated, expired, withdrawn): a pending one is `409 approval-not-decided`. A deployment with no export key answers `404 signing-not-configured`.
+        Signs the approval, its decision and its evidence with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports, so one verifier reads all three; check `publicKey` against `GET /v1/export-signing-keys`. Requires a reviewer, or (with authorization on) a person who is the tenant's admin, as get does: the caller exports the approvals it reads, and the tenant's admin reads one of any tier. Exporting decides nothing. For a decided approval only (approved, rejected, escalated, expired, withdrawn): a pending one is `409 approval-not-decided`. A deployment with no export key answers `404 signing-not-configured`.
         """
         return self._client._request(
             _OPERATIONS["approvals.auditBundle"],
@@ -13222,7 +13222,7 @@ class AsyncApprovalsResource:
     ) -> _models.ExportAuditBundleResult:
         """Export a signed audit bundle for a decided approval. `POST /v1/approvals/{approvalId}/audit-bundle`
 
-        Signs the approval, its decision and its evidence with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports, so one verifier reads all three; check `publicKey` against `GET /v1/export-signing-keys`. For a decided approval only (approved, rejected, escalated, expired, withdrawn): a pending one is `409 approval-not-decided`. A deployment with no export key answers `404 signing-not-configured`.
+        Signs the approval, its decision and its evidence with the deployment's export key, and records the export (an `export-signed` audit event). The same envelope as the other signed exports, so one verifier reads all three; check `publicKey` against `GET /v1/export-signing-keys`. Requires a reviewer, or (with authorization on) a person who is the tenant's admin, as get does: the caller exports the approvals it reads, and the tenant's admin reads one of any tier. Exporting decides nothing. For a decided approval only (approved, rejected, escalated, expired, withdrawn): a pending one is `409 approval-not-decided`. A deployment with no export key answers `404 signing-not-configured`.
         """
         return await self._client._request(
             _OPERATIONS["approvals.auditBundle"],

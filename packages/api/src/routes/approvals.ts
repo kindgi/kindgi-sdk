@@ -102,6 +102,14 @@ const DECIDED_STATUSES: ReadonlySet<ApprovalStatus> = new Set([
  */
 const AUDIT_BUNDLE_SCHEMA_VERSION = '2.0.0';
 
+/**
+ * Whether a request only reads: a GET (the list and one approval), or an
+ * approval's signed audit bundle, which signs a decided record and decides
+ * nothing.
+ */
+const onlyReads = (c: Context<AppEnv>): boolean =>
+  c.req.method === 'GET' || (c.req.method === 'POST' && c.req.path.endsWith('/audit-bundle'));
+
 export interface ApprovalsRouterOptions {
   /** Signs audit bundles. Absent: `POST /:approvalId/audit-bundle` answers `404 signing-not-configured`. */
   readonly exportSigning?: ExportSigningBinding;
@@ -127,8 +135,9 @@ export interface ApprovalsRouterOptions {
  * (`ReviewerBinding.resolveReviewerRole`). A caller with neither gets
  * `403 permission-denied` on every approvals route — this surface is
  * reviewer-only — with one exception: with an authorizer, a person who
- * is the tenant's admin reads (the list and one approval) at every tier.
- * With no roster entry, they read as an `admin` reviewer. A reviewer below
+ * is the tenant's admin reads (the list and one approval) at every tier,
+ * and exports what they read (an approval's signed audit bundle, which
+ * decides nothing). With no roster entry, they read as an `admin` reviewer. A reviewer below
  * `admin` who is one reads their own tier, and any tier they ask for
  * (`requiredRole`, or one approval). It's the set that may register itself
  * as an `admin` reviewer (`reviewersRouter`). Deciding stays the roster's,
@@ -221,20 +230,21 @@ export function approvalsRouter(
   // ---------- role gate for the whole resource ----------
   // A reviewer: a token that carries a role, or whose user the roster
   // names (a session or API key of a registered reviewer). A read (the
-  // only GETs here are the list and one approval) by someone the roster
-  // doesn't name, who is a person and the tenant's admin, goes on as an
-  // `admin` reviewer: the tier checks then pass, and the project filter
-  // still applies. The roster shows no entry; the authorizer records the
-  // check, as it records every one.
+  // only GETs here are the list and one approval, and an approval's
+  // signed audit bundle reads it too) by someone the roster doesn't name,
+  // who is a person and the tenant's admin, goes on as an `admin`
+  // reviewer: the tier checks then pass, and the project filter still
+  // applies. The roster shows no entry; the authorizer records the check,
+  // as it records every one.
   r.use('*', async (c, next) => {
     let role = await callerReviewerRole(c, reviewerBinding);
-    if (role === undefined && c.req.method === 'GET' && (await readsAsTenantAdmin(c))) {
+    if (role === undefined && onlyReads(c) && (await readsAsTenantAdmin(c))) {
       role = 'admin';
       c.set('reviewerRole', role);
     }
     if (role === undefined) {
       return refused(c, authorizer, {
-        action: c.req.method === 'GET' ? 'read' : 'admin',
+        action: onlyReads(c) ? 'read' : 'admin',
         resource: ref('tenant', c.get('tenantId') as unknown as string),
         message:
           "The caller isn't a reviewer: its token carries no reviewer role, and its user isn't registered as one (`kindgi reviewers register`). The approvals surface is reviewer-only.",
@@ -816,17 +826,18 @@ export function approvalsRouter(
     const { signingKeyId, includeMessages } = parsed.value;
 
     // 1. Load the approval + enforce role scoping (404 for out-of-scope).
+    //    What get reads, the caller exports: one above its tier too, when
+    //    it reads at every tier as the tenant's admin.
     const found = await hitlBinding.getApproval(tenantId, approvalId);
     if (found.kind === 'err') {
       c.status(statusFor(found.error.code) as never);
       return c.json(toWireError(found.error as never, requestId));
     }
     const approval = found.value;
-    if (
-      REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role] ||
-      !(await mayRead(c, approval)) ||
-      !(await seesAddressed(c, approval))
-    ) {
+    const aboveTier =
+      REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role] &&
+      !(await readsAsTenantAdmin(c));
+    if (aboveTier || !(await mayRead(c, approval)) || !(await seesAddressed(c, approval))) {
       c.status(statusFor('approval-not-found') as never);
       return c.json(
         toWireError(
