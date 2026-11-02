@@ -235,6 +235,11 @@ def send_mail(message: Message, ctx: ToolContext) -> Sent:
   shortly before it expires, and each call gets the one that's current.
 - **`account`** is whose account it is: its `label` is what people see,
   such as `ana@acme.com`, and its `id` is its stable id at the app.
+- **`name`** (runtime 0.5.0 or later) is the connection's name: the one
+  it was given, else its account's `label`
+  ([Name a connection](../choose-a-connection/#name-a-connection)). From
+  an older runtime it's absent in TypeScript, `None` in Python and `null`
+  in Java and Scala.
 - **In TypeScript, `ctx.connections` is optional in the type,** because a
   unit test builds its own context ([Test it](#test-it)). In Python, Java
   and Scala, it's a map, empty when the tool declares none. In a call the
