@@ -11,7 +11,7 @@
  * as text, never as HTML.
  */
 (() => {
-  const { __, _n, sprintf } = wp.i18n;
+  const { __, sprintf } = wp.i18n;
   // Read when a link is made: the page sets its config before or after this script.
   const urls = () => window.kindgiConfig?.urls ?? {};
 
@@ -226,7 +226,10 @@
   /** Who asked, in words: the card says it before when. */
   function askedWords(asked) {
     if (asked.kind === 'you') return __('You asked', 'kindgi');
-    if (asked.kind === 'person') return sprintf(__('%s asked', 'kindgi'), asked.name);
+    if (asked.kind === 'person') {
+      /* translators: %s: a person's name */
+      return sprintf(__('%s asked', 'kindgi'), asked.name);
+    }
     if (asked.kind === 'kindgi') return __('Asked from Kindgi', 'kindgi');
     return __('Started automatically', 'kindgi');
   }
@@ -301,20 +304,7 @@
     return el(
       'details',
       { className: 'kindgi-whole' },
-      el(
-        'summary',
-        {},
-        sprintf(
-          /* translators: %d: how many fields the call has */
-          _n(
-            'The whole call (%d field)',
-            'The whole call (%d fields)',
-            card.whole.length,
-            'kindgi',
-          ),
-          card.whole.length,
-        ),
-      ),
+      el('summary', {}, __('The whole call', 'kindgi')),
       el(
         'dl',
         { className: 'kindgi-facts' },
@@ -329,6 +319,7 @@
    */
   function orderChip(card) {
     if (card.about?.kind !== 'woocommerce.order') return null;
+    /* translators: %s: the order's number */
     const label = sprintf(__('Order #%s', 'kindgi'), card.about.id);
     return card.orderUrl
       ? el('a', { className: 'kindgi-chip-link', href: card.orderUrl }, label)
@@ -372,6 +363,7 @@
     const node = el(
       'figure',
       { className: `kindgi-said${long ? ' kindgi-folded' : ''}` },
+      /* translators: %s: what the words are, such as the reply */
       el('figcaption', {}, sprintf(__("%s, in the agent's words", 'kindgi'), w.label)),
       text,
     );
@@ -404,6 +396,7 @@
     if (card.waitsFor === null) {
       const closed = CLOSED[card.status];
       if (closed !== undefined) return el('p', { className: 'kindgi-note' }, closed);
+      /* translators: %s: the approval's status, as Kindgi names it */
       return el('p', {}, sprintf(__('This approval is %s.', 'kindgi'), card.status));
     }
     if (card.waitsFor !== 'you') {
@@ -452,6 +445,7 @@
     if (done.waitpointResolved) return [line];
     return [
       line,
+      /* translators: %s: the run's status, as Kindgi names it */
       muted(sprintf(__('The run had already moved on (%s).', 'kindgi'), done.runStatus ?? '')),
     ];
   }
@@ -525,13 +519,19 @@
   /** A decision in words, by who made it: you, a person here, or someone at Kindgi. */
   const DECIDED = {
     approve: {
+      /* translators: %s: how long ago, such as 5 minutes ago */
       you: (at) => sprintf(__('Approved by you, %s', 'kindgi'), at),
+      /* translators: 1: a person's name, 2: how long ago, such as 5 minutes ago */
       person: (at, name) => sprintf(__('Approved by %1$s, %2$s', 'kindgi'), name, at),
+      /* translators: %s: how long ago, such as 5 minutes ago */
       kindgi: (at) => sprintf(__('Approved from Kindgi, %s', 'kindgi'), at),
     },
     reject: {
+      /* translators: %s: how long ago, such as 5 minutes ago */
       you: (at) => sprintf(__('Rejected by you, %s', 'kindgi'), at),
+      /* translators: 1: a person's name, 2: how long ago, such as 5 minutes ago */
       person: (at, name) => sprintf(__('Rejected by %1$s, %2$s', 'kindgi'), name, at),
+      /* translators: %s: how long ago, such as 5 minutes ago */
       kindgi: (at) => sprintf(__('Rejected from Kindgi, %s', 'kindgi'), at),
     },
   };
@@ -559,6 +559,7 @@
     ago,
     timeEl,
     notice,
+    technical,
     loading,
     muted,
     empty,
