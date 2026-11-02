@@ -10,13 +10,15 @@ const CALENDAR_CALLS_FREE = {
   'calendar.events.insert': 0,
   'calendar.events.patch': 0,
   'calendar.freebusy.query': 0,
+  'calendar.calendarList.list': 0,
 } as const;
 
 /**
  * Google, for a member's own account or the company's (a tenant admin
- * signs in as it): mail sent as them, their mail read, and their own
- * calendar's events read, added and changed. Each tenant registers its
- * own Google Cloud project and OAuth client (the setup guide says how).
+ * signs in as it): mail sent as them, their mail read, their calendars
+ * listed, and their own calendars' events read, added and changed. Each
+ * tenant registers its own Google Cloud project and OAuth client (the
+ * setup guide says how).
  *
  * - **Sign-in:** OAuth 2.0 with PKCE. `access_type=offline` gets a refresh
  *   token, and `include_granted_scopes` keeps what the person granted
@@ -77,6 +79,12 @@ export const google = defineApp({
       grants: 'https://www.googleapis.com/auth/calendar.events.owned',
       says: 'Add and change events on your calendars',
       changes: true,
+      review: 'sensitive',
+    },
+    'calendar.calendarlist.readonly': {
+      grants: 'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
+      says: 'See the list of your calendars',
+      changes: false,
       review: 'sensitive',
     },
   },

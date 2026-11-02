@@ -57,8 +57,11 @@ In your organization's project:
      calendar tools, add the ones they need:
      `https://www.googleapis.com/auth/calendar.events.owned.readonly` to
      list events, `https://www.googleapis.com/auth/calendar.freebusy` for
-     free/busy, and `https://www.googleapis.com/auth/calendar.events.owned`
-     to add and change events
+     free/busy,
+     `https://www.googleapis.com/auth/calendar.calendarlist.readonly` to
+     list the calendars, and
+     `https://www.googleapis.com/auth/calendar.events.owned` to add and
+     change events
      ([Calendars](../calendar/#permissions-and-review)).
    - **Clients → Create client → Web application.** Under **Authorized
      redirect URIs**, enter the console's connect page:
