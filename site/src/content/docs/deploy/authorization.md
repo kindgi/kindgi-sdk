@@ -508,7 +508,7 @@ project's admins.
 A project admin changes who works there:
 
 - **Add someone** by their email in the workspace, with one of the four roles.
-  An email that isn't one of the tenant's people isn't added: "No one with
+  An email that isn't one of the workspace's people isn't added: "No one with
   that email in this tenant: a tenant admin adds them on People first."
 - **Change** a person's role of their own. When another way in gives them
   more, it says so under it, such as "editor through another way in". A
