@@ -90,7 +90,7 @@ decided one opens its own page.
 | Dashboard | *(empty)* | how the project is doing |
 | Agents | `agents`, one: `agents/<agentId>`, `…/runs`, `…/corrections` | the agents, their versions, which one is pinned |
 | Runs | `runs` | every answer and flow run, newest first, with its cost |
-| One run | `agents/<agentId>/runs/<runId>` or `flows/<flowId>/runs/<runId>` (`runs/<runId>` finds either); tabs `/journal`, `/provenance`, `/cost`, `/corrections` | the message, each tool it called with what it sent, the answer or what stopped it; then every step, what ran with what, what it cost, how it was rated |
+| One run | `agents/<agentId>/runs/<runId>` or `flows/<flowId>/runs/<runId>`, tabs `/journal`, `/provenance`, `/cost`, `/corrections`; `runs/<runId>`, with no tab, finds either | the message, each tool it called with what it sent, the answer or what stopped it; then every step, what ran with what, what it cost, how it was rated |
 | What failed | `runs/failures` | failed runs, grouped by why |
 | Approvals | `approvals`, one: `approvals/<approvalId>` | what waits for a person's decision |
 | Tools | `tools`, one: `tools/<toolId>` | the tools, what each may do and change |
