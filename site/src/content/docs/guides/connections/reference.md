@@ -120,6 +120,13 @@ connection it ran on, but in a record without `pick` the connections of one
 app share one line. These lines name a person's own connection by its app
 only.
 
+The page tells that a call ran from the call's result, so two cases come
+out wrong. In a turn that's still running, or that failed, it has no
+results to read, so a call that the check right before its tool stopped,
+such as with `connection-changed`, still shows its line. And in a turn
+that completed, a call that ran, was refused by the app and then
+couldn't get its connection again shows none.
+
 Anyone with `read` on the project can read the run's journal, and so this
 record, a person's account label included.
 

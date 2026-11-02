@@ -130,6 +130,12 @@ Chose support at google for agent acme.mail-helper (choice 5d1c9e07-…).
   `Chose sales at google for agent acme.mail-helper (choice 8e2a4b13-…), in place of support (choice 5d1c9e07-…).`
   A choice is never edited: the old one is removed, and the next one has
   the next `version`. Choosing the one it already uses changes nothing.
+- **A run keeps the connection it got through a choice.** Within a run
+  and the runs it starts, an agent or a flow keeps the connection its
+  first call got through its choice. So replacing or removing that
+  choice applies to every run that hasn't used it yet.
+  `@kindgi/connections-inmemory`, for development and tests, keeps no
+  run's choice: it answers each call from the current choice.
 - **It's refused** for a person's own live connection in the
   environment, `400 bad-input` ("A person's own connection is used for
   them; choices are for the company's."), for any other connection that
@@ -162,8 +168,8 @@ pnpm exec kindgi connection-choices unset 8e2a4b13-…
 ```
 
 It asks first, unless you give `--yes`, then prints
-`Removed connection choice 8e2a4b13-….` The agent or flow then uses the
-project's only candidate at the app, and stops with
+`Removed connection choice 8e2a4b13-….` The agent's or flow's next runs
+then use the project's only candidate at the app, and stop with
 `connection-not-chosen` when there are several. Over HTTP, that's
 `DELETE /v1/connection-choices/{choiceId}`, and `connectionChoices.remove`
 in the clients. A removed or unknown choice, or one in a project you
@@ -174,6 +180,8 @@ connection choice takes a project admin.").
 Disconnecting a chosen connection leaves its choice in place. The agent's
 calls at that app then fail with `connection-missing`, naming the
 connection, until a project admin chooses another or removes the choice.
+A run that already kept the connection goes on failing at that app: the
+other runs go by the choice as it is then.
 
 ## Who sees what
 
@@ -227,10 +235,14 @@ needs a project with one candidate of the app.
 A call's connection is decided before it waits for its yes, and asked for
 again right before the tool runs. When the two differ, the call doesn't
 run, and fails with `connection-changed`. So an approved call runs only on
-the connection it was approved against. That happens when, while the call
-waited, a project admin chose another connection for the agent, or a
-connection was disconnected and another account connected in its place.
-It holds for a person's connection too.
+the connection it was approved against, a person's connection too. That
+happens, for example, when the connection was disconnected while the call
+waited and another account connected in its place. A call that got its
+connection through a choice keeps it, since its run keeps that connection
+([Choose one for an agent or a flow](#choose-one-for-an-agent-or-a-flow)),
+so a choice replaced while the call waited doesn't change it. With
+`@kindgi/connections-inmemory`, which answers each call from the current
+choice, it does, and the call fails with `connection-changed`.
 
 The model reads why as the call's result, and the turn goes on. For the
 company's connection, it names the connection before and after:
