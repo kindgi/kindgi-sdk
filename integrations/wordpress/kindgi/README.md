@@ -23,7 +23,7 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
 
 - **WordPress** 6.4 or later.
 - **PHP** 7.4 or later, with sodium. WordPress ships a fallback for PHP builds without ext/sodium.
-- **Kindgi with site sign-in on:** Kindgi Cloud has it on. A runtime you run needs:
+- **Kindgi with site sign-in on:** Kindgi Cloud's is coming. A runtime you run needs:
   - `KINDGI_SITE_SIGN_IN=true`;
   - authorization enforced (`KINDGI_OPENFGA_API_URL`);
   - `KINDGI_PUBLIC_URL`.
@@ -94,7 +94,7 @@ A site's statements are exactly as strong as the site's own login, and as whoeve
 
 ## When WooCommerce turns off a webhook to Kindgi
 
-WooCommerce turns a webhook off after 7 refused deliveries in a row (its `woocommerce_max_webhook_delivery_failures` filter, 5, is checked before the count goes up), and never resends a delivery. Where Kindgi limits webhook receives (Kindgi hosted does), it answers a delivery past the limit with 429 and `Retry-After`, which WooCommerce counts as a refusal like any other. So a webhook to Kindgi's receive URL (`/v1/hooks/<tenant id>/<webhook id>`, at any address) can stop after a burst.
+WooCommerce turns a webhook off after 7 refused deliveries in a row (its `woocommerce_max_webhook_delivery_failures` filter, 5, is checked before the count goes up), and never resends a delivery. Where Kindgi limits webhook receives (Kindgi Cloud does), it answers a delivery past the limit with 429 and `Retry-After`, which WooCommerce counts as a refusal like any other. So a webhook to Kindgi's receive URL (`/v1/hooks/<tenant id>/<webhook id>`, at any address) can stop after a burst.
 
 **Kindgi → Settings** lists the ones WooCommerce turned off, with when (from WooCommerce's `woocommerce_webhook_disabled_due_delivery_failures`), a link to each, and **Turn it on again** for someone with `manage_woocommerce`. That sets it active with its refusals counted from 0. Turned on in WooCommerce's own webhook screen instead, it keeps its refusal count until a delivery gets through, so a refusal before then turns it off again. Orders from while it was off aren't resent.
 

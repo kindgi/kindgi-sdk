@@ -134,6 +134,21 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   approval; anything else is refused (400 `bad-input`). The decision it
   answers and the approval read back carry it (`ReviewDecision.fact_text`,
   `ApprovalDecisionRecord.fact_text`).
+
+## 0.3.1
+
+- `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",
+  judge_capabilities={"needs": [{"feature": "structured-output"}]})` names what the
+  judge model is routed by, and the index carries it (`judgeCapabilities`); the decorator
+  refuses an `llm-judge` guardrail without it. Before, `@guardrail` had no way to name it,
+  and the runtime refused such a guardrail on every turn.
+
+## 0.3.1rc1
+
+No Python changes; the version moves with the npm packages.
+
+## 0.3.1rc0
+
 - `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",
   judge_capabilities={"needs": [{"feature": "structured-output"}]})` names what the
   judge model is routed by, and the index carries it (`judgeCapabilities`); the decorator

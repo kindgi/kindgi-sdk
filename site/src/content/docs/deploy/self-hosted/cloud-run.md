@@ -1270,6 +1270,14 @@ repository from
      gcloud sql export sql <instance> gs://<bucket>/<file>.sql.gz --database=<database_name>
      ```
 
+     A new grant can take a few minutes to take effect. Until it does, the
+     export is refused with HTTP 412 and "the required permissions for the
+     bucket", or with HTTP 403, "failed to initiate resumable upload" and
+     "storage.objects.create": wait a minute and run the export again. A
+     403 without "storage.objects.create", such as one from an organization
+     policy or VPC Service Controls, isn't the grant's delay, and waiting
+     won't fix it.
+
    Writes made after the backup aren't in it.
 5. **Set the new image:** `server_image` in `prod.tfvars`, to
    `$REPO/runtime@sha256:<new digest>`. Keep a copy of the file as it was:

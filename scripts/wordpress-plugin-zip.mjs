@@ -8,7 +8,8 @@
  * with the plugin's tracked files less its tests, and the repository's
  * LICENSE and NOTICE (Apache-2.0 asks for both with every copy).
  * `<version>` is the plugin's own (its header's `Version:`, which
- * `KINDGI_PLUGIN_VERSION` must equal), not the SDK's.
+ * `KINDGI_PLUGIN_VERSION` and readme.txt's `Stable tag:` must equal), not
+ * the SDK's.
  *
  * Next to it, `kindgi-<version>.zip.sha256`, as `sha256sum` writes it:
  * `sha256sum -c kindgi-<version>.zip.sha256` checks a download.
@@ -74,6 +75,21 @@ export function pluginVersion(source) {
 }
 
 /**
+ * Checks readme.txt's `Stable tag:` is the plugin's version: the WordPress.org
+ * directory serves the release that tag names. Throws when it's missing or
+ * differs.
+ */
+export function checkStableTag(readme, version) {
+  const tag = /^Stable tag:[ \t]*(.+?)[ \t]*$/im.exec(readme)?.[1];
+  if (tag === undefined) throw new Error('readme.txt has no `Stable tag:`');
+  if (tag !== version) {
+    throw new Error(
+      `readme.txt's Stable tag is ${tag} but kindgi.php's version is ${version}: they must be the same`,
+    );
+  }
+}
+
+/**
  * What goes in the zip, as its paths: the plugin's tracked files (paths
  * under its folder) less `tests/` and dot files, the license files, and
  * each folder they're in, so a folder comes before what's in it.
@@ -118,6 +134,7 @@ function trackedPluginFiles(root) {
 export function buildZip(root, outDir) {
   const tracked = trackedPluginFiles(root);
   const version = pluginVersion(readFileSync(join(root, PLUGIN_DIR, 'kindgi.php'), 'utf8'));
+  checkStableTag(readFileSync(join(root, PLUGIN_DIR, 'readme.txt'), 'utf8'), version);
   const entries = zipEntries(tracked);
   const time = Number(git(root, ['log', '-1', '--format=%ct', 'HEAD']).trim());
   const name = `${PLUGIN_SLUG}-${version}.zip`;

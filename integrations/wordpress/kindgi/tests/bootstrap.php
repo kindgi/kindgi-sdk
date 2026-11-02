@@ -189,12 +189,12 @@ function _n( string $single, string $plural, int $number, string $domain = 'defa
 	return 1 === $number ? $single : $plural;
 }
 
-function esc_html( string $text ): string {
-	return htmlspecialchars( $text, ENT_QUOTES, 'UTF-8' );
+function esc_html( $text ): string {
+	return htmlspecialchars( (string) $text, ENT_QUOTES, 'UTF-8' );
 }
 
 function esc_html__( string $text, string $domain = 'default' ): string {
-	return esc_html( $text );
+	return esc_html( __( $text, $domain ) );
 }
 
 function esc_url( string $url ): string {

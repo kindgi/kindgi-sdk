@@ -22,6 +22,9 @@ final class Kindgi_Admin {
 	const ASK_PAGE      = 'kindgi-ask';
 	const SETTINGS_PAGE = 'kindgi-settings';
 
+	/** Where the privacy guide's text links Kindgi Cloud's privacy policy, until that page is published. */
+	const PRIVACY_URL = '<privacy URL>';
+
 	/** The connect form's action and nonce. */
 	const CONNECT = 'kindgi_connect';
 
@@ -44,6 +47,7 @@ final class Kindgi_Admin {
 		add_action( 'admin_post_' . self::OFFER, array( self::class, 'offer' ) );
 		add_filter( 'wp_privacy_personal_data_exporters', array( self::class, 'exporters' ) );
 		add_filter( 'wp_privacy_personal_data_erasers', array( self::class, 'erasers' ) );
+		add_action( 'admin_init', array( self::class, 'privacy_policy' ) );
 	}
 
 	/**
@@ -138,6 +142,48 @@ final class Kindgi_Admin {
 			'messages'       => $retained ? array( __( 'Kindgi is told this person left this site, which ends their access there for good. Kindgi keeps its own record of them, and their name stays on what they did.', 'kindgi' ) ) : array(),
 			'done'           => true,
 		);
+	}
+
+	/**
+	 * The plugin's part of WordPress's privacy policy guide (Settings →
+	 * Privacy → Policy Guide), for the site's owner to copy into their own
+	 * privacy page.
+	 */
+	public static function privacy_policy(): void {
+		if ( function_exists( 'wp_add_privacy_policy_content' ) ) {
+			wp_add_privacy_policy_content( 'Kindgi', self::privacy_policy_text() );
+		}
+	}
+
+	/**
+	 * The guide's text: the staff's part, then the shoppers'. Each opens with
+	 * a note to the site's owner, in the guide's `privacy-policy-tutorial`
+	 * class, which isn't copied; the brackets in the suggested text are for
+	 * the owner to fill in or drop.
+	 */
+	public static function privacy_policy_text(): string {
+		return self::privacy_part(
+			__( 'Use this part if your site\'s staff use the Kindgi pages. If the site sends Kindgi no email addresses (the kindgi_statement_email filter), drop the email address and the email.', 'kindgi' ),
+			sprintf(
+				/* translators: %s: the address of Kindgi Cloud's privacy policy. */
+				__( 'Our staff can use Kindgi from this site, to ask AI agents for help and to approve or reject what an agent is about to do. When a staff member opens a Kindgi page, this site sends Kindgi a random id for them, their display name, their roles on this site and their email address, so that they act as themselves, with what their roles allow, and get an email when an approval waits for them. Kindgi also receives their messages to agents and their approval decisions, and is told when their roles change or they leave the site. The agents send what they work on to [our AI model provider]. [Kindgi Cloud, run by Kindgi Inc., processes this data for us, only to run our agents. Its privacy policy is at %s.] [We run our own Kindgi server, so this data stays on it, apart from what goes to the model provider.]', 'kindgi' ),
+				self::PRIVACY_URL
+			)
+		) . self::privacy_part(
+			__( 'Use this part if your store sends Kindgi WooCommerce webhooks, or lets agents use store tools through Kindgi. Fill in who runs your Kindgi server, your agents\' AI model provider, and the other services you\'ve connected them to.', 'kindgi' ),
+			sprintf(
+				/* translators: %s: the address of Kindgi Cloud's privacy policy. */
+				__( 'We use Kindgi to run AI agents that help our staff with the store, for example to answer a question about an order, or to prepare a refund for a person to approve. Depending on how we\'ve set it up, Kindgi receives your orders and your customer account details: your name, username, email address, phone number, billing and shipping addresses, what you bought, any note you left at checkout, and the IP address and browser you ordered from. Our staff may also mention you in a message to an agent. The agents send what they work on to [our AI model provider], and to [the other services we\'ve connected them to]. [Kindgi Cloud, run by Kindgi Inc., processes this data for us, only to run our agents. Its privacy policy is at %s.] [We run our own Kindgi server, so this data stays on it, apart from what goes to the model provider and those services.]', 'kindgi' ),
+				self::PRIVACY_URL
+			)
+		);
+	}
+
+	/** One part of the guide's text: its note to the owner, then its suggested text. */
+	private static function privacy_part( string $note, string $suggested ): string {
+		return '<p class="privacy-policy-tutorial">' . esc_html( $note ) . '</p>'
+			. '<p><strong class="privacy-policy-tutorial">' . esc_html__( 'Suggested text:', 'kindgi' ) . ' </strong>'
+			. esc_html( $suggested ) . '</p>';
 	}
 
 	public static function menu(): void {
@@ -736,9 +782,10 @@ final class Kindgi_Admin {
 		}
 		check_admin_referer( self::CONNECT );
 		// The URL is kept only once Kindgi takes the code: a typo never breaks a working connection.
+		// The field is `type="url"`, so the browser sends it without the spaces around it.
 		$url = Kindgi_Settings::url();
 		if ( ! Kindgi_Settings::url_is_constant() ) {
-			$url = rtrim( esc_url_raw( trim( wp_unslash( (string) ( $_POST['kindgi_url'] ?? '' ) ) ), array( 'https', 'http' ) ), '/' );
+			$url = rtrim( esc_url_raw( wp_unslash( (string) ( $_POST['kindgi_url'] ?? '' ) ), array( 'https', 'http' ) ), '/' );
 		}
 		if ( '' === $url || ! Kindgi_Settings::url_allowed( $url ) ) {
 			self::done( 'error', __( "Kindgi's URL must be https://. An http:// URL works only on this computer (localhost) or from a local or development site.", 'kindgi' ) );
