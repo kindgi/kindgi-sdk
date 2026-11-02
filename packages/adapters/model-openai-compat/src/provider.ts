@@ -12,6 +12,7 @@ import type {
   AdapterFactoryEntry,
   AdapterFactoryInput,
   Feature,
+  FilePart,
   ModelCallInput,
   ModelCallResult,
   ModelInfo,
@@ -23,7 +24,13 @@ import type {
   ThinkingLevel,
   UsageCounters,
 } from '@kindgi/capabilities';
-import { adapterConfigError, samplingFor, thinkingFor } from '@kindgi/capabilities';
+import {
+  adapterConfigError,
+  fileParts,
+  headedFileParts,
+  samplingFor,
+  thinkingFor,
+} from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 import { createClientsByKey } from '@kindgi/capabilities/clients-by-key';
 import { nameToolsAsSent, toolIdsBySentName } from '@kindgi/capabilities/tool-names';
@@ -36,7 +43,13 @@ import {
   requestOptions,
 } from './responses.js';
 import { retryAttempts, sendWithRetries } from './retry.js';
-import { SERVER_ENV_NEVER, computeCost, decodeToolName, encodeToolName } from './wire.js';
+import {
+  SERVER_ENV_NEVER,
+  computeCost,
+  decodeToolName,
+  encodeToolName,
+  outputCapOf,
+} from './wire.js';
 
 /**
  * Configuration for an OpenAI-compatible ModelProvider. `baseURL` is the
@@ -225,6 +238,14 @@ export function createOpenAICompatModelProvider(
           ? { ...m, content: nameToolsAsSent(m.content, toolIds, encodeToolName) }
           : m,
       );
+      // Images and PDFs go to a model that declares `vision`; text files to any.
+      const vision = modelInfo.features.includes('vision');
+      const files = await fileParts(input.messages, {
+        readFile: input.readFile,
+        images: vision,
+        documents: vision,
+        contextWindow: modelInfo.contextWindow,
+      });
       const sampling = samplingFor(modelInfo, input);
       // The call's level, or the model's default, as one the model takes.
       const thinking = thinkingFor(modelInfo, input);
@@ -236,6 +257,7 @@ export function createOpenAICompatModelProvider(
           attempts,
           maxAttempts,
           input: { ...input, messages: sent },
+          files,
           modelInfo,
           providerId: metadata.id,
           extraBody,
@@ -248,8 +270,9 @@ export function createOpenAICompatModelProvider(
         });
       }
 
-      const messages = sent.map(toOpenAiMessage);
+      const messages = toOpenAiMessages(sent, files);
       const tools = input.tools?.map(toOpenAiTool);
+      const maxTokens = outputCapOf(modelInfo, input);
 
       const responseFormat = input.structuredOutput
         ? {
@@ -278,7 +301,7 @@ export function createOpenAICompatModelProvider(
                     OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming['reasoning_effort']
                   >,
                 }),
-                ...(input.maxOutputTokens !== undefined && { max_tokens: input.maxOutputTokens }),
+                ...(maxTokens !== undefined && { max_tokens: maxTokens }),
                 stream: false,
               },
               requestOptions(input),
@@ -339,6 +362,66 @@ export function createOpenAICompatModelProvider(
 function reasoningOf(model: ModelInfo, level: ThinkingLevel | undefined): Reasoning | undefined {
   if (level === undefined || model.thinking === undefined) return undefined;
   return { level, effort: level === 'lowest' ? model.thinking.lowest : level };
+}
+
+/**
+ * The conversation as Chat Completions messages. A user message's files
+ * (`files`, by index) follow its text under the outside-data heading. A
+ * tool message takes text only, so a tool result's files move: after the
+ * run of tool messages, one user message holds each result's files under a
+ * heading that names its call.
+ */
+function toOpenAiMessages(
+  messages: readonly ModelMessage[],
+  files: readonly (readonly FilePart[])[],
+): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
+  const out: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
+  let moved: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [];
+  const flushMoved = (): void => {
+    if (moved.length > 0) out.push({ role: 'user', content: moved });
+    moved = [];
+  };
+  for (const [i, m] of messages.entries()) {
+    const parts = files[i] ?? [];
+    if (m.role !== 'tool') flushMoved();
+    if (m.role === 'user' && parts.length > 0) {
+      out.push({
+        role: 'user',
+        content: [
+          ...(m.content.length > 0 ? [{ type: 'text' as const, text: m.content }] : []),
+          ...headedFileParts(parts).map(toOpenAiContentPart),
+        ],
+      });
+      continue;
+    }
+    out.push(toOpenAiMessage(m));
+    if (m.role === 'tool') {
+      const from = { toolCallId: m.toolCallId ?? '' };
+      moved.push(...headedFileParts(parts, from).map(toOpenAiContentPart));
+    }
+  }
+  flushMoved();
+  return out;
+}
+
+function toOpenAiContentPart(part: FilePart): OpenAI.Chat.Completions.ChatCompletionContentPart {
+  switch (part.kind) {
+    case 'text':
+      return { type: 'text', text: part.text };
+    case 'image':
+      return {
+        type: 'image_url',
+        image_url: { url: `data:${part.mediaType};base64,${part.data}` },
+      };
+    case 'document':
+      return {
+        type: 'file',
+        file: {
+          filename: 'document.pdf',
+          file_data: `data:${part.mediaType};base64,${part.data}`,
+        },
+      };
+  }
 }
 
 function toOpenAiMessage(m: ModelMessage): OpenAI.Chat.Completions.ChatCompletionMessageParam {

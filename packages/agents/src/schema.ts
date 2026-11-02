@@ -166,7 +166,7 @@ export const agentRunSnapshots = pgTable(
      */
     authz: jsonb('authz'),
     /**
-     * The replay marker (`{of, evalRunId}`) of a replay turn, so a resumed
+     * The replay marker (`{of, testRunId}`) of a replay turn, so a resumed
      * replay stays one: its tool calls are still decided by the replay rules.
      */
     replay: jsonb('replay'),

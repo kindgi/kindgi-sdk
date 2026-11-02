@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: packages/cli/README.md site/src/content/docs/start/existing-app-typescript.md
 
 /**
  * What a pack image's install reads: the app's own lockfile and

@@ -65,7 +65,7 @@ class Operation:
     id: str
     method: str
     path: str
-    response_kind: Literal["json", "sse", "binary", "empty"]
+    response_kind: Literal["json", "sse", "binary", "byte-stream", "empty"]
     idempotency_key: bool
 
 
@@ -444,6 +444,31 @@ class SyncClientBase(_Common):
             elif received == 0:
                 time.sleep(FOLLOW_PAUSE)
 
+    def _stream_bytes(
+        self,
+        op: Operation,
+        *,
+        path: Mapping[str, Any],
+        query: Mapping[str, Any],
+        headers: Mapping[str, Any],
+        timeout: float | None = None,
+    ) -> Iterator[bytes]:
+        """A body handed on as it arrives (`x-kindgi-streamed`), never retried:
+        each try is its own export on the server. Stopping early closes the
+        response."""
+        url, params, sent, _ = self._prepare(op, path, query, headers)
+        sent["Accept"] = "*/*"
+        try:
+            with self._http.stream(
+                op.method, url, params=params, headers=sent, timeout=timeout or self.timeout
+            ) as answer:
+                if not answer.is_success:
+                    answer.read()
+                    self._answer(op, answer, None)
+                yield from answer.iter_bytes()
+        except (httpx.TransportError, httpx.StreamError) as cause:
+            raise NetworkError(f"{op.id}: the stream dropped: {cause}") from cause
+
 
 class AsyncClientBase(_Common):
     def __init__(
@@ -600,3 +625,29 @@ class AsyncClientBase(_Common):
                 await asyncio.sleep(_stream_backoff(op, attempt, retry))
             elif received == 0:
                 await asyncio.sleep(FOLLOW_PAUSE)
+
+    async def _stream_bytes(
+        self,
+        op: Operation,
+        *,
+        path: Mapping[str, Any],
+        query: Mapping[str, Any],
+        headers: Mapping[str, Any],
+        timeout: float | None = None,
+    ) -> AsyncIterator[bytes]:
+        """A body handed on as it arrives (`x-kindgi-streamed`), never retried:
+        each try is its own export on the server. Stopping early (`aclose()`)
+        closes the response."""
+        url, params, sent, _ = self._prepare(op, path, query, headers)
+        sent["Accept"] = "*/*"
+        try:
+            async with self._http.stream(
+                op.method, url, params=params, headers=sent, timeout=timeout or self.timeout
+            ) as answer:
+                if not answer.is_success:
+                    await answer.aread()
+                    self._answer(op, answer, None)
+                async for chunk in answer.aiter_bytes():
+                    yield chunk
+        except (httpx.TransportError, httpx.StreamError) as cause:
+            raise NetworkError(f"{op.id}: the stream dropped: {cause}") from cause

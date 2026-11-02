@@ -3,10 +3,11 @@
 
 /**
  * What both of the adapter's OpenAI APIs (Chat Completions and
- * Responses) share: tool names on the wire, tool-call arguments, cost.
+ * Responses) share: tool names on the wire, tool-call arguments, the
+ * output cap, cost.
  */
 
-import type { ModelInfo, UsageCounters } from '@kindgi/capabilities';
+import type { ModelCallInput, ModelInfo, UsageCounters } from '@kindgi/capabilities';
 
 /**
  * OpenAI (and every downstream compat endpoint — Ollama, vLLM, Groq,
@@ -27,6 +28,15 @@ export function encodeToolName(name: string): string {
 
 export function decodeToolName(name: string): string {
   return name.replace(/__/g, '.');
+}
+
+/**
+ * The output cap a call is sent: its own (its agent's `maxOutputTokens`),
+ * else the one its model is registered with. Absent: neither sets one,
+ * and the request carries none.
+ */
+export function outputCapOf(modelInfo: ModelInfo, input: ModelCallInput): number | undefined {
+  return input.maxOutputTokens ?? modelInfo.maxOutputTokens;
 }
 
 /** A tool call's JSON arguments as an object; `{}` when they don't parse. */

@@ -16,6 +16,7 @@ import {
   guardrailCoversTool,
   guardrailPoint,
   guardrailPointIssues,
+  indexedCheckPoints,
   isGuardrailPoint,
   validateGuardrail,
   validateGuardrailSpec,
@@ -75,6 +76,18 @@ describe('points', () => {
     expect(checkPoints({})).toEqual(DEFAULT_CHECK_POINTS);
     expect(DEFAULT_CHECK_POINTS).toEqual(['final-answer']);
     expect(checkPoints({ points: ['model-step'] })).toEqual(['model-step']);
+  });
+
+  test("a pack check's points as its index lists them: the known ones, in order, once each", () => {
+    expect(indexedCheckPoints(undefined)).toEqual(['final-answer']);
+    expect(indexedCheckPoints('before-tool')).toEqual(['final-answer']);
+    expect(indexedCheckPoints(['final-answer', 'before-tool', 'before-tool'])).toEqual([
+      'before-tool',
+      'final-answer',
+    ]);
+    expect(indexedCheckPoints(['before-tool', 'on-handoff'])).toEqual(['before-tool']);
+    expect(indexedCheckPoints(['on-handoff'])).toEqual([]);
+    expect(indexedCheckPoints([])).toEqual([]);
   });
 
   test('isGuardrailPoint knows the four points and nothing else', () => {

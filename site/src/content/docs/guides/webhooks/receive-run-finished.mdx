@@ -304,7 +304,7 @@ It prints the endpoint's id and URL:
   private address, it's `The deployment refuses this URL: private network
   addresses are not allowed`.
 - **`events`** lists the events to send: `run.finished` here.
-  `improvement-pass.finished` and `approval.requested` are the others, as
+  `improve-run.finished` and `approval.requested` are the others, as
   [Webhook events and deliveries](../webhook-events/) describes.
 - **`secretRef`** names the secret: the environment it's in, `local` in
   development, and its name. Kindgi checks that it exists and is strong
@@ -317,10 +317,13 @@ It prints the endpoint's id and URL:
 - **`filter`** (optional) narrows which runs reach the endpoint. `flowIds`
   names flows, any version of them. `projectId` names a project.
   `includeDryRuns: true` sends dry runs too, which are left out otherwise.
-  Without a filter, every run you start reaches the endpoint.
+  Without a filter, every run that sends `run.finished` reaches the endpoint,
+  except a dry run.
 
-Only runs your app or the CLI started send `run.finished`. The runs inside
-them, such as an agent step's turn, don't.
+Every run that isn't inside another run sends `run.finished`, whatever
+started it: your app, the CLI, a schedule, a webhook trigger or a mail
+trigger. The runs inside it, such as an agent step's turn, don't. A test
+run's replays don't either.
 
 ## 3. What your endpoint receives
 

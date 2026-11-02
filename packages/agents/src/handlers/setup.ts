@@ -11,6 +11,7 @@ import { emitTurnEvent } from '../streaming.js';
 
 import type { TurnContext } from './context.js';
 import { approvalsPendingLimitOf, throwAgentTurnFailure } from './errors.js';
+import { bindRunFiles } from './files.js';
 import { SESSION_GATE_SUBJECT, readGateDecision, withdrawnGateFailure } from './gate-decision.js';
 import { followReplaySessionGate } from './replay.js';
 import { requestedBy } from './requested-by.js';
@@ -100,6 +101,7 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
       });
       ctx.provenanceBindings = ctx.bindings.provenance;
     }
+    bindRunFiles(ctx, kctx.runId as unknown as string);
 
     const conversation = await loadTurnConversation(ctx);
 

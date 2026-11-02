@@ -81,6 +81,7 @@ export function toWireMessages(messages: readonly ModelMessage[]): readonly Mode
           content: m.content,
           ...(m.toolCallId !== undefined && { toolCallId: m.toolCallId }),
           ...(m.toolCalls !== undefined && { toolCalls: m.toolCalls }),
+          ...(m.files !== undefined && { files: m.files }),
         },
   );
 }

@@ -280,7 +280,7 @@ describe('GET /v1/identity/me/permissions', () => {
       'flow',
       'tool',
       'guardrail',
-      'eval_suite',
+      'test_set',
       'trigger',
       'conversation',
       'secret',

@@ -36,9 +36,9 @@ In a run a person started (signed in, or with their own API key), the agent's ru
   needsApprovalWhenUnattended: true,
 ```
 
-Docs: https://docs.kindgi.com/v0.2/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
+Docs: https://docs.kindgi.com/v0.3/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
 
-A step can run more than once (resumed after an approval, retried after a failure, run again after a crash), so a tool that writes uses `ctx.idempotencyKey`: the same every time this call runs, different for every other call. Pass it to the system you write to (an `Idempotency-Key` header, a client reference, a unique column) or look for it there first, and a refund never goes out twice. Not `ctx.requestId`: a model's call id is only unique within one of its answers. The key is absent outside a run and from a runtime before 0.1.6. Docs: https://docs.kindgi.com/v0.2/guides/tools/write-a-tool/#make-a-side-effect-happen-once
+A step can run more than once (resumed after an approval, retried after a failure, run again after a crash), so a tool that writes uses `ctx.idempotencyKey`: the same every time this call runs, different for every other call. Pass it to the system you write to (an `Idempotency-Key` header, a client reference, a unique column) or look for it there first, and a refund never goes out twice. Not `ctx.requestId`: a model's call id is only unique within one of its answers. The key is absent outside a run and from a runtime before 0.1.6. Docs: https://docs.kindgi.com/v0.3/guides/tools/write-a-tool/#make-a-side-effect-happen-once
 
 ## Results that are text from outside: `resultIsOutsideData`
 

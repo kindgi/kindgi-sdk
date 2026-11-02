@@ -427,7 +427,7 @@ A pack's code gets four kinds of values. Pick by what the value is:
 
 | The value… | Use | The code reads |
 |---|---|---|
-| should change only with a new agent version, evaluated before it goes live (a threshold, a prompt parameter) | a [settings block](../../evals/change-a-prompt-or-setting/) | `ctx.settings` |
+| should change only with a new agent version, evaluated before it is pinned (a threshold, a prompt parameter) | a [settings block](../../improve/change-a-prompt-or-setting/) | `ctx.settings` |
 | differs per tenant, org or project, and isn't secret (a base URL, a region) | an env value | `ctx.env` |
 | is a credential (an API key, a signing key) | a secret | `ctx.secrets` |
 | is the pack service's own setup (its database, its SDK's config) | the pack's environment | `process.env` / `os.environ` |
@@ -440,5 +440,5 @@ credential, such as `…_TOKEN`, `…_KEY` or `…_PASSWORD`. Store those with
 ## Next
 
 - [Give a tool a secret](../give-a-tool-a-secret/)
-- [Change a prompt or a setting without a deploy](../../evals/change-a-prompt-or-setting/)
+- [Change a prompt or a setting without a deploy](../../improve/change-a-prompt-or-setting/)
 - [Organize work by org and project](../../projects/organize-by-org-and-project/)

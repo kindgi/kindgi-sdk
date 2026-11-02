@@ -12,7 +12,7 @@
  * here for simplicity.
  *
  * `create` enforces the `Project.isDefault = true` uniqueness
- * guardrail at write time: creating a second Default in the same
+ * guardrail at write time: creating a second default in the same
  * tenant resolves to `project-default-already-exists`. A project's
  * slug is unique within its org, and a project without an org's among
  * the tenant's projects without one (`slug-conflict`).
@@ -30,6 +30,7 @@ import type {
   ProjectMembershipBinding,
   ProjectMembershipUpdateRoleOutcome,
   ProjectProductionOutcome,
+  ProjectRepoConnectionOutcome,
   ProjectUpdateOutcome,
 } from '../project-binding.js';
 import type {
@@ -167,7 +168,7 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
   const projects: ProjectBinding = {
     async create(tenantId, spec: ProjectSpec): Promise<ProjectCreateOutcome> {
       const isDefault = spec.isDefault === true;
-      // The Default guardrail first: a caller asking for the Default
+      // The isDefault guardrail first: a caller asking for the default
       // wants to hear that one exists, whatever its slug.
       if (isDefault && tenantAlreadyHasDefault(tenantId)) {
         return { kind: 'project-default-already-exists' };
@@ -259,6 +260,7 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         return { kind: 'slug-conflict', slug: nextSlug };
       }
       const nextDescription = patch.description ?? row.description;
+      const sortsEndUsers = patch.sortEndUserCorrections ?? row.sortEndUserCorrections === true;
       const next: Project = {
         id: row.id,
         tenantId: row.tenantId,
@@ -270,6 +272,8 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         ...(nextOrgId !== undefined ? { orgId: nextOrgId } : {}),
         ...(nextDescription !== undefined ? { description: nextDescription } : {}),
         ...(row.productionSince !== undefined ? { productionSince: row.productionSince } : {}),
+        ...(sortsEndUsers && { sortEndUserCorrections: true }),
+        ...(row.repoConnectionId !== undefined ? { repoConnectionId: row.repoConnectionId } : {}),
       };
       projectRows.set(projectId, next);
       return { kind: 'ok' };
@@ -291,6 +295,26 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         : { ...rest, updatedAt: now };
       projectRows.set(projectId, next);
       return { kind: 'ok', productionSince: next.productionSince ?? null, changed: true };
+    },
+
+    async setRepoConnection(
+      tenantId,
+      projectId,
+      connectionId,
+    ): Promise<ProjectRepoConnectionOutcome> {
+      const row = findProjectInTenant(tenantId, projectId);
+      if (row === undefined) return { kind: 'project-not-found' };
+      if ((row.repoConnectionId ?? null) === connectionId) {
+        return { kind: 'ok', repoConnectionId: connectionId, changed: false };
+      }
+      const { repoConnectionId: _was, ...rest } = row;
+      const now = nowTimestamp();
+      projectRows.set(projectId, {
+        ...rest,
+        ...(connectionId !== null && { repoConnectionId: connectionId }),
+        updatedAt: now,
+      });
+      return { kind: 'ok', repoConnectionId: connectionId, changed: true };
     },
 
     async delete(tenantId, projectId): Promise<ProjectDeleteOutcome> {

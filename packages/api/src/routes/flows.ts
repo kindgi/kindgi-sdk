@@ -8,6 +8,7 @@ import { type Flow, type FlowError, flowPinsDigest, loadFlow } from '@kindgi/flo
 import type { Cursor, FlowId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
+import type { AgentPinBindings } from '../agent-pin-binding.js';
 import { type UnpinnableRef, toolPinLookup } from '../agent-pins.js';
 import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
@@ -21,7 +22,6 @@ import {
   itemPathCheck,
   shownLatest,
 } from '../item-rights.js';
-import type { LiveVersionBinding } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
@@ -34,6 +34,7 @@ import {
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
+import { includeRetiredOf } from './include-retired.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import {
@@ -68,10 +69,10 @@ import { parseScopeParams } from './scope-params.js';
  * pinned for the flow's project with `pinning.pinned` (the project, then
  * its org, then the tenant), else its latest version, and each agent it
  * runs at no named version to what a run in the flow's project would
- * get, its live version there with `pinning.live`, else its latest.
+ * get, its pinned version there with `pinning.agentPinned`, else its latest.
  * Every run of that version uses those (`pins`, see `resolveFlowPins`),
- * but for an agent step under a gate policy set on a segment, which runs
- * the version live there; one with no published version refuses
+ * but for an agent step under a release gate set on a segment, which runs
+ * the version pinned there; one with no published version refuses
  * the publish. Without `pinning`, versions carry no pins and bind the
  * latest versions per run.
  *
@@ -198,10 +199,6 @@ export function flowsRouter(
 
     const cursorRaw = c.req.query('cursor');
     const nameRaw = c.req.query('name');
-    // `?includeRetired=true` lists retired flows too (no active version),
-    // each as its highest version with `unregisteredAt`. Anything else →
-    // active flows only (the default).
-    const includeRetired = c.req.query('includeRetired') === 'true';
 
     const scopeParsed = parseScopeParams(c.req.query(), { tenantId });
     if (scopeParsed.kind === 'err') {
@@ -218,7 +215,7 @@ export function flowsRouter(
       ...(nameRaw !== undefined && nameRaw.length > 0 && { nameFilter: nameRaw }),
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
-      ...(includeRetired && { includeRetired: true }),
+      ...includeRetiredOf(c),
     });
     // Only what the caller may read (T243 A), as `GET …/:id` asks.
     const visible =
@@ -656,8 +653,8 @@ function flowPinnedItem(
 export interface FlowPinning {
   readonly tools: ToolRegistryBinding;
   readonly agents: AgentRegistryBinding;
-  /** The agents' live versions: an agent step pins the one live for the flow's project. */
-  readonly live?: LiveVersionBinding;
+  /** The agents' pins and Latest: an agent step pins what runs in the flow's project (`whatRuns`). */
+  readonly agentPins?: Pick<AgentPinBindings, 'pinned' | 'latest'>;
   /** The tools' pinned versions: a tool step pins the one pinned for the flow's project. */
   readonly pinned?: PinnedVersionBinding;
 }
@@ -678,7 +675,7 @@ async function pinFlow(
     pinning.agents,
     tenantId,
     flow,
-    pinning.live !== undefined ? { binding: pinning.live, projectId } : undefined,
+    pinning.agentPins !== undefined ? { bindings: pinning.agentPins, projectId } : undefined,
     toolPinLookup(pinning.pinned, projectId),
   );
   if (resolved.kind === 'unpinnable') return resolved;

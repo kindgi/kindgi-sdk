@@ -146,6 +146,13 @@ class Tool(Generic[P, R]):
     pauses: bool = False
     """`True`: each call gets a wait token (`ctx.wait_token`), and the handler may return
     `ctx.pause()` to make the run wait for another system's answer."""
+    stores_files: bool = False
+    """`True`: each call with an idempotency key gets a file store (`ctx.files`), and the
+    handler may store files it fetches, at most 10 a call, and return them in its result's
+    top-level `files`."""
+    reads_files: bool = False
+    """`True`: each call gets `ctx.files.read`, and the handler may read the bytes of a file
+    its run may be shown, by its file value's `artifactId`."""
     module: str = ""
     _input_adapter: TypeAdapter[Any] | None = field(default=None, repr=False)
     _output_adapter: TypeAdapter[Any] | None = field(default=None, repr=False)
@@ -184,6 +191,8 @@ def tool(
     limits: Mapping[str, Any] | None = None,
     network: Mapping[str, Any] | None = None,
     pauses: bool = False,
+    stores_files: bool = False,
+    reads_files: bool = False,
 ) -> Callable[[Callable[P, R]], Tool[P, R]]:
     """Declare a tool. The handler is `(input)` or `(input, ctx: ToolContext)`, sync or async.
 
@@ -202,6 +211,14 @@ def tool(
     `ctx.wait_token.url` to that system and returns `ctx.pause()`; the answer that system
     posts becomes the call's result. Annotate the return as `Answer | PauseAnswer`: the
     output schema is `Answer`'s.
+
+    `stores_files=True` lets a call store files it fetches, such as a mail's attachments:
+    `ctx.files.store(name=…, content_type=…, data=…)` answers the stored file's value, which
+    the handler returns in its result's top-level `files`, and an agent is shown the file.
+
+    `reads_files=True` lets a call read stored files' bytes, such as a PDF an agent was given:
+    `ctx.files.read(artifact_id)` answers the bytes of a file the call's run may be shown, as
+    it was stored, or why there are none.
     """
     annotation_scope = _caller_locals()
 
@@ -251,6 +268,8 @@ def tool(
             limits=limits,
             network=network,
             pauses=pauses,
+            stores_files=stores_files,
+            reads_files=reads_files,
             module=handler.__module__,
             _input_adapter=_adapter(input_type),
             _output_adapter=_adapter(output_type),
@@ -424,6 +443,8 @@ class Guardrail:
     sandbox: str | None = None
     limits: Mapping[str, Any] | None = None
     network: Mapping[str, Any] | None = None
+    judge_capabilities: Mapping[str, Any] | None = None
+    """An `llm-judge` guardrail's judge: what its model is routed by (wire keys)."""
     module: str = ""
     _config_adapter: TypeAdapter[Any] | None = field(default=None, repr=False)
 
@@ -456,6 +477,7 @@ def guardrail(
     sandbox: str | None = None,
     limits: Mapping[str, Any] | None = None,
     network: Mapping[str, Any] | None = None,
+    judge_capabilities: Mapping[str, Any] | None = None,
 ) -> Callable[[CheckFn], Guardrail]:
     """Declare a guardrail and its check: `(config, trace) -> CheckResult | dict | bool`.
 
@@ -470,6 +492,9 @@ def guardrail(
     model's aliases); it is checked against the config type here. Without it
     the check gets `{}` — its defaults. The config type comes from the check's
     first annotation or `config_type=`.
+    A `kind="llm-judge"` guardrail is judged by a model, with its `config` (`{"rubric": ...}`),
+    and its check is never called. `judge_capabilities=` is what that model is routed by
+    (`{"needs": [{"feature": "structured-output"}]}`); an llm-judge guardrail needs it.
     """
     annotation_scope = _caller_locals()
 
@@ -492,6 +517,12 @@ def guardrail(
         )
         if not isinstance(resolved_action.get("on-violation"), str):
             raise DefinitionError(f'{where}: action needs a string "on-violation"')
+        if kind == "llm-judge" and judge_capabilities is None:
+            raise DefinitionError(
+                f'{where} is kind "llm-judge" with no judge_capabilities=: name what its judge'
+                " model is routed by"
+                ' (judge_capabilities={"needs": [{"feature": "structured-output"}]})'
+            )
         params = _positional_params(check, where)
         if len(params) != 2:
             raise DefinitionError(
@@ -527,6 +558,7 @@ def guardrail(
             sandbox=sandbox,
             limits=limits,
             network=network,
+            judge_capabilities=None if judge_capabilities is None else dict(judge_capabilities),
             module=check.__module__,
             _config_adapter=adapter,
         )

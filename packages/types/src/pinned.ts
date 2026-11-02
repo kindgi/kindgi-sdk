@@ -3,7 +3,7 @@
 
 import type { OrgId, ProjectId } from './ids.js';
 
-/** The items whose versions are pinned per scope (an agent's are its live versions, `LiveScope`). */
+/** The items whose versions are pinned per scope (an agent's are its pinned versions, `AgentPinScope`). */
 export type PinnedItemKind = 'flow' | 'tool';
 
 /**

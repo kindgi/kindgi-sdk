@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: packages/cli/src/templates/**
 
 /**
  * Template file names as `kindgi init` writes them, and the names the
@@ -21,6 +22,7 @@ const TEMPLATE_NAMES = [
   'java',
   'minimal',
   'python',
+  'returns-helper',
   'sample',
   'woocommerce',
 ];

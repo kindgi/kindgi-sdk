@@ -1,0 +1,65 @@
+// {{PACK_ID}}.refund — the return window comes from the pinned refund-rules
+// block, and the limit from the code. Scaffolded by `kindgi init` so
+// `kindgi test` has something to run out of the box. When you fix a
+// correction in code, add its case here.
+
+import { beforeEach, describe, expect, test } from 'vitest';
+
+import type { ToolContext } from '@kindgi/sdk/define';
+import type { TenantId } from '@kindgi/sdk/types';
+
+import { refunded } from '../../lib/orders.js';
+import refund, { REFUND_LIMIT } from './index.js';
+
+function ctxWithWindow(returnWindowDays?: number): ToolContext {
+  return {
+    tenantId: '00000000-0000-0000-0000-000000000001' as TenantId,
+    abortSignal: new AbortController().signal,
+    ...(returnWindowDays !== undefined && {
+      settings: { '{{PACK_ID}}.refund-rules': { returnWindowDays } },
+    }),
+  };
+}
+
+async function run(input: { orderId: string; amount: number }, ctx: ToolContext) {
+  if (refund.handler === undefined) throw new Error('handler missing');
+  return refund.handler({ ...input, reason: 'test' }, ctx);
+}
+
+describe('{{PACK_ID}}.refund', () => {
+  beforeEach(() => refunded.clear());
+
+  test('compiles with the expected id', () => {
+    expect(refund.id).toBe('{{PACK_ID}}.refund');
+  });
+
+  test('refunds an order delivered 20 days ago while the window is 30 days', async () => {
+    const out = await run({ orderId: 'A-1002', amount: 60 }, ctxWithWindow(30));
+    expect(out).toMatchObject({ status: 'refunded', orderId: 'A-1002', amount: 60 });
+  });
+
+  test('refuses it once the window is 14 days', async () => {
+    const out = await run({ orderId: 'A-1002', amount: 60 }, ctxWithWindow(14));
+    expect(out).toMatchObject({ status: 'refused', why: 'outside-return-window' });
+  });
+
+  test(`refuses more than ${REFUND_LIMIT} on one order, whatever the window`, async () => {
+    const out = await run({ orderId: 'A-1003', amount: 250 }, ctxWithWindow(365));
+    expect(out).toMatchObject({ status: 'refused', why: 'over-the-limit' });
+  });
+
+  test('refuses an order on its way, and refunds nothing without the rules block', async () => {
+    expect(await run({ orderId: 'A-1004', amount: 35 }, ctxWithWindow(30))).toMatchObject({
+      why: 'not-delivered',
+    });
+    expect(await run({ orderId: 'A-1001', amount: 40 }, ctxWithWindow())).toMatchObject({
+      why: 'no-return-window',
+    });
+  });
+
+  test('never refunds more than was paid', async () => {
+    await run({ orderId: 'A-1001', amount: 30 }, ctxWithWindow(30));
+    const out = await run({ orderId: 'A-1001', amount: 20 }, ctxWithWindow(30));
+    expect(out).toMatchObject({ status: 'refused', why: 'more-than-paid' });
+  });
+});

@@ -1,9 +1,0 @@
----
-"@kindgi/api": patch
----
-
-**A deploy that failed after its tools were published no longer leaves its image undeployable.** Rolling back, `POST /v1/deployments` unregisters the tool versions it published. A tool's version numbers are single-use, so the next deploy of the same image found each such version already published but unregistered, and its agents and flows found no published version of the tool: `400 validation-failed` ("…use tool or agent versions that aren't published") until the pack was rebuilt under a new tool version. A deploy now reinstates a tool version its registry lists as unregistered, and rolling that deploy back unregisters it again.
-- It reinstates the version under the rule `POST /v1/tools/{toolId}/versions/{version}/reinstate` holds: the version stored under that number is what comes back. A deploy keeps a stored version only when it's the pack's own tool (`409 tool-already-registered` otherwise), so one that names a model provider's key is refused as the pack's tool naming it is (`400 deployment-validation-failed`, with an issue at the tool's `/secrets/<name>`), and stays unregistered.
-- Where a deploy registers agents and flows unpinned (with no tool registry), an agent or flow version it finds unregistered is reinstated the same way, under the rule `POST /v1/agents/{agentId}/versions/{version}/reinstate` (and the flow route) holds: one whose stored version names what its project can't reach stays unregistered (`400 reference-out-of-scope`, with an issue at `/agents/<i>` or `/flows/<i>`). Pinned, a deploy already registers them under their next free version.
-- A tool version that's still active is never reinstated, so a registry that doesn't keep unregistered versions (as under `kindgi dev`) is never asked.
-- This holds for a version its owner unregistered too: deploying an image that brings it brings it back, as a deploy brings back its agents and flows under their next free version.

@@ -412,13 +412,15 @@ async function* childLines(
 ): AsyncGenerator<string> {
   for await (const record of recordsOf(ctx, parent.kind)) {
     const params = fieldsOf(record, parent.params, parent.kind);
+    const asked = parent.query === undefined ? {} : fieldsOf(record, parent.query, parent.kind);
     const query = {
       ...kind.query,
+      ...asked,
       ...(kind.envScoped === true ? envScopeOf(record, parent.kind) : {}),
     };
     try {
       for await (const item of read(ctx.reader, kind, fillRoute(kind.route, params), query)) {
-        yield `${JSON.stringify({ parent: params, item })}\n`;
+        yield `${JSON.stringify({ parent: { ...params, ...asked }, item })}\n`;
       }
     } catch (err) {
       throwIfNotServed(err, kind.route);
@@ -435,7 +437,11 @@ async function* topLines(
   tally: { gone: number },
 ): AsyncGenerator<string> {
   const query = kind.query ?? {};
-  const queries = kind.envScoped === true ? await envScopes(ctx, query) : [query];
+  const listed = kind.envScoped === true ? await envScopes(ctx, query) : [query];
+  const queries = listed.flatMap((q) => [
+    q,
+    ...(kind.alsoAsk ?? []).map((more) => ({ ...q, ...more })),
+  ]);
   for (const q of queries) {
     for await (const listed of read(ctx.reader, kind, kind.route, q)) {
       const record =
@@ -507,7 +513,13 @@ async function* recordsOf(ctx: KindContext, name: string): AsyncGenerator<Record
   for await (const line of lines) {
     if (line === '') continue;
     const value = JSON.parse(line) as Record<string, unknown>;
-    yield wrapped ? (value.item as Record<string, unknown>) : value;
+    // A child's record, with its parent's fields where its item has none.
+    yield wrapped
+      ? {
+          ...(value.parent as Record<string, unknown>),
+          ...(value.item as Record<string, unknown>),
+        }
+      : value;
   }
 }
 

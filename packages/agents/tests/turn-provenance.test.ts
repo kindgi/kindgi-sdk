@@ -333,7 +333,7 @@ describe("a model call's provenance", () => {
         durationMs: 1,
         provider: { id: 'p', model: 'p-model' },
       })),
-      model: { name: 'p-model' },
+      model: { name: 'p-model', features: [], contextWindow: 200_000 },
       tools: { definitions: [], byName: new Map() },
       userMessage: stored[0],
       provenance,

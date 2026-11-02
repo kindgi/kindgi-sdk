@@ -34,7 +34,8 @@ which you register with Kindgi once.
 In your organization's project:
 
 1. **Turn on the Gmail API:** **APIs & Services → Library → Gmail API →
-   Enable**.
+   Enable**. For the [calendar tools](../calendar/), turn on the
+   **Google Calendar API** there too.
 2. Open **Google Auth Platform**:
    - **Branding:** the app's name and a support email.
    - **Audience: Internal.** Only accounts in your Google Workspace or
@@ -52,7 +53,13 @@ In your organization's project:
      tools need, such as `https://www.googleapis.com/auth/gmail.send` to
      send mail, and `https://www.googleapis.com/auth/gmail.readonly` to
      read it, which a mail trigger needs too. A reply needs both. Google
-     counts every permission that reads mail as restricted.
+     counts every permission that reads mail as restricted. For the
+     calendar tools, add the ones they need:
+     `https://www.googleapis.com/auth/calendar.events.owned.readonly` to
+     list events, `https://www.googleapis.com/auth/calendar.freebusy` for
+     free/busy, and `https://www.googleapis.com/auth/calendar.events.owned`
+     to add and change events
+     ([Calendars](../calendar/#permissions-and-review)).
    - **Clients → Create client → Web application.** Under **Authorized
      redirect URIs**, enter the console's connect page:
 
@@ -170,3 +177,6 @@ units a minute
 
 A mail trigger's looks for new mail count too, against the connection
 it reads with.
+
+Calendar calls don't count in Gmail's units. Kindgi paces them apart, at
+600 a minute for each connection ([Calendars](../calendar/#limits)).

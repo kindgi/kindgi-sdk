@@ -97,7 +97,11 @@ function turn(options: {
     usage: { steps: options.steps ?? 0, promptTokens: 0, completionTokens: 0, totalCostUsd: 0 },
     abortReason: undefined,
     provider: { metadata: { id: 'anthropic' } as ProviderMetadata, invoke },
-    model: { name: 'claude-haiku-4-5' } as ModelInfo,
+    model: {
+      name: 'claude-haiku-4-5',
+      features: [],
+      contextWindow: 200_000,
+    } as unknown as ModelInfo,
     tools: { definitions: [], byName: new Map() },
     userMessage: { sequence: 1 },
   } as unknown as TurnContext;
@@ -141,7 +145,7 @@ describe('turn memory: charged by size before each model call', () => {
   test('the conversation is measured in UTF-8 bytes, not characters', () => {
     const plain = conversation('aaaa');
     const accented = conversation('éééé');
-    expect(turnMemoryBytes(accented, 0) - turnMemoryBytes(plain, 0)).toBe(4 * 4);
+    expect(turnMemoryBytes(accented, 0, 0) - turnMemoryBytes(plain, 0, 0)).toBe(4 * 4);
   });
 
   test.each([

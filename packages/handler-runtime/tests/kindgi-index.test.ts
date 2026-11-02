@@ -459,6 +459,24 @@ describe("a guardrail's point", () => {
     });
   });
 
+  test("an llm-judge guardrail's judgeCapabilities are carried: the runtime routes its judge by them", async () => {
+    const report = await index(
+      guardrailModule({
+        kind: 'llm-judge',
+        check: 'acme.checks.tone',
+        config: { rubric: 'The reply is polite.', responseFormat: 'pass-fail' },
+        judgeCapabilities: { needs: [{ feature: 'structured-output' }] },
+      }),
+    );
+    expect(report.fileErrors).toEqual([]);
+    const parsed = await readValidIndex(report.outputPath);
+    expect(parsed.guardrails[0]).toMatchObject({
+      kind: 'llm-judge',
+      checkId: 'acme.checks.tone',
+      judgeCapabilities: { needs: [{ feature: 'structured-output' }] },
+    });
+  });
+
   test("a check the module exports under the guardrail's check id gives its points", async () => {
     const report = await index({
       module: {
@@ -505,6 +523,16 @@ describe("a guardrail's point", () => {
       "'at' must be one of before-tool, after-tool, model-step, final-answer",
     ],
     ['a view there is none of', { sees: 'everything' }, "'sees' must be 'turn' or 'conversation'"],
+    [
+      'an llm-judge guardrail with no judge',
+      { kind: 'llm-judge', config: { rubric: 'The reply is polite.' } },
+      "guardrail acme.grounded is kind 'llm-judge' with no 'judgeCapabilities': name what its judge model is routed by (for example { needs: [{ feature: 'structured-output' }] })",
+    ],
+    [
+      'judgeCapabilities that are not an object',
+      { kind: 'llm-judge', judgeCapabilities: 'structured-output' },
+      "guardrail acme.grounded: 'judgeCapabilities' must be an object",
+    ],
     [
       "a check's points that aren't points",
       { check: { id: 'acme.checks.odd', evaluate, points: ['before-handoff'] } },
@@ -913,6 +941,50 @@ describe('runIndexer — Zod schemas', () => {
     expect(refused.value.fileErrors[0]?.message).toContain(
       "'pauses: true' needs a handler the pack runs",
     );
+  });
+
+  test("a tool's `storesFiles` is carried into the index; a tool the pack doesn't run can't store files", async () => {
+    const fixture = await makeFixture({
+      files: {
+        'kindgi.config.mjs': config(),
+        'tools/fetch.mjs': toolModule({ id: 'acme.fetch', storesFiles: true }),
+        'tools/both.mjs': toolModule({ id: 'acme.both', storesFiles: true, pauses: true }),
+        'tools/plain.mjs': toolModule({ id: 'acme.plain', storesFiles: false }),
+      },
+    });
+    const outcome = await runIndexer({
+      packDir: fixture.packDir,
+      publishedAt: FIXED_TIMESTAMP,
+      importModule: fixture.importModule,
+    });
+    expect(outcome.kind).toBe('ok');
+    if (outcome.kind !== 'ok') return;
+    const parsed = await readValidIndex(outcome.value.outputPath);
+    const byId = new Map((parsed.tools as { id: string }[]).map((t) => [t.id, t]));
+    expect(byId.get('acme.fetch')).toMatchObject({ storesFiles: true });
+    expect(byId.get('acme.fetch')).not.toHaveProperty('pauses');
+    expect(byId.get('acme.both')).toMatchObject({ storesFiles: true, pauses: true });
+    expect(byId.get('acme.plain')).not.toHaveProperty('storesFiles');
+
+    for (const remote of [
+      { id: 'acme.remote', storesFiles: true, transport: 'mcp' },
+      { id: 'acme.declared', storesFiles: true, spec: { kind: 'http' } },
+    ]) {
+      const refusedPack = await makeFixture({
+        files: { 'kindgi.config.mjs': config(), 'tools/remote.mjs': toolModule(remote) },
+      });
+      const refused = await runIndexer({
+        packDir: refusedPack.packDir,
+        publishedAt: FIXED_TIMESTAMP,
+        importModule: refusedPack.importModule,
+      });
+      expect(refused.kind).toBe('ok');
+      if (refused.kind !== 'ok') return;
+      expect(refused.value.fileErrors[0]?.code).toBe('manifest-validation-failed');
+      expect(refused.value.fileErrors[0]?.message).toContain(
+        "'storesFiles: true' needs a handler the pack runs",
+      );
+    }
   });
 
   test("the pack's declared env is carried, sorted; a pack that declares none has no `env`", async () => {

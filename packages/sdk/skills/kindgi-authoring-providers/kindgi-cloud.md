@@ -33,4 +33,4 @@ kindgi deploy --hosted --env=prod
   presets` for `azure-openai`'s settings.
 
 The whole flow, from signing the CLI in to going live:
-https://docs.kindgi.com/v0.2/hosted/deploy-your-agent/#your-model-key-and-its-provider
+https://docs.kindgi.com/v0.3/hosted/deploy-your-agent/#your-model-key-and-its-provider

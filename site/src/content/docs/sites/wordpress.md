@@ -6,11 +6,15 @@ sidebar:
   label: WordPress
 ---
 
-The Kindgi plugin for WordPress adds a **Kindgi** page to wp-admin. On it,
-each person signed in to the site can:
+The Kindgi plugin for WordPress adds a **Kindgi** menu to wp-admin. Under
+it, each person signed in to the site can:
 
-- **ask** the project's agents, in conversations of their own;
-- **approve or reject** what an agent waits on, a refund for example.
+- **decide** in the **Inbox**: approve or reject what an agent waits on, a
+  refund for example, and see what waits for others;
+- **follow** in **Activity**: what the project's agents and flows did;
+- **ask** the agents an administrator offered to staff, on **Ask**, in
+  conversations of their own. The agents read for them through the
+  project's read-only tools, and any other tool waits for a person's yes.
 
 Each person acts as themselves. A decision names Jane, shown as "Jane, via
 Acme store", never "the store".
@@ -42,7 +46,11 @@ the plugin, through the store's own API and its webhooks:
 - **The `woocommerce` template:** `kindgi init --template=woocommerce`
   makes agents for a WooCommerce store, where a larger refund, a price
   change and publishing a product each wait for a person. A WooCommerce
-  webhook starts its order review.
+  webhook starts its order review. Its `pnpm connect-store <store>`
+  connects the store: one of the store's administrators approves Kindgi in
+  wp-admin, and nobody copies a password. That approval needs WordPress 7.0
+  or later, or a site whose environment type is `local`; the template's
+  README says how to connect an older store by hand.
 - **The store's actions as an MCP server's tools,** as
   [Give the agent the store's actions](#give-the-agent-the-stores-actions)
   shows. On Kindgi Cloud, that's an MCP server the store serves on the
@@ -54,7 +62,7 @@ the CLI
 
 ## How the site signs its people in
 
-- **The site vouches for its staff.** When Jane opens the page, the plugin
+- **The site vouches for its staff.** When Jane opens a Kindgi page, the plugin
   signs a short statement: "the person signed in here is Jane, with these
   WordPress roles". The statement is signed with an Ed25519 key, lives 60
   seconds and can be used once.
@@ -62,7 +70,7 @@ the CLI
   statement server to server. Kindgi checks it against the key the site
   enrolled, and answers with a 15-minute session held to the site's one
   project.
-- **No Kindgi token reaches the browser.** The page calls the plugin's
+- **No Kindgi token reaches the browser.** The pages call the plugin's
   routes on the site (`/wp-json/kindgi/v1/…`), and the plugin calls Kindgi.
 - **People are matched by the site, never by email.** Kindgi knows each
   person by their site and a random id the plugin keeps for them. It never
@@ -109,7 +117,7 @@ pnpm exec kindgi sites register --project=<project-id> --name='Acme store' \
 It prints the site and its one-time code, shown once and good for 15
 minutes; `kindgi sites code <site-id>` gives a new one. Without
 `--project`, this and each `kindgi sites` command below use the tenant's
-Default project. From code, the client's `projects.sites.register` does
+default project. From code, the client's `projects.sites.register` does
 the same.
 
 - **`--name`** is how Kindgi shows the site's people: "Jane, via Acme
@@ -125,7 +133,7 @@ and `kindgi sites update <site-id>` changes it later:
 | Setting | Default | What it decides |
 | --- | --- | --- |
 | `--allowed-role` | `administrator`, `shop_manager` | The WordPress roles that may sign in at all, one flag for each. Any other role is refused. |
-| `--role-map` | Both roles: `{"ask": true, "reviewer": "standard"}` | For each allowed role, as JSON or `@<file>`: whether it may ask the project's agents (`ask`), and the reviewer role it decides approvals with (`reviewer`; none when absent). A person with several allowed roles gets the most any of them gives. `--allowed-role` without `--role-map` keeps only the map's entries for the allowed roles: the default map's for a new site, the site's own on an update. An allowed role with no entry signs in to read the project only. |
+| `--role-map` | Both roles: `{"ask": true, "reviewer": "standard"}` | For each allowed role, as JSON or `@<file>`: whether it may ask the project's agents (`ask`; see [What an Ask may do](#what-an-ask-may-do)), and the reviewer role it decides approvals with (`reviewer`; none when absent). A person with several allowed roles gets the most any of them gives. `--allowed-role` without `--role-map` keeps only the map's entries for the allowed roles: the default map's for a new site, the site's own on an update. An allowed role with no entry signs in to read the project only. |
 | `--reviewer-ceiling` | `standard` | The highest reviewer role the site's people can have: `standard` or `senior`. |
 | `--people-cap` | `50` | At most this many people from the site (1 to 10,000). |
 | `--new-people-per-day` | `20` | At most this many new people a day (1 to 1,000). |
@@ -154,7 +162,7 @@ It needs WordPress 6.4 or later and PHP 7.4 or later.
    one-time code and the Kindgi URL this server reaches, then chooses
    **Connect**. The plugin makes
    its signing key and sends Kindgi the public half. The page says
-   "Connected: your staff can use the Kindgi page now."
+   "Connected: your staff can use the Kindgi pages now."
 
 About the Kindgi URL:
 - **On Kindgi Cloud, it's `https://platform.kindgi.com`.**
@@ -184,37 +192,94 @@ About the Kindgi URL:
   never vouches as production. When the site moves, connect it again with a
   new code.
 
-## Who sees the page
+## Who sees the pages
 
-- **The page needs `manage_woocommerce`** when WooCommerce is active, which
-  means shop managers and administrators. Without WooCommerce, it needs
+- **The pages need `manage_woocommerce`** when WooCommerce is active, which
+  means shop managers and administrators. Without WooCommerce, they need
   `edit_others_posts`: editors and administrators. The `kindgi_capability`
-  filter changes it.
-- **Seeing the page isn't signing in.** Kindgi decides from the person's
+  filter changes it. **Settings** needs `manage_options`.
+- **Seeing the pages isn't signing in.** Kindgi decides from the person's
   roles and the site's settings. On a site registered with the defaults, an
-  editor who sees the page gets "None of these roles may sign in through
+  editor who sees the pages gets "None of these roles may sign in through
   this site".
-- **The Approvals tab** shows only to someone whose roles give a reviewer
-  role.
+- **Approve and Reject** show only to someone who may decide: their roles
+  give a reviewer role, and they have a row on Kindgi's reviewer roster
+  (`GET /v1/identity/me/permissions` says so with `reviewer.canDecide`).
+- **Each person reads their own.** A conversation opens for the person
+  it's with, and for an approval's reviewer through that approval. The
+  plugin checks it before it reads the conversation from Kindgi.
 
 ## What the staff see
 
-**Ask:**
-- **Their own conversations** with the project's agents: the ones they
-  opened (`GET /v1/conversations?openedBy=me`). A conversation is titled
-  with its first message.
-- **The tools a turn called,** and what it waits for: "Waiting for a person
-  to approve shop.acme-refund-order."
-
-**Approvals:**
-- **Waiting for you:** the project's approvals their reviewer role may
-  decide. Each shows the tool, its arguments, who asked, when it expires and
-  the role it needs.
+**Inbox:**
+- **Waits for you:** the project's waiting approvals the person may decide:
+  their reviewer role covers the role each needs, it isn't assigned to
+  another reviewer, and they didn't ask for one that needs someone else.
+  Each says what would happen in words: the tool, its fields, the agent's
+  own words quoted apart from them, who asked and by when.
+- **Waits for others:** the rest, each saying whom it waits for.
 - **Approve, or reject with a reason.** The page asks for the reason: "Say
   why you reject it."
-- **Decided by you lately:** `GET /v1/approvals?decidedBy=me`.
+- **Decided:** the project's decided approvals, whoever decided, and those
+  that expired, were withdrawn or were passed on to another reviewer.
 - **From your link:** an approval opened from Kindgi's email
   (`?approval=<id>`).
+- **A count** of what waits for the person, on the Kindgi menu and in the
+  admin bar. The plugin asks Kindgi at most once a minute, on the person's
+  own session while they have one. The count never signs anyone in: only
+  opening a Kindgi page does.
+
+**Activity:**
+- **The project's runs,** newest first, one row each: which agent or flow,
+  who or what started it, when, and its state.
+- **The person's own runs** show what they answered, and open their
+  conversation.
+- **Someone else's run** is one line: who, which agent, when and its state.
+- **A run no person started** (a webhook, a schedule) shows what it found;
+  with WooCommerce, only to someone who can edit orders
+  (`edit_shop_orders`).
+
+**Ask:**
+- **The agents an administrator offered** to staff, under **Kindgi →
+  Settings**. Kindgi still decides who may ask an agent.
+- **Their own conversations** with them: the ones they opened
+  (`GET /v1/conversations?openedBy=me`). A conversation is titled with its
+  first message.
+- **The tools a turn called,** and what it waits for, the tool's id in
+  words: for `shop.acme-refund-order`, "Waiting for a person to approve:
+  Acme refund order."
+- **Someone else's conversation,** opened from an approval they review, to
+  read, not to continue.
+
+## What an Ask may do
+
+Someone the site signs in, whose role may ask, asks the agents as
+themselves, in conversations of their own:
+
+- **The tools:** the agent may call the site project's tools (for a site
+  in an environment order, the tools of the order's projects too), and the
+  tools of each MCP endpoint whose scope holds the project, the store's
+  actions among them (see
+  [Give some projects its tools](../../guides/tools/mcp-servers/#give-some-projects-its-tools)).
+- **A read-only tool** runs as the agent's and the tenant's rules say. It
+  counts as read-only when every version of it, retired ones included,
+  says `mutating: false`.
+- **Every other tool waits for a yes** on each call, whatever the agent's
+  or the tenant's rules say, and so does `kindgi_remember`. An MCP tool
+  always counts as one that changes things, so each of the store's
+  actions waits, product lookups included (see
+  [Give the agent the store's actions](#give-the-agent-the-stores-actions)).
+  Only a tool whose own definition says `mutating: false`, as a pack's
+  read-only tool can, reads without one.
+- **Who says yes:** a reviewer whose role may decide it. The person who
+  asked may approve their own call when their role reviews approvals,
+  unless the agent sets `separateApprover` (see [Four eyes](#four-eyes)).
+- **Only in their own turns:** the tools are theirs to use only through an
+  agent turn they started in the site's project, never by calling a tool
+  directly.
+- **When their role stops giving `ask`,** a call of theirs that still
+  waits is refused when it's decided, once Kindgi has the change (see
+  [A site's people in Kindgi](#a-sites-people-in-kindgi)).
 
 ## Reviewer email
 
@@ -463,6 +528,9 @@ the store's actions (look up an order, refund it) as
     },
   },
   ```
+
+  In an Ask from someone the site signs in, every store tool waits for a
+  yes, whatever the override says (see [What an Ask may do](#what-an-ask-may-do)).
 
 - **Give money tools no automatic retries on a tool error.** A retry is a
   new call, with its own approval and its own idempotency key. If the first

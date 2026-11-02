@@ -160,7 +160,7 @@ export interface RunBinding {
   /**
    * A project's failed runs over a window, grouped by cause (`failure.code`)
    * and version: counts, first and last seen, and the latest run of each
-   * group. Replays, eval runs' runs and dry runs aren't counted; a child
+   * group. Replays, test runs' runs and dry runs aren't counted; a child
    * run counts under its own agent or flow. Optional: without it, the
    * failures route answers `run-failures-not-supported`.
    */

@@ -1,0 +1,6 @@
+---
+"@kindgi/api": patch
+"@kindgi/client": patch
+---
+
+**Where a block runs.** `GET /v1/blocks/{blockId}/runs-in` answers where the block's versions run now: one row for each project, and each segment pin inside one, whose running agent version pins a version of the block, with `projectId`, `agentId`, `agentVersion`, `blockVersion`, `follows` (`pin` or `latest`) and, for a segment pin, its `segment` path. The rows are the ones `GET /v1/agents/{agentId}/projects` gives, kept where the running version pins the block, and only in the projects the caller reads. An unknown block is `404 block-not-found`, and a runtime that doesn't read pins and Latest answers `501 runs-in-unsupported`. Each row says whether the pack's files have its block version (`inYourFiles`): `yes` when the newest deployment in the project that ships the row's agent (its pack's newest there, among the project's 200 newest deployments) lists that version or a newer one, or the pull request opened for it was merged, else `not-yet`, with the pull request when one was opened. A runtime gives the pull requests through an optional `BlockVersionPullRequestBinding` (`blockVersionPullRequests` on `createApp`). The TypeScript client has it as `client.blocks.runsIn`.

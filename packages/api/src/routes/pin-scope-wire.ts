@@ -3,13 +3,17 @@
 
 import type { PinScope } from '@kindgi/types';
 
-import { type WireLiveScope, liveScopeToWire, parseLiveScopeBody } from './live-scope-wire.js';
+import {
+  type WireAgentPinScope,
+  agentPinScopeToWire,
+  parseAgentPinScopeBody,
+} from './agent-pin-scope-wire.js';
 
-/** A pin scope on the wire: the live scope's tenant, org and project shapes. */
-export type WirePinScope = Exclude<WireLiveScope, { readonly kind: 'segment' }>;
+/** A pin scope on the wire: the pinned scope's tenant, org and project shapes. */
+export type WirePinScope = Exclude<WireAgentPinScope, { readonly kind: 'segment' }>;
 
 export function pinScopeToWire(scope: PinScope): WirePinScope {
-  return liveScopeToWire(scope) as WirePinScope;
+  return agentPinScopeToWire(scope) as WirePinScope;
 }
 
 /**
@@ -27,7 +31,7 @@ export function parsePinScopeBody(
   if (raw !== null && typeof raw === 'object' && (raw as { kind?: unknown }).kind === 'segment') {
     return { kind: 'segment' };
   }
-  const parsed = parseLiveScopeBody(raw);
+  const parsed = parseAgentPinScopeBody(raw);
   if (parsed.kind === 'err') {
     return parsed.message.startsWith('`scope.kind`')
       ? { kind: 'err', message: '`scope.kind` must be one of tenant, org, project' }
