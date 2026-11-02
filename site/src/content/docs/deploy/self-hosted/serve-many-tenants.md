@@ -564,7 +564,7 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants/$TENANT_ID/purge" \
   value is `400 tenant-slug-mismatch`, and nothing is changed.
 - **The servers need `KINDGI_TENANT_PURGE_RECORD`:** where purge records
   are kept, `local:<absolute dir>`, `gcs:<bucket>[/<prefix>]` or
-  `s3:<bucket>[/<prefix>]` (runtime 0.3.0 or later), the same place as the
+  `s3:<bucket>[/<prefix>]` (runtime 0.4.0 or later), the same place as the
   command's `--record`
   ([Choose where the runtime keeps files](../store-files/)). Unset, every
   purge is refused with `409 purge-record-unset`: without a record,
@@ -652,7 +652,7 @@ tenants purge: tenant 1ccae8e9-3dc8-4db9-b393-ba3d44e7f86e (acme-shop)
   that still holds rows, by table and count: rows only, not the bytes under
   its prefix.
 - **`--record`** (`local:<dir>`, `gcs:<bucket>[/<prefix>]`, or
-  `s3:<bucket>[/<prefix>]` with runtime 0.3.0 or later) keeps a record of
+  `s3:<bucket>[/<prefix>]` with runtime 0.4.0 or later) keeps a record of
   each purge, `purged/<tenant id>.json` under it. After a restore,
   [`tenants repurge`](#after-a-restore-tenants-repurge) reads them.
 - **One purge of a tenant runs at a time** (runtime 0.1.10 or later): a

@@ -3,7 +3,8 @@
 
 /**
  * Outbound webhook endpoints: URLs Kindgi sends signed events to, such as
- * `run.finished` when a top-level run completes, fails or is cancelled.
+ * `run.finished` when a top-level run, not a replay, completes, fails or
+ * is cancelled.
  *
  * @wire /v1/webhook-endpoints/*  (packages/api/src/routes/webhook-endpoints.ts)
  * @generated Wire shapes imported from `../generated/api.js`.

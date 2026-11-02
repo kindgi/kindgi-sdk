@@ -2,9 +2,10 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * A retired agent, tool or test set and unregistered versions are asked
- * for, never listed by default: `includeRetired` on the lists and
- * `includeTombstoned` on the versions lists send the query only when set.
+ * A retired agent, tool, test set, block, policy or release gate and
+ * unregistered versions are asked for, never listed by default:
+ * `includeRetired` on the lists and `includeTombstoned` on the versions
+ * lists send the query only when set.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -52,6 +53,28 @@ describe('includeRetired and includeTombstoned', () => {
       'testSets.list',
       (c: KindgiClient) => c.testSets.list({ includeRetired: true }),
       '/v1/test-sets?includeRetired=true',
+    ],
+    [
+      'blocks.list',
+      (c: KindgiClient) => c.blocks.list({ includeRetired: true }),
+      '/v1/blocks?includeRetired=true',
+    ],
+    ['blocks.list (default)', (c: KindgiClient) => c.blocks.list(), '/v1/blocks'],
+    [
+      'policies.list',
+      (c: KindgiClient) => c.policies.list({ includeRetired: true }),
+      '/v1/policies?includeRetired=true',
+    ],
+    ['policies.list (default)', (c: KindgiClient) => c.policies.list(), '/v1/policies'],
+    [
+      'releaseGates.list',
+      (c: KindgiClient) => c.releaseGates.list({ includeRetired: true }),
+      '/v1/release-gates?includeRetired=true',
+    ],
+    [
+      'releaseGates.list (default)',
+      (c: KindgiClient) => c.releaseGates.list(),
+      '/v1/release-gates',
     ],
     [
       'testSets.versions.list',

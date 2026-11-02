@@ -230,10 +230,21 @@ each item's pointer must find something.
 [Corrections](../expert-queue-reference/#corrections) has the rules and the
 refusals.
 
-In the console, a finished run's page has **Correct this run**, or a
-**Corrections** tab once it has corrections. It lists the answer and each
-element of a list in the output, each with **Yes** and **No** and the counts
-so far. It lists each correction with who made it, its group and its reason.
+In the console, a finished run you may correct has a **Corrections** page,
+one of the run's pages in the ▾ at the end of the breadcrumbs, and
+**Correct this run** opens it. It lists the answer and each element of
+a list in the output, each with **Yes** and
+**No** and the counts so far. It lists each correction with who made it,
+its group and its reason.
+
+Once yours is saved, it shows under the form: "Saved as" its id, its
+status, who fixes it, with **Hand it to someone else…**, and links to
+what comes next: **In Corrections › To fix** while it isn't fixed,
+**Run Improve on** the agent when Improve fixes it,
+**A case in its test set** when it's one, and **Next run to review**,
+the next run waiting in
+[To review](../expert-queue-reference/#to-review). The run's header has
+**Next run to review** too.
 
 ## Say what it should have done
 
@@ -308,9 +319,8 @@ the run should have done." The clients' `corrections.create` takes it as
 `should_call` and `must_not_call`. To say its decisions were right, send
 `decisions: 'right'` alone.
 
-In the console, a completed agent run's **Correct this run**, or its
-**Corrections** tab once it has corrections, has
-**What should it have done?**:
+In the console, a completed agent run's **Corrections** page, which
+**Correct this run** opens, has **What should it have done?**:
 
 1. It lists the run's calls. Keep the ones that were right, and edit or
    untick the argument fields that matter.
@@ -642,7 +652,8 @@ restriction don't count as expert.
 **Queue rules** pick the project's runs that need a person's correction, so
 your experts don't pick runs one at a time. As a run of the project ends,
 each rule checks it. A run that any rule matches joins the project's queue of
-answers waiting for a correction, **To correct** in the console, once.
+answers waiting for a correction, **To review** in the console's
+**Corrections**, once.
 
 To make a rule, ask your coding agent: "Queue a sample of my agent's pinned-version runs
 for people to correct." For reference, the code looks like this:

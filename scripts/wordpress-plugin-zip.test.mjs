@@ -14,7 +14,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, test } from 'node:test';
 
-import { buildZip, checksumLine, pluginVersion, zipEntries } from './wordpress-plugin-zip.mjs';
+import {
+  buildZip,
+  checkStableTag,
+  checksumLine,
+  pluginVersion,
+  zipEntries,
+} from './wordpress-plugin-zip.mjs';
 
 const dirs = [];
 after(() => {
@@ -51,6 +57,28 @@ describe('pluginVersion', () => {
     );
     assert.throws(() => pluginVersion(' * Version: 0.1.0'), /defines no KINDGI_PLUGIN_VERSION/);
     assert.throws(() => pluginVersion(header('0.1')), /isn't X\.Y\.Z/);
+  });
+});
+
+describe('checkStableTag', () => {
+  const readme = (tag) =>
+    ['=== Kindgi ===', 'Contributors: acme', `Stable tag: ${tag}`, ''].join('\n');
+
+  test("passes when readme.txt's Stable tag is the plugin's version", () => {
+    assert.doesNotThrow(() => checkStableTag(readme('0.1.0'), '0.1.0'));
+    assert.doesNotThrow(() => checkStableTag(readme('0.1.0  '), '0.1.0'));
+  });
+
+  test('refuses a Stable tag that differs, naming both, and trunk', () => {
+    assert.throws(
+      () => checkStableTag(readme('0.1.0'), '0.2.0'),
+      /Stable tag is 0\.1\.0 but kindgi\.php's version is 0\.2\.0/,
+    );
+    assert.throws(() => checkStableTag(readme('trunk'), '0.1.0'), /Stable tag is trunk/);
+  });
+
+  test('refuses a readme.txt with no Stable tag', () => {
+    assert.throws(() => checkStableTag('=== Kindgi ===\n', '0.1.0'), /no `Stable tag:`/);
   });
 });
 
@@ -105,6 +133,7 @@ describe('buildZip, from this checkout', () => {
     assert.deepEqual(listed, entries);
     assert.ok(listed.includes('kindgi/kindgi.php'));
     assert.ok(listed.includes('kindgi/LICENSE'));
+    assert.ok(listed.includes('kindgi/readme.txt'));
     assert.ok(
       listed.every((path) => path.startsWith('kindgi/') && !path.startsWith('kindgi/tests/')),
     );
