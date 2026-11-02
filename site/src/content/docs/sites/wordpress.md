@@ -112,7 +112,7 @@ pnpm exec kindgi sites register --project=<project-id> --name='Acme store' \
 
 It prints the site and its one-time code, shown once and good for 15
 minutes; `kindgi sites code <site-id>` gives a new one. Without
-`--project`, this and each `kindgi sites` command below use the tenant's
+`--project`, this and each `kindgi sites` command below use the workspace's
 default project. From code, the client's `projects.sites.register` does
 the same.
 
@@ -281,7 +281,7 @@ another reviewer decides." instead of **Approve**.
 
 **Their sessions are limited.**
 - They last 15 minutes and are held to the site's project: they read nothing
-  above it (the tenant, orgs, teams).
+  above it (the workspace, orgs, teams).
 - Kindgi doesn't refresh them: the plugin signs the person in again.
 
   ```text
@@ -352,7 +352,7 @@ another reviewer decides." instead of **Approve**.
   `kindgi people list --include-removed` finds their id. It's for someone
   removed in Kindgi: someone who left the store stays gone (below). It's
   refused when they also sign in another way (through another site, or the
-  tenant's own sign-in), since that would let them in there too: add them
+  workspace's own sign-in), since that would let them in there too: add them
   again instead, as a new person.
 
 ## When someone leaves the store

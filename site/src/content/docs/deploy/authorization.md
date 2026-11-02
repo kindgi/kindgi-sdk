@@ -10,7 +10,7 @@ may read, write or administer each project, with OpenFGA running next to
 it.
 
 By default, a self-hosted runtime lets in whoever holds a key or a sign-in,
-and each may work in every project. Tenant settings are the tenant admin's
+and each may work in every project. Workspace settings are the tenant admin's
 ([Without authorization](../people-and-keys/#without-authorization)).
 **Authorization** adds a check per resource, kept in
 [OpenFGA](https://openfga.dev): who may read, write or administer each
@@ -273,7 +273,7 @@ checks every call.
 - **A project's viewer** reads its pages and takes no action in them. A
   line under the console's header says so on each of the project's pages:
   "You can view this project; changes need an editor." When a tenant admin
-  set the tenant's own line, `console.readOnlyNotice`, it shows instead,
+  set the workspace's own line, `console.readOnlyNotice`, it shows instead,
   such as "Ask Ana Ruiz for edit access."
 - **An editor** may also "run agents and flows, work on agent versions,
   publish prompts and settings, correct runs, sort corrections, add and
@@ -282,7 +282,7 @@ checks every call.
 - **A project admin** may also "pin versions, register agents and tools,
   rescore test runs, set corrector groups, remove others' corrections", and
   changes who works in the project ([Members](#in-the-console-members)).
-- **The tenant's sections** show to those they're for:
+- **The workspace's sections** show to those they're for:
   - People, Service accounts, Policies, Webhooks, Sign-in, Access audit and
     the like, to tenant admins;
   - the Inbox and Approvals, to reviewers;
@@ -290,7 +290,7 @@ checks every call.
 
 ![A project's Agents page as Gus Moreno, a viewer of Support: under the header, "You can view this project; changes need an editor."; the agents list (Support agent, acme.support, version 1.0.0) with no buttons.](../../../assets/access/viewer-project.png)
 
-**My access**, in the tenant's sections, is what you may do and how you
+**My access**, in the workspace's sections, is what you may do and how you
 have it. It starts with a sentence, such as "You're an editor in 1
 project." Then it has your tenant role ("Tenant: member. Its people, keys
 and settings are its admins'."), and your reviewer role if you have one.
@@ -324,7 +324,7 @@ curl -X POST "$KINDGI_API_URL/v1/projects/<project-id>/memberships" \
   API key.
 
 You can name the person by `email` instead of `userId`. It matches one of
-the tenant's people, whatever its case
+the workspace's people, whatever its case
 ([Add a person](../people-and-keys/#add-a-person)).
 `PATCH …/memberships/<user-id>` with `{"role":"viewer"}` changes the role, and
 `DELETE …/memberships/<user-id>` removes the member. In the clients, the
@@ -352,7 +352,7 @@ In the console, a project's admins do this on its **Members** page: see
 
 ## Teams
 
-A team is a group of the tenant's people, each in it as a `member` or an
+A team is a group of the workspace's people, each in it as a `member` or an
 `admin`. A tenant admin makes one with `POST /v1/teams`, giving a `name`, a
 `slug` and an optional `description`, and holds its `admin` role. Its
 admins, and tenant admins, add and take out its people
@@ -362,7 +362,7 @@ in it ([Team grants](#team-grants)).
 
 ### In the console: Teams
 
-**Teams**, in the tenant's sections, shows to tenant admins and anyone in a
+**Teams**, in the workspace's sections, shows to tenant admins and anyone in a
 team, with the teams each may see. A tenant admin makes one with **New
 team**: "A group of people, run by its admins: they decide who is in it.
 You add the first people on its page." It takes a name, a slug ("Lowercase
@@ -374,7 +374,7 @@ A team's page, for its admins and tenant admins, says how many are in it
 and how many run it, such as "4 people, 2 run it.", and lists them with
 their role and since when. There they rename it, and the slug stays. They
 change someone's role, take someone out, which asks first, and add someone
-from the tenant's people. Finding a person reads the tenant's people, so
+from the workspace's people. Finding a person reads the workspace's people, so
 adding someone takes a tenant admin.
 
 ![Support crew's page as a tenant admin: "4 people, 2 run it." and "The console doesn't give a team a role on a project yet: the API does (team grants)."; Add someone to Support crew (a person, a role, Add); and the list: the seed user and Ana Ruiz (admins), Ben Okafor and Ada Lovelace (members), each with a role to change and Take out; a Rename button.](../../../assets/teams/team.png)
@@ -480,7 +480,7 @@ of the project:
   it, such as the creator of a project an older runtime made.
 - **A project made with a service account's key has no creator** (runtime
   0.3.0 or later). It lists only who was given access to it, and the
-  tenant's admins (and its org's, if it's in one). One an older runtime made
+  workspace's admins (and its org's, if it's in one). One an older runtime made
   lists `00000000-0000-0000-0000-000000000000` as its owner, an id no person
   has: `kindgi-runtime tenants repair --all` (or `--tenant <id>`) takes it
   away.
@@ -507,7 +507,7 @@ project's admins.
 
 A project admin changes who works there:
 
-- **Add someone** by their email in the tenant, with one of the four roles.
+- **Add someone** by their email in the workspace, with one of the four roles.
   An email that isn't one of the tenant's people isn't added: "No one with
   that email in this tenant: a tenant admin adds them on People first."
 - **Change** a person's role of their own. When another way in gives them

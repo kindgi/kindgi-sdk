@@ -70,7 +70,7 @@ way. [`kindgi environments`](../../reference/cli/environments/) and
 
 A person does these, with a key of their own:
 
-- **Trust CI's signing key,** once for the tenant, with a key that may trust
+- **Trust CI's signing key,** once for the workspace, with a key that may trust
   signing keys. The command is `kindgi key trust <key-id>`, as
   [Trust your key and deploy](../self-hosted/self-host/#7-trust-your-key-and-deploy)
   shows; on Kindgi Cloud, [Sign the pack](../../hosted/deploy-your-agent/#sign-the-pack).
@@ -131,7 +131,7 @@ pnpm exec kindgi tokens create --for=sa:<service-account-id> --project=<staging-
 
 - A deploy into a project takes `admin` on it. The pack's `staging`
   environment names its project, so the account needs admin on that project,
-  not on the tenant.
+  not on the workspace.
 - `--project` limits the key to staging.
 - Add `--capability=secrets:write` to the key only when CI sets secrets with
   `kindgi deploy --sync-secrets`.
@@ -145,7 +145,7 @@ pnpm exec kindgi service-accounts create acme-ci-deploy --description="Builds an
 pnpm exec kindgi tokens create --for=sa:<service-account-id> --role=admin --label=ci-deploy --expires=90d
 ```
 
-That key reaches the whole tenant, prod included. Even with no capability,
+That key reaches the whole workspace, prod included. Even with no capability,
 it can change the environment order, replace prod's release gate,
 promote to prod, and make service accounts, tenant admins among them, and
 keys for them. So on Kindgi Cloud, prod's required reviewers don't guard
@@ -171,7 +171,7 @@ pnpm exec kindgi tokens create --for=sa:<service-account-id> --label=ci-promote-
   every promotion, because a promotion reads one project and writes another.
   This key reaches what its account may: read on staging, and admin on prod.
 - **`--tenant-member`,** because `kindgi promote` lists staging's
-  deployments, and that read takes `read` on the tenant.
+  deployments, and that read takes `read` on the workspace.
 - **Admin on prod doesn't let it skip staging.** Prod comes later in the
   order, so it refuses a deploy. That's why the order is set first.
 - **It can't approve its own promotion.** A service account's key has no
@@ -189,7 +189,7 @@ pnpm exec kindgi tokens create --for=sa:<service-account-id> --label=ci-promote-
   main, and `prod` has required reviewers
   ([Managing environments for deployment](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)).
 - **The signing key is the pipeline's most valuable secret.** It's trusted
-  across the tenant, so a build it signs passes the signature check in
+  across the workspace, so a build it signs passes the signature check in
   every project. Whoever holds it can sign a build of any code, not only
   main's, and any key that can deploy then deploys it there. If it leaks,
   rotate it at once
@@ -224,7 +224,7 @@ says.
 
 In CI, the job writes the secret to a file for `kindgi build`. The signature
 names its key by the file's name without its extension, so the file is named
-after the key the tenant trusts: `acme-ci.pem` for `acme-ci`.
+after the key the workspace trusts: `acme-ci.pem` for `acme-ci`.
 
 To replace the key, follow
 [Rotate a signing key](../self-hosted/rotate-keys/#rotate-a-signing-key),
@@ -487,8 +487,8 @@ stops, deploys nothing, and exits 1:
 
 ## Separate runtimes
 
-There's no promotion between runtimes. A signed build names its tenant, and
-a runtime checks the signature against its own tenant. So build and sign
+There's no promotion between runtimes. A signed build names its workspace, and
+a runtime checks the signature against the workspace it's deployed to. So build and sign
 from the same commit for each runtime, and deploy each build to its
 runtime's first environment. Set up each runtime once: its trusted signing
 key, providers, release gates, test cases and triggers.
