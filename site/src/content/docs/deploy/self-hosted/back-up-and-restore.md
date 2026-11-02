@@ -12,7 +12,8 @@ fresh one, with every erasure still in force.
 
 - **A runtime running as [Self-host Kindgi](../self-host/) sets it up:** the
   `kindgi-server` and `kindgi-db` containers, on the `kindgi` network, with
-  `kindgi.env`.
+  `kindgi.env`. With [authorization](../../authorization/) on, also the
+  `kindgi-openfga` container.
 - **Docker**, on the machine that runs the containers.
 - **`KINDGI_API_TOKEN` exported in your shell** as the runtime's API token,
   where the `kindgi` commands read it, and **`DB_PASSWORD`** set to the
@@ -38,6 +39,18 @@ docker exec kindgi-db pg_dump -U kindgi -Fc kindgi > kindgi-backup.dump
 
 It prints nothing, and writes `kindgi-backup.dump`. The dump holds your
 runs' inputs and outputs, so store it like the database.
+
+With [authorization](../../authorization/) on, OpenFGA keeps who may do what
+in a database of its own, `openfga`, on the same Postgres. Dump it too, right
+after the runtime's:
+
+```sh
+docker exec kindgi-db pg_dump -U kindgi -Fc openfga > openfga-backup.dump
+```
+
+It writes `openfga-backup.dump`. Keep the two dumps together. The runtime's
+database names its OpenFGA store, and the store is in `openfga`, so a restore
+needs both.
 
 If the runtime stores model keys, as
 [Models that need a key](../self-host/#8-add-a-model-and-run-a-flow)
@@ -111,6 +124,41 @@ is the database password:
 ```sh
 KINDGI_DATABASE_URL=postgres://kindgi:<DB_PASSWORD>@kindgi-db-restored:5432/kindgi
 ```
+
+With authorization on, restore `openfga` into the new Postgres too, and move
+OpenFGA onto it, before the runtime starts on the new database:
+
+```sh
+docker exec kindgi-db-restored psql -U kindgi -c 'CREATE DATABASE openfga'
+docker exec -i kindgi-db-restored pg_restore -U kindgi -d openfga --no-privileges < openfga-backup.dump
+
+docker stop kindgi-openfga && docker rm kindgi-openfga
+docker run -d --name kindgi-openfga --network kindgi --restart unless-stopped \
+  openfga/openfga:v1.22.0 run \
+  --datastore-engine postgres \
+  --datastore-uri "postgres://kindgi:$DB_PASSWORD@kindgi-db-restored:5432/openfga?sslmode=disable" \
+  --playground-enabled=false
+```
+
+- `CREATE DATABASE openfga` makes OpenFGA's database in the new Postgres,
+  and `pg_restore` fills it. The dump holds OpenFGA's tables, so the new
+  database needs no `migrate`.
+- `run` is the one from
+  [Run OpenFGA next to the runtime](../../authorization/#run-openfga-next-to-the-runtime),
+  with `kindgi-db-restored` in `--datastore-uri`. If OpenFGA requires a key,
+  keep its `--authn-method` and `--authn-preshared-keys` flags
+  ([Require a key for OpenFGA](../../authorization/#require-a-key-for-openfga)).
+- The container keeps its name, so `KINDGI_OPENFGA_API_URL` in `kindgi.env`
+  stays as it is. Until you restart it, the runtime still on the old database
+  asks this OpenFGA too.
+
+Move OpenFGA first, even for a
+[passive](#look-at-a-restored-copy-before-it-serves-kindgi_passive) look.
+Each time the runtime starts, passive or not, it writes to its OpenFGA store:
+the seed person as an admin, its permission model when the store has an
+older one, and its resources, each under its parent. The backup names the
+store the running runtime uses, so a runtime started on the new database
+with the old OpenFGA would write into that store.
 
 Before the runtime serves it, check that the secrets' keys open the secrets
 the backup brought back. The check reads the database with the settings in
@@ -367,6 +415,12 @@ So a restored database can be inspected without a schedule firing, a
 webhook going out, or a run calling your tools.
 - **Requests are still served,** and a run started through the API still
   runs, so keep a passive runtime where only you can reach it.
+- **It still writes to OpenFGA as it starts,** as every start does. With
+  authorization on, move OpenFGA onto the restored database first
+  ([Restore into a fresh database](#restore-into-a-fresh-database)). A
+  permission change made while it's passive waits in the runtime's
+  database, and goes to OpenFGA once the runtime starts without
+  `KINDGI_PASSIVE`.
 - **It says so:** the startup log has a `⚠ Passive (KINDGI_PASSIVE=on)`
   line, and `/ready` answers `"passive": true`.
 
