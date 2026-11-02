@@ -25,7 +25,7 @@ describe('mcp.endpoints.list', () => {
     });
 
     const page = await client.mcp.endpoints.list({ transport: 'stdio' });
-    expect(page.items[0]?.endpointId).toBe('mcp-1');
+    expect(page.data[0]?.endpointId).toBe('mcp-1');
     const url = new URL(stub.calls[0]?.url);
     expect(url.pathname).toBe('/v1/mcp/endpoints');
     expect(url.searchParams.get('transport')).toBe('stdio');
@@ -46,7 +46,13 @@ describe('mcp.endpoints.register', () => {
         endpointId: 'mcp-1',
         name: 'Local scratch server',
         transport: 'stdio',
-        config: { transport: 'stdio', command: 'node', args: ['./server.js'] },
+        config: {
+          transport: 'stdio',
+          command: 'node',
+          args: ['./server.js'],
+          env: { LOG_LEVEL: 'debug' },
+        },
+        secretEnv: { GITHUB_TOKEN: { envName: 'production', name: 'SCRATCH_GITHUB_TOKEN' } },
         scope: { kind: 'project', tenantId: 'tenant-1' as never, projectId: 'proj-42' as never },
       },
       { idempotencyKey: 'idem-mcp' },
@@ -61,7 +67,13 @@ describe('mcp.endpoints.register', () => {
       endpointId: 'mcp-1',
       name: 'Local scratch server',
       transport: 'stdio',
-      config: { transport: 'stdio', command: 'node', args: ['./server.js'] },
+      config: {
+        transport: 'stdio',
+        command: 'node',
+        args: ['./server.js'],
+        env: { LOG_LEVEL: 'debug' },
+      },
+      secretEnv: { GITHUB_TOKEN: { envName: 'production', name: 'SCRATCH_GITHUB_TOKEN' } },
       scopeKind: 'project',
       scopeId: 'proj-42',
     });

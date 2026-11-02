@@ -40,6 +40,7 @@ import {
   type AwsCredentialClient,
   type AwsCredentials,
   type ModelInfo,
+  PROVIDER_FILE_LIMITS,
   adapterConfigError,
   identitiesPresent,
 } from '@kindgi/capabilities';
@@ -87,6 +88,7 @@ export const bedrockAdapterFactory: AdapterFactory = (input) => {
 
   const provider = createAiSdkModelProvider({
     metadata,
+    fileLimits: PROVIDER_FILE_LIMITS[BEDROCK_ADAPTER_ID],
     ...(input.fetch !== undefined && { fetch: input.fetch }),
     beforeAttempt: (signal): Promise<SignedIn> =>
       auth === 'aws-identity'

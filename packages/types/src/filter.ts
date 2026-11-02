@@ -18,7 +18,7 @@ export type Cursor = Brand<string, 'Cursor'>;
  * facet-filter shape.
  *
  * `TStatus` narrows the `status` field per-resource (e.g. the
- * `ApprovalStatus`, `FixProposalStatus` and `ObservationStatus` unions
+ * `ApprovalStatus`, `SuggestedChangeStatus` and `ObservationStatus` unions
  * in `@kindgi/api`).
  *
  * All fields are optional. A caller can pass an empty `Filter` to get

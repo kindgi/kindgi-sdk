@@ -24,7 +24,12 @@ import {
 } from '@kindgi/tools';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { gmailMessageGet, gmailMessagesList, gmailSend } from '../src/google-tools.js';
+import {
+  gmailAttachmentGet,
+  gmailMessageGet,
+  gmailMessagesList,
+  gmailSend,
+} from '../src/google-tools.js';
 import { fullMessage, googleError } from './gmail-fixtures.js';
 
 /** A sender or recipient past both cuts, and how a message gives them. */
@@ -463,6 +468,7 @@ describe('Gmail tools for the company mailbox', () => {
     ['gmailSend', gmailSend, 'gmail.send', "Sends mail as the company's mailbox."],
     ['gmailMessagesList', gmailMessagesList, 'gmail.readonly', undefined],
     ['gmailMessageGet', gmailMessageGet, 'gmail.readonly', undefined],
+    ['gmailAttachmentGet', gmailAttachmentGet, 'gmail.readonly', undefined],
   ] as const)(
     "%s with as: 'company' needs the company's connection, and says whose",
     (_name, make, permission, notes) => {

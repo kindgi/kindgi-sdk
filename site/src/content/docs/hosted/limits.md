@@ -140,8 +140,8 @@ approval is recorded, and the step fails with `approvals-pending-limit`:
 `POST /v1/runs` that waits for the run answers
 `429 approvals-pending-limit`, with no `Retry-After`. `details` gives the
 limit (`approvalsPending`) and the run (`runId`). With `wait: false` it
-answers 202, and the run fails with that code. A request to make an agent
-version live past it is also `429 approvals-pending-limit`.
+answers 202, and the run fails with that code. A request to pin an agent
+version past it is also `429 approvals-pending-limit`.
 
 ```text
 HTTP 429

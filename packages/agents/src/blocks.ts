@@ -18,7 +18,7 @@ import type { PromptParameter } from './types.js';
  * unregister and reinstate), into a project. An agent references one by
  * range, and the version it runs is pinned when the agent version is
  * published, so an edit reaches an agent only through a new agent
- * version, which is what gets compared, tested and promoted.
+ * version, which is what gets compared, tested and pinned.
  */
 export const BLOCK_KINDS = ['prompt', 'settings'] as const;
 export type BlockKind = (typeof BLOCK_KINDS)[number];
@@ -255,7 +255,7 @@ export interface ModelSettings {
   readonly providerId?: string;
   /**
    * The model the turn prefers, as `Agent.preferredModel`. Set here, the
-   * agent version names none, and an improvement pass can try the other
+   * agent version names none, and an Improve run can try the other
    * models the block's schema lists for it (an `enum` marked tunable).
    */
   readonly model?: string;
@@ -288,7 +288,7 @@ export function modelNamedTwice(agent: NamesAModel, values: unknown): string | u
 }
 
 /**
- * The keys of a model-settings block an improvement pass may search: the
+ * The keys of a model-settings block an Improve run may search: the
  * ones its schema marks tunable (`tunableKeys`) that model settings
  * have, a number's bounds kept inside `MODEL_SETTINGS_SCHEMA`'s, an enum
  * only of values model settings take. `providerId` and `model` only
@@ -370,10 +370,10 @@ export interface BlockReader {
   }): Promise<readonly string[]>;
 }
 
-/** The schema marker that lets an improvement pass search a settings key's values. */
+/** The schema marker that lets an Improve run search a settings key's values. */
 export const TUNABLE_MARKER = 'x-kindgi-tunable';
 
-/** A settings key an improvement pass may search: a bounded number, or one of a list. */
+/** A settings key an Improve run may search: a bounded number, or one of a list. */
 export type TunableKey =
   | {
       readonly key: string;
@@ -413,7 +413,7 @@ function tunableOf(key: string, prop: Readonly<Record<string, unknown>>): Tunabl
 
 /**
  * The settings keys a schema marks tunable (`"x-kindgi-tunable": true` on
- * a top-level property): what an improvement pass may search, within the
+ * a top-level property): what an Improve run may search, within the
  * bounds the schema gives. Nothing is tunable unless its author says so.
  */
 export function tunableKeys(schema: Readonly<Record<string, unknown>> | undefined): TunableKey[] {

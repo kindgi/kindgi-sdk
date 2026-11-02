@@ -142,9 +142,9 @@ export const WEBHOOK_EVENT_SHAPES = {
                 optional: {
                   via: {
                     kind: 'string',
-                    enum: ['explicit', 'flow-pin', 'conversation', 'live', 'latest'],
+                    enum: ['explicit', 'flow-pin', 'conversation', 'pinned', 'latest'],
                   },
-                  liveScope: {
+                  pinnedScope: {
                     kind: 'union',
                     discriminator: 'kind',
                     variants: {
@@ -225,7 +225,7 @@ export const WEBHOOK_EVENT_SHAPES = {
       },
     },
   },
-  'improvement-pass.finished': {
+  'improve-run.finished': {
     kind: 'object',
     required: {
       id: {
@@ -233,7 +233,7 @@ export const WEBHOOK_EVENT_SHAPES = {
       },
       type: {
         kind: 'string',
-        enum: ['improvement-pass.finished'],
+        enum: ['improve-run.finished'],
       },
       createdAt: {
         kind: 'string',
@@ -242,7 +242,7 @@ export const WEBHOOK_EVENT_SHAPES = {
       data: {
         kind: 'object',
         required: {
-          pass: {
+          improveRun: {
             kind: 'object',
             required: {
               id: {
@@ -252,84 +252,17 @@ export const WEBHOOK_EVENT_SHAPES = {
               agentId: {
                 kind: 'string',
               },
-              fromVersion: {
-                kind: 'string',
-              },
-              scope: {
-                kind: 'union',
-                discriminator: 'kind',
-                variants: {
-                  tenant: {
-                    kind: 'object',
-                    required: {
-                      kind: {
-                        kind: 'string',
-                        enum: ['tenant'],
-                      },
-                    },
+              startsFrom: {
+                kind: 'object',
+                required: {
+                  version: {
+                    kind: 'string',
                   },
-                  org: {
-                    kind: 'object',
-                    required: {
-                      kind: {
-                        kind: 'string',
-                        enum: ['org'],
-                      },
-                      orgId: {
-                        kind: 'string',
-                        format: 'uuid',
-                      },
-                    },
-                  },
-                  project: {
-                    kind: 'object',
-                    required: {
-                      kind: {
-                        kind: 'string',
-                        enum: ['project'],
-                      },
-                      projectId: {
-                        kind: 'string',
-                        format: 'uuid',
-                      },
-                    },
-                  },
-                  segment: {
-                    kind: 'object',
-                    required: {
-                      kind: {
-                        kind: 'string',
-                        enum: ['segment'],
-                      },
-                      projectId: {
-                        kind: 'string',
-                        format: 'uuid',
-                      },
-                      path: {
-                        kind: 'array',
-                        minItems: 1,
-                        maxItems: 8,
-                        items: {
-                          kind: 'object',
-                          required: {
-                            key: {
-                              kind: 'string',
-                              pattern: '^[a-z][a-z0-9_-]{0,63}$',
-                            },
-                            value: {
-                              kind: 'string',
-                              minLength: 1,
-                              maxLength: 256,
-                            },
-                          },
-                        },
-                      },
-                    },
+                  follows: {
+                    kind: 'string',
+                    enum: ['pin', 'latest'],
                   },
                 },
-              },
-              suiteId: {
-                kind: 'string',
               },
               tiers: {
                 kind: 'array',
@@ -340,7 +273,11 @@ export const WEBHOOK_EVENT_SHAPES = {
               },
               objective: {
                 kind: 'string',
-                enum: ['weightedYesShare', 'weightedPrecisionAtK'],
+                enum: ['passRate', 'weightedPrecisionAtK'],
+              },
+              groupWeights: {
+                kind: 'string',
+                enum: ['as-recorded', 'experts-only'],
               },
               budget: {
                 kind: 'object',
@@ -364,7 +301,7 @@ export const WEBHOOK_EVENT_SHAPES = {
                 kind: 'string',
                 enum: ['running', 'completed', 'failed', 'cancelled'],
               },
-              candidatesEvaluated: {
+              tried: {
                 kind: 'integer',
                 minimum: 0,
               },
@@ -381,9 +318,25 @@ export const WEBHOOK_EVENT_SHAPES = {
               },
             },
             optional: {
-              classWeights: {
+              projectId: {
                 kind: 'string',
-                enum: ['as-recorded', 'restricted-only'],
+                format: 'uuid',
+              },
+              testSetVersion: {
+                kind: 'string',
+              },
+              setAside: {
+                kind: 'object',
+                required: {
+                  cases: {
+                    kind: 'integer',
+                    minimum: 0,
+                  },
+                  of: {
+                    kind: 'integer',
+                    minimum: 0,
+                  },
+                },
               },
               model: {
                 kind: 'object',
@@ -402,46 +355,88 @@ export const WEBHOOK_EVENT_SHAPES = {
                 maximum: 5,
               },
               outcome: {
-                kind: 'object',
-                required: {
-                  kind: {
-                    kind: 'string',
-                    enum: ['proposed', 'nothing-found', 'failed'],
-                  },
-                },
-                optional: {
-                  proposalId: {
-                    kind: 'string',
-                    format: 'uuid',
-                  },
-                  reason: {
-                    kind: 'string',
-                  },
-                  holdOut: {
+                kind: 'union',
+                discriminator: 'kind',
+                variants: {
+                  suggested: {
                     kind: 'object',
                     required: {
-                      baseline: {
-                        kind: 'number',
-                        nullable: true,
+                      kind: {
+                        kind: 'string',
+                        enum: ['suggested'],
                       },
-                      candidate: {
-                        kind: 'number',
-                        nullable: true,
+                      suggestedChangeId: {
+                        kind: 'string',
+                        format: 'uuid',
                       },
-                      delta: {
-                        kind: 'number',
-                        nullable: true,
+                    },
+                  },
+                  'nothing-better': {
+                    kind: 'object',
+                    required: {
+                      kind: {
+                        kind: 'string',
+                        enum: ['nothing-better'],
+                      },
+                      reason: {
+                        kind: 'string',
                       },
                     },
                     optional: {
-                      spread: {
-                        kind: 'number',
+                      holdOut: {
+                        kind: 'object',
+                        required: {
+                          baseline: {
+                            kind: 'number',
+                            nullable: true,
+                          },
+                          candidate: {
+                            kind: 'number',
+                            nullable: true,
+                          },
+                          delta: {
+                            kind: 'number',
+                            nullable: true,
+                          },
+                        },
+                        optional: {
+                          spread: {
+                            kind: 'number',
+                          },
+                        },
                       },
                     },
                   },
-                  message: {
-                    kind: 'string',
+                  'cost-cap': {
+                    kind: 'object',
+                    required: {
+                      kind: {
+                        kind: 'string',
+                        enum: ['cost-cap'],
+                      },
+                      spentUsd: {
+                        kind: 'string',
+                      },
+                    },
                   },
+                  failed: {
+                    kind: 'object',
+                    required: {
+                      kind: {
+                        kind: 'string',
+                        enum: ['failed'],
+                      },
+                      message: {
+                        kind: 'string',
+                      },
+                    },
+                  },
+                },
+              },
+              takes: {
+                kind: 'array',
+                items: {
+                  kind: 'string',
                 },
               },
               cancelReason: {
@@ -458,11 +453,11 @@ export const WEBHOOK_EVENT_SHAPES = {
                     },
                     part: {
                       kind: 'string',
-                      enum: ['search', 'hold-out'],
+                      enum: ['search', 'hold-out', 'all'],
                     },
                   },
                   optional: {
-                    evalRunId: {
+                    testRunId: {
                       kind: 'string',
                       format: 'uuid',
                     },
@@ -493,7 +488,7 @@ export const WEBHOOK_EVENT_SHAPES = {
                         },
                       },
                     },
-                    hypothesis: {
+                    why: {
                       kind: 'string',
                     },
                   },

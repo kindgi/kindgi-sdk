@@ -16,7 +16,7 @@ description: >
   models by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.13"
+version: "0.1.14"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -67,6 +67,21 @@ One `kindgi dev` per pack. When one is already running (the person's
 terminal, say), `kindgi dev` exits with code 3 and prints where it is
 (its pid, the console and the API): use that one. Don't start another,
 and don't stop theirs.
+
+Each linked git worktree runs its own `kindgi dev`, side by side, with its
+own dev tenant, user and token. In the bundled Postgres it has its own
+database too, `kindgi_<project>__<worktree>`, and its tenant and user are
+named from it; with your own (`--database-url` or `KINDGI_DATABASE_URL`),
+it uses that one. Its `.kindgirc.json`, which `kindgi init` keeps out of
+git, keeps the token, the tenant and the user. When port 4000 is taken
+(another worktree's `kindgi dev`), it takes the next free one and says so,
+`⚠ port 4000 is in use (another kindgi dev?): using 4001`; that
+worktree's `.kindgirc.json` records it, so the CLI there follows. Read the
+API URL from the banner or `.kindgirc.json`, never assume 4000. A
+`--port` that's taken is refused. The providers the config declares are
+registered in each worktree as it starts. One registered by hand belongs
+to one worktree, and so does an env file git doesn't track, such as
+`.env.local`: copy it into a new worktree.
 
 `kindgi dev` needs Postgres: it starts one in Docker unless
 `KINDGI_DATABASE_URL` points at yours. It runs the pack with
@@ -261,7 +276,7 @@ month = client.cost.aggregate(
 # month.total_usd; month.groups[i].key ({"month": "2026-10"}), .total_usd, .tokens
 ```
 
-Docs: https://docs.kindgi.com/v0.2/guides/observability/cost-per-run/
+Docs: https://docs.kindgi.com/v0.3/guides/observability/cost-per-run/
 
 Show it in the app's own UI. **Never:**
 
@@ -273,7 +288,7 @@ Show it in the app's own UI. **Never:**
 - **link users to Kindgi's console** or any Kindgi UI for this data.
 
 To keep a copy (reporting, search), pull it through the API into the app's
-own tables. Docs: https://docs.kindgi.com/v0.2/guides/runs/show-runs-in-your-app/
+own tables. Docs: https://docs.kindgi.com/v0.3/guides/runs/show-runs-in-your-app/
 
 ## Build an image
 
@@ -326,11 +341,11 @@ running the older version on it.
   https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading
 - **Any other Cloud Run deployment:** by hand, staging first, as the Cloud
   Run page's "Upgrade by hand" section says:
-  https://docs.kindgi.com/v0.2/deploy/self-hosted/cloud-run/#upgrade-by-hand
+  https://docs.kindgi.com/v0.3/deploy/self-hosted/cloud-run/#upgrade-by-hand
 - **On Azure Container Apps:** the "Operate it" section of its page:
-  https://docs.kindgi.com/v0.2/deploy/self-hosted/azure-container-apps/#operate-it
+  https://docs.kindgi.com/v0.3/deploy/self-hosted/azure-container-apps/#operate-it
 - **Otherwise:** the operate page's upgrade steps:
-  https://docs.kindgi.com/v0.2/deploy/self-hosted/operate/#upgrade-the-runtime
+  https://docs.kindgi.com/v0.3/deploy/self-hosted/operate/#upgrade-the-runtime
 
 An upgrade changes a running deployment: give the person the commands to run
 in their own terminal (`./upgrade.sh` waits for them to type `yes`).

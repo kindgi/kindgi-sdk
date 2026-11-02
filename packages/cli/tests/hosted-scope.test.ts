@@ -128,7 +128,7 @@ const COMMANDS: readonly (readonly [string, (env?: string) => readonly string[]]
     (env = 'staging') => ['providers', 'register', '--preset=anthropic', `--env=${env}`],
   ],
   ['runs start', () => ['runs', 'start', '--agent=acme-desk', '--input={}', '--no-wait']],
-  ['agents promote', () => ['agents', 'promote', 'acme-desk', '1.0.0', '--tenant']],
+  ['agents pin', () => ['agents', 'pin', 'acme-desk', '1.0.0', '--tenant']],
 ];
 
 /** The commands that act in an env. */

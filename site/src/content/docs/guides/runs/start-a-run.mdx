@@ -100,10 +100,11 @@ uv run kindgi runs start --flow=acme.reserve-order --input='{"orderId":"A-300"}'
 `kindgi runs get <run-id>` shows it again, with its output once it's done.
 
 `--agent-version=<version>` (or `--flow-version`) runs that version instead of
-the one in use there: the agent's live version, or the flow's
-[pinned version](../../flows/pin-a-flow-version/), else the latest. And
+the one in use there: the agent's pinned version, else its project's
+[Latest](../../improve/pinned-versions-reference/#latest); or the flow's
+[pinned version](../../flows/pin-a-flow-version/), else its latest. And
 `--project=<project-id>` runs in that project instead of the
-agent's or flow's own, which is Default for what `kindgi deploy` registers
+agent's or flow's own, which is the default project for what `kindgi deploy` registers
 (`kindgi projects list` lists the projects with their ids). With
 authorization on, naming a project needs `write` on it:
 
@@ -690,7 +691,7 @@ Agent turn steps budget exceeded (limit 1, observed 1)
 Code budget-exceeded
 ```
 
-![A failed agent run's page: the agent acme.tight at 1.0.0, Failed, then its message and tool call, and the failure: "The turn ran out of its budget.", "Agent turn steps budget exceeded (limit 1, observed 1)" and "Code budget-exceeded".](../../../../assets/runs/run-failure.png)
+![A failed agent run's page: Tight agent at 1.0.0, Failed, started by you; then under What happened its message and tool call, and the failure: "The turn ran out of its budget.", "Agent turn steps budget exceeded (limit 1, observed 1)" and "Code budget-exceeded".](../../../../assets/runs/run-failure.png)
 
 A run that ended at its approval didn't go wrong: someone, or the
 approval's deadline, decided. Its page says which, not in red: "A reviewer

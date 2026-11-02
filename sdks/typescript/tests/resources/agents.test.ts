@@ -111,50 +111,13 @@ describe('agents.define — projectId (POST /v1/agents requires it)', () => {
   });
 });
 
-describe('agents.versions.derive', () => {
-  it('POSTs /v1/agents/{agentId}/versions with the source version and the pin swaps', async () => {
-    const derived = {
-      ...SPEC,
-      version: '1.0.1',
-      derivedFrom: { version: '1.0.0', reason: 'edited' },
-    };
-    const stub = jsonFetch(derived, { status: 201 });
-    const client = createClient({
-      apiUrl: 'https://api.example.com',
-      auth: AUTH,
-      fetch: stub.fetch,
-    });
-
-    const agent = await client.agents.versions.derive(
-      'acme.drafter' as never,
-      {
-        from: '1.0.0',
-        pins: { prompts: { 'acme.drafter-prompt': '1.1.0' } },
-        label: 'tighter tone',
-      },
-      { idempotencyKey: 'idem-d' },
-    );
-
-    expect(agent.version).toBe('1.0.1');
-    const req = stub.calls[0]!;
-    expect(req.method).toBe('POST');
-    expect(req.url).toBe('https://api.example.com/v1/agents/acme.drafter/versions');
-    expect(req.headers['idempotency-key']).toBe('idem-d');
-    expect(JSON.parse(req.body ?? '{}')).toEqual({
-      from: '1.0.0',
-      pins: { prompts: { 'acme.drafter-prompt': '1.1.0' } },
-      label: 'tighter tone',
-    });
-  });
-});
-
-describe('agents.live and agents.promotions', () => {
+describe('agents.pinned', () => {
   const PROJECT_ID = '0b9f4c1e-1111-4a2b-8c3d-000000000001';
-  const promotion = {
+  const pin = {
     id: 'p-1',
     agentId: 'acme.drafter',
     scope: { kind: 'project', projectId: PROJECT_ID },
-    action: 'promote',
+    action: 'pin',
     fromVersion: '1.0.0',
     toVersion: '1.1.0',
     requestedBy: { kind: 'user', id: 'u-1' },
@@ -163,9 +126,9 @@ describe('agents.live and agents.promotions', () => {
   const client = (stub: ReturnType<typeof jsonFetch>) =>
     createClient({ apiUrl: 'https://api.example.com', auth: AUTH, fetch: stub.fetch });
 
-  it('live.resolve sends the project and the segment path in order', async () => {
+  it('pinned.resolve sends the project and the segment path in order', async () => {
     const stub = jsonFetch({ agentId: 'acme.drafter', version: '1.1.0', via: 'latest' });
-    await client(stub).agents.live.resolve('acme.drafter', {
+    await client(stub).agents.pinned.resolve('acme.drafter', {
       projectId: PROJECT_ID,
       segments: [
         { key: 'company', value: 'acme' },
@@ -173,15 +136,17 @@ describe('agents.live and agents.promotions', () => {
       ],
     });
     const url = new URL(stub.calls[0]!.url);
-    expect(url.pathname).toBe('/v1/agents/acme.drafter/live');
+    expect(url.pathname).toBe('/v1/agents/acme.drafter/pinned');
     expect(url.searchParams.get('projectId')).toBe(PROJECT_ID);
     expect(url.searchParams.getAll('segment')).toEqual(['company:acme', 'role:counsel']);
   });
 
-  it('live.list GETs /live-versions', async () => {
+  it('pinned.list GETs /pinned-versions', async () => {
     const stub = jsonFetch({ data: [] });
-    await client(stub).agents.live.list('acme.drafter');
-    expect(stub.calls[0]!.url).toBe('https://api.example.com/v1/agents/acme.drafter/live-versions');
+    await client(stub).agents.pinned.list('acme.drafter');
+    expect(stub.calls[0]!.url).toBe(
+      'https://api.example.com/v1/agents/acme.drafter/pinned-versions',
+    );
   });
 
   it('projects GETs /projects and returns the answer as sent', async () => {
@@ -192,17 +157,57 @@ describe('agents.live and agents.promotions', () => {
     expect(got).toEqual({ data: [{ projectId: PROJECT_ID }] });
   });
 
-  it('promotions.create POSTs the version and scope, with an idempotency key', async () => {
-    const stub = jsonFetch(promotion, { status: 201 });
-    const made = await client(stub).agents.promotions.create(
+  it('setOwner PUTs the person to /owner and returns the answer as sent', async () => {
+    const answer = { agentId: 'acme.drafter', owner: { userId: 'u-1', name: 'Ana Ortiz' } };
+    const stub = jsonFetch(answer);
+    const got = await client(stub).agents.setOwner('acme.drafter', 'u-1');
+    expect(stub.calls[0]!.url).toBe('https://api.example.com/v1/agents/acme.drafter/owner');
+    expect(stub.calls[0]!.method).toBe('PUT');
+    expect(JSON.parse(stub.calls[0]!.body as string)).toEqual({ userId: 'u-1' });
+    expect(got).toEqual(answer);
+  });
+
+  it('testSet.listCases reads one project, with retired cases and kinds as the query', async () => {
+    const stub = jsonFetch({ data: [], hasMore: false });
+    await client(stub).agents.testSet.listCases('acme.drafter', {
+      projectId: PROJECT_ID,
+      includeRetired: true,
+      kinds: ['correction', 'hand'],
+      limit: 20,
+    });
+    const url = new URL(stub.calls[0]!.url);
+    expect(url.pathname).toBe('/v1/agents/acme.drafter/test-set/cases');
+    expect(url.searchParams.get('projectId')).toBe(PROJECT_ID);
+    expect(url.searchParams.get('include')).toBe('retired');
+    expect(url.searchParams.get('kind')).toBe('correction,hand');
+    expect(url.searchParams.get('limit')).toBe('20');
+  });
+
+  it('testSet.retireCase POSTs the reason to the case, with an idempotency key', async () => {
+    const stub = jsonFetch({ id: 'case-1', kind: 'hand' });
+    await client(stub).agents.testSet.retireCase('acme.drafter', 'case-1', 'the tool changed', {
+      idempotencyKey: 'idem-2',
+    });
+    const req = stub.calls[0]!;
+    expect(req.method).toBe('POST');
+    expect(req.url).toBe(
+      'https://api.example.com/v1/agents/acme.drafter/test-set/cases/case-1/retire',
+    );
+    expect(req.headers['idempotency-key']).toBe('idem-2');
+    expect(JSON.parse(req.body ?? '{}')).toEqual({ reason: 'the tool changed' });
+  });
+
+  it('pinned.pin POSTs the version and scope, with an idempotency key', async () => {
+    const stub = jsonFetch({ pin, testRuns: [], fixed: [], reopened: [] }, { status: 201 });
+    const made = await client(stub).agents.pinned.pin(
       'acme.drafter',
       { version: '1.1.0', scope: { kind: 'project', projectId: PROJECT_ID }, reason: 'evals' },
       { idempotencyKey: 'idem-1' },
     );
-    expect(made.toVersion).toBe('1.1.0');
+    expect(made.pin.toVersion).toBe('1.1.0');
     const req = stub.calls[0]!;
     expect(req.method).toBe('POST');
-    expect(req.url).toBe('https://api.example.com/v1/agents/acme.drafter/promotions');
+    expect(req.url).toBe('https://api.example.com/v1/agents/acme.drafter/pinned/pin');
     expect(req.headers['idempotency-key']).toBe('idem-1');
     expect(JSON.parse(req.body ?? '{}')).toEqual({
       version: '1.1.0',
@@ -211,14 +216,14 @@ describe('agents.live and agents.promotions', () => {
     });
   });
 
-  it('promotions.list turns a segment scope into the query filter', async () => {
-    const stub = jsonFetch({ data: [promotion], hasMore: false });
-    await client(stub).agents.promotions.list('acme.drafter', {
+  it('pinned.history turns a segment scope into the query filter', async () => {
+    const stub = jsonFetch({ data: [pin], hasMore: false });
+    await client(stub).agents.pinned.history('acme.drafter', {
       scope: { kind: 'segment', projectId: PROJECT_ID, path: [{ key: 'company', value: 'acme' }] },
       limit: 5,
     });
     const url = new URL(stub.calls[0]!.url);
-    expect(url.pathname).toBe('/v1/agents/acme.drafter/promotions');
+    expect(url.pathname).toBe('/v1/agents/acme.drafter/pin-history');
     expect(Object.fromEntries(url.searchParams)).toEqual({
       scopeKind: 'segment',
       scopeId: PROJECT_ID,
@@ -227,39 +232,41 @@ describe('agents.live and agents.promotions', () => {
     });
   });
 
-  it('promotions.get GETs one promotion', async () => {
-    const stub = jsonFetch(promotion);
-    await client(stub).agents.promotions.get('acme.drafter', 'p-1');
+  it('pinned.getChange GETs one pin change', async () => {
+    const stub = jsonFetch(pin);
+    await client(stub).agents.pinned.getChange('acme.drafter', 'p-1');
     expect(stub.calls[0]!.url).toBe(
-      'https://api.example.com/v1/agents/acme.drafter/promotions/p-1',
+      'https://api.example.com/v1/agents/acme.drafter/pin-history/p-1',
     );
   });
 
-  it('live.rollback and live.unpin POST the scope', async () => {
-    const body = JSON.stringify({ ...promotion, action: 'rollback' });
+  it('pinned.unpin POSTs the scope, with an idempotency key', async () => {
+    const unpin = { ...pin, action: 'unpin', toVersion: null };
     const stub = recordingFetch([
-      { status: 200, body },
-      { status: 200, body },
+      {
+        status: 201,
+        body: JSON.stringify({ pin: unpin, testRuns: [], fixed: [], reopened: [] }),
+      },
     ]);
-    const c = client(stub);
-    await c.agents.live.rollback('acme.drafter', { scope: { kind: 'tenant' }, toVersion: '1.0.0' });
-    await c.agents.live.unpin('acme.drafter', { scope: { kind: 'tenant' }, reason: 'done' });
-    expect(
-      stub.calls.map((r) => [r.method, new URL(r.url).pathname, JSON.parse(r.body ?? '{}')]),
-    ).toEqual([
-      [
-        'POST',
-        '/v1/agents/acme.drafter/live/rollback',
-        { scope: { kind: 'tenant' }, toVersion: '1.0.0' },
-      ],
-      ['POST', '/v1/agents/acme.drafter/live/unpin', { scope: { kind: 'tenant' }, reason: 'done' }],
+    const made = await client(stub).agents.pinned.unpin(
+      'acme.drafter',
+      { scope: { kind: 'tenant' }, reason: 'done' },
+      { idempotencyKey: 'idem-2' },
+    );
+    expect(made.pin.action).toBe('unpin');
+    const req = stub.calls[0]!;
+    expect([req.method, new URL(req.url).pathname, JSON.parse(req.body ?? '{}')]).toEqual([
+      'POST',
+      '/v1/agents/acme.drafter/pinned/unpin',
+      { scope: { kind: 'tenant' }, reason: 'done' },
     ]);
+    expect(req.headers['idempotency-key']).toBe('idem-2');
   });
 
   it('a version that is not registered surfaces as KindgiApiError', async () => {
     const stub = errorFetch(404, { code: 'agent-version-not-found', message: 'no 9.9.9' });
     await expect(
-      client(stub).agents.promotions.create('acme.drafter', {
+      client(stub).agents.pinned.pin('acme.drafter', {
         version: '9.9.9',
         scope: { kind: 'tenant' },
       }),

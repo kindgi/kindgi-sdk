@@ -583,3 +583,32 @@ describe('thinking levels on Chat Completions', () => {
     });
   });
 });
+
+describe('the output cap', () => {
+  test("a call that sets none is sent its model's registered maxOutputTokens as max_tokens; the call's own wins", async () => {
+    const endpoint = fakeEndpoint();
+    const provider = createOpenAICompatModelProvider({
+      baseURL: 'http://llm.test/v1',
+      apiKey: 'k',
+      metadata: {
+        ...metadata,
+        models: [
+          ...metadata.models,
+          {
+            name: 'gpt-capped',
+            contextWindow: 128000,
+            features: ['tool-use'],
+            cost: { promptUsdPer1kTokens: 0.001, completionUsdPer1kTokens: 0.002 },
+            maxOutputTokens: 1024,
+          },
+        ],
+      },
+      clientOptions: { fetch: endpoint.fetch, maxRetries: 0 },
+    });
+    await provider.invoke({ ...call, model: 'gpt-capped' });
+    await provider.invoke({ ...call, model: 'gpt-capped', maxOutputTokens: 64 });
+    await provider.invoke(call);
+    expect(endpoint.seen.map((s) => s.body.max_tokens)).toEqual([1024, 64, undefined]);
+    expect(endpoint.seen[2]?.body).not.toHaveProperty('max_tokens');
+  });
+});

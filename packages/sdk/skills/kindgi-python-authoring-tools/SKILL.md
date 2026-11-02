@@ -14,7 +14,7 @@ description: >
   kindgi-python-getting-started.
 type: core
 library: "kindgi (Python)"
-version: "0.1.7"
+version: "0.1.8"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -114,7 +114,7 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
   system it writes to (an `Idempotency-Key` header, a client reference, a
   unique column) or looks for it there first: a refund never goes out
   twice. A UUID; `None` outside a run and from a runtime before 0.1.6.
-  Docs: https://docs.kindgi.com/v0.2/guides/tools/write-a-tool/#make-a-side-effect-happen-once
+  Docs: https://docs.kindgi.com/v0.3/guides/tools/write-a-tool/#make-a-side-effect-happen-once
 - `ctx.project_id`, `ctx.org_id` — the run's project, and that project's
   org (`None` when it has none). The runtime sets them from the run, never
   from the input: to check an org or project id the input names, compare
@@ -138,7 +138,45 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
   amounts and outcomes, never what a person typed (a refund's reason, a
   message, an address): the log is read by whoever operates the runtime.
   `ToolContext.for_test(…)` logs nothing unless you pass it `log=`. Docs:
-  https://docs.kindgi.com/v0.2/guides/tools/write-a-tool/#log-from-a-tool
+  https://docs.kindgi.com/v0.3/guides/tools/write-a-tool/#log-from-a-tool
+
+## Work that takes longer than a call
+
+A tool call has a deadline: 120 s by default (`KINDGI_PACK_CALL_TIMEOUT_MS`
+on a runtime the user runs). At the deadline the call fails with
+`deadline-exceeded` and `ctx.cancellation` fires; a handler that doesn't stop
+runs on, and its result goes nowhere. An `async def` handler is cancelled at
+its next `await`; a `def` handler runs on unless it checks `ctx.cancellation`.
+- In an agent, the turn fails, unless the agent's `tool_errors` lists
+  `"tool-error"` in `retryOn`. The list replaces the default, so keep
+  `"invalid-arguments"` and `"unknown-tool"` in it:
+  `tool_errors={"maxRetries": 1, "retryOn": ["invalid-arguments", "unknown-tool", "tool-error"]}`.
+  The keys inside stay camelCase: never `retry_on`. The tenant's
+  `tool-errors` policy can narrow it further.
+- In a flow, the step fails. An edge's `retry` may run it again while the
+  first handler still runs, with the same `ctx.idempotency_key`: pass the
+  key on. An edge's `timeoutMs` can only fail it sooner.
+- A run whose call is still running is executing, not parked: a runtime
+  deploy or restart, or a crash, fails it.
+
+NEVER write a tool that waits for work taking minutes or hours (a report, a
+batch job, a person's answer elsewhere), and don't raise the deadline for
+it. Ask the user how the other system reports back, then:
+
+- It can call a URL when done: **pause**. Declare `pauses=True`, hand
+  `ctx.wait_token.url` to that system with `ctx.idempotency_key`, and
+  `return ctx.pause(timeout_ms=..., name=...)`, with the return annotation
+  `Output | PauseAnswer`. Its answer is the call's result, checked against
+  the output schema. `name` says what the run waits for, with no personal
+  data. Runtime 0.2.0 or later.
+- It can post a webhook when done, and nothing in this run needs the
+  answer: start the job with `ctx.idempotency_key`, return its id at once,
+  and give that system a webhook trigger that starts the next flow.
+- It can't call back: return the job's id, and check it from a scheduled
+  flow.
+
+Docs: https://docs.kindgi.com/v0.3/guides/tools/write-a-tool/#work-that-takes-longer-than-a-call
+and https://docs.kindgi.com/v0.3/guides/tools/wait-for-another-system/
 
 ## Configuration and secrets
 
@@ -239,7 +277,7 @@ def send_mail(message: Message, ctx: ToolContext) -> Sent:
 - **Unattended runs:** in a run no person started, a tool that uses a `"person"` connection waits for that person's yes, reads included: `mutating=False` doesn't lift it. The agent's own approval settings can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needs_approval_when_unattended` (below). In a run a new mail started, the mail is a stranger's text, so two more calls wait: a call of a tool that isn't `mutating=False`, and, when the trigger reads the company's mailbox, a read with the company's connection to that app. The mail trigger's `toolsAllowedUnattended` lifts these too.
 - **In a unit test:** `ToolContext.for_test(connections={"mail": ToolConnection(connection_id="c-1", app="google", app_name="Google", access_token="test", account=ConnectionAccount(id="1", label="ana@acme.com"))})`, all from `kindgi`. `ctx.connections` is empty when the tool declares none.
 
-Docs: https://docs.kindgi.com/v0.2/guides/connections/use-a-connection/
+Docs: https://docs.kindgi.com/v0.3/guides/connections/use-a-connection/
 
 ## Errors and output
 
@@ -310,7 +348,7 @@ def refund(request: RefundRequest) -> Refunded:
     """Refunds an order."""
 ```
 
-Docs: https://docs.kindgi.com/v0.2/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
+Docs: https://docs.kindgi.com/v0.3/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
 
 ## Results that are text from outside: `result_is_outside_data`
 
@@ -447,7 +485,7 @@ removed field, a narrower type — not on every save.
     folder, `~/.aws`) or any `.env*` file, and gets `EPERM` there. A tool that
     needs a path names it in `pyproject.toml`: `[tool.kindgi.dev.sandbox]` `allowRead = ["~/.aws"]`.
     Never set `KINDGI_DEV_SANDBOX=off` or `dev.sandbox: false` to get past it
-    (https://docs.kindgi.com/v0.2/guides/secrets/dev-sandbox/).
+    (https://docs.kindgi.com/v0.3/guides/secrets/dev-sandbox/).
 
 ## When the framework itself is the problem
 

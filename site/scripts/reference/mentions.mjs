@@ -46,8 +46,8 @@ export function handWrittenPages(docs) {
 }
 
 /**
- * The longest known command path a `kindgi` line runs, e.g. "agents promote"
- * for `kindgi agents promote acme.order-desk 1.0.0`, or undefined.
+ * The longest known command path a `kindgi` line runs, e.g. "agents pin"
+ * for `kindgi agents pin acme.order-desk 1.0.0`, or undefined.
  */
 export function commandOf(line, commands) {
   const match = line

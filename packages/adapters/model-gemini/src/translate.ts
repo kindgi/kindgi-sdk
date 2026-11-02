@@ -11,11 +11,13 @@ import type {
   Part,
 } from '@google/genai';
 import type {
+  FilePart,
   ModelCallResult,
   ModelMessage,
   ModelToolCall,
   ModelToolDefinition,
 } from '@kindgi/capabilities';
+import { headedFileParts } from '@kindgi/capabilities';
 
 /**
  * Gemini function names: a letter or `_` first, then letters, digits,
@@ -47,33 +49,70 @@ export function checkFunctionName(name: string): string {
  *     `response.output` (parsed when it is JSON).
  *
  * Consecutive turns of the same role merge into one `Content`.
+ *
+ * `files` holds each message's file parts (`fileParts`), by index, sent
+ * inline after the message's text. A function response isn't known to take
+ * files, so a tool result's files move: after the run of tool results, each
+ * result's files under a heading that names its call, in the same user turn
+ * as the function responses (consecutive user parts merge).
  */
-export function toGeminiRequest(messages: readonly ModelMessage[]): {
+export function toGeminiRequest(
+  messages: readonly ModelMessage[],
+  files: readonly (readonly FilePart[])[] = [],
+): {
   readonly systemInstruction: string | undefined;
   readonly contents: readonly Content[];
 } {
   const systemParts: string[] = [];
   const contents: Content[] = [];
   const callNames = new Map<string, string>();
+  // A tool result's files, held until the run of tool results ends; they join
+  // its user turn, after the function responses.
+  let moved: Part[] = [];
+  const flushMoved = (): void => {
+    if (moved.length > 0) append(contents, 'user', moved);
+    moved = [];
+  };
 
-  for (const msg of messages) {
-    if (msg.role === 'system') {
-      if (msg.content.length > 0) systemParts.push(msg.content);
-    } else if (msg.role === 'user') {
-      append(contents, 'user', [{ text: msg.content }]);
-    } else if (msg.role === 'assistant') {
-      const parts = modelParts(msg, callNames);
-      // An empty model turn is invalid; the agent loop never produces one.
-      if (parts.length > 0) append(contents, 'model', parts);
-    } else {
-      append(contents, 'user', [functionResponsePart(msg, callNames)]);
+  for (const [i, msg] of messages.entries()) {
+    const fileParts = files[i] ?? [];
+    if (msg.role !== 'tool') flushMoved();
+    switch (msg.role) {
+      case 'system':
+        if (msg.content.length > 0) systemParts.push(msg.content);
+        break;
+      case 'user':
+        append(contents, 'user', userParts(msg, fileParts));
+        break;
+      case 'assistant': {
+        const parts = modelParts(msg, callNames);
+        // An empty model turn is invalid; the agent loop never produces one.
+        if (parts.length > 0) append(contents, 'model', parts);
+        break;
+      }
+      case 'tool':
+        append(contents, 'user', [functionResponsePart(msg, callNames)]);
+        moved.push(
+          ...headedFileParts(fileParts, { toolCallId: msg.toolCallId ?? '' }).map(toGeminiPart),
+        );
+        break;
     }
   }
+  flushMoved();
 
   return {
     systemInstruction: systemParts.length > 0 ? systemParts.join('\n\n') : undefined,
     contents,
   };
+}
+
+/** A user message's parts: its text, then its files under the outside-data heading. */
+function userParts(msg: ModelMessage, files: readonly FilePart[]): Part[] {
+  if (files.length === 0) return [{ text: msg.content }];
+  return [
+    ...(msg.content.length > 0 ? [{ text: msg.content }] : []),
+    ...headedFileParts(files).map(toGeminiPart),
+  ];
 }
 
 /** An assistant message's parts: its text, then a `functionCall` per tool call. */
@@ -103,6 +142,12 @@ function functionResponsePart(msg: ModelMessage, callNames: ReadonlyMap<string, 
     );
   }
   return { functionResponse: { id, name, response: { output: parseOutput(msg.content) } } };
+}
+
+function toGeminiPart(part: FilePart): Part {
+  return part.kind === 'text'
+    ? { text: part.text }
+    : { inlineData: { mimeType: part.mediaType, data: part.data } };
 }
 
 function append(contents: Content[], role: 'user' | 'model', parts: readonly Part[]): void {

@@ -17,6 +17,7 @@ import {
   type MCPEndpointAuth,
   type MCPEndpointConfig,
   type MCPEndpointRegistryBinding,
+  type MCPEndpointSecretRef,
   type MCPPromptDescriptor,
   type MCPPromptMessage,
   type MCPResourceContent,
@@ -25,8 +26,11 @@ import {
   MCP_AUTH_HEADERS_MAX,
   MCP_AUTH_SCHEMES,
   MCP_OAUTH_CLIENT_AUTH,
+  MCP_SECRET_ENV_MAX,
   MCP_TRANSPORTS,
+  REDACTED_ENV_VALUE,
   REDACTED_HEADER_VALUE,
+  isCredentialEnvName,
   isCredentialHeaderName,
   mcpEndpointSecretNames,
   mcpEndpointSecretRefs,
@@ -49,9 +53,10 @@ import { parseSecretRef } from './secret-ref.js';
  * runtime discovers each endpoint's tools and registers them into
  * `ToolRegistryBinding` under the same tenant.
  *
- * Secrets do NOT cross the wire — `MCPEndpoint.secretRef` names a
- * secret in the deployment's store, never a plaintext credential. The
- * API surface accepts, stores, and returns only the reference.
+ * Secrets do NOT cross the wire — `MCPEndpoint.secretRef`, `auth` and
+ * `secretEnv` name secrets in the deployment's store, never a plaintext
+ * credential. The API surface accepts, stores, and returns only the
+ * reference.
  *
  * `hostAccess` (`KINDGI_TENANT_HOST_ACCESS`): under `deployed` and
  * `isolated`, a stdio endpoint — a command the server would run on its own host — is
@@ -691,6 +696,7 @@ function serializeEndpoint(e: MCPEndpoint): Record<string, unknown> {
     config: redactedConfig(e.config),
     ...(e.secretRef !== undefined && { secretRef: e.secretRef }),
     ...(e.auth !== undefined && { auth: e.auth }),
+    ...(e.secretEnv !== undefined && { secretEnv: e.secretEnv }),
     ...(e.instructions !== undefined && { instructions: e.instructions }),
     ...(e.metadata !== undefined && { metadata: e.metadata }),
     ...(e.sendTraceparent !== undefined && { sendTraceparent: e.sendTraceparent }),
@@ -703,9 +709,21 @@ function serializeEndpoint(e: MCPEndpoint): Record<string, unknown> {
  * name kept, so an operator sees what to move to `auth` and nobody reads the
  * value back. Registration refuses such a header now; an endpoint registered
  * before keeps it, and keeps working.
+ *
+ * Every value of a stdio endpoint's `config.env` reads `[redacted]`, its name
+ * kept: a secret there may have a name the credential rule doesn't catch
+ * (`DATABASE_URL`, `PGPASSWORD`), and the runtime reads the stored endpoint,
+ * never this answer.
  */
 function redactedConfig(config: MCPEndpointConfig): MCPEndpointConfig {
-  if (config.transport === 'stdio' || config.headers === undefined) return config;
+  if (config.transport === 'stdio') {
+    if (config.env === undefined) return config;
+    return {
+      ...config,
+      env: Object.fromEntries(Object.keys(config.env).map((name) => [name, REDACTED_ENV_VALUE])),
+    };
+  }
+  if (config.headers === undefined) return config;
   const entries = Object.entries(config.headers);
   if (!entries.some(([name]) => isCredentialHeaderName(name))) return config;
   return {
@@ -727,6 +745,7 @@ const REGISTER_BODY_FIELDS = new Set([
   'config',
   'secretRef',
   'auth',
+  'secretEnv',
   'instructions',
   'metadata',
   'sendTraceparent',
@@ -824,13 +843,30 @@ function validateMCPEndpoint(
       },
     };
   }
+  if (secretRef !== undefined && b.transport === 'stdio') {
+    return {
+      kind: 'err',
+      error: {
+        message: `endpoint "${b.endpointId}" secretRef needs an HTTP transport: it's sent as a bearer header, and a stdio server gets no headers. Give the server its secret as a variable: secretEnv: { <NAME>: { envName, name } }.`,
+        reason: 'secret-ref-on-stdio',
+      },
+    };
+  }
   const authResult =
     b.auth === undefined
       ? undefined
       : checkedAuth(b.endpointId, b.transport as MCPTransport, b, configResult.value);
   if (authResult?.kind === 'err') return authResult;
   const auth = authResult?.value;
-  const credential = credentialInHeaders(b.endpointId, configResult.value);
+  const secretEnvResult =
+    b.secretEnv === undefined
+      ? undefined
+      : parseSecretEnv(b.endpointId, b.secretEnv, configResult.value);
+  if (secretEnvResult?.kind === 'err') return secretEnvResult;
+  const secretEnv = secretEnvResult?.value;
+  const credential =
+    credentialInHeaders(b.endpointId, configResult.value) ??
+    credentialInEnv(b.endpointId, configResult.value);
   if (credential !== undefined) return { kind: 'err', error: credential };
   if (b.instructions !== undefined && typeof b.instructions !== 'string') {
     return {
@@ -876,6 +912,7 @@ function validateMCPEndpoint(
     config: configResult.value,
     ...(secretRef !== undefined && { secretRef: secretRef.value }),
     ...(auth !== undefined && { auth }),
+    ...(secretEnv !== undefined && { secretEnv }),
     ...(b.instructions !== undefined && { instructions: b.instructions as string }),
     ...(b.metadata !== undefined && {
       metadata: b.metadata as Readonly<Record<string, unknown>>,
@@ -968,6 +1005,83 @@ function credentialInHeaders(
     message: `endpoint "${endpointId}" puts a credential in config.headers (${listed}), where it's stored and shown as given. Store each value as a secret and send it by reference: auth: { scheme: "header", headers: [${byReference}] }.${bearer}`,
     reason: 'credential-in-headers',
   };
+}
+
+/**
+ * A credential in a stdio endpoint's `config.env` (`isCredentialEnvName`),
+ * refused: it'd be stored as given. The message names each variable, never
+ * its value.
+ */
+function credentialInEnv(
+  endpointId: string,
+  config: MCPEndpointConfig,
+): { readonly message: string; readonly reason: string } | undefined {
+  const env = config.transport === 'stdio' ? config.env : undefined;
+  const names = Object.keys(env ?? {}).filter(isCredentialEnvName);
+  if (names.length === 0) return undefined;
+  const listed = names.map((name) => `"${name}"`).join(', ');
+  const byReference = names.map((name) => `${name}: { envName, name }`).join(', ');
+  return {
+    message: `endpoint "${endpointId}" puts a credential in config.env (${listed}), where it's stored as given. Store each value as a secret and give it by reference: secretEnv: { ${byReference} }.`,
+    reason: 'credential-in-env',
+  };
+}
+
+/**
+ * `secretEnv`: a stdio server's secret variables, 1 to `MCP_SECRET_ENV_MAX`,
+ * each a variable name and its secret by reference, none also in `config.env`.
+ */
+function parseSecretEnv(
+  endpointId: string,
+  raw: unknown,
+  config: MCPEndpointConfig,
+):
+  | { kind: 'ok'; value: Readonly<Record<string, MCPEndpointSecretRef>> }
+  | { kind: 'err'; error: { message: string; reason: string } } {
+  const bad = (message: string, reason = 'invalid-secret-env') => ({
+    kind: 'err' as const,
+    error: { message: `endpoint "${endpointId}" ${message}`, reason },
+  });
+  if (config.transport !== 'stdio') {
+    return bad(
+      'secretEnv needs a stdio transport: an HTTP server is sent its secret in a header, by secretRef or by auth: { scheme: "header", headers: [{ name, secretRef: { envName, name } }] }.',
+      'secret-env-on-http',
+    );
+  }
+  const entries =
+    raw !== null && typeof raw === 'object' && !Array.isArray(raw) ? Object.entries(raw) : [];
+  if (entries.length === 0 || entries.length > MCP_SECRET_ENV_MAX) {
+    return bad(
+      `secretEnv must be an object of 1 to ${MCP_SECRET_ENV_MAX} variables, each { envName, name }`,
+    );
+  }
+  const value: Record<string, MCPEndpointSecretRef> = {};
+  for (const [name, ref] of entries) {
+    const problem = envNameProblem(name);
+    if (problem !== undefined) return bad(`secretEnv: the variable name "${name}" ${problem}`);
+    if (config.env !== undefined && Object.hasOwn(config.env, name)) {
+      return bad(
+        `sets the variable "${name}" in both secretEnv and config.env: secretEnv gives it. Drop it from config.env.`,
+        'secret-env-twice',
+      );
+    }
+    const parsed = parseSecretRef(ref, `secretEnv.${name}`);
+    if (parsed.kind === 'err') return bad(parsed.message, 'invalid-secret-ref');
+    value[name] = parsed.value;
+  }
+  return { kind: 'ok', value };
+}
+
+/**
+ * Why a process's environment can't carry `name` as a variable's name, or
+ * `undefined` when it can: the name is everything before the first `=`, and
+ * a NUL ends it.
+ */
+function envNameProblem(name: string): string | undefined {
+  if (name.length === 0) return 'is empty';
+  if (name.includes('=')) return 'has "="';
+  if (name.includes('\0')) return 'has a NUL character';
+  return undefined;
 }
 
 /** Each scheme's fields. */
@@ -1174,6 +1288,26 @@ function parseOAuth2Auth(
   };
 }
 
+/**
+ * Why a process can't be started with `env`, or why it'd start with a value
+ * that isn't the registrant's: a name `envNameProblem` refuses, a value with a
+ * NUL (which spawn refuses, quoting the value), or `[redacted]`, as GET
+ * answers every value. Names the variable, never its value.
+ */
+function stdioEnvProblem(env: Readonly<Record<string, string>>): string | undefined {
+  for (const [name, value] of Object.entries(env)) {
+    const problem = envNameProblem(name);
+    if (problem !== undefined) return `the variable name "${name}" ${problem}`;
+    if (value.includes('\0')) {
+      return `the value of "${name}" has a NUL character, which a process's environment can't carry`;
+    }
+    if (value === REDACTED_ENV_VALUE) {
+      return `the value of "${name}" is "${REDACTED_ENV_VALUE}", as GET answers every value, not the value itself. Register the value, or give a secret by reference through secretEnv.`;
+    }
+  }
+  return undefined;
+}
+
 function validateConfig(
   endpointId: string,
   cfg: Partial<MCPEndpointConfig> & Record<string, unknown>,
@@ -1211,6 +1345,16 @@ function validateConfig(
           kind: 'err',
           error: {
             message: `endpoint "${endpointId}" stdio config.env must be a Record<string, string>`,
+            reason: 'invalid-stdio-env',
+          },
+        };
+      }
+      const problem = stdioEnvProblem(cfg.env as Readonly<Record<string, string>>);
+      if (problem !== undefined) {
+        return {
+          kind: 'err',
+          error: {
+            message: `endpoint "${endpointId}" stdio config.env: ${problem}`,
             reason: 'invalid-stdio-env',
           },
         };

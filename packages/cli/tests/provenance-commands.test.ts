@@ -53,10 +53,7 @@ async function provenance(
     clientFactory: () =>
       ({
         provenance: {
-          query: record(
-            'query',
-            answers.query ?? { data: [RECORD], hasMore: false, items: [RECORD] },
-          ),
+          query: record('query', answers.query ?? { data: [RECORD], hasMore: false }),
           get: record('get', answers.get ?? { ...RECORD, nodes: [] }),
           export: record('export', { bundle: {}, signature: 'sig' }),
         },
@@ -103,7 +100,7 @@ describe('kindgi provenance (T238)', () => {
 
   test("list --flow: that flow's runs' records; a runtime that ignores the filter is refused", async () => {
     const flowRecord = { ...RECORD, flowRef: { id: 'acme.report', version: '1.0.0' } };
-    const filtered = { data: [flowRecord], hasMore: false, items: [flowRecord] };
+    const filtered = { data: [flowRecord], hasMore: false };
     const ok = await provenance(['list', '--flow=acme.report', '--table'], {
       query: { ...filtered, flowId: 'acme.report' },
     });

@@ -195,7 +195,7 @@ describe('model settings set how much the model thinks', () => {
     }
   });
 
-  test('marked tunable, an improvement pass tries the levels its enum lists, and only those', () => {
+  test('marked tunable, an Improve run tries the levels its enum lists, and only those', () => {
     const { keys } = modelSettingsTunableKeys(
       {
         type: 'object',

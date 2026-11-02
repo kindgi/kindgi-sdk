@@ -297,7 +297,7 @@ const register: LeafCommand = {
     },
     project: {
       type: 'string',
-      description: "The trigger's project, by id (default: the tenant's Default project).",
+      description: "The trigger's project, by id (default: the tenant's default project).",
     },
     ...SIGNATURE_FLAGS,
     ...RUN_AS_FLAG,

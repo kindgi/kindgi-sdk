@@ -33,6 +33,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { DEPLOY_ENVELOPE_SCHEMA } from '../src/build/envelope.js';
 import { postDeploymentReal } from '../src/deploy/post.js';
 import type {
+  CountKeptBuildsOptions,
+  CountKeptBuildsResult,
   DeployRunners,
   DeploymentEndpointRecord,
   DeploymentRecord,
@@ -47,6 +49,7 @@ import type {
   SyncSecretsOptions,
   SyncSecretsResult,
 } from '../src/deploy/runners.js';
+import type { DeploySource } from '../src/deploy/source.js';
 import type { PackEnvNameRecord } from '../src/env/pack-env-hint.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
 import { CLI_VERSION } from '../src/version-info.js';
@@ -150,6 +153,8 @@ interface Fixtures {
     capturedFindSlug?: string;
     capturedBuild?: RunBuildOptions;
     capturedSync?: SyncSecretsOptions;
+    /** The folder `readSource` was asked about. */
+    sourceAsked?: string;
   };
 }
 
@@ -173,6 +178,8 @@ interface FixtureOptions {
   readonly failedList?: 'projects' | 'orders';
   /** What the runtime says it serves (whoami's `servedEnv`); absent: no lookup runner. */
   readonly servedEnv?: { readonly envName: string; readonly refusesOtherEnvs: boolean };
+  /** Where `readSource` says the pack lives in git, `null` for nowhere; absent: no such runner. */
+  readonly source?: DeploySource | null;
 }
 
 function makeFixtures(opts: FixtureOptions = {}): Fixtures {
@@ -206,6 +213,13 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
       };
     },
   };
+  if (opts.source !== undefined) {
+    const source = opts.source;
+    (runners as { readSource?: DeployRunners['readSource'] }).readSource = async (dir) => {
+      state.sourceAsked = dir;
+      return source ?? undefined;
+    };
+  }
   if (opts.servedEnv !== undefined) {
     const served = opts.servedEnv;
     (runners as { servedEnv?: DeployRunners['servedEnv'] }).servedEnv = async (o) => {
@@ -503,6 +517,35 @@ describe('kindgi deploy — POST body + Idempotency-Key', () => {
     expect(fixtures2.state.capturedPost?.idempotencyKey).toBe(key);
   });
 
+  test('inside a git work tree, the body says where the pack lives, and the key covers it', async () => {
+    await writeAutoEnvelope();
+    const source: DeploySource = {
+      repo: 'github.com/acme/agents',
+      path: 'packs/support',
+      commit: 'a'.repeat(40),
+      branch: 'main',
+      dirty: false,
+    };
+    const inGit = makeFixtures({ source });
+    await runCli({
+      ...baseInputs(inGit),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`],
+    });
+    expect(inGit.state.sourceAsked).toBe(packDir);
+    expect(inGit.state.capturedPost?.body.source).toEqual(source);
+
+    const outside = makeFixtures({ source: null });
+    await runCli({
+      ...baseInputs(outside),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`],
+    });
+    expect(outside.state.sourceAsked).toBe(packDir);
+    expect(outside.state.capturedPost?.body).not.toHaveProperty('source');
+    expect(outside.state.capturedPost?.idempotencyKey).not.toBe(
+      inGit.state.capturedPost?.idempotencyKey,
+    );
+  });
+
   test('--idempotency-key overrides the derived value', async () => {
     await writeAutoEnvelope();
     const fixtures = makeFixtures();
@@ -547,8 +590,12 @@ describe('kindgi deploy — response handling', () => {
     expect(out.stderr).toContain('201 Created');
     expect(out.stderr).toContain('deploymentId:    dep-created-01');
     expect(out.stderr).toContain('primitives:      1 tool');
+    expect(out.stderr).toContain('Deploy complete.');
+    expect(out.stderr).toContain('already in flight');
+    expect(out.stderr).not.toContain('Nothing new was deployed');
     const summary = JSON.parse(out.stdout) as { outcome: string; deployment: DeploymentRecord };
     expect(summary.outcome).toBe('created');
+    expect(summary).not.toHaveProperty('idempotentReplay');
     expect(summary.deployment.deploymentId).toBe('dep-created-01');
   });
 
@@ -792,7 +839,7 @@ describe('kindgi deploy — response handling', () => {
     expect(out.stderr).toContain('with a new key: --idempotency-key <new value>.');
   });
 
-  test('a deployment answered from the record of an earlier request with the same key says so', async () => {
+  test('a deployment answered from the record of an earlier request with the same key says nothing new was deployed', async () => {
     await writeAutoEnvelope();
     const fixtures = makeFixtures();
     const created = fixtures.runners.postDeployment;
@@ -809,8 +856,39 @@ describe('kindgi deploy — response handling', () => {
     });
     expect(out.exitCode).toBe(0);
     expect(out.stderr).toContain(
-      "answered from the server's record of an earlier request with this Idempotency-Key",
+      'Nothing new was deployed: the server answered from its record of an earlier request with this Idempotency-Key',
     );
+    expect(out.stderr).toContain('was built, build it again first.');
+    expect(out.stderr).not.toContain('Deploy complete.');
+    expect(out.stderr).not.toContain('Runs started from now use image');
+    expect(out.stderr).not.toContain('already in flight');
+    const summary = JSON.parse(out.stdout) as { outcome: string; idempotentReplay?: boolean };
+    expect(summary.outcome).toBe('created');
+    expect(summary.idempotentReplay).toBe(true);
+  });
+
+  test('a digest that already landed, answered from the record of an earlier request, says both', async () => {
+    await writeAutoEnvelope();
+    const fixtures = makeFixtures({
+      postResult: {
+        kind: 'replayed',
+        status: 200,
+        idempotentReplay: true,
+        record: makeDeploymentRecord({ deploymentId: 'dep-replayed-02' }),
+      },
+    });
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(0);
+    expect(out.stderr).toContain('Nothing new was deployed');
+    expect(out.stderr).toContain('previously landed');
+    expect(out.stderr).not.toContain('Deploy complete.');
+    expect(out.stderr).not.toContain('already in flight');
+    const summary = JSON.parse(out.stdout) as { outcome: string; idempotentReplay?: boolean };
+    expect(summary.outcome).toBe('replayed');
+    expect(summary.idempotentReplay).toBe(true);
   });
 
   test('5xx → exit 1, retryable hint', async () => {
@@ -1851,12 +1929,20 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
       'a secret the pack reads from its env is over 32 KiB, the most a pack service can be given',
     ],
     [
+      'pack-env-name-too-long',
+      'a name the pack reads from its env as a secret is too long to keep as one: shorten it in the pack',
+    ],
+    [
       'pack-env-secret-unreadable',
       "a secret the pack reads from its env can't be read just now: the platform's team is told, and it's tried again",
     ],
     [
       'pack-env-secrets-unaudited',
       "the platform can't give the pack its secrets just now: its team is told, and it's tried again",
+    ],
+    [
+      'pack-env-cloud-secret-unsupported',
+      "a name the pack reads from its env is set to a cloud secret, which this pack service's host can't mount: set it as a value or a secret instead, or ask your operator",
     ],
   ])('a pack service waiting on its secrets (%s) says why', async (problem, why) => {
     await writeAutoEnvelope();
@@ -1956,6 +2042,86 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     expect(run.readIds).toHaveLength(0);
   });
 
+  /** `hostedFixtures` whose runtime counts the kept builds with `answer`, and the reads it was asked. */
+  function counting(run: ReturnType<typeof hostedFixtures>, answer: CountKeptBuildsResult) {
+    const asked: CountKeptBuildsOptions[] = [];
+    const runners: DeployRunners = {
+      ...run.fixtures.runners,
+      countKeptBuilds: async (o) => {
+        asked.push(o);
+        return answer;
+      },
+    };
+    return { fixtures: { ...run.fixtures, runners }, asked };
+  }
+
+  const KEPT_LINES = [
+    '    Each keeps its pack service while something it serves is registered, pinned or',
+    '    running, or until a newer build ships it. To let old ones go, unregister what',
+    '    nothing calls:',
+    '      kindgi tools|agents|flows unregister <id> <version>',
+    '      kindgi guardrails unregister <guardrail-id>',
+    '    `kindgi deployments get <deployment-id>` says what keeps each one.',
+  ];
+
+  test('once its pack service is ready, it says how many builds the project keeps, and how to let old ones go', async () => {
+    await writeAutoEnvelope();
+    const run = counting(hostedFixtures(pending(), [ready]), { kind: 'ok', keptBuilds: 7 });
+    const out = await deploy(run.fixtures, '--hosted', `--project=${PROJECT}`);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(run.asked.map((o) => o.projectId)).toEqual([PROJECT]);
+    const after = out.stderr.slice(out.stderr.indexOf('    ✓ ready'));
+    expect(after.split('\n').slice(2, 9)).toEqual([
+      '  Builds kept in this project: 7',
+      ...KEPT_LINES,
+    ]);
+    expect((JSON.parse(out.stdout) as { keptBuilds?: number }).keptBuilds).toBe(7);
+  });
+
+  test('a deploy that names no project says the workspace’s, as its answer names no project', async () => {
+    await writeAutoEnvelope();
+    const run = counting(hostedFixtures(pending(), [ready]), { kind: 'ok', keptBuilds: 12 });
+    const out = await deploy(run.fixtures, '--hosted');
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(run.asked).toHaveLength(1);
+    expect('projectId' in (run.asked[0] ?? {})).toBe(false);
+    expect(out.stderr).toContain('  Builds kept in this workspace: 12\n');
+  });
+
+  test('a runtime that doesn’t count them (one service for every build, or older) says nothing of them', async () => {
+    await writeAutoEnvelope();
+    const run = counting(hostedFixtures(pending(), [ready]), { kind: 'ok' });
+    const out = await deploy(run.fixtures, '--hosted', `--project=${PROJECT}`);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).not.toContain('Builds kept');
+    const summary = JSON.parse(out.stdout) as object;
+    expect('keptBuilds' in summary || 'keptBuildsError' in summary).toBe(false);
+  });
+
+  test('a count that can’t be read is said, with why, and the deploy still succeeds', async () => {
+    await writeAutoEnvelope();
+    const run = counting(hostedFixtures(pending(), [ready]), {
+      kind: 'error',
+      message: 'GET … answered HTTP 503',
+    });
+    const out = await deploy(run.fixtures, '--hosted', `--project=${PROJECT}`);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain("  Couldn't count the builds kept: GET … answered HTTP 503\n");
+    const summary = JSON.parse(out.stdout) as Record<string, unknown>;
+    expect(summary.keptBuildsError).toBe('GET … answered HTTP 503');
+    expect('keptBuilds' in summary).toBe(false);
+  });
+
+  test('no count when the wait fails, nor without a pack service to wait for', async () => {
+    await writeAutoEnvelope();
+    const failed = counting(hostedFixtures(pending(), [cleared]), { kind: 'ok', keptBuilds: 1 });
+    expect((await deploy(failed.fixtures, '--hosted')).exitCode).toBe(1);
+    expect(failed.asked).toHaveLength(0);
+    const none = counting(hostedFixtures(undefined, [ready]), { kind: 'ok', keptBuilds: 1 });
+    expect((await deploy(none.fixtures, '--hosted')).exitCode).toBe(0);
+    expect(none.asked).toHaveLength(0);
+  });
+
   test('a cleared pack service from a server that says neither (before 0.1.9) fails, naming the deployment', async () => {
     await writeAutoEnvelope();
     const run = hostedFixtures(pending(), [cleared]);
@@ -2018,7 +2184,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     expect(out.exitCode).toBe(1);
     expect(run.readIds).toHaveLength(0);
     expect(out.stderr).toContain(
-      "The deployment's pack service was taken down (cleared, superseded): a later deploy ships every tool version and check this one does, so no new call reaches it. deploymentId dep-01H8XM.",
+      "The deployment's pack service was taken down (cleared, superseded): no new call needs it, or a later deploy into its project ships every tool version and check it does. deploymentId dep-01H8XM.",
     );
   });
 
@@ -2945,11 +3111,20 @@ describe('kindgi deploy — a pack with blocks goes only to a runtime that publi
     { id: 'my-pack.style', version: '1.0.0', kind: 'settings', content: { values: {} } },
   ];
 
-  /** A runtime whose `/v1/openapi.json` lists `capabilities` (none: no entry), and the URLs asked. */
+  /**
+   * A runtime whose `/v1/openapi.json` lists `capabilities` (none: no
+   * entry), and whose check against what runs passes; the URLs asked.
+   */
   function runtime(capabilities?: readonly string[], status = 200) {
     const asked: string[] = [];
     const fetchImpl = (async (url: unknown) => {
       asked.push(String(url));
+      if (String(url).endsWith('/v1/deployments/check')) {
+        return new Response(JSON.stringify({ replaced: [], notNeeded: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
       const info = {
         title: 'Kindgi Platform API',
         version: '0.1.0',
@@ -2983,7 +3158,10 @@ describe('kindgi deploy — a pack with blocks goes only to a runtime that publi
     const { fetchImpl, asked } = runtime(['some-later-capability', 'deploy-publishes-pack-blocks']);
     const { out, fixtures } = await deployWith(fetchImpl);
     expect(out.exitCode, out.stderr).toBe(0);
-    expect(asked).toEqual(['https://api.staging.example.com/v1/openapi.json']);
+    expect(asked).toEqual([
+      'https://api.staging.example.com/v1/openapi.json',
+      'https://api.staging.example.com/v1/deployments/check',
+    ]);
     expect(fixtures.state.postCalls).toBe(1);
   });
 
@@ -3017,11 +3195,11 @@ describe('kindgi deploy — a pack with blocks goes only to a runtime that publi
     expect(fixtures.state.postCalls).toBe(0);
   });
 
-  test('--dry-run sends nothing, so asks nothing', async () => {
+  test('--dry-run sends nothing, so asks no capability: only the check against what runs', async () => {
     const { fetchImpl, asked } = runtime();
     const { out } = await deployWith(fetchImpl, { argv: ['--dry-run'] });
     expect(out.exitCode, out.stderr).toBe(0);
-    expect(asked).toEqual([]);
+    expect(asked).toEqual(['https://api.staging.example.com/v1/deployments/check']);
   });
 
   test("with no envelope yet, the pack's block files are checked before the build", async () => {
@@ -3038,6 +3216,233 @@ describe('kindgi deploy — a pack with blocks goes only to a runtime that publi
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain("doesn't publish a pack's blocks (blocks/: 2 files)");
     expect(fixtures.state.buildCalls).toBe(0);
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+});
+
+describe("kindgi deploy — the pack's blocks against what runs", () => {
+  const PROJECT = '0b3f6a9e-7c1d-4e2a-9b8f-1a2b3c4d5e6f';
+  const SANDBOX = '5d6e7f80-1a2b-4c3d-8e9f-0a1b2c3d4e5f';
+  const BLOCKS = [
+    { id: 'my-pack.tone', version: '3.0.0', kind: 'prompt', content: { template: 'Hi.' } },
+    { id: 'my-pack.rules', version: '1.0.0', kind: 'settings', content: { values: {} } },
+  ];
+  const STOP = {
+    blockId: 'my-pack.tone',
+    inFiles: '3.0.0',
+    runs: {
+      version: '4.0.0',
+      projectId: SANDBOX,
+      follows: 'latest',
+      by: { kind: 'user', id: 'usr-ana', name: 'Ana' },
+      at: '2026-11-05T09:12:00.000Z',
+    },
+    pr: { url: 'https://github.com/acme/returns/pull/214' },
+  };
+
+  function json(status: number, body: unknown): Response {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  /** A runtime that publishes a pack's blocks and answers the check `check`; each check body sent is kept. */
+  function runtime(check: { status: number; body: unknown }) {
+    const checks: unknown[] = [];
+    const fetchImpl = (async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/v1/openapi.json')) {
+        return json(200, {
+          openapi: '3.1.0',
+          info: { 'x-kindgi-capabilities': ['deploy-publishes-pack-blocks'] },
+        });
+      }
+      if (u.endsWith('/v1/deployments/check')) {
+        checks.push(JSON.parse(String(init?.body)));
+        return json(check.status, check.body);
+      }
+      if (u.endsWith(`/v1/projects/${SANDBOX}`)) {
+        return json(200, { id: SANDBOX, name: 'Support sandbox', slug: 'support-sandbox' });
+      }
+      return json(404, { error: { code: 'not-found', message: 'Not found', requestId: 'r' } });
+    }) as typeof fetch;
+    return { fetchImpl, checks };
+  }
+
+  async function deployWith(fetchImpl: typeof fetch, argv: readonly string[] = []) {
+    const index = { ...(makeEnvelope().index as Record<string, unknown>), blocks: BLOCKS };
+    await writeAutoEnvelope({ index });
+    const fixtures = makeFixtures({ envelope: makeEnvelope({ index }) });
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`, ...argv],
+      fetchImpl,
+    });
+    return { out, fixtures };
+  }
+
+  const stopAnswer = {
+    status: 409,
+    body: {
+      error: {
+        code: 'deploy-would-put-back-older-blocks',
+        message: 'This deploy would put back older versions of blocks than run now.',
+        details: { blocks: [STOP] },
+        requestId: 'r',
+      },
+    },
+  };
+
+  test("a newer block than the files' that runs now stops the deploy: the table, nothing deployed, exit 1", async () => {
+    const { fetchImpl, checks } = runtime(stopAnswer);
+    const { out, fixtures } = await deployWith(fetchImpl);
+    expect(out.exitCode).toBe(1);
+    expect(checks).toEqual([
+      {
+        agents: ['my-pack.agent'],
+        blocks: [
+          { id: 'my-pack.tone', version: '3.0.0' },
+          { id: 'my-pack.rules', version: '1.0.0' },
+        ],
+      },
+    ]);
+    expect(out.stderr).toContain('  Checking my-pack against what runs…\n');
+    expect(out.stderr).toContain(
+      [
+        '✗ Stopped: this deploy would put back older blocks than run now.',
+        '',
+        '  Block          In your files   Runs now',
+        '  my-pack.tone   3.0.0           4.0.0  latest in Support sandbox (Ana, 11-05)',
+        '',
+        '  Nothing was deployed.',
+        '  To keep the newer versions:  merge https://github.com/acme/returns/pull/214, or run `kindgi blocks pull`, then deploy again.',
+        '  To drop them on purpose:  kindgi deploy --env=staging --replace=my-pack.tone --reason=<why>',
+      ].join('\n'),
+    );
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('--dry-run asks the check too, and a stop exits 1 there as well', async () => {
+    const { fetchImpl, checks } = runtime(stopAnswer);
+    const { out, fixtures } = await deployWith(fetchImpl, ['--dry-run']);
+    expect(out.exitCode).toBe(1);
+    expect(checks).toHaveLength(1);
+    expect(out.stderr).toContain('  Nothing was deployed.');
+    expect(out.stderr).not.toContain('--dry-run set. No request sent.');
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('--replace with --reason: the check and the deploy carry each block with the reason, and it says what it puts back', async () => {
+    const { fetchImpl, checks } = runtime({
+      status: 200,
+      body: {
+        replaced: [{ blockId: 'my-pack.tone', from: '4.0.0', to: '3.0.0' }],
+        notNeeded: ['my-pack.rules'],
+      },
+    });
+    const { out, fixtures } = await deployWith(fetchImpl, [
+      `--project=${PROJECT}`,
+      '--replace=my-pack.tone',
+      '--replace=my-pack.rules',
+      '--reason=v4 was a try in the sandbox',
+    ]);
+    expect(out.exitCode, out.stderr).toBe(0);
+    const replace = [
+      { blockId: 'my-pack.tone', reason: 'v4 was a try in the sandbox' },
+      { blockId: 'my-pack.rules', reason: 'v4 was a try in the sandbox' },
+    ];
+    expect(checks).toEqual([
+      {
+        projectId: PROJECT,
+        agents: ['my-pack.agent'],
+        blocks: [
+          { id: 'my-pack.tone', version: '3.0.0' },
+          { id: 'my-pack.rules', version: '1.0.0' },
+        ],
+        replace,
+      },
+    ]);
+    expect(out.stderr).toContain(
+      '  my-pack.tone: 4.0.0 runs now, 3.0.0 in your files; put back on purpose (--replace)\n',
+    );
+    expect(out.stderr).toContain('  my-pack.rules: nothing newer runs; --replace not needed\n');
+    expect(fixtures.state.postCalls).toBe(1);
+    expect(fixtures.state.capturedPost?.body.projectId).toBe(PROJECT);
+    expect(fixtures.state.capturedPost?.body.replace).toEqual(replace);
+  });
+
+  test('--replace without --reason, or --reason without --replace, asks nothing and deploys nothing', async () => {
+    for (const [argv, said] of [
+      [['--replace=my-pack.tone'], 'say why with --reason=<text>'],
+      [['--reason=why'], 'it goes with --replace=<block>'],
+    ] as const) {
+      const { fetchImpl, checks } = runtime(stopAnswer);
+      const { out, fixtures } = await deployWith(fetchImpl, argv);
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(said);
+      expect(checks).toEqual([]);
+      expect(fixtures.state.loadCalls).toBe(0);
+    }
+  });
+
+  test('a runtime without the check (404, or 501 runs-in-unsupported) deploys as before, and says so in one line', async () => {
+    for (const answer of [
+      { status: 404, body: { error: { code: 'not-found', message: 'Not found', requestId: 'r' } } },
+      {
+        status: 501,
+        body: { error: { code: 'runs-in-unsupported', message: 'No pins', requestId: 'r' } },
+      },
+    ]) {
+      const { fetchImpl } = runtime(answer);
+      const { out, fixtures } = await deployWith(fetchImpl);
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(out.stderr).toContain(
+        "  This runtime doesn't check blocks against what runs: deploying as before.\n",
+      );
+      expect(fixtures.state.postCalls).toBe(1);
+    }
+  });
+
+  const forbidden = {
+    status: 403,
+    body: {
+      error: { code: 'permission-denied', message: 'Needs admin on the tenant', requestId: 'r' },
+    },
+  };
+  const FORBIDDEN_LINE =
+    "  This key can't check blocks against what runs here (403): deploying without the check; a runtime that has it still holds it on the deploy.\n";
+
+  test('a key the check refuses (403) deploys without it, and says so in one line', async () => {
+    const { fetchImpl, checks } = runtime(forbidden);
+    const { out, fixtures } = await deployWith(fetchImpl);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(checks).toHaveLength(1);
+    expect(out.stderr).toContain(FORBIDDEN_LINE);
+    expect(fixtures.state.postCalls).toBe(1);
+  });
+
+  test('--dry-run with a key the check refuses (403) goes on to print the request, sending nothing', async () => {
+    const { fetchImpl } = runtime(forbidden);
+    const { out, fixtures } = await deployWith(fetchImpl, ['--dry-run']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain(FORBIDDEN_LINE);
+    expect(out.stderr).toContain('--dry-run set. No request sent.');
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('a check the runtime refuses for another reason fails the deploy before anything is sent', async () => {
+    const { fetchImpl } = runtime({
+      status: 400,
+      body: {
+        error: { code: 'bad-input', message: '`blocks` must be a list', requestId: 'r' },
+      },
+    });
+    const { out, fixtures } = await deployWith(fetchImpl);
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      "Couldn't check the pack's blocks against what runs (POST /v1/deployments/check): bad-input: `blocks` must be a list",
+    );
     expect(fixtures.state.postCalls).toBe(0);
   });
 });

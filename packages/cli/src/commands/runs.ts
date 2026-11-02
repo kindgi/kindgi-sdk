@@ -64,7 +64,7 @@ const list: LeafCommand = {
   name: 'list',
   description: 'List runs (paginated).',
   usage:
-    'kindgi runs list [--agent=<agent-id>] [--trigger=<schedule-id>] [--replays=exclude|include|only] [--eval-run=<id>] [--limit=<n>] [--cursor=<c>]',
+    'kindgi runs list [--agent=<agent-id>] [--trigger=<schedule-id>] [--replays=exclude|include|only] [--test-run=<test-run-id>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     agent: {
       type: 'string',
@@ -79,11 +79,11 @@ const list: LeafCommand = {
     replays: {
       type: 'string',
       description:
-        'Replay runs (an eval run re-running a past run): `exclude` (the default) leaves them out, `include` lists them too, `only` lists just them.',
+        'Replay runs (a test run re-running a past run): `exclude` (the default) leaves them out, `include` lists them too, `only` lists just them.',
     },
-    'eval-run': {
+    'test-run': {
       type: 'string',
-      description: "Only this eval run's replay runs.",
+      description: "Only this test run's replay runs.",
     },
     limit: {
       type: 'string',
@@ -104,7 +104,7 @@ const list: LeafCommand = {
         if (replays !== undefined && !REPLAYS.includes(replays as (typeof REPLAYS)[number])) {
           throw new UsageError(`--replays must be one of ${REPLAYS.join(', ')}, got "${replays}"`);
         }
-        const evalRunId = stringFlag(ctx, 'eval-run');
+        const testRunId = stringFlag(ctx, 'test-run');
         const agentId = stringFlag(ctx, 'agent');
         const triggerId = stringFlag(ctx, 'trigger');
         const limitStr = stringFlag(ctx, 'limit');
@@ -116,7 +116,7 @@ const list: LeafCommand = {
           ...(cursor !== undefined && { cursor: cursor as never }),
           ...(limit !== undefined && { limit }),
           ...(replays !== undefined && { replays: replays as (typeof REPLAYS)[number] }),
-          ...(evalRunId !== undefined && { evalRunId }),
+          ...(testRunId !== undefined && { testRunId }),
           ...(agentId !== undefined && { agentId }),
           ...(triggerId !== undefined && { triggerId }),
         });
@@ -243,7 +243,8 @@ const start: LeafCommand = {
     },
     'flow-version': {
       type: 'string',
-      description: "The flow's version to run (default: its latest).",
+      description:
+        "The flow's version to run (default: the version pinned for the run's project, its org or the tenant, else its latest).",
     },
     input: {
       type: 'string',
@@ -252,13 +253,13 @@ const start: LeafCommand = {
     project: {
       type: 'string',
       description:
-        "The project to run in (`kindgi projects list`). Default: the tenant's Default project.",
+        "The project to run in (`kindgi projects list`). Default: the tenant's default project.",
     },
     segment: {
       type: 'string',
       multiple: true,
       description:
-        "One step of the run's segment path, `key:value` (e.g. `company:acme`); repeat it in order, coarse to fine. It picks the agent's live version.",
+        "One step of the run's segment path, `key:value` (e.g. `company:acme`); repeat it in order, coarse to fine. It picks the agent's pinned version.",
     },
     'idempotency-key': {
       type: 'string',

@@ -297,10 +297,23 @@ interface ResolvedBuildArgs {
 }
 
 /**
+ * What a caller of `runBuild` does once the pack is indexed, before an
+ * image is built: `kindgi deploy`'s check of its blocks against what runs.
+ */
+export interface BuildHooks {
+  /** Given the local index's path. A result stops the build there, and is its answer. */
+  readonly indexed?: (indexPath: string) => Promise<CommandResult | undefined>;
+}
+
+/**
  * `kindgi build`. `out` is where its lines go: the command's own, or
  * `kindgi deploy`'s, for its inline build.
  */
-export async function runBuild(ctx: CommandContext, out: ProgressLines): Promise<CommandResult> {
+export async function runBuild(
+  ctx: CommandContext,
+  out: ProgressLines,
+  hooks: BuildHooks = {},
+): Promise<CommandResult> {
   const runners = ctx.buildRunners;
   if (runners === undefined) {
     return {
@@ -314,7 +327,7 @@ export async function runBuild(ctx: CommandContext, out: ProgressLines): Promise
   const parsed = await resolveBuildArgs(ctx);
   if (parsed.kind === 'error') return parsed;
   const args = parsed.args;
-  if (args.local) return runLocalBuild(ctx, runners, args, out);
+  if (args.local) return runLocalBuild(ctx, runners, args, out, hooks);
 
   const lines = out.line;
   lines('');
@@ -331,6 +344,8 @@ export async function runBuild(ctx: CommandContext, out: ProgressLines): Promise
   await mkdir(args.outDir, { recursive: true });
   const prepared = await prepareTarball(ctx, runners, args, expectedIndexPath, out);
   if (prepared.kind === 'error') return withBanner(prepared, out);
+  const stopped = await hooks.indexed?.(expectedIndexPath);
+  if (stopped !== undefined) return stopped;
   const { tarball, tarballHash, counts } = prepared;
   lines('');
 
@@ -538,6 +553,7 @@ async function runLocalBuild(
   runners: BuildRunners,
   args: ResolvedBuildArgs,
   out: ProgressLines,
+  hooks: BuildHooks,
 ): Promise<CommandResult> {
   if (runners.dockerBuild === undefined || runners.pullImageIndex === undefined) {
     return failure('kindgi build --local needs Docker runners; rebuild the CLI.\n');
@@ -557,6 +573,8 @@ async function runLocalBuild(
   await mkdir(args.outDir, { recursive: true });
   const context = await preparePackContext(ctx, runners, args, expectedIndexPath, out);
   if (context.kind === 'error') return withBanner(context, out);
+  const stopped = await hooks.indexed?.(expectedIndexPath);
+  if (stopped !== undefined) return stopped;
   const expectedBytes = new Uint8Array(await readFile(expectedIndexPath));
   const packId = (JSON.parse(new TextDecoder().decode(expectedBytes)) as { packId?: unknown })
     .packId;

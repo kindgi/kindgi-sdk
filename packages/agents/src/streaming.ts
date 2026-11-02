@@ -46,6 +46,12 @@ export interface RetrievalCompletedEvent {
   readonly factIds: readonly string[];
 }
 
+/**
+ * A model call starts. A step has one, and two when the provider refused
+ * its call, as an invalid request, while it carried images or PDFs: the
+ * second is the same call with a line in each one's place, sent once. The
+ * refused call has no `model.call.completed`.
+ */
 export interface ModelCallStartedEvent {
   readonly kind: 'model.call.started';
   readonly step: number;
