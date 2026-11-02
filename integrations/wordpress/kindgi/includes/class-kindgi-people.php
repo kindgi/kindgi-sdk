@@ -8,7 +8,7 @@ defined( 'ABSPATH' ) || exit;
  * Keeps Kindgi up to date about the people it knows from this site.
  *
  * Kindgi hears about a person only through a statement, and someone who
- * can't open the Kindgi page any more never sends one. So the site sends it
+ * can't open the Kindgi pages any more never sends one. So the site sends it
  * for them:
  *
  * - **When their roles change,** a statement with their roles now. Kindgi

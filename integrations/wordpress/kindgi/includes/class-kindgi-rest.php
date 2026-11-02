@@ -5,9 +5,9 @@
 defined( 'ABSPATH' ) || exit;
 
 /**
- * The Kindgi page's own routes on the store (`/wp-json/kindgi/v1/…`): each
- * needs the WordPress login (cookie and `X-WP-Nonce`) and the page's
- * capability, then makes one fixed call to Kindgi as the signed-in person.
+ * The Kindgi pages' own routes on the store (`/wp-json/kindgi/v1/…`): each
+ * needs the WordPress login (cookie and `X-WP-Nonce`) and the pages'
+ * capability, then makes fixed calls to Kindgi as the signed-in person.
  * Nothing here forwards a path or a body the browser chose.
  */
 final class Kindgi_Rest {
@@ -29,8 +29,11 @@ final class Kindgi_Rest {
 	/** At most this many pages of messages are read to reach the newest. */
 	const MESSAGES_PAGES_MAX = 50;
 
-	/** Kindgi's subject kind for a tool call waiting for a person. */
-	const TOOL_CALL = 'tool-call:pending';
+	/** Activity shows this many runs a page. */
+	const ACTIVITY_PAGE = 25;
+
+	/** The option holding the agents offered to staff (their ids); none set offers them all. */
+	const OFFERED = 'kindgi_offered_agents';
 
 	public static function register(): void {
 		add_action( 'rest_api_init', array( self::class, 'routes' ) );
@@ -40,6 +43,7 @@ final class Kindgi_Rest {
 		$id = '(?P<id>' . self::ID . ')';
 		self::route( '/me', 'GET', 'me' );
 		self::route( '/agents', 'GET', 'agents' );
+		self::route( '/project', 'GET', 'project_named' );
 		self::route( '/conversations', 'GET', 'conversations', array( 'cursor' => self::optional_string( 512 ) ) );
 		self::route(
 			'/conversations',
@@ -51,7 +55,10 @@ final class Kindgi_Rest {
 				'title'        => self::optional_string( 200 ),
 			)
 		);
-		self::route( '/conversations/' . $id . '/messages', 'GET', 'messages' );
+		// Someone else's conversation opens only through an approval its reader reviews.
+		$through = array( 'approval' => self::optional_string( 128 ) );
+		self::route( '/conversations/' . $id, 'GET', 'one_conversation', $through );
+		self::route( '/conversations/' . $id . '/messages', 'GET', 'messages', $through );
 		self::route( '/conversations/' . $id . '/turns', 'POST', 'turn', array( 'message' => self::required_string( self::MESSAGE_MAX ) ) );
 		self::route(
 			'/runs/' . $id,
@@ -78,6 +85,32 @@ final class Kindgi_Rest {
 			)
 		);
 		self::route( '/approvals/' . $id, 'GET', 'approval' );
+		self::route( '/activity', 'GET', 'activity', array( 'cursor' => self::optional_string( 512 ) ) );
+		self::route( '/activity/' . $id, 'GET', 'activity_run' );
+		self::route(
+			'/dashboard',
+			'GET',
+			'dashboard',
+			array(
+				// Opening the dashboard signs no one in: its box asks to, when the person says so.
+				'signIn' => array(
+					'type'    => 'boolean',
+					'default' => false,
+				),
+			)
+		);
+		self::route(
+			'/orders/(?P<order>[1-9][0-9]{0,17})',
+			'GET',
+			'order',
+			array(
+				// Opening an order signs no one in: the box asks to, when the person says so.
+				'signIn' => array(
+					'type'    => 'boolean',
+					'default' => false,
+				),
+			)
+		);
 		self::route(
 			'/approvals/' . $id . '/decide',
 			'POST',
@@ -98,21 +131,25 @@ final class Kindgi_Rest {
 		return current_user_can( Kindgi_Admin::capability() );
 	}
 
-	/** The person, their Kindgi id, and whether they review approvals. */
+	/** The person, their Kindgi id, and their reviewer role when they can decide approvals (else null). */
 	public static function me() {
-		$who = Kindgi_Api::body( wp_get_current_user(), 'GET', '/v1/identity/whoami' );
-		if ( is_wp_error( $who ) ) {
-			return $who;
+		$r = self::reviewer( wp_get_current_user() );
+		if ( is_wp_error( $r ) ) {
+			return $r;
 		}
 		return array(
-			'userId'       => $who['session']['user_id'],
-			'projectId'    => $who['session']['project_id'],
-			'reviewerRole' => is_string( $who['body']['reviewerRole'] ?? null ) ? $who['body']['reviewerRole'] : null,
+			'userId'       => $r['me'],
+			'projectId'    => $r['project_id'],
+			'reviewerRole' => null === $r['reviewer'] ? null : $r['reviewer']['role'],
 			'name'         => wp_get_current_user()->display_name,
 		);
 	}
 
-	/** The project's agents the person can see. */
+	/**
+	 * The project's agents the person can see, each with `offered`: whether
+	 * an administrator offered it to staff (Kindgi → Settings). Ask lists
+	 * only those. It's no boundary: Kindgi decides who may ask an agent.
+	 */
 	public static function agents() {
 		$user    = wp_get_current_user();
 		$project = self::project( $user );
@@ -132,16 +169,42 @@ final class Kindgi_Rest {
 		if ( is_wp_error( $answer ) ) {
 			return $answer;
 		}
-		$agents = array();
+		$offered = self::offered();
+		$agents  = array();
 		foreach ( self::list_of( $answer['body']['data'] ?? null ) as $agent ) {
+			$id       = (string) ( $agent['id'] ?? '' );
 			$agents[] = array(
-				'id'          => (string) ( $agent['id'] ?? '' ),
+				'id'          => $id,
 				'version'     => (string) ( $agent['version'] ?? '' ),
 				'name'        => (string) ( $agent['name'] ?? $agent['id'] ?? '' ),
 				'description' => is_string( $agent['description'] ?? null ) ? $agent['description'] : '',
+				'offered'     => null === $offered || in_array( $id, $offered, true ),
 			);
 		}
 		return array( 'agents' => $agents );
+	}
+
+	/** The site's project at Kindgi: its id, and its name when Kindgi tells it (Settings shows it). */
+	public static function project_named() {
+		$user    = wp_get_current_user();
+		$project = self::project( $user );
+		if ( is_wp_error( $project ) ) {
+			return $project;
+		}
+		$answer = Kindgi_Api::body( $user, 'GET', '/v1/projects/' . rawurlencode( $project ) );
+		if ( is_wp_error( $answer ) ) {
+			return $answer;
+		}
+		return array(
+			'id'   => $project,
+			'name' => is_string( $answer['body']['name'] ?? null ) ? $answer['body']['name'] : null,
+		);
+	}
+
+	/** The agents' ids an administrator offered to staff, or null when they didn't choose (all are). */
+	public static function offered(): ?array {
+		$offered = get_option( self::OFFERED, null );
+		return is_array( $offered ) ? array_values( array_filter( $offered, 'is_string' ) ) : null;
 	}
 
 	/** The conversations this person opened, newest first. */
@@ -172,6 +235,19 @@ final class Kindgi_Rest {
 			'conversations' => $conversations,
 			'nextCursor'     => is_string( $answer['body']['nextCursor'] ?? null ) ? $answer['body']['nextCursor'] : null,
 		);
+	}
+
+	/**
+	 * One conversation, as the list has it, and whether it's this person's
+	 * own: someone else's (opened from an approval they review) is shown,
+	 * not continued.
+	 */
+	public static function one_conversation( WP_REST_Request $request ) {
+		$readable = self::readable( wp_get_current_user(), (string) $request['id'], self::through( $request ) );
+		if ( is_wp_error( $readable ) ) {
+			return $readable;
+		}
+		return self::conversation( $readable['conversation'] ) + array( 'mine' => $readable['mine'] );
 	}
 
 	/** A new conversation with one of the project's agents, as this person. */
@@ -206,6 +282,10 @@ final class Kindgi_Rest {
 	 * says some older ones aren't shown.
 	 */
 	public static function messages( WP_REST_Request $request ) {
+		$readable = self::readable( wp_get_current_user(), (string) $request['id'], self::through( $request ) );
+		if ( is_wp_error( $readable ) ) {
+			return $readable;
+		}
 		$path  = '/v1/conversations/' . rawurlencode( $request['id'] ) . '/messages';
 		$pages = self::newest_messages(
 			static function ( ?string $cursor ) use ( $path ) {
@@ -228,7 +308,10 @@ final class Kindgi_Rest {
 			$calls   = array();
 			foreach ( self::list_of( is_array( $content ) ? ( $content['toolCalls'] ?? null ) : null ) as $call ) {
 				if ( is_string( $call['name'] ?? null ) ) {
-					$calls[] = $call['name'];
+					$calls[] = array(
+						'id'   => is_string( $call['id'] ?? null ) ? $call['id'] : null,
+						'name' => $call['name'],
+					);
 				}
 			}
 			$messages[] = array(
@@ -236,10 +319,13 @@ final class Kindgi_Rest {
 				'role'      => (string) ( $m['role'] ?? '' ),
 				// An agent's words, or '' when its message only calls tools.
 				'text'      => 'tool' === ( $m['role'] ?? '' ) ? '' : $text,
-				// The tools an agent's message calls.
+				// The tools an agent's message calls: each call's id, and its tool.
 				'calls'     => $calls,
-				// A tool's answer: which tool, and what it returned.
+				// Mail that started a turn, as its thread and mails (`Kindgi_Mail`).
+				'mail'      => 'user' === ( $m['role'] ?? '' ) ? Kindgi_Mail::thread_of( $text ) : null,
+				// A tool's answer: which tool, the call it answers, and what it returned.
 				'toolId'    => is_string( $m['toolCall']['toolId'] ?? null ) ? $m['toolCall']['toolId'] : null,
+				'callId'    => is_string( $m['toolCall']['invocationId'] ?? null ) ? $m['toolCall']['invocationId'] : null,
 				'result'    => 'tool' === ( $m['role'] ?? '' ) ? $content : null,
 				'createdAt' => (string) ( $m['createdAt'] ?? '' ),
 			);
@@ -290,7 +376,7 @@ final class Kindgi_Rest {
 		$c = $conversation['body'];
 		// A turn runs as the conversation's participant, with that person's memory: only theirs.
 		if ( ! self::owns( $c, (string) $conversation['session']['user_id'] ) ) {
-			return new WP_Error( 'kindgi_conversation_not_found', __( 'No conversation of yours has that id.', 'kindgi' ), array( 'status' => 404 ) );
+			return self::no_conversation();
 		}
 		$answer = Kindgi_Api::body(
 			$user,
@@ -324,6 +410,10 @@ final class Kindgi_Rest {
 		if ( is_wp_error( $run ) ) {
 			return $run;
 		}
+		// Only the person's own: a turn they sent here.
+		if ( ! self::started( $run['body'], (string) $run['session']['user_id'] ) ) {
+			return new WP_Error( 'kindgi_run_not_found', __( 'No run of yours has that id.', 'kindgi' ), array( 'status' => 404 ) );
+		}
 		$journal = Kindgi_Api::body( $user, 'GET', $path . '/journal', array( 'since' => (int) $request['since'] ) );
 		if ( is_wp_error( $journal ) ) {
 			return $journal;
@@ -349,10 +439,11 @@ final class Kindgi_Rest {
 		$r       = $run['body'];
 		$waiting = array();
 		foreach ( self::list_of( $r['waitingFor']['approvals'] ?? null ) as $a ) {
+			$tool      = is_string( $a['tool']['id'] ?? null ) ? $a['tool']['id'] : null;
 			$waiting[] = array(
 				'approvalId'   => (string) ( $a['approvalId'] ?? '' ),
-				'title'        => is_string( $a['title'] ?? null ) ? $a['title'] : '',
-				'toolId'       => is_string( $a['tool']['id'] ?? null ) ? $a['tool']['id'] : null,
+				'heading'      => Kindgi_Inbox::heading( $a, $tool ),
+				'toolId'       => $tool,
 				'requiredRole' => (string) ( $a['requiredRole'] ?? '' ),
 				'expiresAt'    => is_string( $a['expiresAt'] ?? null ) ? $a['expiresAt'] : null,
 			);
@@ -368,47 +459,277 @@ final class Kindgi_Rest {
 		);
 	}
 
-	/** What waits for this person (oldest first), or what they decided lately (newest first). */
+	/**
+	 * The project's waiting approvals (oldest first), each saying whether it
+	 * waits for this person or for someone else, or the project's decided
+	 * ones, whoever decided (newest first).
+	 */
 	public static function approvals( WP_REST_Request $request ) {
+		$user = wp_get_current_user();
+		$r    = self::reviewer( $user );
+		if ( is_wp_error( $r ) ) {
+			return $r;
+		}
+		$waiting = 'waiting' === $request['view'];
+		$answer  = Kindgi_Api::body(
+			$user,
+			'GET',
+			'/v1/approvals',
+			array(
+				'scopeKind' => 'project',
+				'scopeId'   => $r['project_id'],
+				'status'    => implode( ',', $waiting ? Kindgi_Inbox::WAITING : Kindgi_Inbox::CLOSED ),
+				'order'     => $waiting ? 'asc' : 'desc',
+				'limit'     => $waiting ? Kindgi_Inbox::COUNT_PAGE : 20,
+			)
+		);
+		if ( is_wp_error( $answer ) ) {
+			return $answer;
+		}
+		$me    = (string) $answer['session']['user_id'];
+		$names = self::agent_names( $user );
+		$cards = array();
+		foreach ( self::list_of( $answer['body']['data'] ?? null ) as $a ) {
+			$cards[] = self::card( $a, $me, $r['reviewer'], $names );
+		}
+		if ( $waiting ) {
+			// The menu's count follows what the person just saw.
+			Kindgi_Inbox::keep_count( $user->ID, Kindgi_Inbox::count_of( $answer['body'], $me, $r['reviewer'] ) );
+		}
+		return array(
+			'approvals' => $cards,
+			// More than one page waits: the oldest are shown.
+			'more'      => true === ( $answer['body']['hasMore'] ?? false ),
+		);
+	}
+
+	/** One approval, as its card. */
+	public static function approval( WP_REST_Request $request ) {
+		$user = wp_get_current_user();
+		$r    = self::reviewer( $user );
+		if ( is_wp_error( $r ) ) {
+			return $r;
+		}
+		$answer = Kindgi_Api::body( $user, 'GET', '/v1/approvals/' . rawurlencode( $request['id'] ) );
+		return is_wp_error( $answer ) ? $answer : self::card( $answer['body'], (string) $answer['session']['user_id'], $r['reviewer'], self::agent_names( $user ) );
+	}
+
+	/**
+	 * One of the project's runs, as Activity's feed has it: for a link to
+	 * it (`&run=<id>`) when it isn't on the feed's first page. A run in
+	 * another project isn't this site's, whatever the person may read at
+	 * Kindgi; one Kindgi doesn't show them reads as none, as a link to it
+	 * says no more than that.
+	 */
+	public static function activity_run( WP_REST_Request $request ) {
 		$user    = wp_get_current_user();
 		$project = self::project( $user );
 		if ( is_wp_error( $project ) ) {
 			return $project;
 		}
-		$waiting = 'waiting' === $request['view'];
-		$query   = array(
+		$answer = Kindgi_Api::body( $user, 'GET', '/v1/runs/' . rawurlencode( $request['id'] ) );
+		$status = is_wp_error( $answer ) ? ( $answer->get_error_data()['status'] ?? null ) : null;
+		// An id Kindgi can't read as one (400), or a run it doesn't show the person, is none.
+		if ( is_wp_error( $answer ) && ! in_array( $status, array( 400, 403, 404 ), true ) ) {
+			return $answer;
+		}
+		if ( is_wp_error( $answer ) || ( $answer['body']['projectId'] ?? null ) !== $project ) {
+			return new WP_Error( 'kindgi_run_not_found', __( "The site's project has no run with that id that you can see.", 'kindgi' ), array( 'status' => 404 ) );
+		}
+		$row = Kindgi_Activity::row( $answer['body'], (string) $answer['session']['user_id'], array( self::class, 'who' ), Kindgi_Order::reads_orders() );
+		return self::with_waits( $user, $project, array( $row ) )[0];
+	}
+
+	/**
+	 * Activity: the project's runs, newest first, whoever or whatever
+	 * started them. Only runs that no other run started: a flow's own steps
+	 * are part of its row.
+	 */
+	public static function activity( WP_REST_Request $request ) {
+		$user    = wp_get_current_user();
+		$project = self::project( $user );
+		if ( is_wp_error( $project ) ) {
+			return $project;
+		}
+		$query = array(
 			'scopeKind' => 'project',
 			'scopeId'   => $project,
-			'status'    => $waiting ? 'pending' : 'approved,rejected',
-			'order'     => $waiting ? 'asc' : 'desc',
-			'limit'     => $waiting ? 50 : 20,
+			'topLevel'  => 'true',
+			'limit'     => self::ACTIVITY_PAGE,
+			// A list leaves each run's output out unless asked: a row's summary is its first line.
+			'include'   => 'output',
 		);
-		if ( ! $waiting ) {
-			$query['decidedBy'] = 'me';
+		if ( null !== $request['cursor'] && '' !== $request['cursor'] ) {
+			$query['cursor'] = $request['cursor'];
 		}
-		$answer = Kindgi_Api::body( $user, 'GET', '/v1/approvals', $query );
+		$answer = Kindgi_Api::body( $user, 'GET', '/v1/runs', $query );
 		if ( is_wp_error( $answer ) ) {
 			return $answer;
 		}
-		$me    = (string) $answer['session']['user_id'];
-		$cards = array();
-		foreach ( self::list_of( $answer['body']['data'] ?? null ) as $a ) {
-			$cards[] = self::card( $a, $me );
+		$me           = (string) $answer['session']['user_id'];
+		$reads_orders = Kindgi_Order::reads_orders();
+		$rows         = array();
+		foreach ( self::list_of( $answer['body']['data'] ?? null ) as $run ) {
+			$rows[] = Kindgi_Activity::row( $run, $me, array( self::class, 'who' ), $reads_orders );
 		}
-		return array( 'approvals' => $cards );
+		return array(
+			'runs'       => self::with_waits( $user, $project, $rows ),
+			'nextCursor' => is_string( $answer['body']['nextCursor'] ?? null ) ? $answer['body']['nextCursor'] : null,
+		);
 	}
 
-	/** One approval, as its card. */
-	public static function approval( WP_REST_Request $request ) {
-		$answer = Kindgi_Api::body( wp_get_current_user(), 'GET', '/v1/approvals/' . rawurlencode( $request['id'] ) );
-		return is_wp_error( $answer ) ? $answer : self::card( $answer['body'], (string) $answer['session']['user_id'] );
+	/**
+	 * Activity's rows with what each waiting run waits for, from the
+	 * approvals that wait: read only when a row waits, one page of them,
+	 * newest first, as Activity lists its runs. Without them, a waiting
+	 * run says only that it waits.
+	 */
+	private static function with_waits( WP_User $user, string $project, array $rows ): array {
+		if ( ! in_array( 'suspended', array_column( $rows, 'status' ), true ) ) {
+			return $rows;
+		}
+		$page = Kindgi_Api::body(
+			$user,
+			'GET',
+			'/v1/approvals',
+			array(
+				'scopeKind' => 'project',
+				'scopeId'   => $project,
+				'status'    => implode( ',', Kindgi_Inbox::WAITING ),
+				'order'     => 'desc',
+				'limit'     => Kindgi_Inbox::COUNT_PAGE,
+			)
+		);
+		return Kindgi_Activity::with_waits( $rows, is_wp_error( $page ) ? array() : self::list_of( $page['body']['data'] ?? null ) );
+	}
+
+	/**
+	 * What Kindgi has about a WooCommerce order, for the order's box: the
+	 * approvals about it that wait (oldest first) and those closed (newest
+	 * first), then the mail replies to its customer (`customer`), the same
+	 * way. For someone who may edit orders only. Opening an order signs no
+	 * one in: without a live session the answer says so, and the box
+	 * offers to (`signIn`).
+	 */
+	public static function order( WP_REST_Request $request ) {
+		$order = (int) $request['order'];
+		$wc    = Kindgi_Order::store() && current_user_can( 'edit_shop_orders' ) ? wc_get_order( $order ) : null;
+		if ( ! $wc instanceof WC_Order ) {
+			return new WP_Error( 'kindgi_order_not_found', __( 'No order you may edit has that number.', 'kindgi' ), array( 'status' => 404 ) );
+		}
+		$user = wp_get_current_user();
+		$get  = static function ( string $path, array $query = array() ) use ( $user, $request ) {
+			return true === $request['signIn'] ? Kindgi_Api::body( $user, 'GET', $path, $query ) : Kindgi_Api::kept_get( $user, $path, $query );
+		};
+		$permissions = $get( '/v1/identity/me/permissions' );
+		if ( ! is_array( $permissions ) ) {
+			return null === $permissions ? array( 'signedIn' => false ) : $permissions;
+		}
+		$reviewer = Kindgi_Inbox::reviewer_of( $permissions['body'] );
+		$me       = (string) $permissions['session']['user_id'];
+		$names    = self::agent_names( $user, $get, (string) $permissions['session']['project_id'] );
+		$answer   = array(
+			'signedIn' => true,
+			'more'     => false,
+			'customer' => array( 'email' => (string) $wc->get_billing_email() ),
+		);
+		foreach ( array( 'waiting' => Kindgi_Inbox::WAITING, 'closed' => Kindgi_Inbox::CLOSED ) as $view => $statuses ) {
+			$page = $get(
+				'/v1/approvals',
+				array(
+					'scopeKind' => 'project',
+					'scopeId'   => $permissions['session']['project_id'],
+					'status'    => implode( ',', $statuses ),
+					'order'     => 'waiting' === $view ? 'asc' : 'desc',
+					'limit'     => Kindgi_Order::PAGE,
+				)
+			);
+			if ( ! is_array( $page ) ) {
+				return null === $page ? array( 'signedIn' => false ) : $page;
+			}
+			if ( 'waiting' === $view ) {
+				Kindgi_Inbox::keep_count( $user->ID, Kindgi_Inbox::count_of( $page['body'], $me, $reviewer ) );
+			}
+			$answer[ $view ] = array();
+			foreach ( Kindgi_Order::about_order( $page['body'], $order ) as $a ) {
+				$answer[ $view ][] = Kindgi_Inbox::card( $a, $me, $reviewer, array( self::class, 'who' ), $names );
+			}
+			$answer['customer'][ $view ] = array();
+			foreach ( Kindgi_Order::to_customer( $page['body'], $answer['customer']['email'] ) as $a ) {
+				$answer['customer'][ $view ][] = Kindgi_Inbox::card( $a, $me, $reviewer, array( self::class, 'who' ), $names );
+			}
+			// The box looked through one page: older approvals about the order may be on the next.
+			$answer['more'] = $answer['more'] || true === ( $page['body']['hasMore'] ?? false );
+		}
+		return $answer;
+	}
+
+	/**
+	 * What the dashboard's Kindgi box shows: how many approvals wait for the
+	 * person and the oldest two of them, and the project's latest runs.
+	 * Opening the dashboard signs no one in: without a live session the
+	 * answer says so, and the box offers to (`signIn`).
+	 */
+	public static function dashboard( WP_REST_Request $request ) {
+		$user = wp_get_current_user();
+		$get  = static function ( string $path, array $query = array() ) use ( $user, $request ) {
+			return true === $request['signIn'] ? Kindgi_Api::body( $user, 'GET', $path, $query ) : Kindgi_Api::kept_get( $user, $path, $query );
+		};
+		$permissions = $get( '/v1/identity/me/permissions' );
+		if ( ! is_array( $permissions ) ) {
+			return null === $permissions ? array( 'signedIn' => false ) : $permissions;
+		}
+		$reviewer = Kindgi_Inbox::reviewer_of( $permissions['body'] );
+		$me       = (string) $permissions['session']['user_id'];
+		$project  = (string) $permissions['session']['project_id'];
+		$reads    = array(
+			'waiting' => array(
+				'/v1/approvals',
+				array(
+					'scopeKind' => 'project',
+					'scopeId'   => $project,
+					'status'    => implode( ',', Kindgi_Inbox::WAITING ),
+					'order'     => 'asc',
+					'limit'     => Kindgi_Inbox::COUNT_PAGE,
+				),
+			),
+			'runs'    => array(
+				'/v1/runs',
+				array(
+					'scopeKind' => 'project',
+					'scopeId'   => $project,
+					'topLevel'  => 'true',
+					'limit'     => Kindgi_Dashboard::RUNS,
+					'include'   => 'output',
+				),
+			),
+			'agents'  => array(
+				'/v1/agents',
+				array(
+					'scopeKind' => 'project',
+					'scopeId'   => $project,
+					'limit'     => 100,
+				),
+			),
+		);
+		$pages = array();
+		foreach ( $reads as $key => $read ) {
+			$page = $get( $read[0], $read[1] );
+			if ( ! is_array( $page ) ) {
+				return null === $page ? array( 'signedIn' => false ) : $page;
+			}
+			$pages[ $key ] = $page['body'];
+		}
+		$count = Kindgi_Inbox::count_of( $pages['waiting'], $me, $reviewer );
+		Kindgi_Inbox::keep_count( $user->ID, $count );
+		return Kindgi_Dashboard::answer( $pages, $count, $me, $reviewer );
 	}
 
 	/** Approve or reject, as this person; the run resumes in the same call. */
 	public static function decide( WP_REST_Request $request ) {
 		$reason = trim( (string) $request['reason'] );
 		if ( 'reject' === $request['decision'] && '' === $reason ) {
-			return new WP_Error( 'kindgi_reason_required', __( 'Say why you reject it: the agent and whoever asked read it.', 'kindgi' ), array( 'status' => 400 ) );
+			return new WP_Error( 'kindgi_reason_required', __( 'Say why you reject it, or what should change: the agent reads it.', 'kindgi' ), array( 'status' => 400 ) );
 		}
 		$body = array( 'decision' => $request['decision'] );
 		if ( '' !== $reason ) {
@@ -418,59 +739,26 @@ final class Kindgi_Rest {
 		if ( is_wp_error( $answer ) ) {
 			return $answer;
 		}
+		$user = wp_get_current_user();
+		Kindgi_Inbox::forget_count( $user->ID );
 		$b = $answer['body'];
+		// Decided: no longer anyone's to decide, whatever the person's role.
+		$card = self::card( is_array( $b['approval'] ?? null ) ? $b['approval'] : array(), (string) $answer['session']['user_id'], null, self::agent_names( $user ) );
+		// On the order it's about, a private note says who decided what.
+		Kindgi_Order::note( $card, (string) $request['decision'], $reason, $user );
 		return array(
-			'approval'          => self::card( is_array( $b['approval'] ?? null ) ? $b['approval'] : array(), (string) $answer['session']['user_id'] ),
+			'approval'          => $card,
 			'waitpointResolved' => (bool) ( $b['waitpointResolved'] ?? false ),
 			'runStatus'         => is_string( $b['runStatus'] ?? null ) ? $b['runStatus'] : null,
 		);
 	}
 
 	/**
-	 * An approval as the page shows it. Names come from WordPress, never
-	 * Kindgi: someone this site didn't sign in shows as outside it.
-	 */
-	private static function card( array $a, string $me ): array {
-		$ref      = is_array( $a['subjectRef'] ?? null ) ? $a['subjectRef'] : array();
-		$is_tool  = self::TOOL_CALL === ( $a['subjectKind'] ?? '' );
-		$decision = is_array( $a['decision'] ?? null ) ? $a['decision'] : null;
-		$asked_by = is_string( $a['requestedBy'] ?? null ) ? $a['requestedBy'] : null;
-		return array(
-			'id'               => (string) ( $a['id'] ?? '' ),
-			'title'            => (string) ( $a['title'] ?? '' ),
-			'description'      => is_string( $a['description'] ?? null ) ? $a['description'] : '',
-			'status'           => (string) ( $a['status'] ?? '' ),
-			'requiredRole'     => (string) ( $a['requiredRole'] ?? '' ),
-			'createdAt'        => (string) ( $a['createdAt'] ?? '' ),
-			'expiresAt'        => is_string( $a['expiresAt'] ?? null ) ? $a['expiresAt'] : null,
-			'tool'             => $is_tool && is_string( $ref['toolId'] ?? null )
-				? array(
-					'id'        => $ref['toolId'],
-					'arguments' => $ref['arguments'] ?? null,
-				)
-				: null,
-			'agentId'          => $is_tool && is_string( $ref['agentId'] ?? null ) ? $ref['agentId'] : null,
-			'conversationId'   => $is_tool && is_string( $ref['conversationId'] ?? null ) ? $ref['conversationId'] : null,
-			// Who asked, when Kindgi recorded it: a name on this site, or null for someone outside it.
-			'askedByKnown'     => null !== $asked_by,
-			'askedBy'          => self::who( $asked_by ),
-			'askedByMe'        => 'user:' . $me === $asked_by,
-			'separateApprover' => (bool) ( $a['separateApprover'] ?? false ),
-			'decision'         => null === $decision ? null : array(
-				'decision'  => (string) ( $decision['decision'] ?? '' ),
-				'decidedAt' => (string) ( $decision['decidedAt'] ?? '' ),
-				'reason'    => is_string( $decision['rationale'] ?? null ) ? $decision['rationale'] : null,
-				'by'        => self::who( is_string( $decision['decidedBy'] ?? null ) ? $decision['decidedBy'] : null ),
-			),
-		);
-	}
-
-	/**
 	 * Who `user:<id>` is on this site: their WordPress name, or null for
-	 * someone this site didn't sign in (the page says "someone outside this
-	 * site").
+	 * someone this site didn't sign in. Names come from WordPress, never
+	 * from Kindgi.
 	 */
-	private static function who( ?string $principal ): ?string {
+	public static function who( ?string $principal ): ?string {
 		static $names = array();
 		if ( null === $principal || 0 !== strpos( $principal, 'user:' ) ) {
 			return null;
@@ -508,6 +796,120 @@ final class Kindgi_Rest {
 	/** Whether a conversation is the person's own: they're its participant. */
 	public static function owns( array $conversation, string $user_id ): bool {
 		return '' !== $user_id && ( $conversation['participantId'] ?? null ) === $user_id;
+	}
+
+	/** Whether the person started a run: it's a person's, and acts for them. */
+	public static function started( array $run, string $user_id ): bool {
+		return '' !== $user_id && 'person' === ( $run['startedBy'] ?? null ) && ( $run['actsFor'] ?? null ) === 'user:' . $user_id;
+	}
+
+	/**
+	 * A conversation the person may read: their own, or the one an
+	 * approval they review was asked from (`$approval`, its id). Anyone
+	 * else's is theirs, and isn't found.
+	 *
+	 * @return array{conversation: array, mine: bool}|WP_Error
+	 */
+	private static function readable( WP_User $user, string $id, ?string $approval ) {
+		$answer = Kindgi_Api::body( $user, 'GET', '/v1/conversations/' . rawurlencode( $id ) );
+		if ( is_wp_error( $answer ) ) {
+			return $answer;
+		}
+		$mine = self::owns( $answer['body'], (string) $answer['session']['user_id'] );
+		if ( ! $mine && ( null === $approval || ! self::reviews_in( $user, $approval, $id ) ) ) {
+			return self::no_conversation();
+		}
+		return array(
+			'conversation' => $answer['body'],
+			'mine'         => $mine,
+		);
+	}
+
+	/** Whether the person reviews the approval, and it was asked from the conversation. */
+	private static function reviews_in( WP_User $user, string $approval, string $conversation ): bool {
+		$r = self::reviewer( $user );
+		$a = is_wp_error( $r ) ? $r : Kindgi_Api::body( $user, 'GET', '/v1/approvals/' . rawurlencode( $approval ) );
+		if ( is_wp_error( $a ) ) {
+			return false;
+		}
+		$card = Kindgi_Inbox::card( $a['body'], $r['me'], $r['reviewer'], array( self::class, 'who' ) );
+		return $conversation === $card['conversationId'] && Kindgi_Inbox::reviews( $card );
+	}
+
+	/**
+	 * An approval's card, with the order it's about linked for someone who may edit orders.
+	 *
+	 * @param callable(string): ?string $names `agent_names`, shared by a page's cards.
+	 */
+	private static function card( array $a, string $me, ?array $reviewer, callable $names ): array {
+		$card             = Kindgi_Inbox::card( $a, $me, $reviewer, array( self::class, 'who' ), $names );
+		$card['orderUrl'] = Kindgi_Order::edit_url( $card );
+		return $card;
+	}
+
+	/**
+	 * The project's agents' names at Kindgi, as Activity and Ask name them:
+	 * read when a card first needs one (once for all a page's cards, on the
+	 * person's session, or as `$get` reads, which keeps to a live one). An
+	 * agent Kindgi doesn't name, or a read that fails, is null: the card
+	 * says its id in words.
+	 *
+	 * @param callable|null $get     `(path, query)` to Kindgi's answer, null or an error; else `Kindgi_Api::body`.
+	 * @param string|null   $project The project, when the caller has it from `$get`'s reads; else the person's session's.
+	 * @return callable(string): ?string
+	 */
+	private static function agent_names( WP_User $user, ?callable $get = null, ?string $project = null ): callable {
+		$names = null;
+		return static function ( string $id ) use ( $user, $get, $project, &$names ): ?string {
+			if ( null === $names ) {
+				$names   = array();
+				$project = $project ?? self::project( $user );
+				$query   = array(
+					'scopeKind' => 'project',
+					'scopeId'   => $project,
+					'limit'     => 100,
+				);
+				if ( is_wp_error( $project ) ) {
+					$answer = $project;
+				} else {
+					$answer = null === $get ? Kindgi_Api::body( $user, 'GET', '/v1/agents', $query ) : $get( '/v1/agents', $query );
+				}
+				foreach ( is_array( $answer ) ? self::list_of( $answer['body']['data'] ?? null ) : array() as $agent ) {
+					if ( is_string( $agent['id'] ?? null ) && is_string( $agent['name'] ?? null ) && '' !== trim( $agent['name'] ) ) {
+						$names[ $agent['id'] ] = trim( $agent['name'] );
+					}
+				}
+			}
+			return $names[ $id ] ?? null;
+		};
+	}
+
+	/** The approval a conversation is opened through, when the address names one. */
+	private static function through( WP_REST_Request $request ): ?string {
+		$approval = (string) $request['approval'];
+		return 1 === preg_match( '/^' . self::ID . '$/', $approval ) ? $approval : null;
+	}
+
+	private static function no_conversation(): WP_Error {
+		return new WP_Error( 'kindgi_conversation_not_found', __( 'No conversation of yours has that id.', 'kindgi' ), array( 'status' => 404 ) );
+	}
+
+	/**
+	 * The person as a reviewer at Kindgi (`Kindgi_Inbox::reviewer_of`, null
+	 * when they can't decide), their Kindgi id and the site's project.
+	 *
+	 * @return array{reviewer: array|null, me: string, project_id: string}|WP_Error
+	 */
+	private static function reviewer( WP_User $user ) {
+		$answer = Kindgi_Api::body( $user, 'GET', '/v1/identity/me/permissions' );
+		if ( is_wp_error( $answer ) ) {
+			return $answer;
+		}
+		return array(
+			'reviewer'   => Kindgi_Inbox::reviewer_of( $answer['body'] ),
+			'me'         => (string) $answer['session']['user_id'],
+			'project_id' => (string) $answer['session']['project_id'],
+		);
 	}
 
 	/** The site's project, from the person's session. */

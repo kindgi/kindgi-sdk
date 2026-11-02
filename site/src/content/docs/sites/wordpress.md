@@ -6,11 +6,14 @@ sidebar:
   label: WordPress
 ---
 
-The Kindgi plugin for WordPress adds a **Kindgi** page to wp-admin. On it,
-each person signed in to the site can:
+The Kindgi plugin for WordPress adds a **Kindgi** menu to wp-admin. Under
+it, each person signed in to the site can:
 
-- **ask** the project's agents, in conversations of their own;
-- **approve or reject** what an agent waits on, a refund for example.
+- **decide** in the **Inbox**: approve or reject what an agent waits on, a
+  refund for example, and see what waits for others;
+- **follow** in **Activity**: what the project's agents and flows did;
+- **ask** the agents an administrator offered to staff, on **Ask**, in
+  conversations of their own.
 
 Each person acts as themselves. A decision names Jane, shown as "Jane, via
 Acme store", never "the store".
@@ -58,7 +61,7 @@ the CLI
 
 ## How the site signs its people in
 
-- **The site vouches for its staff.** When Jane opens the page, the plugin
+- **The site vouches for its staff.** When Jane opens a Kindgi page, the plugin
   signs a short statement: "the person signed in here is Jane, with these
   WordPress roles". The statement is signed with an Ed25519 key, lives 60
   seconds and can be used once.
@@ -66,7 +69,7 @@ the CLI
   statement server to server. Kindgi checks it against the key the site
   enrolled, and answers with a 15-minute session held to the site's one
   project.
-- **No Kindgi token reaches the browser.** The page calls the plugin's
+- **No Kindgi token reaches the browser.** The pages call the plugin's
   routes on the site (`/wp-json/kindgi/v1/…`), and the plugin calls Kindgi.
 - **People are matched by the site, never by email.** Kindgi knows each
   person by their site and a random id the plugin keeps for them. It never
@@ -158,7 +161,7 @@ It needs WordPress 6.4 or later and PHP 7.4 or later.
    one-time code and the Kindgi URL this server reaches, then chooses
    **Connect**. The plugin makes
    its signing key and sends Kindgi the public half. The page says
-   "Connected: your staff can use the Kindgi page now."
+   "Connected: your staff can use the Kindgi pages now."
 
 About the Kindgi URL:
 - **On Kindgi Cloud, it's `https://platform.kindgi.com`.**
@@ -188,37 +191,64 @@ About the Kindgi URL:
   never vouches as production. When the site moves, connect it again with a
   new code.
 
-## Who sees the page
+## Who sees the pages
 
-- **The page needs `manage_woocommerce`** when WooCommerce is active, which
-  means shop managers and administrators. Without WooCommerce, it needs
+- **The pages need `manage_woocommerce`** when WooCommerce is active, which
+  means shop managers and administrators. Without WooCommerce, they need
   `edit_others_posts`: editors and administrators. The `kindgi_capability`
-  filter changes it.
-- **Seeing the page isn't signing in.** Kindgi decides from the person's
+  filter changes it. **Settings** needs `manage_options`.
+- **Seeing the pages isn't signing in.** Kindgi decides from the person's
   roles and the site's settings. On a site registered with the defaults, an
-  editor who sees the page gets "None of these roles may sign in through
+  editor who sees the pages gets "None of these roles may sign in through
   this site".
-- **The Approvals tab** shows only to someone whose roles give a reviewer
-  role.
+- **Approve and Reject** show only to someone who may decide: their roles
+  give a reviewer role, and they have a row on Kindgi's reviewer roster
+  (`GET /v1/identity/me/permissions` says so with `reviewer.canDecide`).
+- **Each person reads their own.** A conversation opens for the person
+  it's with, and for an approval's reviewer through that approval. The
+  plugin checks it before it reads the conversation from Kindgi.
 
 ## What the staff see
 
-**Ask:**
-- **Their own conversations** with the project's agents: the ones they
-  opened (`GET /v1/conversations?openedBy=me`). A conversation is titled
-  with its first message.
-- **The tools a turn called,** and what it waits for: "Waiting for a person
-  to approve shop.acme-refund-order."
-
-**Approvals:**
-- **Waiting for you:** the project's approvals their reviewer role may
-  decide. Each shows the tool, its arguments, who asked, when it expires and
-  the role it needs.
+**Inbox:**
+- **Waits for you:** the project's waiting approvals the person may decide:
+  their reviewer role covers the role each needs, it isn't assigned to
+  another reviewer, and they didn't ask for one that needs someone else.
+  Each says what would happen in words: the tool, its fields, the agent's
+  own words quoted apart from them, who asked and by when.
+- **Waits for others:** the rest, each saying whom it waits for.
 - **Approve, or reject with a reason.** The page asks for the reason: "Say
   why you reject it."
-- **Decided by you lately:** `GET /v1/approvals?decidedBy=me`.
+- **Decided:** the project's decided approvals, whoever decided, and those
+  that expired, were withdrawn or were passed on to another reviewer.
 - **From your link:** an approval opened from Kindgi's email
   (`?approval=<id>`).
+- **A count** of what waits for the person, on the Kindgi menu and in the
+  admin bar. The plugin asks Kindgi at most once a minute, on the person's
+  own session while they have one. The count never signs anyone in: only
+  opening a Kindgi page does.
+
+**Activity:**
+- **The project's runs,** newest first, one row each: which agent or flow,
+  who or what started it, when, and its state.
+- **The person's own runs** show what they answered, and open their
+  conversation.
+- **Someone else's run** is one line: who, which agent, when and its state.
+- **A run no person started** (a webhook, a schedule) shows what it found;
+  with WooCommerce, only to someone who can edit orders
+  (`edit_shop_orders`).
+
+**Ask:**
+- **The agents an administrator offered** to staff, under **Kindgi →
+  Settings**. Kindgi still decides who may ask an agent.
+- **Their own conversations** with them: the ones they opened
+  (`GET /v1/conversations?openedBy=me`). A conversation is titled with its
+  first message.
+- **The tools a turn called,** and what it waits for, the tool's id in
+  words: for `shop.acme-refund-order`, "Waiting for a person to approve:
+  Acme refund order."
+- **Someone else's conversation,** opened from an approval they review, to
+  read, not to continue.
 
 ## Reviewer email
 

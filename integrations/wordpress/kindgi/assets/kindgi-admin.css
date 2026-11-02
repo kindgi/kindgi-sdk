@@ -1,121 +1,810 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /* Copyright (C) 2026 Kindgi Inc. */
 
-/* The Kindgi page: wp-admin's own colors and controls, a little layout. */
+/*
+ * The Kindgi pages. Actions take the person's own admin color scheme
+ * (`--wp-admin-theme-color`), so the pages never fight WordPress; Kindgi's
+ * plum is for its mark only. Every color, space and radius is a token here.
+ */
 
-.kindgi .kindgi-panel {
-  margin-top: 16px;
+.kindgi {
+  --kindgi-accent: var(--wp-admin-theme-color, #3858e9);
+  --kindgi-brand: #6c1a5a;
+  --kindgi-surface: #fff;
+  --kindgi-sunken: #f6f7f7;
+  --kindgi-border: #dcdcde;
+  --kindgi-text: #1e1e1e;
+  --kindgi-muted: #646970;
+  --kindgi-ok: #00a32a;
+  --kindgi-warn: #dba617;
+  --kindgi-err: #d63638;
+  --kindgi-err-soft: #fcf0f1;
+  --kindgi-space-1: 4px;
+  --kindgi-space-2: 8px;
+  --kindgi-space-3: 12px;
+  --kindgi-space-4: 16px;
+  --kindgi-space-5: 24px;
+  --kindgi-radius: 8px;
+  --kindgi-shadow: 0 1px 2px rgb(0 0 0 / 4%), 0 1px 3px rgb(0 0 0 / 6%);
 }
 
-.kindgi .kindgi-muted {
-  color: #646970;
+/* ---------- The page's heading: Kindgi's mark and the page's name ---------- */
+
+.kindgi .kindgi-header {
+  display: flex;
+  align-items: center;
+  gap: var(--kindgi-space-3);
+  margin: var(--kindgi-space-2) 0 var(--kindgi-space-3);
 }
 
-.kindgi .kindgi-columns {
-  display: grid;
-  grid-template-columns: minmax(200px, 280px) 1fr;
-  gap: 24px;
-  align-items: start;
-}
-
-@media (max-width: 782px) {
-  .kindgi .kindgi-columns {
-    grid-template-columns: 1fr;
-  }
-}
-
-.kindgi .kindgi-side select,
-.kindgi .kindgi-side .button {
-  display: block;
-  margin: 4px 0 8px;
-  max-width: 100%;
-}
-
-.kindgi .kindgi-conversations {
+.kindgi .kindgi-header h1 {
+  padding: 0;
   margin: 0;
 }
 
-.kindgi .kindgi-current {
+.kindgi .kindgi-mark {
+  flex: none;
+  border-radius: 7px;
+}
+
+.kindgi .kindgi-muted {
+  color: var(--kindgi-muted);
+}
+
+/* ---------- Loading, nothing there, and something wrong ---------- */
+
+.kindgi .kindgi-skeleton {
+  display: grid;
+  gap: var(--kindgi-space-3);
+  max-width: 760px;
+  padding: var(--kindgi-space-4);
+  background: var(--kindgi-surface);
+  border: 1px solid var(--kindgi-border);
+  border-radius: var(--kindgi-radius);
+}
+
+.kindgi .kindgi-skeleton-line {
+  display: block;
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #f0f0f1 25%, #e5e5e7 50%, #f0f0f1 75%);
+  background-size: 200% 100%;
+  animation: kindgi-shimmer 1.4s ease-in-out infinite;
+}
+
+.kindgi .kindgi-skeleton-line:nth-child(2) {
+  width: 60%;
+}
+
+.kindgi .kindgi-skeleton-line:nth-child(3) {
+  width: 90%;
+}
+
+.kindgi .kindgi-skeleton-line:nth-child(4) {
+  width: 75%;
+}
+
+@keyframes kindgi-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kindgi .kindgi-skeleton-line {
+    animation: none;
+  }
+}
+
+.kindgi .kindgi-empty {
+  max-width: 560px;
+  margin: var(--kindgi-space-5) 0;
+  padding: var(--kindgi-space-5);
+  background: var(--kindgi-surface);
+  border: 1px solid var(--kindgi-border);
+  border-radius: var(--kindgi-radius);
+  box-shadow: var(--kindgi-shadow);
+}
+
+.kindgi .kindgi-empty p {
+  margin: 0 0 var(--kindgi-space-2);
+  color: var(--kindgi-muted);
+  font-size: 14px;
+}
+
+.kindgi .kindgi-empty .kindgi-empty-title {
+  color: var(--kindgi-text);
+  font-size: 16px;
   font-weight: 600;
 }
 
-.kindgi .kindgi-messages {
+.kindgi .kindgi-empty .kindgi-empty-actions {
+  margin: var(--kindgi-space-4) 0 0;
+}
+
+.kindgi .kindgi-problem {
+  max-width: 760px;
+  margin: 0 0 var(--kindgi-space-3);
+  padding: var(--kindgi-space-3) var(--kindgi-space-4);
+  background: var(--kindgi-err-soft);
+  border-left: 4px solid var(--kindgi-err);
+  border-radius: var(--kindgi-radius);
+}
+
+.kindgi .kindgi-problem p {
+  margin: 0 0 var(--kindgi-space-2);
+  font-size: 14px;
+}
+
+.kindgi .kindgi-problem p:last-child {
+  margin: 0;
+}
+
+.kindgi .kindgi-technical {
+  margin-top: var(--kindgi-space-2);
+}
+
+.kindgi .kindgi-technical summary {
+  color: var(--kindgi-muted);
+  cursor: pointer;
+}
+
+.kindgi .kindgi-technical code {
+  display: block;
+  margin-top: var(--kindgi-space-1);
+  background: transparent;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Ask: the conversation beside the person's list; on a phone, the list below it ---------- */
+
+.kindgi .kindgi-ask {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  grid-template-areas: "rail chat";
+  gap: var(--kindgi-space-5);
+  align-items: start;
+  max-width: 1160px;
+}
+
+.kindgi .kindgi-chat {
+  grid-area: chat;
+  min-width: 0;
+  max-width: 820px;
+}
+
+.kindgi .kindgi-rail {
+  grid-area: rail;
+}
+
+@media (max-width: 782px) {
+  .kindgi .kindgi-ask {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "chat" "rail";
+  }
+}
+
+.kindgi .kindgi-rail .kindgi-new {
+  width: 100%;
+  justify-content: center;
+}
+
+.kindgi .kindgi-rail h2 {
+  margin: var(--kindgi-space-4) 0 var(--kindgi-space-2);
+  color: var(--kindgi-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.kindgi .kindgi-conversations {
   list-style: none;
-  margin: 0 0 12px;
+  margin: 0;
+  padding: 0;
+}
+
+.kindgi .kindgi-conversations li {
+  margin: 0 0 2px;
+}
+
+.kindgi .kindgi-conversations a {
+  display: block;
+  padding: var(--kindgi-space-2) 10px;
+  border-radius: 6px;
+  color: var(--kindgi-text);
+  text-decoration: none;
+}
+
+.kindgi .kindgi-conversations a:hover {
+  background: rgb(0 0 0 / 4%);
+}
+
+.kindgi .kindgi-conversations .kindgi-current a {
+  background: var(--kindgi-surface);
+  box-shadow: var(--kindgi-shadow);
+}
+
+.kindgi .kindgi-conversation-title {
+  display: block;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kindgi .kindgi-conversations .kindgi-muted {
+  display: block;
+  font-size: 12px;
+}
+
+/* A new conversation's top, and an open one's. */
+.kindgi .kindgi-fresh {
+  margin: var(--kindgi-space-4) 0;
+}
+
+.kindgi .kindgi-fresh h2 {
+  margin: 0 0 var(--kindgi-space-1);
+  font-size: 22px;
+  line-height: 1.3;
+}
+
+.kindgi .kindgi-fresh p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.kindgi .kindgi-started .kindgi-about,
+.kindgi .kindgi-started .kindgi-starters {
+  display: none;
+}
+
+.kindgi .kindgi-thread-head h2 {
+  margin: 0 0 2px;
+  font-size: 18px;
+}
+
+.kindgi .kindgi-thread-head p {
+  margin: 0 0 var(--kindgi-space-4);
+}
+
+/* The messages: the person's on the right, the agent's on the left, the tools it used quietly between. */
+.kindgi .kindgi-messages {
+  display: flex;
+  flex-direction: column;
+  gap: var(--kindgi-space-2);
+  list-style: none;
+  margin: 0 0 var(--kindgi-space-3);
   padding: 0;
 }
 
 .kindgi .kindgi-message {
-  background: #fff;
-  border: 1px solid #dcdcde;
-  border-radius: 4px;
-  margin: 0 0 8px;
-  padding: 8px 12px;
-  white-space: pre-wrap;
+  max-width: 85%;
+  margin: 0;
+  padding: 10px 14px;
+  background: var(--kindgi-surface);
+  border: 1px solid var(--kindgi-border);
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
-.kindgi .kindgi-tool {
-  background: #f6f7f7;
-}
-
-.kindgi .kindgi-tool pre {
-  white-space: pre-wrap;
-  margin: 4px 0 0;
-}
-
 .kindgi .kindgi-user {
-  background: #f0f6fc;
-  border-color: #c5d9ed;
+  align-self: flex-end;
+  background: color-mix(in srgb, var(--kindgi-accent) 9%, #fff);
+  border-color: color-mix(in srgb, var(--kindgi-accent) 22%, #fff);
+  border-bottom-right-radius: var(--kindgi-space-1);
+  white-space: pre-wrap;
 }
 
-.kindgi .kindgi-main textarea {
+.kindgi .kindgi-agent {
+  align-self: flex-start;
+  border-bottom-left-radius: var(--kindgi-space-1);
+}
+
+.kindgi .kindgi-agent p,
+.kindgi .kindgi-agent ul,
+.kindgi .kindgi-agent ol {
+  margin: 0 0 var(--kindgi-space-2);
+}
+
+.kindgi .kindgi-agent ul,
+.kindgi .kindgi-agent ol {
+  padding-left: 20px;
+}
+
+.kindgi .kindgi-agent ul {
+  list-style: disc;
+}
+
+.kindgi .kindgi-agent > :last-child {
+  margin-bottom: 0;
+}
+
+/* The tools the agent used: quiet steps between the words, each with its answer folded under it. */
+.kindgi .kindgi-used {
+  align-self: stretch;
+  max-width: none;
+  padding: 0 var(--kindgi-space-1);
+  background: transparent;
+  border: 0;
+  color: var(--kindgi-muted);
+  font-size: 12px;
+}
+
+.kindgi .kindgi-steps-done {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Under an agent's words: no bullets, unlike the lists it writes. */
+.kindgi .kindgi-agent .kindgi-steps-done {
+  margin-top: var(--kindgi-space-2);
+  padding: 0;
+  list-style: none;
+  color: var(--kindgi-muted);
+  font-size: 12px;
+}
+
+.kindgi .kindgi-step {
+  margin: 0 0 2px;
+  padding-left: 14px;
+  position: relative;
+}
+
+/* A step's dot: a small timeline down the conversation. */
+.kindgi .kindgi-step::before {
+  content: "";
+  position: absolute;
+  top: 0.55em;
+  left: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--kindgi-border);
+}
+
+/* A call that ran nothing (yet): an open dot, and why under its words. */
+.kindgi .kindgi-step-not-run::before {
+  box-sizing: border-box;
+  border: 1px solid var(--kindgi-muted);
+  background: transparent;
+}
+
+/* A reason can take lines, one for each guardrail. */
+.kindgi .kindgi-step-why {
   display: block;
-  width: 100%;
-  margin-bottom: 8px;
+  white-space: pre-line;
 }
 
-.kindgi .kindgi-steps {
-  margin: 0 0 8px;
+.kindgi .kindgi-answer summary {
+  color: var(--kindgi-accent);
+  cursor: pointer;
 }
 
-.kindgi .kindgi-wait,
-.kindgi .kindgi-card {
-  background: #fff;
-  border: 1px solid #dcdcde;
-  border-left: 4px solid #dba617;
-  margin: 0 0 12px;
-  padding: 8px 12px;
+.kindgi .kindgi-step .kindgi-answer {
+  display: inline;
+  margin-left: var(--kindgi-space-2);
 }
 
-.kindgi .kindgi-cards {
-  max-width: 760px;
+.kindgi .kindgi-step .kindgi-answer summary {
+  display: inline;
 }
 
-.kindgi .kindgi-card h3 {
-  margin: 4px 0 8px;
+.kindgi .kindgi-answer[open] {
+  display: block;
+  margin: var(--kindgi-space-1) 0 0;
 }
 
-.kindgi .kindgi-args {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 2px 12px;
-  margin: 0 0 8px;
+.kindgi .kindgi-answer pre {
+  max-height: 240px;
+  margin: var(--kindgi-space-1) 0 var(--kindgi-space-2);
+  padding: var(--kindgi-space-2);
+  overflow: auto;
+  background: var(--kindgi-sunken);
+  border-radius: var(--kindgi-space-1);
+  color: var(--kindgi-text);
+  white-space: pre-wrap;
 }
 
-.kindgi .kindgi-args dt {
+/* Mail that started the turn: each mail as an email, the width of the conversation. */
+.kindgi .kindgi-mail-turn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--kindgi-space-2);
+  align-self: stretch;
+  max-width: none;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.kindgi .kindgi-mail {
+  padding: var(--kindgi-space-3) var(--kindgi-space-4);
+  background: var(--kindgi-surface);
+  border: 1px solid var(--kindgi-border);
+  border-radius: var(--kindgi-radius);
+  box-shadow: var(--kindgi-shadow);
+}
+
+/* An earlier mail of the thread: there for what led to the new one, so quieter. */
+.kindgi .kindgi-mail:not(.kindgi-mail-new) {
+  background: var(--kindgi-sunken);
+  box-shadow: none;
+}
+
+.kindgi .kindgi-mail-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--kindgi-space-3);
+  margin-bottom: var(--kindgi-space-3);
+}
+
+.kindgi .kindgi-mail-who {
+  flex: 1;
+  min-width: 0;
+}
+
+.kindgi .kindgi-mail-to {
+  display: block;
+  font-size: 12px;
+}
+
+.kindgi .kindgi-mail-at {
+  flex: none;
+  color: var(--kindgi-muted);
+  font-size: 12px;
+}
+
+.kindgi .kindgi-mail-subject {
+  margin: 0 0 var(--kindgi-space-2);
   font-weight: 600;
 }
 
-.kindgi .kindgi-args dd {
+.kindgi .kindgi-mail-text {
+  white-space: pre-wrap;
+}
+
+.kindgi .kindgi-mail .kindgi-muted,
+.kindgi .kindgi-mail .kindgi-note {
+  margin: var(--kindgi-space-2) 0 0;
+}
+
+.kindgi .kindgi-mail-head .kindgi-muted {
+  margin: 0;
+}
+
+/* The approval the conversation was opened from, where the agent waits on it. */
+.kindgi .kindgi-awaits {
+  align-self: stretch;
+  max-width: none;
+  margin-top: var(--kindgi-space-2);
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.kindgi .kindgi-awaits-head {
+  margin: 0 0 var(--kindgi-space-2);
+  font-size: 14px;
+}
+
+/* While the agent works: three dots, then the tools it used. */
+.kindgi .kindgi-working {
+  display: flex;
+  align-items: center;
+  gap: var(--kindgi-space-2);
+  margin: 0 0 var(--kindgi-space-2);
+  color: var(--kindgi-muted);
+}
+
+.kindgi .kindgi-working[hidden] {
+  display: none;
+}
+
+.kindgi .kindgi-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.kindgi .kindgi-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentcolor;
+  animation: kindgi-blink 1.2s ease-in-out infinite;
+}
+
+.kindgi .kindgi-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.kindgi .kindgi-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes kindgi-blink {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+
+  40% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kindgi .kindgi-dots span {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+.kindgi .kindgi-steps {
+  list-style: none;
+  margin: 0 0 var(--kindgi-space-2);
+  padding: 0;
+  color: var(--kindgi-muted);
+  font-size: 12px;
+}
+
+/* The box to write in. */
+.kindgi .kindgi-composer {
+  padding: var(--kindgi-space-2) var(--kindgi-space-3);
+  background: var(--kindgi-surface);
+  border: 1px solid var(--kindgi-border);
+  border-radius: 12px;
+  box-shadow: var(--kindgi-shadow);
+}
+
+.kindgi .kindgi-composer:focus-within {
+  border-color: var(--kindgi-accent);
+  box-shadow: 0 0 0 1px var(--kindgi-accent);
+}
+
+.kindgi .kindgi-composer textarea {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  padding: 6px 2px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: none;
+}
+
+.kindgi .kindgi-composer textarea:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.kindgi .kindgi-composer-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--kindgi-space-2);
+  margin-top: var(--kindgi-space-1);
+}
+
+.kindgi .kindgi-composer .kindgi-agent-pick {
+  max-width: 50%;
+}
+
+.kindgi .kindgi-hint {
+  flex: 1;
+  color: var(--kindgi-muted);
+  font-size: 12px;
+}
+
+/* By touch, Enter starts a new line: the hint about keys would be wrong. */
+@media (pointer: coarse) {
+  .kindgi .kindgi-hint {
+    visibility: hidden;
+  }
+}
+
+.kindgi .kindgi-send {
+  margin-left: auto;
+}
+
+@media (max-width: 782px) {
+  .kindgi .kindgi-hint {
+    display: none;
+  }
+}
+
+/* A new conversation's first questions. */
+.kindgi .kindgi-starters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--kindgi-space-2);
+  margin-top: var(--kindgi-space-3);
+}
+
+.kindgi .kindgi-chip {
+  min-height: 36px;
+  padding: 6px 14px;
+  background: var(--kindgi-surface);
+  border: 1px solid var(--kindgi-border);
+  border-radius: 999px;
+  color: var(--kindgi-text);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.kindgi .kindgi-chip:hover {
+  border-color: var(--kindgi-accent);
+  color: var(--kindgi-accent);
+}
+
+.kindgi .kindgi-chip:focus-visible {
+  outline: 2px solid var(--kindgi-accent);
+  outline-offset: 1px;
+}
+
+@media (max-width: 782px) {
+  .kindgi .kindgi-chip {
+    min-height: 44px;
+  }
+}
+
+/* ---------- Approval cards ---------- */
+
+/* A card's left edge says whose it is: amber waits for you, grey for someone else; green approved, red rejected. */
+.kindgi .kindgi-wait,
+.kindgi .kindgi-card {
+  background: var(--kindgi-surface);
+  border: 1px solid var(--kindgi-border);
+  border-left: 4px solid var(--kindgi-warn);
+  border-radius: var(--kindgi-radius);
+  box-shadow: var(--kindgi-shadow);
+  margin: 0 0 var(--kindgi-space-3);
+  padding: var(--kindgi-space-3) var(--kindgi-space-4);
+}
+
+.kindgi .kindgi-card.kindgi-others,
+.kindgi .kindgi-card.kindgi-expired,
+.kindgi .kindgi-card.kindgi-withdrawn,
+.kindgi .kindgi-card.kindgi-escalated,
+.kindgi .kindgi-card.kindgi-cancelled {
+  border-left-color: #c3c4c7;
+}
+
+.kindgi .kindgi-card.kindgi-approved {
+  border-left-color: var(--kindgi-ok);
+}
+
+.kindgi .kindgi-card.kindgi-rejected {
+  border-left-color: var(--kindgi-err);
+}
+
+.kindgi .kindgi-card.kindgi-target {
+  box-shadow: 0 0 0 2px var(--kindgi-accent);
+}
+
+.kindgi .kindgi-wait .kindgi-card {
+  border: 0;
+  box-shadow: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* The Inbox's lists float, as on WordPress's own list screens. */
+.kindgi .kindgi-cards {
+  clear: both;
+  max-width: 760px;
+  padding-top: var(--kindgi-space-2);
+}
+
+.kindgi .kindgi-linked {
+  max-width: 760px;
+}
+
+.kindgi .kindgi-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--kindgi-space-1) var(--kindgi-space-3);
+  margin: var(--kindgi-space-1) 0 var(--kindgi-space-2);
+}
+
+.kindgi .kindgi-card h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+/* The order a card is about, as a small pill beside its heading. */
+.kindgi .kindgi-chip-link {
+  display: inline-block;
+  padding: 2px 10px;
+  border: 1px solid var(--kindgi-border);
+  border-radius: 999px;
+  background: var(--kindgi-sunken);
+  color: var(--kindgi-text);
+  font-size: 12px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.kindgi a.kindgi-chip-link:hover,
+.kindgi a.kindgi-chip-link:focus {
+  border-color: var(--kindgi-accent);
+  color: var(--kindgi-accent);
+}
+
+.kindgi .kindgi-summary {
+  margin: 0 0 var(--kindgi-space-2);
+  font-size: 14px;
+}
+
+.kindgi .kindgi-meta {
+  margin: var(--kindgi-space-2) 0;
+  color: var(--kindgi-muted);
+}
+
+/* What happens if no one decides in time, right under who asked (the margins collapse to 2px). */
+.kindgi .kindgi-deadline {
+  margin: calc(2px - var(--kindgi-space-2)) 0 var(--kindgi-space-2);
+  color: var(--kindgi-muted);
+}
+
+/* Little time left to decide: amber, dark enough to read. */
+.kindgi .kindgi-deadline.kindgi-soon {
+  color: #996800;
+  font-weight: 600;
+}
+
+.kindgi .kindgi-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px var(--kindgi-space-3);
+  margin: 0 0 var(--kindgi-space-2);
+}
+
+.kindgi .kindgi-facts dt {
+  font-weight: 600;
+}
+
+.kindgi .kindgi-facts dd {
   margin: 0;
   overflow-wrap: anywhere;
 }
 
-.kindgi .kindgi-card pre {
-  background: #f6f7f7;
+.kindgi .kindgi-card pre,
+.kindgi .kindgi-sheet pre {
+  background: var(--kindgi-sunken);
+  border-radius: var(--kindgi-space-1);
   overflow: auto;
-  padding: 8px;
+  padding: var(--kindgi-space-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The whole call, when the card leaves part of it out: for whoever decides, so each value whole and never a scroll box. */
+.kindgi .kindgi-whole {
+  margin: 0 0 var(--kindgi-space-2);
+}
+
+.kindgi .kindgi-whole summary {
+  color: var(--kindgi-accent);
+  cursor: pointer;
+}
+
+.kindgi .kindgi-whole .kindgi-facts {
+  margin-top: var(--kindgi-space-2);
+}
+
+.kindgi .kindgi-whole dd {
+  white-space: pre-wrap;
 }
 
 .kindgi .kindgi-card textarea {
@@ -124,10 +813,658 @@
   max-width: 560px;
 }
 
+.kindgi .kindgi-why {
+  margin: var(--kindgi-space-3) 0 0;
+}
+
+.kindgi .kindgi-why label {
+  display: block;
+  font-weight: 600;
+}
+
+/* What a rejection does, between the box's label and the box. */
+.kindgi .kindgi-why .kindgi-effect {
+  margin: var(--kindgi-space-1) 0 var(--kindgi-space-2);
+  color: var(--kindgi-muted);
+}
+
+.kindgi .kindgi-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--kindgi-space-2);
+  margin: var(--kindgi-space-3) 0 0;
+}
+
+.kindgi .kindgi-actions .button-link {
+  padding: 0 var(--kindgi-space-2);
+}
+
+.kindgi .button.kindgi-reject {
+  border-color: var(--kindgi-err);
+  color: var(--kindgi-err);
+}
+
+.kindgi .button.kindgi-reject:hover,
+.kindgi .button.kindgi-reject:focus {
+  background: var(--kindgi-err-soft);
+  border-color: var(--kindgi-err);
+  color: var(--kindgi-err);
+}
+
 .kindgi .kindgi-decision {
   font-weight: 600;
 }
 
+.kindgi .kindgi-decision-approve::before {
+  content: "✓ " / "";
+  color: var(--kindgi-ok);
+}
+
+.kindgi .kindgi-decision-reject::before {
+  content: "✕ " / "";
+  color: var(--kindgi-err);
+}
+
 .kindgi .kindgi-note {
   font-style: italic;
+}
+
+/* The agent's own words (a reason, a draft to a customer): set apart from the facts, read as written. */
+.kindgi figure.kindgi-said {
+  margin: var(--kindgi-space-2) 0;
+}
+
+.kindgi .kindgi-said figcaption {
+  margin: 0 0 var(--kindgi-space-1);
+  color: var(--kindgi-muted);
+}
+
+.kindgi .kindgi-said-text {
+  max-width: 68ch;
+  padding: var(--kindgi-space-3) var(--kindgi-space-4);
+  background: var(--kindgi-sunken);
+  border-radius: var(--kindgi-radius);
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A long one shows its start, fading out, until Show all. */
+.kindgi .kindgi-folded .kindgi-said-text {
+  max-height: 24em;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 60%, transparent);
+}
+
+.kindgi .kindgi-said .button-link {
+  margin-top: var(--kindgi-space-1);
+}
+
+/* ---------- Settings: the connection at a glance, the agents offered, and connecting ---------- */
+
+.kindgi-settings h2 {
+  margin-top: var(--kindgi-space-5);
+}
+
+.kindgi-settings .kindgi-settings-text {
+  max-width: 760px;
+  font-size: 14px;
+}
+
+.kindgi .kindgi-status,
+.kindgi .kindgi-offer-list,
+.kindgi .kindgi-connect {
+  max-width: 760px;
+  background: var(--kindgi-surface);
+  border: 1px solid var(--kindgi-border);
+  border-radius: var(--kindgi-radius);
+  box-shadow: var(--kindgi-shadow);
+}
+
+.kindgi .kindgi-status {
+  margin: var(--kindgi-space-4) 0 var(--kindgi-space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.kindgi .kindgi-status-row {
+  display: flex;
+  gap: var(--kindgi-space-3);
+  align-items: flex-start;
+  margin: 0;
+  padding: var(--kindgi-space-3) var(--kindgi-space-4);
+  border-top: 1px solid var(--kindgi-border);
+}
+
+.kindgi .kindgi-status-row:first-child {
+  border-top: 0;
+}
+
+.kindgi .kindgi-dot {
+  flex: none;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--kindgi-muted);
+}
+
+.kindgi .kindgi-status-ok .kindgi-dot {
+  background: var(--kindgi-ok);
+}
+
+.kindgi .kindgi-status-warn .kindgi-dot {
+  background: var(--kindgi-warn);
+}
+
+.kindgi .kindgi-status-err .kindgi-dot {
+  background: var(--kindgi-err);
+}
+
+.kindgi .kindgi-status-none .kindgi-dot {
+  background: transparent;
+  border: 2px solid var(--kindgi-muted);
+}
+
+.kindgi .kindgi-status-checking .kindgi-dot {
+  background: var(--kindgi-border);
+  animation: kindgi-blink 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kindgi .kindgi-status-checking .kindgi-dot {
+    animation: none;
+  }
+}
+
+.kindgi .kindgi-status-words {
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.kindgi .kindgi-status-title {
+  display: block;
+  color: var(--kindgi-text);
+}
+
+.kindgi .kindgi-status-text {
+  color: var(--kindgi-muted);
+  overflow-wrap: anywhere;
+}
+
+.kindgi .kindgi-status-err .kindgi-status-text {
+  color: var(--kindgi-text);
+}
+
+.kindgi-settings .kindgi-offer-list {
+  margin: var(--kindgi-space-3) 0;
+}
+
+.kindgi .kindgi-offer-list > p {
+  margin: 0;
+  padding: var(--kindgi-space-3) var(--kindgi-space-4);
+}
+
+.kindgi .kindgi-offer-row {
+  display: flex;
+  gap: var(--kindgi-space-3);
+  align-items: flex-start;
+  padding: var(--kindgi-space-3) var(--kindgi-space-4);
+  border-top: 1px solid var(--kindgi-border);
+}
+
+.kindgi .kindgi-offer-row:first-child {
+  border-top: 0;
+}
+
+.kindgi .kindgi-offer-row input[type="checkbox"] {
+  flex: none;
+  margin: 2px 0 0;
+}
+
+.kindgi .kindgi-offer-row label {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.kindgi .kindgi-offer-row .description {
+  display: block;
+  margin-top: 2px;
+}
+
+.kindgi .kindgi-connect {
+  padding: var(--kindgi-space-4) var(--kindgi-space-5);
+}
+
+.kindgi .kindgi-connect > h2 {
+  margin: var(--kindgi-space-2) 0;
+  font-size: 18px;
+}
+
+.kindgi .kindgi-connect-steps {
+  margin: var(--kindgi-space-4) 0 var(--kindgi-space-2);
+  padding: 0;
+  list-style: none;
+  counter-reset: kindgi-step;
+}
+
+.kindgi .kindgi-connect-steps > li {
+  position: relative;
+  margin: 0;
+  padding: 0 0 var(--kindgi-space-4) 40px;
+  counter-increment: kindgi-step;
+}
+
+.kindgi .kindgi-connect-steps > li::before {
+  content: counter(kindgi-step);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--kindgi-accent);
+  color: #fff;
+  font-weight: 600;
+  line-height: 26px;
+  text-align: center;
+}
+
+.kindgi .kindgi-connect-steps h3 {
+  margin: 3px 0 var(--kindgi-space-2);
+  font-size: 14px;
+}
+
+.kindgi .kindgi-connect-steps p {
+  margin: 0 0 var(--kindgi-space-2);
+}
+
+/* In a step, a field's label sits above it, as on a narrow screen. */
+.kindgi .kindgi-connect-steps .form-table,
+.kindgi .kindgi-connect-steps .form-table tbody,
+.kindgi .kindgi-connect-steps .form-table tr,
+.kindgi .kindgi-connect-steps .form-table th,
+.kindgi .kindgi-connect-steps .form-table td {
+  display: block;
+  width: auto;
+}
+
+.kindgi .kindgi-connect-steps .form-table {
+  margin-top: 0;
+}
+
+.kindgi .kindgi-connect-steps .form-table th {
+  padding: var(--kindgi-space-2) 0 var(--kindgi-space-1);
+}
+
+.kindgi .kindgi-connect-steps .form-table td {
+  margin: 0;
+  padding: 0 0 var(--kindgi-space-2);
+}
+
+.kindgi .kindgi-connect-steps .submit {
+  margin: 0;
+  padding: var(--kindgi-space-2) 0 0;
+}
+
+.kindgi .kindgi-addresses {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--kindgi-space-2) var(--kindgi-space-3);
+  align-items: center;
+  margin: 0;
+}
+
+.kindgi .kindgi-addresses dt {
+  font-weight: 600;
+}
+
+.kindgi .kindgi-addresses dd {
+  margin: 0;
+}
+
+.kindgi .kindgi-addresses code {
+  overflow-wrap: anywhere;
+}
+
+.kindgi .kindgi-copy {
+  margin-left: var(--kindgi-space-1);
+  vertical-align: middle;
+}
+
+.kindgi-settings .kindgi-advanced {
+  max-width: 760px;
+  margin-top: var(--kindgi-space-5);
+}
+
+.kindgi-settings .kindgi-advanced summary {
+  color: var(--kindgi-muted);
+  cursor: pointer;
+}
+
+.kindgi .kindgi-connect .kindgi-advanced {
+  margin-top: 0;
+}
+
+@media (max-width: 782px) {
+  .kindgi .kindgi-connect {
+    padding: var(--kindgi-space-3) var(--kindgi-space-4);
+  }
+
+  .kindgi .kindgi-connect-steps > li {
+    padding-left: 0;
+  }
+
+  .kindgi .kindgi-connect-steps > li::before {
+    position: static;
+    display: inline-block;
+    margin-bottom: var(--kindgi-space-2);
+  }
+
+  .kindgi .kindgi-addresses {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--kindgi-space-1);
+  }
+
+  .kindgi .kindgi-addresses dd {
+    margin-bottom: var(--kindgi-space-2);
+  }
+}
+
+/* ---------- Activity: a feed by day; what a run returned, in a sheet beside the page ---------- */
+
+.kindgi .kindgi-feed {
+  max-width: 760px;
+}
+
+.kindgi .kindgi-day {
+  margin: var(--kindgi-space-5) 0 var(--kindgi-space-2);
+  color: var(--kindgi-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.kindgi .kindgi-runs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--kindgi-surface);
+  border: 1px solid var(--kindgi-border);
+  border-radius: var(--kindgi-radius);
+  box-shadow: var(--kindgi-shadow);
+}
+
+.kindgi .kindgi-run {
+  display: flex;
+  gap: var(--kindgi-space-3);
+  margin: 0;
+  padding: var(--kindgi-space-3) var(--kindgi-space-4);
+  border-top: 1px solid var(--kindgi-border);
+}
+
+.kindgi .kindgi-run:first-child {
+  border-top: 0;
+}
+
+/* The run a link names, marked as the Inbox marks a linked card. */
+.kindgi .kindgi-run.kindgi-target {
+  background: color-mix(in srgb, var(--kindgi-accent) 6%, var(--kindgi-surface));
+  box-shadow: inset 3px 0 0 var(--kindgi-accent);
+}
+
+.kindgi .kindgi-linked .kindgi-runs {
+  margin-bottom: var(--kindgi-space-5);
+}
+
+.kindgi .kindgi-mark-round {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--kindgi-sunken);
+  color: var(--kindgi-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.kindgi .kindgi-run-body {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+}
+
+.kindgi .kindgi-run-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--kindgi-space-2);
+  align-items: center;
+}
+
+.kindgi .kindgi-run-body p {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.kindgi .kindgi-run-why {
+  color: var(--kindgi-err);
+}
+
+.kindgi .kindgi-run-body .kindgi-technical {
+  margin-top: 2px;
+  font-size: 13px;
+}
+
+.kindgi .kindgi-run-body .kindgi-run-meta {
+  margin-top: var(--kindgi-space-1);
+  color: var(--kindgi-muted);
+  font-size: 13px;
+}
+
+.kindgi .kindgi-run-meta .button-link {
+  font-size: 13px;
+  vertical-align: baseline;
+}
+
+/* The time is the run's link: it reads as the time until it's pointed at. */
+.kindgi .kindgi-run-meta .kindgi-run-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.kindgi .kindgi-run-meta .kindgi-run-link:hover,
+.kindgi .kindgi-run-meta .kindgi-run-link:focus {
+  color: var(--kindgi-accent);
+  text-decoration: underline;
+}
+
+/* A run's state: a pill in its tone, its words always in it. */
+.kindgi .kindgi-state {
+  display: inline-block;
+  padding: 0 var(--kindgi-space-2);
+  border-radius: 999px;
+  background: var(--kindgi-sunken);
+  color: var(--kindgi-muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  text-decoration: none;
+}
+
+.kindgi .kindgi-state-ok {
+  background: #edfaef;
+  color: #007017;
+}
+
+.kindgi .kindgi-state-err {
+  background: var(--kindgi-err-soft);
+  color: #b32d2e;
+}
+
+.kindgi .kindgi-state-warn {
+  background: #fcf9e8;
+  color: #996800;
+}
+
+.kindgi .kindgi-state-run {
+  background: color-mix(in srgb, var(--kindgi-accent) 10%, #fff);
+  color: var(--kindgi-accent);
+}
+
+.kindgi a.kindgi-state:hover,
+.kindgi a.kindgi-state:focus {
+  text-decoration: underline;
+}
+
+.kindgi .kindgi-sheet {
+  inset: 0 0 0 auto;
+  box-sizing: border-box;
+  width: min(560px, 100vw);
+  max-width: 100vw;
+  height: 100%;
+  max-height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--kindgi-border);
+  background: var(--kindgi-surface);
+  box-shadow: -4px 0 24px rgb(0 0 0 / 12%);
+}
+
+.kindgi .kindgi-sheet::backdrop {
+  background: rgb(0 0 0 / 30%);
+}
+
+.kindgi .kindgi-sheet-inner {
+  box-sizing: border-box;
+  height: 100%;
+  padding: var(--kindgi-space-4) var(--kindgi-space-5);
+  overflow: auto;
+}
+
+.kindgi .kindgi-sheet-head {
+  display: flex;
+  gap: var(--kindgi-space-3);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.kindgi .kindgi-sheet-head h2 {
+  margin: var(--kindgi-space-1) 0 0;
+  font-size: 16px;
+}
+
+.kindgi .kindgi-sheet pre {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 782px) {
+  .kindgi .kindgi-run {
+    padding: var(--kindgi-space-3);
+  }
+
+  .kindgi .kindgi-mark-round {
+    width: 28px;
+    height: 28px;
+    font-size: 13px;
+  }
+
+  .kindgi .kindgi-sheet-inner {
+    padding: var(--kindgi-space-3) var(--kindgi-space-4);
+  }
+}
+
+/* ---------- The order's box, in the order screen's narrow side column ---------- */
+
+.kindgi.kindgi-order-box .kindgi-card {
+  padding: 6px var(--kindgi-space-2);
+  box-shadow: none;
+}
+
+.kindgi.kindgi-order-box .kindgi-card h3,
+.kindgi.kindgi-order-box .kindgi-order-section {
+  font-size: 13px;
+}
+
+.kindgi.kindgi-order-box .kindgi-order-section {
+  margin: var(--kindgi-space-3) 0 6px;
+}
+
+/* ---------- The dashboard's box: what waits, what the agents did last, and a box to ask ---------- */
+
+.kindgi.kindgi-dash > * + *,
+.kindgi .kindgi-dash-live > * + * {
+  margin-top: var(--kindgi-space-4);
+}
+
+.kindgi .kindgi-dash-waits {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.kindgi .kindgi-dash-waits a {
+  text-decoration: none;
+}
+
+.kindgi .kindgi-dash-list {
+  margin: var(--kindgi-space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.kindgi .kindgi-dash-list > li {
+  margin: 0;
+  padding: var(--kindgi-space-2) 0;
+  border-top: 1px solid var(--kindgi-border);
+}
+
+.kindgi .kindgi-dash-latest h3 {
+  margin: 0;
+  color: var(--kindgi-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.kindgi .kindgi-dash-summary {
+  display: -webkit-box;
+  margin: 2px 0;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.kindgi .kindgi-dash-run .kindgi-run-waits {
+  margin: 2px 0;
+}
+
+.kindgi .kindgi-dash-latest > p:last-child {
+  margin: var(--kindgi-space-2) 0 0;
+}
+
+.kindgi .kindgi-dash-ask {
+  display: flex;
+  gap: var(--kindgi-space-2);
+  align-items: flex-end;
+  padding-top: var(--kindgi-space-4);
+  border-top: 1px solid var(--kindgi-border);
+}
+
+.kindgi .kindgi-dash-ask textarea {
+  flex: 1;
+  min-width: 0;
+  resize: vertical;
+}
+
+.kindgi.kindgi-order-box .kindgi-order-ask {
+  margin: var(--kindgi-space-3) 0 0;
 }
