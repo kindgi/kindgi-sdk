@@ -559,7 +559,7 @@ async function runDevForPack(
     env: ctx.env,
     packDir: args.packDir,
     home: ctx.env.HOME ?? homedir(),
-    detect: dev.detectSandbox,
+    detect: () => dev.detectSandbox(ctx.env),
   });
   if (devSandbox.kind === 'error') {
     return { kind: 'error', stderr: `kindgi dev: ${devSandbox.message}\n`, exitCode: 1 };

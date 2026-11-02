@@ -12,6 +12,7 @@ import type { ReleaseGateBinding, ReleaseGateError } from '../release-gate-bindi
 import type { AppEnv } from '../types.js';
 import { parseAgentPinScopeBody } from './agent-pin-scope-wire.js';
 import { scopeFromQuery } from './agent-pins.js';
+import { includeRetiredOf } from './include-retired.js';
 import { clampLimit } from './pagination.js';
 import { parseReleaseGateSpec } from './release-gate-spec.js';
 import { serializeReleaseGate } from './release-gate-wire.js';
@@ -65,6 +66,7 @@ export function releaseGatesRouter(
       ...(agentId !== undefined && agentId.length > 0 && { agentId }),
       ...(scope.scope !== undefined && { scope: scope.scope }),
       ...(cursor !== undefined && cursor.length > 0 && { cursor: cursor as Cursor }),
+      ...includeRetiredOf(c),
     });
     const visible =
       authorizer === undefined

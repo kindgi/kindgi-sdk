@@ -257,20 +257,22 @@ final class Kindgi_Rest {
 		if ( is_wp_error( $session ) ) {
 			return $session;
 		}
-		$answer = Kindgi_Api::body(
-			$user,
-			'POST',
-			'/v1/conversations',
-			array(),
-			array(
-				'agentId'       => $request['agentId'],
-				'agentVersion'  => $request['agentVersion'],
-				'projectId'     => $session['project_id'],
-				// Memory kept per person: this person, whoever opens the page.
-				'participantId' => $session['user_id'],
-				'title'         => '' !== trim( (string) $request['title'] ) ? trim( (string) $request['title'] ) : __( 'From WordPress', 'kindgi' ),
-			)
+		$agent = Kindgi_Api::body( $user, 'GET', '/v1/agents/' . rawurlencode( (string) $request['agentId'] ) . '/versions/' . rawurlencode( (string) $request['agentVersion'] ) );
+		if ( is_wp_error( $agent ) ) {
+			return $agent;
+		}
+		$open = array(
+			'agentId'       => $request['agentId'],
+			'agentVersion'  => $request['agentVersion'],
+			// Memory kept per person: this person, whoever opens the page.
+			'participantId' => $session['user_id'],
+			'title'         => '' !== trim( (string) $request['title'] ) ? trim( (string) $request['title'] ) : __( 'From WordPress', 'kindgi' ),
 		);
+		$named = self::named_project( $session['project_id'], $agent['body']['projectId'] ?? null );
+		if ( null !== $named ) {
+			$open['projectId'] = $named;
+		}
+		$answer = Kindgi_Api::body( $user, 'POST', '/v1/conversations', array(), $open );
 		return is_wp_error( $answer ) ? $answer : self::conversation( $answer['body'] );
 	}
 
@@ -775,6 +777,20 @@ final class Kindgi_Rest {
 			$names[ $id ] = isset( $users[0] ) ? (string) $users[0]->display_name : null;
 		}
 		return $names[ $id ];
+	}
+
+	/**
+	 * The project a new conversation names, if any. Unnamed, Kindgi opens it
+	 * in its agent's own project: for the site's own agents, that's the
+	 * site's project, and naming it would need write there, which no one a
+	 * site signs in has. An agent another project shares with the site's
+	 * is opened in the site's project by name, where calling it is enough.
+	 *
+	 * @param string $site_project The site's project.
+	 * @param mixed  $own          The agent's own project, as Kindgi gave it.
+	 */
+	public static function named_project( string $site_project, $own ): ?string {
+		return is_string( $own ) && '' !== $own && $own !== $site_project ? $site_project : null;
 	}
 
 	/** Whether a conversation is the person's own: they're its participant. */

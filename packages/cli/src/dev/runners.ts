@@ -371,8 +371,14 @@ export interface DevRunners {
   }) => PackBuilder;
   /** The local pack service (not yet started). */
   readonly createPackService: (opts: DevPackServiceOptions) => DevPackService;
-  /** Whether this machine can sandbox the pack service, and with what (`dev/sandbox/detect.ts`). */
-  readonly detectSandbox: () => Promise<SandboxAvailability>;
+  /**
+   * Whether this machine can sandbox the pack service, and with what
+   * (`dev/sandbox/detect.ts`). `env` is the CLI's own, whose `PATH` the
+   * probe searches.
+   */
+  readonly detectSandbox: (
+    env: Readonly<Record<string, string | undefined>>,
+  ) => Promise<SandboxAvailability>;
   /**
    * Check a Python pack's interpreter can run pack code (`import kindgi`),
    * with the pack's environment: a one-line description, or why not.

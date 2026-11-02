@@ -59,6 +59,7 @@ import {
   seenVersions,
 } from './agent-pins.js';
 import { isTestSetPath } from './agent-test-set.js';
+import { includeRetiredOf } from './include-retired.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
@@ -261,10 +262,6 @@ export function agentsRouter(
 
     const cursorRaw = c.req.query('cursor');
     const nameRaw = c.req.query('name');
-    // `?includeRetired=true` lists retired items too (no active version),
-    // each as its highest version with `unregisteredAt`. Anything else →
-    // items with an active version only (the default).
-    const includeRetired = c.req.query('includeRetired') === 'true';
 
     const scopeParsed = parseScopeParams(c.req.query(), { tenantId });
     if (scopeParsed.kind === 'err') {
@@ -281,7 +278,7 @@ export function agentsRouter(
       ...(nameRaw !== undefined && nameRaw.length > 0 && { nameFilter: nameRaw }),
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
-      ...(includeRetired && { includeRetired: true }),
+      ...includeRetiredOf(c),
     });
     // Only what the caller may read (T243 A), as `GET …/:id` asks; an
     // agent more than one project serves at its newest version the caller

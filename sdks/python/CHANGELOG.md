@@ -13,6 +13,15 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a retired block, policy or release gate can be found.**
+  `blocks.list`, `policies.list` and `release_gates.list` take
+  `include_retired=True`, as `agents.list`, `flows.list`, `tools.list` and
+  `test_sets.list` do. A retired one (every version unregistered) is then
+  listed too, as its highest version with that version's `unregistered_at`,
+  so it can be found and a version brought back. `Policy` gains
+  `unregistered_at`. A runtime without the parameter ignores it and lists as
+  before.
+- `kindgi`: **a comparison says why a case's answer wasn't checked.** A case result's `unchecked` is why its `expect` couldn't be graded, such as a version whose model settings name no model to judge with. The summary's `unchecked` (`CorrectedComparisonUnchecked`) counts those cases and lists their reasons, each once, at most five. So a `pass_rate` of `None` says why. Both are optional.
 - `kindgi`: **a suggested change says how many corrections it fixes in all**:
   `SuggestedChange.correction_count`. `fixes` names the first 100 at most, and
   an Improve run can fix more. It's `None` from an older runtime: there, take

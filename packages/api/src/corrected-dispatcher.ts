@@ -228,7 +228,17 @@ export interface CorrectedComparisonSummary {
     readonly spread?: number;
     readonly cases: number;
   };
+  /**
+   * The cases whose `expect` couldn't be graded, so they add no check to
+   * `passRate` (each one's `CorrectedCaseResult.unchecked`): how many, and
+   * their reasons, each once, the first `UNCHECKED_REASONS` in case order.
+   * When `passRate` has no value, this says why. Absent when none.
+   */
+  readonly unchecked?: { readonly cases: number; readonly reasons: readonly string[] };
 }
+
+/** The most distinct reasons a summary's `unchecked` lists. */
+const UNCHECKED_REASONS = 5;
 
 /** One case's result. */
 export interface CorrectedCaseResult {
@@ -274,6 +284,14 @@ export interface CorrectedCaseResult {
    * reported none.
    */
   readonly costUsd?: readonly number[];
+  /**
+   * Why its `expect` couldn't be graded, so it has no entry in
+   * `corrections` and adds no check to `passRate`: the answer checker's own
+   * reason (`AnswerCheck`'s `unchecked`), or why none was asked. Absent
+   * when it was graded, or the case expects nothing of its decisions or
+   * answer.
+   */
+  readonly unchecked?: string;
   readonly diverged: boolean;
   /**
    * Tool calls the replay refused in this case: the most in any one of its
@@ -640,6 +658,7 @@ class CaseTally {
       ...(corrections.length > 0 && { corrections }),
       ...(correctionDifferences.length > 0 && { correctionDifferences }),
       ...(costUsd !== undefined && { costUsd }),
+      ...(graded?.unchecked !== undefined && { unchecked: graded.unchecked }),
       diverged: this.diverged,
       refusedWrites: this.refusedWrites,
       noContext: this.correctedCase.context === undefined,
@@ -705,6 +724,8 @@ interface ExpectGraded {
   };
   /** What checking each repetition's answer cost, by repetition (0-based). */
   readonly judgingCosts: readonly (number | undefined)[];
+  /** Why it has no entry, when a part it expects couldn't be checked. */
+  readonly unchecked?: string;
 }
 
 /**
@@ -726,8 +747,8 @@ interface ExpectGraded {
  * checked, nor any after it. A repetition passes when every part passed on
  * it, and each part (`parts`) passes when it passed on every repetition.
  * The entry is left out when the case expects only items (they count
- * toward `weightedPrecisionAtK`), or when a part was unchecked; what
- * checking cost counts either way.
+ * toward `weightedPrecisionAtK`), or when a part was unchecked, and then
+ * `unchecked` says why; what checking cost counts either way.
  */
 async function gradeExpect(
   ctx: DispatchContext,
@@ -740,7 +761,7 @@ async function gradeExpect(
   if (decisions === undefined && answer === undefined) return { judgingCosts: [] };
   const decided = gradeDecisions(correctedCase, decisions, repetitions);
   // Decisions that can't be checked leave the case with no pass: its answer isn't checked.
-  if (decided === undefined) return { judgingCosts: [] };
+  if (decided === undefined) return { judgingCosts: [], unchecked: CALLS_UNREAD };
   const { differences } = decided;
   let answered: readonly (boolean | undefined)[] = repetitions.map(() => true);
   let judgingCosts: readonly (number | undefined)[] = [];
@@ -749,8 +770,12 @@ async function gradeExpect(
     const checked = await checkAnswers(ctx, correctedCase, answer, repetitions, answers);
     // What a check cost counts even when a later one couldn't be made.
     judgingCosts = checked.costs;
-    if (checked.unchecked === true) {
-      return { judgingCosts, ...(differences !== undefined && { differences }) };
+    if (checked.unchecked !== undefined) {
+      return {
+        judgingCosts,
+        unchecked: checked.unchecked,
+        ...(differences !== undefined && { differences }),
+      };
     }
     answered = checked.passes;
     why = checked.why;
@@ -823,12 +848,20 @@ interface AnswersChecked {
   /** The first failing answer's reason, when the judging model gave one. */
   readonly why?: string;
   /**
-   * Set when the answers couldn't be checked: no checker, a candidate that
-   * isn't an agent version, a check the checker couldn't make, or a test
-   * run stopped before a check.
+   * Why the answers couldn't be checked, when they couldn't: no checker, a
+   * candidate that isn't an agent version, a check the checker couldn't
+   * make (its own reason), or a test run stopped before a check.
    */
-  readonly unchecked?: true;
+  readonly unchecked?: string;
 }
+
+/** Why a case's `expect` wasn't graded, when the checker wasn't asked. */
+const NO_CHECKER = 'This server has no answer checker, so no answer is checked.';
+const NOT_AN_AGENT_VERSION =
+  "Only an agent version's answers are checked, and the test run doesn't run one.";
+const STOPPED_FIRST = 'The test run was stopped before the answer was checked.';
+const CALLS_UNREAD =
+  "The recorded run's tool calls can't be read, so its decisions can't be compared.";
 
 /**
  * Check each repetition's answer, in order, stopping at the first answer
@@ -845,8 +878,9 @@ async function checkAnswers(
   answers: AnswerCheckBinding | undefined,
 ): Promise<AnswersChecked> {
   const target = ctx.target;
-  if (answers === undefined || !('agentId' in target) || target.version === undefined) {
-    return { passes: [], costs: [], unchecked: true };
+  if (answers === undefined) return { passes: [], costs: [], unchecked: NO_CHECKER };
+  if (!('agentId' in target) || target.version === undefined) {
+    return { passes: [], costs: [], unchecked: NOT_AN_AGENT_VERSION };
   }
   const judging = ctx.judging ?? { version: target.version };
   const passes: (boolean | undefined)[] = repetitions.map(() => undefined);
@@ -856,7 +890,7 @@ async function checkAnswers(
       passes[i] = false;
       return { passes, costs };
     }
-    if (ctx.abortSignal.aborted) return { passes, costs, unchecked: true };
+    if (ctx.abortSignal.aborted) return { passes, costs, unchecked: STOPPED_FIRST };
     const checked = await answers.check({
       tenantId: ctx.tenantId,
       ...(ctx.projectId !== undefined && { projectId: ctx.projectId }),
@@ -871,7 +905,7 @@ async function checkAnswers(
     });
     // A call whose reply couldn't be read still cost what it did.
     costs[i] = checked.costUsd;
-    if (checked.kind === 'unchecked') return { passes, costs, unchecked: true };
+    if (checked.kind === 'unchecked') return { passes, costs, unchecked: checked.reason };
     passes[i] = checked.pass;
     if (!checked.pass) {
       return { passes, costs, ...(checked.why !== undefined && { why: checked.why }) };
@@ -1256,6 +1290,7 @@ function summarize(
   const correctedWeight = (s: OutputScore) => s.totalWeight;
   const corrections = correctionsOf(results);
   const costUsd = costOf(results, comparison.repetitions);
+  const unchecked = uncheckedOf(results);
   return {
     testRunId: ctx.testRunId as unknown as string,
     status:
@@ -1308,6 +1343,7 @@ function summarize(
     },
     ...(corrections !== undefined && { corrections }),
     ...(costUsd !== undefined && { costUsd }),
+    ...(unchecked !== undefined && { unchecked }),
   };
 }
 
@@ -1321,6 +1357,15 @@ function correctionsOf(
   if (graded.length === 0) return undefined;
   const passed = graded.filter((j) => j.pass).length;
   return { checked: graded.length, passed, results: graded };
+}
+
+/** The cases whose `expect` couldn't be graded, and their reasons, each once; none, undefined. */
+function uncheckedOf(
+  results: readonly CorrectedCaseResult[],
+): CorrectedComparisonSummary['unchecked'] {
+  const reasons = results.flatMap((r) => (r.unchecked === undefined ? [] : [r.unchecked]));
+  if (reasons.length === 0) return undefined;
+  return { cases: reasons.length, reasons: [...new Set(reasons)].slice(0, UNCHECKED_REASONS) };
 }
 
 /**

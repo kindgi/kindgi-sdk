@@ -276,8 +276,9 @@ In Python, it's `kindgi.agents.test_set.retire_case(agent_id, case_id,
 reason="…")`, and over HTTP, `POST
 /v1/agents/{agentId}/test-set/cases/{caseId}/retire` with `{ "reason": "…" }`.
 
-- A retired case stays listed, with `retired`: its reason, who retired it
-  and when. No test run checks it again.
+- A retired case is kept, and with `includeRetired: true` it comes back
+  with `retired`: its reason, who retired it and when. No test run checks
+  it again.
 - There's no un-retire. Retiring a correction's case doesn't change the
   correction's status.
 - Retiring a case takes what adding one takes, on the case's project. A
