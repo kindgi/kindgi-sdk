@@ -1304,7 +1304,9 @@ ${readers}
       ]
 EOT
   fi
-  if [[ $OLD_PACK_MIN_INSTANCES != "1" ]]; then
+  # News only to a pack service that kept an instance up: one at 0 started
+  # cold already.
+  if [[ -n $OLD_PACK_IMAGE && $OLD_PACK_MIN_INSTANCES != "0" ]]; then
     cat <<EOT
     pack_min_instances was ${OLD_PACK_MIN_INSTANCES}. From 0.4.0 a pack service
     scales to zero when it's idle, and its first call after that waits for
