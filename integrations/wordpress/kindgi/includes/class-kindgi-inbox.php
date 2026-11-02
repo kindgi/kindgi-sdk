@@ -44,12 +44,13 @@ final class Kindgi_Inbox {
 	/**
 	 * An approval as the page shows it.
 	 *
-	 * @param array      $a        Kindgi's approval.
-	 * @param string     $me       The person's Kindgi id.
-	 * @param array|null $reviewer The person as a reviewer (`reviewer_of`), null when they can't decide.
-	 * @param callable   $who      `user:<id>` to a name on this site, or null for someone it didn't sign in.
+	 * @param array         $a          Kindgi's approval.
+	 * @param string        $me         The person's Kindgi id.
+	 * @param array|null    $reviewer   The person as a reviewer (`reviewer_of`), null when they can't decide.
+	 * @param callable      $who        `user:<id>` to a name on this site, or null for someone it didn't sign in.
+	 * @param callable|null $agent_name An agent's id to its name at Kindgi, or null when it has none there.
 	 */
-	public static function card( array $a, string $me, ?array $reviewer, callable $who ): array {
+	public static function card( array $a, string $me, ?array $reviewer, callable $who, ?callable $agent_name = null ): array {
 		$ref      = is_array( $a['subjectRef'] ?? null ) ? $a['subjectRef'] : array();
 		$tool     = self::TOOL_CALL === ( $a['subjectKind'] ?? '' ) && is_string( $ref['toolId'] ?? null ) ? $ref['toolId'] : null;
 		// Someone's approve or reject; a withdrawal or a pass to another reviewer reads as the approval's state.
@@ -59,14 +60,17 @@ final class Kindgi_Inbox {
 		$not_mine = $pending ? self::not_yours( $a, $me, $reviewer ) : null;
 		$prose    = null === $tool ? array() : self::prose_of( $ref['arguments'] ?? null );
 		$reply    = null === $tool ? null : self::reply_of( $ref['arguments'] ?? null );
+		$heading  = self::heading( $a, $tool, $reply );
 		$summary  = self::summary( $a );
+		$asked    = self::asked( $asked_by, $me, $who );
+		$agent_id = null !== $tool && is_string( $ref['agentId'] ?? null ) ? $ref['agentId'] : null;
 		$card     = array(
 			'id'             => (string) ( $a['id'] ?? '' ),
-			'heading'        => self::heading( $a, $tool, $reply ),
+			'heading'        => $heading,
 			// A summary that's one of the agent's own fields shows once, as its words (compared whole, before either is cut).
 			'summary'        => in_array( $summary, $prose, true ) ? '' : $summary,
-			// What would run, always shown: a title can leave a field out. A reply's heading names whom it goes to.
-			'facts'          => null === $tool ? array() : self::facts( $ref['arguments'] ?? null, null === $reply ? array() : array( 'to' ) ),
+			// What would run, always shown: a title can leave a field out. A reply's heading may name whom it goes to.
+			'facts'          => null === $tool ? array() : self::facts( $ref['arguments'] ?? null, null !== $reply && self::reply_heading( $reply ) === $heading ? array( 'to' ) : array() ),
 			// The agent's own words among them (a reason, a note): quoted, apart from the facts.
 			'words'          => self::words_of( $ref['arguments'] ?? null, $prose, null === $reply ? array() : array( 'body' => __( 'The reply', 'kindgi' ) ) ),
 			// A mail tool's reply: whom it goes to.
@@ -78,9 +82,9 @@ final class Kindgi_Inbox {
 			'expiresAt'      => is_string( $a['expiresAt'] ?? null ) ? $a['expiresAt'] : null,
 			// Who it goes to if no one decides by then; null: it expires then.
 			'next'           => self::next_reviewer( $a ),
-			'asked'          => self::asked( $asked_by, $me, $who ),
-			// The agent that asked, in words: it asked on its own when no person did.
-			'agent'          => null !== $tool && is_string( $ref['agentId'] ?? null ) ? self::tool_name( $ref['agentId'] ) : null,
+			'asked'          => $asked,
+			// The agent that asked on its own, when no person did: its name at Kindgi, else its id in words.
+			'agent'          => null === $agent_id || 'none' !== $asked['kind'] ? null : ( ( null === $agent_name ? null : $agent_name( $agent_id ) ) ?? self::tool_name( $agent_id ) ),
 			// Waiting: 'you' when this person may decide it, else 'others' and why not.
 			'waitsFor'       => $pending ? ( null === $not_mine ? 'you' : 'others' ) : null,
 			'notYours'       => $not_mine,
@@ -188,13 +192,18 @@ final class Kindgi_Inbox {
 			return $title;
 		}
 		if ( null !== $reply ) {
-			/* translators: %s: an email address */
-			return sprintf( __( 'Reply to %s', 'kindgi' ), $reply['to'] );
+			return self::reply_heading( $reply );
 		}
 		if ( null !== $tool ) {
 			return self::tool_name( $tool );
 		}
 		return '' !== $title ? $title : __( 'An approval', 'kindgi' );
+	}
+
+	/** "Reply to pat@example.com": a mail tool's reply, by whom it goes to. */
+	private static function reply_heading( array $reply ): string {
+		/* translators: %s: an email address */
+		return sprintf( __( 'Reply to %s', 'kindgi' ), $reply['to'] );
 	}
 
 	/**
@@ -260,7 +269,7 @@ final class Kindgi_Inbox {
 	public static function facts( $arguments, array $shown = array() ): array {
 		$facts = array();
 		foreach ( self::fields( $arguments ) as $key => $value ) {
-			if ( ! in_array( $key, $shown, true ) && ! self::is_prose( $value ) && ! self::is_reference( $value ) ) {
+			if ( ! in_array( $key, $shown, true ) && ! self::is_prose( $value ) && ! self::is_reference( (string) $key, $value ) ) {
 				$facts[] = array(
 					'label' => self::words( (string) $key ),
 					'value' => self::text_of( $value ),
@@ -355,12 +364,16 @@ final class Kindgi_Inbox {
 	}
 
 	/**
-	 * Whether a value is an id only a machine reads: a UUID, a hex string,
-	 * or a long run of letters and digits (a mail's id at Gmail or Outlook).
-	 * No one deciding can check it, so the card leaves it out of the facts.
+	 * Whether a field is an id only a machine reads: its name says it's an
+	 * id (`id`, `inReplyTo`, or one ending `Id`, `ID` or `_id`: `messageId`,
+	 * `customer_id`), and its value is one: a UUID, a hex string, or a long
+	 * run of letters and digits (a mail's id at Gmail or Outlook). No one
+	 * deciding can check it, so the card leaves it out of the facts. Both
+	 * must hold: an account number, an address or a code someone reads
+	 * looks like an id, and its field doesn't say it is one.
 	 */
-	public static function is_reference( $value ): bool {
-		if ( ! is_string( $value ) ) {
+	public static function is_reference( string $key, $value ): bool {
+		if ( ! is_string( $value ) || 1 !== preg_match( '/^(?:id|inReplyTo)$|(?:Id|ID|_id)$/', $key ) ) {
 			return false;
 		}
 		$text = trim( $value );
