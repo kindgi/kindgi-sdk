@@ -1126,6 +1126,22 @@ EOT
      doesn't grant it: grant roles/storage.legacyBucketReader on the bucket,
      or add the permission to a custom role. A ledger or purge-record bucket
      needs only storage.objects.create.
+   - A site person's Ask gets the project's tools at their next sign-in.
+     There's no migration. The first start brings each tenant's
+     authorization store up to the new model, as at every upgrade, and logs
+     "store <id> now has the current model". A store it couldn't update logs
+     "could not bring store <id> up to the current model" (or "could not
+     read its store's model to bring it up to date"), and the next start
+     tries again. A site person whose role may ask gets the new turn_invoker
+     relation at their next sign-in through the site. Until then, or while
+     their tenant's store has the old model, their Ask's calls of the
+     project's tools are refused, as before. The approval floor holds from
+     the first start, though, so a kindgi_remember in their Ask waits for a
+     yes from then on. A sign-in whose store refuses the write logs a WARN,
+     once per tenant: "a site person's turn_invoker wasn't written". In the
+     audit, a site person's tool call in their own turn logs two
+     authz-decision events on the tool: the invoke deny, as before, then the
+     allow, whose evidence names turn_invoker.
    - Upgrading drops the old supervisor_fix_proposals table; at 0.3.x no
      route or job wrote to it.
    - Projects gain a sort_end_user_corrections column, a yes or no. It's
