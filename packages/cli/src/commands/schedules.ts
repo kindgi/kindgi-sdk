@@ -10,6 +10,7 @@ import {
   TRIGGER_VERSIONS_TABLE,
   type TableSpec,
   allowUnattendedField,
+  clearableFlag,
   integerFlag,
   readJsonInput,
   requiredPositional,
@@ -179,7 +180,7 @@ const UPDATE_WHEN_FLAGS: Readonly<Record<keyof typeof WHEN_FLAGS, ParseArgsOptio
     type: 'string',
     description: 'Seconds a run may start late and still count as on time.',
   },
-  label: { type: 'string', description: 'A new short label.' },
+  label: { type: 'string', description: 'A new short label (`--clear-label` takes it off).' },
 };
 
 /**
@@ -366,12 +367,13 @@ const update: LeafCommand = {
   kind: 'leaf',
   name: 'update',
   description:
-    "Change a schedule: when it runs, what it runs, its policies, or the tools its runs may call unattended. A flag left out keeps the schedule's value.",
+    "Change a schedule: when it runs, what it runs, its policies or label, or the tools its runs may call unattended. A flag left out keeps the schedule's value.",
   usage:
-    'kindgi schedules update <schedule-id> [--cron=<expr>] [--timezone=<tz>] [--input=<json-or-@file>] [--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> --project=<id>] [--catch-up=…] [--overlap=…] [--starting-deadline=<s>] [--label=<text>] [--allow-unattended=<tool-id>|none]…',
+    'kindgi schedules update <schedule-id> [--cron=<expr>] [--timezone=<tz>] [--input=<json-or-@file>] [--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> --project=<id>] [--catch-up=…] [--overlap=…] [--starting-deadline=<s>] [--label=<text>|--clear-label] [--allow-unattended=<tool-id>|none]…',
   optionSpec: {
     ...TARGET_FLAGS,
     ...UPDATE_WHEN_FLAGS,
+    'clear-label': { type: 'boolean', description: 'Take the label off.' },
     project: {
       type: 'string',
       description: "With --improve: the project it improves, the schedule's own.",
@@ -381,6 +383,7 @@ const update: LeafCommand = {
   run: (ctx) =>
     runSdk(ctx, 'schedules update', async () => {
       const id = requiredPositional(ctx, 0, 'schedule-id');
+      const label = clearableFlag(ctx, 'label');
       if (ctx.options.project !== undefined && ctx.options.improve === undefined) {
         throw new UsageError(
           "--project goes with --improve: a schedule's project doesn't change, but an Improve schedule's target names it",
@@ -391,6 +394,7 @@ const update: LeafCommand = {
         ...targetFields(ctx),
         ...(Object.keys(config).length > 0 && { config }),
         ...policyFields(ctx),
+        ...(label !== undefined && { label }),
         ...allowUnattendedField(ctx, 'update'),
       });
     }),

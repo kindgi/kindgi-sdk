@@ -1844,6 +1844,10 @@ export const CLI_EXAMPLES = {
       purpose: 'Run an agent version on a schedule, and skip overlapping runs.',
       line: 'kindgi schedules update <schedule-id> --agent=acme.order-desk --agent-version=0.2.0 --overlap=skip',
     },
+    {
+      purpose: 'Take its label off.',
+      line: 'kindgi schedules update <schedule-id> --clear-label',
+    },
   ],
   'schedules pause': [
     {

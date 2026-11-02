@@ -10,6 +10,7 @@ import {
   TRIGGER_VERSIONS_TABLE,
   type TableSpec,
   allowUnattendedField,
+  clearableFlag,
   integerFlag,
   readJsonInput,
   requiredPositional,
@@ -444,8 +445,8 @@ const update: LeafCommand = {
   kind: 'leaf',
   name: 'update',
   description:
-    'Change a webhook trigger: its flow version, input, secret, scheme, delivery-id header, limits or the tools its runs may call unattended. Its flow stays: register another trigger for another flow.',
-  usage: `kindgi webhooks update <trigger-id> [--flow-version=<v>] [--input=<json-or-@file>] [--secret=<name>] [--preset=${PRESET_NAMES} | --signature-header=<h> --signature-encoding=hex|base64 [--signature-prefix=<p>]] [--delivery-id-header=<h>|none] [--body-limit=<bytes>] [--rate-limit=<per-minute>] [--label=<text>] [--allow-unattended=<tool-id>|none]…`,
+    'Change a webhook trigger: its flow version, input, secret, scheme, delivery-id header, limits, label or the tools its runs may call unattended. Its flow stays: register another trigger for another flow.',
+  usage: `kindgi webhooks update <trigger-id> [--flow-version=<v>] [--input=<json-or-@file>] [--secret=<name>] [--preset=${PRESET_NAMES} | --signature-header=<h> --signature-encoding=hex|base64 [--signature-prefix=<p>]] [--delivery-id-header=<h>|none] [--body-limit=<bytes>] [--rate-limit=<per-minute>] [--label=<text>|--clear-label] [--allow-unattended=<tool-id>|none]…`,
   optionSpec: {
     'flow-version': { type: 'string', description: 'Start this flow version instead.' },
     input: {
@@ -458,6 +459,8 @@ const update: LeafCommand = {
         "Verify with another secret, by name. To change a secret's value, use `kindgi secrets rotate`.",
     },
     ...SIGNATURE_FLAGS,
+    label: { type: 'string', description: 'A new short label (`--clear-label` takes it off).' },
+    'clear-label': { type: 'boolean', description: 'Take the label off.' },
     ...allowUnattendedFlag('update'),
   },
   run: (ctx) =>
@@ -466,7 +469,7 @@ const update: LeafCommand = {
       const flowVersion = stringFlag(ctx, 'flow-version');
       const input = stringFlag(ctx, 'input');
       const secret = stringFlag(ctx, 'secret');
-      const label = stringFlag(ctx, 'label');
+      const label = clearableFlag(ctx, 'label');
       return await ctx.client().webhooks.update(id, {
         ...(flowVersion !== undefined && { flowVersion }),
         ...(input !== undefined && { config: { input: await readJsonInput(input) } }),
