@@ -105,7 +105,7 @@ export interface ApprovalConnection {
   readonly appName: string;
   /** The account's label at the app: an email address, a login. */
   readonly account: string;
-  /** The connection's name: its label, else the account's. */
+  /** The company connection's name: its label, else the account's. A person's has none. */
   readonly name?: string;
 }
 

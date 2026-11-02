@@ -21,6 +21,7 @@ import type { RunMailbox, RunStartedBy } from '@kindgi/runtime';
 import {
   type ConnectionAccount,
   type ConnectionNeed,
+  type ConnectionPick,
   ConnectionRejectedError,
   ConnectionRenewError,
   type ResolveConnectionsInput,
@@ -115,7 +116,7 @@ const sales = {
   account: { id: 'acct-sales', label: 'sales@acme.example' },
 };
 
-/** Each need ready on the connection given. */
+/** Each need ready on the connection given, and, when given, how each was picked. */
 function readyOn(
   on: Readonly<
     Record<
@@ -123,6 +124,7 @@ function readyOn(
       { readonly connectionId: string; readonly name?: string; readonly account: ConnectionAccount }
     >
   >,
+  picks?: Readonly<Record<string, ConnectionPick>>,
 ): ResolveConnectionsOutcome {
   return {
     kind: 'ready',
@@ -132,6 +134,7 @@ function readyOn(
         { ...c, app: 'acme', appName: 'Acme', accessToken: `secret-token-${c.connectionId}` },
       ]),
     ),
+    ...(picks !== undefined && { picks }),
   };
 }
 
@@ -939,15 +942,18 @@ describe("a call that acts with a person's connection is theirs to approve", () 
     expect(named.ran).toHaveLength(1);
   });
 
-  test("with a person's connection and a company one, the approval is the person's", async () => {
+  test("with a person's connection and a company one, the approval is the person's, naming their account, never their name for it", async () => {
     const t = await turn({
       policy: ask,
       needs: { mail, archive: shared },
       answers: [readyOn({ mail: { ...support, name: 'mine' }, archive: sales })],
     });
-    expect(t.enqueued[0]).toMatchObject({
-      approver: { kind: 'member', userId: OWNER },
-      connection: { account: 'support@acme.example', name: 'mine' },
+    expect(t.enqueued[0]).toMatchObject({ approver: { kind: 'member', userId: OWNER } });
+    // Built from the run's record, which any project reader reads.
+    expect(t.enqueued[0]?.connection).toEqual({
+      app: 'acme',
+      appName: 'Acme',
+      account: 'support@acme.example',
     });
   });
 
@@ -1148,6 +1154,40 @@ describe('which company connection a call uses', () => {
     expect(ready.ran[0]?.connections?.shared?.name).toBe('support');
   });
 
+  test("the record says how each was picked, and names a person's connection by its app and account only", async () => {
+    const registration = { id: 'reg-acme-1', name: 'Acme (reg-acme)' };
+    const own = { by: 'own', registration, extra: 'not recorded' } as ConnectionPick;
+    const t = await turn({
+      needs: { mail, shared },
+      answers: [
+        readyOn(
+          { mail: { ...support, name: 'mine' }, shared: sales },
+          { mail: own, shared: { by: 'choice', choiceId: 'choice-1', registration } },
+        ),
+      ],
+    });
+    expect(t.records.get(`connection-gate:${CALL}`)).toEqual({
+      kind: 'ready',
+      connections: {
+        mail: {
+          connectionId: 'conn-support',
+          app: 'acme',
+          appName: 'Acme',
+          account: support.account,
+          pick: { by: 'own', registration },
+        },
+        shared: {
+          app: 'acme',
+          appName: 'Acme',
+          ...sales,
+          pick: { by: 'choice', choiceId: 'choice-1', registration },
+        },
+      },
+    });
+    // The tool still reads its own connection's name; only the record leaves it out.
+    expect(t.ran[0]?.connections?.mail?.name).toBe('mine');
+  });
+
   test.each([
     [
       'a company connection',
@@ -1156,20 +1196,25 @@ describe('which company connection a call uses', () => {
       'The connection "shared" changed while this call waited (support, support@acme.example, to sales, sales@acme.example), so it didn\'t run.',
     ],
     [
+      // Named by its app alone: never their name for it or its account.
       "a person's",
       { mail },
       [
         readyOn({
-          mail: { connectionId: 'conn-mail', account: { id: 'a', label: 'owner@acme.example' } },
+          mail: {
+            connectionId: 'conn-mail',
+            name: 'mine',
+            account: { id: 'a', label: 'owner@acme.example' },
+          },
         }),
         readyOn({
           mail: { connectionId: 'conn-ana', account: { id: 'b', label: 'ana@acme.example' } },
         }),
       ],
-      'The connection "mail" changed while this call waited (owner@acme.example, to ana@acme.example), so it didn\'t run.',
+      'The connection "mail" to Acme changed while this call waited, so it didn\'t run.',
     ],
   ] as const)(
-    '%s that changed before the call first ran: it fails, naming both, and runs nothing',
+    '%s that changed before the call first ran: it fails, saying so, and runs nothing',
     async (_, needs, answers, message) => {
       const t = await turn({ needs, answers });
       expect(t.ran).toEqual([]);
@@ -1221,8 +1266,7 @@ describe('which company connection a call uses', () => {
     expect(changed.ran).toEqual([]);
     expect(changed.failed[0]?.error).toEqual({
       code: 'connection-changed',
-      message:
-        'The connection "mail" changed while this call waited (support, support@acme.example, to sales, sales@acme.example), so it didn\'t run.',
+      message: 'The connection "mail" to Acme changed while this call waited, so it didn\'t run.',
     });
   });
 

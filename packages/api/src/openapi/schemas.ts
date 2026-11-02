@@ -17452,7 +17452,8 @@ export const ApprovalConnectionSchema: JsonSchema = {
     },
     name: {
       type: 'string',
-      description: "The connection's name: its label, else the account's label.",
+      description:
+        "The company connection's name: its label, else the account's label. A person's own connection has none.",
     },
   },
 };

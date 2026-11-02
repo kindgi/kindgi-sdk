@@ -10,7 +10,8 @@ The company can connect several accounts of one app, such as
 `support@acme.example` and `sales@acme.example` at Google. Each is a
 connection of its own, with its own name. This page names them, and
 chooses which one an agent or a flow uses. A person's own connection needs
-neither: a run that acts as them uses their one connection of the app.
+neither: a run that acts as them uses theirs
+([A person's own connection](#a-persons-own-connection)).
 
 ## Which connection a call uses
 
@@ -39,6 +40,12 @@ it's in another environment, its registration no longer allows the
 project, it lacks a permission, or it needs reconnecting. The call never
 falls back to another connection, so a call meant for the sales mailbox is
 never sent from the support one.
+
+## A person's own connection
+
+A project uses one registration of an app, so a call that needs a person's
+connection uses theirs through it. The run records which registration
+that is ([What a run records](../reference/#what-a-run-records)).
 
 ## Name a connection
 
@@ -225,14 +232,22 @@ waited, a project admin chose another connection for the agent, or a
 connection was disconnected and another account connected in its place.
 It holds for a person's connection too.
 
-The model reads why as the call's result, naming the connection before and
-after, and the turn goes on:
+The model reads why as the call's result, and the turn goes on. For the
+company's connection, it names the connection before and after:
 
 ```text
 The connection "mailbox" changed while this call waited (support, support@acme.example, to sales, sales@acme.example), so it didn't run.
 ```
 
-`mailbox` is the tool's name for the connection. An approval for a call
+`mailbox` is the tool's name for the connection. For a person's
+connection, it names the tool's name for it and the app only, never the
+person's connection names or accounts:
+
+```text
+The connection "mailbox" to Google changed while this call waited, so it didn't run.
+```
+
+An approval for a call
 that uses a connection names the connection it's for, the company's
 included
 ([An approval's fields](../../approvals/approvals-reference/#an-approvals-fields)).

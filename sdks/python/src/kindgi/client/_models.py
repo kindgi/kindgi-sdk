@@ -12560,7 +12560,7 @@ class ApprovalConnection(BaseModel):
     """
     name: str | None = None
     """
-    The connection's name: its label, else the account's label.
+    The company connection's name: its label, else the account's label. A person's own connection has none.
     """
 
 

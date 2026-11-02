@@ -419,15 +419,15 @@ export interface HitlEnqueueInput {
   readonly approver?: { readonly kind: 'member'; readonly userId: string };
   /**
    * The account the call acts as, shown to its reviewer: the app's id and
-   * name, the account as people know it (`owner@acme.example`), and the
-   * connection's name. A person's connection, or else the company's the
-   * gate decided on.
+   * name, the account as people know it (`owner@acme.example`), and, for
+   * the company's, the connection's name. A person's connection, or else
+   * the company's the gate decided on.
    */
   readonly connection?: {
     readonly app: string;
     readonly appName: string;
     readonly account: string;
-    /** The connection's name: its label, else its account's label. */
+    /** The company connection's name: its label, else its account's label. A person's has none. */
     readonly name?: string;
   };
   readonly title?: string;

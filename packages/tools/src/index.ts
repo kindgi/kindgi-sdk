@@ -63,6 +63,7 @@ export type {
   ConnectionAccount,
   ConnectionChoiceOption,
   ConnectionNeed,
+  ConnectionPick,
   ConnectionRejection,
   ConnectionResolver,
   ConnectionRunMailbox,
