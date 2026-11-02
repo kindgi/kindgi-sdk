@@ -102,6 +102,24 @@ picked, as `pick`:
 `pick` names registrations only, never a person's connection names or
 accounts. Records from older runtimes have no `pick`.
 
+In the console, a run's page words this record under **What happened**,
+below each tool call that ran in an agent's turn:
+
+```text
+Ran on the company's Google connection "support", the mailbox the run's mail came to.
+Ran on the company's Google connection "support", the agent's choice.
+Ran on the company's Google connection "support", the project's only one.
+Ran on their own Google connection.
+Ran on a connection to Google.
+```
+
+The first four go with `by`'s `mailbox`, `choice`, `only` and `own`, and
+the last with a record without `pick`. A call that didn't run, such as one
+an approval turned down, has no line. A call that ran has a line for each
+connection it ran on, but in a record without `pick` the connections of one
+app share one line. These lines name a person's own connection by its app
+only.
+
 Anyone with `read` on the project can read the run's journal, and so this
 record, a person's account label included.
 
