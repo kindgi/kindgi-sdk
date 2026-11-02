@@ -199,7 +199,7 @@ export function createProviderRegistry(
     const r = register(entry.tenantId, entry.provider);
     if (r.kind === 'err')
       throw new Error(
-        `seed provider "${entry.provider.metadata.id}" rejected for workspace "${entry.tenantId}": ${r.error.message}`,
+        `seed provider "${entry.provider.metadata.id}" rejected for tenant "${entry.tenantId}": ${r.error.message}`,
       );
   }
 
