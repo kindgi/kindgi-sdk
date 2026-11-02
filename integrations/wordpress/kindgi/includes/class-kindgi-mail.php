@@ -28,8 +28,26 @@ final class Kindgi_Mail {
 	 */
 	const MAIL = '/^--- (NEW, )?(?:id (\S+): )?(.*?)(?:, (\d{4}-\d{2}-\d{2} \d{2}:\d{2}) UTC)?(?:, subject "(.*)")?$/';
 
+	/** What a mail's first line starts with, before who it's from. */
+	const PREFIX = '/^--- (?:NEW, )?(?:id \S+: )?/';
+
+	/**
+	 * Words a mail's first line holds once, around who it's from. A
+	 * sender's name can hold them too: read twice, the line could make
+	 * mail pass for the mailbox's own, or move its sender into its subject.
+	 */
+	const ONCE = array( ', subject "', ' (this mailbox' );
+
 	/** The new mail's To, Cc and Reply-To, on the line after its first, the parts apart by " · ". */
 	const RECIPIENTS = '/^(?:To|Cc|Reply-To): /';
+
+	/**
+	 * A line of a mail's own text `mailTurn` set in by a space: one that
+	 * starts `---` behind any characters that don't show. Those are format
+	 * characters and default ignorables, as `mailTurn` takes them, the
+	 * latter spelled out since PCRE before 10.40 doesn't name them.
+	 */
+	const SET_IN = '/^ [\p{Cf}\x{034F}\x{115F}\x{1160}\x{17B4}\x{17B5}\x{180B}-\x{180F}\x{2065}\x{3164}\x{FE00}-\x{FE0F}\x{FFA0}\x{FFF0}-\x{FFF8}\x{E0000}-\x{E0FFF}]*---/u';
 
 	/** The last lines a mail's text can end with. */
 	const CUT         = '[the rest of this mail is cut]';
@@ -113,12 +131,13 @@ final class Kindgi_Mail {
 		if ( $cut ) {
 			array_pop( $lines );
 		}
-		$text = rtrim( implode( "\n", array_map( array( self::class, 'unset_line' ), $lines ) ) );
+		$text   = rtrim( implode( "\n", array_map( array( self::class, 'unset_line' ), $lines ) ) );
+		$forged = self::forged( $head[0] );
 		return array(
 			'new'         => $new,
-			'from'        => self::from( $head[3] ?? '' ),
-			'at'          => '' !== ( $head[4] ?? '' ) ? str_replace( ' ', 'T', $head[4] ) . ':00Z' : null,
-			'subject'     => isset( $head[5] ) && '' !== $head[5] ? $head[5] : null,
+			'from'        => $forged ? self::as_written( $head[0] ) : self::from( $head[3] ?? '' ),
+			'at'          => ! $forged && '' !== ( $head[4] ?? '' ) ? str_replace( ' ', 'T', $head[4] ) . ':00Z' : null,
+			'subject'     => ! $forged && isset( $head[5] ) && '' !== $head[5] ? $head[5] : null,
 			'recipients'  => $recipients,
 			'text'        => self::NO_TEXT === $text ? '' : $text,
 			'cut'         => $cut,
@@ -156,16 +175,37 @@ final class Kindgi_Mail {
 		);
 	}
 
+	/** Whether a mail's first line holds twice what it holds once (`ONCE`): its sender's name says it. */
+	private static function forged( string $line ): bool {
+		foreach ( self::ONCE as $words ) {
+			if ( substr_count( $line, $words ) > 1 ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Who a mail whose first line can't be read is from: its line as
+	 * written, never the mailbox's own, and unsure whenever it says it
+	 * bears the mailbox's address.
+	 */
+	private static function as_written( string $line ): array {
+		return array(
+			'name'    => (string) preg_replace( self::PREFIX, '', $line ),
+			'address' => null,
+			'mine'    => false,
+			'unsure'  => false !== strpos( $line, self::NOT_SENT ),
+		);
+	}
+
 	/** Whether a text ends with another: PHP 7.4 has no str_ends_with(). */
 	private static function ends( string $text, string $end ): bool {
 		return strlen( $text ) >= strlen( $end ) && substr( $text, -strlen( $end ) ) === $end;
 	}
 
-	/**
-	 * A line of a mail's own text as it was: `mailTurn` sets in by a space
-	 * each that would read as one of its own `---` lines.
-	 */
+	/** A line of a mail's own text as it was: `mailTurn` sets in by a space each that would read as one of its own `---` lines (`SET_IN`). */
 	private static function unset_line( string $line ): string {
-		return 1 === preg_match( '/^ \p{Cf}*---/u', $line ) ? substr( $line, 1 ) : $line;
+		return 1 === preg_match( self::SET_IN, $line ) ? substr( $line, 1 ) : $line;
 	}
 }

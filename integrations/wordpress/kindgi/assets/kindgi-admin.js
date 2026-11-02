@@ -1135,24 +1135,30 @@
    */
   function logItems(messages) {
     const items = [];
-    // The steps still without their answer, by tool, oldest first.
+    // The steps still without their answer, by the call each makes.
     const open = new Map();
     for (const m of messages) {
       if (m.role === 'tool') {
-        const name = toolName(m.toolId);
-        const step = open.get(name)?.shift();
-        if (step) step.append(answerOf(m));
-        else items.push(el('li', { className: 'kindgi-message kindgi-used' }, answerOf(m, name)));
+        placeAnswer(m, open, items);
         continue;
       }
       const item = message(m);
       if (item === null) continue;
       items.push(item);
-      for (const step of item.querySelectorAll('[data-tool]')) {
-        open.set(step.dataset.tool, [...(open.get(step.dataset.tool) ?? []), step]);
-      }
+      for (const step of item.querySelectorAll('[data-call]')) open.set(step.dataset.call, step);
     }
     return items;
+  }
+
+  /** A tool's answer: under the step whose call it answers, or on its own line when no step waits for it. */
+  function placeAnswer(m, open, items) {
+    const step = m.callId === null ? undefined : open.get(m.callId);
+    open.delete(m.callId);
+    if (step) step.append(answerOf(m));
+    else
+      items.push(
+        el('li', { className: 'kindgi-message kindgi-used' }, answerOf(m, toolName(m.toolId))),
+      );
   }
 
   /** What a tool answered, folded: its raw result, for whoever wants to see what the agent saw. */
@@ -1171,19 +1177,19 @@
       el('pre', {}, JSON.stringify(m.result, null, 2)),
     );
 
-  /** The tools a message calls, a step each: its answer joins it when it comes. */
+  /** The tools a message calls, a step each: the answer to its call joins it when it comes. */
   const stepsOf = (calls) =>
     calls.length === 0
       ? null
       : el(
           'ul',
           { className: 'kindgi-steps-done', role: 'list' },
-          calls.map((id) =>
+          calls.map((call) =>
             el(
               'li',
-              { className: 'kindgi-step', 'data-tool': toolName(id) },
+              { className: 'kindgi-step', 'data-call': call.id },
               /* translators: %s: a tool's name */
-              el('span', {}, sprintf(__('Used %s', 'kindgi'), toolName(id))),
+              el('span', {}, sprintf(__('Used %s', 'kindgi'), toolName(call.name))),
             ),
           ),
         );

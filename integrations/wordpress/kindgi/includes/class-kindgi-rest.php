@@ -306,7 +306,10 @@ final class Kindgi_Rest {
 			$calls   = array();
 			foreach ( self::list_of( is_array( $content ) ? ( $content['toolCalls'] ?? null ) : null ) as $call ) {
 				if ( is_string( $call['name'] ?? null ) ) {
-					$calls[] = $call['name'];
+					$calls[] = array(
+						'id'   => is_string( $call['id'] ?? null ) ? $call['id'] : null,
+						'name' => $call['name'],
+					);
 				}
 			}
 			$messages[] = array(
@@ -314,12 +317,13 @@ final class Kindgi_Rest {
 				'role'      => (string) ( $m['role'] ?? '' ),
 				// An agent's words, or '' when its message only calls tools.
 				'text'      => 'tool' === ( $m['role'] ?? '' ) ? '' : $text,
-				// The tools an agent's message calls.
+				// The tools an agent's message calls: each call's id, and its tool.
 				'calls'     => $calls,
 				// Mail that started a turn, as its thread and mails (`Kindgi_Mail`).
 				'mail'      => 'user' === ( $m['role'] ?? '' ) ? Kindgi_Mail::thread_of( $text ) : null,
-				// A tool's answer: which tool, and what it returned.
+				// A tool's answer: which tool, the call it answers, and what it returned.
 				'toolId'    => is_string( $m['toolCall']['toolId'] ?? null ) ? $m['toolCall']['toolId'] : null,
+				'callId'    => is_string( $m['toolCall']['invocationId'] ?? null ) ? $m['toolCall']['invocationId'] : null,
 				'result'    => 'tool' === ( $m['role'] ?? '' ) ? $content : null,
 				'createdAt' => (string) ( $m['createdAt'] ?? '' ),
 			);
