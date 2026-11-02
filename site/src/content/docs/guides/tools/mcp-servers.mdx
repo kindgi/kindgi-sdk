@@ -801,7 +801,7 @@ catch every secret, such as `DATABASE_URL` with a password in it,
 `PGPASSWORD` or `MYSQL_PWD`: put those in `secretEnv` too.
 
 Every value in `config.env` reads back as `[redacted]` (runtime 0.4.0 or
-later), its name kept, so a tenant's export holds the names, not the values:
+later), its name kept, so a workspace's export holds the names, not the values:
 
 ```json excerpt
 "config":{"env":{"LOG_LEVEL":"[redacted]"},"args":["--stdio"],"command":"inventory-mcp","transport":"stdio"},"secretEnv":{"INVENTORY_TOKEN":{"name":"INVENTORY_TOKEN","envName":"local"}}

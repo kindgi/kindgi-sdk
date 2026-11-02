@@ -172,3 +172,14 @@ function test_rest_a_long_conversation_shows_its_newest_messages(): void {
 function test_admin_the_page_needs_more_than_writing_posts(): void {
 	kindgi_assert_same( 'edit_others_posts', Kindgi_Admin::capability(), 'without WooCommerce: editors and administrators' );
 }
+
+function test_admin_the_privacy_guide_has_the_staffs_part_then_the_shoppers_with_the_placeholder_as_text(): void {
+	$text = Kindgi_Admin::privacy_policy_text();
+	$staff = strpos( $text, '<p class="privacy-policy-tutorial">Use this part if your site&#039;s staff use the Kindgi pages.' );
+	$shoppers = strpos( $text, '<p class="privacy-policy-tutorial">Use this part if your store sends Kindgi WooCommerce webhooks' );
+	kindgi_assert( 0 === $staff, 'the staff\'s part comes first, its note to the owner in the guide\'s tutorial class' );
+	kindgi_assert( false !== $shoppers && $shoppers > $staff, 'then the shoppers\' part' );
+	kindgi_assert( 2 === substr_count( $text, '<strong class="privacy-policy-tutorial">Suggested text: </strong>' ), 'each part has its suggested text' );
+	kindgi_assert( 2 === substr_count( $text, 'Its privacy policy is at &lt;privacy URL&gt;.]' ), 'the placeholder shows as text in both' );
+	kindgi_assert( false === strpos( $text, '<privacy URL>' ), 'never as a tag' );
+}

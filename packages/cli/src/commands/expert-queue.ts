@@ -26,7 +26,7 @@ const PROJECT_OPTION: Readonly<Record<string, ParseArgsOption>> = {
 const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
-  description: 'List the runs in the project’s To correct list, oldest first.',
+  description: 'List the runs in the project’s To review list, oldest first.',
   usage:
     'kindgi expert-queue list [--project=<id>] [--state=open|corrected|dismissed|erased] [--agent=<id>] [--rule=<id>] [--group=<id>] [--for-me] [--added-after=<time>] [--closed-after=<time>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
@@ -121,6 +121,6 @@ export const expertQueueCommand: Command = {
   kind: 'group',
   name: 'expert-queue',
   description:
-    "A project's To correct list — the runs a rule puts up for a person's correction, open or closed (list / dismiss / reopen).",
+    "A project's To review list — the runs a rule puts up for a person's correction, open or closed (list / dismiss / reopen).",
   subcommands: [list, dismiss, reopen],
 };
