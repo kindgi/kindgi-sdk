@@ -6,7 +6,7 @@
  * Plugin Name:       Kindgi
  * Plugin URI:        https://kindgi.com
  * Description:       Your store's staff ask your Kindgi agents and approve what they're about to do, in wp-admin, each as themselves.
- * Version:           0.1.0
+ * Version:           0.1.1
  * Requires at least: 6.4
  * Requires PHP:      7.4
  * Author:            Kindgi
@@ -18,7 +18,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'KINDGI_PLUGIN_VERSION', '0.1.0' );
+define( 'KINDGI_PLUGIN_VERSION', '0.1.1' );
 define( 'KINDGI_PLUGIN_FILE', __FILE__ );
 
 require_once __DIR__ . '/includes/class-kindgi-statement.php';
