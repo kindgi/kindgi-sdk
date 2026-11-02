@@ -1,14 +1,14 @@
 ---
 title: List runs
-description: List the newest runs page by page, only the ones your app started, the agent turns inside one run, or one agent's turns.
+description: List the newest runs page by page, only the ones that aren't inside another run, the agent turns inside one run, or one agent's turns.
 sidebar:
   order: 7
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-This guide lists runs: the newest page by page, only the ones your app
-started, the runs inside one run, or one agent's turns.
+This guide lists runs: the newest page by page, only the ones that aren't
+inside another run, the runs inside one run, or one agent's turns.
 
 ## Before you start
 
@@ -91,8 +91,9 @@ scope.
 ## From your app
 
 Your app lists runs with `runs.list`. Ask your coding agent: "I want my app
-to list the runs it started, newest first, a page at a time." For reference,
-this code lists the newest runs your app started, then gets the next page:
+to list the runs, newest first, a page at a time, without the runs inside
+them." For reference, this code lists the newest runs that aren't inside
+another run, then gets the next page:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -103,7 +104,7 @@ import { createClient } from '@kindgi/sdk/client';
 
 const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN
 
-// The newest runs your app started, without the agent turns inside them
+// The newest runs, without the agent turns inside them
 const page = await kindgi.runs.list({ topLevel: true, limit: 3 });
 for (const run of page.data) console.log(run.id, run.flowId, run.status);
 
@@ -130,7 +131,7 @@ from kindgi.client import Kindgi, paginate
 
 kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN
 
-# The newest runs your app started, without the agent turns inside them
+# The newest runs, without the agent turns inside them
 page = kindgi.runs.list(top_level=True, limit=3)
 for run in page.data:
     print(run.id, run.flow_id, run.status)
@@ -161,7 +162,7 @@ public final class ListRuns {
   public static void main(String[] args) {
     Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN
 
-    // The newest runs your app started, without the agent turns inside them
+    // The newest runs, without the agent turns inside them
     RunsListParams params = RunsListParams.builder().topLevel(true).limit(3L).build();
     RunCollectionPage page = kindgi.runs().list(params);
     for (RunCollectionPage.DataItem run : page.data()) {
@@ -202,7 +203,7 @@ object ListRuns {
   def main(args: Array[String]): Unit = {
     val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN
 
-    // The newest runs your app started, without the agent turns inside them
+    // The newest runs, without the agent turns inside them
     val params = RunsListParams.builder().topLevel(true).limit(3L).build()
     val page = kindgi.runs().list(params)
     for (run <- page.data.asScala) println(s"${run.id} ${run.flowId} ${run.status}")
@@ -233,7 +234,9 @@ The page holds the runs, and its `nextCursor` leads to the next one.
 `list` takes these filters, with their Python names in brackets:
 
 - **`topLevel: true`** (`top_level=True`) leaves out runs started inside
-  other runs, such as agent turns: the runs your app and the CLI started.
+  other runs, such as agent turns. It keeps every other run, whatever
+  started it: your app, the CLI, a schedule, a webhook trigger or a mail
+  trigger.
 - **`includeOutput: true`** (`include="output"`) adds each run's `output`.
 - **`scope`** (`scope_kind` / `scope_id`) lists one project's runs, or the runs
   of every project in an org: `{ kind: 'project', projectId }`

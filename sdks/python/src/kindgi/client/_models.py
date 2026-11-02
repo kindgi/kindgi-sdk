@@ -6212,7 +6212,7 @@ class ProviderCheckResult(BaseModel):
 
 class MCPEndpointSecretRef(BaseModel):
     """
-    The secret an MCP endpoint authenticates with: a name in the deployment's secrets store, resolved at the endpoint's tenant scope by the runtime (the shape webhooks and providers use). As the endpoint's own `secretRef`, it is sent as its bearer; inside `auth`, it is the scheme's password, client secret or header value. The endpoint keeps only this reference.
+    The secret an MCP endpoint authenticates with: a name in the deployment's secrets store, resolved at the endpoint's tenant scope by the runtime (the shape webhooks and providers use). As the endpoint's own `secretRef`, it is sent as its bearer; inside `auth`, it is the scheme's password, client secret or header value; in `secretEnv`, a variable's value for a stdio server. The endpoint keeps only this reference.
     """
 
     model_config = ConfigDict(
@@ -6637,6 +6637,10 @@ class Policy(BaseModel):
     spec: dict[str, Any]
     """
     Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. For `retention`, `{ v: 1, doc: RetentionSpec }` from `@kindgi/policy-contract` (domain / graceSeconds / mode, which must be `purge`); a tenant has one retention policy per domain, plus one for `*`. `tool-errors`, `hitl` and `retention` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer.
+    """
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Present only on an unregistered version: a retired policy (every version unregistered) as `GET /v1/policies?includeRetired=true` lists it. `GET /v1/policies/{policyId}` answers the latest active version, which never carries it.
     """
 
 
@@ -7581,6 +7585,25 @@ class CorrectedComparisonCost(BaseModel):
     cases: Annotated[int, Field(ge=1)]
     """
     The cases whose every repetition reported a cost: the ones totalled.
+    """
+
+
+class CorrectedComparisonUnchecked(BaseModel):
+    """
+    The cases whose `expect` couldn't be graded, so they add no check to `passRate`: when `passRate` has no value, this says why. Absent from a summary when every case's was graded, and from older servers.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    cases: Annotated[int, Field(ge=1)]
+    """
+    How many cases have an `unchecked` reason.
+    """
+    reasons: Annotated[list[str], Field(max_length=5, min_length=1)]
+    """
+    Their reasons, each once, in the cases' order: the first 5.
     """
 
 
@@ -11815,7 +11838,7 @@ class FlowId(RootModel[str]):
 
 class WebhookEndpointFilter(BaseModel):
     """
-    Which events reach the endpoint. Every field narrows; absent fields do not. `run.finished` is sent for top-level runs only.
+    Which events reach the endpoint. Every field narrows; absent fields do not. `run.finished` is sent for top-level runs only, not replays.
     """
 
     model_config = ConfigDict(
@@ -13043,6 +13066,9 @@ class MCPEndpointConfigStdio(BaseModel):
     command: Annotated[str, Field(min_length=1)]
     args: list[str] | None = None
     env: dict[str, str] | None = None
+    """
+    Variables for the server's process, stored as given. Not for a credential: a name `config.headers` would refuse, its parts split on `_` as well as `-` (`GITHUB_TOKEN`, `OPENAI_API_KEY`, `AWS_SECRET_ACCESS_KEY`, `SLACK_BOT_TOKEN`), is refused (`invalid-mcp-endpoint`, reason `credential-in-env`). Give it by reference through `secretEnv`. An empty name, a name with `=` or a NUL, a value with a NUL, or a value of `[redacted]` is refused too (reason `invalid-stdio-env`). Every value reads back as `[redacted]`, its name kept, on endpoints registered before as well, so an export holds the names, not the values.
+    """
 
 
 class MCPEndpointConfigHttpSse(BaseModel):
@@ -13134,6 +13160,9 @@ class RegisterMCPEndpointBodyConfigStdio(BaseModel):
     command: Annotated[str, Field(min_length=1)]
     args: list[str] | None = None
     env: dict[str, str] | None = None
+    """
+    Variables for the server's process, stored as given. Not for a credential: a name `config.headers` would refuse, its parts split on `_` as well as `-` (`GITHUB_TOKEN`, `OPENAI_API_KEY`, `AWS_SECRET_ACCESS_KEY`, `SLACK_BOT_TOKEN`), is refused (`invalid-mcp-endpoint`, reason `credential-in-env`). Give it by reference through `secretEnv`. An empty name, a name with `=` or a NUL, a value with a NUL, or a value of `[redacted]` is refused too (reason `invalid-stdio-env`). Every value reads back as `[redacted]`, its name kept, on endpoints registered before as well, so an export holds the names, not the values.
+    """
 
 
 class RegisterMCPEndpointBodyConfigHttpSse(BaseModel):
@@ -14859,6 +14888,9 @@ class ReleaseGate(BaseModel):
     description: str | None = None
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Present only on an unregistered version: a retired gate (every version unregistered) as `GET /v1/release-gates?includeRetired=true` lists it.
+    """
 
 
 class ReleaseGatePage(BaseModel):
@@ -16466,7 +16498,7 @@ class Block(BaseModel):
     published_at: Annotated[AwareDatetime, Field(alias="publishedAt")]
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
     """
-    Present only on an unregistered version; agent versions that pin it still read it.
+    Present only on an unregistered version; agent versions that pin it still read it. A retired block (every version unregistered) carries it as `GET /v1/blocks?includeRetired=true` lists it.
     """
     published_by: Annotated[PublishedBy | None, Field(alias="publishedBy")] = None
     """
@@ -16569,6 +16601,7 @@ class CorrectedComparisonSummary(BaseModel):
     Corrections graded across the cases: shown for a release gate, not enforced. Absent when the test set carries no corrections.
     """
     cost_usd: Annotated[CorrectedComparisonCost | None, Field(alias="costUsd")] = None
+    unchecked: CorrectedComparisonUnchecked | None = None
 
 
 class CorrectionDifference(BaseModel):
@@ -16632,6 +16665,10 @@ class ComparisonCaseResult(BaseModel):
     cost_usd: Annotated[list[CostUsdItem] | None, Field(alias="costUsd")] = None
     """
     What each repetition's replay cost in model calls, as the runtime reported it, in US dollars: one per repetition, with what checking its answer cost. Absent when a repetition reported none.
+    """
+    unchecked: str | None = None
+    """
+    Why the case's `expect` couldn't be graded, so it has no entry in `corrections` and adds no check to `passRate`: the answer checker's reason (say, that the version's model settings name no model), or why it wasn't asked. Absent when it was graded, and from older servers.
     """
     diverged: bool
     refused_writes: Annotated[int, Field(alias="refusedWrites", ge=0)]
@@ -19272,6 +19309,9 @@ class RegisterMCPEndpointBody(BaseModel):
     Transport-tagged config union. Server enforces `config.transport === transport` at registration.
     """
     secret_ref: Annotated[MCPEndpointSecretRef | None, Field(alias="secretRef")] = None
+    """
+    The secret sent as the endpoint's bearer. HTTP transports only: on a `stdio` endpoint it's refused (`invalid-mcp-endpoint`, reason `secret-ref-on-stdio`), since a stdio server gets no headers; give it its secret through `secretEnv`. An endpoint registered with one before keeps it, and the runtime reads it for no one.
+    """
     auth: (
         Annotated[
             MCPBasicAuth
@@ -19284,6 +19324,13 @@ class RegisterMCPEndpointBody(BaseModel):
     ) = None
     """
     How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials` or `header`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic` and `oauth2-client-credentials` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` scheme as `invalid-auth`.
+    """
+    secret_env: Annotated[
+        dict[constr(pattern=r"^[^=\u0000]+$", min_length=1), MCPEndpointSecretRef] | None,
+        Field(alias="secretEnv", max_length=16, min_length=1),
+    ] = None
+    """
+    A stdio server's secrets, as variables of its process: each variable's name (`GITHUB_TOKEN`) with the secret its value is read from, at the endpoint's recorded scope, when the runtime starts the server. The value is never stored or answered. 1 to 16 variables, each name without `=`, and none also in `config.env` (`invalid-mcp-endpoint`, reason `secret-env-twice`); otherwise reason `invalid-secret-env`. Each secret counts for the provider-key guard and the env a runtime serves, as `secretRef`'s does. `stdio` only: on an HTTP endpoint it's refused (reason `secret-env-on-http`). An older runtime refuses the field as unknown. A runtime rolled back to one without it starts the server without these variables, so the server fails its own calls; no value is exposed.
     """
     instructions: str | None = None
     """
@@ -19487,6 +19534,9 @@ class MCPEndpoint(BaseModel):
     Transport-tagged config union. Server enforces `config.transport === transport` at registration.
     """
     secret_ref: Annotated[MCPEndpointSecretRef | None, Field(alias="secretRef")] = None
+    """
+    The secret sent as the endpoint's bearer. HTTP transports only: on a `stdio` endpoint it's refused (`invalid-mcp-endpoint`, reason `secret-ref-on-stdio`), since a stdio server gets no headers; give it its secret through `secretEnv`. An endpoint registered with one before keeps it, and the runtime reads it for no one.
+    """
     auth: (
         Annotated[
             MCPBasicAuth
@@ -19499,6 +19549,13 @@ class MCPEndpoint(BaseModel):
     ) = None
     """
     How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials` or `header`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic` and `oauth2-client-credentials` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` scheme as `invalid-auth`.
+    """
+    secret_env: Annotated[
+        dict[constr(pattern=r"^[^=\u0000]+$", min_length=1), MCPEndpointSecretRef] | None,
+        Field(alias="secretEnv", max_length=16, min_length=1),
+    ] = None
+    """
+    A stdio server's secrets, as variables of its process: each variable's name (`GITHUB_TOKEN`) with the secret its value is read from, at the endpoint's recorded scope, when the runtime starts the server. The value is never stored or answered. 1 to 16 variables, each name without `=`, and none also in `config.env` (`invalid-mcp-endpoint`, reason `secret-env-twice`); otherwise reason `invalid-secret-env`. Each secret counts for the provider-key guard and the env a runtime serves, as `secretRef`'s does. `stdio` only: on an HTTP endpoint it's refused (reason `secret-env-on-http`). An older runtime refuses the field as unknown. A runtime rolled back to one without it starts the server without these variables, so the server fails its own calls; no value is exposed.
     """
     instructions: str | None = None
     """

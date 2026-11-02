@@ -31,9 +31,9 @@
     );
 
   /**
-   * The agent's replies to whoever placed the order, waiting first: a
-   * mail tool's reply doesn't say what order it's about, so they show
-   * apart, by the address they go to.
+   * Agents' replies to whoever placed the order, waiting first: a mail
+   * tool's reply doesn't say what order it's about, so they show apart,
+   * by the address they go to. Each card names the agent that wrote it.
    */
   function mailTo(customer, card) {
     const mail = [...customer.waiting, ...customer.closed];
@@ -42,10 +42,7 @@
       el('h3', { className: 'kindgi-order-section' }, __('Mail to this customer', 'kindgi')),
       muted(
         /* translators: %s: the order's billing email address */
-        sprintf(
-          __("The agent's replies to %s, the order's billing email.", 'kindgi'),
-          customer.email,
-        ),
+        sprintf(__("Replies to %s, the order's billing email.", 'kindgi'), customer.email),
       ),
       mail.map(card),
     ];

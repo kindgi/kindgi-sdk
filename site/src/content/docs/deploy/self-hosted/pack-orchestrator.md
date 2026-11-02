@@ -26,9 +26,9 @@ describes by hand.
 - **Two service accounts in the project:** the Job's own, and one that every
   pack service runs as.
 - **The runtime's account may invoke the project's Cloud Run services**
-  (`roles/run.invoker` on the project): it calls each pack service with a
-  Google ID token. The orchestrator never sets a service's own policy, and
-  won't use a service that has one.
+  (`roles/run.servicesInvoker` on the project): it calls each pack service
+  with a Google ID token. The orchestrator never sets a service's own policy,
+  and won't use a service that has one.
 
 ## What one pass does
 

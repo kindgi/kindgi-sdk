@@ -45,7 +45,9 @@ The correction says what was wrong, part by part:
   only the argument fields that matter) and `mustNotCall` (the tools it
   shouldn't have called). A test case checks these exactly, without a model.
 - **`answer: "wrong"`**, with `shouldSay` or `why`. A judging model checks a
-  new answer against them.
+  new answer against them: the model the version's model-settings block
+  names. When it names none, the answer isn't checked, and the case's
+  result says so in `unchecked`.
 - **`why`**: the person's reason, in their words.
 
 Take those as what your pack test asserts. They're the person's: never edit

@@ -128,3 +128,27 @@ function test_dashboard_the_count_in_words(): void {
 	kindgi_assert( false !== strpos( Kindgi_Dashboard::waits_html( 12, true ), '>12+ approvals wait for you</a>' ), 'more than a page' );
 	kindgi_assert( false !== strpos( Kindgi_Dashboard::waits_html( 1, false ), 'page=kindgi"' ), 'to the Inbox' );
 }
+
+function test_dashboard_a_new_version_waiting_is_named_by_the_agents_name(): void {
+	$answer = Kindgi_Dashboard::answer(
+		array(
+			'waiting' => array( 'data' => array( kindgi_test_pin() ) ),
+			'runs'    => array( 'data' => array() ),
+			'agents'  => array(
+				'data' => array(
+					array(
+						'id'   => 'acme-desk.support-desk',
+						'name' => 'Ceramics help',
+					),
+				),
+			),
+		),
+		array(
+			'n'    => 1,
+			'more' => false,
+		),
+		'u-me',
+		kindgi_test_reviewer( 'senior' )
+	);
+	kindgi_assert_same( 'Update Ceramics help to version 0.1.2', $answer['waiting'][0]['heading'], "from the agents' page the box reads" );
+}

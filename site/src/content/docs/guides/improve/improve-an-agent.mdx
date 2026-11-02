@@ -27,7 +27,10 @@ person still decides: the suggested change waits for a reviewer.
 - **Kindgi 0.4's runtime and CLI,** deployed or `kindgi dev`. Under
   `kindgi dev`, the run's suggested change is for the whole workspace, and
   pinning it writes it into the pack's files
-  ([Under `kindgi dev`](../suggest-a-change/#under-kindgi-dev));
+  ([Under `kindgi dev`](../suggest-a-change/#under-kindgi-dev)). On a
+  deployed runtime, pinning it leaves the pack as it is:
+  [bring the pack up to it](../suggest-a-change/#bring-the-pack-up-to-it)
+  through a pull request;
 - **`publish` on the agent.** For an agent more than one project serves, also
   `write` where its versions are made.
 
@@ -362,10 +365,11 @@ curl -X POST "$KINDGI_API_URL/v1/improve-runs" \
 
 It answers at once (`202`) with the Improve run, as the CLI does without `--wait`.
 
-The drafter sees the cases marked wrong, their reasons, and what
-[the corrections on them](../fix-what-experts-corrected/) say the agent should
-have done: the calls it should have made and the tools it shouldn't have
-called, as an example for that case, not a rule. It's shown only the
+The drafter sees the cases marked wrong, their reasons, what an answer
+marked wrong should have said or why it was wrong (`shouldSay`, `why`), and
+what [the corrections on them](../fix-what-experts-corrected/) say the agent
+should have done: the calls it should have made and the tools it shouldn't
+have called, as an example for that case, not a rule. It's shown only the
 corrections the Improve run [counts](#whose-corrections-it-learns-from). A
 draft it writes is tried only if it stays within what the agent already has:
 

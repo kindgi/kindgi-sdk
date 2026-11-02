@@ -338,6 +338,8 @@ jobs:
         run: php tests/run.php
       - name: A statement the plugin signs verifies as Kindgi checks it
         run: node --test tests/statement.test.mjs
+      - name: An approval's card says what each decision did
+        run: node --test tests/cards.test.mjs
 
   wordpress-sodium-compat:
     name: WordPress plugin (sodium_compat)

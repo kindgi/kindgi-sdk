@@ -261,7 +261,8 @@
   /**
    * Who asked, in words: the card says it before when. With no person
    * recorded, the agent asked on its own, on a run a mail, a schedule or
-   * a webhook started.
+   * a webhook started; a new version of an agent was asked for with a
+   * key, at Kindgi.
    */
   function askedWords(card) {
     const { asked } = card;
@@ -270,7 +271,7 @@
       /* translators: %s: a person's name */
       return sprintf(__('%s asked', 'kindgi'), asked.name);
     }
-    if (asked.kind === 'kindgi') return __('Asked from Kindgi', 'kindgi');
+    if (asked.kind === 'kindgi' || card.pin !== null) return __('Asked from Kindgi', 'kindgi');
     if (card.agent === null) return __('An agent asked on its own', 'kindgi');
     return card.reply
       ? /* translators: %s: the agent's name */
@@ -474,27 +475,57 @@
     return decisionControls(card, after);
   }
 
-  /** What a decision did, once Kindgi recorded it. */
+  /**
+   * What a decision did, once Kindgi recorded it: what follows from it,
+   * unless the run waiting on it had already ended. An approval no run
+   * waits on (a new version of an agent) has no run to end.
+   */
   function decided(done, words) {
-    const line =
-      done.approval.decision !== null ? decisionLine(done.approval.decision) : el('p', {}, '');
-    if (!done.waitpointResolved) {
+    const made = done.approval.decision;
+    const line = made !== null ? decisionLine(made) : el('p', {}, '');
+    if (!done.waitpointResolved && done.runStatus !== null) {
       return [
         line,
         /* translators: %s: the run's status, as Kindgi names it */
-        muted(sprintf(__('The run had already moved on (%s).', 'kindgi'), done.runStatus ?? '')),
+        muted(sprintf(__('The run had already moved on (%s).', 'kindgi'), done.runStatus)),
       ];
     }
-    return done.approval.decision === 'reject' ? [line, muted(words.rejected)] : [line];
+    const follows = made?.decision === 'reject' ? words.rejected : words.approved;
+    return follows ? [line, muted(follows)] : [line];
+  }
+
+  /**
+   * A new version of an agent: approving it puts it live, once Kindgi
+   * checks nothing changed since it was asked for; rejecting it keeps the
+   * version the agent runs now.
+   */
+  function pinWords({ agent }) {
+    return {
+      approve: __('Approve the update', 'kindgi'),
+      reject: __("Don't update…", 'kindgi'),
+      confirm: __("Don't update", 'kindgi'),
+      label: __("Why it shouldn't update", 'kindgi'),
+      effect: sprintf(
+        /* translators: %s: the agent's name */
+        __('%s keeps the version it runs now. Whoever asked sees it too.', 'kindgi'),
+        agent,
+      ),
+      needed: __("Say why it shouldn't update.", 'kindgi'),
+      /* translators: %s: the agent's name */
+      rejected: sprintf(__('Not updated: %s keeps the version it runs now.', 'kindgi'), agent),
+      approved: __('Kindgi updates it if nothing changed since it was asked for.', 'kindgi'),
+    };
   }
 
   /**
    * What the decision says it does. A rejection doesn't end the agent's
    * turn: the agent reads the reason and may try again, and a call that
    * needs approval comes back as a new one. A reply that isn't sent goes nowhere:
-   * the person it was to hears nothing from Kindgi.
+   * the person it was to hears nothing from Kindgi. A new version of an
+   * agent has words of its own (`pinWords`).
    */
   function decisionWords(card) {
+    if (card.pin !== null) return pinWords(card.pin);
     const tryAgain = card.reply
       ? __(
           'The agent reads what you write here and may write a new reply, which comes back for approval.',

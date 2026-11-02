@@ -724,7 +724,10 @@ deployment. The envelope is `--from-envelope`, else
   `--url` / `KINDGI_API_URL`.
 - **Idempotent:** the `Idempotency-Key` header is a hash of the request
   body (`--idempotency-key` overrides it). Deploying the same image again
-  returns the same deployment.
+  returns the same deployment. When the server answers from its record of
+  an earlier request with the same key, the deploy says "Nothing new was
+  deployed" in place of "Deploy complete.", and the JSON on stdout adds
+  `idempotentReplay: true`.
 - **`--tenant`** must match the envelope's tenant, checked before anything
   is sent.
 - **`--dry-run`** prints the equivalent `curl` command and sends nothing.

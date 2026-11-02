@@ -272,6 +272,7 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     name: 'release-gates',
     route: '/v1/release-gates',
     paging: cursor,
+    query: { includeRetired: 'true' },
     covers: ['/v1/release-gates/{releaseGateId}'],
   },
   {
@@ -341,7 +342,13 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     paging: cursor,
     covers: ['/v1/guardrails/{guardrailId}'],
   },
-  { name: 'blocks', route: '/v1/blocks', paging: cursor, covers: ['/v1/blocks/{blockId}'] },
+  {
+    name: 'blocks',
+    route: '/v1/blocks',
+    paging: cursor,
+    query: { includeRetired: 'true' },
+    covers: ['/v1/blocks/{blockId}'],
+  },
   {
     name: 'block-versions',
     route: '/v1/blocks/{blockId}/versions',
@@ -350,7 +357,13 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     query: { includeTombstoned: 'true' },
     covers: ['/v1/blocks/{blockId}/versions/{version}'],
   },
-  { name: 'policies', route: '/v1/policies', paging: cursor, covers: ['/v1/policies/{policyId}'] },
+  {
+    name: 'policies',
+    route: '/v1/policies',
+    paging: cursor,
+    query: { includeRetired: 'true' },
+    covers: ['/v1/policies/{policyId}'],
+  },
   {
     name: 'policy-versions',
     route: '/v1/policies/{policyId}/versions',

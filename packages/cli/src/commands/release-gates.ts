@@ -33,10 +33,15 @@ const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
   description: "List release gates (each one's latest active version), for an agent or a scope.",
-  usage: `kindgi release-gates list [--agent=<agent-id>] [${SCOPE_USAGE}] [--limit=<n>] [--cursor=<cursor>] [--table]`,
+  usage: `kindgi release-gates list [--agent=<agent-id>] [${SCOPE_USAGE}] [--include-retired] [--limit=<n>] [--cursor=<cursor>] [--table]`,
   optionSpec: {
     agent: { type: 'string', description: 'Only the release gates of this agent.' },
     ...SCOPE_FLAGS,
+    'include-retired': {
+      type: 'boolean',
+      description:
+        'Include retired release gates (every version unregistered), each as its highest version with `unregisteredAt`.',
+    },
     limit: { type: 'string', description: 'Page size.' },
     cursor: { type: 'string', description: 'The next page, from `nextCursor`.' },
   },
@@ -52,6 +57,7 @@ const list: LeafCommand = {
         return await ctx.client().releaseGates.list({
           ...(agentId !== undefined && { agentId }),
           ...(scope !== undefined && { scope }),
+          ...(ctx.options['include-retired'] === true && { includeRetired: true }),
           ...(limit !== undefined && { limit }),
           ...(cursor !== undefined && { cursor }),
         });

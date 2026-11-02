@@ -134,4 +134,5 @@ Deleting the plugin removes all of them except each person's subject and Kindgi 
   ```sh
   php tests/run.php                   # the plugin's classes, against small stand-ins
   node --test tests/statement.test.mjs # a statement the plugin signs verifies as Kindgi checks it
+  node --test tests/cards.test.mjs     # an approval's card says what each decision did
   ```
