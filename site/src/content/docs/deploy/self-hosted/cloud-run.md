@@ -162,8 +162,8 @@ digest, with every platform it was built for:
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker "${REPO%%/*}"
-docker buildx imagetools create --tag "$REPO/runtime:0.3.0" \
-  registry.kindgi.com/kindgi/runtime:0.3.0@sha256:1f5cfe0032bb82b467781949978719d6a3da4d500cd994471f2f2e009c9a1b9f
+docker buildx imagetools create --tag "$REPO/runtime:0.4.0" \
+  registry.kindgi.com/kindgi/runtime:0.4.0@sha256:3d815fd6689f388f02f864a234a81378f91a39696ea36dc2330698f4f6cc66e0
 ```
 
 - `REPO` is the repository's address, from the foundation's output.
