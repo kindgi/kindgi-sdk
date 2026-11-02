@@ -87,8 +87,115 @@ function test_inbox_a_tool_calls_card_reads_in_words_not_kindgis(): void {
 	);
 	kindgi_assert_same( 'you', $card['waitsFor'], 'a standard reviewer decides it' );
 	kindgi_assert_same( 'kindgi', $card['asked']['kind'], 'asked by someone this site never signed in' );
-	kindgi_assert_same( 'acme-desk.woo.refund-large', $card['details']['toolId'], "Kindgi's ids stay, behind Details" );
+	kindgi_assert( ! isset( $card['details'] ), "Kindgi's own ids stay off the card" );
+	kindgi_assert_same( null, $card['agent'], 'a person asked, not the agent on its own' );
+	kindgi_assert_same( 'senior', $card['next'], 'a senior reviewer has it if no one decides in time' );
+	kindgi_assert_same( null, $card['reply'], 'a refund is no mail' );
 	kindgi_assert_same( 'c-1', $card['conversationId'], 'its conversation' );
+}
+
+function test_inbox_a_mail_reply_reads_as_the_email_it_sends(): void {
+	$card_ref = array(
+		'toolId'         => 'acme-desk.gmail.reply',
+		'agentId'        => 'acme-desk.support-desk',
+		'conversationId' => 'c-mail',
+		'arguments'      => array(
+			'inReplyTo' => '01a19968063e2c57',
+			'to'        => 'pat@example.com',
+			'body'      => "Hi Pat,\n\nOrder 27 ships on Thursday.\n\nThe Example team",
+		),
+	);
+	$card     = Kindgi_Inbox::card(
+		kindgi_test_approval(
+			array(
+				'subjectRef'  => $card_ref,
+				'requestedBy' => 'service_account:sa-mail',
+			)
+		),
+		'u-me',
+		kindgi_test_reviewer(),
+		kindgi_test_names()
+	);
+	kindgi_assert_same( 'Reply to pat@example.com', $card['heading'], 'whom it goes to, in its heading' );
+	kindgi_assert_same( array(), $card['facts'], "so no fact: the mail's id at Gmail is no one's to check" );
+	kindgi_assert_same( array( 'to' => 'pat@example.com' ), $card['reply'], 'a reply to an email' );
+	kindgi_assert_same( 'The reply', $card['words'][0]['label'], 'its text, as the reply' );
+	kindgi_assert_same( null, $card['whole'], 'nothing left out that anyone reads' );
+	kindgi_assert_same( 'none', $card['asked']['kind'], 'no person asked: the trigger acts for a service account' );
+	kindgi_assert_same( 'Support desk', $card['agent'], 'the agent did, on its own: its id in words when Kindgi gives no name' );
+	$named = Kindgi_Inbox::card(
+		kindgi_test_approval(
+			array(
+				'subjectRef'  => $card_ref,
+				'requestedBy' => 'service_account:sa-mail',
+				'context'     => array( 'text' => array( 'title' => 'Answer Pat about order 27' ) ),
+			)
+		),
+		'u-me',
+		kindgi_test_reviewer(),
+		kindgi_test_names(),
+		static function ( string $id ): ?string {
+			return 'acme-desk.support-desk' === $id ? 'Help desk' : null;
+		}
+	);
+	kindgi_assert_same( 'Help desk', $named['agent'], 'its name at Kindgi, as Activity and Ask name it' );
+	kindgi_assert_same( 'Answer Pat about order 27', $named['heading'], "the tool's own title" );
+	kindgi_assert_same( array( 'To' ), array_column( $named['facts'], 'label' ), 'so whom it goes to stays a fact' );
+	kindgi_assert_same( null, Kindgi_Inbox::reply_of( array( 'to' => 'pat@example.com', 'body' => 'Hi.' ) ), 'a new mail is no reply' );
+	kindgi_assert_same( null, Kindgi_Inbox::reply_of( array( 'inReplyTo' => 'm-1', 'to' => 'support desk', 'body' => 'Hi.' ) ), 'nor one to no address' );
+}
+
+function test_inbox_who_has_an_approval_no_one_decides_in_time(): void {
+	kindgi_assert_same( 'senior', Kindgi_Inbox::next_reviewer( array( 'requiredRole' => 'standard' ) ), 'a standard one goes up a tier' );
+	kindgi_assert_same( 'admin', Kindgi_Inbox::next_reviewer( array( 'requiredRole' => 'senior' ) ), 'a senior one, to an admin' );
+	kindgi_assert_same( null, Kindgi_Inbox::next_reviewer( array( 'requiredRole' => 'admin' ) ), 'an admin one expires' );
+	kindgi_assert_same(
+		null,
+		Kindgi_Inbox::next_reviewer(
+			array(
+				'requiredRole' => 'standard',
+				'approver'     => array(
+					'kind'   => 'member',
+					'userId' => 'u-anna',
+				),
+			)
+		),
+		'one addressed to a person expires too'
+	);
+}
+
+function test_inbox_ids_only_a_machine_reads(): void {
+	$ids = array(
+		'inReplyTo'   => '01a19968063e2c57',
+		'customerId'  => '5a2f0c3e-8d91-4b7a-a6e2-91c4d3b0f817',
+		'message_id'  => 'AAMkAGI2THVSAAA=AAAA1234abcd',
+		'id'          => 'c0ffee1234abcd',
+		'threadID'    => '18c2f9a0b1d3e4f5',
+	);
+	foreach ( $ids as $key => $id ) {
+		kindgi_assert( Kindgi_Inbox::is_reference( $key, $id ), $key . ' is an id' );
+	}
+	$read = array(
+		'orderId'   => '18',
+		'sku'       => 'VASE-BLUE-12',
+		'to'        => 'pat@example.com',
+		'phone'     => '123456789012',
+		'iban'      => 'DE89370400440532013000',
+		'toAddress' => '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
+		'coupon'    => 'summer-sale-2024-free-shipping',
+		'paypalId'  => 'pat@example.com',
+		'amountId'  => 210,
+	);
+	foreach ( $read as $key => $value ) {
+		kindgi_assert( ! Kindgi_Inbox::is_reference( $key, $value ), $key . ' is read' );
+	}
+	$facts = Kindgi_Inbox::facts(
+		array(
+			'iban'   => 'DE89370400440532013000',
+			'amount' => 210,
+		)
+	);
+	kindgi_assert_same( array( 'Iban', 'Amount' ), array_column( $facts, 'label' ), 'an account number that looks like an id stays on the card' );
 }
 
 function test_inbox_the_tools_own_words_for_a_call_read_first(): void {

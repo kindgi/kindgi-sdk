@@ -479,9 +479,10 @@ final class Kindgi_Rest {
 			return $answer;
 		}
 		$me    = (string) $answer['session']['user_id'];
+		$names = self::agent_names( $user );
 		$cards = array();
 		foreach ( self::list_of( $answer['body']['data'] ?? null ) as $a ) {
-			$cards[] = self::card( $a, $me, $r['reviewer'] );
+			$cards[] = self::card( $a, $me, $r['reviewer'], $names );
 		}
 		if ( $waiting ) {
 			// The menu's count follows what the person just saw.
@@ -502,7 +503,7 @@ final class Kindgi_Rest {
 			return $r;
 		}
 		$answer = Kindgi_Api::body( $user, 'GET', '/v1/approvals/' . rawurlencode( $request['id'] ) );
-		return is_wp_error( $answer ) ? $answer : self::card( $answer['body'], (string) $answer['session']['user_id'], $r['reviewer'] );
+		return is_wp_error( $answer ) ? $answer : self::card( $answer['body'], (string) $answer['session']['user_id'], $r['reviewer'], self::agent_names( $user ) );
 	}
 
 	/**
@@ -590,6 +591,7 @@ final class Kindgi_Rest {
 		}
 		$reviewer = Kindgi_Inbox::reviewer_of( $permissions['body'] );
 		$me       = (string) $permissions['session']['user_id'];
+		$names    = self::agent_names( $user, $get, (string) $permissions['session']['project_id'] );
 		$answer   = array(
 			'signedIn' => true,
 			'more'     => false,
@@ -613,7 +615,7 @@ final class Kindgi_Rest {
 			}
 			$answer[ $view ] = array();
 			foreach ( Kindgi_Order::about_order( $page['body'], $order ) as $a ) {
-				$answer[ $view ][] = Kindgi_Inbox::card( $a, $me, $reviewer, array( self::class, 'who' ) );
+				$answer[ $view ][] = Kindgi_Inbox::card( $a, $me, $reviewer, array( self::class, 'who' ), $names );
 			}
 			// The box looked through one page: older approvals about the order may be on the next.
 			$answer['more'] = $answer['more'] || true === ( $page['body']['hasMore'] ?? false );
@@ -700,7 +702,7 @@ final class Kindgi_Rest {
 		Kindgi_Inbox::forget_count( $user->ID );
 		$b = $answer['body'];
 		// Decided: no longer anyone's to decide, whatever the person's role.
-		$card = self::card( is_array( $b['approval'] ?? null ) ? $b['approval'] : array(), (string) $answer['session']['user_id'], null );
+		$card = self::card( is_array( $b['approval'] ?? null ) ? $b['approval'] : array(), (string) $answer['session']['user_id'], null, self::agent_names( $user ) );
 		// On the order it's about, a private note says who decided what.
 		Kindgi_Order::note( $card, (string) $request['decision'], $reason, $user );
 		return array(
@@ -779,11 +781,52 @@ final class Kindgi_Rest {
 		return $conversation === $card['conversationId'] && Kindgi_Inbox::reviews( $card );
 	}
 
-	/** An approval as its card, with a link to the order it's about for someone who may edit orders. */
-	private static function card( array $a, string $me, ?array $reviewer ): array {
-		$card             = Kindgi_Inbox::card( $a, $me, $reviewer, array( self::class, 'who' ) );
+	/**
+	 * An approval's card, with the order it's about linked for someone who may edit orders.
+	 *
+	 * @param callable(string): ?string $names `agent_names`, shared by a page's cards.
+	 */
+	private static function card( array $a, string $me, ?array $reviewer, callable $names ): array {
+		$card             = Kindgi_Inbox::card( $a, $me, $reviewer, array( self::class, 'who' ), $names );
 		$card['orderUrl'] = Kindgi_Order::edit_url( $card );
 		return $card;
+	}
+
+	/**
+	 * The project's agents' names at Kindgi, as Activity and Ask name them:
+	 * read when a card first needs one (once for all a page's cards, on the
+	 * person's session, or as `$get` reads, which keeps to a live one). An
+	 * agent Kindgi doesn't name, or a read that fails, is null: the card
+	 * says its id in words.
+	 *
+	 * @param callable|null $get     `(path, query)` to Kindgi's answer, null or an error; else `Kindgi_Api::body`.
+	 * @param string|null   $project The project, when the caller has it from `$get`'s reads; else the person's session's.
+	 * @return callable(string): ?string
+	 */
+	private static function agent_names( WP_User $user, ?callable $get = null, ?string $project = null ): callable {
+		$names = null;
+		return static function ( string $id ) use ( $user, $get, $project, &$names ): ?string {
+			if ( null === $names ) {
+				$names   = array();
+				$project = $project ?? self::project( $user );
+				$query   = array(
+					'scopeKind' => 'project',
+					'scopeId'   => $project,
+					'limit'     => 100,
+				);
+				if ( is_wp_error( $project ) ) {
+					$answer = $project;
+				} else {
+					$answer = null === $get ? Kindgi_Api::body( $user, 'GET', '/v1/agents', $query ) : $get( '/v1/agents', $query );
+				}
+				foreach ( is_array( $answer ) ? self::list_of( $answer['body']['data'] ?? null ) : array() as $agent ) {
+					if ( is_string( $agent['id'] ?? null ) && is_string( $agent['name'] ?? null ) && '' !== trim( $agent['name'] ) ) {
+						$names[ $agent['id'] ] = trim( $agent['name'] );
+					}
+				}
+			}
+			return $names[ $id ] ?? null;
+		};
 	}
 
 	/** The approval a conversation is opened through, when the address names one. */
