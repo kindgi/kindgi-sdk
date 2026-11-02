@@ -520,7 +520,8 @@ final class Kindgi_Rest {
 		}
 		$answer = Kindgi_Api::body( $user, 'GET', '/v1/runs/' . rawurlencode( $request['id'] ) );
 		$status = is_wp_error( $answer ) ? ( $answer->get_error_data()['status'] ?? null ) : null;
-		if ( is_wp_error( $answer ) && ! in_array( $status, array( 403, 404 ), true ) ) {
+		// An id Kindgi can't read as one (400), or a run it doesn't show the person, is none.
+		if ( is_wp_error( $answer ) && ! in_array( $status, array( 400, 403, 404 ), true ) ) {
 			return $answer;
 		}
 		if ( is_wp_error( $answer ) || ( $answer['body']['projectId'] ?? null ) !== $project ) {

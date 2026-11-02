@@ -644,6 +644,11 @@ function test_activity_a_link_opens_only_one_of_the_sites_runs(): void {
 	kindgi_assert_same( 'kindgi_run_not_found', $hidden->get_error_code(), "a run Kindgi doesn't show her reads as none, not as a right she lacks" );
 
 	kindgi_test_jane_at_work();
+	kindgi_test_answer( 400, array( 'error' => array( 'code' => 'bad-input', 'message' => 'runId must be a UUID.' ) ) );
+	$cut = Kindgi_Rest::activity_run( new WP_REST_Request( array( 'id' => 'r-1a' ) ) );
+	kindgi_assert_same( 'kindgi_run_not_found', $cut->get_error_code(), 'a link cut short reads as no such run, not as a fault' );
+
+	kindgi_test_jane_at_work();
 	kindgi_test_answer( 503, array( 'error' => array( 'code' => 'unavailable', 'message' => 'Try later.' ) ) );
 	$down = Kindgi_Rest::activity_run( new WP_REST_Request( array( 'id' => 'r-1' ) ) );
 	kindgi_assert_same( 'unavailable', $down->get_error_code(), 'Kindgi down is said as such' );

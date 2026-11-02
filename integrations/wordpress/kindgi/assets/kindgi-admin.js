@@ -449,7 +449,7 @@
     const name = runName(run, nameOf);
     const source = sourceWords(run.startedBy);
     // The time links to the run: its row, marked, as the address names it.
-    const time = inPage(runUrl(run.id), () => markRun(run.id), timeOf(run.createdAt));
+    const time = inPage(runUrl(run.id), () => markRun(run.id, false), timeOf(run.createdAt));
     time.className = 'kindgi-run-link';
     return el(
       'li',
@@ -569,9 +569,18 @@
     );
     if (opened === null) return;
     markRun(opened);
-    // `&show=output`: what the run returned, open as it was when the link was made.
     const run = page.runs.find((r) => r.id === opened) ?? (linked?.error ? null : linked);
-    if (output && run && run.output !== null) openOutput(run, runName(run, nameOf));
+    if (output) openLinkedOutput(opened, run, nameOf);
+  }
+
+  /**
+   * `&show=output`: what the linked run returned, open as it was when the
+   * link was made; with nothing to open, the address names the row only, as
+   * the page shows it.
+   */
+  function openLinkedOutput(opened, run, nameOf) {
+    if (run && run.output !== null) openOutput(run, runName(run, nameOf));
+    else window.history.replaceState(null, '', runUrl(opened));
   }
 
   // ---------- Ask ----------
