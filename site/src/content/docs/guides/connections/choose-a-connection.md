@@ -122,7 +122,7 @@ Chose support at google for agent acme.mail-helper (choice 5d1c9e07-…).
   for the tool steps the flow runs itself. An agent the flow runs uses
   the agent's own choice.
 - **`--project=<project-id>`** is the project. Without it, it's the
-  tenant's Default project.
+  workspace's default project.
 - **`--app=<app>`** narrows the name to one app's candidates. The choice is
   for the connection's own app.
 - **Choosing another** replaces the choice, and says which one it was in
