@@ -39,8 +39,19 @@ function test_dashboard_the_box_names_what_waits_for_her_and_the_latest_runs(): 
 		200,
 		array(
 			'data'    => array(
-				kindgi_test_approval( array( 'id' => 'ap-1' ) ),
-				kindgi_test_approval( array( 'id' => 'ap-senior', 'requiredRole' => 'senior' ) ),
+				kindgi_test_approval(
+					array(
+						'id'            => 'ap-1',
+						'provenanceRef' => array( 'runId' => 'r-mine' ),
+					)
+				),
+				kindgi_test_approval(
+					array(
+						'id'            => 'ap-senior',
+						'requiredRole'  => 'senior',
+						'provenanceRef' => array( 'runId' => 'r-anna' ),
+					)
+				),
 				kindgi_test_approval( array( 'id' => 'ap-2' ) ),
 				kindgi_test_approval( array( 'id' => 'ap-3' ) ),
 			),
@@ -94,6 +105,17 @@ function test_dashboard_the_box_names_what_waits_for_her_and_the_latest_runs(): 
 	kindgi_assert_same( 'Order ID 26', $answer['runs'][1]['summary'], 'the store\'s: she may edit orders' );
 	kindgi_assert_same( null, $answer['runs'][2]['summary'], "Anna's: not what it found" );
 	kindgi_assert_same( 'suspended', $answer['runs'][2]['status'], 'only that it waits' );
+	kindgi_assert_same(
+		array(
+			array(
+				'id'      => 'ap-senior',
+				'heading' => 'Refund large',
+			),
+		),
+		$answer['runs'][2]['waiting'],
+		'and for which approval, from the page read for the count: the one that names it'
+	);
+	kindgi_assert_same( array(), $answer['runs'][0]['waiting'], 'a run that ended waits for nothing, whatever names it' );
 	kindgi_assert_same( 4, count( $GLOBALS['kindgi_test']['requests'] ), 'her permissions, then three lists: no sign-in' );
 	kindgi_assert( false !== strpos( $GLOBALS['kindgi_test']['requests'][2][0], 'limit=3' ), 'only the latest runs' );
 	kindgi_assert( false !== strpos( $GLOBALS['kindgi_test']['requests'][2][0], 'topLevel=true' ), "not a flow's own steps" );

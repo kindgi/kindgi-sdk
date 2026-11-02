@@ -760,3 +760,85 @@ function test_activity_a_link_opens_only_one_of_the_sites_runs(): void {
 	$down = Kindgi_Rest::activity_run( new WP_REST_Request( array( 'id' => 'r-1' ) ) );
 	kindgi_assert_same( 'unavailable', $down->get_error_code(), 'Kindgi down is said as such' );
 }
+
+/** A mail tool's reply, held for approval by the run that wrote it. */
+function kindgi_test_reply_approval( string $id, string $run ): array {
+	return kindgi_test_approval(
+		array(
+			'id'            => $id,
+			'subjectRef'    => array(
+				'toolId'    => 'acme-mail.reply',
+				'agentId'   => 'acme-desk.support-desk',
+				'arguments' => array(
+					'inReplyTo' => 'm-1',
+					'to'        => 'pat@example.com',
+					'body'      => 'Hi Pat, order 27 ships on Monday.',
+				),
+			),
+			'provenanceRef' => array( 'runId' => $run ),
+		)
+	);
+}
+
+function test_activity_a_waiting_run_says_what_it_waits_for(): void {
+	$runs = array(
+		'data'       => array(
+			kindgi_test_run(
+				array(
+					'id'        => 'r-wait',
+					'status'    => 'suspended',
+					'startedBy' => 'mail',
+					'actsFor'   => null,
+					'output'    => null,
+				)
+			),
+			kindgi_test_run( array( 'id' => 'r-done' ) ),
+		),
+		'nextCursor' => null,
+	);
+	kindgi_test_jane_at_work();
+	kindgi_test_answer( 200, $runs );
+	kindgi_test_answer(
+		200,
+		array(
+			'data'    => array(
+				kindgi_test_reply_approval( 'ap-mail', 'r-wait' ),
+				kindgi_test_approval( array( 'provenanceRef' => array( 'runId' => 'r-done' ) ) ),
+				kindgi_test_approval( array( 'id' => 'ap-none' ) ),
+			),
+			'hasMore' => false,
+		)
+	);
+	$answer = Kindgi_Rest::activity( new WP_REST_Request( array( 'cursor' => null ) ) );
+	kindgi_assert_same(
+		array(
+			array(
+				'id'      => 'ap-mail',
+				'heading' => 'Reply to pat@example.com',
+			),
+		),
+		$answer['runs'][0]['waiting'],
+		'the approval that names it, by its heading as the Inbox has it'
+	);
+	kindgi_assert_same( array(), $answer['runs'][1]['waiting'], 'a run that ended waits for nothing' );
+	kindgi_assert_same( 2, count( $GLOBALS['kindgi_test']['requests'] ), 'the runs, then the approvals that wait' );
+	kindgi_assert( false !== strpos( $GLOBALS['kindgi_test']['requests'][1][0], '/v1/approvals?' ), 'read from the approvals' );
+
+	kindgi_test_jane_at_work();
+	kindgi_test_answer( 200, array( 'data' => array( kindgi_test_run( array() ) ) ) );
+	Kindgi_Rest::activity( new WP_REST_Request( array( 'cursor' => null ) ) );
+	kindgi_assert_same( 1, count( $GLOBALS['kindgi_test']['requests'] ), 'no run waits: no approvals read' );
+
+	kindgi_test_jane_at_work();
+	kindgi_test_answer( 200, $runs );
+	kindgi_test_answer( 403, array( 'error' => array( 'code' => 'forbidden', 'message' => 'Not allowed.' ) ) );
+	$plain = Kindgi_Rest::activity( new WP_REST_Request( array( 'cursor' => null ) ) );
+	kindgi_assert_same( 'suspended', $plain['runs'][0]['status'], "approvals she can't read leave the feed as it was" );
+	kindgi_assert_same( array(), $plain['runs'][0]['waiting'], 'its waiting run saying only that it waits' );
+
+	kindgi_test_jane_at_work();
+	kindgi_test_answer( 200, $runs['data'][0] + array( 'projectId' => '5a2f0c3e-8d91-4b7a-a6e2-91c4d3b0f817' ) );
+	kindgi_test_answer( 200, array( 'data' => array( kindgi_test_reply_approval( 'ap-mail', 'r-wait' ) ) ) );
+	$linked = Kindgi_Rest::activity_run( new WP_REST_Request( array( 'id' => 'r-wait' ) ) );
+	kindgi_assert_same( 'ap-mail', $linked['waiting'][0]['id'], 'a linked run says it too' );
+}

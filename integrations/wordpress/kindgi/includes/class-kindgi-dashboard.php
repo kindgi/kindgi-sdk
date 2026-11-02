@@ -115,9 +115,13 @@ final class Kindgi_Dashboard {
 			}
 		}
 		$reads_orders = Kindgi_Order::reads_orders();
-		$runs         = array();
+		$rows         = array();
 		foreach ( array_slice( self::data( $pages['runs'] ), 0, self::RUNS ) as $run ) {
-			$row    = Kindgi_Activity::row( $run, $me, $who, $reads_orders );
+			$rows[] = Kindgi_Activity::row( $run, $me, $who, $reads_orders );
+		}
+		$runs = array();
+		// What a waiting run waits for, from the approvals the box read for the count.
+		foreach ( Kindgi_Activity::with_waits( $rows, self::data( $pages['waiting'] ) ) as $row ) {
 			$runs[] = array(
 				'id'        => $row['id'],
 				'name'      => null !== $row['agentId'] ? ( $names[ $row['agentId'] ] ?? $row['agentId'] ) : ( $row['flow'] ?? '' ),
