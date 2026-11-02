@@ -67,8 +67,11 @@ const BUSY_PAGE = 100;
 const BUSY_PAGES = 10;
 /** What Outlook marks busy: free and working elsewhere leave the time open. */
 const BUSY_SHOWN_AS = new Set(['busy', 'tentative', 'oof']);
+/** Calendars a calendars list asks Graph for at once. */
+const CALENDAR_LIST_PAGE = 100;
 /** The account's calendars, the first page: what a calendars list reads of each. */
 const CALENDARS = `${GRAPH}/me/calendars?${query({
+  $top: String(CALENDAR_LIST_PAGE),
   $select: 'id,name,isDefaultCalendar,canEdit,isSharedWithMe,owner',
 })}`;
 /** A calendar's id in `calendarIds`, as Graph gives it: one path segment, with no dot. */

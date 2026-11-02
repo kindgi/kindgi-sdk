@@ -304,6 +304,24 @@ describe('google calendar calendars list', () => {
     });
   });
 
+  it("cuts a long owner's address", async () => {
+    googleAnswering(() =>
+      Response.json({
+        items: [
+          {
+            id: 'side@group.calendar.google.com',
+            accessRole: 'reader',
+            dataOwner: 'a'.repeat(300),
+          },
+        ],
+      }),
+    );
+    const r = await invokeToolForTest(calendars, {}, { connections: { calendar: calendar() } });
+    expect(r.kind === 'ok' && r.value.calendars[0]?.owner).toEqual({
+      address: `${'a'.repeat(253)}…`,
+    });
+  });
+
   it('follows the pages up to 1000 calendars, then fails', async () => {
     const sent = googleAnswering(() => Response.json({ items: [], nextPageToken: 'more' }));
     const r = await invokeToolForTest(calendars, {}, { connections: { calendar: calendar() } });

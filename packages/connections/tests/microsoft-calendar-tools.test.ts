@@ -173,6 +173,7 @@ describe('outlook calendar calendars list', () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]?.url.split('?')[0]).toBe(`${GRAPH}/me/calendars`);
     expect(sent[0]?.headers).toMatchObject({ authorization: `Bearer ${TOKEN}` });
+    expect(params(sent[0]?.url ?? '').$top).toBe('100');
     expect(params(sent[0]?.url ?? '').$select?.split(',')).toEqual([
       'id',
       'name',
@@ -194,6 +195,44 @@ describe('outlook calendar calendars list', () => {
     graphAnswering(() => Response.json({ value: [{ id: 'AAMkOne', name: 'One', ...fields }] }));
     const r = await invokeToolForTest(calendars, {}, { connections: { calendar: calendar() } });
     expect(r.kind === 'ok' && r.value.calendars[0]?.access).toBe(access);
+  });
+
+  it('sorts by name in English order, not by code point', async () => {
+    graphAnswering(() =>
+      Response.json({
+        value: [
+          { id: 'AAMkE', name: 'Émile' },
+          { id: 'AAMkB', name: 'Bob' },
+          { id: 'AAMkA', name: 'ana' },
+        ],
+      }),
+    );
+    const r = await invokeToolForTest(calendars, {}, { connections: { calendar: calendar() } });
+    expect(r.kind === 'ok' && r.value.calendars.map((c) => c.name)).toEqual([
+      'ana',
+      'Bob',
+      'Émile',
+    ]);
+  });
+
+  it("cuts a long owner's name and address", async () => {
+    graphAnswering(() =>
+      Response.json({
+        value: [
+          {
+            id: 'AAMkTeam',
+            name: 'Team',
+            isSharedWithMe: true,
+            owner: { name: 'n'.repeat(300), address: 'a'.repeat(300) },
+          },
+        ],
+      }),
+    );
+    const r = await invokeToolForTest(calendars, {}, { connections: { calendar: calendar() } });
+    expect(r.kind === 'ok' && r.value.calendars[0]?.owner).toEqual({
+      address: `${'a'.repeat(253)}…`,
+      name: `${'n'.repeat(199)}…`,
+    });
   });
 
   it('follows the next pages on Graph up to four, then fails; a page off Graph is refused', async () => {
