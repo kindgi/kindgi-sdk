@@ -1,5 +1,14 @@
 # @kindgi/provenance
 
+## 0.3.2
+
+### Patch Changes
+
+- @kindgi/flow@0.3.2
+  - @kindgi/runtime@0.3.2
+  - @kindgi/schema@0.3.2
+  - @kindgi/types@0.3.2
+
 ## 0.3.1
 
 ### Patch Changes

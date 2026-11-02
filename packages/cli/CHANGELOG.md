@@ -1,5 +1,23 @@
 # @kindgi/cli
 
+## 0.3.2
+
+### Patch Changes
+
+- Updated dependencies [3e96bf2]
+  - @kindgi/client@0.3.2
+  - @kindgi/sdk@0.3.2
+  - @kindgi/agents@0.3.2
+  - @kindgi/crypto@0.3.2
+  - @kindgi/dotenv-file@0.3.2
+  - @kindgi/env-schema@0.3.2
+  - @kindgi/flow@0.3.2
+  - @kindgi/handler-runtime@0.3.2
+  - @kindgi/log@0.3.2
+  - @kindgi/platform@0.3.2
+  - @kindgi/secrets-dotenv@0.3.2
+  - @kindgi/types@0.3.2
+
 ## 0.3.1
 
 ### Patch Changes

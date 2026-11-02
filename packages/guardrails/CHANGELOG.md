@@ -1,5 +1,15 @@
 # @kindgi/guardrails
 
+## 0.3.2
+
+### Patch Changes
+
+- @kindgi/bounds@0.3.2
+  - @kindgi/capabilities@0.3.2
+  - @kindgi/compliance@0.3.2
+  - @kindgi/schema@0.3.2
+  - @kindgi/types@0.3.2
+
 ## 0.3.1
 
 ### Patch Changes
