@@ -1118,7 +1118,7 @@ export const CLI_DEFAULTS = {
     agent: 'none (`--agent` or `--flow` is required)',
     app: 'none',
     flow: 'none (`--agent` or `--flow` is required)',
-    project: "the tenant's Default project",
+    project: "the workspace's default project",
   },
   'connection-choices list': {
     agent: 'none',
@@ -1126,7 +1126,7 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
     flow: 'none',
     limit: '`25` (at most `100`)',
-    project: "the tenant's Default project",
+    project: "the workspace's default project",
   },
   'connection-apps list': {
     cursor: 'none',
