@@ -372,13 +372,15 @@ describe('POST /v1/corrections', () => {
   test('a text of only spaces counts as not given, as an empty one does', async () => {
     const run = row();
     const h = harness([run]);
-    for (const text of [{ shouldSay: '  ' }, { shouldSay: '' }, { why: '  ' }, { why: '' }]) {
-      const res = await h.call('POST', '/v1/corrections', {
-        runId: run.runId,
-        answer: 'right',
-        ...text,
-      });
-      expect(res.status, JSON.stringify(text)).toBe(201);
+    for (const body of [
+      { answer: 'right', shouldSay: '  ' },
+      { answer: 'right', shouldSay: '' },
+      { answer: 'right', why: '  ' },
+      { answer: 'right', why: '' },
+      { decisions: 'right', shouldSay: '  ' },
+    ]) {
+      const res = await h.call('POST', '/v1/corrections', { runId: run.runId, ...body });
+      expect(res.status, JSON.stringify(body)).toBe(201);
       expect(res.body).not.toHaveProperty('shouldSay');
       expect(res.body).not.toHaveProperty('why');
     }
