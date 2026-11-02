@@ -463,23 +463,45 @@ a deployed runtime. Start Improve by hand there.
 
 ## In the console
 
-The same loop runs in the console. On an agent's **Suggested changes** page,
-**Improve** starts an Improve run, and the Improve run's page follows it. The
-suggested change it writes shows its verdict and the figures from its run on
-the test cases, under **Evidence** the corrections it learned from, each with
-its verdict and reason and a link to its run, and an **Ask to pin it**
-button to send it for a decision. **Schedule Improve**, on the same page,
-makes a schedule that starts Improve runs for the agent in a project, as
-[Schedule Improve in the console](../../runs/run-on-a-schedule/#schedule-improve-in-the-console)
-shows.
+The same loop runs in the console, on the agent's pages: **Overview**,
+**Runs**, **Corrections**, **Test set**, **Suggested changes** and **Pinned
+versions**. The breadcrumbs at the top end on the page you're on, such as
+**Agents › Returns helper › Overview ▾**, and its ▾ lists the others:
 
-An agent's own page shows the loop for that agent after its **Recent runs**,
-each section with its newest five: **Corrected runs**, the runs people
-corrected, with **To correct** for its answers waiting in the
-[Quality section](../expert-queue-reference/#to-correct); **Test sets**, gathered
-from them, with **All test sets**; **Improve runs**; and **Suggested
-changes**, with **All suggested changes and Improve runs**, which opens the
-page above.
+- **Overview** has the card **How it gets better**: "People correct its
+  runs. Each correction becomes a case in its test set. Improve tries
+  changes on the test set and suggests the best, and a pin puts one in
+  use." Each of its four lines opens its page, such as "Corrections: 1 open"
+  or "Test set: 1 case".
+- **Runs** has the agent's runs in the project, as a project's
+  [Runs](../../runs/list-runs/#in-the-console) page lists them, with the
+  same filters. Each run opens under the agent.
+- **Corrections** has what people said about the agent's runs, and who
+  fixes each one, the ones not fixed yet to start with. The runs waiting
+  for a person to review them are in the menu's **Corrections**, under
+  [To review](../expert-queue-reference/#to-review).
+- **Test set** has its cases, with **Add a case**, **Retire** and **Run
+  Improve**, which opens **Suggested changes** at its Improve runs, and its
+  latest test runs, each opening its page. It says what's in it: "What a
+  new version is tested on: this agent's corrections with something to
+  check, and the cases added by hand. Left out: Won't fix and Removed
+  corrections, corrections made on a test run's replays, and retired
+  cases."
+- **Suggested changes** has its suggested changes, and its Improve runs,
+  each with how it ended, such as **Found nothing better**, and its reason.
+  **Run Improve** starts an Improve run, and the Improve run's page follows
+  it. The suggested change it writes shows its verdict and the figures from
+  its run on the test cases, under **Evidence** the corrections it learned
+  from, each with its verdict and reason and a link to its run, and an
+  **Ask to pin it** button to send it for a decision. **Schedule…** makes a
+  schedule that starts Improve runs for the agent in a project, as
+  [Schedule Improve in the console](../../runs/run-on-a-schedule/#schedule-improve-in-the-console)
+  shows.
+- **Pinned versions** has where each version is pinned, as
+  [In the console](../pinned-versions-reference/#in-the-console) shows.
+
+A flow's pages are **Overview**, **Runs** and **Corrections**, as
+[Write a flow](../../flows/write-a-flow/#in-the-console) shows.
 
 ## Next
 

@@ -687,36 +687,69 @@ no restart. A run already in flight keeps the version it started on. Change
 ## In the console
 
 A project's **Flows** page lists its flows: "A flow runs agents and tools
-as its steps: in order, side by side or repeated, all in one run. Each flow
-is shown at its latest version; retired ones last." Each row has the flow's
-name and description, its latest version, what it runs ("3 steps: 2
-agents, 1 repeating step") and its agent and tool versions ("Locked when
-published"). A flow whose every version is retired is marked **retired**.
-The list has a search box, sorts by a column's header, and **Columns**
-chooses which columns it shows.
+as the steps of one run: in sequence, in a loop, or as tool calls in
+parallel. Each step can take the output of the steps before it. A step
+can't run another flow yet." Each row has the flow's name, with its
+description under it, its **Latest version**, its **Steps** ("3 (2 agents,
+1 repeating step)") and **Versions locked**: **Yes**, **No, latest at each
+run** or **Nothing to lock**, with what that means on hover. In a later
+environment of an
+[environment order](../../../concepts/projects-packs-values/#a-pack-goes-into-one-project),
+the version column is **Newest you can see**: the newest version in any of
+the order's projects you can see, which may not be promoted there yet. The
+flow's page shows the version that environment serves. A flow whose every
+version is retired is marked **retired**, and is listed only under
+**Show retired**, in the **Columns** menu, which counts them; it then comes
+after the flows in use. The list has a search box, sorts by a column's
+header, and **Columns** chooses which columns it shows.
 
-![The Flows page: "A flow runs agents and tools as its steps: in order, side by side or repeated, all in one run. Each flow is shown at its latest version; retired ones last.", a search box and the Columns menu, then Refunds ("Triage, check each item, then answer.") at 2.0.0 with 3 steps: 2 agents, 1 repeating step, and acme.single at 1.0.0 with 2 steps: 2 agents, each Locked when published.](../../../../assets/flows/flows-list.png)
+![The Flows page: "A flow runs agents and tools as the steps of one run: in sequence, in a loop, or as tool calls in parallel. Each step can take the output of the steps before it. A step can't run another flow yet.", a search box and the Columns menu, then Refunds ("Triage, check each item, then answer.") at 2.0.0 with 3 (2 agents, 1 repeating step), and acme.single at 1.0.0 with 2 (2 agents), each with Versions locked: Yes.](../../../../assets/flows/flows-list.png)
 
-A flow's page has **Runs** and **Cost** at the top, and **Start run** while a
-version is in use, only to people who may run the flow. It says which version
-it shows: "2.0.0 (its latest): 3 steps: 2 agents, 1 repeating
-step." It draws that version as a graph, from Start to End: each step with
-what it runs, by name, and at which version, such as "locked at 1.0.0", and
-a repeating step in words ("For each item of the run's items, at most 50
-times: Dev-Echo Agent"). Below it:
-- **What 2.0.0 uses:** its agents and tools, each with what it does and its
-  version: "Locked when this version was published: every run of it uses
-  these versions."
-- **Versions:** "Runs use the latest unless they name a version." Every
-  version is listed, a retired one marked **retired**, each with what it
-  runs and **Runs →**, the runs list filtered to that version.
+A flow's page has its name and description, with **Download its JSON** and
+**Start a run** as icons at the top. **Start a run** shows while a version
+is in use, to people who may run the flow. Its pages are **Overview**,
+**Runs** and **Corrections**. The breadcrumbs at the top end on the one
+you're on, such as **Flows › Refunds › Overview ▾**, and its ▾ lists the
+others.
+
+**Overview** starts with the version it shows: its **ID**, its **Version**,
+tagged **Latest** for the newest ("The newest version: runs use it unless
+they name another.") or **Retired**, with "Latest is 2.0.0", a link, when
+it shows another, and **Versions locked**. **Steps** draws that version
+as a graph, from Start to End: each step with what it runs, by name, and at
+which version, such as "locked at 1.0.0", and a repeating step in words
+("For each item of the run's items, at most 50 times: Dev-Echo Agent").
+Below it:
+- **Agents and tools:** each agent and tool it runs, with its **Name**,
+  **Kind**, **What it does** and **Version**: the version it runs, or
+  "Latest at each run" when it isn't locked.
 - **What triggers it:** the schedules, incoming webhooks and mail triggers
   that start it, each with the version it starts, such as "Schedule: Every
   day at 2:00 AM UTC · version 2.0.0" or "Mail trigger: new mail in the
-  company's Gmail, inbox · version 2.0.0". With none, it says "No schedule,
-  incoming webhook or mail trigger: people and apps start it."
+  company's Gmail, inbox · version 2.0.0". A trigger that names no version
+  starts "the latest version", and a paused one is marked **Paused**. With
+  none, it says "No schedule, incoming webhook or mail trigger: people and
+  apps start it."
+- **Recent runs:** its latest 10 runs in the project, at any version, each
+  with when it started, its status, its version and how long it took.
+  **Cost →** opens the project's costs filtered to the flow, and **All runs
+  →** its **Runs** page.
+- **Versions:** every version, each with what it does, its steps, what it's
+  **Locked by**, such as a schedule that starts it, and **Runs →**, its
+  **Runs** page filtered to that version. A retired version is listed only
+  under **Show retired**. The version on the page always shows, and so does
+  every version of a flow with none in use.
+- **Full spec:** the version's definition, as the runtime sent it.
 
-![Refunds' page at 2.0.0, its latest: Runs, Cost and Start run; the graph Start, triage, a step repeating for each of the run's items, answer, End, each agent locked at 1.0.0; What 2.0.0 uses: Dev-Echo Agent, locked at 1.0.0; Versions: 2.0.0 (latest) and 1.1.0, each with Runs → and Retire's archive icon at the row's end, and 1.0.0 (retired) with Runs → and Bring back; and What triggers it: the nightly refunds schedule and the Refund requests incoming webhook, each starting version 2.0.0.](../../../../assets/flows/flow-page.png)
+A version with a flow inside it says "A run of 1.0.0 is refused": "It has a
+flow inside it, which runs can't do yet. Put that flow's steps in this one
+instead."
+
+**Runs** lists the flow's runs as a project's
+[Runs](../../runs/list-runs/#in-the-console) page does, and **Corrections**
+has what people said about them.
+
+![Refunds' page at 2.0.0: Download its JSON and Start a run at the top; ID acme.refunds, Version 2.0.0 with its Latest tag, Versions locked: Yes; the steps Start, triage, a step repeating for each of the run's items at most 50 times, answer, End, each agent locked at 1.0.0; Agents and tools: Dev-Echo Agent at 1.0.0; What triggers it: the nightly refunds schedule and the Refund requests webhook, each at 2.0.0; Recent runs, none yet; Versions, with 2.0.0 locked by both; and Full spec.](../../../../assets/flows/flow-page.png)
 
 For flow admins, each version in use has **Retire**: the archive icon at the
 row's end, with the word only on hover. It asks first, saying what changes:

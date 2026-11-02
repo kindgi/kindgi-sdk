@@ -15,7 +15,7 @@ description: >
   with the person.
 type: core
 library: "@kindgi/sdk"
-version: "0.1.4"
+version: "0.1.5"
 sdk_version: "0.0.0"
 pack_languages: [node, python, java, scala]
 ---
@@ -88,19 +88,19 @@ decided one opens its own page.
 | Page | `<page>` | Shows |
 |---|---|---|
 | Dashboard | *(empty)* | how the project is doing |
-| Agents | `agents`, one: `agents/<agentId>` | the agents, their versions, which one is pinned |
+| Agents | `agents`, one: `agents/<agentId>`, `…/runs`, `…/corrections` | the agents, their versions, which one is pinned |
 | Runs | `runs` | every answer and flow run, newest first, with its cost |
-| One run | `runs/<runId>`, with tabs `/journal`, `/provenance`, `/cost`, `/corrections` | the message, each tool it called with what it sent, the answer or what stopped it; then every step, what ran with what, what it cost, how it was rated |
+| One run | `agents/<agentId>/runs/<runId>` or `flows/<flowId>/runs/<runId>`, pages `/journal`, `/provenance`, `/cost`, `/corrections`; `runs/<runId>` alone finds either | the message, each tool it called with what it sent, the answer or what stopped it; then every step, what ran with what, what it cost, how it was rated |
 | What failed | `runs/failures` | failed runs, grouped by why |
 | Approvals | `approvals`, one: `approvals/<approvalId>` | what waits for a person's decision |
 | Tools | `tools`, one: `tools/<toolId>` | the tools, what each may do and change |
 | Guardrails | `guardrails`, one: `guardrails/<guardrailId>` | each rule's settings, the agents it checks, what it caught |
-| Flows | `flows`, one: `flows/<flowId>` | the flows and their steps |
+| Flows | `flows`, one: `flows/<flowId>`, `…/runs`, `…/corrections` | the flows and their steps |
 | Schedules | `schedules`, one: `schedules/<triggerId>` | when each runs next, and its past runs |
 | Mail triggers | `mail-triggers`, one: `mail-triggers/<triggerId>` | the mailbox each watches and what it starts; its latest mails, and the run each started |
 | Conversations | `conversations`, one: `conversations/<conversationId>` | each conversation's turns |
 | Cost | `cost` | what the project's model calls cost, by agent, model, flow or kind |
-| Quality | `quality` | answers waiting for a correction (To correct), the queue's rules, trends, corrector groups, suggested changes |
+| Corrections | `corrections` | runs to review, corrections to fix, who corrects, rules, trends |
 | An agent's test set | `agents/<agentId>/test-set` | each correction on its runs as a case, and cases added by hand |
 | Suggested changes | `agents/<agentId>/suggested-changes`, one: `…/suggested-changes/<suggestedChangeId>` | changes to a prompt or settings for one project, each with its check |
 | Pinned versions | `agents/<agentId>/pinned` | where each version is pinned, and the pin history |
@@ -109,11 +109,9 @@ decided one opens its own page.
 
 The runs list filters by its URL: `agent=<agentId>`, `status=` one of
 `pending`, `running`, `suspended`, `completed`, `failed`, `cancelled`,
-and `since=` one of `1h`, `1d`, `7d`, `30d`. For example
-`runs?agent=<agentId>&status=completed&since=1d` is every answer that
-agent finished in the last day. The cost page takes `range=` one of `7d`,
-`30d`, `90d`, `12m`, `agent=<agentId>` and `by=` one of `agent`, `model`,
-`flow`, `kind`.
+and `since=` one of `1h`, `1d`, `7d`, `30d`. The cost page takes `range=`
+one of `7d`, `30d`, `90d`, `12m`, `agent=<agentId>` and `by=` one of
+`agent`, `model`, `flow`, `kind`.
 
 ### Tenant pages
 
@@ -157,8 +155,8 @@ say there were none.
   `output.appended` holds the turn in order: the agent's `toolCalls` (each
   tool's `name` and `arguments`) and the `tool` messages with what came
   back. Say which records it looked up, and what it found.
-- In the console: `runs/<runId>` shows each tool call and its arguments;
-  the `/journal` tab has every step.
+- In the console: `agents/<agentId>/runs/<runId>` shows each tool call and
+  its arguments; its `/journal` page has every step.
 
 **"Where do I see every answer it finished in the last day?"**
 - In the CLI: `kindgi runs list --agent <agentId> --limit 100`, keeping
@@ -256,15 +254,15 @@ say there were none.
   `madeBy` is that principal (same `kind` and `id`), and say each
   one's run, `answer` and `why`. In `kindgi dev`, the CLI and the
   console's sign-in are the same seed user.
-- In the console: each run's `runs/<runId>/corrections`, and `quality`.
+- In the console: each run's `/corrections` page, and `corrections`.
 
 **"What are people correcting, and what's being fixed?"**
 - In the CLI: `kindgi corrections list --agent=<agentId> --status=not-fixed`
   (each one's `status`, and its `link` once someone took it), and
   `kindgi suggested-changes list --agent=<agentId>` (each change's
   `status`: its check, then pinned or added as Latest).
-- In the console: `quality`, its To correct and Suggested changes tabs,
-  and the agent's `agents/<agentId>/test-set`.
+- In the console: `corrections` (To fix), and the agent's
+  `agents/<agentId>/corrections` and `…/test-set`.
 
 **"What did each answer cost this week?"**
 - In the CLI: one answer at a time: `kindgi runs get <runId>`, its
@@ -272,7 +270,7 @@ say there were none.
   week's total.
 - In the console: `runs?agent=<agentId>&since=7d` (each run's cost is a
   column), and `cost?range=7d&agent=<agentId>` for the total; one run's
-  breakdown is `runs/<runId>/cost`.
+  breakdown is its `/cost` page.
 
 ## More
 
