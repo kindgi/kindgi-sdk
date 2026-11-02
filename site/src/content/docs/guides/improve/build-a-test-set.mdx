@@ -244,7 +244,7 @@ finished runs: what it should have done, said, or ranked. It has no status,
 isn't sorted, and nothing that counts corrections counts it, so it doesn't
 start Improve or count toward the expert queue.
 
-```ts
+```ts excerpt
 await kindgi.agents.testSet.addCase('acme-ops.article-picker', {
   runId,
   items: [{ key: 'kb-301', pointer: '/output/articles/0', rank: 0, verdict: 'right' }],
@@ -268,7 +268,7 @@ with the same body.
 A case that no longer applies, such as one about a tool the agent doesn't
 have any more, can be retired, with a reason:
 
-```ts
+```ts excerpt
 await kindgi.agents.testSet.retireCase('acme-ops.article-picker', caseId, 'kb-301 was merged into kb-302');
 ```
 
