@@ -560,26 +560,29 @@ failed call costs $0.
 
 Anyone who can read the project sees its **Cost** page: what its model calls
 cost over a range, against the range before. The range is **7 days**,
-**30 days**, **90 days**, **12 months** or **Custom**.
+**30 days**, **90 days**, **12 months** or **Custom**. Its pages split the
+cost **By agent**, **By model**, **By flow** or **By kind**. The
+breadcrumbs at the top end on the one you're on, such as
+**Cost › By agent ▾**, and its ▾, **Cost pages**, lists the others.
 
-![A project's Cost page over 30 days: "$24.17 in the last 30 days, 77% more than the 30 days before.", "1,508 model calls · 8.4M tokens", spend by day stacked by agent, and Where it went by agent, with its Columns menu and Support agent at $15.00 (62%), 33% more than the 30 days before.](../../../../assets/cost/cost-30d.png)
+![A project's Cost page over 30 days, its breadcrumbs ending Cost › By agent ▾: "$23.99" and "Last 30 days · 77% more than the 30 days before · 1,503 model calls · 8.4M tokens", spend by day stacked by agent, and Where it went, by agent, with its Columns menu and Support agent at $14.79 (62%), "33% more (was $11.12)".](../../../../assets/cost/cost-30d.png)
 
-- **The headline:** "$24.17 in the last 30 days, 77% more than the 30 days
-  before." and "1,508 model calls · 8.4M tokens".
+- **The headline:** "$23.99", and "Last 30 days · 77% more than the 30 days
+  before · 1,503 model calls · 8.4M tokens".
 - **Spend by day (UTC), by agent:** a stacked chart, with a sentence under
-  it ("the costliest day was 8 Oct ($1.19). Support agent is 62% of it.").
+  it ("the costliest day was 30 Oct ($1.19). Support agent is 62% of it.").
   **Show as a table** gives the numbers. Over 12 months it's by month.
-- **Where it went:** **By agent**, **By model**, **By flow** or **By kind**,
-  the costliest against the range before ("33% more (was $11.28)", "new").
+- **Where it went, by agent** (or by model, flow or kind): the costliest
+  against the range before ("33% more (was $11.12)", "New").
   An agent's or a model's row filters the page to it. So does a flow's,
   and a flow's page opens this page filtered to that flow with **Cost**
   (both runtime 0.1.9 or later). The table sorts by a column's header, and
   **Columns** chooses which columns it shows.
 - **Biggest changes:** against the range before, by dollars ("Research
-  agent new: $8.57", "Legacy summarizer −$1.81 (none now)").
-- **Per-turn caps:** each agent with a budget for one turn, and how close its
-  turns came ("Costliest turn $0.14 of $0.12; 36 turns used over 80% of it, 4
-  turns went over.").
+  agent new: $8.62", "Legacy summarizer −$1.81 (none now)").
+- **Per-turn caps:** each agent with a budget for one turn, and how close
+  its turns came: its **Cap a turn**, **Costliest turn**, **Turns over 80%**
+  and **Over the cap**, such as $0.12, $0.14, 35 and 4.
 - **Details:** the token split, and the exact
   [`GET /v1/cost/aggregate`](#one-customers-month) queries the page made.
 
@@ -615,12 +618,13 @@ model calls, its child runs included. Each call →".
 Tenant admins see **Tenant costs**: every project's spend, laid out like a
 project's Cost page.
 
-![Tenant costs over 30 days: "$48.33 in the last 30 days, 77% more than the 30 days before.", "3,016 model calls · 16.9M tokens", spend by day stacked by project, and Where it went by project: Default and Ops, $24.17 each.](../../../../assets/cost/tenant-costs.png)
+![Tenant costs over 30 days, its breadcrumbs ending Tenant costs › By project ▾: "$47.99" and "Last 30 days · 77% more than the 30 days before · 3,006 model calls · 16.7M tokens", spend by day stacked by project, and Where it went, by project: First Project and Ops, $23.99 each.](../../../../assets/cost/tenant-costs.png)
 
 - **The headline,** and **Spend by day (UTC), by project.**
-- **Where it went:** **By project**, **By org**, **By agent** or **By
-  model**. A project's row opens that project's Cost page at the same range,
-  and an agent's or a model's row filters this page.
+- **Where it went, by project:** its pages, in the ▾ **Cost pages**, are
+  **By project**, **By org**, **By agent** and **By model**. A project's row
+  opens that project's Cost page at the same range, and an agent's or a
+  model's row filters this page.
 - **Biggest changes** and **Details,** as on a project's page.
 
 Anyone else who opens it is pointed to each project's Cost page instead. As
