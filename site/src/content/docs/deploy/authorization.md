@@ -292,7 +292,7 @@ checks every call.
 
 **My access**, in the tenant's sections, is what you may do and how you
 have it. It starts with a sentence, such as "You're an editor in 1
-project." Then it has your tenant role ("Tenant: member. Its people, keys
+project." Then it has your tenant role ("Workspace: member. Its people, keys
 and settings are its admins'."), and your reviewer role if you have one.
 Last is a table of your projects: your role, how you have it, and what it
 lets you do and doesn't. You can have a role directly, through a team, as an

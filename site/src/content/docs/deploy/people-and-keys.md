@@ -741,8 +741,8 @@ open.
 
 ### People
 
-**People**, for tenant admins, lists the tenant's people: each one's access
-in words, such as "reads the tenant's settings, viewer on Support, member
+**People**, for tenant admins, lists the workspace's people: each one's access
+in words, such as "reads the workspace's settings, viewer on Support, member
 of team Support crew, standard reviewer", their active keys, when they were
 last active, and when they were added. Access is what each was granted
 directly: what a team's role gives on a project isn't listed there. A
@@ -758,7 +758,7 @@ Someone [invited](#their-invitation) who hasn't signed in yet is marked
 
 **Add a person** adds someone with their access in one step: "Give them
 their access now, in the same step." It takes a name, an optional email
-("One person per email in this tenant."), project roles, teams, a reviewer
+("One person per email in this workspace."), project roles, teams, a reviewer
 tier, and tenant admin.
 
 ![The Add a person dialog: a name and an email, a viewer role on Billing, the team Support crew as a member, no reviewer role, and the Tenant admin checkbox, with an Add button.](../../../assets/people/add-person.png)
@@ -791,7 +791,7 @@ where you may:
   what it gives, such as "Also changes it: registers and runs agents,
   corrects answers, publishes." for an editor.
 - **Reviewer:** their tier, or none; **Take off the roster**.
-- **Tenant admin:** making or unmaking one. "A tenant always keeps one
+- **Tenant admin:** making or unmaking one. "A workspace always keeps one
   admin: removing the only one is refused."
 
 Taking something away asks first: "Take Ada Lovelace off Support? From
