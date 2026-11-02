@@ -116,7 +116,7 @@ export interface KernelRunRecord {
 
 /**
  * Content-scope filter for `RunBinding.listRuns`. Present-with-value
- * narrows to a specific project or org; absent = tenant-wide (admin
+ * narrows to a specific project or org; absent = workspace-wide (admin
  * default). An org scope includes the runs of every project in that
  * org.
  */
