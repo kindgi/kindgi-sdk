@@ -482,8 +482,8 @@
 
   /**
    * What the decision says it does. A rejection doesn't end the agent's
-   * turn: the agent reads the reason and may try again, and what it tries
-   * comes back as a new approval. A reply that isn't sent goes nowhere:
+   * turn: the agent reads the reason and may try again, and a call that
+   * needs approval comes back as a new one. A reply that isn't sent goes nowhere:
    * the person it was to hears nothing from Kindgi.
    */
   function decisionWords(card) {
@@ -493,7 +493,7 @@
           'kindgi',
         )
       : __(
-          'The agent reads what you write here and may try another way, which comes back for approval.',
+          'The agent reads what you write here and may try again. A call that needs approval comes back for it.',
           'kindgi',
         );
     if (card.reply) {
@@ -515,11 +515,11 @@
       reject: __('Reject…', 'kindgi'),
       confirm: __('Reject', 'kindgi'),
       label: __('Why you reject it', 'kindgi'),
-      /* translators: %s: that the agent may try another way */
+      /* translators: %s: that the agent may try again */
       effect: sprintf(__("It doesn't happen. %s", 'kindgi'), tryAgain) + asker,
       needed: __('Say why you reject it.', 'kindgi'),
       rejected: __(
-        "It doesn't happen. If the agent tries another way, it comes to the Inbox.",
+        "It doesn't happen. If the agent tries again with a call that needs approval, it comes to the Inbox.",
         'kindgi',
       ),
     };
