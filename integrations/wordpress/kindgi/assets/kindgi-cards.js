@@ -11,7 +11,7 @@
  * as text, never as HTML.
  */
 (() => {
-  const { __, sprintf } = wp.i18n;
+  const { __, _n, sprintf } = wp.i18n;
   // Read when a link is made: the page sets its config before or after this script.
   const urls = () => window.kindgiConfig?.urls ?? {};
 
@@ -245,13 +245,83 @@
   /** A plain sentence, or null when there is none. */
   const sentence = (text) => (typeof text === 'string' && text.trim() !== '' ? text.trim() : null);
 
+  /** The first line of the note Kindgi answers with when guardrails stop a call: its mark, then their ids. */
+  const GUARDRAIL_MARK = '[kindgi:guardrail-retry] ';
+
+  /**
+   * A guardrails' note that says the call didn't run: how many guardrails
+   * stopped it, and their reasons, as given; null for any other answer,
+   * such as their note on a call that ran, whose result they withheld.
+   */
+  function refusedBy(result) {
+    if (typeof result !== 'string' || !result.startsWith(GUARDRAIL_MARK)) return null;
+    const [mark, said, ...rest] = result.split('\n');
+    if (
+      !said?.startsWith("This call didn't run: ") ||
+      !rest.at(-1)?.startsWith("Don't make this call again")
+    ) {
+      return null;
+    }
+    let ids;
+    try {
+      ids = JSON.parse(mark.slice(GUARDRAIL_MARK.length));
+    } catch {
+      return null;
+    }
+    if (!Array.isArray(ids) || ids.length === 0) return null;
+    return { count: ids.length, why: sentence(rest.slice(0, -1).join('\n')) };
+  }
+
+  /** An answer's fields, sorted and joined, when it is an object; '' when it isn't. */
+  const fieldsOf = (result) =>
+    result !== null && typeof result === 'object' && !Array.isArray(result)
+      ? Object.keys(result).sort().join()
+      : '';
+
+  /**
+   * Why Kindgi stopped a call, in its words, when the answer is its own
+   * for a call that ran nothing or failed; undefined for any other:
+   * - `{ status: 'denied', reason }`: the call wasn't allowed;
+   * - `{ status: 'failed', error: { code: 'connection-…', message } }`: its
+   *   connections stopped it;
+   * - `{ kindgi: 'tool-error-retry', status: 'failed', error: { message },
+   *   instruction }`: the tool failed, or the call's arguments or tool were
+   *   wrong.
+   */
+  function stoppedWhy(result) {
+    const fields = fieldsOf(result);
+    if (fields === 'reason,status' && result.status === 'denied') return sentence(result.reason);
+    if (result?.status !== 'failed' || result.error === null || typeof result.error !== 'object') {
+      return undefined;
+    }
+    const connection =
+      fields === 'error,status' &&
+      typeof result.error.code === 'string' &&
+      result.error.code.startsWith('connection-');
+    const tool =
+      fields === 'error,instruction,kindgi,status' && result.kindgi === 'tool-error-retry';
+    return connection || tool ? sentence(result.error.message) : undefined;
+  }
+
+  /**
+   * The reviewer's reason, or null when they gave none, when the answer is
+   * Kindgi's `{ status: 'rejected', rationale? }` for a call whose approval
+   * was rejected; undefined for any other.
+   */
+  function rejectedWhy(result) {
+    const fields = fieldsOf(result);
+    if ((fields !== 'status' && fields !== 'rationale,status') || result.status !== 'rejected') {
+      return undefined;
+    }
+    return sentence(result.rationale);
+  }
+
   /**
    * A tool call's step in words, by its answer (the tool's message), if one
    * came: until then the agent only asked to use the tool. Kindgi answers a
-   * call that ran nothing in one of two shapes, which say why: `{ status:
-   * 'denied', reason }` when the call wasn't allowed, in Kindgi's words,
-   * and `{ status: 'rejected', rationale? }` when its approval was
-   * rejected, in the reviewer's. Any other answer is the tool's own.
+   * call that ran nothing, or failed, in shapes of its own, which say why
+   * (`stoppedWhy`, `refusedBy`, `rejectedWhy`). Any other answer is the
+   * tool's own.
    */
   function stepWords(id, answer) {
     const name = toolName(id);
@@ -259,32 +329,41 @@
       /* translators: %s: a tool's name */
       return { ran: false, line: sprintf(__('Asked to use %s', 'kindgi'), name), why: null };
     }
-    const result = answer.result;
-    const fields =
-      result !== null && typeof result === 'object' && !Array.isArray(result)
-        ? Object.keys(result).sort().join()
-        : '';
-    if (fields === 'reason,status' && result.status === 'denied') {
+    const stopped = stoppedWhy(answer.result);
+    if (stopped !== undefined) {
+      /* translators: %s: a tool's name */
+      return { ran: false, line: sprintf(__("Couldn't use %s", 'kindgi'), name), why: stopped };
+    }
+    const refused = refusedBy(answer.result);
+    if (refused !== null) {
       return {
         ran: false,
-        /* translators: %s: a tool's name */
-        line: sprintf(__("Couldn't use %s", 'kindgi'), name),
-        why: sentence(result.reason),
+        line: sprintf(
+          /* translators: %s: a tool's name */
+          _n(
+            "Couldn't use %s: a guardrail stopped it",
+            "Couldn't use %s: guardrails stopped it",
+            refused.count,
+            'kindgi',
+          ),
+          name,
+        ),
+        why: refused.why,
       };
     }
-    if ((fields === 'status' || fields === 'rationale,status') && result.status === 'rejected') {
-      const rationale = sentence(result.rationale);
+    const rejected = rejectedWhy(answer.result);
+    if (rejected !== undefined) {
       return {
         ran: false,
         /* translators: %s: a tool's name */
         line: sprintf(__("Didn't use %s: its approval was rejected", 'kindgi'), name),
         why:
-          rationale === null
+          rejected === null
             ? null
             : sprintf(
                 /* translators: %s: the reason the reviewer gave */
                 __('Reason: %s', 'kindgi'),
-                rationale,
+                rejected,
               ),
       };
     }

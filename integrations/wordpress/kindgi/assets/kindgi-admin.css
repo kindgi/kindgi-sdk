@@ -376,8 +376,10 @@
   background: transparent;
 }
 
+/* A reason can take lines, one for each guardrail. */
 .kindgi .kindgi-step-why {
   display: block;
+  white-space: pre-line;
 }
 
 .kindgi .kindgi-answer summary {
