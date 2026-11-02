@@ -113,8 +113,9 @@ def record_expense(expense: Expense, ctx: ToolContext) -> Recorded:
   a reviewer reads a call in, each `{field}` filled from the call: a required
   input field that is a string, a number, an integer or a boolean. A `summary`
   says more, and `about` (`{"kind": "woocommerce.order", "id":
-  "{order_id}"}`) names what the call acts on. Left out, an approval reads
-  `Approve a call to <tool id>`.
+  "{order_id}"}`) names what the call acts on. `about.id` is a thing's id,
+  never a person's details: an order number, never an email. Left out, an
+  approval reads `Approve a call to <tool id>`.
 - The handler is `(input)` or `(input, ctx)`, `def` or `async def`. A `def`
   handler runs in a worker thread, so blocking I/O is fine.
 - Before calling you, the pack service validates the input against the schema
