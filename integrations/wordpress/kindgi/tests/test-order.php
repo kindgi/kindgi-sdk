@@ -381,3 +381,60 @@ function test_order_the_box_names_an_agent_that_asked_on_its_own_as_kindgi_does(
 	kindgi_assert_same( 4, count( $GLOBALS['kindgi_test']['requests'] ), 'its agents read once for both, on her live session: no sign-in' );
 	kindgi_assert( false !== strpos( $GLOBALS['kindgi_test']['requests'][2][0], '/v1/agents' ), "the project's agents" );
 }
+
+function test_order_the_box_shows_the_mail_to_the_orders_customer_apart(): void {
+	kindgi_test_jane_at_work();
+	$GLOBALS['kindgi_test']['orders'][27] = new WC_Order( 27, 'processing', 'Pat@Example.com' );
+	$to                                   = static function ( string $id, string $to, array $changes = array() ): array {
+		$a                            = kindgi_test_reply_approval( $id, 'r-1' );
+		$a['subjectRef']['arguments'] = array_merge( $a['subjectRef']['arguments'], array( 'to' => $to ) );
+		return array_merge( $a, $changes );
+	};
+	kindgi_test_answer_reviewer();
+	kindgi_test_answer(
+		200,
+		array(
+			'data'    => array(
+				$to( 'ap-pat', 'pat@example.com' ),
+				$to( 'ap-robin', 'robin@example.com' ),
+				$to( 'ap-pat-named', ' Pat Example <PAT@example.com>' ),
+				$to( 'ap-pat-18', 'pat@example.com', array( 'context' => kindgi_test_about_order( '18' ) ) ),
+				kindgi_test_approval( array( 'id' => 'ap-refund' ) ),
+			),
+			'hasMore' => false,
+		)
+	);
+	kindgi_test_answer(
+		200,
+		array(
+			'data'    => array(
+				$to(
+					'ap-pat-sent',
+					'pat@example.com',
+					array(
+						'status'   => 'approved',
+						'decision' => array(
+							'decision'  => 'approve',
+							'decidedAt' => '2026-11-01T06:00:00Z',
+							'decidedBy' => 'user:u-anna',
+						),
+					)
+				),
+			),
+			'hasMore' => false,
+		)
+	);
+	$answer = Kindgi_Rest::order( new WP_REST_Request( array( 'order' => '27', 'signIn' => false ) ) );
+	kindgi_assert_same( array(), $answer['waiting'], 'nothing waits about order 27 itself' );
+	kindgi_assert_same( 'Pat@Example.com', $answer['customer']['email'], 'the order names its customer by its billing email' );
+	kindgi_assert_same( array( 'ap-pat', 'ap-pat-named' ), array_column( $answer['customer']['waiting'], 'id' ), "the replies to it that wait, with a name or in another case: not another's, nor one about another order" );
+	kindgi_assert_same( 'you', $answer['customer']['waiting'][0]['waitsFor'], 'hers to decide, as in the Inbox' );
+	kindgi_assert_same( array( 'ap-pat-sent' ), array_column( $answer['customer']['closed'], 'id' ), 'and those decided' );
+
+	kindgi_test_jane_at_work();
+	kindgi_test_answer_reviewer();
+	kindgi_test_answer( 200, array( 'data' => array( $to( 'ap-pat', 'pat@example.com' ) ) ) );
+	kindgi_test_answer( 200, array( 'data' => array() ) );
+	$none = Kindgi_Rest::order( new WP_REST_Request( array( 'order' => '18', 'signIn' => false ) ) );
+	kindgi_assert_same( array( array(), array() ), array( $none['customer']['waiting'], $none['customer']['closed'] ), 'an order with no billing email has no mail to its customer' );
+}
