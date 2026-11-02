@@ -613,9 +613,16 @@
   color: var(--kindgi-muted);
 }
 
+/* What happens if no one decides in time, right under who asked (the margins collapse to 2px). */
+.kindgi .kindgi-deadline {
+  margin: calc(2px - var(--kindgi-space-2)) 0 var(--kindgi-space-2);
+  color: var(--kindgi-muted);
+}
+
 /* Little time left to decide: amber, dark enough to read. */
-.kindgi .kindgi-meta .kindgi-soon {
+.kindgi .kindgi-deadline.kindgi-soon {
   color: #996800;
+  font-weight: 600;
 }
 
 .kindgi .kindgi-facts {
@@ -642,11 +649,6 @@
   padding: var(--kindgi-space-2);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-
-.kindgi .kindgi-details summary {
-  color: var(--kindgi-muted);
-  cursor: pointer;
 }
 
 /* The whole call, when the card leaves part of it out: for whoever decides, so each value whole and never a scroll box. */
@@ -742,7 +744,7 @@
 
 /* A long one shows its start, fading out, until Show all. */
 .kindgi .kindgi-folded .kindgi-said-text {
-  max-height: 9.5em;
+  max-height: 24em;
   overflow: hidden;
   mask-image: linear-gradient(to bottom, #000 60%, transparent);
 }

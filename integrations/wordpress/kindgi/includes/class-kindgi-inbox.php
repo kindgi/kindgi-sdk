@@ -58,37 +58,35 @@ final class Kindgi_Inbox {
 		$pending  = in_array( $a['status'] ?? null, self::WAITING, true );
 		$not_mine = $pending ? self::not_yours( $a, $me, $reviewer ) : null;
 		$prose    = null === $tool ? array() : self::prose_of( $ref['arguments'] ?? null );
+		$reply    = null === $tool ? null : self::reply_of( $ref['arguments'] ?? null );
 		$summary  = self::summary( $a );
 		$card     = array(
 			'id'             => (string) ( $a['id'] ?? '' ),
-			'heading'        => self::heading( $a, $tool ),
+			'heading'        => self::heading( $a, $tool, $reply ),
 			// A summary that's one of the agent's own fields shows once, as its words (compared whole, before either is cut).
 			'summary'        => in_array( $summary, $prose, true ) ? '' : $summary,
-			// What would run, always shown: a title can leave a field out.
-			'facts'          => null === $tool ? array() : self::facts( $ref['arguments'] ?? null ),
+			// What would run, always shown: a title can leave a field out. A reply's heading names whom it goes to.
+			'facts'          => null === $tool ? array() : self::facts( $ref['arguments'] ?? null, null === $reply ? array() : array( 'to' ) ),
 			// The agent's own words among them (a reason, a note): quoted, apart from the facts.
-			'words'          => self::words_of( $ref['arguments'] ?? null, $prose ),
+			'words'          => self::words_of( $ref['arguments'] ?? null, $prose, null === $reply ? array() : array( 'body' => __( 'The reply', 'kindgi' ) ) ),
+			// A mail tool's reply: whom it goes to.
+			'reply'          => $reply,
 			// The whole call, folded, when the facts and words leave part of it out.
 			'whole'          => null === $tool ? null : self::whole( $ref['arguments'] ?? null ),
 			'status'         => (string) ( $a['status'] ?? '' ),
 			'createdAt'      => (string) ( $a['createdAt'] ?? '' ),
 			'expiresAt'      => is_string( $a['expiresAt'] ?? null ) ? $a['expiresAt'] : null,
+			// Who it goes to if no one decides by then; null: it expires then.
+			'next'           => self::next_reviewer( $a ),
 			'asked'          => self::asked( $asked_by, $me, $who ),
+			// The agent that asked, in words: it asked on its own when no person did.
+			'agent'          => null !== $tool && is_string( $ref['agentId'] ?? null ) ? self::tool_name( $ref['agentId'] ) : null,
 			// Waiting: 'you' when this person may decide it, else 'others' and why not.
 			'waitsFor'       => $pending ? ( null === $not_mine ? 'you' : 'others' ) : null,
 			'notYours'       => $not_mine,
 			'conversationId' => null !== $tool && is_string( $ref['conversationId'] ?? null ) ? $ref['conversationId'] : null,
 			// What it's about, when its tool says (a WooCommerce order: `Kindgi_Order`).
 			'about'          => self::about_of( $a ),
-			// Kindgi's own words and ids, behind "Details".
-			'details'        => array(
-				'title'        => (string) ( $a['title'] ?? '' ),
-				'description'  => is_string( $a['description'] ?? null ) ? $a['description'] : '',
-				'toolId'       => $tool,
-				'arguments'    => null === $tool ? null : ( $ref['arguments'] ?? null ),
-				'agentId'      => null !== $tool && is_string( $ref['agentId'] ?? null ) ? $ref['agentId'] : null,
-				'requiredRole' => (string) ( $a['requiredRole'] ?? '' ),
-			),
 			'decision'       => null === $decision ? null : array(
 				'decision'  => (string) ( $decision['decision'] ?? '' ),
 				'decidedAt' => (string) ( $decision['decidedAt'] ?? '' ),
@@ -135,6 +133,24 @@ final class Kindgi_Inbox {
 	}
 
 	/**
+	 * Who a waiting approval goes to if no one decides it by its deadline:
+	 * Kindgi passes it to the reviewer tier above its own (`senior`, then
+	 * `admin`), with as long again to decide. Null when it expires then
+	 * instead, and what it asks for doesn't happen: at the top tier, or
+	 * addressed to one person (`approver`).
+	 */
+	public static function next_reviewer( array $a ): ?string {
+		if ( is_array( $a['approver'] ?? null ) ) {
+			return null;
+		}
+		$required = (string) ( $a['requiredRole'] ?? 'standard' );
+		if ( 'standard' === $required ) {
+			return 'senior';
+		}
+		return 'senior' === $required ? 'admin' : null;
+	}
+
+	/**
 	 * The person as a reviewer, from Kindgi's `GET /v1/identity/me/permissions`:
 	 * their row on the roster (`id`, the one an approval assigned to them
 	 * names) and the required roles they may decide. Null when they can't
@@ -158,9 +174,11 @@ final class Kindgi_Inbox {
 	 * The card's heading: the tool's own title for the call, when it gave
 	 * one (Kindgi puts it in the approval's `context.text`); else the
 	 * approval's title, unless it's one Kindgi gives every tool call; then
-	 * the tool's name in words.
+	 * a mail tool's reply by whom it goes to, or the tool's name in words.
+	 *
+	 * @param array{to: string}|null $reply `reply_of` the call.
 	 */
-	public static function heading( array $a, ?string $tool ): string {
+	public static function heading( array $a, ?string $tool, ?array $reply = null ): string {
 		$own = self::own_words( $a, 'title' );
 		if ( null !== $own ) {
 			return $own;
@@ -168,6 +186,10 @@ final class Kindgi_Inbox {
 		$title = trim( (string) ( $a['title'] ?? '' ) );
 		if ( '' !== $title && ! self::generic_title( $title, $tool ) ) {
 			return $title;
+		}
+		if ( null !== $reply ) {
+			/* translators: %s: an email address */
+			return sprintf( __( 'Reply to %s', 'kindgi' ), $reply['to'] );
 		}
 		if ( null !== $tool ) {
 			return self::tool_name( $tool );
@@ -228,14 +250,17 @@ final class Kindgi_Inbox {
 	/**
 	 * A call's fields as label and value: `orderId` → "Order ID", a list
 	 * or an object as its JSON, each cut short. Words someone wrote
-	 * (`is_prose`) are left to `words_of`.
+	 * (`is_prose`) are left to `words_of`; ids only a machine reads
+	 * (`is_reference`) are left out.
 	 *
+	 * @param mixed    $arguments The call's fields.
+	 * @param string[] $shown     Fields the card shows elsewhere (a reply's `to`, in its heading).
 	 * @return array<int, array{label: string, value: string}>
 	 */
-	public static function facts( $arguments ): array {
+	public static function facts( $arguments, array $shown = array() ): array {
 		$facts = array();
 		foreach ( self::fields( $arguments ) as $key => $value ) {
-			if ( ! self::is_prose( $value ) ) {
+			if ( ! in_array( $key, $shown, true ) && ! self::is_prose( $value ) && ! self::is_reference( $value ) ) {
 				$facts[] = array(
 					'label' => self::words( (string) $key ),
 					'value' => self::text_of( $value ),
@@ -287,13 +312,14 @@ final class Kindgi_Inbox {
 	 *
 	 * @param mixed                      $arguments The call's fields.
 	 * @param array<string, string>|null $prose     Its `prose_of`, when the caller has it.
+	 * @param array<string, string>      $labels    A field's label, when its name in words isn't it.
 	 * @return array<int, array{label: string, text: string}>
 	 */
-	public static function words_of( $arguments, ?array $prose = null ): array {
+	public static function words_of( $arguments, ?array $prose = null, array $labels = array() ): array {
 		$words = array();
 		foreach ( $prose ?? self::prose_of( $arguments ) as $key => $text ) {
 			$words[] = array(
-				'label' => self::words( (string) $key ),
+				'label' => $labels[ $key ] ?? self::words( (string) $key ),
 				'text'  => self::cut( $text, self::WORDS_MAX ),
 			);
 		}
@@ -326,6 +352,36 @@ final class Kindgi_Inbox {
 		$text  = trim( $value );
 		$count = preg_match_all( '/\S+/u', $text );
 		return false !== strpos( $text, "\n" ) || $count >= 12 || ( $count >= 5 && 1 === preg_match( '/[.!?…]$/u', $text ) );
+	}
+
+	/**
+	 * Whether a value is an id only a machine reads: a UUID, a hex string,
+	 * or a long run of letters and digits (a mail's id at Gmail or Outlook).
+	 * No one deciding can check it, so the card leaves it out of the facts.
+	 */
+	public static function is_reference( $value ): bool {
+		if ( ! is_string( $value ) ) {
+			return false;
+		}
+		$text = trim( $value );
+		return 1 === preg_match( '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $text )
+			|| 1 === preg_match( '/^(?=.*[0-9])(?=.*[a-f])[0-9a-f]{12,}$/i', $text )
+			|| 1 === preg_match( '/^(?=.*[0-9])(?=.*[A-Za-z])[A-Za-z0-9+\/=_-]{24,}$/', $text );
+	}
+
+	/**
+	 * Whom a call's reply goes to, when it's a mail tool's reply
+	 * (`gmailReply`, `outlookReply`: `inReplyTo`, the mail it answers; `to`;
+	 * and `body`, the reply); else null.
+	 *
+	 * @return array{to: string}|null
+	 */
+	public static function reply_of( $arguments ): ?array {
+		$f = self::fields( $arguments );
+		if ( ! is_string( $f['inReplyTo'] ?? null ) || ! is_string( $f['body'] ?? null ) || ! is_string( $f['to'] ?? null ) || false === strpos( $f['to'], '@' ) ) {
+			return null;
+		}
+		return array( 'to' => trim( $f['to'] ) );
 	}
 
 	/** An object's first fields; a list (or nothing) has none to name. PHP 7.4 has no array_is_list(). */

@@ -250,15 +250,25 @@
   const runUrl = (runId, output = false) =>
     `${urls().activity}&run=${encodeURIComponent(runId)}${output ? '&show=output' : ''}`;
 
-  /** Who asked, in words: the card says it before when. */
-  function askedWords(asked) {
+  /**
+   * Who asked, in words: the card says it before when. With no person
+   * recorded, the agent asked on its own, on a run a mail, a schedule or
+   * a webhook started.
+   */
+  function askedWords(card) {
+    const { asked } = card;
     if (asked.kind === 'you') return __('You asked', 'kindgi');
     if (asked.kind === 'person') {
       /* translators: %s: a person's name */
       return sprintf(__('%s asked', 'kindgi'), asked.name);
     }
     if (asked.kind === 'kindgi') return __('Asked from Kindgi', 'kindgi');
-    return __('Started automatically', 'kindgi');
+    if (card.agent === null) return __('An agent asked on its own', 'kindgi');
+    return card.reply
+      ? /* translators: %s: the agent's name */
+        sprintf(__('%s asked while answering an email', 'kindgi'), card.agent)
+      : /* translators: %s: the agent's name */
+        sprintf(__('%s asked on its own', 'kindgi'), card.agent);
   }
 
   /** How an approval closed without a person's approve or reject. */
@@ -278,10 +288,10 @@
   };
 
   /**
-   * One approval: what would happen, in words; who asked and by when it's
-   * decided; then the decision, why it's someone else's, or Approve and
-   * Reject. Kindgi's own words and ids are folded under Technical details,
-   * for administrators.
+   * One approval: what would happen, in words; who asked, and what
+   * happens if no one decides in time; then the decision, why it's
+   * someone else's, or Approve and Reject. Ids only Kindgi reads stay off
+   * it: the card's address names the approval.
    */
   function approvalCard(card, { after, inConversation = false, inOrder = false } = {}) {
     const kind = card.waitsFor ?? card.status;
@@ -305,6 +315,7 @@
       card.words.map(agentWords),
       wholeCall(card),
       cardMeta(card),
+      deadline(card),
       inConversation || !card.opens
         ? null
         : el(
@@ -313,11 +324,12 @@
             el(
               'a',
               { href: askUrl(card.conversationId, card.id) },
-              __('Open the conversation', 'kindgi'),
+              card.reply
+                ? __('See the email and what the agent did', 'kindgi')
+                : __('See what the agent did', 'kindgi'),
             ),
           ),
       cardEnding(card, after),
-      details(card),
     );
   }
 
@@ -356,42 +368,55 @@
   /** Under an approval waiting less than this long to be decided, its time left shows as short. */
   const SOON_MS = 2 * 60 * 60 * 1000;
 
-  /** Who asked and when; for a waiting approval, when it expires undecided. */
-  function cardMeta(card) {
-    const left =
-      card.waitsFor !== null && card.expiresAt ? Date.parse(card.expiresAt) - Date.now() : null;
+  /** Who asked, and when. */
+  const cardMeta = (card) =>
+    el('p', { className: 'kindgi-meta' }, askedWords(card), ' · ', timeEl(card.createdAt));
+
+  /**
+   * What happens if no one decides a waiting approval in time: Kindgi
+   * passes it to the reviewer tier above (`card.next`), or, at the top,
+   * it expires and what it asks for doesn't happen.
+   */
+  function deadline(card) {
+    if (card.waitsFor === null || !card.expiresAt) return null;
+    const left = Date.parse(card.expiresAt) - Date.now();
+    const soon = ago(card.expiresAt);
+    let words;
+    if (left <= 0) {
+      /* translators: %s: how long ago, in words, e.g. "5 minutes ago" */
+      words = sprintf(__('Was due %s', 'kindgi'), soon);
+    } else if (card.next === 'senior') {
+      /* translators: %s: how soon, in words, e.g. "a day from now" */
+      words = sprintf(__('Goes to a senior reviewer %s if no one decides', 'kindgi'), soon);
+    } else if (card.next === 'admin') {
+      /* translators: %s: how soon, in words, e.g. "a day from now" */
+      words = sprintf(__('Goes to an admin reviewer %s if no one decides', 'kindgi'), soon);
+    } else if (card.reply) {
+      /* translators: %s: how soon, in words, e.g. "a day from now" */
+      words = sprintf(__("Expires %s if no one decides, and the reply isn't sent", 'kindgi'), soon);
+    } else {
+      /* translators: %s: how soon, in words, e.g. "a day from now" */
+      words = sprintf(__("Expires %s if no one decides, and it doesn't happen", 'kindgi'), soon);
+    }
     return el(
       'p',
-      { className: 'kindgi-meta' },
-      askedWords(card.asked),
-      ' · ',
-      timeEl(card.createdAt),
-      left === null
-        ? null
-        : [
-            ' · ',
-            el(
-              'strong',
-              { className: left < SOON_MS ? 'kindgi-soon' : null, title: when(card.expiresAt) },
-              left > 0
-                ? /* translators: %s: how soon, in words, e.g. "a day from now" */
-                  sprintf(__('Expires %s', 'kindgi'), ago(card.expiresAt))
-                : /* translators: %s: how long ago, in words, e.g. "5 minutes ago" */
-                  sprintf(__('Was due %s', 'kindgi'), ago(card.expiresAt)),
-            ),
-          ],
+      {
+        className: `kindgi-deadline${left < SOON_MS ? ' kindgi-soon' : ''}`,
+        title: when(card.expiresAt),
+      },
+      words,
     );
   }
 
   /** Words the agent wrote in its call (a reason, a draft to a customer): set apart, and said to be its own. */
   function agentWords(w) {
-    const long = w.text.length > LONG_WORDS || w.text.split('\n').length > 6;
+    const long = w.text.length > LONG_WORDS || w.text.split('\n').length > LONG_LINES;
     const text = el('div', { className: 'kindgi-said-text' }, w.text);
     const node = el(
       'figure',
       { className: `kindgi-said${long ? ' kindgi-folded' : ''}` },
       /* translators: %s: what the words are, such as the reply */
-      el('figcaption', {}, sprintf(__("%s, in the agent's words", 'kindgi'), w.label)),
+      el('figcaption', {}, sprintf(__('%s, written by the agent', 'kindgi'), w.label)),
       text,
     );
     if (long) {
@@ -414,8 +439,13 @@
     return node;
   }
 
-  /** Words longer than this (or over six lines) show their start, with Show all. */
-  const LONG_WORDS = 480;
+  /**
+   * Words longer than this, or over this many lines, show their start,
+   * with Show all: a reply or a note of usual length is read whole before
+   * anyone decides.
+   */
+  const LONG_WORDS = 3000;
+  const LONG_LINES = 40;
 
   /** What a card ends with: the decision made, why it's someone else's, or the controls to make one. */
   function cardEnding(card, after) {
@@ -434,35 +464,6 @@
       );
     }
     return decisionControls(card, after);
-  }
-
-  /** Kindgi's own words and ids for an approval, and the call's raw fields: for administrators. */
-  function details(card) {
-    if (window.kindgiConfig?.admin !== true) return null;
-    const d = card.details;
-    const rows = [
-      [__('Tool', 'kindgi'), d.toolId, true],
-      [__('Agent', 'kindgi'), d.agentId, true],
-      [__('Reviewer it needs', 'kindgi'), d.requiredRole, false],
-      [__("Kindgi's title", 'kindgi'), d.title, false],
-      [__('Approval', 'kindgi'), card.id, true],
-    ].filter(([, value]) => value);
-    return el(
-      'details',
-      { className: 'kindgi-details' },
-      el('summary', {}, __('Technical details', 'kindgi')),
-      el(
-        'dl',
-        { className: 'kindgi-facts' },
-        rows.map(([label, value, code]) => [
-          el('dt', {}, label),
-          el('dd', {}, code ? el('code', {}, value) : value),
-        ]),
-      ),
-      d.arguments === null || d.arguments === undefined
-        ? null
-        : el('pre', {}, JSON.stringify(d.arguments, null, 2)),
-    );
   }
 
   /** What a decision did, once Kindgi recorded it. */
