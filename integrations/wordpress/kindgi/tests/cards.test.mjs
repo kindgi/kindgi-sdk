@@ -1,0 +1,240 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+/**
+ * An approval's card (`assets/kindgi-cards.js`), as a person decides it:
+ * what its buttons say, and what it says once Kindgi has recorded the
+ * decision. The script runs as WordPress loads it, against small
+ * stand-ins for the page's elements and `wp`; the cards are as the
+ * plugin's routes answer them (`Kindgi_Inbox::card`).
+ */
+
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { runInNewContext } from 'node:vm';
+
+const here = dirname(fileURLToPath(import.meta.url));
+
+/** An element, as far as the cards use one. */
+class Element {
+  constructor(tagName) {
+    this.tagName = tagName;
+    this.childNodes = [];
+    this.attributes = {};
+    this.listeners = {};
+    this.className = '';
+    this.hidden = false;
+    this.disabled = false;
+    this.value = '';
+  }
+
+  append(...nodes) {
+    for (const node of nodes) {
+      node.parentNode = this;
+      this.childNodes.push(node);
+    }
+  }
+
+  replaceChildren(...nodes) {
+    this.childNodes = [];
+    this.append(...nodes);
+  }
+
+  remove() {
+    if (this.parentNode) {
+      this.parentNode.childNodes = this.parentNode.childNodes.filter((node) => node !== this);
+    }
+  }
+
+  setAttribute(key, value) {
+    this.attributes[key] = String(value);
+  }
+
+  addEventListener(type, listener) {
+    this.listeners[type] = listener;
+  }
+
+  focus() {}
+
+  querySelectorAll(tagName) {
+    return within(this).filter((node) => node.tagName === tagName);
+  }
+
+  get textContent() {
+    return this.childNodes.map((node) => node.textContent).join('');
+  }
+}
+
+/** A node and every node under it. */
+const within = (node) => [node, ...(node.childNodes ?? []).flatMap(within)];
+
+/** `%s` and `%1$s`, as WordPress's `sprintf` fills them. */
+function sprintf(format, ...values) {
+  let next = 0;
+  return format.replace(/%(?:(\d+)\$)?s/g, (_, at) => String(values[at ? Number(at) - 1 : next++]));
+}
+
+/**
+ * The card script, loaded on a page with no Kindgi config. Each decision
+ * it sends is kept, and answered with `answer`.
+ */
+function loadCards(answer) {
+  const sent = [];
+  const window = {};
+  runInNewContext(readFileSync(join(here, '../assets/kindgi-cards.js'), 'utf8'), {
+    window,
+    document: {
+      createElement: (tagName) => new Element(tagName),
+      createTextNode: (text) => ({ textContent: text }),
+    },
+    wp: {
+      i18n: { __: (text) => text, sprintf },
+      apiFetch: async (options) => {
+        sent.push(options);
+        return answer;
+      },
+      date: {
+        dateI18n: () => 'November 1, 2026 5:40 am',
+        getSettings: () => ({ formats: { datetime: 'F j, Y g:i a' } }),
+        humanTimeDiff: () => '3 hours ago',
+      },
+    },
+    setTimeout,
+  });
+  return { cards: window.kindgiCards, sent };
+}
+
+/** A tool call waiting for the person, with the given fields changed. */
+const toolCall = (changes = {}) => ({
+  id: 'ap-1',
+  heading: 'Refund large',
+  summary: '',
+  facts: [{ label: 'Order ID', value: '18' }],
+  words: [],
+  reply: null,
+  whole: null,
+  status: 'pending',
+  createdAt: '2026-11-01T05:40:00Z',
+  expiresAt: null,
+  next: null,
+  asked: { kind: 'none', name: null },
+  agent: 'Support desk',
+  promotion: null,
+  waitsFor: 'you',
+  notYours: null,
+  conversationId: null,
+  opens: false,
+  about: null,
+  decision: null,
+  ...changes,
+});
+
+const reply = toolCall({
+  heading: 'Reply to pat@example.com',
+  facts: [],
+  words: [{ label: 'The reply', text: 'Hi Pat, your order ships on Monday.' }],
+  reply: { to: 'pat@example.com' },
+});
+
+const promotion = toolCall({
+  id: 'ap-promote',
+  heading: 'Update Ceramics help to version 0.1.2',
+  facts: [],
+  agent: null,
+  promotion: { agent: 'Ceramics help', version: '0.1.2', segment: null },
+});
+
+/** Kindgi's answer to a decision: the card decided by the person, and what it did to a run. */
+const answered = (card, decision, run) => ({
+  approval: {
+    ...card,
+    status: decision === 'reject' ? 'rejected' : 'approved',
+    waitsFor: null,
+    decision: {
+      decision,
+      decidedAt: '2026-11-02T02:30:00Z',
+      reason: decision === 'reject' ? 'Not yet.' : null,
+      byMe: true,
+      by: null,
+    },
+  },
+  ...run,
+});
+
+const button = (node, label) =>
+  within(node).find((n) => n.tagName === 'button' && n.textContent === label);
+
+/** Wait for a decision's answer to show. */
+const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+/** Reject a card with a reason, through its two buttons. */
+async function reject(node, ask, confirm) {
+  button(node, ask).listeners.click();
+  within(node).find((n) => n.tagName === 'textarea').value = 'Not yet.';
+  button(node, confirm).listeners.click();
+  await settled();
+}
+
+test('a reply that is not sent says so once Kindgi records it', async () => {
+  const { cards, sent } = loadCards(
+    answered(reply, 'reject', { waitpointResolved: true, runStatus: null }),
+  );
+  const node = cards.approvalCard(reply);
+  await reject(node, "Don't send…", "Don't send");
+  // Made in the script's own realm: compared by its fields.
+  assert.deepEqual({ ...sent[0].data }, { decision: 'reject', reason: 'Not yet.' });
+  assert.match(node.textContent, /Rejected by you, 3 hours ago: Not yet\./);
+  assert.match(
+    node.textContent,
+    /Not sent\. If the agent writes a new reply, it comes to the Inbox\./,
+  );
+});
+
+test('a new version of an agent reads as an update, asked from Kindgi', () => {
+  const { cards } = loadCards(null);
+  const node = cards.approvalCard(promotion);
+  assert.match(node.textContent, /^Update Ceramics help to version 0\.1\.2/);
+  assert.match(node.textContent, /Asked from Kindgi · 3 hours ago/);
+  assert.ok(button(node, 'Approve the update'));
+  button(node, "Don't update…").listeners.click();
+  assert.match(
+    node.textContent,
+    /Ceramics help keeps the version it runs now\. Whoever asked sees it too\./,
+  );
+});
+
+test('an approved update says what Kindgi does next: no run waits on it', async () => {
+  const { cards } = loadCards(
+    answered(promotion, 'approve', { waitpointResolved: false, runStatus: null }),
+  );
+  const node = cards.approvalCard(promotion);
+  button(node, 'Approve the update').listeners.click();
+  await settled();
+  assert.match(node.textContent, /Approved by you, 3 hours ago/);
+  assert.match(node.textContent, /Kindgi updates it if nothing changed since it was asked for\./);
+  assert.doesNotMatch(node.textContent, /moved on/);
+});
+
+test('a rejected update says the agent keeps its version', async () => {
+  const { cards } = loadCards(
+    answered(promotion, 'reject', { waitpointResolved: false, runStatus: null }),
+  );
+  const node = cards.approvalCard(promotion);
+  await reject(node, "Don't update…", "Don't update");
+  assert.match(node.textContent, /Not updated: Ceramics help keeps the version it runs now\./);
+  assert.doesNotMatch(node.textContent, /moved on/);
+});
+
+test('a decision on a run that had already ended says so', async () => {
+  const card = toolCall();
+  const { cards } = loadCards(
+    answered(card, 'approve', { waitpointResolved: false, runStatus: 'cancelled' }),
+  );
+  const node = cards.approvalCard(card);
+  button(node, 'Approve').listeners.click();
+  await settled();
+  assert.match(node.textContent, /The run had already moved on \(cancelled\)\./);
+});

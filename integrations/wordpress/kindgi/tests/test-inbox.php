@@ -274,6 +274,81 @@ function test_inbox_a_title_a_tool_gives_is_the_heading(): void {
 	kindgi_assert_same( 3, count( $card['facts'] ) + count( $card['words'] ), 'the fields still show: a title can leave one out' );
 }
 
+/** A version of an agent waiting to go live, as Kindgi opens its approval, for the given scope. */
+function kindgi_test_promotion( array $scope = array( 'kind' => 'project', 'projectId' => 'p-store' ) ): array {
+	return array(
+		'id'           => 'ap-promote',
+		'subjectKind'  => 'agent-promotion',
+		'subjectRef'   => array(
+			'agentId'          => 'acme-desk.support-desk',
+			'promotionId'      => 'pr-1',
+			'version'          => '0.1.2',
+			'scope'            => $scope,
+			'requestedBy'      => array(
+				'kind' => 'service',
+				'id'   => 'sa-ci',
+			),
+			'separateApprover' => false,
+		),
+		'title'        => 'Promote acme-desk.support-desk 0.1.2 for project:p-store',
+		'status'       => 'pending',
+		'requiredRole' => 'senior',
+		'createdAt'    => '2026-11-01T05:40:00Z',
+		'expiresAt'    => '2026-11-02T05:40:00Z',
+		'requestedBy'  => 'service_account:sa-ci',
+	);
+}
+
+/** Agents' names at Kindgi: only the support desk has one, unlike its id. */
+function kindgi_test_agent_names(): callable {
+	return static function ( string $id ): ?string {
+		return 'acme-desk.support-desk' === $id ? 'Ceramics help' : null;
+	};
+}
+
+function test_inbox_a_new_version_of_an_agent_reads_as_an_update(): void {
+	$card = Kindgi_Inbox::card( kindgi_test_promotion(), 'u-me', kindgi_test_reviewer( 'senior' ), kindgi_test_names(), kindgi_test_agent_names() );
+	kindgi_assert_same( 'Update Ceramics help to version 0.1.2', $card['heading'], "by the agent's name, not Kindgi's title" );
+	kindgi_assert_same(
+		array(
+			'agent'   => 'Ceramics help',
+			'version' => '0.1.2',
+			'segment' => null,
+		),
+		$card['promotion'],
+		'what its decision does, for the buttons'
+	);
+	kindgi_assert_same( array( '', array(), array(), null ), array( $card['summary'], $card['facts'], $card['words'], $card['whole'] ), 'nothing else to read' );
+	kindgi_assert_same( array( 'none', null ), array( $card['asked']['kind'], $card['agent'] ), 'asked for with a key: no person, and no agent asked' );
+	kindgi_assert_same( 'you', $card['waitsFor'], 'a senior reviewer decides it' );
+	kindgi_assert_same( 'Update Support desk to version 0.1.2', Kindgi_Inbox::heading_of( kindgi_test_promotion() ), 'an agent with no name at Kindgi, by its id in words' );
+	$segment = array(
+		'kind'      => 'segment',
+		'projectId' => 'p-store',
+		'path'      => array(
+			array(
+				'key'   => 'company',
+				'value' => 'acme',
+			),
+			array(
+				'key'   => 'region',
+				'value' => 'eu',
+			),
+		),
+	);
+	kindgi_assert_same( 'Update Support desk to version 0.1.2 for company: acme, region: eu', Kindgi_Inbox::heading_of( kindgi_test_promotion( $segment ) ), 'for part of the project: which part' );
+	$org = kindgi_test_promotion(
+		array(
+			'kind'  => 'org',
+			'orgId' => 'o-1',
+		)
+	);
+	kindgi_assert_same( array( null, 'Promote acme-desk.support-desk 0.1.2 for project:p-store' ), array( Kindgi_Inbox::promotion_of( $org ), Kindgi_Inbox::heading_of( $org ) ), "for more than the project: Kindgi's title says so" );
+	$segment['path'] = array();
+	kindgi_assert_same( null, Kindgi_Inbox::promotion_of( kindgi_test_promotion( $segment ) ), 'a segment it names no part of reads as its title too' );
+	kindgi_assert_same( null, Kindgi_Inbox::card( kindgi_test_approval(), 'u-me', kindgi_test_reviewer(), kindgi_test_names() )['promotion'], 'a tool call is no promotion' );
+}
+
 function test_inbox_sorts_what_waits_for_you_from_what_waits_for_others(): void {
 	$cases = array(
 		'no reviewer role'                       => array( array(), null, 'not-a-reviewer' ),
@@ -823,6 +898,7 @@ function test_activity_a_waiting_run_says_what_it_waits_for(): void {
 	kindgi_assert_same( array(), $answer['runs'][1]['waiting'], 'a run that ended waits for nothing' );
 	kindgi_assert_same( 2, count( $GLOBALS['kindgi_test']['requests'] ), 'the runs, then the approvals that wait' );
 	kindgi_assert( false !== strpos( $GLOBALS['kindgi_test']['requests'][1][0], '/v1/approvals?' ), 'read from the approvals' );
+	kindgi_assert( false !== strpos( $GLOBALS['kindgi_test']['requests'][1][0], 'order=desc' ), 'newest first, as Activity lists its runs' );
 
 	kindgi_test_jane_at_work();
 	kindgi_test_answer( 200, array( 'data' => array( kindgi_test_run( array() ) ) ) );

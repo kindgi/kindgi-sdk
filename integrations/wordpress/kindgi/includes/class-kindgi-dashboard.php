@@ -97,21 +97,25 @@ final class Kindgi_Dashboard {
 	 */
 	public static function answer( array $pages, array $count, string $me, ?array $reviewer ): array {
 		$who   = array( 'Kindgi_Rest', 'who' );
+		$names = array();
+		foreach ( self::data( $pages['agents'] ) as $agent ) {
+			if ( is_string( $agent['id'] ?? null ) && is_string( $agent['name'] ?? null ) && '' !== $agent['name'] ) {
+				$names[ $agent['id'] ] = $agent['name'];
+			}
+		}
+		// A heading that names an agent (a new version of it) names it as the runs do.
+		$agent_name = static function ( string $id ) use ( $names ): ?string {
+			return $names[ $id ] ?? null;
+		};
 		$named = array();
 		foreach ( self::data( $pages['waiting'] ) as $a ) {
-			$card = Kindgi_Inbox::card( $a, $me, $reviewer, $who );
+			$card = Kindgi_Inbox::card( $a, $me, $reviewer, $who, $agent_name );
 			if ( 'you' === $card['waitsFor'] && count( $named ) < self::NAMED ) {
 				$named[] = array(
 					'id'        => $card['id'],
 					'heading'   => $card['heading'],
 					'createdAt' => $card['createdAt'],
 				);
-			}
-		}
-		$names = array();
-		foreach ( self::data( $pages['agents'] ) as $agent ) {
-			if ( is_string( $agent['id'] ?? null ) ) {
-				$names[ $agent['id'] ] = is_string( $agent['name'] ?? null ) && '' !== $agent['name'] ? $agent['name'] : $agent['id'];
 			}
 		}
 		$reads_orders = Kindgi_Order::reads_orders();

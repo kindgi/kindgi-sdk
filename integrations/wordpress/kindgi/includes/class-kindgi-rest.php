@@ -579,7 +579,7 @@ final class Kindgi_Rest {
 	/**
 	 * Activity's rows with what each waiting run waits for, from the
 	 * approvals that wait: read only when a row waits, one page of them,
-	 * oldest first, as the Inbox's count reads it. Without them, a waiting
+	 * newest first, as Activity lists its runs. Without them, a waiting
 	 * run says only that it waits.
 	 */
 	private static function with_waits( WP_User $user, string $project, array $rows ): array {
@@ -594,7 +594,7 @@ final class Kindgi_Rest {
 				'scopeKind' => 'project',
 				'scopeId'   => $project,
 				'status'    => implode( ',', Kindgi_Inbox::WAITING ),
-				'order'     => 'asc',
+				'order'     => 'desc',
 				'limit'     => Kindgi_Inbox::COUNT_PAGE,
 			)
 		);
