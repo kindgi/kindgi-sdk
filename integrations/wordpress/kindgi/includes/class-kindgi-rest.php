@@ -316,6 +316,8 @@ final class Kindgi_Rest {
 				'text'      => 'tool' === ( $m['role'] ?? '' ) ? '' : $text,
 				// The tools an agent's message calls.
 				'calls'     => $calls,
+				// Mail that started a turn, as its thread and mails (`Kindgi_Mail`).
+				'mail'      => 'user' === ( $m['role'] ?? '' ) ? Kindgi_Mail::thread_of( $text ) : null,
 				// A tool's answer: which tool, and what it returned.
 				'toolId'    => is_string( $m['toolCall']['toolId'] ?? null ) ? $m['toolCall']['toolId'] : null,
 				'result'    => 'tool' === ( $m['role'] ?? '' ) ? $content : null,

@@ -325,9 +325,10 @@
   margin-bottom: 0;
 }
 
-.kindgi .kindgi-tool,
+/* The tools the agent used: quiet steps between the words, each with its answer folded under it. */
 .kindgi .kindgi-used {
-  align-self: flex-start;
+  align-self: stretch;
+  max-width: none;
   padding: 0 var(--kindgi-space-1);
   background: transparent;
   border: 0;
@@ -335,25 +336,146 @@
   font-size: 12px;
 }
 
-.kindgi .kindgi-tool summary {
+.kindgi .kindgi-steps-done {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.kindgi .kindgi-agent .kindgi-steps-done {
+  margin-top: var(--kindgi-space-2);
+  color: var(--kindgi-muted);
+  font-size: 12px;
+}
+
+.kindgi .kindgi-step {
+  margin: 0 0 2px;
+  padding-left: 14px;
+  position: relative;
+}
+
+/* A step's dot: a small timeline down the conversation. */
+.kindgi .kindgi-step::before {
+  content: "";
+  position: absolute;
+  top: 0.55em;
+  left: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--kindgi-border);
+}
+
+.kindgi .kindgi-answer summary {
+  color: var(--kindgi-accent);
   cursor: pointer;
 }
 
-.kindgi .kindgi-tool pre {
-  max-height: 240px;
+.kindgi .kindgi-step .kindgi-answer {
+  display: inline;
+  margin-left: var(--kindgi-space-2);
+}
+
+.kindgi .kindgi-step .kindgi-answer summary {
+  display: inline;
+}
+
+.kindgi .kindgi-answer[open] {
+  display: block;
   margin: var(--kindgi-space-1) 0 0;
+}
+
+.kindgi .kindgi-answer pre {
+  max-height: 240px;
+  margin: var(--kindgi-space-1) 0 var(--kindgi-space-2);
   padding: var(--kindgi-space-2);
   overflow: auto;
   background: var(--kindgi-sunken);
   border-radius: var(--kindgi-space-1);
+  color: var(--kindgi-text);
   white-space: pre-wrap;
 }
 
-.kindgi .kindgi-calls {
+/* Mail that started the turn: each mail as an email, the width of the conversation. */
+.kindgi .kindgi-mail-turn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--kindgi-space-2);
+  align-self: stretch;
+  max-width: none;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.kindgi .kindgi-mail {
+  padding: var(--kindgi-space-3) var(--kindgi-space-4);
+  background: var(--kindgi-surface);
+  border: 1px solid var(--kindgi-border);
+  border-radius: var(--kindgi-radius);
+  box-shadow: var(--kindgi-shadow);
+}
+
+/* An earlier mail of the thread: there for what led to the new one, so quieter. */
+.kindgi .kindgi-mail:not(.kindgi-mail-new) {
+  background: var(--kindgi-sunken);
+  box-shadow: none;
+}
+
+.kindgi .kindgi-mail-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--kindgi-space-3);
+  margin-bottom: var(--kindgi-space-3);
+}
+
+.kindgi .kindgi-mail-who {
+  flex: 1;
+  min-width: 0;
+}
+
+.kindgi .kindgi-mail-to {
   display: block;
-  margin-top: 6px;
+  font-size: 12px;
+}
+
+.kindgi .kindgi-mail-at {
+  flex: none;
   color: var(--kindgi-muted);
   font-size: 12px;
+}
+
+.kindgi .kindgi-mail-subject {
+  margin: 0 0 var(--kindgi-space-2);
+  font-weight: 600;
+}
+
+.kindgi .kindgi-mail-text {
+  white-space: pre-wrap;
+}
+
+.kindgi .kindgi-mail .kindgi-muted,
+.kindgi .kindgi-mail .kindgi-note {
+  margin: var(--kindgi-space-2) 0 0;
+}
+
+.kindgi .kindgi-mail-head .kindgi-muted {
+  margin: 0;
+}
+
+/* The approval the conversation was opened from, where the agent waits on it. */
+.kindgi .kindgi-awaits {
+  align-self: stretch;
+  max-width: none;
+  margin-top: var(--kindgi-space-2);
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.kindgi .kindgi-awaits-head {
+  margin: 0 0 var(--kindgi-space-2);
+  font-size: 14px;
 }
 
 /* While the agent works: three dots, then the tools it used. */
