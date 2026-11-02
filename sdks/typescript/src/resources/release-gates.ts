@@ -17,7 +17,9 @@ import { scopeQuery } from './agents.js';
  */
 export interface ReleaseGatesClient {
   /**
-   * Each release gate's latest active version.
+   * Each release gate's latest active version. `filter.includeRetired =
+   * true` lists a retired gate too, as its highest version with
+   * `unregisteredAt`.
    *
    * @wire GET /v1/release-gates
    */
@@ -60,6 +62,12 @@ export interface ReleaseGateFilter {
   readonly scope?: AgentPinScope;
   readonly limit?: number;
   readonly cursor?: string;
+  /**
+   * `true` lists retired gates too (every version unregistered), each as
+   * its highest version with `unregisteredAt`. Default: gates with an
+   * active version only.
+   */
+  readonly includeRetired?: boolean;
 }
 
 export type PublishReleaseGateInput = PublishReleaseGateBody;
@@ -76,6 +84,7 @@ export function makeReleaseGatesClient(transport: Transport): ReleaseGatesClient
           ...(filter?.scope !== undefined && scopeQuery(filter.scope)),
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+          ...(filter?.includeRetired === true && { includeRetired: 'true' }),
         },
       });
     },

@@ -177,9 +177,9 @@ every call:
   `.a.run.app`, doesn't match.
 - **Cloud Run checks a Google ID token.** The runtime mints one for the
   service's URL from its own service account. That account has
-  `roles/run.invoker` on the project, so it may invoke each pack service the
-  orchestrator makes. The pack services require IAM, so nothing without the
-  role reaches them.
+  `roles/run.servicesInvoker` on the project, so it may invoke each pack
+  service the orchestrator makes. The pack services require IAM, so nothing
+  without the role reaches them.
 - **The pack service checks its own token,** the one the runtime unsealed.
 
 A tool call the runtime can't route answers with a code of its own:
@@ -196,7 +196,7 @@ A tool call the runtime can't route answers with a code of its own:
 
 | Who | Role | On |
 |---|---|---|
-| The runtime's service account | `roles/run.invoker` | the project, so it may invoke each pack service |
+| The runtime's service account | `roles/run.servicesInvoker` | the project, so it may invoke each pack service |
 | | `roles/cloudkms.cryptoKeyEncrypterDecrypter` | the KMS key (it seals the pack services' tokens, and the startup checks encrypt and decrypt with it) |
 | | `roles/cloudkms.viewer` | the KMS key; needed only by older runtimes, whose startup check read the key's metadata |
 | | `roles/artifactregistry.reader` | the repository, or yours (`image_repository`) |

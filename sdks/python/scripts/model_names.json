@@ -181,6 +181,7 @@
   "CorrectedComparisonSummarySamplingModel": ["CorrectedComparisonSummarySamplingModel"],
   "CorrectedComparisonSummaryScope": ["CorrectedComparisonSummaryScope"],
   "CorrectedComparisonSummaryTestSet": ["CorrectedComparisonSummaryTestSet"],
+  "CorrectedComparisonUnchecked": ["CorrectedComparisonUnchecked"],
   "CorrectedEvalCase": [],
   "CorrectedEvalCaseCollectionPage": [],
   "CorrectedEvalCaseCorrection": [],
