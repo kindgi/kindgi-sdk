@@ -155,8 +155,8 @@ say there were none.
   `output.appended` holds the turn in order: the agent's `toolCalls` (each
   tool's `name` and `arguments`) and the `tool` messages with what came
   back. Say which records it looked up, and what it found.
-- In the console: `runs/<runId>` shows each tool call and its arguments;
-  the `/journal` tab has every step.
+- In the console: `agents/<agentId>/runs/<runId>` shows each tool call and
+  its arguments; the `/journal` tab has every step.
 
 **"Where do I see every answer it finished in the last day?"**
 - In the CLI: `kindgi runs list --agent <agentId> --limit 100`, keeping
