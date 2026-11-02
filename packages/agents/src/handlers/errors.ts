@@ -69,7 +69,7 @@ export function approvalsPendingLimitOf(cause: unknown): ApprovalsPendingLimitEr
     message:
       typeof message === 'string' && message !== ''
         ? message
-        : "This tenant's limit on approvals waiting for a decision is reached.",
+        : "This workspace's limit on approvals waiting for a decision is reached.",
     ...(typeof approvalsPending === 'number' && { approvalsPending }),
   };
 }

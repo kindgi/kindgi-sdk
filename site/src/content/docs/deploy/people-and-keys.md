@@ -156,7 +156,7 @@ Someone who isn't one of the tenant's people, or who was removed, isn't
 added:
 
 ```json
-{"error":{"code":"identity-user-not-found","message":"No one with email \"outsider@example.com\" is a member of this tenant","requestId":"req-304865e8-9499-48cd-afca-2f8c87e8f05d"}}
+{"error":{"code":"identity-user-not-found","message":"No one with email \"outsider@example.com\" is a member of this workspace","requestId":"req-304865e8-9499-48cd-afca-2f8c87e8f05d"}}
 ```
 
 In the TypeScript client, it's
@@ -638,7 +638,7 @@ an app, make one of your own, as above.
 Only a tenant admin lists them. Anyone else gets:
 
 ```json
-{"error":{"code":"permission-denied","message":"Only a tenant admin lists the tenant's people","requestId":"req-6f9ecda9-4a1d-4ef4-83a8-c91d5c78e47f"}}
+{"error":{"code":"permission-denied","message":"Only a tenant admin lists the workspace's people","requestId":"req-6f9ecda9-4a1d-4ef4-83a8-c91d5c78e47f"}}
 ```
 
 A person's record and sessions are for a tenant admin, or that person.
@@ -694,7 +694,7 @@ The fire's `detail`, in `kindgi schedules fires` or `kindgi webhooks fires`,
 says why:
 
 ```text
-The owner user:… was removed from the tenant, so flow acme.digest@1.0.0 no longer runs as them: take the schedule over, or delete it.
+The owner user:… was removed from the workspace, so flow acme.digest@1.0.0 no longer runs as them: take the schedule over, or delete it.
 ```
 
 To keep one running, take it over, before or after you remove them:

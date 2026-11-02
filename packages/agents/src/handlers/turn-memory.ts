@@ -85,7 +85,7 @@ export async function chargeTurnMemory(
   const bytes = turnMemoryBytes(call.messages, iterationsDone, fileBytes);
   const charged = await binding.charge(bytes, { runId: turn.runId });
   if (charged.ok) return;
-  const whose = charged.limit === 'tenant' ? "the tenant's share of" : "the runtime's";
+  const whose = charged.limit === 'tenant' ? "the workspace's share of" : "the runtime's";
   throwAgentTurnFailure({
     code: 'turn-memory-limit-reached',
     message: `The turn needs more memory than ${whose} turn memory has left (${mib(charged.heldBytes)} of ${mib(charged.limitBytes)} MiB held). Retry later, or use a smaller conversation.`,

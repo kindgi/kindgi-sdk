@@ -846,7 +846,7 @@ describe('API — policies: retention specs, one policy per domain (T236)', () =
     expect(status).toBe(409);
     expect(body.error?.code).toBe('policy-scope-taken');
     expect(body.error?.message).toBe(
-      'Retention domain "provider" is already covered by policy "acme.keep-providers": a tenant has one retention policy per domain, and one for "*". Publish a new version of "acme.keep-providers" instead, or unregister it first.',
+      'Retention domain "provider" is already covered by policy "acme.keep-providers": a workspace has one retention policy per domain, and one for "*". Publish a new version of "acme.keep-providers" instead, or unregister it first.',
     );
     expect(body.error?.details).toMatchObject({
       policyId: 'acme.keep-providers-long',
@@ -905,7 +905,7 @@ describe('API — policies: retention specs, one policy per domain (T236)', () =
     expect(status).toBe(409);
     expect(body.error?.code).toBe('policy-scope-taken');
     expect(body.error?.message).toBe(
-      'Retention domain "secret" is now covered by policy "acme.b", so reinstating "acme.a" 1.0.0 would make two: a tenant has one retention policy per domain, and one for "*". Unregister "acme.b" first.',
+      'Retention domain "secret" is now covered by policy "acme.b", so reinstating "acme.a" 1.0.0 would make two: a workspace has one retention policy per domain, and one for "*". Unregister "acme.b" first.',
     );
   });
 

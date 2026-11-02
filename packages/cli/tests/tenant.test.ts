@@ -34,7 +34,7 @@ const TENANT_ID = '0b7c4a2e-9d1f-4e3a-8b6c-5d4e3f2a1b0c';
 const SLUG_TAKEN = fromWire(
   {
     code: 'tenant-slug-taken',
-    message: 'Another tenant has the slug "acme-store".',
+    message: 'Another workspace has the slug "acme-store".',
     details: { slug: 'acme-store' },
   },
   409,
@@ -42,7 +42,7 @@ const SLUG_TAKEN = fromWire(
 const IN_CONFIG = fromWire(
   {
     code: 'tenant-slug-in-config',
-    message: `The server's KINDGI_AUTH_VERIFIED_DOMAINS names this tenant by its slug (acme.com:acme), so its slug can't change yet: the server would find no tenant by it when it next starts. The server's operator names it there by its id (${TENANT_ID}) instead and restarts the server; then rename it.`,
+    message: `The server's KINDGI_AUTH_VERIFIED_DOMAINS names this workspace by its slug (acme.com:acme), so its slug can't change yet: the server would find no workspace by it when it next starts. The server's operator names it there by its id (${TENANT_ID}) instead and restarts the server; then rename it.`,
     details: { slug: 'acme', domains: ['acme.com'] },
   },
   409,
@@ -157,7 +157,7 @@ describe('kindgi tenant rename', () => {
     const taken = await run(['tenant', 'rename', '--slug=acme-store'], { refuse: SLUG_TAKEN });
     expect(taken.out.exitCode).toBe(1);
     expect(taken.out.stderr).toBe(
-      'Error [tenant-slug-taken]: Another tenant has the slug "acme-store".\n',
+      'Error [tenant-slug-taken]: Another workspace has the slug "acme-store".\n',
     );
     expect(taken.calls).toEqual([['update', { slug: 'acme-store' }]]);
     const configured = await run(['tenant', 'rename', '--slug=acme-store'], { refuse: IN_CONFIG });

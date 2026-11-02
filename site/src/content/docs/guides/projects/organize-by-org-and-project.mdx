@@ -216,7 +216,7 @@ no org has a slug unique among the projects with none. A taken slug is
 refused with `409 slug-conflict`:
 
 ```text
-Another org in the tenant has the slug "acme-customer-one"
+Another org in the workspace has the slug "acme-customer-one"
 Another project in its org has the slug "support" (for a project without an org: another project without one)
 ```
 
@@ -240,7 +240,7 @@ in scripts and pack configs, or change them to the new slug before anyone
 runs one of those commands again.
 
 A tenant has one default project. Asking for a second one answers
-`409 project-default-already-exists`, "The tenant already has a default
+`409 project-default-already-exists`, "The workspace already has a default
 project".
 
 ## Deploy a client's pack into its project
@@ -443,7 +443,7 @@ isn't turned on for this tenant yet."
   {
     "error": {
       "code": "production-not-allowed",
-      "message": "This tenant can't put projects in production yet. To be allowed: https://platform.example.com/account/billing. Projects not in production keep working as staging.",
+      "message": "This workspace can't put projects in production yet. To be allowed: https://platform.example.com/account/billing. Projects not in production keep working as staging.",
       "details": {
         "projectId": "b3bc8d28-8487-4d90-be57-4e522488f10c",
         "next": "https://platform.example.com/account/billing"
@@ -467,7 +467,7 @@ isn't turned on for this tenant yet."
   {
     "error": {
       "code": "production-limit-reached",
-      "message": "This tenant's limit is 3 projects in production, and it has 3. To put another in production: https://platform.example.com/account/billing, or take one out of production first.",
+      "message": "This workspace's limit is 3 projects in production, and it has 3. To put another in production: https://platform.example.com/account/billing, or take one out of production first.",
       "details": {
         "projectId": "22792d5f-b8cb-4d57-a785-b1f00a57b38e",
         "limit": "projects-in-production",

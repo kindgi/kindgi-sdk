@@ -159,12 +159,12 @@ export function parsePackTenantId(raw: string | undefined): string | undefined {
   if (id === undefined || id === '') return undefined;
   if (!TENANT_UUID.test(id)) {
     throw new Error(
-      `${PACK_TENANT_ID_VAR} must be the tenant's id, a UUID such as 3f2b8c1e-4a5d-4e6f-9a0b-1c2d3e4f5a6b. Got a value that isn't one.`,
+      `${PACK_TENANT_ID_VAR} must be the workspace's id, a UUID such as 3f2b8c1e-4a5d-4e6f-9a0b-1c2d3e4f5a6b. Got a value that isn't one.`,
     );
   }
   if (id.toLowerCase() === NO_TENANT_ID) {
     throw new Error(
-      `${PACK_TENANT_ID_VAR} is ${NO_TENANT_ID}, the id no tenant has: no pack call carries it. Set the tenant's own id.`,
+      `${PACK_TENANT_ID_VAR} is ${NO_TENANT_ID}, the id no workspace has: no pack call carries it. Set the workspace's own id.`,
     );
   }
   return id;

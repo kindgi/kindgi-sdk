@@ -355,7 +355,7 @@ describe('who may read them', () => {
       expect(out.status, path).toBe(404);
       expect(out.body.error, path).toMatchObject({
         code: 'deployment-not-found',
-        message: 'No deployment with id "d-own" under this tenant',
+        message: 'No deployment with id "d-own" under this workspace',
       });
     }
     expect(h.asked).toContain(`read project:${OWN}`);

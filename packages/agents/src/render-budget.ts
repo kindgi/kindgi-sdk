@@ -26,7 +26,7 @@ export class TemplateRenderBudgetError extends TenantBudgetError {
 
   constructor(budgetMs: number, retryAfterMs: number) {
     super(
-      `Templates rendered for this tenant took its budget of ${budgetMs} ms in the last 60 seconds: try again in ${Math.max(1, Math.ceil(retryAfterMs / 1000))} s.`,
+      `Templates rendered for this workspace took its budget of ${budgetMs} ms in the last 60 seconds: try again in ${Math.max(1, Math.ceil(retryAfterMs / 1000))} s.`,
       'template-render-time',
       budgetMs,
       retryAfterMs,

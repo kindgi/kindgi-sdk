@@ -222,7 +222,7 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   {
     "error": {
       "code": "image-prefix-unset",
-      "message": "This tenant has no image repository set, so it can't register a deployment yet: its operator sets one.",
+      "message": "This workspace has no image repository set, so it can't register a deployment yet: its operator sets one.",
       "requestId": "req-f5000e71-d1ec-4ae8-984b-1778ece7b597"
     }
   }

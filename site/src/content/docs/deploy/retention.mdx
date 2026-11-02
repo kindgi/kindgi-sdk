@@ -249,7 +249,7 @@ PublishPolicyResult[policyId=acme.keep-providers, version=1.0.0]
   second policy for a covered domain is refused (`409 policy-scope-taken`):
 
   ```text
-  Retention domain "provider" is already covered by policy "acme.keep-providers": a tenant has one retention policy per domain, and one for "*". Publish a new version of "acme.keep-providers" instead, or unregister it first.
+  Retention domain "provider" is already covered by policy "acme.keep-providers": a workspace has one retention policy per domain, and one for "*". Publish a new version of "acme.keep-providers" instead, or unregister it first.
   ```
 
   A new version can't move a policy to another domain either

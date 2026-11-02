@@ -22,7 +22,7 @@ export function slugConflictError(resource: HierarchyResource, slug: string) {
     message:
       resource === 'project'
         ? `Another project in its org has the slug "${slug}" (for a project without an org: another project without one)`
-        : `Another ${resource} in the tenant has the slug "${slug}"`,
+        : `Another ${resource} in the workspace has the slug "${slug}"`,
     resource,
     slug,
   } as const;
@@ -55,7 +55,7 @@ export function orgNotFoundError(orgId: string) {
 export function projectDefaultAlreadyExistsError() {
   return {
     code: 'project-default-already-exists',
-    message: 'The tenant already has a default project',
+    message: 'The workspace already has a default project',
   } as const;
 }
 

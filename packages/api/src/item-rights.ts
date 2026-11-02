@@ -910,11 +910,11 @@ function spansEnvironments(
   const scopeAsked =
     scope?.kind === 'org'
       ? `An org-wide pin (org ${scope.orgId as unknown as string})`
-      : 'A tenant-wide pin';
+      : 'A workspace-wide pin';
   const orderName =
     order.parent.kind === 'org'
       ? `org ${order.parent.orgId as unknown as string}'s environment order`
-      : "the tenant's environment order";
+      : "the workspace's environment order";
   return c.json(
     toWireError(
       {
@@ -1016,11 +1016,11 @@ export async function pinWidthRefusal(
   const scopeAsked =
     how.scope.kind === 'org'
       ? `An org-wide pin (org ${how.scope.orgId as unknown as string})`
-      : 'A tenant-wide pin';
+      : 'A workspace-wide pin';
   const orderName =
     order.parent.kind === 'org'
       ? `org ${order.parent.orgId as unknown as string}'s environment order`
-      : "the tenant's environment order";
+      : "the workspace's environment order";
   const instead =
     how.kind === 'tool'
       ? "Pin the tool in the order's first environment, where agent and flow versions are made."

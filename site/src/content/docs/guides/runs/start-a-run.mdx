@@ -140,7 +140,7 @@ uv run kindgi runs start --agent=acme.order-desk --agent-version=0.1.0 --project
 </Tabs>
 
 A `--project` that isn't a project in your tenant stops before anything runs,
-with `No project with id "<project-id>" in this tenant` (the API answers 404
+with `No project with id "<project-id>" in this workspace` (the API answers 404
 `project-not-found`). One that isn't an id at all, like `--project=support`,
 gets `` `projectId` must be a project id (a UUID) ``.
 
@@ -564,7 +564,7 @@ try {
 
 ```text
 run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: Error: No order Z-9
-not-found No flow "acme.no-such-flow" is registered in this tenant.
+not-found No flow "acme.no-such-flow" is registered in this workspace.
 ```
 
 </TabItem>
@@ -588,7 +588,7 @@ except NotFoundError as err:
 
 ```text
 run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: ValueError: No order Z-9
-No flow "acme.no-such-flow" is registered in this tenant.
+No flow "acme.no-such-flow" is registered in this workspace.
 ```
 
 </TabItem>
@@ -630,7 +630,7 @@ public final class StartFailures {
 
 ```text
 run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: java.lang.IllegalArgumentException: No order Z-9
-flow-not-found No flow "acme.no-such-flow" is registered in this tenant.
+flow-not-found No flow "acme.no-such-flow" is registered in this workspace.
 ```
 
 </TabItem>
@@ -670,7 +670,7 @@ object StartFailures {
 
 ```text
 run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: java.util.NoSuchElementException: No order Z-9
-flow-not-found No flow "acme.no-such-flow" is registered in this tenant.
+flow-not-found No flow "acme.no-such-flow" is registered in this workspace.
 ```
 
 </TabItem>

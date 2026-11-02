@@ -3407,7 +3407,7 @@ describe("kindgi deploy — the pack's blocks against what runs", () => {
   const forbidden = {
     status: 403,
     body: {
-      error: { code: 'permission-denied', message: 'Needs admin on the tenant', requestId: 'r' },
+      error: { code: 'permission-denied', message: 'Needs admin on the workspace', requestId: 'r' },
     },
   };
   const FORBIDDEN_LINE =

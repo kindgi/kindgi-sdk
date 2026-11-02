@@ -168,7 +168,7 @@ export function createProviderRegistry(
     if (m.has(provider.metadata.id)) {
       const dup: DuplicateProviderError = {
         code: 'duplicate-provider',
-        message: `Provider "${provider.metadata.id}" is already registered for tenant "${tenantId}"`,
+        message: `Provider "${provider.metadata.id}" is already registered for workspace "${tenantId}"`,
         providerId: provider.metadata.id,
       };
       return { kind: 'err', error: dup };
