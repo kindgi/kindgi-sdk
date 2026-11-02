@@ -3600,8 +3600,9 @@ describe('kindgi dev — what --quiet keeps (warnings)', () => {
     expect(defaultSdkSkillsRoot()).toBeDefined();
     for (const flags of LOUD_AND_QUIET) {
       const said = await bootSaid(makeFixtures(), flags);
-      expect(said).toMatch(/ {2}⚠ Framework skills: \d+ not yet installed\.\n/);
-      expect(said).toMatch(/ {4}Run `.*kindgi skills sync` to pull the latest\.\n/);
+      expect(said).toMatch(
+        / {2}⚠ Framework skills: (\d+) out of date\.\n {4}· \1 not installed: `.*kindgi skills sync` adds them\.\n/,
+      );
       expect(said.includes('Hit a framework rough edge?')).toBe(flags.length === 0);
     }
   });

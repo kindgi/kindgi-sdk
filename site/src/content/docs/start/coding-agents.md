@@ -382,7 +382,9 @@ next `kindgi dev` refreshes both as it starts, and says so:
 It keeps skills you edited, as `kindgi skills sync` does. A skill you
 deleted stays deleted, and so does a skills folder you deleted: it says
 which are behind, and the command that brings them back. Without the
-manifest (below), it changes nothing and only says the skills are behind.
+manifest (below), it changes nothing, and says what `kindgi skills sync`
+would do: it adds the skills that aren't installed, and keeps the ones that
+differ, which `--force` replaces.
 
 To refresh them yourself, at any time:
 
