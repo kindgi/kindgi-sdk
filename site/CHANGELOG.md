@@ -1,5 +1,13 @@
 # kindgi-docs
 
+## 0.0.15
+
+### Patch Changes
+
+- @kindgi/cli@0.3.2
+  - @kindgi/env-schema@0.3.2
+  - @kindgi/specs@0.3.2
+
 ## 0.0.14
 
 ### Patch Changes

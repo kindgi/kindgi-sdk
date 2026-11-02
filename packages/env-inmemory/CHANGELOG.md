@@ -1,5 +1,16 @@
 # @kindgi/env-inmemory
 
+## 0.3.2
+
+### Patch Changes
+
+- @kindgi/api@0.3.2
+  - @kindgi/audit-events@0.3.2
+  - @kindgi/compliance@0.3.2
+  - @kindgi/log@0.3.2
+  - @kindgi/platform@0.3.2
+  - @kindgi/types@0.3.2
+
 ## 0.3.1
 
 ### Patch Changes

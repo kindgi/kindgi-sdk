@@ -1,5 +1,13 @@
 # @kindgi/adapter-model-bedrock
 
+## 0.3.2
+
+### Patch Changes
+
+- @kindgi/adapter-model-shared@0.3.2
+  - @kindgi/capabilities@0.3.2
+  - @kindgi/types@0.3.2
+
 ## 0.3.1
 
 ### Patch Changes

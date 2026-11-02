@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/connections-inmemory",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "An in-memory ConnectionBinding and ConnectionResolver with a fake app, for development and tests only; refuses to start in production.",
   "license": "Apache-2.0",
   "repository": {

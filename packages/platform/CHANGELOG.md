@@ -1,5 +1,11 @@
 # @kindgi/platform
 
+## 0.3.2
+
+### Patch Changes
+
+- @kindgi/types@0.3.2
+
 ## 0.3.1
 
 ### Patch Changes
