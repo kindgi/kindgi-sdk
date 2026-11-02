@@ -60,8 +60,6 @@ final class Kindgi_Activity {
 			'startedBy'      => $started,
 			'triggerKind'    => is_string( $trigger['kind'] ?? null ) ? $trigger['kind'] : null,
 			'summary'        => self::summary( $output ),
-			// Whether the summary is the agent's own words (else it's its fields).
-			'said'           => null !== self::said( $output ),
 			'output'         => self::output( $output ),
 			'failureMessage' => null === $private && is_string( $run['failureMessage'] ?? null ) ? $run['failureMessage'] : null,
 			'private'        => $private,

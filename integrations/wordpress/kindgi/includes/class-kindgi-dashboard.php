@@ -48,7 +48,7 @@ final class Kindgi_Dashboard {
 		if ( null !== $count ) {
 			echo '<p class="kindgi-dash-waits">' . self::waits_html( $count['n'], $count['more'] ) . '</p>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped in waits_html.
 		}
-		echo '<p class="kindgi-muted">' . esc_html__( 'Loading…', 'kindgi' ) . '</p>';
+		echo '<p class="kindgi-muted hide-if-no-js">' . esc_html__( 'Loading…', 'kindgi' ) . '</p>';
 		echo '</div>';
 		self::ask_form();
 		echo '</div>';

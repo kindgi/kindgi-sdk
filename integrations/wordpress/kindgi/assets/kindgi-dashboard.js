@@ -31,8 +31,8 @@
       el(
         'a',
         { href: urls.inbox },
-        /* translators: %s: how many, such as 3 or 12+ */
         sprintf(
+          /* translators: %s: how many, such as 3 or 12+ */
           _n('%s approval waits for you', '%s approvals wait for you', answer.count, 'kindgi'),
           number,
         ),

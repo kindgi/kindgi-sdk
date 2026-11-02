@@ -506,7 +506,6 @@ function test_activity_a_webhook_runs_row(): void {
 	kindgi_assert_same( 'Order review', $row['flow'], 'the flow in words' );
 	kindgi_assert_same( 'webhook', $row['startedBy']['kind'], 'a webhook started it' );
 	kindgi_assert_same( 'Order ID 26 · Flags many-of-one-item', $row['summary'], 'its output in one line' );
-	kindgi_assert_same( false, $row['said'], 'its fields, not words of its own' );
 	kindgi_assert( false !== strpos( (string) $row['output'], '"many-of-one-item"' ), 'the whole output, a click away' );
 	kindgi_assert_same( null, $row['private'], 'for someone who can edit orders' );
 }
@@ -573,7 +572,6 @@ function test_activity_a_persons_run_and_its_answer(): void {
 	);
 	kindgi_assert_same( 'you', $mine['startedBy']['kind'], 'my own run' );
 	kindgi_assert_same( 'I refunded 210.00 on order 18.', $mine['summary'], "the answer's first line" );
-	kindgi_assert_same( true, $mine['said'], "the agent's own words, quoted" );
 	kindgi_assert_same( 'c-2', $mine['conversationId'], 'its conversation' );
 	kindgi_assert_same( null, $mine['private'], 'my own, orders or not' );
 	$started = array(

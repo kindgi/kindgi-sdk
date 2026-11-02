@@ -156,11 +156,11 @@ final class Kindgi_Order {
 		wp_enqueue_style( 'kindgi-orders' );
 		wp_add_inline_style(
 			'kindgi-orders',
-			'.wp-list-table .column-kindgi{width:8em}'
+			'.wp-list-table .column-kindgi{width:10em}'
 			. '.wp-list-table th.column-kindgi .kindgi-mark{display:block;border-radius:4px}'
 			. '.kindgi-order-waits:empty{display:none}'
-			. '.kindgi-order-waits{display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;line-height:1.5}'
-			. '.kindgi-waits-you{background:#f8dda7;color:#94660c}'
+			. '.kindgi-order-waits{display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;line-height:1.5;white-space:nowrap}'
+			. '.kindgi-waits-you{background:#f8dda7;color:#6b4a00}'
 			. '.kindgi-waits-others{background:#e5e5e5;color:#454545}'
 		);
 	}
