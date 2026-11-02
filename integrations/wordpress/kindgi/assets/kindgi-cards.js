@@ -246,6 +246,10 @@
       approvalId === null ? '' : `&approval=${encodeURIComponent(approvalId)}`
     }`;
 
+  /** A run's address on Activity: its row, marked; with `output`, what it returned open beside it. */
+  const runUrl = (runId, output = false) =>
+    `${urls().activity}&run=${encodeURIComponent(runId)}${output ? '&show=output' : ''}`;
+
   /** Who asked, in words: the card says it before when. */
   function askedWords(asked) {
     if (asked.kind === 'you') return __('You asked', 'kindgi');
@@ -588,6 +592,7 @@
     empty,
     toolName,
     askUrl,
+    runUrl,
     approvalCard,
     runState,
   };
