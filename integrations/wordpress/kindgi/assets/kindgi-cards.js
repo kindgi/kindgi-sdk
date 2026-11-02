@@ -467,29 +467,84 @@
   }
 
   /** What a decision did, once Kindgi recorded it. */
-  function decided(done) {
+  function decided(done, words) {
     const line =
       done.approval.decision !== null ? decisionLine(done.approval.decision) : el('p', {}, '');
-    if (done.waitpointResolved) return [line];
-    return [
-      line,
-      /* translators: %s: the run's status, as Kindgi names it */
-      muted(sprintf(__('The run had already moved on (%s).', 'kindgi'), done.runStatus ?? '')),
-    ];
+    if (!done.waitpointResolved) {
+      return [
+        line,
+        /* translators: %s: the run's status, as Kindgi names it */
+        muted(sprintf(__('The run had already moved on (%s).', 'kindgi'), done.runStatus ?? '')),
+      ];
+    }
+    return done.approval.decision === 'reject' ? [line, muted(words.rejected)] : [line];
+  }
+
+  /**
+   * What the decision says it does. A rejection doesn't end the agent's
+   * turn: the agent reads the reason and may try again, and what it tries
+   * comes back as a new approval. A reply that isn't sent goes nowhere:
+   * the person it was to hears nothing from Kindgi.
+   */
+  function decisionWords(card) {
+    const tryAgain = card.reply
+      ? __(
+          'The agent reads what you write here and may write a new reply, which comes back for approval.',
+          'kindgi',
+        )
+      : __(
+          'The agent reads what you write here and may try another way, which comes back for approval.',
+          'kindgi',
+        );
+    if (card.reply) {
+      return {
+        approve: __('Approve and send', 'kindgi'),
+        reject: __("Don't send…", 'kindgi'),
+        confirm: __("Don't send", 'kindgi'),
+        label: __("What should change, or why it shouldn't go", 'kindgi'),
+        /* translators: 1: the address the reply was to go to, 2: that the agent may write a new reply */
+        effect: sprintf(__('Nothing goes to %1$s. %2$s', 'kindgi'), card.reply.to, tryAgain),
+        needed: __("Say what should change, or why it shouldn't go.", 'kindgi'),
+        rejected: __('Not sent. If the agent writes a new reply, it comes to the Inbox.', 'kindgi'),
+      };
+    }
+    const asker =
+      card.asked.kind === 'none' ? '' : ` ${__('Whoever asked sees it too.', 'kindgi')}`;
+    return {
+      approve: __('Approve', 'kindgi'),
+      reject: __('Reject…', 'kindgi'),
+      confirm: __('Reject', 'kindgi'),
+      label: __('Why you reject it', 'kindgi'),
+      /* translators: %s: that the agent may try another way */
+      effect: sprintf(__("It doesn't happen. %s", 'kindgi'), tryAgain) + asker,
+      needed: __('Say why you reject it.', 'kindgi'),
+      rejected: __(
+        "It doesn't happen. If the agent tries another way, it comes to the Inbox.",
+        'kindgi',
+      ),
+    };
   }
 
   /**
    * Approve, or Reject: the reason box opens only then, since a rejection
-   * needs one and an approval doesn't.
+   * needs one and an approval doesn't. Both say what they do.
    */
   function decisionControls(card, after) {
+    const words = decisionWords(card);
+    const id = `kindgi-why-${card.id}`;
     const reason = el('textarea', {
+      id,
       rows: '3',
       maxlength: '2000',
-      'aria-label': __('Why you reject it', 'kindgi'),
-      placeholder: __('Why you reject it: the agent and whoever asked see this.', 'kindgi'),
+      'aria-describedby': `${id}-effect`,
     });
-    const why = el('div', { className: 'kindgi-why', hidden: true }, reason);
+    const why = el(
+      'div',
+      { className: 'kindgi-why', hidden: true },
+      el('label', { for: id }, words.label),
+      el('p', { id: `${id}-effect`, className: 'kindgi-effect' }, words.effect),
+      reason,
+    );
     reason.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') rejecting(false);
     });
@@ -500,9 +555,7 @@
     };
     const decide = async (decision) => {
       if (decision === 'reject' && reason.value.trim() === '') {
-        result.replaceChildren(
-          notice({ code: 'kindgi_reason_needed', message: __('Say why you reject it.', 'kindgi') }),
-        );
+        result.replaceChildren(notice({ code: 'kindgi_reason_needed', message: words.needed }));
         reason.focus();
         return;
       }
@@ -513,7 +566,7 @@
           // A reason typed for a rejection and then cancelled never goes with an approval.
           data: decision === 'reject' ? { decision, reason: reason.value.trim() } : { decision },
         });
-        result.replaceChildren(...decided(done));
+        result.replaceChildren(...decided(done, words));
         buttons.remove();
         why.remove();
         // The count on the menu and in the admin bar, now rather than in a minute.
@@ -527,11 +580,11 @@
     const button = (label, className, onclick) =>
       el('button', { type: 'button', className, onclick }, label);
     const asking = [
-      button(__('Approve', 'kindgi'), 'button button-primary', () => decide('approve')),
-      button(__('Reject…', 'kindgi'), 'button', () => rejecting(true)),
+      button(words.approve, 'button button-primary', () => decide('approve')),
+      button(words.reject, 'button', () => rejecting(true)),
     ];
     const rejectingButtons = [
-      button(__('Reject', 'kindgi'), 'button kindgi-reject', () => decide('reject')),
+      button(words.confirm, 'button kindgi-reject', () => decide('reject')),
       button(__('Cancel', 'kindgi'), 'button-link', () => rejecting(false)),
     ];
     const rejecting = (on) => {

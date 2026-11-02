@@ -690,7 +690,7 @@ final class Kindgi_Rest {
 	public static function decide( WP_REST_Request $request ) {
 		$reason = trim( (string) $request['reason'] );
 		if ( 'reject' === $request['decision'] && '' === $reason ) {
-			return new WP_Error( 'kindgi_reason_required', __( 'Say why you reject it: the agent and whoever asked read it.', 'kindgi' ), array( 'status' => 400 ) );
+			return new WP_Error( 'kindgi_reason_required', __( 'Say why you reject it, or what should change: the agent reads it.', 'kindgi' ), array( 'status' => 400 ) );
 		}
 		$body = array( 'decision' => $request['decision'] );
 		if ( '' !== $reason ) {
