@@ -13,7 +13,8 @@ it, each person signed in to the site can:
   refund for example, and see what waits for others;
 - **follow** in **Activity**: what the project's agents and flows did;
 - **ask** the agents an administrator offered to staff, on **Ask**, in
-  conversations of their own.
+  conversations of their own. The agents read for them through the
+  project's read-only tools, and any other tool waits for a person's yes.
 
 Each person acts as themselves. A decision names Jane, shown as "Jane, via
 Acme store", never "the store".
@@ -132,7 +133,7 @@ and `kindgi sites update <site-id>` changes it later:
 | Setting | Default | What it decides |
 | --- | --- | --- |
 | `--allowed-role` | `administrator`, `shop_manager` | The WordPress roles that may sign in at all, one flag for each. Any other role is refused. |
-| `--role-map` | Both roles: `{"ask": true, "reviewer": "standard"}` | For each allowed role, as JSON or `@<file>`: whether it may ask the project's agents (`ask`), and the reviewer role it decides approvals with (`reviewer`; none when absent). A person with several allowed roles gets the most any of them gives. `--allowed-role` without `--role-map` keeps only the map's entries for the allowed roles: the default map's for a new site, the site's own on an update. An allowed role with no entry signs in to read the project only. |
+| `--role-map` | Both roles: `{"ask": true, "reviewer": "standard"}` | For each allowed role, as JSON or `@<file>`: whether it may ask the project's agents (`ask`; see [What an Ask may do](#what-an-ask-may-do)), and the reviewer role it decides approvals with (`reviewer`; none when absent). A person with several allowed roles gets the most any of them gives. `--allowed-role` without `--role-map` keeps only the map's entries for the allowed roles: the default map's for a new site, the site's own on an update. An allowed role with no entry signs in to read the project only. |
 | `--reviewer-ceiling` | `standard` | The highest reviewer role the site's people can have: `standard` or `senior`. |
 | `--people-cap` | `50` | At most this many people from the site (1 to 10,000). |
 | `--new-people-per-day` | `20` | At most this many new people a day (1 to 1,000). |
@@ -249,6 +250,36 @@ About the Kindgi URL:
   Acme refund order."
 - **Someone else's conversation,** opened from an approval they review, to
   read, not to continue.
+
+## What an Ask may do
+
+Someone the site signs in, whose role may ask, asks the agents as
+themselves, in conversations of their own:
+
+- **The tools:** the agent may call the site project's tools (for a site
+  in an environment order, the tools of the order's projects too), and the
+  tools of each MCP endpoint whose scope holds the project, the store's
+  actions among them (see
+  [Give some projects its tools](../../guides/tools/mcp-servers/#give-some-projects-its-tools)).
+- **A read-only tool** runs as the agent's and the tenant's rules say. It
+  counts as read-only when every version of it, retired ones included,
+  says `mutating: false`.
+- **Every other tool waits for a yes** on each call, whatever the agent's
+  or the tenant's rules say, and so does `kindgi_remember`. An MCP tool
+  always counts as one that changes things, so each of the store's
+  actions waits, product lookups included (see
+  [Give the agent the store's actions](#give-the-agent-the-stores-actions)).
+  Only a tool whose own definition says `mutating: false`, as a pack's
+  read-only tool can, reads without one.
+- **Who says yes:** a reviewer whose role may decide it. The person who
+  asked may approve their own call when their role reviews approvals,
+  unless the agent sets `separateApprover` (see [Four eyes](#four-eyes)).
+- **Only in their own turns:** the tools are theirs to use only through an
+  agent turn they started in the site's project, never by calling a tool
+  directly.
+- **When their role stops giving `ask`,** a call of theirs that still
+  waits is refused when it's decided, once Kindgi has the change (see
+  [A site's people in Kindgi](#a-sites-people-in-kindgi)).
 
 ## Reviewer email
 
@@ -497,6 +528,9 @@ the store's actions (look up an order, refund it) as
     },
   },
   ```
+
+  In an Ask from someone the site signs in, every store tool waits for a
+  yes, whatever the override says (see [What an Ask may do](#what-an-ask-may-do)).
 
 - **Give money tools no automatic retries on a tool error.** A retry is a
   new call, with its own approval and its own idempotency key. If the first
