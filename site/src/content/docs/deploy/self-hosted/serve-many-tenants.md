@@ -851,6 +851,9 @@ keys and people, as the first of many.
      ⚠ Per-deployment routing: 1 deployment registered before it has no routes; deploy it again. The same image is enough.
    ```
 
+   Deploy it with `--idempotency-key <new value>`, so the runtime doesn't
+   answer it as it did the earlier deploy.
+
    Its `endpoint` is then `pending` until you record its pack service.
 
 ## Next

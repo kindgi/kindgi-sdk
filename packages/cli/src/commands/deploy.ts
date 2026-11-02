@@ -535,6 +535,7 @@ async function deployWith(
     envelopePath: args.envelopePath,
     idempotencyKey,
     promotionPath,
+    waitsForPackService: args.hosted,
   });
   // A refused deployment's banner is its error: said under `--quiet` too.
   if (rendered.exitCode !== 0) {

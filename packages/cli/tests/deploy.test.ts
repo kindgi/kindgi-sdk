@@ -599,7 +599,7 @@ describe('kindgi deploy — response handling', () => {
     expect(summary.deployment.deploymentId).toBe('dep-created-01');
   });
 
-  test('200 OK (idempotent replay) → exit 0, banner notes replay', async () => {
+  test('200 OK (this image was deployed before) → exit 0, banner notes it', async () => {
     await writeAutoEnvelope();
     const fixtures = makeFixtures({
       postResult: {
@@ -613,8 +613,10 @@ describe('kindgi deploy — response handling', () => {
       argv: ['deploy', '--env=staging', `--path=${packDir}`],
     });
     expect(out.exitCode).toBe(0);
-    expect(out.stderr).toContain('200 OK (idempotent replay)');
-    expect(out.stderr).toContain('previously landed');
+    expect(out.stderr).toContain('200 OK (this image was deployed before)');
+    expect(out.stderr).toContain(
+      'was deployed before, so the server answered with that deployment.',
+    );
     const summary = JSON.parse(out.stdout) as { outcome: string };
     expect(summary.outcome).toBe('replayed');
   });
@@ -874,7 +876,10 @@ describe('kindgi deploy — response handling', () => {
         kind: 'replayed',
         status: 200,
         idempotentReplay: true,
-        record: makeDeploymentRecord({ deploymentId: 'dep-replayed-02' }),
+        record: makeDeploymentRecord({
+          deploymentId: 'dep-replayed-02',
+          endpoint: { status: 'pending', since: '2026-10-13T08:00:00.000Z' },
+        }),
       },
     });
     const out = await runCli({
@@ -883,7 +888,10 @@ describe('kindgi deploy — response handling', () => {
     });
     expect(out.exitCode).toBe(0);
     expect(out.stderr).toContain('Nothing new was deployed');
-    expect(out.stderr).toContain('previously landed');
+    expect(out.stderr).toContain(
+      'was deployed before, so the server answered with that deployment.',
+    );
+    expect(out.stderr).not.toContain('Its pack service');
     expect(out.stderr).not.toContain('Deploy complete.');
     expect(out.stderr).not.toContain('already in flight');
     const summary = JSON.parse(out.stdout) as { outcome: string; idempotentReplay?: boolean };
@@ -2040,6 +2048,27 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     const out = await deploy(run.fixtures, '--hosted');
     expect(out.exitCode, out.stderr).toBe(0);
     expect(run.readIds).toHaveLength(0);
+  });
+
+  test("a repeat deploy that doesn't wait says its pack service is asked for, and how to see it ready", async () => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(pending(), [ready], { repeat: true });
+    const out = await deploy(run.fixtures);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(run.readIds).toHaveLength(0);
+    expect(out.stderr).toContain(
+      "  Its pack service is asked for (pending since 2026-10-13T08:00:00.000Z): its tools answer once it's made. `kindgi deployments get dep-01H8XM` says when it's ready.",
+    );
+    expect(out.stderr).not.toContain('Waiting for the pack service');
+  });
+
+  test('a repeat deploy with --hosted waits for its pack service, and says its state there only', async () => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(pending(), [ready], { repeat: true });
+    const out = await deploy(run.fixtures, '--hosted');
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain('Waiting for the pack service');
+    expect(out.stderr).not.toContain('Its pack service is asked for');
   });
 
   /** `hostedFixtures` whose runtime counts the kept builds with `answer`, and the reads it was asked. */
