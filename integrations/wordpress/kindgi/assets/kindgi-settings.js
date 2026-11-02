@@ -49,20 +49,42 @@
   }
 
   /**
-   * Answers that never reached Kindgi, or never came back from it: signing
-   * in wasn't checked, which isn't Kindgi refusing it.
+   * Whether the read never got Kindgi's answer: the page lost the site, the
+   * site answered without JSON, or the site's own 502, which stands for
+   * anything from Kindgi that wasn't a refusal (no answer, a 5xx, or one
+   * that wasn't a sign-in). Then signing in wasn't checked; it wasn't refused.
    */
-  const UNCHECKED = new Set(['fetch_error', 'invalid_json', 'kindgi_unreachable']);
+  const unchecked = (error) =>
+    error?.code === 'fetch_error' || error?.code === 'invalid_json' || error?.data?.status === 502;
 
-  /** The sign-in row once the project's read failed: Kindgi refused, or was never asked. */
+  /** What the server said, under Details: the row itself keeps to its own words. */
+  const details = (error) =>
+    el(
+      'details',
+      { className: 'kindgi-technical' },
+      el('summary', {}, __('Details', 'kindgi')),
+      el('code', {}, [error?.code, error?.message].filter(Boolean).join(': ')),
+    );
+
+  /** The sign-in row once the project's read failed: Kindgi refused, or wasn't reached. */
   function signinFailed(signin, error) {
-    const unchecked = UNCHECKED.has(error?.code);
+    if (unchecked(error)) {
+      setRow(
+        signin,
+        'warn',
+        __("Signing in wasn't checked", 'kindgi'),
+        __(
+          "Kindgi couldn't be asked just now. Reload this page in a minute to check again.",
+          'kindgi',
+        ),
+        details(error),
+      );
+      return;
+    }
     setRow(
       signin,
-      unchecked ? 'warn' : 'err',
-      unchecked
-        ? __("Signing in wasn't checked", 'kindgi')
-        : __("Kindgi didn't sign you in", 'kindgi'),
+      'err',
+      __("Kindgi didn't sign you in", 'kindgi'),
       error?.message ?? __('Something went wrong.', 'kindgi'),
     );
   }

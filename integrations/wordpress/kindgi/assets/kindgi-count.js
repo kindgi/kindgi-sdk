@@ -53,8 +53,12 @@
   function showOrders(orders) {
     if (orders === null || typeof orders !== 'object') return;
     for (const cell of document.querySelectorAll('.kindgi-order-waits[data-kindgi-order]')) {
-      cell.textContent = WAITS[orders[cell.dataset.kindgiOrder]] ?? '';
-      cell.classList.remove('kindgi-unknown');
+      const state = Object.hasOwn(WAITS, orders[cell.dataset.kindgiOrder] ?? '')
+        ? orders[cell.dataset.kindgiOrder]
+        : null;
+      cell.textContent = state === null ? '' : WAITS[state];
+      cell.className =
+        state === null ? 'kindgi-order-waits' : `kindgi-order-waits kindgi-waits-${state}`;
     }
   }
 

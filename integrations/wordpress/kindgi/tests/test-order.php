@@ -135,6 +135,9 @@ function test_order_the_column_sits_after_the_status_and_reads_the_kept_count():
 		'after the status'
 	);
 	kindgi_assert_same( array( 'order_number', 'kindgi' ), array_keys( Kindgi_Order::with_column( array( 'order_number' => 'Order' ) ) ), 'last, without a status' );
+	$heading = Kindgi_Order::with_column( array( 'order_number' => 'Order' ) )['kindgi'];
+	kindgi_assert( false !== strpos( $heading, '<svg class="kindgi-mark"' ), 'its heading is the mark' );
+	kindgi_assert_same( 'Kindgi', trim( strip_tags( $heading ) ), 'and its name, where WordPress shows the heading as text' );
 	$count = array(
 		'n'      => 1,
 		'more'   => false,
