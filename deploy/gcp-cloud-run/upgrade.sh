@@ -1203,13 +1203,13 @@ EOT
      config.env, or with a secretRef, which a stdio server is never sent,
      the boot logs a WARN under mcp.env that names the endpoint and the
      secretEnv that replaces it. kindgi-runtime check mcp-env-credentials,
-     and kindgi doctor's mcp-env check, list the same. Its config.env
-     values now read back as "[redacted]", and registering one again with a
-     credential in config.env is refused. To move one, store each
-     config.env value as a secret (a secretRef is stored already), then
-     unregister the endpoint and register it again with secretEnv. An HTTP
-     MCP endpoint with secretEnv in the config file stops the boot: only a
-     stdio server is given one.
+     and kindgi doctor's mcp-env check, list the same. Its values in
+     config.env now read back as "[redacted]", and registering one again
+     with a credential in config.env is refused. To move one, store each
+     of its values in config.env as a secret (a secretRef is stored
+     already), then unregister the endpoint and register it again with
+     secretEnv. An HTTP MCP endpoint with secretEnv in the config file
+     stops the boot: only a stdio server is given one.
    - The expert queue's records are logged under expert-queue, which was
      judging. In KINDGI_LOG_LEVELS (server_env), change judging=<level> to
      expert-queue=<level>. The old name only warns at boot, as a name no
