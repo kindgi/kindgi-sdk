@@ -342,8 +342,11 @@
   padding: 0;
 }
 
+/* Under an agent's words: no bullets, unlike the lists it writes. */
 .kindgi .kindgi-agent .kindgi-steps-done {
   margin-top: var(--kindgi-space-2);
+  padding: 0;
+  list-style: none;
   color: var(--kindgi-muted);
   font-size: 12px;
 }
@@ -364,6 +367,19 @@
   height: 6px;
   border-radius: 50%;
   background: var(--kindgi-border);
+}
+
+/* A call that ran nothing (yet): an open dot, and why under its words. */
+.kindgi .kindgi-step-not-run::before {
+  box-sizing: border-box;
+  border: 1px solid var(--kindgi-muted);
+  background: transparent;
+}
+
+/* A reason can take lines, one for each guardrail. */
+.kindgi .kindgi-step-why {
+  display: block;
+  white-space: pre-line;
 }
 
 .kindgi .kindgi-answer summary {

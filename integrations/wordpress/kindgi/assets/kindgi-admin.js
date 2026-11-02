@@ -32,7 +32,7 @@
     loading,
     muted,
     empty,
-    toolName,
+    stepWords,
     askUrl,
     approvalUrl,
     runUrl,
@@ -1149,48 +1149,62 @@
     return items;
   }
 
-  /** A tool's answer: under the step whose call it answers, or on its own line when no step waits for it. */
+  /**
+   * A tool's answer: its step, which now says whether the call ran, in the
+   * place of the step that asked; on a line of its own when no step waits
+   * for it.
+   */
   function placeAnswer(m, open, items) {
     const step = m.callId === null ? undefined : open.get(m.callId);
     open.delete(m.callId);
-    if (step) step.append(answerOf(m));
+    if (step) step.replaceWith(stepOf(step.dataset.tool, m.callId, m));
     else
       items.push(
-        el('li', { className: 'kindgi-message kindgi-used' }, answerOf(m, toolName(m.toolId))),
+        el(
+          'li',
+          { className: 'kindgi-message kindgi-used' },
+          el('ul', { className: 'kindgi-steps-done', role: 'list' }, stepOf(m.toolId, m.callId, m)),
+        ),
       );
   }
 
-  /** What a tool answered, folded: its raw result, for whoever wants to see what the agent saw. */
-  const answerOf = (m, name = null) =>
+  /**
+   * A tool call's step (`stepWords`): what the agent did with the tool, and
+   * why a call that ran nothing didn't. A call that ran has its answer
+   * folded under it, for whoever wants to see what the agent saw.
+   */
+  function stepOf(tool, callId, answer) {
+    const words = stepWords(tool, answer);
+    return el(
+      'li',
+      {
+        className: words.ran ? 'kindgi-step' : 'kindgi-step kindgi-step-not-run',
+        'data-call': callId,
+        'data-tool': tool,
+      },
+      el('span', {}, words.line),
+      words.why === null ? null : el('span', { className: 'kindgi-step-why' }, words.why),
+      words.ran ? answerOf(answer) : null,
+    );
+  }
+
+  /** What a tool answered, folded: its raw result. */
+  const answerOf = (m) =>
     el(
       'details',
       { className: 'kindgi-answer' },
-      el(
-        'summary',
-        {},
-        name === null
-          ? __('What it answered', 'kindgi')
-          : /* translators: %s: a tool's name */
-            sprintf(__('What %s answered', 'kindgi'), name),
-      ),
+      el('summary', {}, __('What it answered', 'kindgi')),
       el('pre', {}, JSON.stringify(m.result, null, 2)),
     );
 
-  /** The tools a message calls, a step each: the answer to its call joins it when it comes. */
+  /** The tools a message calls, a step each: the answer to its call takes its place when it comes. */
   const stepsOf = (calls) =>
     calls.length === 0
       ? null
       : el(
           'ul',
           { className: 'kindgi-steps-done', role: 'list' },
-          calls.map((call) =>
-            el(
-              'li',
-              { className: 'kindgi-step', 'data-call': call.id },
-              /* translators: %s: a tool's name */
-              el('span', {}, sprintf(__('Used %s', 'kindgi'), toolName(call.name))),
-            ),
-          ),
+          calls.map((call) => stepOf(call.name, call.id)),
         );
 
   /** One message: the person's words or the mail that started the turn, the agent's words, and its steps. */
@@ -1339,8 +1353,8 @@
       since = run.since;
       steps.append(
         ...run.steps.map((step) =>
-          /* translators: %s: a tool's name, or several separated by commas */
-          el('li', {}, sprintf(__('Used %s', 'kindgi'), toolName(step.toolId))),
+          // Its answer isn't in the journal's steps: the conversation shows it once the turn ends.
+          el('li', {}, stepWords(step.toolId).line),
         ),
       );
       showWaits(waits, shown, run.waitingFor);

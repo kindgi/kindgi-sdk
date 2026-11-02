@@ -4,7 +4,8 @@
 /**
  * An approval's card (`assets/kindgi-cards.js`), as a person decides it:
  * what its buttons say, and what it says once Kindgi has recorded the
- * decision. The script runs as WordPress loads it, against small
+ * decision; and a conversation's steps: whether each call ran, and why
+ * one didn't. The script runs as WordPress loads it, against small
  * stand-ins for the page's elements and `wp`; the cards are as the
  * plugin's routes answer them (`Kindgi_Inbox::card`).
  */
@@ -91,7 +92,7 @@ function loadCards(answer) {
       createTextNode: (text) => ({ textContent: text }),
     },
     wp: {
-      i18n: { __: (text) => text, sprintf },
+      i18n: { __: (text) => text, _n: (one, more, n) => (n === 1 ? one : more), sprintf },
       apiFetch: async (options) => {
         sent.push(options);
         return answer;
@@ -237,4 +238,145 @@ test('a decision on a run that had already ended says so', async () => {
   button(node, 'Approve').listeners.click();
   await settled();
   assert.match(node.textContent, /The run had already moved on \(cancelled\)\./);
+});
+
+/** A step's words, as plain fields: made in the script's own realm. */
+const stepOf = (cards, ...args) => ({ ...cards.stepWords(...args) });
+
+test("a step whose call has no answer yet doesn't say the tool was used", () => {
+  const { cards } = loadCards(null);
+  assert.deepEqual(stepOf(cards, 'acme.reply'), {
+    ran: false,
+    line: 'Asked to use Reply',
+    why: null,
+  });
+});
+
+test("a call Kindgi didn't allow says so, and why", () => {
+  const { cards } = loadCards(null);
+  const result = { status: 'denied', reason: " You don't have permission to use the tool. " };
+  assert.deepEqual(stepOf(cards, 'woo.find-orders', { result }), {
+    ran: false,
+    line: "Couldn't use Find orders",
+    why: "You don't have permission to use the tool.",
+  });
+});
+
+test('a call its connections stopped, or that failed, says so, and why', () => {
+  const { cards } = loadCards(null);
+  const missing = {
+    status: 'failed',
+    error: {
+      code: 'connection-missing',
+      connection: 'mail',
+      message: "Mail needs connecting before this call can run, so it didn't run.",
+    },
+  };
+  assert.deepEqual(stepOf(cards, 'acme.reply', { result: missing }), {
+    ran: false,
+    line: "Couldn't use Reply",
+    why: "Mail needs connecting before this call can run, so it didn't run.",
+  });
+  for (const [error, why] of [
+    [
+      { kind: 'tool-error', message: 'The order service timed out. ' },
+      'The order service timed out.',
+    ],
+    [
+      { kind: 'invalid-arguments', message: 'orderId: expected a number.', issues: [] },
+      'orderId: expected a number.',
+    ],
+  ]) {
+    const failed = {
+      kindgi: 'tool-error-retry',
+      status: 'failed',
+      error,
+      instruction: 'Call it again.',
+    };
+    assert.deepEqual(stepOf(cards, 'woo.find-orders', { result: failed }), {
+      ran: false,
+      line: "Couldn't use Find orders",
+      why,
+    });
+  }
+});
+
+/** Guardrails' note on a call (Kindgi's `callNote`): their ids, what it says of the call, their reasons, the model's next step. */
+const note = (ids, said, reasons) =>
+  [
+    `[kindgi:guardrail-retry] ${JSON.stringify(ids)}`,
+    said,
+    ...reasons,
+    "Don't make this call again as it is. Go on without it.",
+  ].join('\n');
+
+test('a call guardrails stopped says so, with their reasons', () => {
+  const { cards } = loadCards(null);
+  const one = note(['big-refunds'], "This call didn't run: it didn't pass this guardrail.", [
+    '- big-refunds: Refunds over 100 need a person.',
+  ]);
+  assert.deepEqual(stepOf(cards, 'woo.refund-large', { result: one }), {
+    ran: false,
+    line: "Couldn't use Refund large: a guardrail stopped it",
+    why: '- big-refunds: Refunds over 100 need a person.',
+  });
+  const two = note(
+    ['big-refunds', 'no-weekend'],
+    "This call didn't run: it didn't pass these guardrails.",
+    ['- big-refunds: Refunds over 100 need a person.', "- no-weekend: the call didn't pass it"],
+  );
+  assert.deepEqual(stepOf(cards, 'woo.refund-large', { result: two }), {
+    ran: false,
+    line: "Couldn't use Refund large: guardrails stopped it",
+    why: "- big-refunds: Refunds over 100 need a person.\n- no-weekend: the call didn't pass it",
+  });
+});
+
+test('a call whose approval was rejected says so, with the reason when one was given', () => {
+  const { cards } = loadCards(null);
+  assert.deepEqual(
+    stepOf(cards, 'woo.refund-large', { result: { status: 'rejected', rationale: 'Not yet.' } }),
+    {
+      ran: false,
+      line: "Didn't use Refund large: its approval was rejected",
+      why: 'Reason: Not yet.',
+    },
+  );
+  assert.deepEqual(stepOf(cards, 'woo.refund-large', { result: { status: 'rejected' } }), {
+    ran: false,
+    line: "Didn't use Refund large: its approval was rejected",
+    why: null,
+  });
+});
+
+test("a tool's own answer reads as used, whatever its fields", () => {
+  const { cards } = loadCards(null);
+  for (const result of [
+    { status: 'denied', reason: 'Card declined.', orderId: 18 },
+    { status: 'rejected', by: 'bank' },
+    { status: 'failed', error: { code: 'card-declined', message: 'Card declined.' } },
+    { status: 'failed', error: 'Card declined.' },
+    {
+      kindgi: 'retry',
+      status: 'failed',
+      error: { message: 'Card declined.' },
+      instruction: 'Again.',
+    },
+    // Guardrails' note on a call that ran, its result withheld.
+    note(['pii'], "This call ran, but its result is withheld: it didn't pass this guardrail.", [
+      '- pii: It names a person.',
+    ]),
+    '[kindgi:guardrail-retry] ["pii"]',
+    "[kindgi:guardrail-retry] not ids\nThis call didn't run: it didn't pass this guardrail.\nDon't make this call again.",
+    { orders: [] },
+    [],
+    'done',
+    null,
+  ]) {
+    assert.deepEqual(stepOf(cards, 'woo.find-orders', { result }), {
+      ran: true,
+      line: 'Used Find orders',
+      why: null,
+    });
+  }
 });
