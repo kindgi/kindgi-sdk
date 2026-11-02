@@ -31,7 +31,7 @@ export type EffectKind = (typeof EFFECT_KINDS)[number];
 
 /**
  * A declared side-effect. Enables policy enforcement (can this tool run in
- * this tenant?), safe parallelization (are two invocations conflicting?),
+ * this workspace?), safe parallelization (are two invocations conflicting?),
  * and causal provenance annotation.
  */
 export interface Effect {
@@ -39,7 +39,7 @@ export interface Effect {
   /**
    * Resource identifier the effect targets — for example `memory:facts`,
    * `blob:*`, `external:api.example.com`. Opaque to this package; the
-   * policy engine interprets it when enforcing tenant policy.
+   * policy engine interprets it when enforcing workspace policy.
    */
   readonly resource?: string;
   readonly notes?: string;
@@ -47,7 +47,7 @@ export interface Effect {
 
 /**
  * A typed context requirement — a named slot the tool expects the runtime
- * to supply. The name matches an entry in the tenant's provider registry
+ * to supply. The name matches an entry in the workspace's provider registry
  * (`tenant`, `db`, `memory:facts`, `blob`, etc.). Not enforced by this
  * package; declarative metadata for capability + policy layers.
  */
@@ -66,11 +66,11 @@ export interface Need {
  */
 export interface ToolContext {
   /**
-   * Tenant scope for the invocation. Every tool call is tenant-scoped;
-   * cross-tenant access is denied by policy at the kernel layer.
-   * Handlers use this to key persistence (per-tenant DBs, per-tenant
-   * blob buckets) and to route capability calls (secrets scoped to
-   * this tenant only).
+   * The workspace the call runs for. Every tool call is scoped to one
+   * workspace; cross-tenant access is denied by policy at the kernel layer.
+   * Handlers use this to key persistence (per-workspace databases and blob
+   * buckets) and to route capability calls (secrets scoped to this
+   * workspace only).
    */
   readonly tenantId: TenantId;
   /**
@@ -143,7 +143,7 @@ export interface ToolContext {
    * Caller responsibility: the dispatch site (the agent turn's
    * `dispatch-tools` step in `@kindgi/agents`, a flow node that runs
    * the tool, an MCP server) populates this from the deployment's
-   * `SecretBinding` scoped to the invoking tenant.
+   * `SecretBinding` scoped to the invoking workspace.
    */
   readonly resolveSecret?: (ref: ToolSecretRef) => Promise<string>;
   /**
@@ -164,7 +164,7 @@ export interface ToolContext {
   readonly settings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
   /**
    * The secrets this tool declares in `needsSpec.secrets`, by name,
-   * resolved by the runtime for this call: for the call's tenant, in the
+   * resolved by the runtime for this call: for the call's workspace, in the
    * env the runtime serves (`KINDGI_ENV`; in `kindgi dev`, `local` — the
    * pack's `.env` and `.env.local`). Every required name is present: one
    * the runtime can't resolve, or whose value doesn't match its schema,
@@ -188,7 +188,7 @@ export interface ToolContext {
   /**
    * The env values this tool declares in `needsSpec.env`, by name,
    * resolved by the runtime for this call: the call's project's value,
-   * else its org's, else the tenant's, in the env the runtime serves
+   * else its org's, else the workspace's, in the env the runtime serves
    * (`KINDGI_ENV`). A name no scope sets gets its schema's `default`.
    * Every declared name is present: one with neither a value nor a
    * default, or whose value doesn't match its schema, fails the call
@@ -235,7 +235,7 @@ export interface ToolContext {
 }
 
 /**
- * Pointer to a tenant-scoped secret used by a declarative tool
+ * Pointer to a workspace-scoped secret used by a declarative tool
  * (e.g. `{kind: 'http'}` with a bearer secretRef). Same shape as
  * `ProviderSecretRef` in `@kindgi/api` — both are `{envName, name}`
  * references resolved via the deployment's `SecretBinding`. Kept

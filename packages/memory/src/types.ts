@@ -99,7 +99,7 @@ export interface FactGeneratedBy {
 export type FactInvalidationReason = 'superseded' | 'deleted' | 'erased' | 'expired';
 
 /**
- * Retention override at the fact level. Tenant policy sets defaults; a
+ * Retention override at the fact level. Workspace policy sets defaults; a
  * fact-level override wins if present.
  */
 export interface Retention {

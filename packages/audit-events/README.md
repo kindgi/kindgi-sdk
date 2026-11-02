@@ -10,7 +10,7 @@ Give the whole system one audit substrate: one record shape, one write surface, 
 
 - **`AuditEvent`** — one audit record:
   - `id` — caller-supplied, unique per tenant.
-  - `tenantId`, `projectId?` (absent for tenant-level events), `kind` (open string, e.g. `'authz-decision'`, `'secret-set'`, `'run-outcome'`), `timestamp`.
+  - `tenantId`, `projectId?` (absent for workspace-level events), `kind` (open string, e.g. `'authz-decision'`, `'secret-set'`, `'run-outcome'`), `timestamp`.
   - `actor` — `<type>:<id>`, e.g. `user:u-1042`, `agent:support-triage`, `user:system` for framework-internal actions. `onBehalfOf?` names the delegating party.
   - `correlationId?`, `runId?`, `agentId?`, `flowId?`, `outcome?`.
   - `payload` — versioned envelope `{ v: 1, doc: … }`; the `doc` shape depends on `kind`.

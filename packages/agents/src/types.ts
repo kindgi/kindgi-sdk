@@ -117,7 +117,7 @@ export interface PromptParameter {
  *
  * Scope options, each within what the run may see (its project and org,
  * the user it acts for, its conversation and that conversation's end
- * user, and tenant-wide facts; never another conversation's or another
+ * user, and workspace-wide facts; never another conversation's or another
  * end user's):
  *   - `same-conversation`: this conversation's facts.
  *   - `same-user`:         the facts of this run's end user (the
@@ -200,7 +200,7 @@ export interface AgentMemoryPolicy {
  *   - `same-conversation`: this conversation;
  *   - `same-project`:      the run's project (a person approves each
  *                          one first);
- *   - `tenant`:            the whole tenant (a person approves each
+ *   - `tenant`:            the whole workspace (a person approves each
  *                          one first).
  * Each but `tenant` includes the run's project when there is one.
  */

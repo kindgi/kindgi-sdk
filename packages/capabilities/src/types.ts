@@ -739,7 +739,7 @@ export interface ProviderSetupFailure {
 }
 
 /**
- * Per-tenant policy the router honors on top of the capability
+ * Per-workspace policy the router honors on top of the capability
  * declaration. Every field optional; empty policy = "no additional
  * constraints."
  *
