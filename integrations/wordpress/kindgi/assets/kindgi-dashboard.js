@@ -14,7 +14,8 @@
   if (root === null) return;
   const live = root.querySelector('.kindgi-dash-live');
   const { __, _n, sprintf } = wp.i18n;
-  const { api, el, notice, loading, muted, timeEl, runState, runUrl } = window.kindgiCards;
+  const { api, el, notice, loading, muted, timeEl, runState, waitsFor, approvalUrl, runUrl } =
+    window.kindgiCards;
   const urls = window.kindgiConfig?.urls ?? {};
   // The count the box was drawn with: it stays while Kindgi isn't asked.
   const drawn = live.querySelector('.kindgi-dash-waits');
@@ -51,7 +52,7 @@
             el(
               'li',
               {},
-              el('a', { href: `${urls.inbox}&approval=${encodeURIComponent(a.id)}` }, a.heading),
+              el('a', { href: approvalUrl(a.id) }, a.heading),
               el('span', { className: 'kindgi-muted' }, ' · ', timeEl(a.createdAt)),
             ),
           ),
@@ -69,6 +70,7 @@
         runState(run),
       ),
       run.summary ? el('p', { className: 'kindgi-dash-summary' }, run.summary) : null,
+      waitsFor(run),
       el('span', { className: 'kindgi-muted' }, timeEl(run.createdAt)),
     );
 

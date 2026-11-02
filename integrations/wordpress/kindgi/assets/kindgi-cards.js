@@ -199,18 +199,23 @@
     pending: ['run', __('Running', 'kindgi')],
   };
 
-  /** A run's state as a pill (Activity, the dashboard); one waiting for an approval links to the Inbox. */
+  /** A run's state as a pill (Activity, the dashboard). */
   function runState(run) {
-    if (run.waiting) {
-      return el(
-        'a',
-        { className: 'kindgi-state kindgi-state-warn', href: window.kindgiConfig?.urls?.inbox },
-        __('Waits for an approval', 'kindgi'),
-      );
-    }
     const [tone, words] = RUN_STATES[run.status] ?? ['none', run.status];
     return el('span', { className: `kindgi-state kindgi-state-${tone}` }, words);
   }
+
+  /** What a waiting run waits for: each approval it asked for, linked to its card in the Inbox. */
+  const waitsFor = (run) =>
+    run.waiting.map((wait) =>
+      el(
+        'p',
+        { className: 'kindgi-run-waits' },
+        __('Waits for approval:', 'kindgi'),
+        ' ',
+        el('a', { href: approvalUrl(wait.id) }, wait.heading),
+      ),
+    );
 
   /** A list with nothing in it: what it is, what lands in it, and what to do now. */
   const empty = ({ title, text = null, actions = [] }) =>
@@ -245,6 +250,9 @@
     `${urls().ask}&conversation=${encodeURIComponent(conversationId)}${
       approvalId === null ? '' : `&approval=${encodeURIComponent(approvalId)}`
     }`;
+
+  /** An approval's address: its card in the Inbox, marked. */
+  const approvalUrl = (approvalId) => `${urls().inbox}&approval=${encodeURIComponent(approvalId)}`;
 
   /** A run's address on Activity: its row, marked; with `output`, what it returned open beside it. */
   const runUrl = (runId, output = false) =>
@@ -646,8 +654,10 @@
     empty,
     toolName,
     askUrl,
+    approvalUrl,
     runUrl,
     approvalCard,
     runState,
+    waitsFor,
   };
 })();

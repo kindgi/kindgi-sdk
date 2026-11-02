@@ -63,8 +63,36 @@ final class Kindgi_Activity {
 			'output'         => self::output( $output ),
 			'failureMessage' => null === $private && is_string( $run['failureMessage'] ?? null ) ? $run['failureMessage'] : null,
 			'private'        => $private,
-			'waiting'        => is_array( $run['waitingFor']['approvals'] ?? null ) && array() !== $run['waitingFor']['approvals'],
+			// The approvals it waits for: Kindgi's runs don't list them, its approvals name their run (`with_waits`).
+			'waiting'        => array(),
 		);
+	}
+
+	/**
+	 * Rows with what each waiting run waits for: the approvals that wait
+	 * and name it as the run that asked, each by its id and heading, as
+	 * the Inbox has them. Kindgi's list of runs doesn't say what a run
+	 * waits for; an approval names its run (`provenanceRef.runId`).
+	 *
+	 * @param array<int, array> $rows    Runs' rows (`row`).
+	 * @param array<int, array> $waiting Kindgi's approvals that wait.
+	 */
+	public static function with_waits( array $rows, array $waiting ): array {
+		$waits = array();
+		foreach ( $waiting as $a ) {
+			$run = $a['provenanceRef']['runId'] ?? null;
+			if ( is_string( $run ) ) {
+				$waits[ $run ][] = array(
+					'id'      => (string) ( $a['id'] ?? '' ),
+					'heading' => Kindgi_Inbox::heading_of( $a ),
+				);
+			}
+		}
+		foreach ( $rows as $i => $row ) {
+			// Only a run that still waits: an approval left open on an ended run waits for nothing.
+			$rows[ $i ]['waiting'] = 'suspended' === $row['status'] ? ( $waits[ $row['id'] ] ?? array() ) : array();
+		}
+		return $rows;
 	}
 
 	/**

@@ -52,7 +52,7 @@ final class Kindgi_Inbox {
 	 */
 	public static function card( array $a, string $me, ?array $reviewer, callable $who, ?callable $agent_name = null ): array {
 		$ref      = is_array( $a['subjectRef'] ?? null ) ? $a['subjectRef'] : array();
-		$tool     = self::TOOL_CALL === ( $a['subjectKind'] ?? '' ) && is_string( $ref['toolId'] ?? null ) ? $ref['toolId'] : null;
+		$tool     = self::tool_of( $a );
 		// Someone's approve or reject; a withdrawal or a pass to another reviewer reads as the approval's state.
 		$decision = is_array( $a['decision'] ?? null ) && in_array( $a['decision']['decision'] ?? null, array( 'approve', 'reject' ), true ) ? $a['decision'] : null;
 		$asked_by = is_string( $a['requestedBy'] ?? null ) ? $a['requestedBy'] : null;
@@ -60,7 +60,7 @@ final class Kindgi_Inbox {
 		$not_mine = $pending ? self::not_yours( $a, $me, $reviewer ) : null;
 		$prose    = null === $tool ? array() : self::prose_of( $ref['arguments'] ?? null );
 		$reply    = null === $tool ? null : self::reply_of( $ref['arguments'] ?? null );
-		$heading  = self::heading( $a, $tool, $reply );
+		$heading  = self::heading_of( $a );
 		$summary  = self::summary( $a );
 		$asked    = self::asked( $asked_by, $me, $who );
 		$agent_id = null !== $tool && is_string( $ref['agentId'] ?? null ) ? $ref['agentId'] : null;
@@ -172,6 +172,18 @@ final class Kindgi_Inbox {
 			'role'    => $r['role'],
 			'decides' => array_values( array_filter( is_array( $r['decides'] ?? null ) ? $r['decides'] : array(), 'is_string' ) ),
 		);
+	}
+
+	/** The tool whose call an approval holds, or null when it holds something else. */
+	public static function tool_of( array $a ): ?string {
+		$ref = is_array( $a['subjectRef'] ?? null ) ? $a['subjectRef'] : array();
+		return self::TOOL_CALL === ( $a['subjectKind'] ?? '' ) && is_string( $ref['toolId'] ?? null ) ? $ref['toolId'] : null;
+	}
+
+	/** An approval's heading as its card has it, from the approval alone (`heading`). */
+	public static function heading_of( array $a ): string {
+		$tool = self::tool_of( $a );
+		return self::heading( $a, $tool, null === $tool ? null : self::reply_of( $a['subjectRef']['arguments'] ?? null ) );
 	}
 
 	/**

@@ -34,9 +34,11 @@
     empty,
     toolName,
     askUrl,
+    approvalUrl,
     runUrl,
     approvalCard,
     runState,
+    waitsFor,
     timeEl,
   } = window.kindgiCards;
   const absent = (value) => value === undefined || value === null || value === false;
@@ -461,6 +463,7 @@
         { className: 'kindgi-run-body' },
         el('div', { className: 'kindgi-run-head' }, el('strong', {}, name), runState(run)),
         run.summary ? el('p', { className: 'kindgi-run-summary' }, run.summary) : null,
+        waitsFor(run),
         run.status === 'failed' ? failedWhy(run) : null,
         run.private === 'orders'
           ? muted(__('What it found shows to people who can edit orders.', 'kindgi'))
@@ -869,11 +872,7 @@
       { className: 'kindgi-note' },
       __('Read only: you opened it from an approval.', 'kindgi'),
       ' ',
-      el(
-        'a',
-        { href: `${urls.inbox}&approval=${encodeURIComponent(state.through)}` },
-        __('Back to the Inbox', 'kindgi'),
-      ),
+      el('a', { href: approvalUrl(state.through) }, __('Back to the Inbox', 'kindgi')),
     );
   }
 

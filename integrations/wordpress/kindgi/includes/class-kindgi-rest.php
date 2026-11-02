@@ -534,7 +534,8 @@ final class Kindgi_Rest {
 		if ( is_wp_error( $answer ) || ( $answer['body']['projectId'] ?? null ) !== $project ) {
 			return new WP_Error( 'kindgi_run_not_found', __( "The site's project has no run with that id that you can see.", 'kindgi' ), array( 'status' => 404 ) );
 		}
-		return Kindgi_Activity::row( $answer['body'], (string) $answer['session']['user_id'], array( self::class, 'who' ), Kindgi_Order::reads_orders() );
+		$row = Kindgi_Activity::row( $answer['body'], (string) $answer['session']['user_id'], array( self::class, 'who' ), Kindgi_Order::reads_orders() );
+		return self::with_waits( $user, $project, array( $row ) )[0];
 	}
 
 	/**
@@ -570,9 +571,34 @@ final class Kindgi_Rest {
 			$rows[] = Kindgi_Activity::row( $run, $me, array( self::class, 'who' ), $reads_orders );
 		}
 		return array(
-			'runs'       => $rows,
+			'runs'       => self::with_waits( $user, $project, $rows ),
 			'nextCursor' => is_string( $answer['body']['nextCursor'] ?? null ) ? $answer['body']['nextCursor'] : null,
 		);
+	}
+
+	/**
+	 * Activity's rows with what each waiting run waits for, from the
+	 * approvals that wait: read only when a row waits, one page of them,
+	 * oldest first, as the Inbox's count reads it. Without them, a waiting
+	 * run says only that it waits.
+	 */
+	private static function with_waits( WP_User $user, string $project, array $rows ): array {
+		if ( ! in_array( 'suspended', array_column( $rows, 'status' ), true ) ) {
+			return $rows;
+		}
+		$page = Kindgi_Api::body(
+			$user,
+			'GET',
+			'/v1/approvals',
+			array(
+				'scopeKind' => 'project',
+				'scopeId'   => $project,
+				'status'    => implode( ',', Kindgi_Inbox::WAITING ),
+				'order'     => 'asc',
+				'limit'     => Kindgi_Inbox::COUNT_PAGE,
+			)
+		);
+		return Kindgi_Activity::with_waits( $rows, is_wp_error( $page ) ? array() : self::list_of( $page['body']['data'] ?? null ) );
 	}
 
 	/**

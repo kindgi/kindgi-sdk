@@ -1427,6 +1427,10 @@
   -webkit-box-orient: vertical;
 }
 
+.kindgi .kindgi-dash-run .kindgi-run-waits {
+  margin: 2px 0;
+}
+
 .kindgi .kindgi-dash-latest > p:last-child {
   margin: var(--kindgi-space-2) 0 0;
 }
