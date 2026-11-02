@@ -355,11 +355,23 @@ describe('API — tools get', () => {
     expect(body.description).toBeTruthy();
   });
 
-  test('a tool reads back whole: where its code runs, its sandbox, its typed needs', async () => {
+  test("a tool reads back whole: where its code runs, its sandbox, its typed needs, its approval's words", async () => {
     const { app } = makeApp();
     const manifest = {
-      ...toolBody({ id: 'acme.pack-tool' }),
+      ...toolBody({
+        id: 'acme.pack-tool',
+        input: {
+          type: 'object',
+          properties: { citation: { type: 'string' } },
+          required: ['citation'],
+        },
+      }),
       mutating: false,
+      approval: {
+        title: 'Verify {citation}',
+        summary: 'Checks {citation} against its source.',
+        about: { kind: 'acme.citation', id: '{citation}' },
+      },
       sandbox: 'strict',
       limits: { memMB: 256, cpuMs: 2000 },
       network: { kind: 'allowlist', hosts: ['api.example.com'] },
@@ -585,6 +597,42 @@ describe('API — tools register', () => {
       {
         path: '/needsSpec/env/RETRIES/default',
         message: 'must be a string: env values are strings',
+      },
+    ]);
+  });
+
+  test('an approval whose words name an optional field → 400 validation-failed, naming the tool and the text', async () => {
+    const { app } = makeApp();
+    const res = await app.request('/v1/tools', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectId: randomUUID(),
+        id: 'acme.refund',
+        description: 'Refunds an order.',
+        version: '0.1.0',
+        input: {
+          type: 'object',
+          properties: { orderId: { type: 'integer' }, note: { type: 'string' } },
+          required: ['orderId'],
+        },
+        output: { type: 'object' },
+        approval: { title: 'Refund order #{orderId}', summary: '{note}' },
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; message: string; details?: { issues?: unknown[] } };
+    };
+    expect(body.error).toMatchObject({
+      code: 'validation-failed',
+      message:
+        'Tool "acme.refund": approval.summary names {note}, an optional field of the input: a call may leave it out',
+    });
+    expect(body.error.details?.issues).toEqual([
+      {
+        path: '/approval/summary',
+        message: 'names {note}, an optional field of the input: a call may leave it out',
       },
     ]);
   });

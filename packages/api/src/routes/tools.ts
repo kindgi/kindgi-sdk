@@ -812,6 +812,7 @@ const OPTIONAL_TOOL_FIELDS = [
   'storesFiles',
   'readsFiles',
   'resultIsOutsideData',
+  'approval',
   'sandbox',
   'limits',
   'network',

@@ -4333,6 +4333,53 @@ export const RuntimeLimitsSchema: JsonSchema = {
   required: ['memMB', 'cpuMs'],
 };
 
+/** A tool's `approval`: the spec's definition (`tool.schema.json`), as the drift test checks. */
+export const ToolApprovalSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['title'],
+  description:
+    "How an approval of a call to this tool reads, when one is asked: the reviewer sees the call in the tool's own words, its arguments filled in. Each text holds `{field}` placeholders, each naming a required top-level field of `input` whose type is a string, a number, an integer or a boolean (or an enum of those); a call's arguments fill them in as plain text, on one line, cut when long. The approval keeps the words in its `context` (`context.text`, `context.about`), behind sign-in, and its `title` stays `Approve a call to <tool id>`: the title goes out in the reviewer's mail and the `approval.requested` event, which never carry a call's arguments. A summary can hold a person's details: erasing a person's data clears a call's words and its `about.id` with its arguments, and keeps `about.kind`. It doesn't make a call wait. Optional additive field.",
+  properties: {
+    title: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 200,
+      pattern: '^[^\\r\\n]*$',
+      description:
+        "One line: what's being approved, such as `Refund {amount} on order #{orderId}`.",
+    },
+    summary: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 1000,
+      description: 'A few lines under the title, such as `{reason}`.',
+    },
+    about: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'id'],
+      description: 'What the call is about: a thing in another system.',
+      properties: {
+        kind: {
+          type: 'string',
+          maxLength: 100,
+          pattern: '^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$',
+          description:
+            'Lowercase words joined by dots, such as `woocommerce.order`, never with a `:`.',
+        },
+        id: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 200,
+          description:
+            "The thing's id there, from at least one placeholder, such as `{orderId}`. A thing's id, never a person's details: an order number, never an email.",
+        },
+      },
+    },
+  },
+};
+
 export const NetworkPolicySchema: JsonSchema = {
   type: 'object',
   description: 'Network egress policy. Optional additive field. Discriminated on `kind`.',
@@ -4507,6 +4554,7 @@ export const ToolSchema: JsonSchema = {
       description:
         "`true` when the tool's results are text from outside that nobody checked, such as a mail someone sent: an agent reads each result as data, not instructions, in that turn and in every later turn's history. Absent means `false`.",
     },
+    approval: { $ref: '#/components/schemas/ToolApproval' },
     sandbox: { $ref: '#/components/schemas/SandboxMode' },
     limits: { $ref: '#/components/schemas/RuntimeLimits' },
     network: { $ref: '#/components/schemas/NetworkPolicy' },
@@ -17867,6 +17915,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['SandboxMode', SandboxModeSchema],
   ['RuntimeLimits', RuntimeLimitsSchema],
   ['NetworkPolicy', NetworkPolicySchema],
+  ['ToolApproval', ToolApprovalSchema],
   ['TypedNeeds', TypedNeedsSchema],
   ['CodeArtifactRef', CodeArtifactRefSchema],
   ['ToolSpec', ToolSpecSchema],

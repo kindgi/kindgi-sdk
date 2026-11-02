@@ -45,6 +45,7 @@ import {
   RuntimeLimitsSchema,
   SandboxModeSchema,
   TestSetSchema,
+  ToolApprovalSchema,
   ToolSchema,
   ToolSecretRefSchema,
   ToolSpecSchema,
@@ -164,6 +165,7 @@ describe('OpenAPI ↔ specs drift — Tool carries the whole manifest', () => {
     ['needsSpec', 'TypedNeeds', TypedNeedsSchema],
     ['codeArtifactRef', 'CodeArtifactRef', CodeArtifactRefSchema],
     ['spec', 'ToolSpec', ToolSpecSchema],
+    ['approval', 'ToolApproval', ToolApprovalSchema],
   ] as const)("%s is component %s, the spec's definition", async (field, name, component) => {
     const spec = await loadSpec('tool');
     expect((ToolSchema.properties as Record<string, unknown>)[field]).toEqual({

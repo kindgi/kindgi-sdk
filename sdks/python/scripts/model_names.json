@@ -1,4 +1,5 @@
 {
+  "About": ["ToolApproval.about"],
   "AccessPathDirect": ["AccessPathDirect"],
   "AccessPathOrgAdmin": ["AccessPathOrgAdmin"],
   "AccessPathTeam": ["AccessPathTeam"],
@@ -1124,6 +1125,7 @@
   "Tool1": [],
   "Tool2": [],
   "Tool3": [],
+  "ToolApproval": ["ToolApproval"],
   "ToolCall": ["ConversationMessage.toolCall"],
   "ToolCollectionPage": ["ToolCollectionPage"],
   "ToolEffect": ["ToolEffect"],

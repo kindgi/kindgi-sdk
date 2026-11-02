@@ -3671,6 +3671,48 @@ class NetworkPolicy2(BaseModel):
     hosts: list[Host]
 
 
+class About(BaseModel):
+    """
+    What the call is about: a thing in another system.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Annotated[str, Field(max_length=100, pattern="^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$")]
+    """
+    Lowercase words joined by dots, such as `woocommerce.order`, never with a `:`.
+    """
+    id: Annotated[str, Field(max_length=200, min_length=1)]
+    """
+    The thing's id there, from at least one placeholder, such as `{orderId}`. A thing's id, never a person's details: an order number, never an email.
+    """
+
+
+class ToolApproval(BaseModel):
+    """
+    How an approval of a call to this tool reads, when one is asked: the reviewer sees the call in the tool's own words, its arguments filled in. Each text holds `{field}` placeholders, each naming a required top-level field of `input` whose type is a string, a number, an integer or a boolean (or an enum of those); a call's arguments fill them in as plain text, on one line, cut when long. The approval keeps the words in its `context` (`context.text`, `context.about`), behind sign-in, and its `title` stays `Approve a call to <tool id>`: the title goes out in the reviewer's mail and the `approval.requested` event, which never carry a call's arguments. A summary can hold a person's details: erasing a person's data clears a call's words and its `about.id` with its arguments, and keeps `about.kind`. It doesn't make a call wait. Optional additive field.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    title: Annotated[str, Field(max_length=200, min_length=1, pattern="^[^\\r\\n]*$")]
+    """
+    One line: what's being approved, such as `Refund {amount} on order #{orderId}`.
+    """
+    summary: Annotated[str | None, Field(max_length=1000, min_length=1)] = None
+    """
+    A few lines under the title, such as `{reason}`.
+    """
+    about: About | None = None
+    """
+    What the call is about: a thing in another system.
+    """
+
+
 class Capability5(RootModel[str]):
     root: Annotated[str, Field(min_length=1)]
 
@@ -16043,6 +16085,7 @@ class RegisterToolBody(BaseModel):
     """
     `true` when the tool's results are text from outside that nobody checked, such as a mail someone sent: an agent reads each result as data, not instructions, in that turn and in every later turn's history. Absent means `false`.
     """
+    approval: ToolApproval | None = None
     sandbox: Annotated[Literal["none", "context-isolated", "strict"] | str, _open.OPEN] | None = (
         None
     )
@@ -19095,6 +19138,7 @@ class Tool(BaseModel):
     """
     `true` when the tool's results are text from outside that nobody checked, such as a mail someone sent: an agent reads each result as data, not instructions, in that turn and in every later turn's history. Absent means `false`.
     """
+    approval: ToolApproval | None = None
     sandbox: Annotated[Literal["none", "context-isolated", "strict"] | str, _open.OPEN] | None = (
         None
     )
@@ -19216,6 +19260,7 @@ class ToolVersionRow(BaseModel):
     """
     `true` when the tool's results are text from outside that nobody checked, such as a mail someone sent: an agent reads each result as data, not instructions, in that turn and in every later turn's history. Absent means `false`.
     """
+    approval: ToolApproval | None = None
     sandbox: Annotated[Literal["none", "context-isolated", "strict"] | str, _open.OPEN] | None = (
         None
     )
