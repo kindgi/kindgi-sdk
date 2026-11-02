@@ -15,7 +15,7 @@ description: >
   kindgi-authoring-providers.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.8"
+version: "0.1.9"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:

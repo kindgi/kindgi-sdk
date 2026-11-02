@@ -52,7 +52,7 @@ const NOT_YET_LEVELED: Readonly<Record<string, { readonly bytes: number }>> = {
   'kindgi-python-authoring-agents': { bytes: 15_617 },
   'kindgi-python-authoring-flows': { bytes: 15_030 },
   'kindgi-python-authoring-guardrails': { bytes: 11_605 },
-  'kindgi-python-authoring-tools': { bytes: 27_048 },
+  'kindgi-python-authoring-tools': { bytes: 27_049 },
   'kindgi-python-getting-started': { bytes: 19_210 },
   'kindgi-scala-authoring-agents': { bytes: 14_670 },
   'kindgi-scala-authoring-flows': { bytes: 17_420 },

@@ -18,7 +18,7 @@ description: >
   kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.1"
+version: "0.4.2"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
