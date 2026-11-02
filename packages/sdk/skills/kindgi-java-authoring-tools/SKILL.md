@@ -14,7 +14,7 @@ description: >
   by kindgi-java-getting-started.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.6"
+version: "0.1.7"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -260,12 +260,12 @@ public static final Tool<Input, Output> TOOL = Tool.define("my-pack.send-mail")
     });
 ```
 
-- **Whose connection:** `"as", "person"` is the connection of the person the run acts as (whoever started it, or the owner of the schedule or webhook that did); `"as", "company"` is the company's. The runtime picks it from the run, never from the input or the model. A run that acts as nobody (a service account's, an event's) fails a `"person"` call with `connection-needs-a-person`.
+- **Whose connection:** `"as", "person"` is the connection of the person the run acts as (whoever started it, or the owner of the schedule or webhook that did); `"as", "company"` is the company's. With several company connections of one app, the mailbox the run's mail came to says which, else the agent's or flow's choice; with neither, the run fails with `connection-not-chosen`. The runtime picks it from the run, never from the input or the model. A run that acts as nobody (a service account's, an event's) fails a `"person"` call with `connection-needs-a-person`.
 - **The token:** `accessToken()` is current for this call only. Never keep, print, log or return it; it never reaches the journal. `account().label()` says whose account it is (`ana@acme.com`).
 - **A 401 from the app:** `throw new ConnectionRejectedException("mail")`, with the connection's name (a second argument can say what the app answered, never the token), or your own exception with it as the cause. The runtime renews the token once and runs the call again; refused again, the call fails with `connection-rejected`.
 - **An HTTP tool** sends the token with no code: `.authorization(new HttpAuthSpec.Connection("mail"))`.
 - **Unattended runs:** in a run no person started, a tool that uses a `"person"` connection waits for that person's yes, reads included: `.mutating(false)` doesn't lift it. The agent's own approval settings can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needsApprovalWhenUnattended` (below). In a run a new mail started, the mail is a stranger's text, so two more calls wait: a call of a tool that isn't `.mutating(false)`, and, when the trigger reads the company's mailbox, a read with the company's connection to that app. The mail trigger's `toolsAllowedUnattended` lifts these too.
-- **In a unit test:** `ToolContext.forTest(Map.of("mail", new ToolConnection("c-1", "google", "Google", "test", new ConnectionAccount("1", "ana@acme.com"), null)))`; the last argument, when the token expires, can be `null`. `ctx.connections()` is empty when the tool declares none.
+- **In a unit test:** `ToolContext.forTest(Map.of("mail", new ToolConnection("c-1", "google", "Google", "test", new ConnectionAccount("1", "ana@acme.com"), null, null)))`; the last two arguments, the connection's name and when the token expires, can be `null`. `ctx.connections()` is empty when the tool declares none.
 
 Docs: https://docs.kindgi.com/v0.3/guides/connections/use-a-connection/
 

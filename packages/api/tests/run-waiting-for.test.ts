@@ -312,6 +312,22 @@ describe("a suspended run's waitingFor: connects", () => {
       connection: { app: 'google', appName: 'Google', account: 'ana@acme.example' },
     });
   });
+
+  test("a company connection's approval says which connection, named, and no one decides it alone", async () => {
+    const connection = {
+      app: 'google',
+      appName: 'Google',
+      account: 'support@acme.example',
+      name: 'support',
+    };
+    const get = harness({
+      journal: [suspended('tok-1')],
+      approvals: [approval('tok-1', { connection })],
+    });
+    const { body } = await get();
+    expect(body.waitingFor.approvals[0].connection).toEqual(connection);
+    expect(body.waitingFor.approvals[0]).not.toHaveProperty('approver');
+  });
 });
 
 describe('waitingFor is left out', () => {

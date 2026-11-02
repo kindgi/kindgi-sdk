@@ -86,9 +86,9 @@ async function harness() {
     runHandler: {} as RunHandlerBinding,
     projectBinding: projects,
   });
-  const post = async (path: string, body: unknown) => {
+  const send = async (method: string, path: string, body: unknown) => {
     const res = await app.request(`/v1${path}`, {
-      method: 'POST',
+      method,
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify(body),
     });
@@ -97,8 +97,15 @@ async function harness() {
     };
     return { status: res.status, error: json.error };
   };
-  return { post, projectId: created.projectId as unknown as string };
+  const post = (path: string, body: unknown) => send('POST', path, body);
+  return { send, post, projectId: created.projectId as unknown as string };
 }
+
+/** The method of a guarded route's operation that takes a body: `POST`, or `PUT`. */
+const methodOf = (route: string): string => {
+  const op = OPERATIONS.find((o) => o.honoPath === `/v1${route}` && o.requestBody !== undefined);
+  return (op?.method ?? 'post').toUpperCase();
+};
 
 /** A guarded route's path, its parameters filled in. */
 const concrete = (route: string): string =>
@@ -108,11 +115,11 @@ const concrete = (route: string): string =>
     .replace(':serviceAccountId', 'acme-ci');
 
 describe('a projectId the route cannot use (T247)', () => {
-  test.each(PROJECT_REF_ROUTES.map(concrete))(
-    'POST %s: not a UUID → 400 bad-input; no such project → 404 project-not-found',
-    async (path) => {
+  test.each(PROJECT_REF_ROUTES.map((route) => [methodOf(route), concrete(route)]))(
+    '%s %s: not a UUID → 400 bad-input; no such project → 404 project-not-found',
+    async (method, path) => {
       const h = await harness();
-      const shape = await h.post(path, { projectId: 'acme' });
+      const shape = await h.send(method, path, { projectId: 'acme' });
       expect(shape.status).toBe(400);
       expect(shape.error).toMatchObject({
         code: 'bad-input',
@@ -120,7 +127,7 @@ describe('a projectId the route cannot use (T247)', () => {
       });
 
       const unknown = randomUUID();
-      const missing = await h.post(path, { projectId: unknown });
+      const missing = await h.send(method, path, { projectId: unknown });
       expect(missing.status).toBe(404);
       expect(missing.error).toMatchObject({
         code: 'project-not-found',
@@ -129,7 +136,7 @@ describe('a projectId the route cannot use (T247)', () => {
       });
 
       // The tenant's own project passes the guard, to whatever the route says.
-      const known = await h.post(path, { projectId: h.projectId });
+      const known = await h.send(method, path, { projectId: h.projectId });
       expect(known.error?.code).not.toBe('project-not-found');
       expect(known.error?.message ?? '').not.toContain('`projectId` must be');
     },

@@ -39,7 +39,8 @@ export type InvokeAgentError =
   | RunJournalUnavailableError
   | SemanticUnavailableError
   | ApprovalsPendingLimitError
-  | TurnMemoryLimitReachedError;
+  | TurnMemoryLimitReachedError
+  | ConnectionNotChosenError;
 
 /**
  * A gate asked for an approval past the tenant's limit on approvals waiting
@@ -71,6 +72,21 @@ export function approvalsPendingLimitOf(cause: unknown): ApprovalsPendingLimitEr
         : "This tenant's limit on approvals waiting for a decision is reached.",
     ...(typeof approvalsPending === 'number' && { approvalsPending }),
   };
+}
+
+/**
+ * A tool call needs a company connection of an app, the project has
+ * several, and the agent has no choice of one. A setup no model can fix,
+ * so the turn fails rather than hand the call back: a project admin
+ * chooses the connection, and the turn runs again.
+ */
+export interface ConnectionNotChosenError {
+  readonly code: 'connection-not-chosen';
+  readonly message: string;
+  /** The tool's name for the connection. */
+  readonly connection: string;
+  /** The names of the connections to choose from, sorted. */
+  readonly choices: readonly string[];
 }
 
 /**

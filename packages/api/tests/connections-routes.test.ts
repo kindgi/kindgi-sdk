@@ -21,6 +21,7 @@ import type {
   ConnectRequestRecord,
   ConnectionAppRecord,
   ConnectionBinding,
+  ConnectionChoiceRecord,
   ConnectionRecord,
 } from '../src/connection-binding.js';
 import type { HitlBinding } from '../src/hitl-binding.js';
@@ -56,6 +57,7 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
   const apps = new Map<string, ConnectionAppRecord>();
   const connections = new Map<string, ConnectionRecord>();
   const requests = new Map<string, ConnectRequestRecord>();
+  const choices = new Map<string, ConnectionChoiceRecord>();
   const calls: Record<string, unknown[]> = {};
   const seen = (name: string, input: unknown) => {
     calls[name] = [...(calls[name] ?? []), input];
@@ -64,6 +66,24 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
     kind: 'err' as const,
     error: { code, message, ...(field !== undefined && { field }) } as never,
   });
+  const ownerKey = (owner: ConnectionRecord['owner']) =>
+    owner.kind === 'member' ? `member:${owner.userId}` : 'company';
+  /** Another live connection of the app, owner and env has `label`, ignoring case. */
+  const labelTaken = (
+    of: Pick<ConnectionRecord, 'tenantId' | 'app' | 'owner' | 'envName'>,
+    label: string,
+    except?: string,
+  ) =>
+    [...connections.values()].some(
+      (c) =>
+        c.connectionId !== except &&
+        c.tenantId === of.tenantId &&
+        c.app === of.app &&
+        c.envName === of.envName &&
+        ownerKey(c.owner) === ownerKey(of.owner) &&
+        c.state !== 'removed' &&
+        c.label?.toLowerCase() === label.toLowerCase(),
+    );
   const binding: ConnectionBinding = {
     entries: () => entries,
     async listApps(input) {
@@ -142,10 +162,98 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
       connections.set(input.connectionId, removed);
       return { kind: 'ok', value: removed };
     },
+    async update(input) {
+      seen('update', input);
+      const connection = connections.get(input.connectionId) as ConnectionRecord;
+      if (labelTaken(connection, input.label, input.connectionId)) {
+        return refuse('connection-label-taken', 'Another connection has that name', 'label');
+      }
+      const renamed: ConnectionRecord = { ...connection, label: input.label, updatedAt: at };
+      connections.set(input.connectionId, renamed);
+      return { kind: 'ok', value: renamed };
+    },
+    async listChoices(input) {
+      seen('listChoices', input);
+      const data = [...choices.values()].filter(
+        (choice) =>
+          choice.tenantId === input.tenantId &&
+          choice.projectId === input.projectId &&
+          choice.envName === input.envName &&
+          (input.includeRemoved === true || choice.removedAt === undefined),
+      );
+      return { data };
+    },
+    async getChoice({ tenantId, choiceId }) {
+      const choice = choices.get(choiceId);
+      return choice?.tenantId === tenantId ? choice : null;
+    },
+    async setChoice(input) {
+      seen('setChoice', input);
+      const connection = connections.get(input.connectionId);
+      if (connection === undefined) {
+        return refuse('connection-not-found', 'No such candidate', 'connectionId');
+      }
+      if (connection.owner.kind === 'member') {
+        return refuse(
+          'bad-input',
+          "A person's own connection is used for them; choices are for the company's.",
+          'connectionId',
+        );
+      }
+      if (input.agentId === 'acme.elsewhere') {
+        return refuse('agent-not-found', 'No such agent in the project');
+      }
+      const { agentId, flowId } = input;
+      const choice = {
+        choiceId: randomUUID(),
+        tenantId: input.tenantId,
+        projectId: input.projectId,
+        envName: input.envName,
+        ...(agentId !== undefined ? { agentId } : { flowId }),
+        app: connection.app,
+        connectionId: connection.connectionId,
+        version: 1,
+        createdAt: at,
+        createdBy: `${input.by.kind}:${input.by.id}`,
+      } as ConnectionChoiceRecord;
+      choices.set(choice.choiceId, choice);
+      return { kind: 'ok', value: choice };
+    },
+    async removeChoice(input) {
+      seen('removeChoice', input);
+      const choice = choices.get(input.choiceId) as ConnectionChoiceRecord;
+      const removed = { ...choice, removedAt: at, removedBy: `${input.by.kind}:${input.by.id}` };
+      choices.set(input.choiceId, removed);
+      return { kind: 'ok', value: removed };
+    },
+    async listCandidates(input) {
+      seen('listCandidates', input);
+      const data = [...connections.values()]
+        .filter(
+          (c) =>
+            c.tenantId === input.tenantId &&
+            c.owner.kind === 'company' &&
+            (c.state === 'working' || c.state === 'needs-reconnecting'),
+        )
+        .map((c) => ({
+          connectionId: c.connectionId,
+          name: c.label ?? c.account.label,
+          app: c.app,
+          accountLabel: c.account.label,
+          state: c.state,
+        }));
+      return { data };
+    },
     async createRequest(input) {
       seen('createRequest', input);
       if (input.permissions.some((p) => !(p in google.permissions))) {
         return refuse('bad-input', 'Google has no such permission', 'permissions');
+      }
+      if (input.label !== undefined && labelTaken(input, input.label)) {
+        return refuse('connection-label-taken', 'Another connection has that name', 'label');
+      }
+      if (input.reconnects !== undefined && !connections.has(input.reconnects)) {
+        return refuse('connection-not-found', 'No such connection to reconnect', 'reconnects');
       }
       const requestId = randomUUID();
       const record: ConnectRequestRecord = {
@@ -157,6 +265,8 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
         owner: input.owner,
         permissions: input.permissions,
         says: input.permissions.map((p) => google.permissions[p]?.says ?? p),
+        ...(input.label !== undefined && { label: input.label }),
+        ...(input.reconnects !== undefined && { reconnects: input.reconnects }),
         state: 'pending',
         connectUrl: `https://kindgi.acme.example/console/connect/requests/${requestId}`,
         expiresAt: '2026-10-22T13:00:00.000Z',
@@ -211,7 +321,11 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
           },
         };
       }
-      const connection = connectionOf(request.owner);
+      // `taken`: the name asked for was another connection's by the finish.
+      const connection = {
+        ...connectionOf(request.owner),
+        ...(input.code === 'taken' && { label: 'Work mail 2' }),
+      };
       connections.set(connection.connectionId, connection);
       return {
         kind: 'ok',
@@ -219,6 +333,7 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
           kind: 'connected',
           request: { ...request, state: 'connected', connectionId: connection.connectionId },
           connection,
+          ...(input.code === 'taken' && { reconnected: false, labelTaken: 'Work mail' }),
         },
       };
     },
@@ -266,7 +381,7 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
     return connection;
   }
 
-  return { binding, calls, connected, requests };
+  return { binding, calls, connected, requests, choices };
 }
 
 const runHandler = {} as RunHandlerBinding;
@@ -622,14 +737,81 @@ describe('POST /v1/connections (a connect from outside a run)', () => {
       'appId',
     ],
     [
+      'a reconnects that is not a connection id',
+      { app: 'google', permissions: ['gmail.send'], reconnects: 'x' },
+      'reconnects',
+    ],
+    [
+      'a reconnects that is not a string',
+      { app: 'google', permissions: ['gmail.send'], reconnects: 7 },
+      'reconnects',
+    ],
+    [
       'an owner other than me or company',
       { app: 'google', permissions: ['gmail.send'], for: 'team' },
       'for',
+    ],
+    ['an empty label', { app: 'google', permissions: ['gmail.send'], label: '  ' }, 'label'],
+    [
+      'a label over 100 characters',
+      { app: 'google', permissions: ['gmail.send'], label: 'a'.repeat(101) },
+      'label',
+    ],
+    [
+      'a label with a control character',
+      { app: 'google', permissions: ['gmail.send'], label: 'Work\nmail' },
+      'label',
+    ],
+    [
+      'a label with a bidi override',
+      { app: 'google', permissions: ['gmail.send'], label: 'Work\u202Elim' },
+      'label',
+    ],
+    [
+      'a label with a zero-width space',
+      { app: 'google', permissions: ['gmail.send'], label: 'Work\u200Bmail' },
+      'label',
+    ],
+    [
+      'a label with a lone surrogate',
+      { app: 'google', permissions: ['gmail.send'], label: 'Work\uD800mail' },
+      'label',
+    ],
+    [
+      'a label with a line separator',
+      { app: 'google', permissions: ['gmail.send'], label: 'Work\u2028mail' },
+      'label',
+    ],
+    [
+      'a label with a Hangul filler',
+      { app: 'google', permissions: ['gmail.send'], label: '\u3164' },
+      'label',
+    ],
+    [
+      'a label with a combining grapheme joiner',
+      { app: 'google', permissions: ['gmail.send'], label: 'Work\u034Fmail' },
+      'label',
+    ],
+    [
+      'a label with a variation selector after a letter',
+      { app: 'google', permissions: ['gmail.send'], label: 'Work\uFE0F' },
+      'label',
+    ],
+    [
+      'a label with a variation selector after a digit, outside a keycap',
+      { app: 'google', permissions: ['gmail.send'], label: '1\uFE0F' },
+      'label',
+    ],
+    [
+      'a label that is not a string',
+      { app: 'google', permissions: ['gmail.send'], label: 7 },
+      'label',
     ],
   ])('refuses %s, naming the field', async (_what, body, field) => {
     const { app } = makeApp();
     const res = await call(app, 'ana', 'POST', '/v1/connections', body);
     expect(res.status).toBe(400);
+    expect(res.json.error.code).toBe('bad-input');
     expect(res.json.error.details).toEqual({ field });
   });
 
@@ -641,6 +823,84 @@ describe('POST /v1/connections (a connect from outside a run)', () => {
     });
     expect(res.status).toBe(400);
     expect(res.json.error).toMatchObject({ code: 'bad-input', details: { field: 'permissions' } });
+  });
+
+  test('takes the connection it reconnects; one the binding has no such connection for is a 404 naming the field', async () => {
+    const { app, calls } = makeApp();
+    const made = await call(app, 'ana', 'POST', '/v1/connections', {
+      app: 'google',
+      permissions: ['gmail.send'],
+    });
+    await call(app, 'ana', 'POST', `/v1/connections/requests/${made.json.requestId}/start`);
+    const finished = await call(app, 'ana', 'POST', '/v1/connections/finish', { state: 's-1' });
+    const connectionId = finished.json.connection.connectionId as string;
+    const res = await call(app, 'ana', 'POST', '/v1/connections', {
+      app: 'google',
+      permissions: ['gmail.readonly'],
+      reconnects: connectionId,
+    });
+    expect(res.status).toBe(201);
+    expect(res.json.reconnects).toBe(connectionId);
+    expect(calls.createRequest?.[1]).toMatchObject({ reconnects: connectionId });
+    const unknown = await call(app, 'ana', 'POST', '/v1/connections', {
+      app: 'google',
+      permissions: ['gmail.send'],
+      reconnects: '00000000-0000-4000-8000-000000000999',
+    });
+    expect(unknown.status).toBe(404);
+    expect(unknown.json.error).toMatchObject({
+      code: 'connection-not-found',
+      details: { field: 'reconnects' },
+    });
+  });
+
+  test('takes a label for the connection it makes, trimmed, of up to 100 characters', async () => {
+    const { app, calls } = makeApp();
+    const res = await call(app, 'ana', 'POST', '/v1/connections', {
+      app: 'google',
+      permissions: ['gmail.send'],
+      label: '  Work mail  ',
+    });
+    expect(res.status).toBe(201);
+    expect(res.json.label).toBe('Work mail');
+    expect(calls.createRequest?.[0]).toMatchObject({ label: 'Work mail' });
+    // An emoji keeps the variation selector that picks its look.
+    const emoji = await call(app, 'ana', 'POST', '/v1/connections', {
+      app: 'google',
+      permissions: ['gmail.send'],
+      label: '\u2709\uFE0F Contact',
+    });
+    expect(emoji.status).toBe(201);
+    expect(emoji.json.label).toBe('\u2709\uFE0F Contact');
+    const keycap = await call(app, 'ben', 'POST', '/v1/connections', {
+      app: 'google',
+      permissions: ['gmail.send'],
+      label: '1\uFE0F\u20E3 Start',
+    });
+    expect(keycap.status).toBe(201);
+    expect(keycap.json.label).toBe('1\uFE0F\u20E3 Start');
+    // Characters, not UTF-16 units: 100 emoji are 200 units.
+    const long = await call(app, 'ben', 'POST', '/v1/connections', {
+      app: 'google',
+      permissions: ['gmail.send'],
+      label: '\u{1F4EC}'.repeat(100),
+    });
+    expect(long.status).toBe(201);
+  });
+
+  test("a label another of the owner's connections has is the binding's 409, naming the field", async () => {
+    const { app, connected } = makeApp();
+    connected({ kind: 'member', userId: ANA }, tenantA, { label: 'Work mail' });
+    const res = await call(app, 'ana', 'POST', '/v1/connections', {
+      app: 'google',
+      permissions: ['gmail.send'],
+      label: 'work MAIL',
+    });
+    expect(res.status).toBe(409);
+    expect(res.json.error).toMatchObject({
+      code: 'connection-label-taken',
+      details: { field: 'label' },
+    });
   });
 });
 
@@ -775,9 +1035,28 @@ describe('a connect request: read, start and finish', () => {
     // No approvals on this server: nothing said about a reviewer seat.
     expect(res.json.reviewerSeat).toBeUndefined();
     expect(calls.finishRequest?.[0]).toMatchObject({ state: 's-1', code: 'code-1' });
+    expect(res.json).not.toHaveProperty('reconnected');
+    expect(res.json).not.toHaveProperty('labelTaken');
     const other = await call(app, 'ben', 'POST', '/v1/connections/finish', { state: 's-1' });
     expect(other.status).toBe(403);
     expect(other.json.error.code).toBe('connection-not-yours');
+  });
+
+  test('a finish says whether it reconnected one already there, and the name it was to get when that was taken', async () => {
+    const { app } = makeApp();
+    const requestId = await requested(app, 'ana');
+    await call(app, 'ana', 'POST', `/v1/connections/requests/${requestId}/start`);
+    const res = await call(app, 'ana', 'POST', '/v1/connections/finish', {
+      state: 's-1',
+      code: 'taken',
+    });
+    expect(res.status).toBe(200);
+    expect(res.json).toMatchObject({
+      kind: 'connected',
+      reconnected: false,
+      labelTaken: 'Work mail',
+      connection: { label: 'Work mail 2' },
+    });
   });
 
   test('a finish by someone else is refused, and the access audit records it', async () => {
@@ -989,6 +1268,96 @@ describe('the connections themselves', () => {
     expect(calls.disconnect?.[0]).toMatchObject({ by: { kind: 'user', id: ANA } });
     expect(JSON.stringify(res.json)).not.toMatch(/token/i);
   });
+
+  test('whoever may disconnect it renames it, trimmed; anyone else gets the same 404', async () => {
+    const { app, calls, connected } = makeApp();
+    const anas = connected({ kind: 'member', userId: ANA });
+    const path = `/v1/connections/${anas.connectionId}`;
+    expect((await call(app, 'ana', 'GET', path)).json).not.toHaveProperty('label');
+    const res = await call(app, 'ana', 'PATCH', path, { label: '  Work mail ' });
+    expect(res.status).toBe(200);
+    expect(res.json).toMatchObject({
+      connectionId: anas.connectionId,
+      label: 'Work mail',
+      account: { label: 'user-ana@acme.example' },
+    });
+    expect(calls.update?.[0]).toEqual({
+      tenantId: tenantA,
+      connectionId: anas.connectionId,
+      label: 'Work mail',
+      by: { kind: 'user', id: ANA, tenantId: tenantA },
+    });
+    expect((await call(app, 'ana', 'GET', path)).json.label).toBe('Work mail');
+    expect((await call(app, 'admin', 'PATCH', path, { label: 'Ana' })).status).toBe(200);
+    for (const who of ['ben', 'bot', 'other']) {
+      const refused = await call(app, who, 'PATCH', path, { label: 'Mine now' });
+      expect(refused.status).toBe(404);
+      expect(refused.json.error.code).toBe('connection-not-found');
+    }
+    const company = connected({ kind: 'company' });
+    const companyPath = `/v1/connections/${company.connectionId}`;
+    expect((await call(app, 'ana', 'PATCH', companyPath, { label: 'Ours' })).status).toBe(404);
+    expect((await call(app, 'admin', 'PATCH', companyPath, { label: 'Ours' })).status).toBe(200);
+    expect(calls.update).toHaveLength(3);
+  });
+
+  test('a disconnected connection, or none, is a 404 before the binding', async () => {
+    const { app, calls, connected } = makeApp();
+    const removed = connected({ kind: 'member', userId: ANA }, tenantA, {
+      state: 'removed',
+      removedAt: at,
+      removedReason: 'disconnected',
+    });
+    for (const id of [removed.connectionId, randomUUID()]) {
+      const res = await call(app, 'ana', 'PATCH', `/v1/connections/${id}`, { label: 'Work' });
+      expect(res.status).toBe(404);
+      expect(res.json.error).toMatchObject({
+        code: 'connection-not-found',
+        details: { connectionId: id },
+      });
+    }
+    const notAnId = await call(app, 'ana', 'PATCH', '/v1/connections/x', { label: 'Work' });
+    expect(notAnId.status).toBe(400);
+    expect(calls.update).toBeUndefined();
+  });
+
+  test("a label another of the owner's connections has, ignoring case, is a 409 naming the field", async () => {
+    const { app, connected } = makeApp();
+    connected({ kind: 'member', userId: ANA }, tenantA, { label: 'Work mail' });
+    const second = connected({ kind: 'member', userId: ANA });
+    const res = await call(app, 'ana', 'PATCH', `/v1/connections/${second.connectionId}`, {
+      label: 'WORK mail',
+    });
+    expect(res.status).toBe(409);
+    expect(res.json.error).toMatchObject({
+      code: 'connection-label-taken',
+      details: { field: 'label' },
+    });
+  });
+
+  test.each([
+    ['no label', {}, 'label'],
+    ['an empty label', { label: '' }, 'label'],
+    ['a blank label', { label: ' \t ' }, 'label'],
+    ['a label over 100 characters', { label: 'a'.repeat(101) }, 'label'],
+    ['a label with a control character', { label: 'Work\u0007mail' }, 'label'],
+    ['a label with a bidi override', { label: 'Work\u202Elim' }, 'label'],
+    ['a label with a zero-width space', { label: 'Work\u200Bmail' }, 'label'],
+    ['a label with a lone surrogate', { label: 'Work\uD800mail' }, 'label'],
+    ['a label with a line separator', { label: 'Work\u2029mail' }, 'label'],
+    ['a label with a Hangul filler', { label: '\u3164' }, 'label'],
+    ['a label with a combining grapheme joiner', { label: 'Work\u034Fmail' }, 'label'],
+    ['a label with a variation selector after a letter', { label: 'Work\uFE0F' }, 'label'],
+    ['a null label', { label: null }, 'label'],
+    ['an unknown field', { label: 'Work', account: 'x' }, 'account'],
+  ])('a rename refuses %s before the binding, naming the field', async (_what, body, field) => {
+    const { app, calls, connected } = makeApp();
+    const anas = connected({ kind: 'member', userId: ANA });
+    const res = await call(app, 'ana', 'PATCH', `/v1/connections/${anas.connectionId}`, body);
+    expect(res.status).toBe(400);
+    expect(res.json.error).toMatchObject({ code: 'bad-input', details: { field } });
+    expect(calls.update).toBeUndefined();
+  });
 });
 
 describe('POST /v1/connection-notices/{tenantId}/{appId}', () => {
@@ -1058,6 +1427,315 @@ describe('POST /v1/connection-notices/{tenantId}/{appId}', () => {
     expect(limited.status).toBe(429);
     expect(limited.headers.get('retry-after')).not.toBeNull();
     expect((await send(app, 'forged', '198.51.100.7')).status).toBe(400);
+  });
+});
+
+/** An authorization store where Ana is an admin of `project` and Ben a member; anyone else, nothing. */
+function projectRoles(project: string, recorded: string[] = []): AuthzCheckBinding {
+  const roles: Record<string, 'admin' | 'member'> = { [ANA]: 'admin', [BEN]: 'member' };
+  const decide = (principal: unknown, action: Action, r: ResourceRef): Decision => {
+    const actor = (principal as { actor?: { id?: string } }).actor?.id ?? '';
+    const role = r.type === 'project' && r.id === project ? roles[actor] : undefined;
+    const allowed = role === 'admin' || (role === 'member' && action === 'read');
+    return {
+      allowed,
+      reason: allowed ? 'test: granted' : 'test: not in the project',
+      evidence: { action, relation: '', resource: `${r.type}:${r.id}`, actorSubject: '' },
+    };
+  };
+  return {
+    check: async (p, action, r) => decide(p, action, r),
+    checkBatch: async (p, action, rs) => rs.map((r) => decide(p, action, r)),
+    recordDecision: (_p, action, r, decision) => {
+      if (!decision.allowed) recorded.push(`${action} ${r.type}:${r.id}`);
+    },
+  };
+}
+
+describe('/v1/connection-choices', () => {
+  const project = randomUUID();
+
+  function choicesApp(recorded: string[] = []) {
+    const made = makeApp({ authzCheckBinding: projectRoles(project, recorded) });
+    const company = made.connected({ kind: 'company' }, tenantA, { label: 'Support' });
+    return { ...made, company };
+  }
+
+  test('members read, admins write, and anyone else is refused', async () => {
+    const recorded: string[] = [];
+    const { app, company } = choicesApp(recorded);
+    const body = {
+      projectId: project,
+      agentId: 'acme.support',
+      connectionId: company.connectionId,
+    };
+
+    const member = await call(app, 'ben', 'PUT', '/v1/connection-choices', body);
+    expect(member.status).toBe(403);
+    expect(member.json.error).toMatchObject({
+      code: 'permission-denied',
+      message: 'Choosing a connection takes a project admin.',
+    });
+
+    const set = await call(app, 'ana', 'PUT', '/v1/connection-choices', body);
+    expect(set.status).toBe(200);
+    expect(set.json).toEqual({
+      choiceId: expect.any(String),
+      projectId: project,
+      envName: 'local',
+      agentId: 'acme.support',
+      app: 'google',
+      connectionId: company.connectionId,
+      version: 1,
+      createdAt: at,
+      createdBy: `user:${ANA}`,
+    });
+
+    const list = `/v1/connection-choices?projectId=${project}`;
+    const read = await call(app, 'ben', 'GET', list);
+    expect(read.status).toBe(200);
+    expect(read.json).toEqual({ data: [set.json], hasMore: false });
+
+    const outsider = await call(app, 'bot', 'GET', list);
+    expect(outsider.status).toBe(403);
+    expect((await call(app, 'bot', 'PUT', '/v1/connection-choices', body)).status).toBe(403);
+    const path = `/v1/connection-choices/${set.json.choiceId}`;
+    // One who can't read the project hears what an unknown id gets.
+    const unseen = await call(app, 'bot', 'DELETE', path);
+    expect(unseen.status).toBe(404);
+    expect(unseen.json.error).toMatchObject({
+      code: 'connection-choice-not-found',
+      details: { choiceId: set.json.choiceId },
+    });
+
+    const notAdmin = await call(app, 'ben', 'DELETE', path);
+    expect(notAdmin.status).toBe(403);
+    expect(notAdmin.json.error.message).toBe('Removing a connection choice takes a project admin.');
+
+    const removed = await call(app, 'ana', 'DELETE', path);
+    expect(removed.status).toBe(200);
+    expect(removed.json).toEqual({ deleted: true });
+    expect((await call(app, 'ben', 'GET', list)).json.data).toEqual([]);
+    // A choice's history: the removed ones too, with who removed them.
+    const history = await call(app, 'ben', 'GET', `${list}&includeRemoved=true`);
+    expect(history.status).toBe(200);
+    expect(history.json.data).toEqual([{ ...set.json, removedAt: at, removedBy: `user:${ANA}` }]);
+    expect((await call(app, 'bot', 'GET', `${list}&includeRemoved=true`)).status).toBe(403);
+    // The route's own refusals are in the access audit.
+    expect(recorded).toEqual(Array(3).fill(`admin project:${project}`));
+  });
+
+  test("a project's members see a candidate's id and name; its admins see all of it", async () => {
+    const { app, company } = choicesApp();
+    const path = `/v1/connection-choices/candidates?projectId=${project}&app=google`;
+    const admin = await call(app, 'ana', 'GET', path);
+    expect(admin.status).toBe(200);
+    expect(admin.json.data).toEqual([
+      {
+        connectionId: company.connectionId,
+        name: 'Support',
+        app: 'google',
+        accountLabel: 'acme',
+        state: 'working',
+      },
+    ]);
+    const member = await call(app, 'ben', 'GET', path);
+    expect(member.status).toBe(200);
+    expect(member.json.data).toEqual([{ connectionId: company.connectionId, name: 'Support' }]);
+    expect((await call(app, 'bot', 'GET', path)).status).toBe(403);
+  });
+
+  test('the routes pass the env this server serves, and the caller', async () => {
+    const { app, calls, company } = choicesApp();
+    await call(app, 'ana', 'PUT', '/v1/connection-choices', {
+      projectId: project,
+      flowId: 'acme.triage',
+      connectionId: company.connectionId,
+    });
+    await call(
+      app,
+      'ben',
+      'GET',
+      `/v1/connection-choices?projectId=${project}&flowId=acme.triage&app=google&includeRemoved=true&limit=5`,
+    );
+    await call(app, 'ben', 'GET', `/v1/connection-choices/candidates?projectId=${project}`);
+    expect(calls.setChoice).toEqual([
+      {
+        projectId: project,
+        flowId: 'acme.triage',
+        connectionId: company.connectionId,
+        tenantId: tenantA,
+        envName: 'local',
+        by: { kind: 'user', id: ANA, tenantId: tenantA },
+      },
+    ]);
+    expect(calls.listChoices).toEqual([
+      {
+        tenantId: tenantA,
+        projectId: project,
+        envName: 'local',
+        flowId: 'acme.triage',
+        app: 'google',
+        includeRemoved: true,
+        limit: 5,
+      },
+    ]);
+    expect(calls.listCandidates).toEqual([
+      { tenantId: tenantA, projectId: project, envName: 'local', limit: 25 },
+    ]);
+  });
+
+  test('without an authorization store, a tenant admin writes and any member reads', async () => {
+    const { app, connected } = makeApp();
+    const company = connected({ kind: 'company' });
+    const body = {
+      projectId: project,
+      agentId: 'acme.support',
+      connectionId: company.connectionId,
+    };
+    expect((await call(app, 'ana', 'PUT', '/v1/connection-choices', body)).status).toBe(403);
+    expect(
+      (await call(app, 'admin-member-key', 'PUT', '/v1/connection-choices', body)).status,
+    ).toBe(403);
+    expect((await call(app, 'admin', 'PUT', '/v1/connection-choices', body)).status).toBe(200);
+    const read = await call(app, 'ana', 'GET', `/v1/connection-choices?projectId=${project}`);
+    expect(read.json.data).toHaveLength(1);
+    const candidates = await call(
+      app,
+      'ana',
+      'GET',
+      `/v1/connection-choices/candidates?projectId=${project}`,
+    );
+    expect(candidates.json.data).toEqual([{ connectionId: company.connectionId, name: 'acme' }]);
+  });
+
+  test.each([
+    ['both agentId and flowId', { agentId: 'acme.support', flowId: 'acme.triage' }, undefined],
+    ['neither agentId nor flowId', {}, undefined],
+    ['an empty agentId', { agentId: '' }, 'agentId'],
+    ['an unknown field', { agentId: 'acme.support', app: 'google' }, 'app'],
+    [
+      'a connectionId that is not a UUID',
+      { agentId: 'acme.support', connectionId: 'support' },
+      'connectionId',
+    ],
+  ])('a body with %s is bad-input, and the binding never sees it', async (_, more, field) => {
+    const { app, calls, company } = choicesApp();
+    const res = await call(app, 'ana', 'PUT', '/v1/connection-choices', {
+      projectId: project,
+      connectionId: company.connectionId,
+      ...more,
+    });
+    expect(res.status).toBe(400);
+    expect(res.json.error.code).toBe('bad-input');
+    expect(res.json.error.details?.field).toBe(field);
+    expect(calls.setChoice).toBeUndefined();
+  });
+
+  test("the binding's refusals: a person's connection, a non-candidate, an agent of another project", async () => {
+    const { app, connected } = choicesApp();
+    const mine = connected({ kind: 'member', userId: ANA as UserId });
+    const person = await call(app, 'ana', 'PUT', '/v1/connection-choices', {
+      projectId: project,
+      agentId: 'acme.support',
+      connectionId: mine.connectionId,
+    });
+    expect(person.status).toBe(400);
+    expect(person.json.error).toMatchObject({
+      code: 'bad-input',
+      message: "A person's own connection is used for them; choices are for the company's.",
+      details: { field: 'connectionId' },
+    });
+
+    const unknown = randomUUID();
+    const missing = await call(app, 'ana', 'PUT', '/v1/connection-choices', {
+      projectId: project,
+      agentId: 'acme.support',
+      connectionId: unknown,
+    });
+    expect(missing.status).toBe(404);
+    expect(missing.json.error).toMatchObject({
+      code: 'connection-not-found',
+      details: { connectionId: unknown, field: 'connectionId' },
+    });
+
+    const company = connected({ kind: 'company' });
+    const elsewhere = await call(app, 'ana', 'PUT', '/v1/connection-choices', {
+      projectId: project,
+      agentId: 'acme.elsewhere',
+      connectionId: company.connectionId,
+    });
+    expect(elsewhere.status).toBe(404);
+    expect(elsewhere.json.error).toMatchObject({
+      code: 'agent-not-found',
+      details: { agentId: 'acme.elsewhere' },
+    });
+  });
+
+  test("a choice that is unknown, removed or another env's is connection-choice-not-found", async () => {
+    const { app, choices, company } = choicesApp();
+    const unknown = randomUUID();
+    const missing = await call(app, 'ana', 'DELETE', `/v1/connection-choices/${unknown}`);
+    expect(missing.status).toBe(404);
+    expect(missing.json.error).toMatchObject({
+      code: 'connection-choice-not-found',
+      message: `No connection choice with id "${unknown}"`,
+      details: { choiceId: unknown },
+    });
+    const live = {
+      choiceId: randomUUID(),
+      tenantId: tenantA,
+      projectId: project,
+      agentId: 'acme.support',
+      app: 'google',
+      connectionId: company.connectionId,
+      version: 1,
+      createdAt: at,
+      createdBy: `user:${ANA}`,
+    };
+    const staging = { ...live, choiceId: randomUUID(), envName: 'staging' as EnvName };
+    const removed = { ...live, choiceId: randomUUID(), envName: 'local' as EnvName, removedAt: at };
+    for (const choice of [staging, removed]) {
+      choices.set(choice.choiceId, choice as ConnectionChoiceRecord);
+      const res = await call(app, 'ana', 'DELETE', `/v1/connection-choices/${choice.choiceId}`);
+      expect(res.status).toBe(404);
+      expect(res.json.error.code).toBe('connection-choice-not-found');
+    }
+    const malformed = await call(app, 'ana', 'DELETE', '/v1/connection-choices/support');
+    expect(malformed.status).toBe(400);
+    expect(malformed.json.error.code).toBe('bad-input');
+  });
+
+  test.each([
+    ['no projectId', '', 'projectId'],
+    ['a projectId that is not a UUID', 'projectId=acme', 'projectId'],
+    ['an app that is not an entry id', `projectId=${project}&app=Google!`, 'app'],
+    ['both agentId and flowId', `projectId=${project}&agentId=a&flowId=f`, undefined],
+    [
+      'an includeRemoved that is not a boolean',
+      `projectId=${project}&includeRemoved=yes`,
+      'includeRemoved',
+    ],
+  ])('a list with %s is bad-input', async (_, query, field) => {
+    const { app, calls } = choicesApp();
+    const res = await call(app, 'ben', 'GET', `/v1/connection-choices?${query}`);
+    expect(res.status).toBe(400);
+    expect(res.json.error.code).toBe('bad-input');
+    expect(res.json.error.details?.field).toBe(field);
+    expect(calls.listChoices).toBeUndefined();
+  });
+
+  test('a candidates read with no projectId, or an unknown app, is bad-input', async () => {
+    const { app, calls } = choicesApp();
+    expect((await call(app, 'ben', 'GET', '/v1/connection-choices/candidates')).status).toBe(400);
+    const res = await call(
+      app,
+      'ben',
+      'GET',
+      `/v1/connection-choices/candidates?projectId=${project}&app=Google!`,
+    );
+    expect(res.json.error).toMatchObject({ code: 'bad-input', details: { field: 'app' } });
+    expect(calls.listCandidates).toBeUndefined();
   });
 });
 

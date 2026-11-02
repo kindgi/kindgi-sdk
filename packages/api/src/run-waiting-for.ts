@@ -50,7 +50,7 @@ export interface WaitingForApproval {
   readonly tool?: { readonly id: string; readonly version: string; readonly callId: string };
   /** The one member who may decide it. */
   readonly approver?: ApprovalApprover;
-  /** The person's account the call would use. */
+  /** The connection the call would use: a person's, or the company's. */
   readonly connection?: ApprovalConnection;
 }
 
@@ -275,6 +275,7 @@ function onTheRun(approval: Approval): WaitingForApproval {
         app: approval.connection.app,
         appName: approval.connection.appName,
         account: approval.connection.account,
+        ...(approval.connection.name !== undefined && { name: approval.connection.name }),
       },
     }),
   };

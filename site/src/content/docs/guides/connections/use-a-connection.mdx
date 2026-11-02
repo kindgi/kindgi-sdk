@@ -76,10 +76,10 @@ project that publishes it, so each pack picks one under its own name. An
 agent lists the tool by that id, as `{ id: 'acme.gmail.send', version:
 '^1.0.0' }`, and its approval settings name it the same way.
 
-- **The mail tools take `as: 'company'`** to use the company's mailbox
-  instead of the person's own, such as a shop's support address. A tenant
-  admin connects it by signing in as that mailbox
-  ([The company's mailbox](../../runs/start-runs-from-new-mail/#the-companys-mailbox)).
+- **The mail tools take `as: 'company'`** to use one of the company's
+  mailboxes instead of the person's own, such as a shop's support address.
+  A tenant admin connects each by signing in as that mailbox
+  ([The company's mailboxes](../../runs/start-runs-from-new-mail/#the-companys-mailboxes)).
   `as` is part of what a tool declares, so a tool id you've published keeps
   its `as`: give the company's mailbox its own id, as in
   `gmailMessagesList({ id: 'acme.store-mail.list', as: 'company' })`.
@@ -158,7 +158,8 @@ needs_spec={
   - `'person'`: the connection of the person the run acts as. That's whoever
     started the run, or the owner of the schedule or webhook that started
     it.
-  - `'company'`: the company's connection for the project.
+  - `'company'`: one of the company's connections the project can use
+    ([Which connection a call uses](../choose-a-connection/#which-connection-a-call-uses)).
 
 ## Read the token
 
@@ -234,6 +235,11 @@ def send_mail(message: Message, ctx: ToolContext) -> Sent:
   shortly before it expires, and each call gets the one that's current.
 - **`account`** is whose account it is: its `label` is what people see,
   such as `ana@acme.com`, and its `id` is its stable id at the app.
+- **`name`** (runtime 0.5.0 or later) is the connection's name: the one
+  it was given, else its account's `label`
+  ([Name a connection](../choose-a-connection/#name-a-connection)). From
+  an older runtime it's absent in TypeScript, `None` in Python and `null`
+  in Java and Scala.
 - **In TypeScript, `ctx.connections` is optional in the type,** because a
   unit test builds its own context ([Test it](#test-it)). In Python, Java
   and Scala, it's a map, empty when the tool declares none. In a call the
@@ -372,11 +378,11 @@ ctx = ToolContext.for_test(
 
 ```java excerpt
 ToolContext ctx = ToolContext.forTest(Map.of("mail", new ToolConnection("c-1", "google", "Google",
-    "test-token", new ConnectionAccount("g-1", "ana@acme.com"), null)));
+    "test-token", new ConnectionAccount("g-1", "ana@acme.com"), null, null)));
 ```
 
-The last argument is when the token expires, which a test can leave
-`null`.
+The last two arguments are the connection's name and when the token
+expires, which a test can leave `null`.
 
 </TabItem>
 <TabItem label="Scala">
@@ -386,11 +392,11 @@ import com.kindgi.pack.{ConnectionAccount, ToolConnection, ToolContext}
 import java.util.Map as JMap
 
 val ctx = ToolContext.forTest(JMap.of("mail", new ToolConnection("c-1", "google", "Google",
-  "test-token", new ConnectionAccount("g-1", "ana@acme.com"), null)))
+  "test-token", new ConnectionAccount("g-1", "ana@acme.com"), null, null)))
 ```
 
-The last argument is when the token expires, which a test can leave
-`null`.
+The last two arguments are the connection's name and when the token
+expires, which a test can leave `null`.
 
 </TabItem>
 </Tabs>
@@ -409,8 +415,10 @@ input:
   - in a run a service account started, an event's run, or a run of a
     schedule or webhook a service account owns: none. The call fails with
     `connection-needs-a-person`.
-- **`as: 'company'`** uses the company's connection, in any run in a
-  project the registration allows.
+- **`as: 'company'`** uses one of the company's connections, in any run in
+  a project the registration allows: the one the run's mail came to, else
+  the agent's or flow's choice, else the only one
+  ([Which connection a call uses](../choose-a-connection/#which-connection-a-call-uses)).
 
 ## When the connection is missing
 
@@ -428,6 +436,9 @@ input:
   connects it.
 - **A flow's tool step can't wait,** so it fails with `connection-missing`
   the same way.
+- **Several of the company's connections of the app, and no choice,** fail
+  the run with `connection-not-chosen`, naming them
+  ([When none is chosen](../choose-a-connection/#when-none-is-chosen)).
 
 An agent's call stopped this way runs nothing. The run records
 `tool.failed` with the code, and the model reads that as the call's result

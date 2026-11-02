@@ -10,8 +10,9 @@
  *
  * Each record is written as the route answers it, unchanged, so the API
  * reference documents the files. A top-level kind's file holds one record
- * per line. A child kind's line is `{ "parent": { <path params> }, "item": … }`,
- * so a line never depends on the item carrying its parent's id.
+ * per line. A child kind's line is `{ "parent": { <what its parent filled> }, "item": … }`,
+ * the path and query values read from its parent's record, so a line never
+ * depends on the item carrying its parent's id.
  */
 
 /** How a route answers. */
@@ -217,6 +218,13 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     query: { includeRemoved: 'true' },
     covers: ['/v1/connections/{connectionId}'],
     admin: true,
+  },
+  {
+    name: 'connection-choices',
+    route: '/v1/connection-choices',
+    paging: cursor,
+    parent: { kind: 'projects', params: {}, query: { projectId: 'id' } },
+    query: { includeRemoved: 'true' },
   },
 
   // What the packs and the console registered.
@@ -702,6 +710,7 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
     'computed from deployments, tools, agents, providers, secrets and env values',
   '/v1/retention/scheduled': 'computed from the retention policies and the records',
   '/v1/deployments/{deploymentId}/pack-env': 'computed from deployments, env and secrets',
+  '/v1/connection-choices/candidates': 'computed from connections and connection-apps',
   // Not listed by any route.
   '/v1/secrets/{name}/rotations/{rotationId}':
     "read by the id its rotation's request answered; no route lists rotations, and each rotation's versions are in secret-versions",

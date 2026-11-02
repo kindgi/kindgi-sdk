@@ -48,6 +48,9 @@ public final class Context {
     out.put("appName", c.appName());
     out.put("accessToken", c.accessToken());
     out.put("account", Map.of("id", c.account().id(), "label", c.account().label()));
+    if (c.name() != null) {
+      out.put("name", c.name());
+    }
     if (c.expiresAt() != null) {
       out.put("expiresAt", c.expiresAt());
     }
