@@ -801,6 +801,17 @@
   margin: var(--kindgi-space-3) 0 0;
 }
 
+.kindgi .kindgi-why label {
+  display: block;
+  font-weight: 600;
+}
+
+/* What a rejection does, between the box's label and the box. */
+.kindgi .kindgi-why .kindgi-effect {
+  margin: var(--kindgi-space-1) 0 var(--kindgi-space-2);
+  color: var(--kindgi-muted);
+}
+
 .kindgi .kindgi-actions {
   display: flex;
   flex-wrap: wrap;
