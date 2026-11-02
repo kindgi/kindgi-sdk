@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'vitest';
 
 import { renderResponse } from '../src/deploy/response.js';
-import type { PostDeploymentResult } from '../src/deploy/runners.js';
+import type { DeploymentRecord, PostDeploymentResult } from '../src/deploy/runners.js';
 
 const ctx = {
   envName: 'staging',
@@ -97,5 +97,61 @@ describe('renderResponse: a refused deploy', () => {
     );
     expect(text).toContain('Details:');
     expect(text).toContain('"primitive":"tool"');
+  });
+});
+
+describe('renderResponse: a deploy that landed', () => {
+  const record: DeploymentRecord = {
+    deploymentId: 'd1',
+    tenantId: 't1',
+    imageRef: ctx.imageRef,
+    imageDigest: 'sha256:4d18e69581b56a0c9f3e2b7d1c8a6f40e5b9d2c7',
+    artifactVersion: ctx.artifactVersion,
+    indexHash: ctx.indexHash,
+    signerKeyId: 'k1',
+    signerPublicKey: 'pk',
+    signature: 'sig',
+    publishedAt: '2026-10-30T08:00:00.000Z',
+    activatedAt: '2026-10-30T08:00:01.000Z',
+    primitives: { tools: 1, guardrails: 0, agents: 0, flows: 0 },
+  };
+  const perDeployment: DeploymentRecord = {
+    ...record,
+    endpoint: { status: 'pending', since: '2026-10-30T08:00:01.000Z' },
+  };
+  const landed = (kind: 'created' | 'replayed', r: DeploymentRecord): PostDeploymentResult =>
+    kind === 'created' ? { kind, status: 201, record: r } : { kind, status: 200, record: r };
+
+  test("with one pack service, runs in flight call that service's current build, as new runs do", () => {
+    for (const kind of ['created', 'replayed'] as const) {
+      const text = banner(landed(kind, record));
+      expect(text).toContain(
+        "With one pack service, runs already in flight call that service's current build, as new runs do: a call naming a tool version that build doesn't have fails with tool-version-mismatch.",
+      );
+      expect(text).not.toContain('pinned image');
+      expect(text).not.toContain('keep their tool versions');
+    }
+  });
+
+  test('routed per deployment (the record has a pack service), runs in flight keep their tool versions', () => {
+    for (const kind of ['created', 'replayed'] as const) {
+      const text = banner(landed(kind, perDeployment));
+      expect(text).toContain(
+        "Runs already in flight keep their tool versions: each tool call goes to the newest deployment in the run's project that shipped the version it names.",
+      );
+      expect(text).not.toContain('pinned image');
+      expect(text).not.toContain('With one pack service');
+    }
+  });
+
+  test('a new deployment says what new runs use; a replay names the digest that landed before', () => {
+    expect(banner(landed('created', record))).toContain(
+      'Runs started from now use image sha256:4d18e69581b56… (artifactVersion 20261015.1).',
+    );
+    const replayed = banner(landed('replayed', record));
+    expect(replayed).toContain(
+      'Note: same imageDigest (sha256:4d18e69581b56…) previously landed. Server returned the existing record.',
+    );
+    expect(replayed).not.toContain('Deploy complete.');
   });
 });

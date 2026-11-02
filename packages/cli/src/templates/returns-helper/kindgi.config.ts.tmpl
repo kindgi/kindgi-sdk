@@ -1,0 +1,44 @@
+// Kindgi pack config — scaffolded by `kindgi init --template=returns-helper`.
+
+const config = {
+  pack: {
+    id: '{{PACK_ID}}',
+    version: '{{PACK_VERSION}}',
+    description: 'A returns helper — one agent, two tools and three blocks.',
+  },
+  discovery: {
+    tools: 'tools/**/*.ts',
+    agents: 'agents/**/*.ts',
+    blocks: 'blocks/**/*.json',
+  },
+  // ---------------------------------------------------------------
+  // Environments: one entry per place you deploy to, picked with
+  // `--env <name>` (default `staging`). `kindgi build` reads `build`,
+  // `registry`, `signingKey` and `tenantId`; `kindgi deploy` reads
+  // `endpoint`. Local `kindgi dev` doesn't read this block.
+  //
+  // Your API key goes only to the address you signed in to
+  // (`kindgi auth login --url <url>`), so an `endpoint` here must be
+  // that address. Builds are signed with a key of yours: make it with
+  // `kindgi key create <id>`, and let the runtime trust it with
+  // `kindgi key trust <id>` (once).
+  // ---------------------------------------------------------------
+  environments: {
+    // Kindgi Cloud: `kindgi deploy --env=prod` builds there and deploys.
+    // prod: {
+    //   build: 'hosted',
+    //   signingKey: '~/.kindgi/keys/<id>.pem',
+    // },
+    //
+    // A runtime of your own:
+    // production: {
+    //   endpoint: 'https://kindgi.your-company.example', // the address you signed in to
+    //   build: 'https://build.your-company.example', // your Kindgi build server
+    //   registry: 'ghcr.io/your-org',
+    //   signingKey: '~/.kindgi/keys/<id>.pem',
+    //   tenantId: '<your tenant id>',
+    // },
+  },
+} as const;
+
+export default config;

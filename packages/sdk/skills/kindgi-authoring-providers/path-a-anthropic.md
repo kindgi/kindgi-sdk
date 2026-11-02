@@ -97,8 +97,10 @@ the call goes without it, with a `sampling-unsupported` warning), and a
 model's `thinking` says how it thinks and the levels it takes (the presets
 list each model's). An agent asks for a level with `thinking` in its model
 settings; one the model doesn't take is rounded up, or to its highest, with
-a `thinking-level-adjusted` warning. Thinking counts against
-`maxOutputTokens` and bills as output.
+a `thinking-level-adjusted` warning. A call that asks none is sent the
+model's `thinking.default`, which no preset sets, so it thinks as the
+vendor sets unless your own spec gives one (runtime 0.3.0 or later).
+Thinking counts against `maxOutputTokens` and bills as output.
 The preset carries the models, context windows, default output caps (what
 a call asks for when its agent sets no `maxOutputTokens`; not the model's own
 limit) and current prices (`kindgi providers presets` lists the presets and

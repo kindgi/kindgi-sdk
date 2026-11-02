@@ -4,7 +4,15 @@
 import type { Capability } from '@kindgi/capabilities';
 import type { Fact, MemoryScope, RecalledMessage } from '@kindgi/memory';
 import type { ToolErrorsSpec, ToolHitlMode, ToolHitlRule } from '@kindgi/policy-contract';
-import type { Brand, ConversationId, ProjectId, Semver, TenantId, Timestamp } from '@kindgi/types';
+import type {
+  Brand,
+  ConversationId,
+  FileValue,
+  ProjectId,
+  Semver,
+  TenantId,
+  Timestamp,
+} from '@kindgi/types';
 
 import type { AgentDerivation, AgentPins } from './pins.js';
 
@@ -46,10 +54,17 @@ export interface ConversationMessage {
   readonly role: MessageRole;
   /**
    * Free-form text OR structured content. `string` is the common case
-   * (a chat message); `Record<string, unknown>` supports tool-result
-   * shapes and multi-modal payloads without a v2 bump.
+   * (a chat message); `Record<string, unknown>` holds a tool's result.
    */
   readonly content: string | Readonly<Record<string, unknown>>;
+  /**
+   * Stored files the message carries, for a user message (its run's input
+   * files) or a tool's result: references, never bytes. Each was admitted
+   * by the run's rule when the message was written, with the runtime's own
+   * checked fields. A later turn asks the rule again before its model is
+   * shown one.
+   */
+  readonly files?: readonly FileValue[];
   /**
    * For `role: 'tool'` messages: the tool id and the invocation id
    * that produced this output. Enables provenance edges from the
@@ -529,7 +544,7 @@ export interface Agent {
    * The value is a `ModelInfo.name` string (e.g. `'claude-sonnet-5-5'`).
    * Enables model-level A/B'ing under one connection: register
    * Anthropic once with `models: [sonnet, opus, haiku]`, then pin
-   * per-agent. To let an improvement pass try other models, name the
+   * per-agent. To let an Improve run try other models, name the
    * model in the model-settings block (`model`) instead: never both.
    */
   readonly preferredModel?: string;

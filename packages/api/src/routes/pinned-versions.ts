@@ -30,7 +30,7 @@ import {
   referencesOutOfScope,
 } from '../reference-scope.js';
 import type { AppEnv } from '../types.js';
-import { actorOf } from './agent-releases.js';
+import { actorOf } from './agent-pins.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { parsePinScopeBody, pinScopeToWire } from './pin-scope-wire.js';
@@ -536,7 +536,7 @@ export function versionPinnedResponse(
 
 /**
  * A binding's refusal of a pin write, as the routes answer it. `extra`
- * joins the error's details: a deployment promotion's `makeLive` names
+ * joins the error's details: a deployment promotion's `pin` names
  * what it pinned before the refusal there.
  */
 export function pinWriteFailure(

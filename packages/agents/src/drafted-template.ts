@@ -5,7 +5,7 @@ import type { BlockIssue, PromptBlockContent } from './blocks.js';
 import { templateProblem, tenantLiquid } from './liquid.js';
 
 /**
- * What a drafted prompt template (an improvement pass's candidate) is
+ * What a drafted prompt template (an Improve run's candidate) is
  * checked against: the template it would replace, and what the agent
  * version already has.
  */

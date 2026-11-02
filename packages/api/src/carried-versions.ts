@@ -3,10 +3,10 @@
 
 /**
  * The versions a promotion carries with a deployment. A version made by an
- * edit (an expert's, or an improvement proposal's candidate) is made in
+ * edit (an expert's, or a suggested change's candidate) is made in
  * the first environment of an order, and no deployment lists it: when the
  * deployment it was made from moves to the next environment, the edit
- * moves with it, so it can go live there.
+ * moves with it, so it can be pinned there.
  *
  * An edit moves with a deployment when a run in the deployment's project
  * reaches it, the deployment doesn't ship it already, and its chain of

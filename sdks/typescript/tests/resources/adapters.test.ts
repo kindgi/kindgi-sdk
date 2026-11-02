@@ -27,7 +27,7 @@ describe('adapters.list', () => {
     });
 
     const page = await client.adapters.list({ kind: 'model', status: 'active' });
-    expect(page.items[0]?.adapterId).toBe('model-anthropic');
+    expect(page.data[0]?.adapterId).toBe('model-anthropic');
     const url = new URL(stub.calls[0]?.url);
     expect(url.searchParams.get('kind')).toBe('model');
     expect(url.searchParams.get('status')).toBe('active');

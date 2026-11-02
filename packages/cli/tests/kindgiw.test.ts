@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: packages/cli/src/templates/java/**
 
 /**
  * A Java pack's CLI pin: `kindgiw` (its three ways to run the pinned CLI),

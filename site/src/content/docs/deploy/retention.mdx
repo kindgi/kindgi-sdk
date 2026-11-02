@@ -34,15 +34,15 @@ each one by the name in the second column.
 | `agent` | Deleted agents | unregistered agent versions |
 | `flow` | Deleted flows | unregistered flow versions |
 | `tool` | Deleted tools | unregistered tool versions |
-| `eval_suite` | Deleted eval suites | unregistered versions of test cases and other eval suites |
+| `test_set` | Deleted test sets | unregistered versions of test cases and other test sets |
 | `guardrail` | Deleted guardrails | unregistered guardrails |
 | `mcp_endpoint` | Removed MCP servers | unregistered MCP endpoints |
 | `env` | Deleted environment values | deleted environment values |
 | `secret` | Deleted secrets | revoked secrets |
 | `run` | Deleted runs | **finished runs**, counted from when they finished |
 | `policy` | Retired policy versions | unregistered policy versions |
-| `judgment` | Removed corrections | removed corrections, and the history of the answers waiting for a correction: closed items and skipped runs |
-| `judge_class` | Retired judge classes | retired judge classes |
+| `correction` | Removed corrections | removed corrections, and the history of the answers waiting for a correction: closed items and skipped runs |
+| `corrector_group` | Retired corrector groups | retired corrector groups |
 | `org` | Deleted orgs | deleted orgs, once their environments' and MCP endpoints' records are purged |
 | `provider` | Removed model providers | unregistered model providers |
 | `artifact` | Deleted artifacts | deleted artifacts, with their files |
@@ -68,11 +68,11 @@ under their own setting:
 
 - **Corrections,** with the copy of the run's input and output each
   corrected run keeps. A correction that isn't removed stays for good. A
-  removed one goes under `judgment`.
+  removed one goes under `correction`.
 - **The history of the answers waiting for a correction:** items that
-  closed (`judged`, `dismissed` or `erased`) and runs a rule skipped at its
+  closed (`corrected`, `dismissed` or `erased`) and runs a rule skipped at its
   cap. They hold ids, versions,
-  statuses and times only. They go under `judgment`, counted from when they
+  statuses and times only. They go under `correction`, counted from when they
   closed or were skipped. A purged run's waiting item closes as `erased`.
 - **Model-call costs,** which are billing history and stay.
 
@@ -545,7 +545,7 @@ later):
 
 - **A run's end** (`run-outcome`): one record for each run, however it
   ends. It's written with the end itself, so no run ends without one;
-  runs that ended before the upgrade have none. Child runs, replays, eval
+  runs that ended before the upgrade have none. Child runs, replays, test
   runs and dry runs each have theirs, and the record says which. It says
   how the run ended, and its only text is the run's failure message.
 - **A guardrail violation** (`guardrail-violation`): one record for each

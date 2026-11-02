@@ -3,8 +3,9 @@
 
 /**
  * `@kindgi/connections/microsoft/tools` — tools that act with a Microsoft
- * connection on its Outlook mailbox: the person's own, or the company's
- * (`as`). A pack includes one by exporting it as a tool under an id the
+ * connection on its Outlook mailbox or calendar: the person's own, or the
+ * company's (`as`). The calendar tools are
+ * `./microsoft-calendar-tools.ts`'s. A pack includes one by exporting it as a tool under an id the
  * pack names: a tool folder whose `index.ts` is
  * `export default outlookSend({ id: 'acme.outlook.send' })`.
  * The id is the pack's because a tool id is the tenant's, filed under the
@@ -24,20 +25,57 @@ import {
   IMMUTABLE_IDS,
   MESSAGE_FIELDS,
   type RawMessage,
+  graphBytes,
   graphJson,
   graphSays,
+  outlookAttachments,
   outlookMessage,
   person,
   query,
 } from './graph-api.js';
+import {
+  ATTACHMENT_OUTPUT,
+  ATTACHMENT_SAYS,
+  type MailAttachmentGetInput,
+  type MailAttachmentGetOutput,
+  attachmentAt,
+  attachmentInput,
+  storeAttachment,
+} from './mail-attachment.js';
 import { isMailAddress, replyAddress } from './mail-reply.js';
 import { MAIL_MESSAGE, MAIL_PERSON } from './mail-schema.js';
-import { clippedPerson } from './mail-text.js';
+import { clippedPerson, listedAttachments } from './mail-text.js';
 import { MAIL_TURN_BUDGET, type MailMessage } from './mail.js';
 import { microsoft } from './microsoft.js';
 
 export type { AppToolOptions, MailToolOptions, MailboxOwner } from './app-tool.js';
+export type {
+  MailAttachmentGetInput,
+  MailAttachmentGetOutput,
+  MailAttachmentNotShownReason,
+} from './mail-attachment.js';
 export type { MailMessage, MailPerson } from './mail.js';
+export type {
+  CalendarAttendee,
+  CalendarBusy,
+  CalendarEvent,
+  CalendarEventWritten,
+  CalendarOwner,
+  CalendarResponse,
+  CalendarToolOptions,
+} from './calendar.js';
+export {
+  type OutlookCalendarEventCreateInput,
+  type OutlookCalendarEventUpdateInput,
+  type OutlookCalendarEventsListInput,
+  type OutlookCalendarEventsListOutput,
+  type OutlookCalendarFreeBusyInput,
+  type OutlookCalendarFreeBusyOutput,
+  outlookCalendarEventCreate,
+  outlookCalendarEventUpdate,
+  outlookCalendarEventsList,
+  outlookCalendarFreeBusy,
+} from './microsoft-calendar-tools.js';
 
 /** A mail address. Line breaks and list separators are refused, as for every mail tool. */
 const ADDRESS = {
@@ -329,6 +367,65 @@ const messageGetSpec = (
   },
 });
 
+const ATTACHMENT_GET_SAYS: Readonly<Record<MailboxOwner, string>> = {
+  person: `Fetch one attachment of a message in the person's own Outlook mailbox: the message's id, as outlookMessagesList gives it, and the attachment's number in the message's list of attachments, as outlookMessageGet or the mail lists them (1 for the first). ${ATTACHMENT_SAYS}`,
+  company: `Fetch one attachment of a message in the company's Outlook mailbox (the one a tenant admin connected): the message's id, as outlookMessagesList gives it, and the attachment's number in the message's list of attachments, as outlookMessageGet or the mail lists them (1 for the first). ${ATTACHMENT_SAYS}`,
+};
+
+const attachmentGetSpec = (
+  as: MailboxOwner,
+): Omit<Tool<MailAttachmentGetInput, MailAttachmentGetOutput>, 'id'> => ({
+  description: ATTACHMENT_GET_SAYS[as],
+  version: '1.0.0',
+  input: attachmentInput(MESSAGE_ID),
+  output: ATTACHMENT_OUTPUT,
+  effects: READS,
+  mutating: false,
+  // A file is anyone's: the agent reads it as data, not instructions.
+  resultIsOutsideData: true,
+  network: NETWORK,
+  storesFiles: true,
+  needsSpec: {
+    connections: { mail: { app: 'microsoft', permissions: ['mail.read'], as } },
+  },
+  handler: async (input, ctx) => {
+    // The input schema refuses anything else; a handler called directly still mustn't put it in the path.
+    if (!GRAPH_ID.test(input.messageId)) {
+      throw new Error("That isn't a message id outlookMessagesList gives.");
+    }
+    const send = sendWith(ctx);
+    const message = `${GRAPH}/me/messages/${encodeURIComponent(input.messageId)}`;
+    // Read again for the list as the message gives it now: an attachment's id is never shown.
+    const raw = (await graphJson(
+      send,
+      'outlook.messages.get',
+      `${message}?${query({ $select: 'id', $expand: ATTACHMENTS })}`,
+      IMMUTABLE_IDS,
+    )) as RawMessage;
+    const entries = outlookAttachments(raw);
+    const listed = attachmentAt(
+      listedAttachments(entries.map((e) => e.attachment)).attachments,
+      input.attachment,
+    );
+    const fileId = entries[input.attachment - 1]?.fileId;
+    return storeAttachment(
+      ctx,
+      listed,
+      fileId === undefined
+        ? undefined
+        : (max) =>
+            graphBytes(
+              send,
+              'outlook.attachments.get',
+              `${message}/attachments/${encodeURIComponent(fileId)}/$value`,
+              IMMUTABLE_IDS,
+              max,
+              `${message}/attachments`,
+            ),
+    );
+  },
+});
+
 export interface OutlookReplyInput {
   /** The id of the message answered, as outlookMessagesList gives it. */
   readonly inReplyTo: string;
@@ -473,6 +570,21 @@ export function outlookMessageGet(
   options: MailToolOptions,
 ): Tool<OutlookMessageGetInput, MailMessage> {
   return appTool(messageGetSpec(options.as ?? 'person'), options);
+}
+
+/**
+ * A tool, under the id the pack names, that fetches one attachment of a
+ * message in the call's Outlook mailbox (the person's own, or the
+ * company's with `as: 'company'`) and stores it as a file the call's run
+ * owns, which the agent is shown. A JPEG, PNG or WebP image, a PDF, or a
+ * text, Markdown or CSV file, within its type's size limit: any other,
+ * or an attached message or a link to a file kept elsewhere, is answered
+ * as not shown, and not downloaded.
+ */
+export function outlookAttachmentGet(
+  options: MailToolOptions,
+): Tool<MailAttachmentGetInput, MailAttachmentGetOutput> {
+  return appTool(attachmentGetSpec(options.as ?? 'person'), options);
 }
 
 /**

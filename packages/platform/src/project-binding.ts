@@ -11,12 +11,12 @@
  * approvals / evidence / provenance / observations) carries a
  * required `projectId` and is read/written filtered by it.
  *
- * `getDefault` returns the tenant's auto-created "Default" project.
+ * `getDefault` returns the tenant's default project (a new tenant gets one).
  * That row is the only one where `Project.isDefault = true`;
- * implementations keep exactly one per tenant (this binding's
+ * implementations keep at most one per tenant (this binding's
  * in-memory adapter checks at write time, before the row lands in the
  * map). Callers that don't naturally know a project resolve the
- * Default with `getDefault` and pass its id explicitly (see e.g.
+ * default with `getDefault` and pass its id explicitly (see e.g.
  * `AgentPublishInput.projectId` in `@kindgi/api`).
  *
  * Same convention as `org-binding.ts`: `tenantId` first, `Page<T>`
@@ -63,7 +63,7 @@ export interface ProjectBinding {
    * Create a `Project` within the tenant. `spec.orgId` optional.
    * Resolves to `ok` with the assigned `ProjectId`; to `slug-conflict`
    * when another project in the tenant has `spec.slug`; and, when
-   * `spec.isDefault === true` and the tenant already has a Default, to
+   * `spec.isDefault === true` and the tenant already has a default, to
    * `project-default-already-exists` — the isDefault-uniqueness
    * guardrail is enforced at write time.
    */
@@ -79,8 +79,8 @@ export interface ProjectBinding {
    */
   list(tenantId: TenantId, filter: ProjectListFilter): Promise<Page<Project>>;
   /**
-   * The tenant's Default project (`isDefault: true`). Returns
-   * `undefined` when no Default project exists for the tenant.
+   * The tenant's default project (`isDefault: true`). Returns
+   * `undefined` when no default project exists for the tenant.
    */
   getDefault(tenantId: TenantId): Promise<Project | undefined>;
   /**
@@ -130,6 +130,19 @@ export interface ProjectBinding {
     projectId: ProjectId,
     production: boolean,
   ): Promise<ProjectProductionOutcome>;
+  /**
+   * Set the project's repo connection (`connectionId`), or clear it
+   * (`null`). Optional: without it, the repo-connection routes answer 501
+   * `repo-connection-unsupported`. The caller checks the connection; the
+   * binding keeps its id only, with no reference to it, so a connection
+   * removed later leaves the id in place. Setting what's already set
+   * answers `changed: false`.
+   */
+  setRepoConnection?(
+    tenantId: TenantId,
+    projectId: ProjectId,
+    connectionId: string | null,
+  ): Promise<ProjectRepoConnectionOutcome>;
 }
 
 /**
@@ -185,7 +198,7 @@ export type ProjectCreateOutcome =
       readonly slug: string;
     }
   | {
-      /** `spec.isDefault` was `true` and the tenant already has a Default project. */
+      /** `spec.isDefault` was `true` and the tenant already has a default project. */
       readonly kind: 'project-default-already-exists';
     }
   | {
@@ -195,6 +208,20 @@ export type ProjectCreateOutcome =
        */
       readonly kind: 'org-not-found';
       readonly orgId: OrgId;
+    };
+
+/** What `ProjectBinding.setRepoConnection` did. */
+export type ProjectRepoConnectionOutcome =
+  | {
+      readonly kind: 'ok';
+      /** The connection now set; `null` once cleared. */
+      readonly repoConnectionId: string | null;
+      /** `false` when it was already so, and nothing was written. */
+      readonly changed: boolean;
+    }
+  | {
+      /** No project with this id in the tenant. */
+      readonly kind: 'project-not-found';
     };
 
 /** What `ProjectBinding.setProduction` did. */

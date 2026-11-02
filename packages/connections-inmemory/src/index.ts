@@ -42,6 +42,7 @@ import type { PrincipalRef } from '@kindgi/authz';
 import { type AppEntry, SIGN_IN_TENANT_PATTERN } from '@kindgi/connections';
 import {
   type ConnectionAccount,
+  type ConnectionPick,
   ConnectionRenewError,
   type ConnectionResolver,
   type ResolveConnectionsInput,
@@ -262,7 +263,7 @@ interface Wait {
 }
 
 type Resolved =
-  | { readonly kind: 'ready'; readonly connection: ToolConnection }
+  | { readonly kind: 'ready'; readonly connection: ToolConnection; readonly pick: ConnectionPick }
   | { readonly kind: 'wait'; readonly wait: Wait }
   | Refused;
 
@@ -538,7 +539,12 @@ export function createInMemoryConnections(
       if (other.projects === undefined || projects === undefined) {
         return refuse(
           'connection-app-invalid',
-          `Registration ${other.appId} of ${entry.name} already serves every project this one would; a project uses one registration of an app, so name projects that don't overlap`,
+          everyProjectOverlap(
+            entry,
+            other.appId,
+            other.projects === undefined,
+            projects === undefined,
+          ),
           { field: 'projects' },
         );
       }
@@ -552,6 +558,23 @@ export function createInMemoryConnections(
       }
     }
     return undefined;
+  }
+
+  /** Why a registration that serves every project, or would, overlaps another: what to change first. */
+  function everyProjectOverlap(
+    entry: AppEntry,
+    id: string,
+    liveEvery: boolean,
+    thisEvery: boolean,
+  ): string {
+    const one = `Registration ${id} of ${entry.name}`;
+    if (liveEvery && thisEvery) {
+      return `${one} already serves every project, as this one would; a project uses one registration of an app, so remove ${id} first, or give each a list of projects that don't overlap`;
+    }
+    if (liveEvery) {
+      return `${one} already serves every project; a project uses one registration of an app, so give ${id} a list of projects this one doesn't name, or remove it, first`;
+    }
+    return `${one} already serves its own list of projects, and this one would serve every project; a project uses one registration of an app, so give this one a list of projects ${id} doesn't serve`;
   }
 
   /** The field naming a change of the client the registration's connections were granted to, if any. */
@@ -1903,6 +1926,17 @@ export function createInMemoryConnections(
     return c.label ?? c.account.label;
   }
 
+  /**
+   * A registration as a call's record names it: its label, else its app's
+   * name and its id's first 8 characters, as a runtime does.
+   */
+  function registrationSeen(
+    app: ConnectionAppRecord,
+    entry: AppEntry,
+  ): ConnectionPick['registration'] {
+    return { id: app.appId, name: app.label ?? `${entry.name} (${app.appId.slice(0, 8)})` };
+  }
+
   /** The company's connections a need of the app may use in the project, in the env. */
   function companyCandidates(app: string, input: ResolveConnectionsInput): ConnectionRecord[] {
     return [...connections.values()]
@@ -1918,7 +1952,10 @@ export function createInMemoryConnections(
   function pickedFor(
     app: string,
     input: ResolveConnectionsInput,
-  ): { readonly by: 'mailbox' | 'choice'; readonly connectionId: string } | undefined {
+  ):
+    | { readonly by: 'mailbox'; readonly connectionId: string }
+    | { readonly by: 'choice'; readonly connectionId: string; readonly choiceId: string }
+    | undefined {
     const { mailbox, target } = input;
     if (mailbox?.as === 'company' && mailbox.app === app && mailbox.connectionId !== undefined) {
       return { by: 'mailbox', connectionId: mailbox.connectionId };
@@ -1935,7 +1972,9 @@ export function createInMemoryConnections(
         c.removedAt === undefined &&
         sameTarget(c, wanted),
     );
-    return chosen === undefined ? undefined : { by: 'choice', connectionId: chosen.connectionId };
+    return chosen === undefined
+      ? undefined
+      : { by: 'choice', connectionId: chosen.connectionId, choiceId: chosen.choiceId };
   }
 
   /** Several company connections, and none chosen: the turn stops, listing them. */
@@ -1989,6 +2028,7 @@ export function createInMemoryConnections(
     name: string,
     need: Need,
     entry: AppEntry,
+    app: ConnectionAppRecord,
     input: ResolveConnectionsInput,
   ): Resolved {
     const candidates = companyCandidates(need.app, input);
@@ -2000,8 +2040,22 @@ export function createInMemoryConnections(
     // Only the company's connection of the app is named: any other id answers as none does.
     if (stored === undefined) return missingRefusal(name, entry, undefined, need.permissions);
     const answer = companyToken(stored, name, need, candidates, entry, input);
-    if (!('why' in answer)) return { kind: 'ready', connection: answer };
+    if (!('why' in answer)) {
+      return { kind: 'ready', connection: answer, pick: companyPick(picked, app, entry) };
+    }
     return companyRefusal(name, entry, stored.record, picked?.by ?? 'only', answer);
+  }
+
+  /** How a company need's connection was picked: the mailbox's, a choice, else the only one. */
+  function companyPick(
+    picked: ReturnType<typeof pickedFor>,
+    app: ConnectionAppRecord,
+    entry: AppEntry,
+  ): ConnectionPick {
+    const registration = registrationSeen(app, entry);
+    if (picked === undefined) return { by: 'only', registration };
+    if (picked.by === 'choice') return { by: 'choice', choiceId: picked.choiceId, registration };
+    return { by: 'mailbox', registration };
   }
 
   /** The tenant's company connection of the need's app with that id, if it's one. */
@@ -2070,12 +2124,15 @@ export function createInMemoryConnections(
     const { entry, app } = registration;
     const owner = ownerFor(name, need, entry, input);
     if (owner.kind === 'refused') return owner;
-    if (owner.kind === 'company') return resolveCompany(name, need, entry, input);
+    if (owner.kind === 'company') return resolveCompany(name, need, entry, app, input);
     const found = liveConnection(input.tenantId, app.appId, owner, input.envName);
     const lacks = need.permissions.filter((p) => !found?.record.permissions.includes(p));
     if (found?.record.state === 'working' && lacks.length === 0) {
       const token = tokenFor(found, name, input.renew?.includes(name) === true);
-      if (token !== 'needs-reconnecting') return { kind: 'ready', connection: token };
+      if (token !== 'needs-reconnecting') {
+        const pick: ConnectionPick = { by: 'own', registration: registrationSeen(app, entry) };
+        return { kind: 'ready', connection: token, pick };
+      }
     }
     const existing = liveConnection(input.tenantId, app.appId, owner, input.envName);
     if (input.waitMs <= 0) return missingRefusal(name, entry, existing, lacks);
@@ -2134,12 +2191,14 @@ export function createInMemoryConnections(
     input: ResolveConnectionsInput,
   ): Promise<ResolveConnectionsOutcome> {
     const ready: Record<string, ToolConnection> = {};
+    const picks: Record<string, ConnectionPick> = {};
     const waits = new Map<string, Wait>();
     for (const name of Object.keys(input.needs).sort()) {
       const resolved = resolveOne(name, input.needs[name] as Need, input);
       if (resolved.kind === 'refused') return resolved;
       if (resolved.kind === 'ready') {
         ready[name] = resolved.connection;
+        picks[name] = resolved.pick;
         continue;
       }
       // One request per connection, for all the call's needs of it.
@@ -2152,7 +2211,7 @@ export function createInMemoryConnections(
       wait.names.push(name);
       wait.permissions = union(wait.permissions, resolved.wait.permissions);
     }
-    if (waits.size === 0) return { kind: 'ready', connections: ready };
+    if (waits.size === 0) return { kind: 'ready', connections: ready, picks };
     return { kind: 'wait', requests: [...waits.values()].map((w) => waitingFor(w, input)) };
   }
 

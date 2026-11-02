@@ -16,7 +16,7 @@ description: >
   kindgi-java-authoring-agents, Java tools by kindgi-java-authoring-tools.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.4"
+version: "0.1.5"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -42,7 +42,7 @@ class in a `guardrails` package. For an agent turn, the runtime evaluates
 every guardrail the agent lists once, on the final answer, before it is
 stored.
 
-`Guardrail.define` has no field for the other points a guardrail can run at (`at`, and a check's `points`), so a Java guardrail runs at the final answer only; the points are documented at https://docs.kindgi.com/v0.2/guides/guardrails/configure-a-guardrail/#where-in-the-turn-it-runs.
+`Guardrail.define` has no field for the other points a guardrail can run at (`at`, and a check's `points`), so a Java guardrail runs at the final answer only; the points are documented at https://docs.kindgi.com/v0.3/guides/guardrails/configure-a-guardrail/#where-in-the-turn-it-runs.
 
 Ask what the rule should catch before writing one. The sample
 `response-not-empty` guardrail is a demonstration, not a template.
@@ -177,7 +177,12 @@ public final class Citations {
   `flows` and `tenants` lists.
 - **`name`:** a display name. **`checkId`:** defaults to the id.
 - **`kind`:** `zero-llm`, the default: a check over the trace, which is what
-  a pack writes.
+  a pack writes. `llm-judge`: a model judges the turn against the rubric in
+  `config` (`set("config", Map.of("rubric", "..."))`), and the check is never
+  called. It costs model calls and needs **`judgeCapabilities(...)`**, what
+  the judge model is routed by (`Map.of("needs", List.of(Map.of("feature",
+  "structured-output")))`); `check(...)` refuses an llm-judge guardrail
+  without it.
 - `set("sandbox" | "limits" | "network", …)` are recorded in the index.
 
 ## Testing

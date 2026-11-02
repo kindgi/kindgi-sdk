@@ -3,7 +3,8 @@
 
 /**
  * `@kindgi/connections/google/tools` — tools that act with a Google
- * connection: the person's own, or the company's mailbox (`as`). A pack
+ * connection: the person's own, or the company's mailbox or calendar
+ * (`as`). The calendar tools are `./google-calendar-tools.ts`'s. A pack
  * includes one by exporting it as a tool under an id the pack names: a
  * tool folder whose `index.ts` is
  * `export default gmailSend({ id: 'acme.gmail.send' })`. The id is the
@@ -16,24 +17,42 @@ import type { Tool, ToolContext } from '@kindgi/tools';
 import { appFetch } from './app-fetch.js';
 import type { AppSend } from './app-request.js';
 import { type MailToolOptions, type MailboxOwner, appTool } from './app-tool.js';
-import { type GmailMessage, type GmailPart, gmailHeader, gmailMessage } from './gmail-mime.js';
+import {
+  type GmailMessage,
+  type GmailPart,
+  gmailAttachments,
+  gmailHeader,
+  gmailMessage,
+} from './gmail-mime.js';
 import {
   GMAIL,
   GMAIL_ID,
   GmailNotFound,
   LABEL_ID,
+  gmailAttachmentBytes,
   gmailJson,
   googleSays,
   query,
   receivedAt,
 } from './google-api.js';
 import { google } from './google.js';
+import {
+  ATTACHMENT_OUTPUT,
+  ATTACHMENT_SAYS,
+  type MailAttachmentGetInput,
+  type MailAttachmentGetOutput,
+  attachmentAt,
+  attachmentInput,
+  decodedUpTo,
+  storeAttachment,
+} from './mail-attachment.js';
 import { isMailAddress, replyAddress, unfold } from './mail-reply.js';
 import { MAIL_MESSAGE, MAIL_PERSON } from './mail-schema.js';
 import {
   clippedPerson,
   decodeEncodedWords,
   decodeHtmlEntities,
+  listedAttachments,
   parseAddressList,
 } from './mail-text.js';
 import {
@@ -45,7 +64,33 @@ import {
 } from './mail.js';
 
 export type { AppToolOptions, MailToolOptions, MailboxOwner } from './app-tool.js';
+export type {
+  MailAttachmentGetInput,
+  MailAttachmentGetOutput,
+  MailAttachmentNotShownReason,
+} from './mail-attachment.js';
 export type { MailMessage, MailPerson } from './mail.js';
+export type {
+  CalendarAttendee,
+  CalendarBusy,
+  CalendarEvent,
+  CalendarEventWritten,
+  CalendarOwner,
+  CalendarResponse,
+  CalendarToolOptions,
+} from './calendar.js';
+export {
+  type GoogleCalendarEventCreateInput,
+  type GoogleCalendarEventUpdateInput,
+  type GoogleCalendarEventsListInput,
+  type GoogleCalendarEventsListOutput,
+  type GoogleCalendarFreeBusyInput,
+  type GoogleCalendarFreeBusyOutput,
+  googleCalendarEventCreate,
+  googleCalendarEventUpdate,
+  googleCalendarEventsList,
+  googleCalendarFreeBusy,
+} from './google-calendar-tools.js';
 
 const SEND_URL = `${GMAIL}/messages/send`;
 /** Messages read at once for a list. */
@@ -313,6 +358,65 @@ const gmailMessageGetSpec = (
   },
 });
 
+const ATTACHMENT_GET_SAYS: Readonly<Record<MailboxOwner, string>> = {
+  person: `Fetch one attachment of a message in the person's own Gmail mailbox (the Google account they connected): the message's id, as gmailMessagesList gives it, and the attachment's number in the message's list of attachments, as gmailMessageGet or the mail lists them (1 for the first). ${ATTACHMENT_SAYS}`,
+  company: `Fetch one attachment of a message in the company's Gmail mailbox (the one a tenant admin connected): the message's id, as gmailMessagesList gives it, and the attachment's number in the message's list of attachments, as gmailMessageGet or the mail lists them (1 for the first). ${ATTACHMENT_SAYS}`,
+};
+
+const gmailAttachmentGetSpec = (
+  as: MailboxOwner,
+): Omit<Tool<MailAttachmentGetInput, MailAttachmentGetOutput>, 'id'> => ({
+  description: ATTACHMENT_GET_SAYS[as],
+  version: '1.0.0',
+  input: attachmentInput({
+    type: 'string',
+    pattern: GMAIL_ID.source,
+    description: "A message's id, as gmailMessagesList gives it.",
+  }),
+  output: ATTACHMENT_OUTPUT,
+  effects: READS,
+  mutating: false,
+  // A file is anyone's: the agent reads it as data, not instructions.
+  resultIsOutsideData: true,
+  network: NETWORK,
+  storesFiles: true,
+  needsSpec: {
+    connections: { mail: { app: 'google', permissions: ['gmail.readonly'], as } },
+  },
+  handler: async (input, ctx) => {
+    // The input schema refuses anything else; a handler called directly still mustn't put it in the path.
+    if (!GMAIL_ID.test(input.messageId)) {
+      throw new Error("That isn't a message id gmailMessagesList gives.");
+    }
+    const send = sendWith(ctx);
+    // Read again for the list as the message gives it now: an attachment's id is never shown.
+    const raw = (await gmailJson(
+      send,
+      'gmail.messages.get',
+      `/messages/${input.messageId}?format=full`,
+    )) as GmailMessage;
+    const entries = gmailAttachments(raw.payload ?? {});
+    const listed = attachmentAt(
+      listedAttachments(entries.map((e) => e.attachment)).attachments,
+      input.attachment,
+    );
+    const part = entries[input.attachment - 1]?.part ?? {};
+    return storeAttachment(ctx, listed, (max) => partBytes(send, input.messageId, part, max));
+  },
+});
+
+/** A part's bytes, at most `max`: Gmail's attachment by its id, else the part's own `data`. */
+function partBytes(
+  send: AppSend,
+  messageId: string,
+  part: GmailPart,
+  max: number,
+): Promise<Uint8Array | undefined> {
+  const id = part.body?.attachmentId;
+  if (typeof id === 'string' && id !== '') return gmailAttachmentBytes(send, messageId, id, max);
+  return Promise.resolve(decodedUpTo(part.body?.data ?? '', max));
+}
+
 export interface GmailReplyInput {
   /** The id of the message answered, as gmailMessagesList gives it. */
   readonly inReplyTo: string;
@@ -465,6 +569,20 @@ export function gmailMessagesList(
  */
 export function gmailMessageGet(options: MailToolOptions): Tool<GmailMessageGetInput, MailMessage> {
   return appTool(gmailMessageGetSpec(options.as ?? 'person'), options);
+}
+
+/**
+ * A tool, under the id the pack names, that fetches one attachment of a
+ * message in the call's Google mailbox (the person's own, or the
+ * company's with `as: 'company'`) and stores it as a file the call's run
+ * owns, which the agent is shown. A JPEG, PNG or WebP image, a PDF, or a
+ * text, Markdown or CSV file, within its type's size limit: any other is
+ * answered as not shown, and not downloaded.
+ */
+export function gmailAttachmentGet(
+  options: MailToolOptions,
+): Tool<MailAttachmentGetInput, MailAttachmentGetOutput> {
+  return appTool(gmailAttachmentGetSpec(options.as ?? 'person'), options);
 }
 
 /**

@@ -195,10 +195,11 @@ final class Kindgi_Sessions {
 
 	/**
 	 * The person's kept session, when there's one with over a minute left.
+	 * Never a new sign-in.
 	 *
 	 * @return array{token: string, expires_at: int, user_id: string, project_id: string}|null
 	 */
-	private static function kept( int $user_id ): ?array {
+	public static function kept( int $user_id ): ?array {
 		$sealed = get_user_option( self::SESSION, $user_id );
 		if ( ! is_string( $sealed ) || '' === $sealed ) {
 			return null;

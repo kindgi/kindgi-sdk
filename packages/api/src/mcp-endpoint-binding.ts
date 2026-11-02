@@ -3,7 +3,7 @@
 
 import type { TupleEnqueueHook } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
-import type { Cursor, EnvName, TenantId } from '@kindgi/types';
+import { type Cursor, type EnvName, type TenantId, isCredentialName } from '@kindgi/types';
 
 import type { RecordedSecretScope } from './secret-scope.js';
 
@@ -65,6 +65,12 @@ export interface MCPStdioConfig {
   readonly transport: 'stdio';
   readonly command: string;
   readonly args?: readonly string[];
+  /**
+   * Plain variables for the server's process, stored as given. Never a
+   * credential: a name such as `GITHUB_TOKEN` or `OPENAI_API_KEY` is refused
+   * (`isCredentialEnvName`); give it through the endpoint's `secretEnv`. Each
+   * value reads back as `[redacted]`, its name kept.
+   */
   readonly env?: Readonly<Record<string, string>>;
 }
 
@@ -171,87 +177,63 @@ export function mcpAuthSecretRefs(auth: MCPEndpointAuth): readonly MCPEndpointSe
   return auth.scheme === 'header' ? auth.headers.map((h) => h.secretRef) : [auth.secretRef];
 }
 
+/** The most variables a stdio endpoint's `secretEnv` gives. */
+export const MCP_SECRET_ENV_MAX = 16;
+
 /**
- * The secrets an endpoint names: its bearer `secretRef`, and its `auth`'s
- * password, client secret or header secrets.
+ * The secrets an endpoint names: its bearer `secretRef`, its `auth`'s
+ * password, client secret or header secrets, and each of its `secretEnv`.
  */
 export function mcpEndpointSecretRefs(
-  endpoint: Pick<MCPEndpoint, 'secretRef' | 'auth'>,
+  endpoint: Pick<MCPEndpoint, 'secretRef' | 'auth' | 'secretEnv'>,
 ): readonly MCPEndpointSecretRef[] {
   return [
     ...(endpoint.secretRef !== undefined ? [endpoint.secretRef] : []),
     ...(endpoint.auth !== undefined ? mcpAuthSecretRefs(endpoint.auth) : []),
+    ...Object.values(endpoint.secretEnv ?? {}),
   ];
 }
 
 /**
- * The secrets an endpoint names, by name: its bearer `secretRef`, and its
- * `auth`'s password, client secret or header secrets.
+ * The secrets an endpoint names, by name: its bearer `secretRef`, its
+ * `auth`'s password, client secret or header secrets, and each of its
+ * `secretEnv`.
  */
 export function mcpEndpointSecretNames(
-  endpoint: Pick<MCPEndpoint, 'secretRef' | 'auth'>,
+  endpoint: Pick<MCPEndpoint, 'secretRef' | 'auth' | 'secretEnv'>,
 ): readonly string[] {
-  return [
-    ...(endpoint.secretRef !== undefined ? [endpoint.secretRef.name] : []),
-    ...(endpoint.auth !== undefined ? mcpAuthSecretRefs(endpoint.auth).map((r) => r.name) : []),
-  ];
+  return mcpEndpointSecretRefs(endpoint).map((r) => r.name);
 }
 
-/** Header names that always carry a credential. */
-const CREDENTIAL_HEADERS = new Set(['authorization', 'proxy-authorization', 'cookie']);
-/** A `-`/`_`-separated part that marks a header name as a credential's. */
-const CREDENTIAL_PARTS = new Set([
-  'token',
-  'secret',
-  'password',
-  'passwd',
-  'apikey',
-  'credential',
-  'credentials',
-  'signature',
-  'session',
-  'auth',
-  'authorization',
-  'authentication',
-]);
 /**
- * Two adjacent parts that do (`X-Api-Key`, `Ocp-Apim-Subscription-Key`,
- * `x-functions-key`). A lone `key` doesn't: `X-Idempotency-Key`,
- * `X-Cache-Key` and `X-Partition-Key` are plain.
- */
-const CREDENTIAL_PAIRS: readonly (readonly [string, string])[] = [
-  ['api', 'key'],
-  ['access', 'key'],
-  ['private', 'key'],
-  ['auth', 'key'],
-  ['subscription', 'key'],
-  ['functions', 'key'],
-  ['application', 'key'],
-  ['app', 'key'],
-  ['master', 'key'],
-  ['client', 'key'],
-  ['partner', 'key'],
-];
-
-/**
- * Whether a header's name says it carries a credential: `Authorization`,
- * `Proxy-Authorization`, `Cookie`, or a name with a part such as `token`,
- * `secret`, `password`, `apikey`, `session`, `signature` or `auth`, or the
- * pair `api-key` (`X-Api-Key`, `X-Auth-Token`, `X-Session-Id`). Such a header
- * can't be set in plaintext `config.headers`: it's sent by reference through
- * `auth` (`scheme: 'header'`) or `secretRef`, and a registered one's value is
- * shown as `[redacted]`.
+ * Whether a header's name says it carries a credential (`isCredentialName`):
+ * `Authorization`, `Proxy-Authorization`, `Cookie`, or a name with a part such
+ * as `token`, `secret`, `password`, `apikey`, `session`, `signature` or
+ * `auth`, or the pair `api-key` (`X-Api-Key`, `X-Auth-Token`, `X-Session-Id`).
+ * Such a header can't be set in plaintext `config.headers`: it's sent by
+ * reference through `auth` (`scheme: 'header'`) or `secretRef`, and a
+ * registered one's value is shown as `[redacted]`.
  */
 export function isCredentialHeaderName(name: string): boolean {
-  const lower = name.toLowerCase();
-  if (CREDENTIAL_HEADERS.has(lower)) return true;
-  const parts = lower.split(/[-_]/);
-  if (parts.some((p) => CREDENTIAL_PARTS.has(p))) return true;
-  return parts.some((p, i) => CREDENTIAL_PAIRS.some(([a, b]) => p === a && parts[i + 1] === b));
+  return isCredentialName(name);
+}
+
+/**
+ * Whether an env variable's name says it holds a credential: the header rule
+ * (`isCredentialName`), whose parts split on `_` as well (`GITHUB_TOKEN`,
+ * `OPENAI_API_KEY`, `AWS_SECRET_ACCESS_KEY`, `SLACK_BOT_TOKEN`). Such a
+ * variable can't be set in a stdio endpoint's plaintext `config.env`: it's
+ * given by reference through `secretEnv`.
+ */
+export function isCredentialEnvName(name: string): boolean {
+  return isCredentialName(name);
 }
 
 /** What a registered credential header's value reads back as. */
 export const REDACTED_HEADER_VALUE = '[redacted]';
+
+/** What each value of a registered stdio endpoint's `config.env` reads back as. */
+export const REDACTED_ENV_VALUE = '[redacted]';
 
 /**
  * Wire shape for a registered MCP endpoint. Secrets never appear —
@@ -274,6 +256,8 @@ export interface MCPEndpoint {
   /**
    * The secret sent as the endpoint's bearer (`Authorization` by default),
    * resolved through the tenant's secrets store when the runtime connects.
+   * HTTP transports only: a stdio server gets no headers, so it's given its
+   * secrets through `secretEnv`.
    */
   readonly secretRef?: MCPEndpointSecretRef;
   /**
@@ -284,6 +268,13 @@ export interface MCPEndpoint {
    * bearer, or no credential.
    */
   readonly auth?: MCPEndpointAuth;
+  /**
+   * A stdio server's secrets, as env variables of its process: each name
+   * (`GITHUB_TOKEN`) with the secret its value is read from when the runtime
+   * starts the server, never stored or shown. 1 to `MCP_SECRET_ENV_MAX`
+   * names, none also in `config.env`. `stdio` only.
+   */
+  readonly secretEnv?: Readonly<Record<string, MCPEndpointSecretRef>>;
   /**
    * Optional pass-through to the MCP client's server-info instructions
    * slot. Purely informational.

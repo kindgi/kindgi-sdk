@@ -119,8 +119,33 @@ export interface ResolveConnectionsInput {
   readonly mailbox?: ConnectionRunMailbox;
 }
 
+/**
+ * How a ready call's connection was picked, and the registration it came
+ * through, for the run's record. A tool never sees it.
+ */
+export interface ConnectionPick {
+  /**
+   * `mailbox`: the company connection the run's mail came to. `choice`: the
+   * agent's or flow's choice, `choiceId`. `only`: the project's only
+   * company connection of the app. `own`: the person's own connection.
+   */
+  readonly by: 'mailbox' | 'choice' | 'only' | 'own';
+  /** The choice that picked it, with `by: 'choice'` only. */
+  readonly choiceId?: string;
+  /**
+   * The app's registration the connection came through: its id, and its
+   * label, else its app's name and its id's first 8 characters.
+   */
+  readonly registration: { readonly id: string; readonly name: string };
+}
+
 export type ResolveConnectionsOutcome =
-  | { readonly kind: 'ready'; readonly connections: Readonly<Record<string, ToolConnection>> }
+  | {
+      readonly kind: 'ready';
+      readonly connections: Readonly<Record<string, ToolConnection>>;
+      /** How each was picked, keyed like `connections`. Absent from a runtime that doesn't say. */
+      readonly picks?: Readonly<Record<string, ConnectionPick>>;
+    }
   /** One request per connection the call waits for; asked again for the same call, the same ones. */
   | { readonly kind: 'wait'; readonly requests: readonly WaitingForConnection[] }
   | {

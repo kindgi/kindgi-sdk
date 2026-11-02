@@ -84,7 +84,7 @@ class KnownValuesVectorsTest {
   @MethodSource("cases")
   @SuppressWarnings("unchecked")
   void eachCaseIsRefusedBeforeItsSent(String name, Map<String, Object> c) throws Exception {
-    // The resource the operation names (`agents.live.unpin`: agents(), then live()), and its
+    // The resource the operation names (`agents.pinned.unpin`: agents(), then pinned()), and its
     // method that takes the arguments and then the body (a model, where another overload takes
     // the query parameters).
     String[] parts = ((String) c.get("operation")).split("\\.");

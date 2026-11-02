@@ -636,6 +636,17 @@ describe('the company connection it reads with', () => {
     expect(paced.body.mailbox).toEqual(mailbox);
   });
 
+  test("a writer's move of their own trigger to the company's mailbox, naming its connection, is a 403, and nothing changes", async () => {
+    const h = harness({ connections: [SUPPORT_GMAIL] });
+    const id = await wrensTrigger(h);
+    const body = { config: { mailbox: gmail(SUPPORT_GMAIL.connectionId) } };
+    expect((await h.call('PATCH', `${BASE}/${id}`, body, 'wren')).status).toBe(403);
+    expect((await h.call('GET', `${BASE}/${id}`)).body.mailbox).toEqual({
+      app: 'google',
+      as: 'person',
+    });
+  });
+
   test("a named id that isn't one of the project's candidates of the app is a 404 naming the field; a person's live connection of the app is a 400", async () => {
     const h = harness({
       connections: [SUPPORT_GMAIL, OPS_OUTLOOK, WRENS_GMAIL, WRENS_OUTLOOK, BILLING_GMAIL],

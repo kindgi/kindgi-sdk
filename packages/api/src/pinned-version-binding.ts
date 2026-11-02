@@ -13,7 +13,7 @@ import type {
   Timestamp,
 } from '@kindgi/types';
 
-import type { PromotionActor } from './live-version-binding.js';
+import type { PinActor } from './agent-pin-binding.js';
 
 /**
  * Pinned versions of flows and tools: which version is in use in a scope
@@ -46,9 +46,6 @@ export interface PinnedResolution {
   /** The pin that matched. */
   readonly scope: PinScope;
 }
-
-/** Who pinned or unpinned: the request's principal, as for an agent's promotion. */
-export type PinActor = PromotionActor;
 
 export interface PinnedVersion {
   readonly kind: PinnedItemKind;

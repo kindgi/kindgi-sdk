@@ -169,7 +169,7 @@ function runStep(setup: Setup) {
       projectId: 'project-1',
       conversationId: 'conv-1',
       agent,
-      ...(replay !== undefined && { replay: { of: 'run-past', evalRunId: 'eval-1' } }),
+      ...(replay !== undefined && { replay: { of: 'run-past', testRunId: 'eval-1' } }),
     },
     bindings: {
       conversationBinding: {

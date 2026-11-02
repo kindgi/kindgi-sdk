@@ -39,8 +39,8 @@ and it doesn't cover figures the user typed in an earlier turn.
 
 ## The guides
 
-- [Write a guardrail](write-a-guardrail/): the check, the declaration, and
-  wiring it onto an agent.
+- [Write a guardrail](write-a-guardrail/): the check, the declaration,
+  wiring it onto an agent, and a guardrail a model judges.
 - [Configure a guardrail](configure-a-guardrail/): settings the check runs
   with, and their schema.
 - [Stop a turn or record a violation](halt-or-record/): `halt`, `retry`

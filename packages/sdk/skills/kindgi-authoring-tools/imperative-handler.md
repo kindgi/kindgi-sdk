@@ -42,6 +42,16 @@ export default defined.value;
 
 A handler must return a Promise; one with nothing to `await` can return `Promise.resolve({ … })` instead of being `async`, which keeps lint rules like `require-await` quiet.
 
+Two things about `ctx`, beside the fields the sample's comment names:
+
+- `ctx.abortSignal` fires when the call is cancelled, or at its deadline
+  (120 s by default). Stop there: what the handler returns afterwards goes
+  nowhere. For work that takes longer, see SKILL.md's "Work that takes
+  longer than a call".
+- With `pauses: true`: `ctx.waitToken` (`{ id, url }`) and `ctx.pause()`.
+  Read the token before handing anything on: on a runtime that can't pause,
+  reading it throws, and the call fails with `pause-not-available`.
+
 ## What the handler receives
 
 The handler gets the **parsed** input, typed `z.infer` of `input` (Zod's output type):
@@ -62,4 +72,4 @@ The output side is the reverse: the advertised output schema requires every fiel
 ctx.log?.info('refund issued', { orderId, amountCents });
 ```
 
-Put values in `fields`, never in the message. Log ids, amounts and outcomes, never what a person typed (a refund's reason, a message, an address): the log is read by whoever operates the runtime, not only by the person the data is about. Docs: https://docs.kindgi.com/v0.2/guides/tools/write-a-tool/#log-from-a-tool
+Put values in `fields`, never in the message. Log ids, amounts and outcomes, never what a person typed (a refund's reason, a message, an address): the log is read by whoever operates the runtime, not only by the person the data is about. Docs: https://docs.kindgi.com/v0.3/guides/tools/write-a-tool/#log-from-a-tool

@@ -463,10 +463,10 @@ one project's or org's.
   `kindgi conversations list --status=closed`. In the console, a project's
   **Conversations** page lists them: **All**, **Open** or **Closed** filters
   by status, and **Load more** brings older ones.
-- **The replays of a [run on the test cases](../../evals/compare-an-agent-version/)**
+- **The replays of a [run on the test cases](../../improve/compare-an-agent-version/)**
   have conversations too, and lists leave them out unless you ask: `replays:
   'include'` or `'only'` (`--replays=include` or `--replays=only` in the CLI).
-  A replay's conversation has `replayOf` and `evalRunId` in its `metadata`.
+  A replay's conversation has `replayOf` and `testRunId` in its `metadata`.
 - A conversation is in a project. A run opens it in the run's project, and
   `open` takes a `projectId`, one of your tenant's projects, which takes
   `write` on that project, as a run naming one does. Without one, it's the

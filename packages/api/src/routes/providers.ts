@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 
+import type { AuditEventBinding } from '@kindgi/audit-events';
 import {
   type AdapterConfig,
   type AdapterConfigProblem,
@@ -15,8 +16,10 @@ import {
   modelThinkingProblem,
   validateProviderLabels,
 } from '@kindgi/capabilities';
+import { emitAuditEvent } from '@kindgi/compliance';
 import type { Cursor, TenantId } from '@kindgi/types';
 
+import { callerIdentity } from '../caller.js';
 import type { CapabilityDescriptor } from '../capability-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -79,9 +82,32 @@ export function providersRouter(
      * (`refuseUnservedReference`). Absent: any env.
      */
     readonly servedEnv?: ServedEnvRule;
+    /**
+     * Where registering and unregistering a provider are recorded, with the
+     * caller as their actor. Absent: neither is.
+     */
+    readonly auditEvents?: AuditEventBinding;
   } = {},
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+
+  /** An audit event for a provider change: its id and adapter, never its key or secret. */
+  async function audit(
+    c: Context<AppEnv>,
+    kind: 'provider-registered' | 'provider-unregistered',
+    doc: Readonly<Record<string, unknown>>,
+  ): Promise<void> {
+    await emitAuditEvent({
+      auditEvents: options.auditEvents,
+      tenantId: c.get('tenantId') as TenantId,
+      kind,
+      actor: callerIdentity(c),
+      outcome: 'succeeded',
+      correlationId: c.get('requestId'),
+      doc,
+      log: c.get('log').child({ subsystem: 'audit' }),
+    });
+  }
   r.use('*', tenantResourceAccess(authorizer));
 
   // ---------- GET / (list, cursor-paginated) ----------
@@ -349,6 +375,10 @@ export function providersRouter(
         ),
       );
     }
+    await audit(c, 'provider-registered', {
+      providerId: outcome.providerId,
+      adapterId: bodyObj.adapter_id,
+    });
     if (onWrite !== undefined) {
       try {
         await onWrite({ tenantId, providerId: outcome.providerId, kind: 'register' });
@@ -416,6 +446,7 @@ export function providersRouter(
         ),
       );
     }
+    await audit(c, 'provider-unregistered', { providerId });
     if (onWrite !== undefined) {
       try {
         await onWrite({ tenantId, providerId, kind: 'unregister' });
@@ -480,6 +511,82 @@ function serializeCapability(d: CapabilityDescriptor): Record<string, unknown> {
 /** `metadata.region`: one DNS label (`us-central1`, `eu-west-1`, `global`, `unspecified`). */
 const REGION = /^[a-z][a-z0-9-]{0,62}$/;
 
+/** The fields provider `metadata` takes (`ProviderMetadataSchema`). */
+export const METADATA_FIELDS: readonly string[] = [
+  'id',
+  'region',
+  'models',
+  'defaultModel',
+  'attributes',
+  'description',
+  'capabilityKind',
+  'fallback',
+  'labels',
+];
+
+/** The fields a model in `metadata.models[]` takes (`ModelInfoSchema`). */
+export const MODEL_FIELDS: readonly string[] = [
+  'name',
+  'contextWindow',
+  'features',
+  'cost',
+  'p95LatencyMs',
+  'maxOutputTokens',
+  'sampling',
+  'thinking',
+  'description',
+];
+
+/**
+ * The refusal of the fields provider metadata sets beyond the ones it
+ * takes, or undefined when it sets none (`unknownFields`).
+ */
+function unknownMetadataFields(
+  providerId: string,
+  metadata: Record<string, unknown>,
+): { message: string; reason: string } | undefined {
+  const keys = unknownFields(metadata, METADATA_FIELDS);
+  if (keys.length === 0) return undefined;
+  const which = keys.length === 1 ? "isn't a field" : "aren't fields";
+  return {
+    message: `provider "${providerId}" metadata has ${quoted(keys)}, which ${which} of provider metadata: it takes ${METADATA_FIELDS.join(', ')}`,
+    reason: 'unknown-metadata-field',
+  };
+}
+
+/**
+ * The refusal of the fields a model sets beyond the ones a model takes,
+ * or undefined when it sets none (`unknownFields`).
+ */
+function unknownModelFields(
+  providerId: string,
+  modelName: string,
+  model: Record<string, unknown>,
+): { message: string; reason: string } | undefined {
+  const keys = unknownFields(model, MODEL_FIELDS);
+  if (keys.length === 0) return undefined;
+  const which = keys.length === 1 ? "isn't a model field" : "aren't model fields";
+  return {
+    message: `provider "${providerId}" model "${modelName}" has ${quoted(keys)}, which ${which}: a model takes ${MODEL_FIELDS.join(', ')}`,
+    reason: 'unknown-model-field',
+  };
+}
+
+/**
+ * The keys an object sets beyond the fields it takes. The schema allows
+ * no others, and a misspelled one (`thinkng`) would otherwise be dropped
+ * without a word, registering a model without the setting it meant.
+ */
+function unknownFields(value: Record<string, unknown>, fields: readonly string[]): string[] {
+  return Object.keys(value).filter((key) => !fields.includes(key));
+}
+
+/** `"a"`, `"a" and "b"`, `"a", "b" and "c"`. */
+function quoted(keys: readonly string[]): string {
+  const all = keys.map((k) => JSON.stringify(k));
+  return all.length === 1 ? (all[0] as string) : `${all.slice(0, -1).join(', ')} and ${all.at(-1)}`;
+}
+
 function validateProviderMetadata(
   body: unknown,
 ):
@@ -489,6 +596,8 @@ function validateProviderMetadata(
   if (typeof b.id !== 'string' || b.id.length === 0) {
     return { kind: 'err', error: { message: 'metadata.id required', reason: 'empty-id' } };
   }
+  const unknownMetadata = unknownMetadataFields(b.id, b);
+  if (unknownMetadata !== undefined) return { kind: 'err', error: unknownMetadata };
   if (typeof b.region !== 'string' || b.region.length === 0) {
     return {
       kind: 'err',
@@ -624,6 +733,8 @@ function validateModelInfo(
       },
     };
   }
+  const unknownModel = unknownModelFields(providerId, m.name, m);
+  if (unknownModel !== undefined) return { kind: 'err', error: unknownModel };
   if (
     typeof m.contextWindow !== 'number' ||
     m.contextWindow <= 0 ||

@@ -64,7 +64,8 @@ parked at a **waitpoint**. It continues when a reviewer decides the
 approval, as [Decide an approval](../../guides/approvals/decide-an-approval/)
 shows, or when the answer comes, as
 [Wait for another system's answer](../../guides/tools/wait-for-another-system/)
-shows.
+shows. A tool call that's still running doesn't park its run: see
+[Work that takes longer than a call](../../guides/tools/write-a-tool/#work-that-takes-longer-than-a-call).
 
 A start repeated with the same **idempotency key** never starts a second
 run. Once the first call has answered, the repeat returns the run the first

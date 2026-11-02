@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026 Kindgi Inc.
 
-"""`comparison_of` reads a comparison eval run's result as the OpenAPI `JudgedComparisonResult`."""
+"""`comparison_of` reads a comparison test run's result as the OpenAPI `CorrectedComparisonResult`."""
 
 from __future__ import annotations
 
@@ -15,10 +15,10 @@ from kindgi.client import comparison_of, models
 # A comparison's result as the runtime returns it.
 RESULT: dict[str, Any] = {
     "summary": {
-        "evalRunId": "er-1",
+        "testRunId": "er-1",
         "status": "completed",
         "completedAt": "2026-10-06T08:00:00.000Z",
-        "suite": {"id": "acme.set", "version": "1.0.0"},
+        "testSet": {"id": "acme.set", "version": "1.0.0"},
         "candidate": {
             "kind": "flow",
             "flowId": "acme.intake",
@@ -39,7 +39,7 @@ RESULT: dict[str, Any] = {
         "sampling": {"models": [{"providerId": "acme", "model": "m-1", "runs": 1}]},
         "repetitions": 1,
         "metrics": {
-            "weightedYesShare": {
+            "passRate": {
                 "baseline": 0.5,
                 "candidate": 0.75,
                 "delta": 0.25,
@@ -49,7 +49,7 @@ RESULT: dict[str, Any] = {
                 "baselineWeight": 2,
                 "direction": "higher",
             },
-            "judgedCoverage": {
+            "caseCoverage": {
                 "baseline": 1,
                 "candidate": 1,
                 "delta": 0,
@@ -80,7 +80,7 @@ RESULT: dict[str, Any] = {
                 "yesWeight": 1,
                 "totalWeight": 2,
                 "items": 2,
-                "judgedItems": 2,
+                "correctedItems": 2,
                 "topK": {"yesWeight": 1, "totalWeight": 2},
             },
             "candidate": [
@@ -88,7 +88,7 @@ RESULT: dict[str, Any] = {
                     "yesWeight": 1.5,
                     "totalWeight": 2,
                     "items": 2,
-                    "judgedItems": 2,
+                    "correctedItems": 2,
                     "topK": {"yesWeight": 1.5, "totalWeight": 2},
                 }
             ],
@@ -119,7 +119,7 @@ RESULT: dict[str, Any] = {
                 "yesWeight": 0,
                 "totalWeight": 1,
                 "items": 1,
-                "judgedItems": 1,
+                "correctedItems": 1,
                 "topK": {"yesWeight": 0, "totalWeight": 1},
             },
             "candidate": [],
@@ -138,11 +138,11 @@ RESULT: dict[str, Any] = {
 }
 
 RUN: dict[str, Any] = {
-    "runId": "00000000-0000-4000-8000-00000000e001",
+    "testRunId": "00000000-0000-4000-8000-00000000e001",
     "tenantId": "00000000-0000-4000-8000-000000000002",
-    "suiteId": "acme.set",
-    "suiteVersion": "1.0.0",
-    "kind": "judged",
+    "testSetId": "acme.set",
+    "testSetVersion": "1.0.0",
+    "kind": "corrections",
     "flowRef": {"flowId": "acme.intake", "version": "1.1.0"},
     "status": "completed",
     "dryRun": False,
@@ -151,22 +151,22 @@ RUN: dict[str, Any] = {
 
 
 def test_reads_a_comparisons_result_typed() -> None:
-    result = comparison_of(models.EvalRun.model_validate({**RUN, "result": RESULT}))
+    result = comparison_of(models.TestRun.model_validate({**RUN, "result": RESULT}))
     assert result is not None
-    assert result.summary.metrics.weighted_yes_share.delta == 0.25
+    assert result.summary.metrics.pass_rate.delta == 0.25
     assert result.summary.stopped == 1
     assert result.per_case[1].stopped is not None
     assert result.per_case[1].stopped.tool_id == "acme.send"
 
 
 def test_none_for_another_kind_a_dry_run_or_one_not_finished() -> None:
-    assert comparison_of(models.EvalRun.model_validate({**RUN, "kind": "accuracy"})) is None
+    assert comparison_of(models.TestRun.model_validate({**RUN, "kind": "accuracy"})) is None
     dry = {**RUN, "dryRun": True, "result": {"dryRun": True, "cases": 2}}
-    assert comparison_of(models.EvalRun.model_validate(dry)) is None
-    assert comparison_of(models.EvalRun.model_validate({**RUN, "status": "running"})) is None
+    assert comparison_of(models.TestRun.model_validate(dry)) is None
+    assert comparison_of(models.TestRun.model_validate({**RUN, "status": "running"})) is None
 
 
 def test_a_result_that_does_not_fit_is_an_error() -> None:
     broken = {**RESULT, "summary": {**RESULT["summary"], "cases": "two"}}
     with pytest.raises(ValidationError):
-        comparison_of(models.EvalRun.model_validate({**RUN, "result": broken}))
+        comparison_of(models.TestRun.model_validate({**RUN, "result": broken}))

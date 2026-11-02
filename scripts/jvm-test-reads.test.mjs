@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: sdks/java/**/src/test/** sdks/scala/**/src/test/** .github/workflows/java.yml .github/workflows/scala.yml
 
 /**
  * The Java and Scala workflows do their work only when their paths change

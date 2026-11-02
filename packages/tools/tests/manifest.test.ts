@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: packages/tools/src/tool.schema.json packages/specs/schemas/tool.schema.json
 
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';

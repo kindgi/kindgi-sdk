@@ -32,6 +32,8 @@ export interface PolicyRegistryBinding {
    * - `policyKind` narrows to policies of a single kind (exact match).
    * - `nameFilter` is a prefix match on the policy id — dotted
    *   namespaces are the natural filter shape (`acme.model-routing`).
+   * - `includeRetired` lists a retired policy (every version
+   *   unregistered) too, as its highest version with `unregisteredAt`.
    */
   list(input: PolicyListInput): Promise<PolicyPage>;
   /**
@@ -190,6 +192,13 @@ export interface PolicyListInput {
   readonly policyKind?: PolicyKind;
   /** Prefix match on `Policy.id`. Undefined = no filter. */
   readonly nameFilter?: string;
+  /**
+   * `true` lists retired policies too (every version unregistered), each
+   * as its highest version, with that version's `unregisteredAt`, so a
+   * client can find one to reinstate. Default: policies with an active
+   * version only.
+   */
+  readonly includeRetired?: boolean;
 }
 
 export interface PolicyGetInput {
@@ -234,7 +243,8 @@ export interface PolicyReinstateVersionInput {
 }
 
 export interface PolicyPage {
-  readonly data: readonly Policy[];
+  /** A retired policy `includeRetired` lists carries its highest version's `unregisteredAt`. */
+  readonly data: readonly PolicyVersionRow[];
   readonly nextCursor?: Cursor;
 }
 

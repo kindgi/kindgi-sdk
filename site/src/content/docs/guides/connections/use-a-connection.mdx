@@ -30,13 +30,29 @@ pack can include instead of writing its own:
 - **`gmailSend`, `gmailMessagesList`, `gmailMessageGet` and `gmailReply`,**
   from `@kindgi/connections/google/tools`, send a plain-text mail from the
   Gmail account of the person the run acts as, list its messages, newest
-  first or by a search, read one, and answer one in its thread. The two
-  reads need only `gmail.readonly`, and a reply needs `gmail.send` and
+  first or by a search, read one, and answer one in its thread. The reads
+  need only `gmail.readonly`, and a reply needs `gmail.send` and
   `gmail.readonly`.
 - **`outlookSend`, `outlookMessagesList`, `outlookMessageGet` and
   `outlookReply`,** from `@kindgi/connections/microsoft/tools`, do the same
   in the Outlook mailbox of the person the run acts as. A reply needs
   `Mail.Send` and `Mail.Read`.
+- **`gmailAttachmentGet` and `outlookAttachmentGet`,** from the same
+  entries, store one of a mail's attachments as a file the run owns, by the
+  message's id and the attachment's number in its list (1 for the first),
+  and the agent is shown it: a JPEG, PNG or WebP image (at most 5 MB), a
+  PDF (at most 10 MB), or a text, Markdown or CSV file (at most 1 MB). An
+  image or a PDF is shown to an agent that needs `vision`. Any other
+  attachment answers `notShown`, with its name and why. They read with
+  `gmail.readonly` and `Mail.Read`, as the reads do, and change nothing in
+  the mailbox.
+- **`googleCalendarEventsList`, `googleCalendarFreeBusy`,
+  `googleCalendarEventCreate` and `googleCalendarEventUpdate`,** from
+  `@kindgi/connections/google/tools`, and the four `outlookCalendar…`
+  tools, from `@kindgi/connections/microsoft/tools`, list the events on
+  the calendar of the person the run acts as, say when it's busy, and add
+  or change an event, inviting the people it names
+  ([Calendars](../calendar/)).
 - **`githubIssuesList`, `githubLabelsList` and `githubIssuesAddLabels`,**
   from `@kindgi/connections/github/tools`, list a repository's issues and
   its labels, and add labels it already has to an issue, through your

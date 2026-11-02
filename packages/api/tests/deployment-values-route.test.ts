@@ -271,7 +271,7 @@ describe('the values a deployment needs in a project, names only', () => {
     });
   });
 
-  test('a tenant-wide deployment: its own project is the Default project', async () => {
+  test('a tenant-wide deployment: its own project is the default project', async () => {
     const h = harness({
       granted: [READ, `read project:${DEFAULT}`, `admin project:${DEFAULT}`],
       secrets: ['tenant/ACME_TOKEN'],

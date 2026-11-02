@@ -11,6 +11,7 @@ import type {
   ConnectionAccount,
   ConnectionChoiceOption,
   ConnectionNeed,
+  ConnectionPick,
   ConnectionRejection,
   ResolveConnectionsOutcome,
   Tool,
@@ -84,8 +85,10 @@ export interface ConnectionSeen {
   readonly app: string;
   readonly appName: string;
   readonly account: ConnectionAccount;
-  /** The connection's name: its label, else its account's label. */
+  /** The company connection's name: its label, else its account's label. Never a person's. */
   readonly name?: string;
+  /** How it was picked, and through which registration. Absent from older records. */
+  readonly pick?: ConnectionPick;
 }
 
 /** What the gate recorded for a call: the resolver's answer, without tokens. */
@@ -209,13 +212,15 @@ export async function freshConnections(
   if (changed !== undefined) {
     const was = decided[changed];
     const now = outcome.connections[changed] as ToolConnection;
+    // The run's record keeps the message, and any project reader reads it:
+    // a person's connection is named by its app alone.
+    const message =
+      needs[changed]?.as === 'person'
+        ? `The connection "${changed}" to ${now.appName} changed while this call waited, so it didn't run.`
+        : `The connection "${changed}" changed while this call waited (${was === undefined ? '' : `${described(was)}, to `}${described(now)}), so it didn't run.`;
     return {
       kind: 'failed',
-      failure: {
-        code: 'connection-changed',
-        connection: changed,
-        message: `The connection "${changed}" changed while this call waited (${was === undefined ? '' : `${described(was)}, to `}${described(now)}), so it didn't run.`,
-      },
+      failure: { code: 'connection-changed', connection: changed, message },
     };
   }
   const absent = Object.keys(needs).find((name) => outcome.connections[name] === undefined);
@@ -272,9 +277,10 @@ function declaredRejectionOf(error: unknown, tool: Tool): ConnectionRejection | 
 /**
  * Whom the call's approval is for, and the connection it acts with. With
  * a person's connection: its owner (of the first, by the tool's names for
- * them, sorted), and the account. Only they decide it. Otherwise, with a
- * company connection: the first company one, and today's reviewers
- * decide. `undefined` when the call uses neither.
+ * them, sorted), and its app and account, never their name for it (the
+ * run's record has none). Only they decide it. Otherwise, with a company
+ * connection: the first company one, with its name, and today's
+ * reviewers decide. `undefined` when the call uses neither.
  */
 export function connectionApprovalOf(
   tool: Tool,
@@ -406,7 +412,7 @@ async function recordResolve(
 > {
   try {
     const record = await kctx.record(key, async () =>
-      recorded(await resolve(ctx, kctx, call, tool, needs, waitMs)),
+      recorded(await resolve(ctx, kctx, call, tool, needs, waitMs), needs),
     );
     return { kind: 'recorded', record };
   } catch (cause) {
@@ -447,8 +453,15 @@ function resolve(
   });
 }
 
-/** The resolver's answer as the gate records it: what it names, never a token. */
-function recorded(outcome: ResolveConnectionsOutcome): GateRecord {
+/**
+ * The resolver's answer as the gate records it: what it names, never a
+ * token. Any project reader reads a run's record, so a person's
+ * connection is named by its app and account, never by their name for it.
+ */
+function recorded(
+  outcome: ResolveConnectionsOutcome,
+  needs: Readonly<Record<string, ConnectionNeed>>,
+): GateRecord {
   if (outcome.kind === 'refused') {
     return {
       kind: 'refused',
@@ -480,15 +493,26 @@ function recorded(outcome: ResolveConnectionsOutcome): GateRecord {
   }
   const connections: Record<string, ConnectionSeen> = {};
   for (const [name, c] of Object.entries(outcome.connections)) {
+    const pick = outcome.picks?.[name];
     connections[name] = {
       connectionId: c.connectionId,
       app: c.app,
       appName: c.appName,
       account: { id: c.account.id, label: c.account.label },
-      ...(c.name !== undefined && { name: c.name }),
+      ...(c.name !== undefined && needs[name]?.as === 'company' && { name: c.name }),
+      ...(pick !== undefined && { pick: pickSeen(pick) }),
     };
   }
   return { kind: 'ready', connections };
+}
+
+/** A pick as the gate records it: its own fields only. */
+function pickSeen(pick: ConnectionPick): ConnectionPick {
+  return {
+    by: pick.by,
+    ...(pick.choiceId !== undefined && { choiceId: pick.choiceId }),
+    registration: { id: pick.registration.id, name: pick.registration.name },
+  };
 }
 
 /**

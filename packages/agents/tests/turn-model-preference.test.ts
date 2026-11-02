@@ -4,7 +4,7 @@
 /**
  * The model a turn prefers comes from one place: its model-settings
  * block's `providerId` and `model` when the block names one (a replay's
- * override included, which is how an improvement pass tries another
+ * override included, which is how an Improve run tries another
  * model), else the agent version's `preferredProvider` and
  * `preferredModel`.
  */
@@ -81,7 +81,7 @@ function turn(
       tenantId,
       conversationId: 'conv-1',
       agent: r.value,
-      ...(overrides !== undefined && { replay: { of: 'run-1', evalRunId: 'eval-1' } }),
+      ...(overrides !== undefined && { replay: { of: 'run-1', testRunId: 'eval-1' } }),
     },
     bindings: {
       toolRegistry: createToolRegistry([]),

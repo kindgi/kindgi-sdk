@@ -3,9 +3,9 @@
 //
 // dts-bundle-generator declares an inlined name with everything it has.
 // A generated schema is a type and a zod value under one name
-// (`type LivePin` beside `const LivePin = z.object(…)`), and src/index.ts
+// (`type AgentPinnedVersion` beside `const AgentPinnedVersion = z.object(…)`), and src/index.ts
 // exports the type alone; the bundle exported the value too, so
-// `LivePin.parse()` type-checked and failed at runtime. A value the
+// `AgentPinnedVersion.parse()` type-checked and failed at runtime. A value the
 // runtime module doesn't export stays declared (a type may read it with
 // `typeof`), unexported.
 

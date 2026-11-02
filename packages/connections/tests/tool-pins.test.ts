@@ -14,9 +14,24 @@ import {
 import { describe, expect, it } from 'vitest';
 
 import { githubIssuesAddLabels, githubIssuesList, githubLabelsList } from '../src/github-tools.js';
-import { gmailMessageGet, gmailMessagesList, gmailReply, gmailSend } from '../src/google-tools.js';
+import {
+  gmailAttachmentGet,
+  gmailMessageGet,
+  gmailMessagesList,
+  gmailReply,
+  gmailSend,
+  googleCalendarEventCreate,
+  googleCalendarEventUpdate,
+  googleCalendarEventsList,
+  googleCalendarFreeBusy,
+} from '../src/google-tools.js';
 import { linkedinPost } from '../src/linkedin-tools.js';
 import {
+  outlookAttachmentGet,
+  outlookCalendarEventCreate,
+  outlookCalendarEventUpdate,
+  outlookCalendarEventsList,
+  outlookCalendarFreeBusy,
   outlookMessageGet,
   outlookMessagesList,
   outlookReply,
@@ -31,6 +46,8 @@ const TOOLS = {
   'gmailMessagesList as company': (id: string) => gmailMessagesList({ id, as: 'company' }),
   gmailMessageGet: (id: string) => gmailMessageGet({ id }),
   'gmailMessageGet as company': (id: string) => gmailMessageGet({ id, as: 'company' }),
+  gmailAttachmentGet: (id: string) => gmailAttachmentGet({ id }),
+  'gmailAttachmentGet as company': (id: string) => gmailAttachmentGet({ id, as: 'company' }),
   gmailReply: (id: string) => gmailReply({ id }),
   'gmailReply as company': (id: string) => gmailReply({ id, as: 'company' }),
   githubIssuesList: (id: string) => githubIssuesList({ id }),
@@ -42,9 +59,35 @@ const TOOLS = {
   'outlookMessagesList as company': (id: string) => outlookMessagesList({ id, as: 'company' }),
   outlookMessageGet: (id: string) => outlookMessageGet({ id }),
   'outlookMessageGet as company': (id: string) => outlookMessageGet({ id, as: 'company' }),
+  outlookAttachmentGet: (id: string) => outlookAttachmentGet({ id }),
+  'outlookAttachmentGet as company': (id: string) => outlookAttachmentGet({ id, as: 'company' }),
   outlookReply: (id: string) => outlookReply({ id }),
   'outlookReply as company': (id: string) => outlookReply({ id, as: 'company' }),
   linkedinPost: (id: string) => linkedinPost({ id }),
+  googleCalendarEventsList: (id: string) => googleCalendarEventsList({ id }),
+  'googleCalendarEventsList as company': (id: string) =>
+    googleCalendarEventsList({ id, as: 'company' }),
+  googleCalendarFreeBusy: (id: string) => googleCalendarFreeBusy({ id }),
+  'googleCalendarFreeBusy as company': (id: string) =>
+    googleCalendarFreeBusy({ id, as: 'company' }),
+  googleCalendarEventCreate: (id: string) => googleCalendarEventCreate({ id }),
+  'googleCalendarEventCreate as company': (id: string) =>
+    googleCalendarEventCreate({ id, as: 'company' }),
+  googleCalendarEventUpdate: (id: string) => googleCalendarEventUpdate({ id }),
+  'googleCalendarEventUpdate as company': (id: string) =>
+    googleCalendarEventUpdate({ id, as: 'company' }),
+  outlookCalendarEventsList: (id: string) => outlookCalendarEventsList({ id }),
+  'outlookCalendarEventsList as company': (id: string) =>
+    outlookCalendarEventsList({ id, as: 'company' }),
+  outlookCalendarFreeBusy: (id: string) => outlookCalendarFreeBusy({ id }),
+  'outlookCalendarFreeBusy as company': (id: string) =>
+    outlookCalendarFreeBusy({ id, as: 'company' }),
+  outlookCalendarEventCreate: (id: string) => outlookCalendarEventCreate({ id }),
+  'outlookCalendarEventCreate as company': (id: string) =>
+    outlookCalendarEventCreate({ id, as: 'company' }),
+  outlookCalendarEventUpdate: (id: string) => outlookCalendarEventUpdate({ id }),
+  'outlookCalendarEventUpdate as company': (id: string) =>
+    outlookCalendarEventUpdate({ id, as: 'company' }),
 } satisfies Record<string, (id: string) => AnyTool>;
 
 /**

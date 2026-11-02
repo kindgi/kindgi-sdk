@@ -122,6 +122,10 @@ describe('ready', () => {
         },
         inbox: expect.objectContaining({ accessToken: `fake-${connection.connectionId}-1` }),
       },
+      picks: {
+        mail: { by: 'own', registration: expect.objectContaining({ name: expect.any(String) }) },
+        inbox: { by: 'own', registration: expect.objectContaining({ name: expect.any(String) }) },
+      },
     });
     expect(made.calls).toEqual([]);
     expect(
@@ -373,9 +377,20 @@ describe('a company need', () => {
       label: 'support',
       permissions: ['gmail.send'],
     });
-    expect(await made.resolve({ mail: send }, { target: agent })).toMatchObject({
+    const answer = await made.resolve({ mail: send }, { target: agent });
+    expect(answer).toMatchObject({
       kind: 'ready',
       connections: { mail: { connectionId: only.connectionId, name: 'support' } },
+    });
+    // Picked as the only one, with no choice, through the project's registration.
+    const google = (await made.binding.listApps({ tenantId, limit: 10 })).data.find(
+      (a) => a.app === 'google',
+    );
+    expect(answer.kind === 'ready' && answer.picks).toEqual({
+      mail: {
+        by: 'only',
+        registration: { id: google?.appId, name: `Google (${google?.appId.slice(0, 8)})` },
+      },
     });
   });
 
@@ -580,5 +595,35 @@ describe('a company need', () => {
       { target: agent, mailbox: { app: 'google', as: 'company', connectionId: made.support } },
     );
     expect(answer.kind === 'ready' && answer.connections.mail?.connectionId).toBe(ana.connectionId);
+  });
+
+  test("a ready answer says how each was picked, and through which registration: a person's as their own", async () => {
+    const made = company();
+    made.seedMail();
+    const choice = await made.choose(made.support);
+    const google = (await made.binding.listApps({ tenantId, limit: 10 })).data.find(
+      (a) => a.app === 'google',
+    );
+    const registration = {
+      id: google?.appId,
+      name: `Google (${google?.appId.slice(0, 8)})`,
+    };
+    const inbox: ConnectionNeed = { app: 'google', permissions: ['gmail.readonly'], as: 'company' };
+    const picksOf = async (more: Parameters<typeof made.resolve>[1]) => {
+      const answer = await made.resolve({ mail, outbox: send, inbox }, more);
+      return answer.kind === 'ready' ? answer.picks : answer;
+    };
+    expect(await picksOf({ target: agent })).toEqual({
+      mail: { by: 'own', registration },
+      outbox: { by: 'choice', choiceId: choice.choiceId, registration },
+      inbox: { by: 'choice', choiceId: choice.choiceId, registration },
+    });
+    const mailbox: ConnectionRunMailbox = {
+      app: 'google',
+      as: 'company',
+      connectionId: made.sales,
+    };
+    const read = await made.resolve({ inbox }, { person: null, target: agent, mailbox });
+    expect(read.kind === 'ready' && read.picks).toEqual({ inbox: { by: 'mailbox', registration } });
   });
 });

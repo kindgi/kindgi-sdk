@@ -378,6 +378,40 @@ run "the_services_need_the_erasure_ledger_key_version" {
   expect_failures = [azurerm_container_app.server]
 }
 
+# database_url_version: unset, the server reads the database URL's latest
+# version; set (a way back, the README's "Upgrading"), exactly that version,
+# and the other pins stay as they are.
+run "the_database_url_is_versionless_by_default" {
+  command = plan
+  assert {
+    condition     = toset([for s in azurerm_container_app.server.secret : s.key_vault_secret_id if s.name == "database-url"]) == toset(["https://kindgi-ab12.vault.azure.net/secrets/database-url"])
+    error_message = "Without database_url_version the server's database-url secret is versionless."
+  }
+}
+
+run "database_url_version_pins_the_database_url" {
+  command = plan
+  variables {
+    database_url_version = "00112233445566778899aabbccddeeff"
+  }
+  assert {
+    condition     = toset([for s in azurerm_container_app.server.secret : s.key_vault_secret_id if s.name == "database-url"]) == toset(["https://kindgi-ab12.vault.azure.net/secrets/database-url/00112233445566778899aabbccddeeff"])
+    error_message = "database_url_version pins the server's database-url secret to that version."
+  }
+  assert {
+    condition     = local.secret_ids.secrets_aad_key == "https://kindgi-ab12.vault.azure.net/secrets/secrets-aad-key/0123456789abcdef0123456789abcdef" && local.secret_ids.erasure_ledger_key == "https://kindgi-ab12.vault.azure.net/secrets/erasure-ledger-key/fedcba9876543210fedcba9876543210" && local.secret_ids.api_token == "https://kindgi-ab12.vault.azure.net/secrets/api-token"
+    error_message = "The other pins stay as they are; the other secrets stay versionless."
+  }
+}
+
+run "refuses_a_database_url_version_that_isnt_one" {
+  command = plan
+  variables {
+    database_url_version = "latest"
+  }
+  expect_failures = [var.database_url_version]
+}
+
 # The server's own settings (sign-in, among others), as the Cloud Run module
 # takes them: plain values, then Key Vault references the server alone reads.
 run "server_settings_plain_and_by_reference" {

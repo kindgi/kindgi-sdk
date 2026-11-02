@@ -1,12 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: packages/cli/src/templates/**
 
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { type Agent, type PromptBlockContent, renderInstructions } from '@kindgi/agents';
+import {
+  type Agent,
+  type PromptBlockContent,
+  renderInstructions,
+  tunableKeys,
+} from '@kindgi/agents';
 import { readPackBlocks } from '@kindgi/handler-runtime';
 import { runIndexer } from '@kindgi/handler-runtime/kindgi-index';
 import { build } from 'esbuild';
@@ -19,6 +25,7 @@ import { JVM_PREVIEW } from '../src/init/dependency-specs.js';
 import { substitute } from '../src/init/template-files.js';
 import { runCli } from '../src/main.js';
 import { publishedCliSpec } from '../src/package-manager.js';
+import { loadProviderPresets } from '../src/providers/preset-loader.js';
 import { CLI_VERSION } from '../src/version-info.js';
 
 let home: string;
@@ -139,12 +146,14 @@ describe('kindgi init — minimal template', () => {
       '.agents/skills/kindgi-authoring-tools/declarative-http.md',
       '.agents/skills/kindgi-authoring-tools/imperative-handler.md',
       '.agents/skills/kindgi-authoring-tools/iterating-and-testing.md',
+      '.agents/skills/kindgi-authoring-tools/long-work.md',
       '.agents/skills/kindgi-authoring-tools/secrets-and-connections.md',
       '.agents/skills/kindgi-authoring-tools/tool-flags.md',
       '.agents/skills/kindgi-fix-corrections/SKILL.md',
-      '.agents/skills/kindgi-fix-corrections/make-the-change.md',
-      '.agents/skills/kindgi-fix-corrections/publish-and-promote.md',
+      '.agents/skills/kindgi-fix-corrections/fix-in-code.md',
+      '.agents/skills/kindgi-fix-corrections/pin-and-fixed.md',
       '.agents/skills/kindgi-fix-corrections/pull-corrections.md',
+      '.agents/skills/kindgi-fix-corrections/suggest-a-change.md',
       '.agents/skills/kindgi-fix-corrections/worked-example.md',
       '.agents/skills/kindgi-framework-feedback/SKILL.md',
       '.agents/skills/kindgi-framework-feedback/common-mistakes.md',
@@ -180,12 +189,14 @@ describe('kindgi init — minimal template', () => {
       '.claude/skills/kindgi-authoring-tools/declarative-http.md',
       '.claude/skills/kindgi-authoring-tools/imperative-handler.md',
       '.claude/skills/kindgi-authoring-tools/iterating-and-testing.md',
+      '.claude/skills/kindgi-authoring-tools/long-work.md',
       '.claude/skills/kindgi-authoring-tools/secrets-and-connections.md',
       '.claude/skills/kindgi-authoring-tools/tool-flags.md',
       '.claude/skills/kindgi-fix-corrections/SKILL.md',
-      '.claude/skills/kindgi-fix-corrections/make-the-change.md',
-      '.claude/skills/kindgi-fix-corrections/publish-and-promote.md',
+      '.claude/skills/kindgi-fix-corrections/fix-in-code.md',
+      '.claude/skills/kindgi-fix-corrections/pin-and-fixed.md',
       '.claude/skills/kindgi-fix-corrections/pull-corrections.md',
+      '.claude/skills/kindgi-fix-corrections/suggest-a-change.md',
       '.claude/skills/kindgi-fix-corrections/worked-example.md',
       '.claude/skills/kindgi-framework-feedback/SKILL.md',
       '.claude/skills/kindgi-framework-feedback/common-mistakes.md',
@@ -232,7 +243,7 @@ describe('kindgi init — minimal template', () => {
     expect(pkg.dependencies?.zod).toBeTruthy();
   });
 
-  test.each(['minimal', 'sample', 'woocommerce', 'drupal', 'follow-up'])(
+  test.each(['minimal', 'sample', 'woocommerce', 'drupal', 'follow-up', 'returns-helper'])(
     "the %s template decides esbuild's install script for npm and pnpm alike: off (T277)",
     async (template) => {
       await runCli(baseInputs({ argv: ['init', 'my-pack', `--template=${template}`] }));
@@ -296,6 +307,7 @@ describe('kindgi init --template=woocommerce', () => {
       'agents/order-reviewer/index.test.ts',
       'flows/order-review/index.ts',
       'fixtures/order-created.json',
+      'scripts/connect-store.mjs',
       'README.md',
     ]) {
       expect(files, rel).toContain(rel);
@@ -313,6 +325,44 @@ describe('kindgi init --template=woocommerce', () => {
     expect(agent).toContain("retryOn: ['invalid-arguments', 'unknown-tool', 'tool-error']");
     const reviewer = await readFile(join(root, 'agents/order-reviewer/index.ts'), 'utf8');
     expect(reviewer).toContain('{{ input.order.orderNumber }}');
+  });
+
+  test.each([
+    { name: 'with pnpm', seam: undefined, run: 'pnpm', kindgi: 'pnpm exec kindgi' },
+    {
+      name: 'without pnpm',
+      seam: {
+        pnpmVersion: async () => {
+          throw new Error('spawn pnpm ENOENT');
+        },
+        packageManagerRuns: async (pm: string) => pm !== 'pnpm',
+      },
+      run: 'npm run',
+      kindgi: 'npx --no -- kindgi',
+    },
+  ])("connect-store's commands are the project's own, $name", async ({ seam, run, kindgi }) => {
+    const out = await runCli(
+      baseInputs({
+        argv: ['init', 'acme-shop', '--template=woocommerce'],
+        ...(seam !== undefined && { initSeam: seam }),
+      }),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    const root = join(cwd, 'acme-shop');
+    const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    expect(manifest.scripts['connect-store']).toBe('node scripts/connect-store.mjs');
+    const readme = (await readFile(join(root, 'README.md'), 'utf8')).split('\n');
+    expect(readme).toContain(`${run} connect-store https://shop.example.com`);
+    expect(readme).toContain(
+      `${run} connect-store -- https://shop.example.com --hosted --env=<env> --scope=project:<client project id>`,
+    );
+    const script = await readFile(join(root, 'scripts/connect-store.mjs'), 'utf8');
+    expect(script).toContain("const PACK = 'acme-shop';");
+    expect(script).toContain(`Usage: ${run} connect-store https://shop.example.com`);
+    expect(script).toContain(`Try the store agent: ${kindgi} runs start --agent=`);
+    expect(script).not.toContain('{{');
   });
 
   test("the store agent's instructions are a prompt block the pack brings, and it holds up", async () => {
@@ -476,6 +526,105 @@ describe('kindgi init --template=follow-up', () => {
     expect(index.agents.map((a) => [a.id, a.tools])).toEqual([
       ['acme-mail.follow-up', [{ id: 'acme-mail.gmail.send', version: '^1.0.0' }]],
     ]);
+  });
+});
+
+describe('kindgi init --template=returns-helper', () => {
+  test('scaffolds the returns helper: two tools, one agent and its three blocks, which hold up', async () => {
+    const out = await runCli(
+      baseInputs({ argv: ['init', 'acme-returns', '--template=returns-helper'] }),
+    );
+    expect(out.exitCode).toBe(0);
+    const root = join(cwd, 'acme-returns');
+    const files = await listRecursive(root);
+    for (const rel of [
+      'lib/orders.ts',
+      'tools/find-order/index.ts',
+      'tools/refund/index.ts',
+      'tools/refund/index.test.ts',
+      'agents/returns-helper/index.ts',
+      'README.md',
+      'AGENTS.md',
+      '.gitignore',
+    ]) {
+      expect(files, rel).toContain(rel);
+    }
+    for (const rel of files) {
+      const raw = await readFile(join(root, rel), 'utf8');
+      expect(raw, `${rel} still contains an unsubstituted placeholder`).not.toMatch(
+        /\{\{[A-Z_]+\}\}/,
+      );
+    }
+    const agent = await readFile(join(root, 'agents/returns-helper/index.ts'), 'utf8');
+    expect(agent).toContain("instructions: { prompt: 'acme-returns.tone', version: '^0.1.0' },");
+    expect(agent).toContain("settings: [{ id: 'acme-returns.refund-rules', version: '^0.1.0' }],");
+    expect(agent).toContain(
+      "modelSettings: { id: 'acme-returns.returns-model', version: '^0.1.0' },",
+    );
+    // Read and checked as `kindgi build` reads and checks a pack's blocks.
+    const read = await readPackBlocks(root, 'blocks/**/*.json');
+    expect(read.errors).toEqual([]);
+    expect([...read.files].sort()).toEqual([
+      'blocks/refund-rules.json',
+      'blocks/returns-model.json',
+      'blocks/tone.json',
+      'blocks/tone.liquid',
+    ]);
+    expect(
+      read.blocks
+        .map(({ id, version, kind }) => ({ id, version, kind }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+    ).toEqual([
+      { id: 'acme-returns.refund-rules', version: '0.1.0', kind: 'settings' },
+      { id: 'acme-returns.returns-model', version: '0.1.0', kind: 'settings' },
+      { id: 'acme-returns.tone', version: '0.1.0', kind: 'prompt' },
+    ]);
+    expect(blockProblems(read.blocks)).toEqual([]);
+    // The model-settings block names its model, so that model judges a
+    // changed answer against its correction too. It's the anthropic
+    // preset's, which takes no temperature, so nothing is marked tunable.
+    const settings = read.blocks.find((b) => b.id === 'acme-returns.returns-model')?.content as
+      | { readonly schema?: Record<string, unknown>; readonly values?: Record<string, unknown> }
+      | undefined;
+    expect(settings?.values).toMatchObject({ providerId: 'anthropic', model: 'claude-sonnet-5-5' });
+    // It sets no temperature: the model would drop it, with a warning on every answer.
+    expect(settings?.values).not.toHaveProperty('temperature');
+    expect(tunableKeys(settings?.schema)).toEqual([]);
+    const anthropic = (await loadProviderPresets()).anthropic;
+    expect(anthropic?.metadata.id).toBe('anthropic');
+    expect(anthropic?.metadata.models.find((m) => m.name === 'claude-sonnet-5-5')?.sampling).toBe(
+      false,
+    );
+    // The instructions rendered from the tone block as a turn renders them,
+    // strictly, with the refund-rules block's values as the agent pins them.
+    const nodeModules = join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules');
+    const bundles = await mkdtemp(join(nodeModules, '.returns-helper-template-test-'));
+    try {
+      const outfile = join(bundles, 'returns-helper.mjs');
+      await build({
+        entryPoints: [join(root, 'agents/returns-helper/index.ts')],
+        bundle: true,
+        platform: 'node',
+        format: 'esm',
+        packages: 'external',
+        outfile,
+        logLevel: 'silent',
+      });
+      const helper = ((await import(pathToFileURL(outfile).href)) as { default: Agent }).default;
+      const tone = read.blocks.find((b) => b.id === 'acme-returns.tone');
+      const rules = read.blocks.find((b) => b.id === 'acme-returns.refund-rules');
+      const values = (rules?.content as { values?: Record<string, unknown> } | undefined)?.values;
+      expect(values).toEqual({ returnWindowDays: 30 });
+      const rendered = renderInstructions(
+        helper,
+        { parameters: {}, settings: { 'acme-returns.refund-rules': values ?? {} } },
+        tone?.content as PromptBlockContent | undefined,
+      );
+      if (!rendered.ok) throw new Error(rendered.error.message);
+      expect(rendered.value.rendered).toContain('within 30 days of delivery');
+    } finally {
+      await rm(bundles, { recursive: true, force: true });
+    }
   });
 });
 
@@ -832,9 +981,10 @@ describe('kindgi init — python template', () => {
       '.agents/skills/kindgi-authoring-providers/path-d-vertex.md',
       '.agents/skills/kindgi-authoring-providers/router.md',
       '.agents/skills/kindgi-fix-corrections/SKILL.md',
-      '.agents/skills/kindgi-fix-corrections/make-the-change.md',
-      '.agents/skills/kindgi-fix-corrections/publish-and-promote.md',
+      '.agents/skills/kindgi-fix-corrections/fix-in-code.md',
+      '.agents/skills/kindgi-fix-corrections/pin-and-fixed.md',
       '.agents/skills/kindgi-fix-corrections/pull-corrections.md',
+      '.agents/skills/kindgi-fix-corrections/suggest-a-change.md',
       '.agents/skills/kindgi-fix-corrections/worked-example.md',
       '.agents/skills/kindgi-framework-feedback/SKILL.md',
       '.agents/skills/kindgi-framework-feedback/common-mistakes.md',
@@ -869,9 +1019,10 @@ describe('kindgi init — python template', () => {
       '.claude/skills/kindgi-authoring-providers/path-d-vertex.md',
       '.claude/skills/kindgi-authoring-providers/router.md',
       '.claude/skills/kindgi-fix-corrections/SKILL.md',
-      '.claude/skills/kindgi-fix-corrections/make-the-change.md',
-      '.claude/skills/kindgi-fix-corrections/publish-and-promote.md',
+      '.claude/skills/kindgi-fix-corrections/fix-in-code.md',
+      '.claude/skills/kindgi-fix-corrections/pin-and-fixed.md',
       '.claude/skills/kindgi-fix-corrections/pull-corrections.md',
+      '.claude/skills/kindgi-fix-corrections/suggest-a-change.md',
       '.claude/skills/kindgi-fix-corrections/worked-example.md',
       '.claude/skills/kindgi-framework-feedback/SKILL.md',
       '.claude/skills/kindgi-framework-feedback/common-mistakes.md',
@@ -938,9 +1089,10 @@ describe('kindgi init — java template', () => {
       '.claude/skills/kindgi-authoring-providers/path-d-vertex.md',
       '.claude/skills/kindgi-authoring-providers/router.md',
       '.claude/skills/kindgi-fix-corrections/SKILL.md',
-      '.claude/skills/kindgi-fix-corrections/make-the-change.md',
-      '.claude/skills/kindgi-fix-corrections/publish-and-promote.md',
+      '.claude/skills/kindgi-fix-corrections/fix-in-code.md',
+      '.claude/skills/kindgi-fix-corrections/pin-and-fixed.md',
       '.claude/skills/kindgi-fix-corrections/pull-corrections.md',
+      '.claude/skills/kindgi-fix-corrections/suggest-a-change.md',
       '.claude/skills/kindgi-fix-corrections/worked-example.md',
       '.claude/skills/kindgi-framework-feedback/SKILL.md',
       '.claude/skills/kindgi-framework-feedback/common-mistakes.md',
@@ -1036,9 +1188,10 @@ describe('kindgi init — scala template', () => {
       '.agents/skills/kindgi-authoring-providers/path-d-vertex.md',
       '.agents/skills/kindgi-authoring-providers/router.md',
       '.agents/skills/kindgi-fix-corrections/SKILL.md',
-      '.agents/skills/kindgi-fix-corrections/make-the-change.md',
-      '.agents/skills/kindgi-fix-corrections/publish-and-promote.md',
+      '.agents/skills/kindgi-fix-corrections/fix-in-code.md',
+      '.agents/skills/kindgi-fix-corrections/pin-and-fixed.md',
       '.agents/skills/kindgi-fix-corrections/pull-corrections.md',
+      '.agents/skills/kindgi-fix-corrections/suggest-a-change.md',
       '.agents/skills/kindgi-fix-corrections/worked-example.md',
       '.agents/skills/kindgi-framework-feedback/SKILL.md',
       '.agents/skills/kindgi-framework-feedback/common-mistakes.md',
@@ -1071,9 +1224,10 @@ describe('kindgi init — scala template', () => {
       '.claude/skills/kindgi-authoring-providers/path-d-vertex.md',
       '.claude/skills/kindgi-authoring-providers/router.md',
       '.claude/skills/kindgi-fix-corrections/SKILL.md',
-      '.claude/skills/kindgi-fix-corrections/make-the-change.md',
-      '.claude/skills/kindgi-fix-corrections/publish-and-promote.md',
+      '.claude/skills/kindgi-fix-corrections/fix-in-code.md',
+      '.claude/skills/kindgi-fix-corrections/pin-and-fixed.md',
       '.claude/skills/kindgi-fix-corrections/pull-corrections.md',
+      '.claude/skills/kindgi-fix-corrections/suggest-a-change.md',
       '.claude/skills/kindgi-fix-corrections/worked-example.md',
       '.claude/skills/kindgi-framework-feedback/SKILL.md',
       '.claude/skills/kindgi-framework-feedback/common-mistakes.md',
@@ -1187,12 +1341,14 @@ describe('kindgi init — sample template', () => {
       '.agents/skills/kindgi-authoring-tools/declarative-http.md',
       '.agents/skills/kindgi-authoring-tools/imperative-handler.md',
       '.agents/skills/kindgi-authoring-tools/iterating-and-testing.md',
+      '.agents/skills/kindgi-authoring-tools/long-work.md',
       '.agents/skills/kindgi-authoring-tools/secrets-and-connections.md',
       '.agents/skills/kindgi-authoring-tools/tool-flags.md',
       '.agents/skills/kindgi-fix-corrections/SKILL.md',
-      '.agents/skills/kindgi-fix-corrections/make-the-change.md',
-      '.agents/skills/kindgi-fix-corrections/publish-and-promote.md',
+      '.agents/skills/kindgi-fix-corrections/fix-in-code.md',
+      '.agents/skills/kindgi-fix-corrections/pin-and-fixed.md',
       '.agents/skills/kindgi-fix-corrections/pull-corrections.md',
+      '.agents/skills/kindgi-fix-corrections/suggest-a-change.md',
       '.agents/skills/kindgi-fix-corrections/worked-example.md',
       '.agents/skills/kindgi-framework-feedback/SKILL.md',
       '.agents/skills/kindgi-framework-feedback/common-mistakes.md',
@@ -1228,12 +1384,14 @@ describe('kindgi init — sample template', () => {
       '.claude/skills/kindgi-authoring-tools/declarative-http.md',
       '.claude/skills/kindgi-authoring-tools/imperative-handler.md',
       '.claude/skills/kindgi-authoring-tools/iterating-and-testing.md',
+      '.claude/skills/kindgi-authoring-tools/long-work.md',
       '.claude/skills/kindgi-authoring-tools/secrets-and-connections.md',
       '.claude/skills/kindgi-authoring-tools/tool-flags.md',
       '.claude/skills/kindgi-fix-corrections/SKILL.md',
-      '.claude/skills/kindgi-fix-corrections/make-the-change.md',
-      '.claude/skills/kindgi-fix-corrections/publish-and-promote.md',
+      '.claude/skills/kindgi-fix-corrections/fix-in-code.md',
+      '.claude/skills/kindgi-fix-corrections/pin-and-fixed.md',
       '.claude/skills/kindgi-fix-corrections/pull-corrections.md',
+      '.claude/skills/kindgi-fix-corrections/suggest-a-change.md',
       '.claude/skills/kindgi-fix-corrections/worked-example.md',
       '.claude/skills/kindgi-framework-feedback/SKILL.md',
       '.claude/skills/kindgi-framework-feedback/common-mistakes.md',
@@ -1376,6 +1534,14 @@ describe('kindgi init --template in an existing app (augment mode)', () => {
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('@kindgi/connections');
     expect(out.stderr).toContain('--template=follow-up --new-repo');
+    expect(await readdir(cwd)).toEqual(['package.json']);
+  });
+
+  test('--template=returns-helper is refused, pointing at --new-repo', async () => {
+    await writeFile(join(cwd, 'package.json'), '{"name":"acme-app"}\n');
+    const out = await runCli(baseInputs({ argv: ['init', '--template=returns-helper'] }));
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('--template=returns-helper --new-repo');
     expect(await readdir(cwd)).toEqual(['package.json']);
   });
 

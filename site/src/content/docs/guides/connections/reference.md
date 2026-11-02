@@ -62,7 +62,66 @@ is for workspace admins only.
 
 A token goes only into the one call that needs it: never into a run's
 journal, a log, an approval or an error. The journal records which
-connection and account a call used.
+connection and account a call used
+([What a run records](#what-a-run-records)).
+
+## What a run records
+
+Each call that runs on a connection records it in the run's journal,
+under the tool's name for the connection: its `connectionId`, `app`,
+`appName` and `account` (`{ "id", "label" }`), and for the company's
+connection, its `name`. The record also says how the connection was
+picked, as `pick`:
+
+```json excerpt
+"mailbox": {
+  "connectionId": "0b6f3a52-…",
+  "app": "google",
+  "appName": "Google",
+  "account": { "id": "…", "label": "support@acme.example" },
+  "name": "support",
+  "pick": {
+    "by": "choice",
+    "choiceId": "5d1c9e07-…",
+    "registration": { "id": "1a2b3c4d-…", "name": "Google (1a2b3c4d)" }
+  }
+}
+```
+
+- **`by`** is how it was picked
+  ([Which connection a call uses](../choose-a-connection/#which-connection-a-call-uses)):
+  `mailbox`, the mailbox the run's mail came to; `choice`, the agent's or
+  flow's choice, with its `choiceId`; `only`, the project's only
+  candidate; or `own`, the person's own connection
+  ([A person's own connection](../choose-a-connection/#a-persons-own-connection)).
+- **`registration`** is the registration the connection came through,
+  `{ "id", "name" }`. Its name is its label, which
+  `kindgi connection-apps list --table` shows, else its app's name and the
+  first 8 characters of its id, as above.
+
+`pick` names registrations only, never a person's connection names or
+accounts. Records from older runtimes have no `pick`.
+
+In the console, a run's page words this record under **What happened**,
+below each tool call that ran in an agent's turn:
+
+```text
+Ran on the company's Google connection "support", the mailbox the run's mail came to.
+Ran on the company's Google connection "support", the agent's choice.
+Ran on the company's Google connection "support", the project's only one.
+Ran on their own Google connection.
+Ran on a connection to Google.
+```
+
+The first four go with `by`'s `mailbox`, `choice`, `only` and `own`, and
+the last with a record without `pick`. A call that didn't run, such as one
+an approval turned down, has no line. A call that ran has a line for each
+connection it ran on, but in a record without `pick` the connections of one
+app share one line. These lines name a person's own connection by its app
+only.
+
+Anyone with `read` on the project can read the run's journal, and so this
+record, a person's account label included.
 
 ## Renewal
 

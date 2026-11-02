@@ -18,9 +18,10 @@ import type {
 } from '@kindgi/runtime';
 import type { ConnectionResolver, ToolRegistry, ToolSecretRef } from '@kindgi/tools';
 import type {
+  AgentPinScope,
   AgentVersionVia,
   EnvName,
-  LiveScope,
+  FileValue,
   OrgId,
   ProjectId,
   ProvenanceId,
@@ -39,6 +40,7 @@ import type { OnTurnEvent } from '../streaming.js';
 import type { TemplateRenderer } from '../template-renderer.js';
 import type { Agent, ConversationId } from '../types.js';
 
+import type { FileBindings } from './files.js';
 import type { ReplayBinding } from './replay.js';
 import type { TurnMemoryBinding } from './turn-memory.js';
 
@@ -53,7 +55,7 @@ export interface InvokeAgentInput {
    * Content-scope anchor. REQUIRED — every
    * agent turn is a run bound to exactly one project inside the
    * tenant. Callers without a natural project id resolve to the tenant's
-   * Default via `projectBinding.getDefault(tenantId)` (`@kindgi/api`)
+   * default via `projectBinding.getDefault(tenantId)` (`@kindgi/api`)
    * at the caller layer.
    */
   readonly projectId: ProjectId;
@@ -67,11 +69,18 @@ export interface InvokeAgentInput {
   readonly conversationId: ConversationId;
   /** Why the caller chose this agent version; recorded on the run (`RunAgentRef.via`). */
   readonly versionVia?: AgentVersionVia;
-  /** The live pin that chose it, when `versionVia` is `live`. */
-  readonly liveScope?: LiveScope;
+  /** The pin that chose it, when `versionVia` is `pinned`. */
+  readonly pinnedScope?: AgentPinScope;
   /** The segment path the turn runs for; recorded on its run (`KernelRunRecord.segments`). */
   readonly segments?: readonly ScopeSegment[];
   readonly userMessage: string;
+  /**
+   * Stored files the turn's message carries: the run input's `files`, which
+   * the runtime admitted when the run started. The user message carries
+   * them, and the conversation keeps them with it. The model is shown them
+   * as the run's rule and the agent's `vision` need allow.
+   */
+  readonly files?: readonly FileValue[];
   readonly parameters?: Readonly<Record<string, string | number | boolean>>;
   /**
    * Structured input for this turn — what a flow step hands its agent.
@@ -86,7 +95,7 @@ export interface InvokeAgentInput {
    */
   readonly parent?: ParentRunRef;
   /**
-   * Marks the turn as a replay: an eval run re-running a past run (`of`)
+   * Marks the turn as a replay: a test run re-running a past run (`of`)
    * on this agent version. Recorded on the turn's run and in its snapshot.
    * Its tool calls are decided by `InvokeAgentBindings.replay` (every call
    * is refused when that isn't wired), and only a read-only tool can run.
@@ -262,6 +271,13 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    */
   readonly turnMemory?: TurnMemoryBinding;
   /**
+   * The turn's stored files: for the turn's run, the run's rule for which
+   * files its model may be shown, and their bytes for each model call.
+   * Absent: no file is shown, and a tool result's file values stay plain
+   * JSON.
+   */
+  readonly files?: FileBindings;
+  /**
    * Where the turn records what each guardrail's check came to (passed,
    * violated, blocked or errored), before it acts on them: a blocked turn
    * is recorded before it fails. Replays and dry runs aren't recorded.
@@ -403,15 +419,15 @@ export interface HitlEnqueueInput {
   readonly approver?: { readonly kind: 'member'; readonly userId: string };
   /**
    * The account the call acts as, shown to its reviewer: the app's id and
-   * name, the account as people know it (`owner@acme.example`), and the
-   * connection's name. A person's connection, or else the company's the
-   * gate decided on.
+   * name, the account as people know it (`owner@acme.example`), and, for
+   * the company's, the connection's name. A person's connection, or else
+   * the company's the gate decided on.
    */
   readonly connection?: {
     readonly app: string;
     readonly appName: string;
     readonly account: string;
-    /** The connection's name: its label, else its account's label. */
+    /** The company connection's name: its label, else its account's label. A person's has none. */
     readonly name?: string;
   };
   readonly title?: string;

@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { createHash, randomBytes } from 'node:crypto';
-import { access, link, open, readFile, rename, rm } from 'node:fs/promises';
+import { open, readFile, rename, rm } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -11,6 +11,7 @@ import type { BlobMeta, DownloadedArtifact, ListPage } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
+import { exists, placeNew } from '../place-file.js';
 import {
   type TableSpec,
   integerFlag,
@@ -144,36 +145,8 @@ const upload: LeafCommand = {
     }),
 };
 
-const exists = (path: string) =>
-  access(path).then(
-    () => true,
-    () => false,
-  );
-
 const existsError = (target: string) =>
   new Error(`${target} exists: pass --force to overwrite it, or -o <file>`);
-
-/** What `link` answers on a file system with no hard links. */
-const NO_HARD_LINKS: ReadonlySet<string> = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS']);
-
-/**
- * Without --force, `partial` takes `target`'s name only while nothing has
- * it, a file that turned up there during the download included: `link`
- * refuses a name that's taken in one step. Where the file system has no
- * hard links, `target` is looked for again right before the rename.
- */
-async function placeNew(partial: string, target: string): Promise<void> {
-  try {
-    await link(partial, target);
-    return;
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === 'EEXIST') throw existsError(target);
-    if (code === undefined || !NO_HARD_LINKS.has(code)) throw err;
-  }
-  if (await exists(target)) throw existsError(target);
-  await rename(partial, target);
-}
 
 /**
  * The download's answer, unless the stop comes first: then the stop's
@@ -253,7 +226,7 @@ async function saveWhole(
     );
   }
   try {
-    await (force ? rename(partial, target) : placeNew(partial, target));
+    await (force ? rename(partial, target) : placeNew(partial, target, () => existsError(target)));
   } finally {
     // Gone after a rename; after a link, its second name; after a failure, the file.
     await rm(partial, { force: true });

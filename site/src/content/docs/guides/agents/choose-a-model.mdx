@@ -226,8 +226,8 @@ takes the next model in line.
 The preference can live in the agent's model-settings block instead, as its
 `model` and `providerId`, with the same rules. Then an expert can change it
 without a code deploy, and
-[Improve can try cheaper models](../../evals/improve-an-agent/#let-it-try-a-cheaper-model-or-another-temperature)
-from the list you give it. Name the model in one place: a version whose
+[Improve can try other models](../../improve/improve-an-agent/#let-it-try-another-model-or-temperature)
+from the list you give it, and keeps one only when it does better. Name the model in one place: a version whose
 definition and model-settings block both name a model or a provider is
 refused when it's published.
 
@@ -402,6 +402,18 @@ If you registered a model and still see this, the agent's needs don't match
 it. Compare its `capabilities` with the models' `features`, which
 `kindgi providers list` shows. `dev-echo` has only `tool-use`, so an agent
 that needs anything else fails with no model registered.
+
+## How much it thinks
+
+Which model answers and how much it thinks are set in different places. A
+model that thinks is sent the level `thinking` asks for in the agent's
+[model settings](../../improve/change-a-prompt-or-setting/#use-them-in-an-agent).
+When they ask none, it's sent the `thinking.default` its provider's
+registration gives it, and without one, no level, so it thinks as its vendor
+sets. A guardrail's model judge, or a test run's judging model, asks for the
+least thinking.
+[Temperature and thinking](../../models/#temperature-and-thinking) lists the
+levels, and how one the model doesn't take is sent.
 
 ## See which model answered
 
