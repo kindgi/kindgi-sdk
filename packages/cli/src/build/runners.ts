@@ -278,7 +278,9 @@ export interface JvmBuildRunners {
     readonly packDir: string;
     readonly code: JvmPackCode;
     readonly env: Readonly<Record<string, string>>;
-  }) => Promise<{ readonly kind: 'ok' } | { readonly kind: 'err'; readonly errors: readonly string[] }>;
+  }) => Promise<
+    { readonly kind: 'ok' } | { readonly kind: 'err'; readonly errors: readonly string[] }
+  >;
   readonly runLocalIndexer: (
     opts: Omit<RunLocalIndexerOptions, 'bundleDir'> & {
       readonly code: JvmPackCode;

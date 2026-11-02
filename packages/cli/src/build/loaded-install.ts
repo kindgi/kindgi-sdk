@@ -202,7 +202,9 @@ function reducePnpm(inputs: ReduceInputs): ReduceOutcome {
 
   const importer: Record<string, Record<string, { specifier: string; version: string }>> = {};
   for (const root of [...roots].sort((a, b) => compare(a.name, b.name))) {
-    (importer[root.field] ??= {})[root.name] = {
+    const field = importer[root.field] ?? {};
+    importer[root.field] = field;
+    field[root.name] = {
       specifier: root.specifier,
       version: root.ref ?? '',
     };
@@ -727,7 +729,9 @@ function manifestText(
 function dependencyFields(roots: readonly RootEntry[]): Record<string, Record<string, string>> {
   const fields: Record<string, Record<string, string>> = {};
   for (const root of [...roots].sort((a, b) => compare(a.name, b.name))) {
-    (fields[root.field] ??= {})[root.name] = root.specifier;
+    const field = fields[root.field] ?? {};
+    fields[root.field] = field;
+    field[root.name] = root.specifier;
   }
   return fields;
 }

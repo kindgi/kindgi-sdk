@@ -21,23 +21,18 @@ import { parsePrivateKeyPem, serializePublicKeyPem, signEd25519 } from '@kindgi/
 import { readSse } from '@kindgi/sdk/client';
 
 import { runJavaIndexer, runPythonIndexer } from '../dev/defaults.js';
-import type { IndexedCounts } from '../dev/runners.js';
 import { createJavaPackBuilder } from '../dev/java-builder.js';
+import type { IndexedCounts } from '../dev/runners.js';
 import { createScalaPackBuilder } from '../dev/scala-builder.js';
-import {
-  REQUIRE_BANNER,
-  collectPackEntries,
-  nodeModulesExternalPlugin,
-} from './bundle.js';
-import { COMPUTED_IMPORT_LOG_OVERRIDE, computedImportsFrom } from './computed-imports.js';
 import { loadEsbuild } from '../esbuild-loader.js';
 import { readPnpmVersion } from '../package-manager.js';
+import { REQUIRE_BANNER, collectPackEntries, nodeModulesExternalPlugin } from './bundle.js';
+import { COMPUTED_IMPORT_LOG_OVERRIDE, computedImportsFrom } from './computed-imports.js';
 import { renderContainerfile } from './containerfile.js';
-import { BuildServiceRefusal, retryAfterSeconds } from './hosted.js';
 import { installCommands, withoutInstallScripts } from './host-install.js';
+import { BuildServiceRefusal, retryAfterSeconds } from './hosted.js';
 import { renderJavaContainerfile } from './java-image.js';
 import { loadedInstall } from './loaded-install.js';
-import { renderScalaContainerfile } from './scala-image.js';
 import { renderPythonContainerfile } from './python-image.js';
 import type {
   BuildRunners,
@@ -62,6 +57,7 @@ import type {
   WriteContainerfileOptions,
   WriteContextOptions,
 } from './runners.js';
+import { renderScalaContainerfile } from './scala-image.js';
 
 // ---------------------------------------------------------------------
 // Local indexer — the integrity-gate baseline
@@ -74,9 +70,7 @@ import type {
  * it loads what the image loads (zod, for one, from the pack's own
  * dependencies), so the two indexes compare like with like.
  */
-export async function runLocalIndexerReal(
-  opts: RunLocalIndexerOptions,
-): Promise<LocalIndexResult> {
+export async function runLocalIndexerReal(opts: RunLocalIndexerOptions): Promise<LocalIndexResult> {
   const dist = opts.bundleDir;
   const args = [
     '--enable-source-maps',
@@ -160,9 +154,7 @@ export async function runLocalIndexerReal(
  *     production dependencies only);
  *   - `bundle-map.json`: each primitive's source path → its bundle.
  */
-export async function esbuildBundleReal(
-  opts: EsbuildBundleOptions,
-): Promise<EsbuildBundleResult> {
+export async function esbuildBundleReal(opts: EsbuildBundleOptions): Promise<EsbuildBundleResult> {
   const esbuild = await loadEsbuild();
   await rm(opts.outputDir, { recursive: true, force: true });
   await mkdir(opts.outputDir, { recursive: true });
@@ -212,7 +204,9 @@ export async function esbuildBundleReal(
       { in: '@kindgi/handler-runtime/kindgi-index-main', out: 'kindgi-index' },
       { in: '@kindgi/handler-runtime/pack-service-main', out: 'kindgi-pack-service' },
       // Only what the pack loads: the image's closure and load check.
-      ...(loaded ? [{ in: '@kindgi/handler-runtime/kindgi-closure-main', out: 'kindgi-closure' }] : []),
+      ...(loaded
+        ? [{ in: '@kindgi/handler-runtime/kindgi-closure-main', out: 'kindgi-closure' }]
+        : []),
     ],
   });
   if (loaded) {
@@ -233,8 +227,12 @@ export async function esbuildBundleReal(
 
   // Metafile output keys are relative to each build's `absWorkingDir`.
   const outputs = [
-    ...Object.entries(pack.metafile?.outputs ?? {}).map(([p, o]) => [resolve(opts.packDir, p), o] as const),
-    ...Object.entries(framework.metafile?.outputs ?? {}).map(([p, o]) => [resolve(cliRoot, p), o] as const),
+    ...Object.entries(pack.metafile?.outputs ?? {}).map(
+      ([p, o]) => [resolve(opts.packDir, p), o] as const,
+    ),
+    ...Object.entries(framework.metafile?.outputs ?? {}).map(
+      ([p, o]) => [resolve(cliRoot, p), o] as const,
+    ),
   ];
   return {
     emitted: outputs.map(([p]) => p).sort(),
@@ -250,7 +248,9 @@ async function cliPackageRoot(): Promise<string> {
   let dir = dirname(fileURLToPath(import.meta.url));
   for (;;) {
     try {
-      const pkg = JSON.parse(await readFile(join(dir, 'package.json'), 'utf8')) as { name?: unknown };
+      const pkg = JSON.parse(await readFile(join(dir, 'package.json'), 'utf8')) as {
+        name?: unknown;
+      };
       if (pkg.name === '@kindgi/cli') return dir;
     } catch {
       // not here
@@ -409,8 +409,16 @@ export const JVM_BUILD_RUNNERS: JvmBuildRunners = {
   async prepare(opts) {
     const builder =
       opts.code.language === 'java'
-        ? createJavaPackBuilder({ packDir: opts.packDir, code: opts.code, env: async () => opts.env })
-        : createScalaPackBuilder({ packDir: opts.packDir, code: opts.code, env: async () => opts.env });
+        ? createJavaPackBuilder({
+            packDir: opts.packDir,
+            code: opts.code,
+            env: async () => opts.env,
+          })
+        : createScalaPackBuilder({
+            packDir: opts.packDir,
+            code: opts.code,
+            env: async () => opts.env,
+          });
     try {
       const built = await builder.build();
       return built.kind === 'ok' ? { kind: 'ok' } : { kind: 'err', errors: built.errors };
@@ -559,9 +567,7 @@ const STREAM_RETRY_MAX_MS = 30_000;
  * a growing pause, and gives up after a few openings that bring nothing
  * new, or at once on 401, 403, 404 or 410.
  */
-export async function streamBuildLogsReal(
-  opts: StreamBuildLogsOptions,
-): Promise<TerminalPayload> {
+export async function streamBuildLogsReal(opts: StreamBuildLogsOptions): Promise<TerminalPayload> {
   const url = `${opts.endpoint.replace(/\/+$/, '')}/v1/build/${opts.buildJobId}/stream`;
   const sleep = opts.sleep ?? sleepUnlessStopped;
   let given = 0;
@@ -634,7 +640,8 @@ export async function streamBuildLogsReal(
     }
     const waitMs =
       refused?.retryAfter !== undefined ? Math.max(1, refused.retryAfter) * 1000 : pauseMs;
-    pauseMs = given > givenBefore ? STREAM_RETRY_FIRST_MS : Math.min(pauseMs * 2, STREAM_RETRY_MAX_MS);
+    pauseMs =
+      given > givenBefore ? STREAM_RETRY_FIRST_MS : Math.min(pauseMs * 2, STREAM_RETRY_MAX_MS);
     await sleep(waitMs, opts.signal);
   }
 }
@@ -686,7 +693,7 @@ export async function pullImageIndexReal(
   opts: PullImageIndexOptions,
 ): Promise<PullImageIndexResult> {
   await mkdir(opts.workDir, { recursive: true });
-  const onLog = opts.onLog ?? ((): void => {});
+  const onLog = opts.onLog ?? ((): void => undefined);
   const platform = opts.platform !== undefined ? ['--platform', opts.platform] : [];
   if (opts.pull !== false) {
     onLog(`docker pull ${opts.imageRef}`);
@@ -698,11 +705,7 @@ export async function pullImageIndexReal(
   const localCopy = join(opts.workDir, 'server-index.json');
   try {
     onLog(`docker cp ${containerId}:/app/index.json ${localCopy}`);
-    await spawnCapture(
-      'docker',
-      ['cp', `${containerId}:/app/index.json`, localCopy],
-      opts.signal,
-    );
+    await spawnCapture('docker', ['cp', `${containerId}:/app/index.json`, localCopy], opts.signal);
     const bytes = await readFile(localCopy);
     return { bytes };
   } finally {
@@ -778,7 +781,11 @@ export async function dockerBuildReal(opts: DockerBuildOptions): Promise<DockerB
     }
     return { kind: 'ok', imageId: digest, digest };
   }
-  const inspected = await spawnOutcome('docker', ['image', 'inspect', '--format', '{{.Id}}', opts.tag], opts.contextDir);
+  const inspected = await spawnOutcome(
+    'docker',
+    ['image', 'inspect', '--format', '{{.Id}}', opts.tag],
+    opts.contextDir,
+  );
   if (inspected.code !== 0) {
     return { kind: 'err', message: `docker image inspect ${opts.tag}: ${inspected.stderr.trim()}` };
   }
@@ -813,7 +820,9 @@ function spawnOutcome(
       stderr += c.toString('utf8');
       lines(c, err);
     });
-    child.on('error', (cause) => resolveRun({ code: 127, stdout, stderr: `${stderr}${cause.message}` }));
+    child.on('error', (cause) =>
+      resolveRun({ code: 127, stdout, stderr: `${stderr}${cause.message}` }),
+    );
     child.on('close', (code) => {
       for (const rest of [out.text, err.text]) if (rest !== '') onLine?.(rest);
       resolveRun({ code: code ?? 1, stdout, stderr });
@@ -863,9 +872,7 @@ function spawnCapture(
 export async function signEnvelopeReal(opts: SignOptions): Promise<SignResult> {
   const parsed = parsePrivateKeyPem(opts.privateKeyPem);
   if (parsed.kind === 'err') {
-    throw new Error(
-      `Signing key rejected: ${parsed.error.code} — ${parsed.error.message}`,
-    );
+    throw new Error(`Signing key rejected: ${parsed.error.code} — ${parsed.error.message}`);
   }
   const sig = signEd25519(parsed.value, opts.message);
   if (sig.kind === 'err') {

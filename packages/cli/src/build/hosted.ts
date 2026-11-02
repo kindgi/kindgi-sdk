@@ -36,11 +36,7 @@ export function hostedBuildEndpoint(apiUrl: string): string {
 /** A pack too large to send to the hosted build service: the message to print, else undefined. */
 export function hostedUploadTooLarge(bytes: number): string | undefined {
   if (bytes <= HOSTED_UPLOAD_MAX_BYTES) return undefined;
-  return (
-    `The packed pack is ${mebibytes(bytes)}, over the ${mebibytes(HOSTED_UPLOAD_MAX_BYTES)} ` +
-    `the hosted build service takes, so it wasn't sent. ${PACK_IMAGE_DOCS_URL} says what the ` +
-    "pack's image needs.\n"
-  );
+  return `The packed pack is ${mebibytes(bytes)}, over the ${mebibytes(HOSTED_UPLOAD_MAX_BYTES)} the hosted build service takes, so it wasn't sent. ${PACK_IMAGE_DOCS_URL} says what the pack's image needs.\n`;
 }
 
 /**
@@ -70,9 +66,7 @@ export function retryAfterSeconds(header: string | null): number | undefined {
 /** How a refusal reads on stderr: its message, its code, and the wait it asked. */
 export function describeBuildRefusal(refusal: BuildServiceRefusal): string {
   const wait =
-    refusal.retryAfterSeconds !== undefined
-      ? ` Try again in ${refusal.retryAfterSeconds} s.`
-      : '';
+    refusal.retryAfterSeconds !== undefined ? ` Try again in ${refusal.retryAfterSeconds} s.` : '';
   return `The build service refused the build (HTTP ${refusal.status}, ${refusal.code}): ${refusal.message}${wait}\n`;
 }
 

@@ -88,7 +88,8 @@ export function readImageConfig(config: Readonly<Record<string, unknown>>): Imag
 
   const packages: unknown[] = [];
   if (systemPackages !== undefined) {
-    if (!Array.isArray(systemPackages)) return invalid('`image.systemPackages` must be a list of Debian package names.');
+    if (!Array.isArray(systemPackages))
+      return invalid('`image.systemPackages` must be a list of Debian package names.');
     packages.push(...systemPackages);
   }
   const env: Record<string, string> = {};
@@ -104,7 +105,8 @@ export function readImageConfig(config: Readonly<Record<string, unknown>>): Imag
     names.push(extension.name);
     packages.push(...(extension.systemPackages ?? []));
     for (const file of extension.contextFiles ?? []) files.add(file);
-    for (const step of extension.postInstall ?? []) steps.push({ ...step, extension: extension.name });
+    for (const step of extension.postInstall ?? [])
+      steps.push({ ...step, extension: extension.name });
     for (const name of extension.keep ?? []) extensionKeep.add(name);
     Object.assign(env, extension.buildEnv ?? {});
   }
@@ -132,7 +134,9 @@ export function readImageConfig(config: Readonly<Record<string, unknown>>): Imag
 function checkExtension(
   raw: unknown,
   where: string,
-): { readonly kind: 'ok'; readonly extension: BuildExtension } | { readonly kind: 'invalid'; readonly message: string } {
+):
+  | { readonly kind: 'ok'; readonly extension: BuildExtension }
+  | { readonly kind: 'invalid'; readonly message: string } {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     return invalid(`${where} must be a build extension (\`@kindgi/sdk/build\`).`);
   }
@@ -142,25 +146,34 @@ function checkExtension(
   const files = ext.contextFiles;
   if (files !== undefined) {
     if (!Array.isArray(files) || !files.every((f) => typeof f === 'string' && f !== '')) {
-      return invalid(`${label}: \`contextFiles\` must be a list of paths relative to the pack folder.`);
+      return invalid(
+        `${label}: \`contextFiles\` must be a list of paths relative to the pack folder.`,
+      );
     }
     for (const file of files as string[]) {
       if (file.startsWith('/') || file.split('/').includes('..')) {
         return invalid(`${label}: ${file} isn't inside the pack folder.`);
       }
       const reason = forbiddenReason(file);
-      if (reason !== undefined) return invalid(`${label}: refusing to put ${file} in the image (${reason}).`);
+      if (reason !== undefined)
+        return invalid(`${label}: refusing to put ${file} in the image (${reason}).`);
     }
   }
   const steps = ext.postInstall;
   if (steps !== undefined) {
-    if (!Array.isArray(steps)) return invalid(`${label}: \`postInstall\` must be a list of { bin, args }.`);
+    if (!Array.isArray(steps))
+      return invalid(`${label}: \`postInstall\` must be a list of { bin, args }.`);
     for (const step of steps) {
       const s = step as { bin?: unknown; args?: unknown } | null;
       if (s === null || typeof s.bin !== 'string' || !BIN.test(s.bin)) {
-        return invalid(`${label}: each \`postInstall\` step needs a \`bin\`, a package's executable name.`);
+        return invalid(
+          `${label}: each \`postInstall\` step needs a \`bin\`, a package's executable name.`,
+        );
       }
-      if (s.args !== undefined && (!Array.isArray(s.args) || !s.args.every((a) => typeof a === 'string'))) {
+      if (
+        s.args !== undefined &&
+        (!Array.isArray(s.args) || !s.args.every((a) => typeof a === 'string'))
+      ) {
         return invalid(`${label}: \`postInstall\` args must be strings.`);
       }
     }
@@ -179,11 +192,17 @@ function checkExtension(
 function checkKeep(
   raw: unknown,
   where: string,
-): { readonly kind: 'ok'; readonly keep: readonly string[] } | { readonly kind: 'invalid'; readonly message: string } {
+):
+  | { readonly kind: 'ok'; readonly keep: readonly string[] }
+  | { readonly kind: 'invalid'; readonly message: string } {
   if (raw === undefined) return { kind: 'ok', keep: [] };
   if (!Array.isArray(raw)) return invalid(`\`${where}\` must be a list of package names.`);
   for (const name of raw) {
-    if (typeof name !== 'string' || !KEEP_NAME.test(name) || name.split('/').some((p) => p === '.' || p === '..')) {
+    if (
+      typeof name !== 'string' ||
+      !KEEP_NAME.test(name) ||
+      name.split('/').some((p) => p === '.' || p === '..')
+    ) {
       return invalid(
         `\`${where}\`: ${JSON.stringify(name)} isn't a package name (\`name\`, \`@scope/name\`, or a folder such as \`.prisma/client\`).`,
       );
@@ -195,13 +214,16 @@ function checkKeep(
 function checkEnv(
   raw: unknown,
   where: string,
-): { readonly kind: 'ok'; readonly env: Readonly<Record<string, string>> } | { readonly kind: 'invalid'; readonly message: string } {
+):
+  | { readonly kind: 'ok'; readonly env: Readonly<Record<string, string>> }
+  | { readonly kind: 'invalid'; readonly message: string } {
   if (raw === undefined) return { kind: 'ok', env: {} };
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     return invalid(`${where} must be an object of NAME → value.`);
   }
   for (const [name, value] of Object.entries(raw)) {
-    if (!ENV_NAME.test(name)) return invalid(`${where}: ${JSON.stringify(name)} isn't an env name.`);
+    if (!ENV_NAME.test(name))
+      return invalid(`${where}: ${JSON.stringify(name)} isn't an env name.`);
     if (typeof value !== 'string') return invalid(`${where}: ${name} must be a string.`);
   }
   return { kind: 'ok', env: raw as Record<string, string> };

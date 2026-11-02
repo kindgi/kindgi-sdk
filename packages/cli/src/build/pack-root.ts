@@ -33,8 +33,12 @@
  */
 
 import { readFile } from 'node:fs/promises';
-import { KINDGI_CONFIG_FILENAMES, type PackLanguage, findKindgiConfig } from '@kindgi/handler-runtime';
 import { dirname, isAbsolute, join, parse, resolve } from 'node:path';
+import {
+  KINDGI_CONFIG_FILENAMES,
+  type PackLanguage,
+  findKindgiConfig,
+} from '@kindgi/handler-runtime';
 
 export type PackMode = 'standalone' | 'augment';
 
@@ -86,9 +90,8 @@ const defaultFileExists = async (path: string): Promise<boolean> => {
 export async function resolvePackRoots(inputs: ResolveInputs): Promise<ResolveResult> {
   const fileExists = inputs.fileExists ?? defaultFileExists;
 
-  const rawPath = inputs.pathFlag !== undefined && inputs.pathFlag !== ''
-    ? inputs.pathFlag
-    : inputs.cwd;
+  const rawPath =
+    inputs.pathFlag !== undefined && inputs.pathFlag !== '' ? inputs.pathFlag : inputs.cwd;
   const packDir = isAbsolute(rawPath) ? rawPath : resolve(inputs.cwd, rawPath);
 
   // 1. Verify a kindgi.config.* exists at packDir — or a Python pack's
@@ -98,7 +101,12 @@ export async function resolvePackRoots(inputs: ResolveInputs): Promise<ResolveRe
   if (found?.format === 'json') {
     return {
       kind: 'ok',
-      roots: { packDir, repoRoot: packDir, mode: 'standalone', language: await jvmLanguageOf(found.path) },
+      roots: {
+        packDir,
+        repoRoot: packDir,
+        mode: 'standalone',
+        language: await jvmLanguageOf(found.path),
+      },
     };
   }
   const hasConfig = await hasAnyConfig(packDir, fileExists);

@@ -101,10 +101,7 @@ export function checkIntegrity(inputs: IntegrityCheckInputs): IntegrityCheckResu
       ok: false,
       hashMatches: false,
       byteDiff: null,
-      reason:
-        `indexHash mismatch: local ${inputs.expectedHash} vs server ${inputs.serverReportedHash}. ` +
-        `Build service produced a different index.json than the CLI's local indexer. ` +
-        `Refusing to sign a mismatched build.`,
+      reason: `indexHash mismatch: local ${inputs.expectedHash} vs server ${inputs.serverReportedHash}. Build service produced a different index.json than the CLI's local indexer. Refusing to sign a mismatched build.`,
     };
   }
   if (inputs.serverBytes === undefined) {
@@ -116,11 +113,7 @@ export function checkIntegrity(inputs: IntegrityCheckInputs): IntegrityCheckResu
       ok: false,
       hashMatches: true,
       byteDiff,
-      reason:
-        `byte-level diff at offset ${byteDiff.offset}: ` +
-        `${byteDiff.expected} != ${byteDiff.actual}. ` +
-        `Hashes matched but bytes diverged — this is a bug on either side. ` +
-        `Refusing to sign.`,
+      reason: `byte-level diff at offset ${byteDiff.offset}: ${byteDiff.expected} != ${byteDiff.actual}. Hashes matched but bytes diverged — this is a bug on either side. Refusing to sign.`,
     };
   }
   return { ok: true, hashMatches: true, byteDiff: null };

@@ -139,7 +139,9 @@ const SKIPPED_ROOT_DIRS = new Set([
 /** Files never shipped: sbt's credentials and keystores, besides `forbiddenReason`'s. */
 function scalaForbidden(name: string): boolean {
   return (
-    name === 'credentials.sbt' || name === '.credentials' || /\.(jks|keystore|truststore)$/.test(name)
+    name === 'credentials.sbt' ||
+    name === '.credentials' ||
+    /\.(jks|keystore|truststore)$/.test(name)
   );
 }
 

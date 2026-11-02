@@ -8,7 +8,7 @@
   "files": {
     "ignore": [
       "**/dist/**",
-      "**/build/**",
+      "**/.kindgi/build/**",
       "**/coverage/**",
       "**/node_modules/**",
       "**/.turbo/**",
