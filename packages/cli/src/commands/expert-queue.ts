@@ -19,7 +19,7 @@ const QUEUE_STATES = ['open', 'corrected', 'dismissed', 'erased'] as const;
 const PROJECT_OPTION: Readonly<Record<string, ParseArgsOption>> = {
   project: {
     type: 'string',
-    description: "The project whose queue to act on. Without it, the tenant's default project.",
+    description: "The project whose queue to act on. Without it, the workspace's default project.",
   },
 };
 

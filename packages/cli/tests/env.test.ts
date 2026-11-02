@@ -830,7 +830,7 @@ describe("kindgi env set/list/unset --scope — the runtime's env values (ctx.en
     });
     expect(out.exitCode, out.stderr).toBe(0);
     expect(JSON.parse(out.stdout)).toMatchObject({ removed: true });
-    expect(out.stderr).toContain("now gets the tenant's value");
+    expect(out.stderr).toContain("now gets the workspace's value");
     const again = await runCli({
       ...baseInputs(makeFixtures(), argv),
       clientFactory: api.clientFactory,
