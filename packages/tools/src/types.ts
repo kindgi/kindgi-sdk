@@ -295,7 +295,9 @@ export type NetworkPolicy =
  * `context` (`context.text`, `context.about`), with the call's
  * arguments, and its `title` stays `Approve a call to <tool id>`, since
  * the title goes out in the reviewer's mail and the `approval.requested`
- * event, which never carry a call's arguments.
+ * event, which never carry a call's arguments. A summary can hold a
+ * person's details: erasing a person's data clears a call's words and its
+ * `about.id` with its arguments, and keeps `about.kind`.
  *
  * ```ts
  * approval: {
@@ -313,7 +315,8 @@ export interface ToolApproval {
   /**
    * What the call is about: a thing in another system. `kind` is
    * lowercase words joined by dots (`woocommerce.order`), with no `:`.
-   * `id` holds at least one placeholder.
+   * `id` holds at least one placeholder. It's a thing's id, never a
+   * person's details: an order number, never an email.
    */
   readonly about?: { readonly kind: string; readonly id: string };
 }

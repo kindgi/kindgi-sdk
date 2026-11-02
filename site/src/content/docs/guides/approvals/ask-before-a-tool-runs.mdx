@@ -737,6 +737,11 @@ The next call's approval keeps its words in `context`:
   gives each of its four tools that change the store a title and an `about`,
   and its two refunds a summary too: `Refund {amount} on order #{orderId}`,
   with `{reason}`, about `woocommerce.order` `{orderId}`.
+- **`about.id` is a thing's id, never a person's details:** an order number,
+  never an email. A summary can hold a person's details:
+  [erasing a person's data](../../agents/erase-a-persons-data/) clears a call's
+  words and its `about.id` with its arguments, and keeps `about.kind`. The
+  approval then reads its title.
 - **Each value is filled in as plain text, on one line.** Line breaks and
   control characters become spaces, bidi controls go, and a long value is cut,
   ending in `…`: 80 characters in the title, 500 in the summary and 200 in

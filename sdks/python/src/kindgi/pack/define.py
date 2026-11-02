@@ -140,7 +140,10 @@ class Tool(Generic[P, R]):
     approval: Mapping[str, Any] | None = None
     """How an approval of a call to the tool reads, in the index's shape: `title`, `summary`,
     `about` (`kind`, `id`), with `{field}` placeholders a call's arguments fill in. It doesn't
-    make a call wait. `None` (the default): an approval reads "Approve a call to <tool id>"."""
+    make a call wait. `None` (the default): an approval reads "Approve a call to <tool id>".
+    `about.id` is a thing's id, never a person's details: an order number, never an email. A
+    summary can hold a person's details: erasing a person's data clears a call's words and its
+    `about.id` with its arguments, and keeps `about.kind`."""
     needs: Sequence[Mapping[str, Any]] | None = None
     needs_spec: Mapping[str, Any] | None = None
     sandbox: str | None = None

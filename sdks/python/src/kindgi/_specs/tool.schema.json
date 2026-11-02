@@ -92,7 +92,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["title"],
-      "description": "How an approval of a call to this tool reads, when one is asked: the reviewer sees the call in the tool's own words, its arguments filled in. Each text holds `{field}` placeholders, each naming a required top-level field of `input` whose type is a string, a number, an integer or a boolean (or an enum of those); a call's arguments fill them in as plain text, on one line, cut when long. The approval keeps the words in its `context` (`context.text`, `context.about`), behind sign-in, and its `title` stays `Approve a call to <tool id>`: the title goes out in the reviewer's mail and the `approval.requested` event, which never carry a call's arguments. It doesn't make a call wait. Optional additive field.",
+      "description": "How an approval of a call to this tool reads, when one is asked: the reviewer sees the call in the tool's own words, its arguments filled in. Each text holds `{field}` placeholders, each naming a required top-level field of `input` whose type is a string, a number, an integer or a boolean (or an enum of those); a call's arguments fill them in as plain text, on one line, cut when long. The approval keeps the words in its `context` (`context.text`, `context.about`), behind sign-in, and its `title` stays `Approve a call to <tool id>`: the title goes out in the reviewer's mail and the `approval.requested` event, which never carry a call's arguments. A summary can hold a person's details: erasing a person's data clears a call's words and its `about.id` with its arguments, and keeps `about.kind`. It doesn't make a call wait. Optional additive field.",
       "properties": {
         "title": {
           "type": "string",
@@ -123,7 +123,7 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 200,
-              "description": "The thing's id there, from at least one placeholder, such as `{orderId}`."
+              "description": "The thing's id there, from at least one placeholder, such as `{orderId}`. A thing's id, never a person's details: an order number, never an email."
             }
           }
         }

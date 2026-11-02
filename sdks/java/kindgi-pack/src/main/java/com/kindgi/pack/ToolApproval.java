@@ -27,7 +27,8 @@ import org.jspecify.annotations.Nullable;
  * <p>The words stay behind sign-in: the approval keeps them in its context, with the call's
  * arguments, and its title stays {@code Approve a call to <tool id>}, since the title goes out in
  * the reviewer's mail and the {@code approval.requested} event, which never carry a call's
- * arguments.
+ * arguments. A summary can hold a person's details: erasing a person's data clears a call's words
+ * and its {@code about} id with its arguments, and keeps the {@code about} kind.
  *
  * <pre>{@code
  * Tool.define("acme.refund")
@@ -53,7 +54,8 @@ public record ToolApproval(String title, @Nullable String summary, @Nullable Abo
   }
 
   /**
-   * What a call acts on, so the reviewer can tell which one.
+   * What a call acts on, so the reviewer can tell which one. The id is a thing's id, never a
+   * person's details: an order number, never an email.
    *
    * @param kind the kind of thing ({@code acme.order})
    * @param id which one: it holds at least one {@code {field}} placeholder ({@code {orderId}})
