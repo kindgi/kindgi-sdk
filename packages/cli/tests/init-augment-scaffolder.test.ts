@@ -16,7 +16,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { AVAILABLE_TEMPLATES, defaultTemplatesRoot } from '../src/commands/init.js';
-import { detectSkillDrift } from '../src/commands/skills.js';
+import { describeDevSkillsRefresh, refreshSkillsForDev } from '../src/commands/skills.js';
 import {
   derivePackId,
   renderAugmentConfig,
@@ -223,7 +223,7 @@ describe('runInitAugment — end-to-end', () => {
     expect(again.kind === 'error' && again.stderr).toContain('kindgi.config.mts already exists');
   });
 
-  test('installed skills are recorded — kindgi dev reports no drift right after init', async () => {
+  test('installed skills are recorded — kindgi dev says nothing about them right after init', async () => {
     await writeFile(
       join(skillsRoot, 'kindgi-authoring-tools', 'SKILL.md'),
       '---\nversion: "1.2.0"\n---\n# tools skill\n',
@@ -231,10 +231,10 @@ describe('runInitAugment — end-to-end', () => {
     await writePkgJson(root, { name: 'my-app', version: '1.0.0' });
     await runInitAugment({ targetDir: root, skillsRoot, force: false });
     expect(await exists(join(root, '.claude', 'skills', '.kindgi-manifest.json'))).toBe(true);
-    expect(await detectSkillDrift({ skillsRoot, targetDir: root, language: 'node' })).toEqual({
-      missing: [],
-      outdated: [],
-    });
+    const refresh = await refreshSkillsForDev({ skillsRoot, targetDir: root, language: 'node' });
+    expect(refresh.kind).toBe('refreshed');
+    const commands = { sync: 'kindgi skills sync', force: 'kindgi skills sync --force' };
+    expect(describeDevSkillsRefresh(refresh, commands)).toEqual([]);
   });
 
   test('adds @kindgi/sdk + @kindgi/cli with the resolved specs; next steps use the project package manager', async () => {

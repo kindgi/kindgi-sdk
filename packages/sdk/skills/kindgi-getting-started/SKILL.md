@@ -16,7 +16,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.20"
+version: "0.3.21"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -391,12 +391,12 @@ in their own terminal (`./upgrade.sh` waits for them to type `yes`).
 ## Keeping skills up to date
 
 Skills in `.claude/skills/` and `.agents/skills/` are copied at `kindgi init`
-time, the same copy in each. When the framework SDK ships a new version of a
-skill (better docs, corrected example, new capabilities), the pack's local
-copies stay stale until you resync. `kindgi dev` boot prints a warning when
-it detects drift; run `kindgi skills sync` to pull the latest framework
-skills into both folders. Local edits are preserved by default (marked
-`skipped-modified`), in each folder; pass `--force` to overwrite them.
+time, the same copy in each. After an upgrade, `kindgi dev` refreshes them as
+it starts, and says so; `kindgi skills sync` does it any time. Both keep a
+skill you edited (`skipped-modified`); the sync's `--force` replaces it.
+Without `.claude/skills/.kindgi-manifest.json`, the record of what was
+installed, edits can't be told from old copies: `kindgi dev` changes nothing
+and says what a sync would add, and what only `--force` replaces.
 
 ## When the framework itself is the problem
 

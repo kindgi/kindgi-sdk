@@ -21,7 +21,9 @@
  *  - **Unchanged** — every bundled file matches the copy's. No write.
  *  - **Skipped (modified)** — a file of the copy was edited since the
  *    last install; the user's edits would be lost. The whole copy is
- *    skipped by default; `--force` overwrites.
+ *    skipped by default; `--force` overwrites. A copy with no record of
+ *    its install (no manifest entry) that differs from the bundle's is
+ *    skipped too: it can't be told from an edit.
  *  - **Local-only** — a skill in the folder that the bundle doesn't
  *    ship. User-authored (or removed from a newer bundle). Left
  *    untouched.
@@ -373,8 +375,11 @@ function wroteCopy(outcome: SkillSyncOutcome): boolean {
 
 /** What `kindgi dev` did to the pack's framework skills as it started. */
 export type DevSkillsRefresh =
-  /** No manifest, or none it can read: nothing written, and the drift in words. */
-  | { readonly kind: 'no-manifest'; readonly drift: string | undefined }
+  /**
+   * No manifest, or none it can read: nothing written. `report` is the
+   * sync's dry run: what `kindgi skills sync` would do.
+   */
+  | { readonly kind: 'no-manifest'; readonly report: SkillSyncReport }
   | {
       readonly kind: 'refreshed';
       readonly report: SkillSyncReport;
@@ -387,7 +392,8 @@ export type DevSkillsRefresh =
  * copies are kept, as the sync keeps them. A copy or a folder that was
  * removed by hand stays removed, and the `.prettierignore` is patched only
  * when a copy was written. Without a manifest it can read (no sync ever
- * ran, or `.claude/skills/` is gone), nothing is written.
+ * ran, or `.claude/skills/` is gone), nothing is written: it runs the sync
+ * as a dry run, so what it says is what `kindgi skills sync` would do.
  */
 export async function refreshSkillsForDev(inputs: {
   readonly skillsRoot: string;
@@ -396,7 +402,13 @@ export async function refreshSkillsForDev(inputs: {
 }): Promise<DevSkillsRefresh> {
   const manifest = await readManifestIfAny(join(inputs.targetDir, MANIFEST_PATH));
   if (manifest === undefined) {
-    return { kind: 'no-manifest', drift: describeSkillDrift(await detectSkillDrift(inputs)) };
+    const dryRun = await syncFrom(NO_MANIFEST, {
+      ...inputs,
+      force: false,
+      dryRun: true,
+      keepRemoved: false,
+    });
+    return { kind: 'no-manifest', report: dryRun.report };
   }
   const synced = await syncFrom(manifest, {
     ...inputs,
@@ -416,34 +428,29 @@ export async function refreshSkillsForDev(inputs: {
  * The refresh in lines for `kindgi dev`: what it wrote, and each kind of
  * copy left behind the bundle, with the command that moves it on. None
  * when nothing was written and nothing is behind. A copy behind the bundle
- * is a warning, and so is the heading over it.
+ * is a warning, and so is the heading over it. Without a manifest, nothing
+ * was written, and the lines are the dry run's.
  */
 export function describeDevSkillsRefresh(
   refresh: DevSkillsRefresh,
   commands: { readonly sync: string; readonly force: string },
 ): SaidLine[] {
-  if (refresh.kind === 'no-manifest') {
-    return refresh.drift === undefined
-      ? []
-      : [
-          warning(`  ⚠ Framework skills: ${refresh.drift}.`),
-          warning(`    Run \`${commands.sync}\` to pull the latest.`),
-        ];
-  }
   const { outcomes, prettierignore } = refresh.report;
-  const named = (status: SkillSyncOutcome['status']) =>
-    new Set(outcomes.filter((o) => o.status === status).map((o) => o.name));
-  const updated = named('updated');
-  const added = [...named('added')].filter((name) => !updated.has(name));
-  const wrote = [
-    ...(updated.size > 0 ? [`${updated.size} updated`] : []),
-    ...(added.length > 0 ? [`${added.length} added`] : []),
-  ];
   const behind = behindLines(refresh, commands);
   const lines = [...behind.lines.map(warning), ...formatterIgnoreLines(prettierignore)];
-  if (wrote.length > 0) {
-    const heading = `  ✓ Framework skills: ${wrote.join(', ')}.`;
-    return [{ text: heading, problem: lines.some((line) => line.problem) }, ...lines];
+  if (refresh.kind === 'refreshed') {
+    const named = (status: SkillSyncOutcome['status']) =>
+      new Set(outcomes.filter((o) => o.status === status).map((o) => o.name));
+    const updated = named('updated');
+    const added = [...named('added')].filter((name) => !updated.has(name));
+    const wrote = [
+      ...(updated.size > 0 ? [`${updated.size} updated`] : []),
+      ...(added.length > 0 ? [`${added.length} added`] : []),
+    ];
+    if (wrote.length > 0) {
+      const heading = `  ✓ Framework skills: ${wrote.join(', ')}.`;
+      return [{ text: heading, problem: lines.some((line) => line.problem) }, ...lines];
+    }
   }
   return behind.count > 0
     ? [warning(`  ⚠ Framework skills: ${behind.count} out of date.`), ...lines]
@@ -451,30 +458,27 @@ export function describeDevSkillsRefresh(
 }
 
 /**
- * The copies the refresh left behind the bundle, a line per kind: edited
- * (kept), deleted, and in a folder that's gone. `count` is by skill.
+ * The copies left behind the bundle, a line per kind: on a dry run (no
+ * manifest), the ones a sync writes; the ones it keeps; the ones you
+ * deleted; and a folder that's gone. `count` is by skill.
  */
 function behindLines(
-  refresh: Extract<DevSkillsRefresh, { kind: 'refreshed' }>,
+  refresh: DevSkillsRefresh,
   commands: { readonly sync: string; readonly force: string },
 ): { readonly lines: readonly string[]; readonly count: number } {
-  const edited = refresh.report.outcomes.filter(
+  const { outcomes, dryRun } = refresh.report;
+  const unwritten = dryRun
+    ? outcomes.filter((o) => o.status === 'added' || o.status === 'updated')
+    : [];
+  const kept = outcomes.filter(
     (o) => o.status === 'skipped-modified' && o.fromVersion !== o.toVersion,
   );
-  const left = refresh.leftOut.filter((s) => s.fromVersion !== s.toVersion);
+  const leftOut = refresh.kind === 'refreshed' ? refresh.leftOut : [];
+  const left = leftOut.filter((s) => s.fromVersion !== s.toVersion);
   const deleted = left.filter((s) => !s.folderGone);
   const gone = [...new Set(left.filter((s) => s.folderGone).map((s) => `${s.folder}/`))];
-  const skills = (copies: readonly { readonly name: string }[]) =>
-    new Set(copies.map((c) => c.name)).size;
-  const lines: string[] = [];
-  const editedCount = skills(edited);
-  if (editedCount > 0) {
-    const [are, them] = editedCount === 1 ? ['is', 'it'] : ['are', 'them'];
-    lines.push(
-      `    · ${editedCount} you edited ${are} kept: \`${commands.force}\` replaces ${them}.`,
-    );
-  }
-  const deletedCount = skills(deleted);
+  const lines = [...unwrittenLines(unwritten, commands), ...keptLines(kept, commands)];
+  const deletedCount = skillCount(deleted);
   if (deletedCount > 0) {
     const them = deletedCount === 1 ? 'it' : 'them';
     lines.push(`    · ${deletedCount} you deleted: \`${commands.sync}\` brings ${them} back.`);
@@ -485,7 +489,63 @@ function behindLines(
       `    · ${gone.join(' and ')} ${are} gone: \`${commands.sync}\` brings ${them} back.`,
     );
   }
-  return { lines, count: skills([...edited, ...left]) };
+  return { lines, count: skillCount([...unwritten, ...kept, ...left]) };
+}
+
+/**
+ * A dry run's copies that a sync writes, a line per kind: not installed,
+ * and missing a file. With nothing recorded, a copy the dry run would
+ * update is one missing a file, since any file of it that differs is kept
+ * as an edit.
+ */
+function unwrittenLines(
+  copies: readonly SkillSyncOutcome[],
+  commands: { readonly sync: string },
+): string[] {
+  const lines: string[] = [];
+  const missing = skillCount(copies.filter((o) => o.status === 'added'));
+  if (missing > 0) {
+    const them = missing === 1 ? 'it' : 'them';
+    lines.push(`    · ${missing} not installed: \`${commands.sync}\` adds ${them}.`);
+  }
+  const partial = skillCount(copies.filter((o) => o.status === 'updated'));
+  if (partial > 0) {
+    const them = partial === 1 ? 'it' : 'them';
+    lines.push(`    · ${partial} missing a file: \`${commands.sync}\` brings ${them} back.`);
+  }
+  return lines;
+}
+
+/**
+ * The copies a sync keeps behind the bundle, a line per kind: edited, and
+ * with no record of what was installed, which can't be told from an edit.
+ * A kept copy with no `fromVersion` has no record: in `kindgi dev`, one
+ * whose record outlived its `SKILL.md` is left out (`leftOutCopy`), not
+ * kept.
+ */
+function keptLines(
+  copies: readonly SkillSyncOutcome[],
+  commands: { readonly force: string },
+): string[] {
+  const lines: string[] = [];
+  const edited = skillCount(copies.filter((o) => o.fromVersion !== undefined));
+  if (edited > 0) {
+    const [are, them] = edited === 1 ? ['is', 'it'] : ['are', 'them'];
+    lines.push(`    · ${edited} you edited ${are} kept: \`${commands.force}\` replaces ${them}.`);
+  }
+  const unrecorded = skillCount(copies.filter((o) => o.fromVersion === undefined));
+  if (unrecorded > 0) {
+    const [differ, them] = unrecorded === 1 ? ['differs', 'it'] : ['differ', 'them'];
+    lines.push(
+      `    · ${unrecorded} that ${differ}, with no record of what was installed: \`${commands.force}\` replaces ${them}.`,
+    );
+  }
+  return lines;
+}
+
+/** How many skills `copies` are copies of: a skill behind in both folders counts once. */
+function skillCount(copies: readonly { readonly name: string }[]): number {
+  return new Set(copies.map((c) => c.name)).size;
 }
 
 /** What the refresh did to the pack's `.prettierignore`, when it changed it or couldn't. */
@@ -605,7 +665,7 @@ async function syncCopy(inputs: {
         status: 'skipped-modified',
         ...from,
         ...to,
-        reason: 'Local edits detected; --force to overwrite.',
+        reason: keptReason(prior),
       },
     };
   }
@@ -622,10 +682,27 @@ async function syncCopy(inputs: {
       ...from,
       written: stale.map(([file]) => file),
       ...(dropped.length > 0 && { removed: dropped }),
-      ...(force && userModified && { reason: 'Overwrote local edits (--force)' }),
+      ...(force && userModified && { reason: overwroteReason(prior) }),
     },
     installed: skill.entry,
   };
+}
+
+/**
+ * Why a copy is kept: it was edited, or there's no record of what was
+ * installed (`prior`), so it can't be told from an edit.
+ */
+function keptReason(prior: ManifestEntry | undefined): string {
+  return prior === undefined
+    ? 'No record of what was installed; --force to overwrite.'
+    : 'Local edits detected; --force to overwrite.';
+}
+
+/** What `--force` did to a copy that `keptReason` says why it keeps. */
+function overwroteReason(prior: ManifestEntry | undefined): string {
+  return prior === undefined
+    ? 'Overwrote a copy with no record of what was installed (--force)'
+    : 'Overwrote local edits (--force)';
 }
 
 /**
@@ -655,9 +732,12 @@ function resolveTargetDir(cwd: string, pathArg: string | undefined): string {
   return resolve(cwd, pathArg);
 }
 
+/** A manifest that records nothing: what a pack without one has. */
+const NO_MANIFEST: Manifest = { v: MANIFEST_VERSION, skills: {} };
+
 /** The manifest, or an empty one when there's none it can read. */
 async function readManifest(path: string): Promise<Manifest> {
-  return (await readManifestIfAny(path)) ?? { v: MANIFEST_VERSION, skills: {} };
+  return (await readManifestIfAny(path)) ?? NO_MANIFEST;
 }
 
 /** The manifest; `undefined` when there's none, or none it can read. */
@@ -844,82 +924,6 @@ function shouldRenderSummaryOnStderr(ctx: {
 }): boolean {
   const { format, formatRequested } = ctx.globals;
   return !(formatRequested && (format === 'json' || format === 'quiet'));
-}
-
-export interface SkillDriftReport {
-  /** Skills present in the SDK bundle with no copy yet in a folder. */
-  readonly missing: readonly { readonly name: string; readonly folder: SkillFolder }[];
-  /** Copies whose installed version differs from the bundled version. */
-  readonly outdated: readonly {
-    readonly name: string;
-    readonly folder: SkillFolder;
-    readonly from: string;
-    readonly to: string;
-  }[];
-}
-
-/**
- * Cheap drift check for `kindgi dev` boot, when there's no manifest to
- * refresh from (`refreshSkillsForDev`). Compares the pack's
- * installed skills, in each of `SKILL_FOLDERS` (via
- * `.claude/skills/.kindgi-manifest.json`), against the SDK-bundled
- * skill versions from the CLI's shipped skills root.
- *
- * Read-only: never writes to disk, never mutates the manifest. If
- * anything fails (missing manifest, unreadable bundle) it returns
- * empty arrays — boot proceeds without a warning rather than
- * blocking on a check that can't run.
- */
-export async function detectSkillDrift(inputs: {
-  readonly skillsRoot: string;
-  readonly targetDir: string;
-  readonly language: PackLanguage;
-}): Promise<SkillDriftReport> {
-  const manifest = await readManifest(join(inputs.targetDir, MANIFEST_PATH));
-  const bundledNames = await listBundledSkills(inputs.skillsRoot, inputs.language);
-
-  const missing: { name: string; folder: SkillFolder }[] = [];
-  const outdated: { name: string; folder: SkillFolder; from: string; to: string }[] = [];
-
-  for (const name of bundledNames) {
-    let bundledText: string;
-    try {
-      bundledText = (await readFile(join(inputs.skillsRoot, name, 'SKILL.md'))).toString('utf8');
-    } catch {
-      continue;
-    }
-    const bundledVersion = parseFrontmatterField(bundledText, 'version');
-    for (const folder of SKILL_FOLDERS) {
-      const local = join(inputs.targetDir, folder, name, 'SKILL.md');
-      // A copy that's gone is behind, whatever the manifest says.
-      if (!(await pathExists(local))) {
-        missing.push({ name, folder });
-        continue;
-      }
-      const installed = installedIn(manifest, folder)[name];
-      if (installed === undefined) {
-        outdated.push({ name, folder, from: 'untracked', to: bundledVersion });
-      } else if (installed.installedVersion !== bundledVersion) {
-        outdated.push({ name, folder, from: installed.installedVersion, to: bundledVersion });
-      }
-    }
-  }
-
-  return { missing, outdated };
-}
-
-/**
- * The drift in words for `kindgi dev` ("2 out of date, 1 not yet
- * installed"), by skill: one behind in both folders counts once.
- * `undefined` when nothing is behind.
- */
-export function describeSkillDrift(drift: SkillDriftReport): string | undefined {
-  const outdated = new Set(drift.outdated.map((d) => d.name)).size;
-  const missing = new Set(drift.missing.map((d) => d.name)).size;
-  const parts: string[] = [];
-  if (outdated > 0) parts.push(`${outdated} out of date`);
-  if (missing > 0) parts.push(`${missing} not yet installed`);
-  return parts.length > 0 ? parts.join(', ') : undefined;
 }
 
 const STATUS_SYMBOLS: Readonly<Record<SkillSyncOutcome['status'], string>> = {
