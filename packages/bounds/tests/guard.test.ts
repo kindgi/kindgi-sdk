@@ -114,6 +114,7 @@ describe('no tenant pattern skips compileTenantPattern', () => {
       'api/src/middleware/public-run-routes.ts: listed, but has none',
       'api/src/routes/stored-bytes.ts: listed, but has none',
       'capabilities/src/tool-names.ts: listed, but has none',
+      'connections/src/google-calendar-tools.ts: listed, but has none',
       'connections/src/mail-text.ts: listed, but has none',
       'handler-runtime/src/discovery.ts: listed, but has none',
       'schema/src/bounded.ts: listed, but has none',
