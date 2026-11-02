@@ -249,9 +249,9 @@
    * A tool call's step in words, by its answer (the tool's message), if one
    * came: until then the agent only asked to use the tool. Kindgi answers a
    * call that ran nothing in one of two shapes, which say why: `{ status:
-   * 'denied', reason }` when the call wasn't allowed, and `{ status:
-   * 'rejected', rationale? }` when its approval was rejected. Any other
-   * answer is the tool's own.
+   * 'denied', reason }` when the call wasn't allowed, in Kindgi's words,
+   * and `{ status: 'rejected', rationale? }` when its approval was
+   * rejected, in the reviewer's. Any other answer is the tool's own.
    */
   function stepWords(id, answer) {
     const name = toolName(id);
@@ -273,11 +273,19 @@
       };
     }
     if ((fields === 'status' || fields === 'rationale,status') && result.status === 'rejected') {
+      const rationale = sentence(result.rationale);
       return {
         ran: false,
         /* translators: %s: a tool's name */
         line: sprintf(__("Didn't use %s: its approval was rejected", 'kindgi'), name),
-        why: sentence(result.rationale),
+        why:
+          rationale === null
+            ? null
+            : sprintf(
+                /* translators: %s: the reason the reviewer gave */
+                __('Reason: %s', 'kindgi'),
+                rationale,
+              ),
       };
     }
     /* translators: %s: a tool's name */

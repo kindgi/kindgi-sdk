@@ -342,8 +342,11 @@
   padding: 0;
 }
 
+/* Under an agent's words: no bullets, unlike the lists it writes. */
 .kindgi .kindgi-agent .kindgi-steps-done {
   margin-top: var(--kindgi-space-2);
+  padding: 0;
+  list-style: none;
   color: var(--kindgi-muted);
   font-size: 12px;
 }

@@ -266,7 +266,11 @@ test('a call whose approval was rejected says so, with the reason when one was g
   const { cards } = loadCards(null);
   assert.deepEqual(
     stepOf(cards, 'woo.refund-large', { result: { status: 'rejected', rationale: 'Not yet.' } }),
-    { ran: false, line: "Didn't use Refund large: its approval was rejected", why: 'Not yet.' },
+    {
+      ran: false,
+      line: "Didn't use Refund large: its approval was rejected",
+      why: 'Reason: Not yet.',
+    },
   );
   assert.deepEqual(stepOf(cards, 'woo.refund-large', { result: { status: 'rejected' } }), {
     ran: false,
