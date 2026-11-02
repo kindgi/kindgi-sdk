@@ -362,6 +362,9 @@ To go back:
     It changes the images (the server's, the pack's if this run rebuilt it,
     and the license renewal job's, if it has one) and the server's
     database-url reference, which now names that version, and nothing else.
+    Terraform plans the server's secrets as one set, so it shows them all
+    removed and added again, their contents hidden; only database-url's
+    reference changes.
     The plan holds your variables' values, secret ones too: umask 077 keeps
     it readable by you alone. Then apply it, and delete it:
       terraform apply back.tfplan
