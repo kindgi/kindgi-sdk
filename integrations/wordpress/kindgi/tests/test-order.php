@@ -344,3 +344,40 @@ function test_order_someone_who_cannot_decide_is_asked_the_page_only_for_the_col
 	);
 	kindgi_assert_same( 1, count( $GLOBALS['kindgi_test']['requests'] ), 'her permissions only: no page' );
 }
+
+function test_order_the_box_names_an_agent_that_asked_on_its_own_as_kindgi_does(): void {
+	kindgi_test_jane_at_work();
+	kindgi_test_answer_reviewer();
+	$on_its_own = static function ( string $id ): array {
+		return kindgi_test_approval(
+			array(
+				'id'          => $id,
+				'requestedBy' => 'service_account:sa-mail',
+				'context'     => kindgi_test_about_order( '18' ),
+			)
+		);
+	};
+	kindgi_test_answer(
+		200,
+		array(
+			'data'    => array( $on_its_own( 'ap-1' ), $on_its_own( 'ap-2' ) ),
+			'hasMore' => false,
+		)
+	);
+	kindgi_test_answer(
+		200,
+		array(
+			'data' => array(
+				array(
+					'id'   => 'acme-desk.store-agent',
+					'name' => 'Shop helper',
+				),
+			),
+		)
+	);
+	kindgi_test_answer( 200, array( 'data' => array(), 'hasMore' => false ) );
+	$answer = Kindgi_Rest::order( new WP_REST_Request( array( 'order' => '18', 'signIn' => false ) ) );
+	kindgi_assert_same( array( 'Shop helper', 'Shop helper' ), array_column( $answer['waiting'], 'agent' ), "the agent's name at Kindgi, as Activity and Ask give it" );
+	kindgi_assert_same( 4, count( $GLOBALS['kindgi_test']['requests'] ), 'its agents read once for both, on her live session: no sign-in' );
+	kindgi_assert( false !== strpos( $GLOBALS['kindgi_test']['requests'][2][0], '/v1/agents' ), "the project's agents" );
+}
