@@ -506,6 +506,28 @@ describe('agents pin: exit 3 when the answer is no, and --wait for an approval',
     );
   });
 
+  test("--wait under kindgi dev: the check's warning comes first, before the wait", async () => {
+    const { out } = await runWaiting(['agents', 'pin', ...SCOPE, '--wait=30m'], {
+      agents: {
+        pinned: {
+          check: async () => ({
+            outcome: 'needs-approval',
+            releaseGate: null,
+            checks: [],
+            notInGit: true,
+          }),
+          pin: async () => answer(PENDING),
+          getChange: reads([], 'pinned'),
+        },
+      },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toBe(
+      "The pack isn't in git, so git can't bring back the files the pin writes over. The pin keeps them as they were right before it: pin the version before to go back.\n" +
+        'Waiting up to 30m for approval ap-1 of acme.drafter 1.1.0: `kindgi approvals complete ap-1 --decision=approve` approves it.\n',
+    );
+  });
+
   test.each([
     ['rejected', "Approval ap-1 was rejected: acme.drafter 1.1.0 doesn't get pinned."],
     ['expired', "Approval ap-1 expired undecided: acme.drafter 1.1.0 doesn't get pinned."],
@@ -696,5 +718,122 @@ describe('agents pin: exit 3 when the answer is no, and --wait for an approval',
     expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain(message);
     expect(calls).toEqual([]);
+  });
+});
+
+describe("agents pin under kindgi dev: the files git hasn't committed, from the pin check", () => {
+  const SCOPE = ['acme.drafter', '1.1.0', `--project=${PROJECT}`];
+  const INPUT = { version: '1.1.0', scope: { kind: 'project', projectId: PROJECT } };
+  const GOING_BACK =
+    'The pin keeps them as they were right before it: pin the version before to go back.';
+  const FILES_LINE = `git hasn't committed these files, so the pin writes over changes git can't bring back: blocks/reply.json, blocks/reply.liquid. ${GOING_BACK}\n`;
+  const NOT_IN_GIT_LINE = `The pack isn't in git, so git can't bring back the files the pin writes over. ${GOING_BACK}\n`;
+  const WOULD_PIN = { outcome: 'would-pin', releaseGate: null, checks: [] };
+  const WARNS = { ...WOULD_PIN, uncommittedFiles: ['blocks/reply.json', 'blocks/reply.liquid'] };
+
+  test("the pin asks the check first, with its own input; the check's warning goes on stderr, and --json is the pin's answer as before", async () => {
+    const { calls, rec } = recorder();
+    const out = await run(['agents', 'pin', ...SCOPE, '--json'], {
+      agents: { pinned: { check: rec('check', WARNS), pin: rec('pin', answer(pin())) } },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['check', 'acme.drafter', INPUT],
+      ['pin', 'acme.drafter', INPUT, {}],
+    ]);
+    expect(out.stdout).toBe(`${JSON.stringify(answer(pin()), null, 2)}\n`);
+    expect(out.stderr).toBe(FILES_LINE);
+  });
+
+  test("the pack isn't in git", async () => {
+    const out = await run(['agents', 'pin', ...SCOPE], {
+      agents: {
+        pinned: {
+          check: async () => ({ ...WOULD_PIN, notInGit: true }),
+          pin: async () => answer(pin()),
+        },
+      },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toBe(NOT_IN_GIT_LINE);
+  });
+
+  test('a warning is said under --quiet too', async () => {
+    const out = await run(['agents', 'pin', ...SCOPE, '--quiet'], {
+      agents: { pinned: { check: async () => WARNS, pin: async () => answer(pin()) } },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toBe(FILES_LINE);
+  });
+
+  test.each([
+    [
+      'refused',
+      async () => {
+        throw new KindgiApiError(fromWire({ code: 'forbidden', message: 'Not allowed' }, 403));
+      },
+    ],
+    [
+      'unreachable',
+      async () => {
+        throw new TypeError('fetch failed');
+      },
+    ],
+    ['answering without the fields (any other runtime)', async () => WOULD_PIN],
+    ['answering gate-failed', async () => ({ ...WOULD_PIN, outcome: 'gate-failed' })],
+  ])('a check %s: the pin goes as before, and nothing more is said', async (_name, check) => {
+    const { calls, rec } = recorder();
+    const out = await run(['agents', 'pin', ...SCOPE], {
+      agents: { pinned: { check, pin: rec('pin', answer(pin())) } },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['pin', 'acme.drafter', INPUT, {}]]);
+    expect(JSON.parse(out.stdout)).toEqual(answer(pin()));
+    expect(out.stderr).toBe('');
+  });
+
+  test('a pin that waits for an approval: the warning, then the approval named', async () => {
+    const pending = pin({ status: 'pending-approval', approvalId: 'ap-1' });
+    const out = await run(['agents', 'pin', ...SCOPE], {
+      agents: { pinned: { check: async () => WARNS, pin: async () => answer(pending) } },
+    });
+    expect(out.exitCode).toBe(3);
+    expect(out.stderr).toBe(
+      `${FILES_LINE}Approval ap-1 stays open: once it's approved, acme.drafter 1.1.0 is pinned. \`--wait\` waits for the decision.\n`,
+    );
+  });
+
+  test('a pin refused after the check warned: only the refusal is said, since it wrote nothing', async () => {
+    const message = 'Project acme follows Latest, and this pin would take it off it.';
+    const out = await run(['agents', 'pin', ...SCOPE], {
+      agents: {
+        pinned: {
+          check: async () => WARNS,
+          pin: async () => {
+            throw new KindgiApiError(fromWire({ code: 'pin-stops-latest', message }, 409));
+          },
+        },
+      },
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      `Error [pin-stops-latest]: ${message}\nRun it again with --stop-following-latest to pin anyway.\n`,
+    );
+  });
+
+  test('--check says the same lines, under its answer as it is', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(['agents', 'pin', ...SCOPE, '--check'], {
+      agents: { pinned: { check: rec('check', WARNS), pin: rec('pin') } },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['check', 'acme.drafter', INPUT]]);
+    expect(JSON.parse(out.stdout)).toEqual(WARNS);
+    expect(out.stderr).toBe(FILES_LINE);
+    const without = await run(['agents', 'pin', ...SCOPE, '--check'], {
+      agents: { pinned: { check: async () => WOULD_PIN } },
+    });
+    expect(without.stderr).toBe('');
   });
 });

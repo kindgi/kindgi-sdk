@@ -29,7 +29,11 @@ export interface BlockRegistryBinding {
    * called. See `RegistryReadOnly`.
    */
   readonly readOnly?: RegistryReadOnly;
-  /** Each block's latest active version, by id, cursor-paginated. */
+  /**
+   * Each block's latest active version, by id, cursor-paginated. With
+   * `includeRetired`, a retired block (every version unregistered) too, as
+   * its highest version with `unregisteredAt`.
+   */
   list(input: BlockListInput): Promise<BlockPage>;
   /** A block's latest active version, or `null` (never published, or every version unregistered). */
   get(input: BlockGetInput): Promise<BlockRecord | null>;
@@ -104,6 +108,13 @@ export interface BlockListInput {
    * - `{ kind: 'tenant' }`: every block in the tenant.
    */
   readonly scope?: Scope;
+  /**
+   * `true` lists retired blocks too (every version unregistered), each
+   * as its highest version, with that version's `unregisteredAt`, so a
+   * client can find one to reinstate. Default: blocks with an active
+   * version only.
+   */
+  readonly includeRetired?: boolean;
 }
 
 export interface BlockGetInput {
@@ -185,6 +196,7 @@ export interface BlockVersionInput {
 }
 
 export interface BlockPage {
+  /** A retired block `includeRetired` lists carries its highest version's `unregisteredAt`. */
   readonly data: readonly BlockRecord[];
   readonly nextCursor?: Cursor;
 }

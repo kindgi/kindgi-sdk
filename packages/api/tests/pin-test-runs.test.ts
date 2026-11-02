@@ -22,6 +22,7 @@ import type {
 } from '../src/agent-pin-binding.js';
 import {
   type PinTestRunDeps,
+  candidatesPinProjects,
   latestMoved,
   pinTookEffect,
   projectsPinMoves,
@@ -29,6 +30,7 @@ import {
   startPinTestRuns,
   startUnpinTestRuns,
 } from '../src/pin-test-runs.js';
+import type { RegistryReadOnly } from '../src/registry-read-only.js';
 import type { TestRun, TestRunStartInput } from '../src/test-run-binding.js';
 import {
   applyTestRunOutcome,
@@ -73,7 +75,8 @@ function scopeKey(scope: AgentPinScope): string {
  * any scope, a frozen agent test set per project, and test runs that end
  * when the test says.
  */
-function harness() {
+/** `itemProjects`: which projects serve the agent; all three unless given. */
+function harness(opts: { readonly itemProjects?: PinTestRunDeps['itemProjects'] } = {}) {
   const corrections = inMemoryCorrections();
   const pinned = new Map<string, AgentPinnedVersion>();
   const latest = new Map<ProjectId, { version: Semver; since: string }>();
@@ -145,7 +148,7 @@ function harness() {
       get: async (_tenant, id) =>
         orgOf.has(id) ? ({ id, orgId: orgOf.get(id) } as never) : undefined,
     },
-    itemProjects: { projectsOf: async () => [support, billing, returns] },
+    itemProjects: opts.itemProjects ?? { projectsOf: async () => [support, billing, returns] },
     testSets: {
       freezeTestSet: async ({ projectId }) => {
         if (failing.has(projectId)) throw new Error('the test set store is down');
@@ -544,6 +547,50 @@ describe('a tenant or org pin', () => {
     await h.apply(run.testRunId);
     expect(await h.get(id)).toMatchObject({ status: 'open' });
     expect(run.projectId).toBe(returns);
+  });
+});
+
+describe("where the agent registry takes Improve's candidates, with no item-projects binding (kindgi dev)", () => {
+  const TAKES: RegistryReadOnly = {
+    reason: 'The pack files are the source: change them instead.',
+    takesCandidates: {
+      undoReason: 'Undo it with git.',
+      scopeReason: 'The pack serves every scope: pin for the whole tenant.',
+    },
+  };
+  /** A registry that places the agent in `projectId`, or has no such agent. */
+  const placing = (projectId: ProjectId | null) => ({
+    readOnly: TAKES,
+    get: async () => (projectId === null ? null : ({ projectId } as never)),
+  });
+
+  test('a tenant pin checks the project the registry places the agent in, where its runs go', async () => {
+    const itemProjects = candidatesPinProjects(placing(support));
+    expect(await itemProjects?.projectsOf({ tenantId, kind: 'agent', id: agentId })).toEqual([
+      support,
+    ]);
+    const h = harness({ itemProjects });
+    for (const p of [support, billing, returns]) {
+      h.onLatest(p, '12.0.0');
+      await h.corrected(p);
+    }
+    await h.pin('13.0.0', { kind: 'tenant' });
+    expect(h.started.map((s) => s.projectId)).toEqual([support]);
+  });
+
+  test('an agent the registry has no record of, or another kind of item, is in none', async () => {
+    const none = candidatesPinProjects(placing(null));
+    expect(await none?.projectsOf({ tenantId, kind: 'agent', id: agentId })).toBeUndefined();
+    const placed = candidatesPinProjects(placing(support));
+    expect(await placed?.projectsOf({ tenantId, kind: 'flow', id: agentId })).toBeUndefined();
+  });
+
+  test('anywhere else there are none: a registry that takes no candidates', () => {
+    expect(candidatesPinProjects(undefined)).toBeUndefined();
+    expect(candidatesPinProjects({ get: async () => null })).toBeUndefined();
+    expect(
+      candidatesPinProjects({ readOnly: { reason: TAKES.reason }, get: async () => null }),
+    ).toBeUndefined();
   });
 });
 

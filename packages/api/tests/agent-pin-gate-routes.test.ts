@@ -27,6 +27,7 @@ import type {
   LatestAnswer,
   Pin,
   PinError,
+  PinFilesWarnings,
   PinRequestInput,
   ReleaseGate,
   ReleaseGateSpec,
@@ -116,7 +117,12 @@ const FAILING: ReleaseGateSpec = { metrics: [{ name: 'passRate', minCandidate: 0
  * these. Absent: none is wired.
  */
 function setup(
-  opts: { request?: boolean; releaseGates?: boolean; fixed?: readonly string[] } = {},
+  opts: {
+    request?: boolean;
+    releaseGates?: boolean;
+    fixed?: readonly string[];
+    pinFiles?: PinFilesWarnings;
+  } = {},
 ) {
   const calls: { method: string; input: unknown }[] = [];
   const state: {
@@ -281,6 +287,7 @@ function setup(
       record('projectSuspended', projectId);
       return state.suspended;
     },
+    ...(opts.pinFiles !== undefined && { pinFiles: opts.pinFiles }),
     projectBinding: {
       get: async (_t: TenantId, projectId: ProjectId) => {
         record('projects.get', projectId);
@@ -294,12 +301,16 @@ function setup(
   return { app, calls, state };
 }
 
-const testRun = (s: CorrectedComparisonSummary | undefined, kind = 'corrections'): TestRun =>
+const testRun = (
+  s: CorrectedComparisonSummary | undefined,
+  kind = 'corrections',
+  status: TestRun['status'] = 'completed',
+): TestRun =>
   ({
     id: 'eval-1',
     testRunId: 'eval-1',
     kind,
-    status: 'completed',
+    status,
     ...(s !== undefined && { result: { summary: s, perCase: [] } }),
   }) as never;
 
@@ -504,6 +515,43 @@ describe('POST /v1/agents/:agentId/pinned/pin, through the gate', () => {
     expect(methods(accuracy.calls)).not.toContain('request');
   });
 
+  // A comparison cancelled or failed part way can keep the summary of the
+  // cases it got through. These figures pass the gate, so it's the run's
+  // status that refuses it.
+  test.each(['cancelled', 'failed'] as const)(
+    "a comparison that's %s → 400 bad-input, though its summary would pass; nothing recorded",
+    async (status) => {
+      const { app, calls, state } = setup();
+      state.releaseGate = releaseGate(PASSING);
+      state.testRun = testRun(summary({ cases: 12 }), 'corrections', status);
+      const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody());
+      expect(res.status).toBe(400);
+      const { error } = (await res.json()) as { error: { code: string; message: string } };
+      expect(error).toMatchObject({
+        code: 'bad-input',
+        message: `Test run eval-1 isn't a completed comparison: it's ${status}. Name a run that completed.`,
+      });
+      expect(methods(calls)).not.toContain('request');
+      expect(methods(calls)).not.toContain('pin');
+    },
+  );
+
+  test.each([
+    [201, PASSING],
+    [422, FAILING],
+  ] as const)(
+    'the same summary on a completed run goes through the gate: %d',
+    async (code, spec) => {
+      const { app, calls, state } = setup();
+      state.releaseGate = releaseGate(spec);
+      state.testRun = testRun(summary({ cases: 12 }), 'corrections', 'completed');
+      const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody());
+      expect(res.status).toBe(code);
+      const request = calls.find((c) => c.method === 'request')?.input as PinRequestInput;
+      expect(request.gate.passed).toBe(code === 201);
+    },
+  );
+
   test('an unregistered version → 404 before any gate', async () => {
     const { app, calls, state } = setup();
     state.releaseGate = releaseGate(PASSING);
@@ -654,10 +702,83 @@ describe('POST /v1/agents/:agentId/pinned/check', () => {
     expect(methods(calls)).not.toContain('pin');
   });
 
+  test("a comparison that's cancelled → 400 bad-input, as the pin answers", async () => {
+    const { app, calls, state } = setup();
+    state.releaseGate = releaseGate(PASSING);
+    state.testRun = testRun(summary({ cases: 12 }), 'corrections', 'cancelled');
+    const res = await app.request(`/v1/agents/${AGENT}/pinned/check`, pinBody());
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('bad-input');
+    expect(methods(calls)).not.toContain('request');
+  });
+
   test('no release gate: would-pin, releaseGate null', async () => {
     const { app } = setup();
     const res = await app.request(`/v1/agents/${AGENT}/pinned/check`, pinBody());
     expect(await res.json()).toEqual({ outcome: 'would-pin', releaseGate: null, checks: [] });
+  });
+});
+
+describe("POST /v1/agents/:agentId/pinned/check: under kindgi dev, the files git hasn't committed", () => {
+  /** A `pinFiles` that answers `warning` and records what it was asked. */
+  const reading = (warning: Awaited<ReturnType<PinFilesWarnings>>) => {
+    const asked: Parameters<PinFilesWarnings>[0][] = [];
+    const pinFiles: PinFilesWarnings = async (q) => {
+      asked.push(q);
+      return warning;
+    };
+    return { asked, pinFiles };
+  };
+
+  test('the files the pin would write over, read for the version asked', async () => {
+    const { asked, pinFiles } = reading({
+      uncommittedFiles: ['blocks/reply.liquid', 'blocks/tone.json'],
+    });
+    const { app } = setup({ pinFiles });
+    const res = await app.request(`/v1/agents/${AGENT}/pinned/check`, pinBody());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      outcome: 'would-pin',
+      releaseGate: null,
+      checks: [],
+      uncommittedFiles: ['blocks/reply.liquid', 'blocks/tone.json'],
+    });
+    expect(asked).toEqual([{ tenantId: expect.any(String), agentId: AGENT, version: '1.2.0' }]);
+  });
+
+  test("the pack isn't in git", async () => {
+    const { app } = setup({ pinFiles: reading({ notInGit: true }).pinFiles });
+    const res = await app.request(`/v1/agents/${AGENT}/pinned/check`, pinBody());
+    expect(await res.json()).toMatchObject({ outcome: 'would-pin', notInGit: true });
+  });
+
+  test('a pin waiting for an approval is warned too: the approval writes the files', async () => {
+    const { app, state } = setup({ pinFiles: reading({ notInGit: true }).pinFiles });
+    state.releaseGate = releaseGate({ ...PASSING, approvals: {} });
+    state.testRun = testRun(summary());
+    const res = await app.request(`/v1/agents/${AGENT}/pinned/check`, pinBody());
+    expect(await res.json()).toMatchObject({ outcome: 'needs-approval', notInGit: true });
+  });
+
+  test.each([
+    ['nothing to warn about', undefined],
+    ['no file listed', { uncommittedFiles: [] }],
+  ] as const)('%s: neither field', async (_, warning) => {
+    const { app } = setup({ pinFiles: reading(warning).pinFiles });
+    const res = await app.request(`/v1/agents/${AGENT}/pinned/check`, pinBody());
+    expect(await res.json()).toEqual({ outcome: 'would-pin', releaseGate: null, checks: [] });
+  });
+
+  test("a gate that fails: the pin doesn't go, so nothing is read", async () => {
+    const { asked, pinFiles } = reading({ uncommittedFiles: ['blocks/tone.json'] });
+    const { app, state } = setup({ pinFiles });
+    state.releaseGate = releaseGate(FAILING);
+    state.testRun = testRun(summary());
+    const res = await app.request(`/v1/agents/${AGENT}/pinned/check`, pinBody());
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.outcome).toBe('gate-failed');
+    expect(body).not.toHaveProperty('uncommittedFiles');
+    expect(asked).toEqual([]);
   });
 });
 

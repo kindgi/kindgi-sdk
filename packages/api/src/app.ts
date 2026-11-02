@@ -101,6 +101,7 @@ import type { MyAccessBinding } from './my-access-binding.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
 import type { PersonCapabilitiesBinding } from './person-capabilities-binding.js';
 import type { PersonGrantsBinding } from './person-grants-binding.js';
+import { candidatesPinProjects } from './pin-test-runs.js';
 import type { PinnedVersionBinding } from './pinned-version-binding.js';
 import type { ProjectAccessBinding } from './project-access-binding.js';
 import type { ProvenanceBinding } from './provenance-binding.js';
@@ -716,6 +717,15 @@ export interface CreateAppInput {
     tenantId: import('@kindgi/types').TenantId,
     projectId: import('@kindgi/types').ProjectId,
   ) => Promise<boolean>;
+  /**
+   * Under `kindgi dev`, where a pin writes the version into the pack's
+   * files: which of them the pin would write over that git hasn't
+   * committed, or that the pack isn't in git. `POST
+   * /v1/agents/{agentId}/pinned/check` answers it as a warning
+   * (`uncommittedFiles`, `notInGit`). Absent: no warning, as on a
+   * deployment.
+   */
+  readonly pinFiles?: import('./agent-pin-binding.js').PinFilesWarnings;
   /**
    * Each tenant's image repository (`PUT /v1/system/tenants/{id}/image-prefix`),
    * which `POST /v1/deployments` checks before any registry read. With
@@ -1662,12 +1672,18 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // `?projectId=` answers on its single read.
   const itemServing =
     input.itemProjects !== undefined ? itemServingOf(input.itemProjects) : undefined;
+  // Which projects a tenant or org pin's test runs check: those that serve
+  // the agent, and where the agent registry takes Improve's candidates
+  // with no binding to say (kindgi dev), the project it places the agent
+  // in (`candidatesPinProjects`). Rights and `?projectId=` reads keep
+  // `input.itemProjects`.
+  const pinProjects = input.itemProjects ?? candidatesPinProjects(input.agentRegistry);
   // What a pin's test runs need besides test runs and projects (`AgentPinGateDeps`):
   // the agent pin route, a promotion's pins and a card's pin all start them.
   const pinTestRunDeps = {
     ...(input.testSetFreeze !== undefined && { testSets: input.testSetFreeze }),
     ...(input.correctionRegistry !== undefined && { corrections: input.correctionRegistry }),
-    ...(input.itemProjects !== undefined && { itemProjects: input.itemProjects }),
+    ...(pinProjects !== undefined && { itemProjects: pinProjects }),
   };
   // A system principal acts in no tenant: it reaches /v1/system/* (and the
   // deployment's license), nothing else, and each of its requests is recorded.
@@ -1820,6 +1836,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.testRunBinding !== undefined && { testRuns: input.testRunBinding }),
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
           ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
+          ...(input.pinFiles !== undefined && { pinFiles: input.pinFiles }),
           ...pinTestRunDeps,
         },
         {
@@ -1990,7 +2007,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       agentPins: input.agentPins,
       ...(input.testSetFreeze !== undefined && { testSets: input.testSetFreeze }),
       ...(input.correctionRegistry !== undefined && { corrections: input.correctionRegistry }),
-      ...(input.itemProjects !== undefined && { itemProjects: input.itemProjects }),
+      ...(pinProjects !== undefined && { itemProjects: pinProjects }),
       ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
       ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
       ...(input.projectSuspended !== undefined && {

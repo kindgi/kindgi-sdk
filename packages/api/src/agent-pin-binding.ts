@@ -203,9 +203,9 @@ export type PinErrorCode =
   /**
    * A registry that takes Improve's candidates (`RegistryReadOnly.takesCandidates`,
    * `kindgi dev`): pinning a version writes it into the pack's files,
-   * which serve every scope, so a narrower scope is refused; and a pin of
-   * an earlier version or an unpin is undone there, with git. The message
-   * says which.
+   * which serve every scope, so a narrower scope is refused; and an unpin
+   * is too, since a pin of the version before undoes a pin there. The
+   * message says which.
    */
   | 'registry-read-only'
   | 'persistence-error';
@@ -214,6 +214,35 @@ export interface PinError {
   readonly code: PinErrorCode;
   readonly message: string;
 }
+
+/**
+ * The pin check's warning under `kindgi dev`, where pinning a version
+ * writes it into the pack's files (`RegistryReadOnly.takesCandidates`):
+ * git can't bring back what those files hold once they're written over,
+ * unless it's committed. A warning only: the pin still goes.
+ */
+export interface PinFilesWarning {
+  /**
+   * The files the pin would write over that git hasn't committed
+   * (changed, staged, untracked or ignored, or in a nested repository
+   * such as a submodule), relative to the pack's folder, sorted: one at
+   * least.
+   */
+  readonly uncommittedFiles?: readonly string[];
+  /** The pack isn't in a git repository. */
+  readonly notInGit?: true;
+}
+
+/**
+ * What a pin of `version` would write over that git hasn't committed
+ * (`POST …/pinned/check` answers it): `undefined` when there's nothing to
+ * warn about, the pin writes nothing, or git couldn't say. Never throws.
+ */
+export type PinFilesWarnings = (q: {
+  readonly tenantId: TenantId;
+  readonly agentId: string;
+  readonly version: Semver;
+}) => Promise<PinFilesWarning | undefined>;
 
 export interface AgentPinInput {
   readonly tenantId: TenantId;

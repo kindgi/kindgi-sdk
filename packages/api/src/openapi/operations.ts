@@ -4216,7 +4216,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'agents.pinned.pin',
     summary: 'Pin a version for a scope',
     description:
-      "Pins `version` for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every pin is recorded, with who asked and why. Needs `pin` on the agent.\n\nThe pin checks the version in each project whose running version it changes and that has active cases, on the project's agent test set (`testRuns`): with the run `testRunId` names when that run completed there on the test set as it stands, whose outcome changes the corrections' statuses at once (`fixed`, `reopened`); otherwise with a run it starts, correlation id `pin:<changeId>`, whose outcome changes them when it ends. A pin that waits for approval starts its runs at once, and its statuses change once it's approved.\n\nA pin that would take a project that follows Latest now off it (a project or segment pin there, or a tenant or org pin over it) is refused with `409 pin-stops-latest` before any gate, whether or not its version changes, unless the body has `stopFollowingLatest: true`. The pin then records `stoppedFollowingLatest`, and the project runs the pinned version from then on, not each new Latest.\n\nWith a release gate for the scope (`GET …/release-gate`), the pin is checked first against the comparison named by `testRunId`: `201` pinned; `202` the gate passed and wants a reviewer's approval (a HITL approval, subject `agent-pin`; the pinned version moves once it's approved, if nothing changed meanwhile); `422 gate-failed` with `details.changeId`, `details.releaseGate` and every check in `details.checks`. A refused pin is recorded too.\n\nA pin in place skips the gate: when the scope has no pinned version of its own and already serves exactly `version` (from a scope above, or as the latest), pinning it there changes nothing any run gets, so it is pinned (`201`) with one passing `pinInPlace` check, no comparison and no approval, its reason starting `pin-in-place`. It is re-checked as it is written; if the scope moved meanwhile, `409 pin-superseded`: check again.\n\nUnder `kindgi dev`, nothing is pinned, since the pack's files are what runs: pinning a version writes the data blocks it changes into the pack's own files (each block's new version and content, and a prompt's template into its template file), and the dev server reloads them. Only for the whole tenant, which the pack's files serve. If one of those files changed since the version was made (the changed block's file holds another version than the one its suggested change changed, or another block's file a version not older), or the block left the pack, `409 pin-superseded`, and the message names the file; an approval's decision settles it `superseded` the same way.",
+      "Pins `version` for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every pin is recorded, with who asked and why. Needs `pin` on the agent.\n\nThe pin checks the version in each project whose running version it changes and that has active cases, on the project's agent test set (`testRuns`): with the run `testRunId` names when that run completed there on the test set as it stands, whose outcome changes the corrections' statuses at once (`fixed`, `reopened`); otherwise with a run it starts, correlation id `pin:<changeId>`, whose outcome changes them when it ends. A pin that waits for approval starts its runs at once, and its statuses change once it's approved.\n\nA pin that would take a project that follows Latest now off it (a project or segment pin there, or a tenant or org pin over it) is refused with `409 pin-stops-latest` before any gate, whether or not its version changes, unless the body has `stopFollowingLatest: true`. The pin then records `stoppedFollowingLatest`, and the project runs the pinned version from then on, not each new Latest.\n\nWith a release gate for the scope (`GET …/release-gate`), the pin is checked first against the comparison named by `testRunId`: `201` pinned; `202` the gate passed and wants a reviewer's approval (a HITL approval, subject `agent-pin`; the pinned version moves once it's approved, if nothing changed meanwhile); `422 gate-failed` with `details.changeId`, `details.releaseGate` and every check in `details.checks`. A refused pin is recorded too.\n\nA pin in place skips the gate: when the scope has no pinned version of its own and already serves exactly `version` (from a scope above, or as the latest), pinning it there changes nothing any run gets, so it is pinned (`201`) with one passing `pinInPlace` check, no comparison and no approval, its reason starting `pin-in-place`. It is re-checked as it is written; if the scope moved meanwhile, `409 pin-superseded`: check again.\n\nUnder `kindgi dev`, nothing is pinned, since the pack's files are what runs: pinning a version writes the data blocks it changes into the pack's own files (each block's new version and content, and a prompt's template into its template file), and the dev server reloads them. Only for the whole workspace (the `tenant` scope), which the pack's files serve. If one of those files changed since the version was made (the changed block's file holds another version than the one its suggested change changed, or other content than its suggested change was drafted from, even at that version, or another block's file a version not older), or the block left the pack, `409 pin-superseded`, and the message names the file; an approval's decision settles it `superseded` the same way. Once the dev server reloads the files, the pinned version is what runs, and the pin's test runs check it in the agent's project (the default one) and change the corrections' statuses as anywhere else.",
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, IdempotencyKeyParam],
@@ -4234,7 +4234,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed request body. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
+        "Malformed request body, or the test run isn't a completed comparison: a cancelled or failed one is refused, even with the summary of the cases it got through. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
       ),
       '404': ErrorResponse(
         'The version is not registered, or was unregistered; or the test run is not found.',
@@ -4260,7 +4260,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'agents.pinned.check',
     summary: 'Check a pin against its gate',
     description:
-      'What `POST …/pinned/pin` with the same body would do, with nothing recorded: `would-pin`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, pin. Needs `read` on the agent.',
+      "What `POST …/pinned/pin` with the same body would do, with nothing recorded: `would-pin`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, pin. Under `kindgi dev`, where a pin writes the version into the pack's files, it also warns about the files it would write over that git hasn't committed (`uncommittedFiles`), or that the pack isn't in git (`notInGit`). Needs `read` on the agent.",
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam],
@@ -4269,7 +4269,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: "The gate's answer.", schema: ref('PinCheck') },
       ...CommonAuthErrors,
       '400': ErrorResponse(
-        "Malformed body, or the test run is not a finished comparison. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
+        "Malformed body, or the test run isn't a completed comparison: a cancelled or failed one is refused, even with the summary of the cases it got through. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
       ),
       '404': ErrorResponse('The version, the agent or the test run is not found.'),
       '409': ErrorResponse(
@@ -4301,7 +4301,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'releaseGates.list',
     summary: 'List release gates',
     description:
-      "Each release gate's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.",
+      "Each release gate's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's. A retired gate (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.",
     tags: ['release-gates'],
     security: 'bearer',
     parameters: [
@@ -4317,6 +4317,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       PinScopeKindQueryParam,
       ScopeIdQueryParam,
       SegmentQueryParam,
+      IncludeRetiredQueryParam,
     ],
     responses: {
       '200': { description: 'Page of release gates.', schema: ref('ReleaseGatePage') },
@@ -4487,7 +4488,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '409': ErrorResponse(
-        "`not-pinned`: the scope has no pin of its own. `release-gate-needs-pin`: the scope has a release gate of its own, and a gated scope keeps its own pin; unregister the gate first, or pin an earlier version instead. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. Or `registry-read-only`: under `kindgi dev`, a pinned version was written into the pack's files; undo it there, with git.",
+        "`not-pinned`: the scope has no pin of its own. `release-gate-needs-pin`: the scope has a release gate of its own, and a gated scope keeps its own pin; unregister the gate first, or pin an earlier version instead. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. Or `registry-read-only`: under `kindgi dev`, a pinned version was written into the pack's files; to undo a pin, pin the version before.",
       ),
     },
   },
@@ -5419,7 +5420,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'improveRuns.start',
     summary: 'Start an Improve run',
     description:
-      "Starts an Improve run for an agent in a project. From the version the project runs (pinned there, else its Latest), it looks for better wording (the prompt tier) or settings values (the settings tier) on the project's test set, learning from the project's open corrections sorted to improve, within the budget. Its best change is proven on every case of the test set, at the reference's repetitions: when it passes more cases than that version and fails none that passed, it becomes a suggested change for a reviewer. It answers at once with the Improve run, `running`. The readiness check (`POST /v1/improve-runs/check`) runs first: when something the Improve run needs is missing, it's refused with `409 improve-not-ready`, listing every missing item at once (`details.items`, each with its fix); while the agent has a running Improve run in the project, with `409 improve-run-running` (`details.improveRunId`). An Improve run going when its project is suspended ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent; for an agent more than one project serves, `write` where its versions are made. Without Improve runs in this runtime, `501 improve-unsupported`.",
+      "Starts an Improve run for an agent in a project. From the version the project runs (pinned there, else its Latest), it looks for better wording (the prompt tier) or settings values (the settings tier) on the project's test set, learning from the project's open corrections sorted to improve, within the budget. Its best change is proven on every case of the test set, at the reference's repetitions: when it passes more cases than that version and fails none that passed, it becomes a suggested change for a reviewer. It answers at once with the Improve run, `running`. Under `kindgi dev`, the run counts in its project (its corrections, its test set and its cost), and its suggested change is for the whole workspace (the `tenant` scope), which the pack's files serve: pinning it writes its block into the pack's files. The readiness check (`POST /v1/improve-runs/check`) runs first: when something the Improve run needs is missing, it's refused with `409 improve-not-ready`, listing every missing item at once (`details.items`, each with its fix); while the agent has a running Improve run in the project, with `409 improve-run-running` (`details.improveRunId`). An Improve run going when its project is suspended ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent; for an agent more than one project serves, `write` where its versions are made. Without Improve runs in this runtime, `501 improve-unsupported`.",
     tags: ['improve-runs'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -5434,7 +5435,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
       '409': ErrorResponse(
-        '`improve-not-ready`: something the Improve run needs is missing (`details.items`, as `POST /v1/improve-runs/check` lists them). `improve-run-running`: the agent has a running Improve run in the project (`details.improveRunId`); one runs at a time. Or `registry-read-only`: under `kindgi dev`, an Improve run is refused, as any suggested change is: run Improve on a deployed runtime. Or Idempotency-Key was reused with a different body.',
+        '`improve-not-ready`: something the Improve run needs is missing (`details.items`, as `POST /v1/improve-runs/check` lists them). `improve-run-running`: the agent has a running Improve run in the project (`details.improveRunId`); one runs at a time. Or `registry-read-only`: the agent registry is read-only and takes no versions an Improve run makes; the message says why. Or Idempotency-Key was reused with a different body.',
       ),
       '501': ErrorResponse('`improve-unsupported`: this runtime runs no Improve runs.'),
     },
@@ -5460,7 +5461,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
       '409': ErrorResponse(
-        '`registry-read-only`: under `kindgi dev`, an Improve run is refused, as any suggested change is: run Improve on a deployed runtime.',
+        '`registry-read-only`: the agent registry is read-only and takes no versions an Improve run makes; the message says why.',
       ),
       '501': ErrorResponse('`improve-unsupported`: this runtime runs no Improve runs.'),
     },
@@ -5472,7 +5473,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'suggestedChanges.get',
     summary: 'Fetch a suggested change',
     description:
-      "With its block's content before and after (`changes[].before`, `changes[].after`). Needs `read` on its agent.",
+      "With its block's content before and after (`changes[].before`, `changes[].after`): before is the block as the change was drafted, or last rebuilt. Needs `read` on its agent.",
     tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [SuggestedChangeIdPathParam],
@@ -5489,7 +5490,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'suggestedChanges.create',
     summary: 'Suggest a change to a block, for a project',
     description:
-      "New settings values or a new prompt template for one block, in what the project runs: its pin, or Latest. Checked as publishing that block version would be (its schema carries over; for the version's model-settings block, as model settings), and refused when it equals the content the version pins. Then the block version is published, an agent version is derived from what the project runs with that one block changed (it serves nothing until it's pinned or added as Latest), and the check starts on the project's test set, frozen now: the new version and what the project runs replay the same cases. The same change on the same version for the same project is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`, unchecked again. Needs `publish` on the agent.",
+      "New settings values or a new prompt template for one block, in what the project runs: its pin, or Latest. Checked as publishing that block version would be (its schema carries over; for the version's model-settings block, as model settings), and refused when it equals the content the version pins. Then the block version is published, an agent version is derived from what the project runs with that one block changed (it serves nothing until it's pinned or added as Latest), and the check starts on the project's test set, frozen now: the new version and what the project runs replay the same cases. The same change on the same version for the same project is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`, unchecked again. Under `kindgi dev`, it's for the whole workspace (the `tenant` scope), as an Improve run's is, and checked in the project the version it's built on was made in. Needs `publish` on the agent.",
     tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -5511,7 +5512,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The version the project runs isn't active (`agent-version-not-found`), the body's `projectId` names no project of this tenant (`project-not-found`), or a check's test run couldn't start (`test-set-not-found`).",
       ),
       '409': ErrorResponse(
-        "`nothing-runs-in-scope`: the project runs no version of the agent. `suggested-change-nothing-to-check`: the project's test set has no cases for the agent. `environment-takes-promotions`: the project is a later environment of its order, where new versions arrive only by promotion (`details.position`, and `details.firstProjectId` when you can read it). `registry-read-only`: the agent registry takes no writes, not even the version a suggested change makes. Or Idempotency-Key was reused with a different body.",
+        "`nothing-runs-in-scope`: the project runs no version of the agent. `suggested-change-nothing-to-check`: the project's test set has no cases for the agent. `environment-takes-promotions`: the project is a later environment of its order, where new versions arrive only by promotion (`details.position`, and `details.firstProjectId` when you can read it). `registry-read-only`: the agent registry takes no writes, not even the version a suggested change makes; the message says why. Or Idempotency-Key was reused with a different body.",
       ),
       '429': SCHEMA_COMPILE_BUDGET,
       '501': ErrorResponse(
@@ -5538,7 +5539,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No such suggested change, or its version is unregistered (`agent-version-not-found`).',
       ),
       '409': ErrorResponse(
-        "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-nothing-to-check`: the project's test set has no cases for the agent. `suggested-change-out-of-date`: its project runs another version, which it can't be rebuilt on. `registry-read-only`: the agent registry takes no writes, not even the version a suggested change makes.",
+        "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-nothing-to-check`: the project's test set has no cases for the agent. `suggested-change-out-of-date`: its project runs another version, which it can't be rebuilt on. `registry-read-only`: the agent registry takes no writes, not even the version a suggested change makes, or (under `kindgi dev`) the suggested change is for a project; the message says why.",
       ),
       '429': SCHEMA_COMPILE_BUDGET,
       '501': ErrorResponse(
@@ -5553,7 +5554,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'suggestedChanges.pin',
     summary: "Pin a suggested change's version for its project",
     description:
-      "A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. A project on Latest takes the change as its Latest (`add-as-latest`); a pin there is refused with `409 pin-stops-latest`, before any rebuild, unless the body has `stopFollowingLatest: true`, which takes the project off Latest. Needs `pin` on the agent. Allowed from `ready`.",
+      "A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. A project on Latest takes the change as its Latest (`add-as-latest`); a pin there is refused with `409 pin-stops-latest`, before any rebuild, unless the body has `stopFollowingLatest: true`, which takes the project off Latest. Under `kindgi dev`, a suggested change is for the whole workspace (the `tenant` scope): it's pinned there, through the project its version was made in. Needs `pin` on the agent. Allowed from `ready`.",
     tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],
@@ -5604,7 +5605,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No such suggested change. Or `agent-version-not-found`: its version was unregistered.',
       ),
       '409': ErrorResponse(
-        "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-project-pinned`: its project runs a pin, not Latest. `suggested-change-out-of-date`: its project now runs another version than the one it's built on, so it's being rebuilt there and checked again (`details.rebuilding`), or it can't be. `registry-read-only`: the agent registry takes no writes.",
+        "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-project-pinned`: its project runs a pin, not Latest. `suggested-change-out-of-date`: its project now runs another version than the one it's built on, so it's being rebuilt there and checked again (`details.rebuilding`), or it can't be. `registry-read-only`: the agent registry takes no writes (under `kindgi dev`, the pack's files are what runs, with no Latest); the message says why.",
       ),
     },
   },
@@ -6503,7 +6504,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mcp.endpoints.get',
     summary: 'Fetch an MCP endpoint',
     description:
-      'Returns the wire-safe `MCPEndpoint` (secrets never cross the wire — `secretRef` names a secret the runtime resolves inside the deployment).',
+      "Returns the wire-safe `MCPEndpoint` (secrets never cross the wire — `secretRef`, `auth` and `secretEnv` name secrets the runtime resolves inside the deployment). A stdio endpoint's `config.env` values read back as `[redacted]`, their names kept.",
     tags: ['mcp'],
     security: 'bearer',
     parameters: [MCPEndpointIdPathParam],
@@ -6520,7 +6521,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mcp.endpoints.register',
     summary: 'Register an MCP endpoint',
     description:
-      "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef` names a secret in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
+      "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). A credential in plaintext `config.headers` or a stdio endpoint's `config.env` is refused (`400 invalid-mcp-endpoint`, reason `credential-in-headers` or `credential-in-env`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
     tags: ['mcp'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6820,7 +6821,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'policies.list',
     summary: 'List tenant policies',
     description:
-      'Cursor-paginated. Optional `?kind=` narrows to a single policy kind (exact match); optional `?name=` is a prefix match on `Policy.id`. Sort order: policy id ascending. Latest version per id.',
+      'Cursor-paginated. Optional `?kind=` narrows to a single policy kind (exact match); optional `?name=` is a prefix match on `Policy.id`. Sort order: policy id ascending. Latest version per id. A retired policy (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.',
     tags: ['policies'],
     security: 'bearer',
     parameters: [
@@ -6828,6 +6829,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CursorQueryParam,
       PolicyKindFilterQueryParam,
       PolicyNameFilterQueryParam,
+      IncludeRetiredQueryParam,
     ],
     responses: {
       '200': { description: 'Page of policies.', schema: ref('PolicyCollectionPage') },
@@ -7186,7 +7188,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'blocks.list',
     summary: 'List data blocks (latest version of each)',
     description:
-      'Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do.',
+      'Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do. A retired block (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.',
     tags: ['blocks'],
     security: 'bearer',
     parameters: [
@@ -7196,6 +7198,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       BlockNameFilterQueryParam,
       ScopeKindQueryParam,
       ScopeIdQueryParam,
+      IncludeRetiredQueryParam,
     ],
     responses: {
       '200': { description: 'Page of blocks.', schema: ref('BlockCollectionPage') },

@@ -96,6 +96,13 @@ function test_settings_kindgi_url_is_https_or_http_only_here_or_on_a_development
 	kindgi_assert_same( 1, count( $GLOBALS['kindgi_test']['requests'] ), 'nothing sent over plain http in production' );
 }
 
+function test_rest_a_new_conversation_names_the_sites_project_only_for_a_shared_agent(): void {
+	kindgi_assert_same( null, Kindgi_Rest::named_project( 'p-store', 'p-store' ), "the site's own agent: unnamed, so no write is needed" );
+	kindgi_assert_same( 'p-store', Kindgi_Rest::named_project( 'p-store', 'p-agency' ), "an agent shared from another project: opened in the site's" );
+	kindgi_assert_same( null, Kindgi_Rest::named_project( 'p-store', null ), 'an agent with no project: unnamed' );
+	kindgi_assert_same( null, Kindgi_Rest::named_project( 'p-store', '' ), 'an empty project: unnamed' );
+}
+
 function test_rest_a_turn_goes_only_into_the_persons_own_conversation(): void {
 	kindgi_assert( Kindgi_Rest::owns( array( 'participantId' => 'u-jane' ), 'u-jane' ), "Jane's own" );
 	kindgi_assert( ! Kindgi_Rest::owns( array( 'participantId' => 'u-ada' ), 'u-jane' ), "Ada's, refused to Jane" );
@@ -164,4 +171,15 @@ function test_rest_a_long_conversation_shows_its_newest_messages(): void {
 
 function test_admin_the_page_needs_more_than_writing_posts(): void {
 	kindgi_assert_same( 'edit_others_posts', Kindgi_Admin::capability(), 'without WooCommerce: editors and administrators' );
+}
+
+function test_admin_the_privacy_guide_has_the_staffs_part_then_the_shoppers_with_the_placeholder_as_text(): void {
+	$text = Kindgi_Admin::privacy_policy_text();
+	$staff = strpos( $text, '<p class="privacy-policy-tutorial">Use this part if your site&#039;s staff use the Kindgi pages.' );
+	$shoppers = strpos( $text, '<p class="privacy-policy-tutorial">Use this part if your store sends Kindgi WooCommerce webhooks' );
+	kindgi_assert( 0 === $staff, 'the staff\'s part comes first, its note to the owner in the guide\'s tutorial class' );
+	kindgi_assert( false !== $shoppers && $shoppers > $staff, 'then the shoppers\' part' );
+	kindgi_assert( 2 === substr_count( $text, '<strong class="privacy-policy-tutorial">Suggested text: </strong>' ), 'each part has its suggested text' );
+	kindgi_assert( 2 === substr_count( $text, 'Its privacy policy is at &lt;privacy URL&gt;.]' ), 'the placeholder shows as text in both' );
+	kindgi_assert( false === strpos( $text, '<privacy URL>' ), 'never as a tag' );
 }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: packages/api/openapi.json scripts/gen-webhook-event-shapes.mjs
 
 /** `parseEvent` (`@kindgi/sdk/webhooks`): the typed event in a verified body, checked against shapes generated from the API's schemas. */
 

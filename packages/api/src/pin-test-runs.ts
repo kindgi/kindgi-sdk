@@ -20,6 +20,7 @@
 import type { Logger } from '@kindgi/log';
 import type { AgentId, AgentPinScope, ProjectId, RunId, Semver, TenantId } from '@kindgi/types';
 
+import type { AgentRegistryBinding } from './agent-binding.js';
 import type { Pin } from './agent-pin-binding.js';
 import type { CorrectionRegistryBinding } from './correction-binding.js';
 import type { ItemProjectsBinding } from './item-projects-binding.js';
@@ -398,6 +399,28 @@ async function projectsInside(
     }
   }
   return inOrg;
+}
+
+/**
+ * The projects a pin's test runs check where the agent registry takes
+ * Improve's candidates and no item-projects binding says which projects
+ * serve an agent (`kindgi dev`): the project the registry places the
+ * agent in, where its runs go. So a tenant pin checks it, as a deployed
+ * tenant pin checks each project the agent runs in. Only a pin's test
+ * runs read it: the rights on an item and its `?projectId=` reads still
+ * have no binding. `undefined` anywhere else.
+ */
+export function candidatesPinProjects(
+  agents: Pick<AgentRegistryBinding, 'readOnly' | 'get'> | undefined,
+): Pick<ItemProjectsBinding, 'projectsOf'> | undefined {
+  if (agents?.readOnly?.takesCandidates === undefined) return undefined;
+  return {
+    async projectsOf({ tenantId, kind, id }) {
+      if (kind !== 'agent') return undefined;
+      const agent = await agents.get({ tenantId, agentId: id as AgentId });
+      return agent?.projectId === undefined ? undefined : [agent.projectId];
+    },
+  };
 }
 
 /** How specific a pin's scope is: a more specific one covers a project over a wider one. */
