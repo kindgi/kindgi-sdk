@@ -71,21 +71,26 @@ export type {
 } from './mail-attachment.js';
 export type { MailMessage, MailPerson } from './mail.js';
 export type {
+  CalendarAccess,
   CalendarAttendee,
   CalendarBusy,
   CalendarEvent,
   CalendarEventWritten,
+  CalendarListed,
   CalendarOwner,
   CalendarResponse,
   CalendarToolOptions,
 } from './calendar.js';
 export {
+  type GoogleCalendarCalendarsListInput,
+  type GoogleCalendarCalendarsListOutput,
   type GoogleCalendarEventCreateInput,
   type GoogleCalendarEventUpdateInput,
   type GoogleCalendarEventsListInput,
   type GoogleCalendarEventsListOutput,
   type GoogleCalendarFreeBusyInput,
   type GoogleCalendarFreeBusyOutput,
+  googleCalendarCalendarsList,
   googleCalendarEventCreate,
   googleCalendarEventUpdate,
   googleCalendarEventsList,

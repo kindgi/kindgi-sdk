@@ -64,6 +64,12 @@ describe('the Google entry', () => {
       changes: true,
       review: 'sensitive',
     });
+    expect(google.permissions['calendar.calendarlist.readonly']).toEqual({
+      grants: 'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
+      says: 'See the list of your calendars',
+      changes: false,
+      review: 'sensitive',
+    });
   });
 
   it('learns the account from the ID token, from either form of the issuer', () => {
@@ -104,6 +110,7 @@ describe('the Google entry', () => {
           'calendar.events.insert': 0,
           'calendar.events.patch': 0,
           'calendar.freebusy.query': 0,
+          'calendar.calendarList.list': 0,
         },
       },
       {
@@ -251,6 +258,7 @@ describe('the Microsoft entry', () => {
           'outlook.messages.delta': 0,
           'outlook.folders.get': 0,
           'outlook.calendar.view': 0,
+          'outlook.calendars.list': 0,
           'outlook.events.get': 0,
         },
       },
