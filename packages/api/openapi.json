@@ -222,7 +222,7 @@
     },
     {
       "name": "webhook-endpoints",
-      "description": "Outbound webhooks: endpoints the platform sends signed events to (`run.finished` when a top-level run completes, fails or is cancelled), their delivery log, redelivery and a test event. Signed in the Standard Webhooks format with a secret the endpoint references by name (`secretRef`); delivered at least once, so receivers deduplicate on `webhook-id`. Event bodies are under `webhooks`. Not to be confused with `/v1/webhooks`, which are inbound triggers. Caller-plugged via `WebhookEndpointBinding`."
+      "description": "Outbound webhooks: endpoints the platform sends signed events to (`run.finished` when a top-level run, not a replay, completes, fails or is cancelled), their delivery log, redelivery and a test event. Signed in the Standard Webhooks format with a secret the endpoint references by name (`secretRef`); delivered at least once, so receivers deduplicate on `webhook-id`. Event bodies are under `webhooks`. Not to be confused with `/v1/webhooks`, which are inbound triggers. Caller-plugged via `WebhookEndpointBinding`."
     },
     {
       "name": "connections",
@@ -1050,7 +1050,13 @@
           }
         ],
         "discriminator": {
-          "propertyName": "kind"
+          "propertyName": "kind",
+          "mapping": {
+            "tenant": "#/components/schemas/PinScopeTenant",
+            "org": "#/components/schemas/PinScopeOrg",
+            "project": "#/components/schemas/PinScopeProject",
+            "segment": "#/components/schemas/PinScopeSegment"
+          }
         }
       },
       "AgentPinnedVersionResolution": {
@@ -1577,7 +1583,12 @@
           }
         ],
         "discriminator": {
-          "propertyName": "kind"
+          "propertyName": "kind",
+          "mapping": {
+            "tenant": "#/components/schemas/PinScopeTenant",
+            "org": "#/components/schemas/PinScopeOrg",
+            "project": "#/components/schemas/PinScopeProject"
+          }
         }
       },
       "PinActor": {
@@ -2068,7 +2079,8 @@
           },
           "unregisteredAt": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Present only on an unregistered version: a retired gate (every version unregistered) as `GET /v1/release-gates?includeRetired=true` lists it."
           }
         }
       },
@@ -4800,7 +4812,12 @@
           }
         ],
         "discriminator": {
-          "propertyName": "kind"
+          "propertyName": "kind",
+          "mapping": {
+            "tenant-admin": "#/components/schemas/ServiceAccountGrantTenantAdmin",
+            "tenant-member": "#/components/schemas/ServiceAccountGrantTenantMember",
+            "project": "#/components/schemas/ServiceAccountGrantProject"
+          }
         }
       },
       "ServiceAccountGrantBody": {
@@ -4817,7 +4834,12 @@
           }
         ],
         "discriminator": {
-          "propertyName": "kind"
+          "propertyName": "kind",
+          "mapping": {
+            "tenant-admin": "#/components/schemas/ServiceAccountGrantTenantAdmin",
+            "tenant-member": "#/components/schemas/ServiceAccountGrantTenantMember",
+            "project": "#/components/schemas/ServiceAccountGrantProjectBody"
+          }
         }
       },
       "ServiceAccountUngrantProject": {
@@ -4855,7 +4877,12 @@
           }
         ],
         "discriminator": {
-          "propertyName": "kind"
+          "propertyName": "kind",
+          "mapping": {
+            "tenant-admin": "#/components/schemas/ServiceAccountGrantTenantAdmin",
+            "tenant-member": "#/components/schemas/ServiceAccountGrantTenantMember",
+            "project": "#/components/schemas/ServiceAccountUngrantProject"
+          }
         }
       },
       "ServiceAccount": {
@@ -4958,7 +4985,12 @@
                 }
               ],
               "discriminator": {
-                "propertyName": "kind"
+                "propertyName": "kind",
+                "mapping": {
+                  "tenant-admin": "#/components/schemas/ServiceAccountGrantTenantAdmin",
+                  "tenant-member": "#/components/schemas/ServiceAccountGrantTenantMember",
+                  "project": "#/components/schemas/ServiceAccountGrantProjectBody"
+                }
               }
             },
             "description": "Written before the account is returned, so its first key works at once."
@@ -12397,7 +12429,13 @@
           }
         ],
         "discriminator": {
-          "propertyName": "kind"
+          "propertyName": "kind",
+          "mapping": {
+            "suggested": "#/components/schemas/ImproveRunOutcomeSuggested",
+            "nothing-better": "#/components/schemas/ImproveRunOutcomeNothingBetter",
+            "cost-cap": "#/components/schemas/ImproveRunOutcomeCostCap",
+            "failed": "#/components/schemas/ImproveRunOutcomeFailed"
+          }
         }
       },
       "ImproveRunStart": {
@@ -14353,7 +14391,8 @@
                     "type": "object",
                     "additionalProperties": {
                       "type": "string"
-                    }
+                    },
+                    "description": "Variables for the server's process, stored as given. Not for a credential: a name `config.headers` would refuse, its parts split on `_` as well as `-` (`GITHUB_TOKEN`, `OPENAI_API_KEY`, `AWS_SECRET_ACCESS_KEY`, `SLACK_BOT_TOKEN`), is refused (`invalid-mcp-endpoint`, reason `credential-in-env`). Give it by reference through `secretEnv`. An empty name, a name with `=` or a NUL, a value with a NUL, or a value of `[redacted]` is refused too (reason `invalid-stdio-env`). Every value reads back as `[redacted]`, its name kept, on endpoints registered before as well, so an export holds the names, not the values."
                   }
                 }
               },
@@ -14413,11 +14452,25 @@
             ]
           },
           "secretRef": {
-            "$ref": "#/components/schemas/MCPEndpointSecretRef"
+            "$ref": "#/components/schemas/MCPEndpointSecretRef",
+            "description": "The secret sent as the endpoint's bearer. HTTP transports only: on a `stdio` endpoint it's refused (`invalid-mcp-endpoint`, reason `secret-ref-on-stdio`), since a stdio server gets no headers; give it its secret through `secretEnv`. An endpoint registered with one before keeps it, and the runtime reads it for no one."
           },
           "auth": {
             "$ref": "#/components/schemas/MCPEndpointAuth",
             "description": "How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials` or `header`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic` and `oauth2-client-credentials` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` scheme as `invalid-auth`."
+          },
+          "secretEnv": {
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 16,
+            "propertyNames": {
+              "minLength": 1,
+              "pattern": "^[^=\\u0000]+$"
+            },
+            "additionalProperties": {
+              "$ref": "#/components/schemas/MCPEndpointSecretRef"
+            },
+            "description": "A stdio server's secrets, as variables of its process: each variable's name (`GITHUB_TOKEN`) with the secret its value is read from, at the endpoint's recorded scope, when the runtime starts the server. The value is never stored or answered. 1 to 16 variables, each name without `=`, and none also in `config.env` (`invalid-mcp-endpoint`, reason `secret-env-twice`); otherwise reason `invalid-secret-env`. Each secret counts for the provider-key guard and the env a runtime serves, as `secretRef`'s does. `stdio` only: on an HTTP endpoint it's refused (reason `secret-env-on-http`). An older runtime refuses the field as unknown. A runtime rolled back to one without it starts the server without these variables, so the server fails its own calls; no value is exposed."
           },
           "instructions": {
             "type": "string",
@@ -14509,7 +14562,7 @@
           "envName",
           "name"
         ],
-        "description": "The secret an MCP endpoint authenticates with: a name in the deployment's secrets store, resolved at the endpoint's tenant scope by the runtime (the shape webhooks and providers use). As the endpoint's own `secretRef`, it is sent as its bearer; inside `auth`, it is the scheme's password, client secret or header value. The endpoint keeps only this reference.",
+        "description": "The secret an MCP endpoint authenticates with: a name in the deployment's secrets store, resolved at the endpoint's tenant scope by the runtime (the shape webhooks and providers use). As the endpoint's own `secretRef`, it is sent as its bearer; inside `auth`, it is the scheme's password, client secret or header value; in `secretEnv`, a variable's value for a stdio server. The endpoint keeps only this reference.",
         "properties": {
           "envName": {
             "type": "string",
@@ -14536,7 +14589,12 @@
           }
         ],
         "discriminator": {
-          "propertyName": "scheme"
+          "propertyName": "scheme",
+          "mapping": {
+            "basic": "#/components/schemas/MCPBasicAuth",
+            "oauth2-client-credentials": "#/components/schemas/MCPOAuth2ClientCredentialsAuth",
+            "header": "#/components/schemas/MCPHeaderAuth"
+          }
         }
       },
       "MCPBasicAuth": {
@@ -14738,7 +14796,8 @@
                     "type": "object",
                     "additionalProperties": {
                       "type": "string"
-                    }
+                    },
+                    "description": "Variables for the server's process, stored as given. Not for a credential: a name `config.headers` would refuse, its parts split on `_` as well as `-` (`GITHUB_TOKEN`, `OPENAI_API_KEY`, `AWS_SECRET_ACCESS_KEY`, `SLACK_BOT_TOKEN`), is refused (`invalid-mcp-endpoint`, reason `credential-in-env`). Give it by reference through `secretEnv`. An empty name, a name with `=` or a NUL, a value with a NUL, or a value of `[redacted]` is refused too (reason `invalid-stdio-env`). Every value reads back as `[redacted]`, its name kept, on endpoints registered before as well, so an export holds the names, not the values."
                   }
                 }
               },
@@ -14798,11 +14857,25 @@
             ]
           },
           "secretRef": {
-            "$ref": "#/components/schemas/MCPEndpointSecretRef"
+            "$ref": "#/components/schemas/MCPEndpointSecretRef",
+            "description": "The secret sent as the endpoint's bearer. HTTP transports only: on a `stdio` endpoint it's refused (`invalid-mcp-endpoint`, reason `secret-ref-on-stdio`), since a stdio server gets no headers; give it its secret through `secretEnv`. An endpoint registered with one before keeps it, and the runtime reads it for no one."
           },
           "auth": {
             "$ref": "#/components/schemas/MCPEndpointAuth",
             "description": "How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials` or `header`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic` and `oauth2-client-credentials` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` scheme as `invalid-auth`."
+          },
+          "secretEnv": {
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 16,
+            "propertyNames": {
+              "minLength": 1,
+              "pattern": "^[^=\\u0000]+$"
+            },
+            "additionalProperties": {
+              "$ref": "#/components/schemas/MCPEndpointSecretRef"
+            },
+            "description": "A stdio server's secrets, as variables of its process: each variable's name (`GITHUB_TOKEN`) with the secret its value is read from, at the endpoint's recorded scope, when the runtime starts the server. The value is never stored or answered. 1 to 16 variables, each name without `=`, and none also in `config.env` (`invalid-mcp-endpoint`, reason `secret-env-twice`); otherwise reason `invalid-secret-env`. Each secret counts for the provider-key guard and the env a runtime serves, as `secretRef`'s does. `stdio` only: on an HTTP endpoint it's refused (reason `secret-env-on-http`). An older runtime refuses the field as unknown. A runtime rolled back to one without it starts the server without these variables, so the server fails its own calls; no value is exposed."
           },
           "instructions": {
             "type": "string",
@@ -15648,6 +15721,11 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. For `retention`, `{ v: 1, doc: RetentionSpec }` from `@kindgi/policy-contract` (domain / graceSeconds / mode, which must be `purge`); a tenant has one retention policy per domain, plus one for `*`. `tool-errors`, `hitl` and `retention` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer."
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Present only on an unregistered version: a retired policy (every version unregistered) as `GET /v1/policies?includeRetired=true` lists it. `GET /v1/policies/{policyId}` answers the latest active version, which never carries it."
           }
         }
       },
@@ -16342,7 +16420,7 @@
           "unregisteredAt": {
             "type": "string",
             "format": "date-time",
-            "description": "Present only on an unregistered version; agent versions that pin it still read it."
+            "description": "Present only on an unregistered version; agent versions that pin it still read it. A retired block (every version unregistered) carries it as `GET /v1/blocks?includeRetired=true` lists it."
           },
           "publishedBy": {
             "type": "object",
@@ -17281,6 +17359,9 @@
           },
           "costUsd": {
             "$ref": "#/components/schemas/CorrectedComparisonCost"
+          },
+          "unchecked": {
+            "$ref": "#/components/schemas/CorrectedComparisonUnchecked"
           }
         }
       },
@@ -17307,6 +17388,31 @@
             "type": "integer",
             "minimum": 1,
             "description": "The cases whose every repetition reported a cost: the ones totalled."
+          }
+        }
+      },
+      "CorrectedComparisonUnchecked": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "cases",
+          "reasons"
+        ],
+        "description": "The cases whose `expect` couldn't be graded, so they add no check to `passRate`: when `passRate` has no value, this says why. Absent from a summary when every case's was graded, and from older servers.",
+        "properties": {
+          "cases": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "How many cases have an `unchecked` reason."
+          },
+          "reasons": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 5,
+            "items": {
+              "type": "string"
+            },
+            "description": "Their reasons, each once, in the cases' order: the first 5."
           }
         }
       },
@@ -17822,6 +17928,10 @@
               "type": "number",
               "minimum": 0
             }
+          },
+          "unchecked": {
+            "type": "string",
+            "description": "Why the case's `expect` couldn't be graded, so it has no entry in `corrections` and adds no check to `passRate`: the answer checker's reason (say, that the version's model settings name no model), or why it wasn't asked. Absent when it was graded, and from older servers."
           },
           "diverged": {
             "type": "boolean"
@@ -20350,7 +20460,13 @@
           }
         ],
         "discriminator": {
-          "propertyName": "kind"
+          "propertyName": "kind",
+          "mapping": {
+            "direct": "#/components/schemas/AccessPathDirect",
+            "team": "#/components/schemas/AccessPathTeam",
+            "org-admin": "#/components/schemas/AccessPathOrgAdmin",
+            "tenant-admin": "#/components/schemas/AccessPathTenantAdmin"
+          }
         }
       },
       "MyProjectAccess": {
@@ -23502,7 +23618,13 @@
           }
         ],
         "discriminator": {
-          "propertyName": "kind"
+          "propertyName": "kind",
+          "mapping": {
+            "direct": "#/components/schemas/ProjectAccessDirect",
+            "team": "#/components/schemas/ProjectAccessTeam",
+            "org-admin": "#/components/schemas/ProjectAccessOrgAdmin",
+            "tenant-admin": "#/components/schemas/ProjectAccessTenantAdmin"
+          }
         }
       },
       "ProjectAccess": {
@@ -27410,7 +27532,7 @@
       "WebhookEndpointFilter": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Which events reach the endpoint. Every field narrows; absent fields do not. `run.finished` is sent for top-level runs only.",
+        "description": "Which events reach the endpoint. Every field narrows; absent fields do not. `run.finished` is sent for top-level runs only, not replays.",
         "properties": {
           "projectId": {
             "type": "string",
@@ -39518,7 +39640,7 @@
             }
           }
         },
-        "description": "Each release gate's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.",
+        "description": "Each release gate's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's. A retired gate (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.",
         "parameters": [
           {
             "name": "limit",
@@ -39587,6 +39709,16 @@
             "required": false,
             "description": "One step of the segment path, `key:value`; repeat it in order, coarse to fine.",
             "x-kindgi-segment-path": true
+          },
+          {
+            "name": "includeRetired",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "When `true`, retired items (every version unregistered) are listed too, each as its highest version with that version's `unregisteredAt`. Default: `false` (items with an active version only)."
           }
         ],
         "security": [
@@ -50936,7 +51068,7 @@
             }
           }
         },
-        "description": "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef` names a secret in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
+        "description": "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). A credential in plaintext `config.headers` or a stdio endpoint's `config.env` is refused (`400 invalid-mcp-endpoint`, reason `credential-in-headers` or `credential-in-env`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -51015,7 +51147,7 @@
             }
           }
         },
-        "description": "Returns the wire-safe `MCPEndpoint` (secrets never cross the wire — `secretRef` names a secret the runtime resolves inside the deployment).",
+        "description": "Returns the wire-safe `MCPEndpoint` (secrets never cross the wire — `secretRef`, `auth` and `secretEnv` name secrets the runtime resolves inside the deployment). A stdio endpoint's `config.env` values read back as `[redacted]`, their names kept.",
         "parameters": [
           {
             "name": "endpointId",
@@ -52538,7 +52670,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Optional `?kind=` narrows to a single policy kind (exact match); optional `?name=` is a prefix match on `Policy.id`. Sort order: policy id ascending. Latest version per id.",
+        "description": "Cursor-paginated. Optional `?kind=` narrows to a single policy kind (exact match); optional `?name=` is a prefix match on `Policy.id`. Sort order: policy id ascending. Latest version per id. A retired policy (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.",
         "parameters": [
           {
             "name": "limit",
@@ -52578,6 +52710,16 @@
             },
             "required": false,
             "description": "Prefix match on `Policy.id`. Dotted namespaces are the natural filter shape."
+          },
+          {
+            "name": "includeRetired",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "When `true`, retired items (every version unregistered) are listed too, each as its highest version with that version's `unregisteredAt`. Default: `false` (items with an active version only)."
           }
         ],
         "security": [
@@ -54479,7 +54621,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do.",
+        "description": "Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do. A retired block (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.",
         "parameters": [
           {
             "name": "limit",
@@ -54538,6 +54680,16 @@
             },
             "required": false,
             "description": "Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid."
+          },
+          {
+            "name": "includeRetired",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "When `true`, retired items (every version unregistered) are listed too, each as its highest version with that version's `unregisteredAt`. Default: `false` (items with an active version only)."
           }
         ],
         "security": [

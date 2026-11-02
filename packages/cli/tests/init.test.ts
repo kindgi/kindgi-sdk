@@ -7,7 +7,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { type Agent, type PromptBlockContent, renderInstructions } from '@kindgi/agents';
+import {
+  type Agent,
+  type PromptBlockContent,
+  renderInstructions,
+  tunableKeys,
+} from '@kindgi/agents';
 import { readPackBlocks } from '@kindgi/handler-runtime';
 import { runIndexer } from '@kindgi/handler-runtime/kindgi-index';
 import { build } from 'esbuild';
@@ -20,6 +25,7 @@ import { JVM_PREVIEW } from '../src/init/dependency-specs.js';
 import { substitute } from '../src/init/template-files.js';
 import { runCli } from '../src/main.js';
 import { publishedCliSpec } from '../src/package-manager.js';
+import { loadProviderPresets } from '../src/providers/preset-loader.js';
 import { CLI_VERSION } from '../src/version-info.js';
 
 let home: string;
@@ -574,6 +580,21 @@ describe('kindgi init --template=returns-helper', () => {
       { id: 'acme-returns.tone', version: '0.1.0', kind: 'prompt' },
     ]);
     expect(blockProblems(read.blocks)).toEqual([]);
+    // The model-settings block names its model, so that model judges a
+    // changed answer against its correction too. It's the anthropic
+    // preset's, which takes no temperature, so nothing is marked tunable.
+    const settings = read.blocks.find((b) => b.id === 'acme-returns.returns-model')?.content as
+      | { readonly schema?: Record<string, unknown>; readonly values?: Record<string, unknown> }
+      | undefined;
+    expect(settings?.values).toMatchObject({ providerId: 'anthropic', model: 'claude-sonnet-5-5' });
+    // It sets no temperature: the model would drop it, with a warning on every answer.
+    expect(settings?.values).not.toHaveProperty('temperature');
+    expect(tunableKeys(settings?.schema)).toEqual([]);
+    const anthropic = (await loadProviderPresets()).anthropic;
+    expect(anthropic?.metadata.id).toBe('anthropic');
+    expect(anthropic?.metadata.models.find((m) => m.name === 'claude-sonnet-5-5')?.sampling).toBe(
+      false,
+    );
     // The instructions rendered from the tone block as a turn renders them,
     // strictly, with the refund-rules block's values as the agent pins them.
     const nodeModules = join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules');

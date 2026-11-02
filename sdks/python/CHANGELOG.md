@@ -23,6 +23,15 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   the words in its `context`, for a signed-in reviewer. The pack's index
   carries it as `approval`; left out, an approval reads
   `Approve a call to <tool id>`.
+- `kindgi`: **a retired block, policy or release gate can be found.**
+  `blocks.list`, `policies.list` and `release_gates.list` take
+  `include_retired=True`, as `agents.list`, `flows.list`, `tools.list` and
+  `test_sets.list` do. A retired one (every version unregistered) is then
+  listed too, as its highest version with that version's `unregistered_at`,
+  so it can be found and a version brought back. `Policy` gains
+  `unregistered_at`. A runtime without the parameter ignores it and lists as
+  before.
+- `kindgi`: **a comparison says why a case's answer wasn't checked.** A case result's `unchecked` is why its `expect` couldn't be graded, such as a version whose model settings name no model to judge with. The summary's `unchecked` (`CorrectedComparisonUnchecked`) counts those cases and lists their reasons, each once, at most five. So a `pass_rate` of `None` says why. Both are optional.
 - `kindgi`: **a suggested change says how many corrections it fixes in all**:
   `SuggestedChange.correction_count`. `fixes` names the first 100 at most, and
   an Improve run can fix more. It's `None` from an older runtime: there, take
@@ -135,6 +144,21 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   approval; anything else is refused (400 `bad-input`). The decision it
   answers and the approval read back carry it (`ReviewDecision.fact_text`,
   `ApprovalDecisionRecord.fact_text`).
+
+## 0.3.1
+
+- `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",
+  judge_capabilities={"needs": [{"feature": "structured-output"}]})` names what the
+  judge model is routed by, and the index carries it (`judgeCapabilities`); the decorator
+  refuses an `llm-judge` guardrail without it. Before, `@guardrail` had no way to name it,
+  and the runtime refused such a guardrail on every turn.
+
+## 0.3.1rc1
+
+No Python changes; the version moves with the npm packages.
+
+## 0.3.1rc0
+
 - `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",
   judge_capabilities={"needs": [{"feature": "structured-output"}]})` names what the
   judge model is routed by, and the index carries it (`judgeCapabilities`); the decorator
