@@ -2023,10 +2023,10 @@ export function createInMemoryConnections(
    * A company need: the run's mailbox's connection, else the agent's or
    * flow's choice, else the only candidate. One of those that can't serve
    * the call refuses, naming it, and never falls back to another. The
-   * runtime keeps the connection a run tree's first ready call took through
-   * a choice for the rest of that run tree; this reference, which has no
-   * run tree (a call names its own run alone), answers each call from the
-   * current choice.
+   * runtime keeps, per run tree, agent or flow, and app, the connection the
+   * first ready call took through a choice, even once the choice changes or
+   * is removed; this reference, which has no run tree (a call names its own
+   * run alone), answers each call from the current choice.
    */
   function resolveCompany(
     name: string,

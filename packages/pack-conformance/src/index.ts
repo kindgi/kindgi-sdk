@@ -125,6 +125,7 @@ const addFormats = ((addFormatsModule as { default?: unknown }).default ??
 
 function specValidators(): {
   readonly index: ValidateFunction;
+  readonly request: ValidateFunction;
   readonly response: ValidateFunction;
   readonly info: ValidateFunction;
   readonly compile: (schema: object) => ValidateFunction;
@@ -147,6 +148,7 @@ function specValidators(): {
   addFormats(loose);
   return {
     index,
+    request: get('request'),
     response: get('response'),
     info: get('info'),
     compile: (schema) => loose.compile(schema),
@@ -1268,6 +1270,7 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
           config: { mode: 'fast' },
           settings: { 'acme.weights': { recency: 0.7 } },
           // Pack protocol 2.9.0: the connections the tool declares, each with a short-lived token.
+          // A connection's name is 2.11.0.
           connections: {
             mail: {
               connectionId: 'c-mail',
@@ -1275,6 +1278,7 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
               appName: 'Google',
               accessToken: 'mail-token',
               account: { id: 'g-ana', label: 'ana@acme.example' },
+              name: "Ana's mail",
               expiresAt: '2026-10-23T01:00:00.000Z',
             },
             repo: {
@@ -1286,9 +1290,10 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
             },
           },
         };
-        const answer = response(
-          await invoke(service, toolCall('conformance.context', {}, { ctx })),
-        );
+        const call = toolCall('conformance.context', {}, { ctx });
+        // The call is one the runtime may send, as the spec has it.
+        expectValid(spec.request, call);
+        const answer = response(await invoke(service, call));
         expect(answer.output).toEqual(ctx);
       });
 
@@ -1737,8 +1742,8 @@ export function describeCallContextCompatibility(target: PackServiceTarget): voi
 
     test('a tool call whose context has the project, the org, an idempotency key and connections: answered', async () => {
       if (service === undefined) throw new Error('the service did not start');
-      // The idempotency key is pack protocol 2.6.0 and the connections 2.9.0: an older
-      // service ignores both.
+      // The idempotency key is pack protocol 2.6.0, the connections 2.9.0 and a
+      // connection's name 2.11.0: an older service ignores them.
       const ctx = {
         ...newer,
         idempotencyKey: '0d6f4c1a-9a43-5b1e-8f1d-2b7e6c3d9a10',
@@ -1749,6 +1754,7 @@ export function describeCallContextCompatibility(target: PackServiceTarget): voi
             appName: 'Google',
             accessToken: 'mail-token',
             account: { id: 'g-ana', label: 'ana@acme.example' },
+            name: "Ana's mail",
           },
         },
       };

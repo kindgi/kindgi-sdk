@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
 class ConnectionsTest {
   private static final String TOKEN = "ya29.acme-token";
   private final ToolConnection mail = new ToolConnection("c-1", "google", "Google", TOKEN,
-      new ConnectionAccount("g-1", "ana@acme.example"), null);
+      new ConnectionAccount("g-1", "ana@acme.example"), null, null);
 
   @Test
   void aConnectionsTokenIsReadableButNeverPrinted() {
@@ -57,6 +57,23 @@ class ConnectionsTest {
     assertThat(ctx.connections().get("mail")).isEqualTo(mail);
     assertThat(Requests.context(Map.of("tenantId", "t1", "runId", "r1"), new Cancellation(), Logger.noop())
         .connections()).isEmpty();
+  }
+
+  @Test
+  void aConnectionsNameIsReadWhenSentAndElseNull() {
+    Map<String, Object> sent = Map.of("connectionId", "c-1", "app", "google", "appName", "Google",
+        "accessToken", TOKEN, "account", Map.of("id", "g-1", "label", "ana@acme.example"), "name", "Ana's mail");
+    ToolConnection named = ToolConnection.fromWire(sent);
+    assertThat(named).isNotNull();
+    assertThat(named.name()).isEqualTo("Ana's mail");
+    assertThat(named.toString()).contains("name=Ana's mail").doesNotContain(TOKEN);
+    // A runtime before pack protocol 2.11.0 sends no name; a name that isn't text is left out.
+    Map<String, Object> older = new java.util.HashMap<>(sent);
+    older.remove("name");
+    assertThat(ToolConnection.fromWire(older)).isEqualTo(mail);
+    Map<String, Object> odd = new java.util.HashMap<>(sent);
+    odd.put("name", 7);
+    assertThat(ToolConnection.fromWire(odd)).isEqualTo(mail);
   }
 
   @Test
