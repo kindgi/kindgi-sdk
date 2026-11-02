@@ -1311,6 +1311,11 @@ EOT
      under. It gives the server its settings for routing each deployment
      (KINDGI_PACK_ROUTING and the rest). The Job and its schedule come at a
      second apply, by hand, once the orchestrator's key is in its secret.
+   - With a private-IP database (database_private_network), turning on Cloud
+     Scheduler's API (and, with secrets_backend "none", Cloud KMS's) makes
+     the module read the instance's CAs during the apply, so the plan shows
+     the server's KINDGI_DATABASE_SERVER_CA as known after apply. It's still
+     the instance's CAs.
    - With the one pack service, from the apply until each pack is deployed
      again, calls to a deployed pack's tools are refused: pack-route-missing,
      then, for about a minute, pack-endpoint-pending. Pick a quiet hour.
@@ -1559,6 +1564,13 @@ plan_allowed_changes() {
             "google_kms_crypto_key_iam_member.server_wraps (created)" \
             "google_kms_crypto_key_iam_member.server_reads_key (created)"
         fi
+        # Turning on Cloud Scheduler's API (and Cloud KMS's, with "none"),
+        # which the instance depends on, makes the module read a private-IP
+        # instance's CAs during the apply, so in the same plan the server's
+        # are known only then. Never on their own.
+        if [[ $DATABASE_PRIVATE == true ]] && plan_adds_api "$1"; then
+          printf '%s\n' "google_cloud_run_v2_service.server template.containers.env.KINDGI_DATABASE_SERVER_CA"
+        fi
         # The pack account, now there in every shape: renamed where the one
         # pack service ran as it, made with its grants where none did.
         if [[ $HAS_PACK == true ]]; then
@@ -1582,6 +1594,14 @@ plan_protects_instance() {
     | select(.type == "google_sql_database_instance" and .name == "kindgi" and .change.actions == ["update"])
     | select((.change.before.settings[0].deletion_protection_enabled // false) != true
         and .change.after.settings[0].deletion_protection_enabled == true)] | length > 0' "$1" >/dev/null 2>&1
+}
+
+# Whether a plan (terraform show -json) turns on one of Google's APIs in the
+# project: 0.4.0's Cloud Scheduler, say.
+plan_adds_api() {
+  jq -e '[.resource_changes[]?
+    | select(.mode == "managed" and .type == "google_project_service" and .name == "apis"
+        and .change.actions == ["create"])] | length > 0' "$1" >/dev/null 2>&1
 }
 
 # >>> same in both modules: plan-changes
