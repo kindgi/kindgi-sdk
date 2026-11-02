@@ -137,11 +137,12 @@ export interface ApprovalsRouterOptions {
  * reviewer-only — with one exception: with an authorizer, a person who
  * is the tenant's admin reads (the list and one approval) at every tier,
  * and exports what they read (an approval's signed audit bundle, which
- * decides nothing). With no roster entry, they read as an `admin` reviewer. A reviewer below
- * `admin` who is one reads their own tier, and any tier they ask for
- * (`requiredRole`, or one approval). It's the set that may register itself
- * as an `admin` reviewer (`reviewersRouter`). Deciding stays the roster's,
- * and an API key with no user reads nothing it couldn't before.
+ * decides nothing). With no roster entry, they read as an `admin`
+ * reviewer. A reviewer below `admin` who is one reads their own tier, and
+ * any tier they ask for (`requiredRole`, or one approval). It's the set
+ * that may register itself as an `admin` reviewer (`reviewersRouter`).
+ * Deciding stays the roster's, and an API key with no user reads nothing
+ * it couldn't before.
  *
  * An approval addressed to one member (`approver`: a call that acts with
  * that member's own connection) is theirs alone to decide, and among the

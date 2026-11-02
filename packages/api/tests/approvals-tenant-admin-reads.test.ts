@@ -414,14 +414,17 @@ describe('the reads it opens', () => {
     expect(gets.sort()).toEqual(['/v1/approvals', '/v1/approvals/{approvalId}']);
   });
 
-  test("and the export: the one POST it opens, by its path, is an approval's audit bundle", () => {
+  test("and the export: the POSTs are an approval's audit bundle and its decision, and a new one must decide whether it reads", () => {
     const posts = OPERATIONS.filter(
       (op) =>
         op.method === 'post' &&
         op.openapiPath.startsWith('/v1/approvals') &&
-        op.openapiPath.endsWith('/audit-bundle'),
+        !op.openapiPath.startsWith('/v1/approvals/reviewers'),
     ).map((op) => op.openapiPath);
-    expect(posts).toEqual(['/v1/approvals/{approvalId}/audit-bundle']);
+    expect(posts.sort()).toEqual([
+      '/v1/approvals/{approvalId}/audit-bundle',
+      '/v1/approvals/{approvalId}/complete',
+    ]);
   });
 });
 
