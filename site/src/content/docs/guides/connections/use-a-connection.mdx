@@ -373,11 +373,11 @@ ctx = ToolContext.for_test(
 
 ```java excerpt
 ToolContext ctx = ToolContext.forTest(Map.of("mail", new ToolConnection("c-1", "google", "Google",
-    "test-token", new ConnectionAccount("g-1", "ana@acme.com"), null)));
+    "test-token", new ConnectionAccount("g-1", "ana@acme.com"), null, null)));
 ```
 
-The last argument is when the token expires, which a test can leave
-`null`.
+The last two arguments are the connection's name and when the token
+expires, which a test can leave `null`.
 
 </TabItem>
 <TabItem label="Scala">
@@ -387,11 +387,11 @@ import com.kindgi.pack.{ConnectionAccount, ToolConnection, ToolContext}
 import java.util.Map as JMap
 
 val ctx = ToolContext.forTest(JMap.of("mail", new ToolConnection("c-1", "google", "Google",
-  "test-token", new ConnectionAccount("g-1", "ana@acme.com"), null)))
+  "test-token", new ConnectionAccount("g-1", "ana@acme.com"), null, null)))
 ```
 
-The last argument is when the token expires, which a test can leave
-`null`.
+The last two arguments are the connection's name and when the token
+expires, which a test can leave `null`.
 
 </TabItem>
 </Tabs>

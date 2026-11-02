@@ -47,6 +47,8 @@ def _connection(c: "ToolConnection") -> dict[str, Any]:
         "accessToken": c.access_token,
         "account": {"id": c.account.id, "label": c.account.label},
     }
+    if c.name is not None:
+        out["name"] = c.name
     if c.expires_at is not None:
         out["expiresAt"] = c.expires_at
     return out
