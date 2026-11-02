@@ -767,7 +767,7 @@ Each part is a step of its own. When they all work, the person's page
 opens. When one doesn't, the dialog says how each went:
 
 - **They weren't added,** such as for an email someone has: "Sam Rivera
-  wasn't added.", each step with why ("Someone in this tenant already has
+  wasn't added.", each step with why ("Someone in this workspace already has
   that email.") or "not tried: they weren't added", and **Change and try
   again**.
 - **They were added, but not everything was given:** the steps that failed
@@ -798,15 +798,15 @@ Taking something away asks first: "Take Ada Lovelace off Support? From
 their next request on, they can't work in Support. Their other access, and
 what they did there, stay." The page also lists their keys, with **Make a
 key for** them, where they're signed in, their sign-ins, and **Remove from
-the tenant**.
+the workspace**.
 
 Until they first sign in, their page has an **Invitation** section: when
 it's open until and when it was emailed, or when it expired ("they can't
 sign in until it's sent again"). **Send it again** opens it for 7 days from
 then ("Renewed: open for 7 days from now."), and says whether it went out;
 for an open one never emailed, it's **Send the invitation**. **Remove
-from the tenant** reads **Revoke the invitation**: "They haven't signed in: revoking
-removes them from the tenant, so the invitation no longer lets them in.
+from the workspace** reads **Revoke the invitation**: "They haven't signed in: revoking
+removes them from the workspace, so the invitation no longer lets them in.
 Adding their email again invites them anew."
 
 ![Ann Lee's page before they signed in: no keys and nothing they may do yet; Invitation: "They haven't signed in yet. Their invitation is open until 24 Oct 2026, 11:06 AM EDT; emailed 17 Oct 2026, 11:06 AM EDT.", with Send it again; then Revoke the invitation, with its button.](../../../assets/people/person-invitation.png)
