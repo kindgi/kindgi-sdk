@@ -377,9 +377,20 @@ describe('a company need', () => {
       label: 'support',
       permissions: ['gmail.send'],
     });
-    expect(await made.resolve({ mail: send }, { target: agent })).toMatchObject({
+    const answer = await made.resolve({ mail: send }, { target: agent });
+    expect(answer).toMatchObject({
       kind: 'ready',
       connections: { mail: { connectionId: only.connectionId, name: 'support' } },
+    });
+    // Picked as the only one, with no choice, through the project's registration.
+    const google = (await made.binding.listApps({ tenantId, limit: 10 })).data.find(
+      (a) => a.app === 'google',
+    );
+    expect(answer.kind === 'ready' && answer.picks).toEqual({
+      mail: {
+        by: 'only',
+        registration: { id: google?.appId, name: `Google (${google?.appId.slice(0, 8)})` },
+      },
     });
   });
 
