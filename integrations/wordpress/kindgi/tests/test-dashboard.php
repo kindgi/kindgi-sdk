@@ -132,7 +132,7 @@ function test_dashboard_the_count_in_words(): void {
 function test_dashboard_a_new_version_waiting_is_named_by_the_agents_name(): void {
 	$answer = Kindgi_Dashboard::answer(
 		array(
-			'waiting' => array( 'data' => array( kindgi_test_promotion() ) ),
+			'waiting' => array( 'data' => array( kindgi_test_pin() ) ),
 			'runs'    => array( 'data' => array() ),
 			'agents'  => array(
 				'data' => array(
