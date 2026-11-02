@@ -64,13 +64,14 @@ import {
   retargets,
   sameToolList,
   toolsAllowedUnattendedProblem,
+  triggerScope,
 } from './trigger-tools.js';
 import { versionField, versionFields, versionOne, versionsPage } from './trigger-versions.js';
 import { UUID_RE } from './uuid-param.js';
 
 export interface MailTriggersRouterOptions {
   readonly authorizer?: Authorizer;
-  /** The tenant's Default project: where a mail trigger that names no project goes. */
+  /** The tenant's default project: where a mail trigger that names no project goes. */
   readonly projects?: Pick<ProjectBinding, 'getDefault'>;
   /** Where an owner's name is read (`owner.displayName`). */
   readonly names?: TriggerOwnerNames;
@@ -271,8 +272,8 @@ export function mailTriggersRouter(
     if (projectId !== undefined && (typeof projectId !== 'string' || !UUID_RE.test(projectId))) {
       return bad(c, requestId, '`projectId` must be a project id (a UUID)');
     }
-    // A trigger that names no project goes in the tenant's Default project:
-    // checked and stored as that project. With no Default to find, the
+    // A trigger that names no project goes in the tenant's default project:
+    // checked and stored as that project. With no default to find, the
     // registry picks it, and only a tenant admin may.
     const project =
       (projectId as string | undefined) ??
@@ -307,7 +308,7 @@ export function mailTriggersRouter(
       if (refusedList !== undefined) return refusedList;
       const problem = await toolsAllowedUnattendedProblem(
         targetTools,
-        tenantId,
+        triggerScope(tenantId, project),
         target.value,
         tools.value,
       );
@@ -535,7 +536,7 @@ export function mailTriggersRouter(
       if (refusedList !== undefined) return refusedList;
       const problem = await toolsAllowedUnattendedProblem(
         targetTools,
-        tenantId,
+        triggerScope(tenantId, project),
         nextTarget,
         tools.value,
       );

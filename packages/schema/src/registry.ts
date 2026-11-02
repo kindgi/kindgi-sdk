@@ -229,8 +229,8 @@ export interface ValidationErrorLike {
 
 /**
  * Keywords an inline schema may carry for Kindgi to read, with no effect
- * on validation: `x-kindgi-tunable` marks a settings key an improvement
- * pass may search.
+ * on validation: `x-kindgi-tunable` marks a settings key an Improve
+ * run may search.
  */
 export const INLINE_ANNOTATIONS: readonly string[] = ['x-kindgi-tunable'];
 

@@ -28,11 +28,11 @@ export type VersionPick =
   /** The range is valid, but no version in `available` satisfies it. */
   | { readonly kind: 'not-satisfiable' };
 
-/** Pick the version a range (or, with none, "latest") resolves to. */
+/** Pick the version a range resolves to, or with none, the highest. */
 export function pickVersion(available: readonly string[], range?: string): VersionPick {
   if (range === undefined) {
-    const latest = latestVersion(available);
-    return latest === undefined ? { kind: 'not-satisfiable' } : { kind: 'ok', version: latest };
+    const highest = highestVersion(available);
+    return highest === undefined ? { kind: 'not-satisfiable' } : { kind: 'ok', version: highest };
   }
   if (semver.validRange(range) === null) return { kind: 'invalid-range' };
   const picked = semver.maxSatisfying([...available], range);
@@ -40,7 +40,7 @@ export function pickVersion(available: readonly string[], range?: string): Versi
 }
 
 /** The highest version in `available`, a prerelease included. */
-export function latestVersion(available: readonly string[]): string | undefined {
+export function highestVersion(available: readonly string[]): string | undefined {
   return semver.maxSatisfying([...available], '*', { includePrerelease: true }) ?? undefined;
 }
 

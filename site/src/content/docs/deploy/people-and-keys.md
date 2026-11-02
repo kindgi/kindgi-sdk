@@ -48,7 +48,7 @@ With authorization on:
   providers, policies, adapters and signing keys. Everyone you add is one.
   A deployment is read in the project it serves: a member lists and reads
   only those in projects they read. One deployed without a project is the
-  Default project's.
+  default project's.
 - **A role on a project** gives the work in it: its agents, runs and
   conversations. The roles are `owner`, `admin`, `editor` and `viewer`
   ([Project memberships](../authorization/#project-memberships)).
@@ -355,7 +355,7 @@ It can trust signing keys, so keep it out of CI: trusting CI's signing key
 is a person's step, and CI's keys are each made for one job
 ([The keys CI uses](../ship-from-ci/#the-keys-ci-uses)). On Kindgi Cloud,
 CI's deploy key is a tenant admin's key too, with no capability. It can
-still promote to prod, replace release gate policies, and make service
+still promote to prod, replace release gates, and make service
 accounts and keys, so main's own protection is what guards prod there
 ([The deploy key](../ship-from-ci/#the-deploy-key)).
 
@@ -671,7 +671,7 @@ Removed Sam Rivera: 1 key(s) and 0 session(s) revoked, 5 role(s) and membership(
 In one step, before it answers, their API keys are revoked, their sessions
 end, and every grant, membership and capability is taken away, with what
 their creates gave them: `owner` on each agent, flow, tool, guardrail and
-eval suite they made, and `admin` on an org they made (runtime 0.1.9 or
+test set they made, and `admin` on an org they made (runtime 0.1.9 or
 later). What they made stays. The tenant's admins still manage all of it,
 and an org's admins what's in their org; no one becomes its owner. The next
 request with Sam's key:
@@ -734,7 +734,7 @@ It's refused for yourself and for the seed user, with
 - **Service accounts,** for tenant admins: create one with its grants,
   change them, make it a key, or unregister it.
 
-  ![The Service accounts page: acme-ci, "Deploys from CI", admin on the Default project, with no active keys yet.](../../../assets/people/service-accounts.png)
+  ![The Service accounts page: acme-ci, "Deploys from CI", admin on the default project, with no active keys yet.](../../../assets/people/service-accounts.png)
 
 A project you have no role on shows **No access**, with the projects you can
 open.

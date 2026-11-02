@@ -9,7 +9,7 @@ import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
 import type { Scope } from '@kindgi/platform';
 import type { EnvName, OrgId, ProjectId, TenantId } from '@kindgi/types';
 
-import type { EnvRecord } from '../src/env-binding.js';
+import type { EnvCloudSecretRecord, EnvRecord } from '../src/env-binding.js';
 import {
   type PackEnvDeps,
   type PackEnvValuesInput,
@@ -56,6 +56,7 @@ function scopeKey(scope: Scope): string {
  */
 function stores({ rowIds = true, now = tick }: { rowIds?: boolean; now?: () => string } = {}) {
   const env = new Map<string, EnvRecord>();
+  const cloud = new Map<string, EnvCloudSecretRecord>();
   const secrets = new Map<string, SecretRecord>();
   const secretValues = new Map<string, string>();
   const faults = new Map<string, SecretError['code']>();
@@ -71,6 +72,11 @@ function stores({ rowIds = true, now = tick }: { rowIds?: boolean; now?: () => s
     env: {
       async get({ scope, envName: e, name }) {
         return e === envName ? (env.get(key(scope, name)) ?? null) : null;
+      },
+    },
+    cloudSecrets: {
+      async get({ scope, envName: e, name }) {
+        return e === envName ? (cloud.get(key(scope, name)) ?? null) : null;
       },
     },
     secrets: {
@@ -131,6 +137,21 @@ function stores({ rowIds = true, now = tick }: { rowIds?: boolean; now?: () => s
     });
   };
   const removeEnv = (scope: Scope, name: string) => env.delete(key(scope, name));
+  const setCloud = (scope: Scope, name: string, cloudSecret: string) => {
+    const at = now();
+    const old = cloud.get(key(scope, name));
+    cloud.set(key(scope, name), {
+      scope,
+      envName,
+      name,
+      cloudSecret,
+      revision: (old?.revision ?? 0) + 1,
+      createdAt: old?.createdAt ?? at,
+      updatedAt: at,
+      ...rowId(old),
+    });
+  };
+  const removeCloud = (scope: Scope, name: string) => cloud.delete(key(scope, name));
   const setSecret = (scope: Scope, name: string, revoked = false, value = `sk-${name}`) => {
     const at = now();
     secrets.set(key(scope, name), {
@@ -161,6 +182,8 @@ function stores({ rowIds = true, now = tick }: { rowIds?: boolean; now?: () => s
     deps,
     setEnv,
     removeEnv,
+    setCloud,
+    removeCloud,
     setSecret,
     rotateSecret,
     removeSecret,
@@ -246,7 +269,7 @@ describe('packEnvCheck: where each declared name is set', () => {
     expect(check.problem).toBe('pack-env-missing');
   });
 
-  test("a tenant-wide deployment reads at the tenant's Default project", async () => {
+  test("a tenant-wide deployment reads at the tenant's default project", async () => {
     const s = stores();
     s.setEnv(projectScope(defaultProject), 'API_BASE', 'https://default.acme.test');
     const read = await served(s.deps, {
@@ -596,7 +619,7 @@ describe('packEnvValues with secret values', () => {
     expect(JSON.stringify(read.check)).not.toContain('given-value');
   });
 
-  test("a deployment that names no project: each secret's row is the Default project's, the one its names were read for", async () => {
+  test("a deployment that names no project: each secret's row is the default project's, the one its names were read for", async () => {
     const s = stores();
     s.setSecret(projectScope(defaultProject), 'ACME_API_KEY', false, 'sk-default-given-value');
     s.setSecret(tenantScope, 'SHOP_TOKEN', false, 'sk-shop-given-value');
@@ -618,7 +641,7 @@ describe('packEnvValues with secret values', () => {
     ]);
   });
 
-  test('a tenant with no Default project: its secret rows name no project', async () => {
+  test('a tenant with no default project: its secret rows name no project', async () => {
     const s = stores();
     s.setSecret(tenantScope, 'ACME_API_KEY', false, 'sk-acme-given-value');
     const deps: PackEnvDeps = {
@@ -872,4 +895,123 @@ describe('packEnvValues with secret values', () => {
       expect(JSON.stringify(l.warned)).not.toContain('sk-unaudited-value');
     },
   );
+});
+
+describe('cloud secrets', () => {
+  const PATH = 'projects/acme-prod/secrets/stripe-key/versions/3';
+  const input = (required: string[], optional: string[] = []) => ({
+    tenantId,
+    projectId: staging,
+    envName,
+    declaration: declaration(required, optional),
+    deploymentId: 'd',
+  });
+
+  test('a name set only to one is set, with no problem, and given by its path, unasked', async () => {
+    const s = stores();
+    s.setCloud(tenantScope, 'STRIPE_KEY', 'projects/acme-prod/secrets/tenant-key/versions/1');
+    s.setCloud(projectScope(staging), 'STRIPE_KEY', PATH);
+    s.setEnv(projectScope(staging), 'API_BASE', 'https://acme.test');
+    const read = await served(s.deps, input(['STRIPE_KEY', 'API_BASE']));
+    expect(read.check.problem).toBeUndefined();
+    expect(read.check.names.find((n) => n.name === 'STRIPE_KEY')).toEqual({
+      name: 'STRIPE_KEY',
+      required: true,
+      kind: 'cloud-secret',
+      scope: { kind: 'project', id: staging },
+      missing: false,
+    });
+    expect(read.values).toEqual({ API_BASE: 'https://acme.test' });
+    expect(read.cloudSecrets).toEqual({ STRIPE_KEY: PATH });
+    // The owner's check names it set, and never the path.
+    const check = await packEnvCheck(s.deps, { ...input(['STRIPE_KEY']), secretOnly: 'set' });
+    expect(check.names[0]).toMatchObject({ kind: 'cloud-secret', missing: false });
+    expect(JSON.stringify(check)).not.toContain('projects/');
+  });
+
+  test('given with secret values asked too, and never read as a secret', async () => {
+    const s = stores();
+    s.setCloud(projectScope(staging), 'STRIPE_KEY', PATH);
+    s.setSecret(projectScope(staging), 'ACME_API_KEY', false, 'sk-acme-given-value');
+    const auditEvents = {
+      append: async () => ({ kind: 'ok', value: undefined }),
+    } as unknown as AuditEventBinding;
+    const read = await served(s.deps, {
+      ...input(['STRIPE_KEY', 'ACME_API_KEY']),
+      auditEvents,
+      secrets: { requestId: 'req-pack-env-1', systemKeyId: 'key-pack-env-1' },
+    });
+    expect(read.cloudSecrets).toEqual({ STRIPE_KEY: PATH });
+    expect(Object.keys(read.secrets ?? {})).toEqual(['ACME_API_KEY']);
+    expect(s.resolved.map((r) => r.name)).toEqual(['ACME_API_KEY']);
+  });
+
+  test.each([
+    {
+      ways: 'a plain value',
+      set: (s: ReturnType<typeof stores>) => s.setEnv(tenantScope, 'STRIPE_KEY', 'x'),
+      status: { kind: 'env', scope: { kind: 'tenant' } },
+    },
+    {
+      ways: 'a secret',
+      set: (s: ReturnType<typeof stores>) => s.setSecret(orgScope, 'STRIPE_KEY'),
+      status: { kind: 'secret', scope: { kind: 'org', id: orgId } },
+    },
+    {
+      ways: 'a plain value and a secret',
+      set: (s: ReturnType<typeof stores>) => {
+        s.setEnv(tenantScope, 'STRIPE_KEY', 'x');
+        s.setSecret(orgScope, 'STRIPE_KEY');
+      },
+      status: {
+        kind: 'env',
+        scope: { kind: 'tenant' },
+        secretScope: { kind: 'org', id: orgId },
+      },
+    },
+  ])('one set as $ways too is ambiguous, naming each scope, and nothing is given', async (c) => {
+    const s = stores();
+    s.setCloud(projectScope(staging), 'STRIPE_KEY', PATH);
+    c.set(s);
+    const read = await served(s.deps, input(['STRIPE_KEY']));
+    expect(read.check.problem).toBe('pack-env-ambiguous');
+    expect(read.check.names[0]).toEqual({
+      name: 'STRIPE_KEY',
+      required: true,
+      missing: false,
+      problem: 'ambiguous',
+      cloudSecretScope: { kind: 'project', id: staging },
+      ...c.status,
+    });
+    expect(read.values).toBeUndefined();
+    expect(read.cloudSecrets).toBeUndefined();
+  });
+
+  test('the revision moves when one is set, changed or removed, and only then', async () => {
+    const s = stores();
+    s.setEnv(projectScope(staging), 'API_BASE', 'https://acme.test');
+    const before = (await packEnvCheck(s.deps, input(['API_BASE'], ['STRIPE_KEY']))).revision;
+    // A runtime with no cloud secret store marks each name as before.
+    const { cloudSecrets: _none, ...withoutStore } = s.deps;
+    expect((await packEnvCheck(withoutStore, input(['API_BASE'], ['STRIPE_KEY']))).revision).toBe(
+      before,
+    );
+    s.setCloud(projectScope(staging), 'STRIPE_KEY', PATH);
+    const set = (await packEnvCheck(s.deps, input(['API_BASE'], ['STRIPE_KEY']))).revision;
+    expect(set).not.toBe(before);
+    s.setCloud(projectScope(staging), 'STRIPE_KEY', PATH.replace(/3$/, '4'));
+    const changed = (await packEnvCheck(s.deps, input(['API_BASE'], ['STRIPE_KEY']))).revision;
+    expect(changed).not.toBe(set);
+    s.removeCloud(projectScope(staging), 'STRIPE_KEY');
+    expect((await packEnvCheck(s.deps, input(['API_BASE'], ['STRIPE_KEY']))).revision).toBe(before);
+  });
+
+  test('none is looked for without a store: a name set only there is missing', async () => {
+    const s = stores();
+    s.setCloud(projectScope(staging), 'STRIPE_KEY', PATH);
+    const { cloudSecrets: _none, ...withoutStore } = s.deps;
+    const read = await served(withoutStore, input(['STRIPE_KEY']));
+    expect(read.check.problem).toBe('pack-env-missing');
+    expect(read.cloudSecrets).toBeUndefined();
+  });
 });

@@ -97,8 +97,8 @@ export interface NamedSecretScopeInput {
  *
  * A deployment stored in a named project syncs its secrets into that
  * project. One stored with no `projectId` syncs them tenant-wide, though
- * its tools are in the Default project: a deploy that named no project, or
- * a promotion into the Default project. A deploy and a promotion record
+ * its tools are in the default project: a deploy that named no project, or
+ * a promotion into the default project. A deploy and a promotion record
  * this scope for a secret their tools name that's set nowhere yet, so a
  * call reads what the sync stores.
  */

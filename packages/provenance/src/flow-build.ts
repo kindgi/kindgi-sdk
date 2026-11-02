@@ -98,9 +98,9 @@ export interface FlowProvenanceRun {
   readonly completedAt: Timestamp;
   /** Whether the run completed with an output. Never the output itself. */
   readonly hasOutput: boolean;
-  /** On a replay: the run it replays, and its eval run when it has one. */
+  /** On a replay: the run it replays, and its test run when it has one. */
   readonly replayOf?: RunId;
-  readonly evalRunId?: string;
+  readonly testRunId?: string;
   /** The runs its steps started, oldest first. */
   readonly children: readonly FlowProvenanceChild[];
   /** The results its completed tool steps reused, in the order they were written. */
@@ -707,10 +707,10 @@ export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBui
         id: 'input',
         kind: 'input',
         timestamp: startAt,
-        ...((run.replayOf !== undefined || run.evalRunId !== undefined) && {
+        ...((run.replayOf !== undefined || run.testRunId !== undefined) && {
           attributes: {
             ...(run.replayOf !== undefined && { replayOf: run.replayOf }),
-            ...(run.evalRunId !== undefined && { evalRunId: run.evalRunId }),
+            ...(run.testRunId !== undefined && { testRunId: run.testRunId }),
           },
         }),
       },

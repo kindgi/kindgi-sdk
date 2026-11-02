@@ -15,7 +15,7 @@ import refund from './index.js';
 
 /** What `kindgi env set` and `kindgi secrets set` would give the tool. */
 const settings = {
-  env: { WOO_STORE_URL: 'http://store.test', WOO_USER: 'shop-agent' },
+  env: { WOO_STORE_URL: 'http://store.test', WOO_USER: 'kindgi-agent' },
   secrets: { WOO_APP_PASSWORD: 'not-a-real-password' },
 };
 
@@ -36,7 +36,7 @@ describe('{{PACK_ID}}.woo.refund', () => {
     // WOO_REFUND_THROUGH_GATEWAY isn't set: its default, false, applies. Outside a run
     // there's no idempotency key, so nothing goes on the refund.
     expect(post?.body).toEqual({ amount: '40.00', reason: 'Arrived torn', api_refund: false });
-    expect(post?.authorization).toBe(`Basic ${Buffer.from('shop-agent:not-a-real-password').toString('base64')}`);
+    expect(post?.authorization).toBe(`Basic ${Buffer.from('kindgi-agent:not-a-real-password').toString('base64')}`);
   });
 
   test('refunds through the payment gateway when WOO_REFUND_THROUGH_GATEWAY is true', async () => {
@@ -59,7 +59,7 @@ describe('{{PACK_ID}}.woo.refund', () => {
     const result = await invokeToolForTest(
       refund,
       { orderId: 1043, amount: 40, reason: 'Arrived torn' },
-      { ...settings, env: { WOO_USER: 'shop-agent' } },
+      { ...settings, env: { WOO_USER: 'kindgi-agent' } },
     );
     expect(result).toMatchObject({ kind: 'err', error: { code: 'precondition-failed', reason: 'env-value-missing' } });
     expect(store.calls).toEqual([]);

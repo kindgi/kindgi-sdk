@@ -96,6 +96,13 @@ function test_settings_kindgi_url_is_https_or_http_only_here_or_on_a_development
 	kindgi_assert_same( 1, count( $GLOBALS['kindgi_test']['requests'] ), 'nothing sent over plain http in production' );
 }
 
+function test_rest_a_new_conversation_names_the_sites_project_only_for_a_shared_agent(): void {
+	kindgi_assert_same( null, Kindgi_Rest::named_project( 'p-store', 'p-store' ), "the site's own agent: unnamed, so no write is needed" );
+	kindgi_assert_same( 'p-store', Kindgi_Rest::named_project( 'p-store', 'p-agency' ), "an agent shared from another project: opened in the site's" );
+	kindgi_assert_same( null, Kindgi_Rest::named_project( 'p-store', null ), 'an agent with no project: unnamed' );
+	kindgi_assert_same( null, Kindgi_Rest::named_project( 'p-store', '' ), 'an empty project: unnamed' );
+}
+
 function test_rest_a_turn_goes_only_into_the_persons_own_conversation(): void {
 	kindgi_assert( Kindgi_Rest::owns( array( 'participantId' => 'u-jane' ), 'u-jane' ), "Jane's own" );
 	kindgi_assert( ! Kindgi_Rest::owns( array( 'participantId' => 'u-ada' ), 'u-jane' ), "Ada's, refused to Jane" );

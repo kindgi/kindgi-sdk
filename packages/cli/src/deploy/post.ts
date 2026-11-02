@@ -33,6 +33,8 @@ import { stableStringify } from '../build/envelope.js';
 import type { DeployEnvelope } from '../build/envelope.js';
 import type { ServedEnv } from '../value-target.js';
 import type {
+  CountKeptBuildsOptions,
+  CountKeptBuildsResult,
   DeploymentRecord,
   EnvironmentOrderRow,
   FindProjectsOptions,
@@ -481,6 +483,45 @@ export async function getDeploymentReal(opts: GetDeploymentOptions): Promise<Get
     };
   }
   return { kind: 'ok', record: body as DeploymentRecord };
+}
+
+/** `GET /v1/deployments?limit=1`, in the project deployed into: its `keptBuilds`. */
+export async function countKeptBuildsReal(
+  opts: CountKeptBuildsOptions,
+): Promise<CountKeptBuildsResult> {
+  const query = new URLSearchParams({ limit: '1' });
+  if (opts.projectId !== undefined) query.set('projectId', opts.projectId);
+  const url = `${opts.endpoint.replace(/\/+$/, '')}/v1/deployments?${query.toString()}`;
+  let res: Response;
+  try {
+    res = await opts.fetchImpl(url, {
+      headers: { Authorization: `Bearer ${opts.token}` },
+      ...(opts.signal !== undefined && { signal: opts.signal }),
+    });
+  } catch (err) {
+    return { kind: 'error', message: `GET ${url} failed: ${(err as Error).message}` };
+  }
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    return {
+      kind: 'error',
+      message: `GET ${url} answered HTTP ${res.status} with a body that isn't JSON`,
+    };
+  }
+  if (!res.ok) {
+    const code = (body as { error?: { code?: unknown } } | null)?.error?.code;
+    return {
+      kind: 'error',
+      message: `GET ${url} answered HTTP ${res.status}${typeof code === 'string' ? ` (${code})` : ''}`,
+    };
+  }
+  const kept = (body as { keptBuilds?: unknown } | null)?.keptBuilds;
+  return {
+    kind: 'ok',
+    ...(typeof kept === 'number' && Number.isInteger(kept) && kept >= 0 && { keptBuilds: kept }),
+  };
 }
 
 /** `GET /v1/deployments/:id/pack-env`: where each name the deployment's pack declares is set. */

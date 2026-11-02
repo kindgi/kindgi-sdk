@@ -18,6 +18,7 @@
 import type OpenAI from 'openai';
 
 import type {
+  FilePart,
   ModelCallInput,
   ModelCallResult,
   ModelCallWarning,
@@ -28,10 +29,17 @@ import type {
   ThinkingLevel,
   UsageCounters,
 } from '@kindgi/capabilities';
+import { headedFileParts } from '@kindgi/capabilities';
 import type { AttemptCounter } from '@kindgi/capabilities/attempts';
 
 import { sendWithRetries } from './retry.js';
-import { computeCost, decodeToolName, encodeToolName, parseArguments } from './wire.js';
+import {
+  computeCost,
+  decodeToolName,
+  encodeToolName,
+  outputCapOf,
+  parseArguments,
+} from './wire.js';
 
 type InputItem = OpenAI.Responses.ResponseInputItem;
 type OutputItem = OpenAI.Responses.ResponseOutputItem;
@@ -62,6 +70,8 @@ export interface ResponsesCall {
   /** HTTP attempts in all for a retryable failure, from the caller's `maxRetries` (`retryAttempts`). */
   readonly maxAttempts: number;
   readonly input: ModelCallInput;
+  /** Each message's file parts, by index (`fileParts`). */
+  readonly files: readonly (readonly FilePart[])[];
   readonly modelInfo: ModelInfo;
   readonly providerId: string;
   readonly extraBody: Readonly<Record<string, unknown>>;
@@ -101,6 +111,7 @@ export function requestOptions(
 export async function invokeResponses(call: ResponsesCall): Promise<ModelCallResult> {
   const { input } = call;
   const tools = input.tools?.map(toTool);
+  const maxOutputTokens = outputCapOf(call.modelInfo, input);
   const counted = await call.attempts.count(() =>
     sendWithRetries(
       () =>
@@ -108,7 +119,7 @@ export async function invokeResponses(call: ResponsesCall): Promise<ModelCallRes
           {
             ...call.extraBody,
             model: input.model,
-            input: toInput(input.messages, input.model),
+            input: toInput(input.messages, input.model, call.files),
             ...(tools !== undefined && tools.length > 0 && { tools }),
             ...(input.structuredOutput !== undefined && {
               text: {
@@ -127,9 +138,7 @@ export async function invokeResponses(call: ResponsesCall): Promise<ModelCallRes
                 effort: call.reasoning.effort as OpenAI.ReasoningEffort,
               },
             }),
-            ...(input.maxOutputTokens !== undefined && {
-              max_output_tokens: input.maxOutputTokens,
-            }),
+            ...(maxOutputTokens !== undefined && { max_output_tokens: maxOutputTokens }),
             store: false,
             stream: false,
           },
@@ -180,23 +189,42 @@ export async function invokeResponses(call: ResponsesCall): Promise<ModelCallRes
 // ---------------------------------------------------------------------------
 // Request
 
-/** The conversation as Responses input items, in order. */
-function toInput(messages: readonly ModelMessage[], model: string): InputItem[] {
+/**
+ * The conversation as Responses input items, in order. A message's files
+ * (`files`, by index) follow its text under the outside-data heading: in
+ * the user message, or in the function call's output, which takes text,
+ * images and files.
+ */
+function toInput(
+  messages: readonly ModelMessage[],
+  model: string,
+  files: readonly (readonly FilePart[])[],
+): InputItem[] {
   const items: InputItem[] = [];
-  for (const m of messages) {
+  for (const [i, m] of messages.entries()) {
+    const parts = headedFileParts(files[i] ?? []);
     switch (m.role) {
       case 'system':
         // The role OpenAI's Responses guides give an app's instructions.
         items.push({ role: 'developer', content: m.content });
         break;
       case 'user':
-        items.push({ role: 'user', content: m.content });
+        items.push({
+          role: 'user',
+          content:
+            parts.length === 0
+              ? m.content
+              : [...textContent(m.content), ...parts.map(toResponsesContent)],
+        });
         break;
       case 'tool':
         items.push({
           type: 'function_call_output',
           call_id: m.toolCallId ?? '',
-          output: m.content,
+          output:
+            parts.length === 0
+              ? m.content
+              : [...textContent(m.content), ...parts.map(toResponsesContent)],
         });
         break;
       case 'assistant':
@@ -205,6 +233,34 @@ function toInput(messages: readonly ModelMessage[], model: string): InputItem[] 
     }
   }
   return items;
+}
+
+function textContent(text: string): { type: 'input_text'; text: string }[] {
+  return text.length > 0 ? [{ type: 'input_text', text }] : [];
+}
+
+/**
+ * A file part as Responses content. The same three shapes are a user
+ * message's content and a function call's output, so the type is left to
+ * fit both.
+ */
+function toResponsesContent(part: FilePart) {
+  switch (part.kind) {
+    case 'text':
+      return { type: 'input_text' as const, text: part.text };
+    case 'image':
+      return {
+        type: 'input_image' as const,
+        detail: 'auto' as const,
+        image_url: `data:${part.mediaType};base64,${part.data}`,
+      };
+    case 'document':
+      return {
+        type: 'input_file' as const,
+        filename: 'document.pdf',
+        file_data: `data:${part.mediaType};base64,${part.data}`,
+      };
+  }
 }
 
 /**

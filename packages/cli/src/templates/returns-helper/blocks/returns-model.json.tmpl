@@ -1,0 +1,38 @@
+{
+  "id": "{{PACK_ID}}.returns-model",
+  "version": "{{PACK_VERSION}}",
+  "kind": "settings",
+  "description": "The returns helper's model settings",
+  "content": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "providerId": {
+          "type": "string",
+          "description": "The provider it prefers: change it with the model to use another"
+        },
+        "model": {
+          "type": "string",
+          "description": "The model it prefers, which also judges a changed answer against its correction"
+        },
+        "temperature": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "How varied its wording is, on a model that takes a temperature"
+        },
+        "maxOutputTokens": {
+          "type": "integer",
+          "minimum": 64,
+          "maximum": 2000
+        }
+      },
+      "additionalProperties": false
+    },
+    "values": {
+      "providerId": "anthropic",
+      "model": "claude-sonnet-5-5",
+      "maxOutputTokens": 600
+    }
+  }
+}

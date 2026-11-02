@@ -16,11 +16,11 @@ import { describe, expect, test } from 'vitest';
 import type { Authorizer } from '../src/middleware/authorize.js';
 import { agentsRouter } from '../src/routes/agents.js';
 import { envRouter } from '../src/routes/env.js';
-import { evalSuitesRouter } from '../src/routes/eval-suites.js';
 import { flowsRouter } from '../src/routes/flows.js';
 import { guardrailsRouter } from '../src/routes/guardrails.js';
 import { mcpRouter } from '../src/routes/mcp.js';
 import { secretsRouter } from '../src/routes/secrets.js';
+import { testSetsRouter } from '../src/routes/test-sets.js';
 import { toolsRouter } from '../src/routes/tools.js';
 import type { AppEnv } from '../src/types.js';
 
@@ -126,6 +126,32 @@ describe('env — the check uses ?scopeKind + ?scopeId', () => {
       expect(calls).toEqual([]);
     },
   );
+
+  test("GET /cloud-secrets: the scope's admin alone reads which names are set to one", async () => {
+    const checked: string[] = [];
+    const calls: Call[] = [];
+    const app = mount(
+      envRouter(
+        recordingBinding([]),
+        authorizerGranting([`project:${A}`], checked),
+        undefined,
+        undefined,
+        recordingBinding(calls),
+      ),
+      [],
+    );
+    const denied = await app.request(
+      `/cloud-secrets?envName=staging&scopeKind=project&scopeId=${B}&projectId=${A}`,
+    );
+    expect(denied.status).toBe(403);
+    expect(checked).toEqual([`project:${B}`]);
+    expect(calls).toEqual([]);
+    const allowed = await app.request(
+      `/cloud-secrets?envName=staging&scopeKind=project&scopeId=${A}`,
+    );
+    expect(allowed.status).toBe(200);
+    expect(calls.map((c) => [c.method, c.input.scope])).toEqual([['list', projectScope(A)]]);
+  });
 
   test('a project admin can write its project (the client request shape)', async () => {
     const { app, checked, calls } = setup([`project:${A}`]);
@@ -332,7 +358,7 @@ describe('registry lists — a project filter needs read on that project', () =>
     ['flows', (a) => flowsRouter(recordingBinding([]), a)],
     ['tools', (a) => toolsRouter(recordingBinding([]), a)],
     ['guardrails', (a) => guardrailsRouter(recordingBinding([]), a)],
-    ['eval-suites', (a) => evalSuitesRouter(recordingBinding([]), a)],
+    ['test-sets', (a) => testSetsRouter(recordingBinding([]), a)],
   ];
 
   test.each(routers)('%s: ?scopeKind=project&scopeId= is checked', async (_name, make) => {

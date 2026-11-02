@@ -108,9 +108,9 @@ export interface TeamMembership {
 // `Engagement` in accounting, `Episode` in healthcare, `Deal` in
 // finance).
 //
-// `isDefault` marks the auto-created "Default" project per tenant.
-// Implementations keep exactly one per tenant (the in-memory adapter
-// rejects a second Default on `create`).
+// `isDefault` marks each tenant's default project (a new tenant gets one).
+// Implementations keep at most one per tenant (the in-memory adapter
+// rejects a second default on `create`).
 // ============================================================
 
 export interface Project {
@@ -124,9 +124,9 @@ export interface Project {
   readonly name: string;
   readonly slug: string;
   /**
-   * `true` for the tenant's auto-created "Default" project. Exactly
+   * `true` for the tenant's default project (a new tenant gets one). At most
    * one row per tenant carries `isDefault = true`.
-   * `false` for every user-created project.
+   * `false` for every other project.
    */
   readonly isDefault: boolean;
   readonly description?: string;
@@ -137,6 +137,21 @@ export interface Project {
    * `ProjectBinding.setProduction`.
    */
   readonly productionSince?: Timestamp;
+  /**
+   * `true` sorts end users' corrections (an app's, for a `participantId`,
+   * and not an expert's) like the others, and a schedule counting everyone's
+   * counts them. Absent or `false`: they're listed and become test cases,
+   * but stay open and unsorted, and never start Improve. Admin on the
+   * project sets it (`ProjectPatch`).
+   */
+  readonly sortEndUserCorrections?: boolean;
+  /**
+   * The company-wide GitHub connection the project opens its block
+   * changes' pull requests through; absent while none is set. Set and
+   * cleared by `ProjectBinding.setRepoConnection`. The connection may be
+   * gone since: a reader treats that as none.
+   */
+  readonly repoConnectionId?: string;
   readonly createdAt: Timestamp;
   readonly updatedAt: Timestamp;
 }
@@ -147,7 +162,7 @@ export interface ProjectSpec {
   readonly description?: string;
   readonly orgId?: OrgId;
   /**
-   * Optional at spec time — the tenant's Default project is created
+   * Optional at spec time — the tenant's default project is created
    * by the framework at tenant-inception, not by a caller. User
    * projects created via `POST /v1/projects` default to `false`.
    */
@@ -163,6 +178,8 @@ export interface ProjectPatch {
    * `undefined` leaves the FK untouched.
    */
   readonly orgId?: OrgId | null;
+  /** `Project.sortEndUserCorrections`; `undefined` leaves it as it is. */
+  readonly sortEndUserCorrections?: boolean;
 }
 
 /**

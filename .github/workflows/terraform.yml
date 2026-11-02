@@ -3,8 +3,11 @@ name: Terraform modules
 # Every root module under deploy/ (the reference deployments: Cloud Run,
 # Container Apps, …) checked on the pull requests that touch one:
 # `terraform fmt -check`, `init` without a backend, `validate`, and
-# `terraform test`, whose tests run against mocked providers. No cloud
-# account and no credentials: nothing here reaches a cloud.
+# `terraform test`, whose tests run against mocked providers. Then each
+# module's upgrade script against its test harness, whose stubs stand in
+# for every cloud CLI and Terraform, and the parity test that holds the
+# code the upgrade scripts share to the same bytes. No cloud account and
+# no credentials: nothing here reaches a cloud.
 
 on:
   pull_request:
@@ -55,4 +58,23 @@ jobs:
             fi
             echo "::endgroup::"
           done
+          exit $status
+      # Each harness puts its stubs first on PATH, so its script never
+      # reaches the Terraform set up above or a cloud CLI.
+      - name: The upgrade scripts' tests, then their parity
+        run: |
+          status=0
+          for test in deploy/*/tests/upgrade_test.sh; do
+            [ -f "$test" ] || continue
+            echo "::group::$test"
+            if ! bash "$test"; then
+              echo "::error::$test failed"
+              status=1
+            fi
+            echo "::endgroup::"
+          done
+          if ! bash deploy/upgrade-parity_test.sh; then
+            echo "::error::deploy/upgrade-parity_test.sh failed: code the upgrade scripts share differs between them"
+            status=1
+          fi
           exit $status

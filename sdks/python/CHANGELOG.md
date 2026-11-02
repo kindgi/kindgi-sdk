@@ -13,6 +13,128 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a retired block, policy or release gate can be found.**
+  `blocks.list`, `policies.list` and `release_gates.list` take
+  `include_retired=True`, as `agents.list`, `flows.list`, `tools.list` and
+  `test_sets.list` do. A retired one (every version unregistered) is then
+  listed too, as its highest version with that version's `unregistered_at`,
+  so it can be found and a version brought back. `Policy` gains
+  `unregistered_at`. A runtime without the parameter ignores it and lists as
+  before.
+- `kindgi`: **a comparison says why a case's answer wasn't checked.** A case result's `unchecked` is why its `expect` couldn't be graded, such as a version whose model settings name no model to judge with. The summary's `unchecked` (`CorrectedComparisonUnchecked`) counts those cases and lists their reasons, each once, at most five. So a `pass_rate` of `None` says why. Both are optional.
+- `kindgi`: **a suggested change says how many corrections it fixes in all**:
+  `SuggestedChange.correction_count`. `fixes` names the first 100 at most, and
+  an Improve run can fix more. It's `None` from an older runtime: there, take
+  `len(fixes)`.
+- `kindgi`: **`system_deployments.list`'s docstrings say which deployments
+  need a pack service by the rule the runtime applies**: since 0.4.0, one
+  that serves something a call can still ask for (a tool, agent or flow
+  version that's registered or held, a tool deployed without a version, or a
+  pack check a registered guardrail runs in its project) when no newer
+  deployment into its project serves it. An endpoint an earlier runtime made
+  or last set needs the earlier rule too. The `retire` list's `superseded`
+  reason says the same.
+- `kindgi`: **`system_deployments.list(endpoint="ready")` lists the
+  deployments whose pack service is ready and stays**, for whatever runs the
+  pack services. Entries in the `missing` and `ready` lists carry `warm`:
+  `True` to keep an instance of the service running (calls in its project go
+  to it for something always on), `False` when it can scale to zero. A
+  runtime that doesn't say leaves it out.
+- `kindgi`: **An operator can set a pack's env name to a cloud secret.**
+  `client.system_env` has `set_cloud_secret`, `delete_cloud_secret` and
+  `list_cloud_secrets` (`/v1/system/tenants/{tenantId}/env[/{name}]`, a system
+  key holding `system:env-refs`), each naming a numbered version of a secret
+  the operator's cloud holds, `projects/<project>/secrets/<secret>/versions/<number>`.
+  The runtime keeps that path, never the value, and a pack service reads the
+  value from the cloud as its own account. `env.list_cloud_secrets` is the
+  tenant's list of the names set this way, without the path, and the pack-env
+  check names each as `kind` `cloud-secret`.
+- `kindgi`: **A project can sort its end users' corrections like the others.**
+  `Project` and `ProjectPatch` carry `sort_end_user_corrections`
+  (`sortEndUserCorrections`), off by default, and
+  `projects.update(project_id, sort_end_user_corrections=True)` turns it on (admin on
+  the project). While it's on, an end user's correction saved after that is sorted
+  like the others, and a schedule counting everyone's corrections
+  (`from_="everyone"`) counts the ones sorted to improve. Once it's off, none of
+  them counts, even one sorted while it was on or by a person.
+- `kindgi`: **`client.corrections.thumbs` records an end user's thumbs up or down from
+  your app's server.** `thumbs(run_id=..., participant_id=..., up=..., why=...)` posts a
+  correction of the run's answer, made for the end user: `answer="right"` for a thumbs
+  up, `"wrong"` for a thumbs down, with their words as `why`. A thumbs down needs `why`,
+  and without it the API answers 400 (`InvalidRequestError`). `AsyncKindgi` has it too.
+- `kindgi`: **a comparison's `pass_rate` counts what each case expects.**
+  Each part of a frozen case's graded `expect`, its decisions and its
+  answer, is one check of weight 1 in `pass_rate`, beside the case's items,
+  and its `n` counts the case. The case's entry in `corrections` has
+  `parts`, whether each part passed on every repetition. So a test set of
+  cases that expect only an answer has a `pass_rate` instead of `None`.
+  `case_coverage` and `weighted_precision_at_k` stay items only.
+- `kindgi`: **corrections export.** `kindgi.corrections.export(agent_id=...)`
+  yields an agent's corrections in chunks of bytes, as CSV, or as JSON lines
+  with `format="jsonl"`, taking the list's filters. Write the chunks to a file
+  as they come. A project you can't read raises `AuthError`, and a stream that
+  drops part way raises `NetworkError`.
+- `kindgi`: **An Improve run works in a project, checks it's ready first, and
+  keeps a change only when it passes more of the cases and fails none that
+  passed. An Improve schedule runs on new corrections, within a run cap and a
+  month cap.** This is a breaking change, and no old name is kept.
+  `StartImproveRunBody` needs `project_id`, and its `scope`, `test_set_id` and
+  `from_version` are gone. `improve_runs.start` refuses a start that isn't
+  ready with a `ConflictError` whose `server_code` is `improve-not-ready`
+  (`details["items"]`, the missing ones) or `improve-run-running`
+  (`details["improveRunId"]`). `improve_runs.check` answers an
+  `ImproveRunCheck` with `ready`, `starts_from` (an `ImproveRunStart`), `items`
+  (each an `ImproveReadinessItem`, a missing one with its `fix`), `estimate`
+  and `month`; its `estimated_cost_usd`, `max_cost_usd` and `basis` are
+  `estimate.cost_usd`, `estimate.max_cost_usd` and `estimate.basis`.
+  `estimate.basis` gains `proof_replays`, the proof's share of `replays`, and
+  `estimate.cost_usd` caps only the search's share at `max_cost_usd`.
+  `improve_runs.list` takes `project_id` and `status`. An `ImproveRun`'s
+  `candidates_evaluated` is `tried`, and it gains `project_id`, `starts_from`
+  (an `ImproveRunStart`), `test_set_version`, `set_aside` and `takes`; its
+  `from_version`, `scope` and `test_set_id` are gone, and its `group_weights`
+  is always set. Its `outcome` is a union
+  by `kind`: `ImproveRunOutcomeSuggested` (was `proposed`),
+  `ImproveRunOutcomeNothingBetter` (was `nothing-found`, with `reason` and
+  `hold_out`), `ImproveRunOutcomeCostCap` (`spent_usd`, new) and
+  `ImproveRunOutcomeFailed` (`message`), and `ImproveRunOutcomeUnrecognized`
+  for a kind a newer runtime adds; the `ImproveRunOutcome` model is gone. A
+  comparison's `part` can be `all`, for the proof. An improve schedule's
+  `ImproveScheduleTarget` has `project_id` in place of `scope` (registering
+  or changing one takes an `ImproveScheduleTargetInput`, where `agent_id` and
+  `project_id` are both required), one schedule per agent and project (a
+  `ConflictError` whose `server_code` is `schedule-exists`, with
+  `details["scheduleId"]` and `details["triggerId"]`).
+  Its input is `corrections` (how many new corrections start a run), `from_`
+  (`experts` or `everyone`), `run_cap_usd`, `month_cap_usd` (was
+  `monthly_cap_usd`), `tiers` and `model`. Its `threshold`, `budget`,
+  `objective`, `group_weights` and `candidates` are gone, and the models
+  `Threshold` and `Budget3` with them. A schedule at its month's cap says
+  until when (`paused_until`, with `paused_reason` `month-cap`), and one whose
+  owner lost `publish` on the agent is paused at its next fire, with
+  `status_reason` `owner-lost-publish`.
+- `kindgi`: **a deployment never puts back an older block without saying
+  so.** `deployments.register` raises `ConflictError` with `server_code`
+  `deploy-would-put-back-older-blocks` when one of the pack's blocks is older
+  in the files than the newest version that runs in a project of the pack's
+  agents; `details["blocks"]` says, for each one, both versions, where the
+  newer one runs, who made it run there and when. Its body's `replace` names
+  each block put back on purpose, with a reason, and the deployment answers
+  them as `replaced`. `deployments.check` answers the same, writing nothing:
+  `replaced`, and `not_needed` for a `replace` nothing newer runs for.
+  `deployments.promote` with `pin` runs it against what runs in the target
+  project only: its body takes `replace` too, and its answer's
+  `block_check` says what was put back, what `replace` didn't need, and
+  `checked=False` for a build deployed before deployments kept their blocks.
+  The deployment it makes keeps its own `replaced`, never the source's.
+- `kindgi`: **a fact's approval takes the reviewer's text.**
+  `client.approvals.complete(approval_id, decision="approve", fact_text=...)`
+  approves a fact an agent wants to remember (`subject_kind` `fact`) with
+  that text in place of the agent's. Only with `approve` on such an
+  approval; anything else is refused (400 `bad-input`). The decision it
+  answers and the approval read back carry it (`ReviewDecision.fact_text`,
+  `ApprovalDecisionRecord.fact_text`).
+
 ## 0.3.1
 
 - `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",
@@ -32,6 +154,258 @@ No Python changes; the version moves with the npm packages.
   judge model is routed by, and the index carries it (`judgeCapabilities`); the decorator
   refuses an `llm-judge` guardrail without it. Before, `@guardrail` had no way to name it,
   and the runtime refused such a guardrail on every turn.
+- `kindgi`: **A judgment is now a correction.** This is a breaking rename, and
+  no old name is kept. `client.judgments` is `client.corrections`, and
+  `unregister` is `remove`, sync and async. The models follow: `Judgment` is
+  `Correction`, `Judged*` models are `Corrected*`, and the
+  `{ calls, not_called }` value that was `Correction` is `ExpectedDecisions`.
+  Fields named for judgments are named for corrections (`correction_id`,
+  `correction_ids`, `correction_count`), and a proposal's
+  `evidence.judgment_ids` is `evidence.fixes`, in a new proposal's body too. The
+  improve schedule's `threshold.judges` and `threshold.judgments` are
+  `threshold.correctors` and `threshold.corrections`, and a comparison summary's
+  `corrections.judgments` is `corrections.results` (its model
+  `JudgedComparisonSummaryCorrectionsJudgment` is `Result`). A comparison
+  case's `judged_items`, on its `baseline` and each `candidate`, is
+  `corrected_items`, and a `changes.new` entry's `judged` is `corrected`. The
+  retention domain `judgment` is `correction`.
+- `kindgi`: **Judge classes are now corrector groups, the judging queue is the
+  expert queue, and judging rules are queue rules.** This is a breaking rename,
+  and no old name is kept. `client.judge_classes` is `client.corrector_groups`,
+  `client.projects.judging_queue` is `client.projects.expert_queue`, and
+  `client.projects.judging_rules` is `client.projects.queue_rules`, sync and
+  async. The models follow (`JudgeClass*` models are `CorrectorGroup*`,
+  `JudgingRule*` models and a rule's results are `QueueRule*`, `JudgingQueue*`
+  models are `ExpertQueue*`, the other `Judging*` models put `ExpertQueue` in
+  place of `Judging`, and `Class` in a name is `Group`), `judge_class_id` is
+  `corrector_group_id`, `class_weights` is `group_weights` (its value
+  `restricted-only` is `experts-only`), and a correction's or a case item's
+  `restricted` is `expert` (its model `Restricted` is `Expert`). A release
+  gate's `only_restricted_classes` is `only_expert_groups`, and its check
+  `classWeights.restrictedOnly` is named `groupWeights.expertsOnly`. The expert
+  queue's state `judged` is `corrected`, as is a rule result's `judged` count;
+  `by_class` is `by_group`, in progress and in a rule's results, and
+  `wanted_class_ids` is `wanted_group_ids`. The retention domain `judge_class`
+  is `corrector_group`.
+- `kindgi`: **Eval suites are now test sets.** This is a breaking rename, and no
+  old name is kept. `client.eval_suites` is `client.test_sets`, sync and async.
+  The models follow (`EvalSuite*` models are `TestSet*`, and
+  `CorrectedEvalCase*` models are `CorrectedTestCase*`), `suite_id` is
+  `test_set_id` and `suite_version` is `test_set_version`, and a test set's or
+  an eval run's kind `judged` is `corrections`. The retention domain
+  `eval_suite` is `test_set`, and so is the authorization resource type
+  (`RoleActions.eval_suite` is `test_set`). A release gate's `comparison.suite`
+  is `comparison.test_set`, and a comparison's summary says `test_set`; their
+  models are `ReleaseGateSpecComparisonTestSet` and
+  `CorrectedComparisonSummaryTestSet` (were `Suite` and `Suite1`).
+- `kindgi`: **Proposals are now suggested changes.** This is a breaking rename,
+  and no old name is kept. `client.suggested_changes` holds suggested changes,
+  sync and async, and its `request` is `pin`; `rollback` is removed, since going
+  back is putting the agent's earlier version back in use. The
+  `client.proposals` methods `draft`, `dry_run`, `submit_review` and `apply`,
+  which only raised an error since 0.1.5, are removed. The models follow (`Proposal*` and `FixProposal*` models are
+  `SuggestedChange*`, and the block edit a suggested change carries is
+  `SuggestedChangeBlockEdit`), `proposal_id` is `suggested_change_id`, and a
+  suggested change's status `promoted` is `pinned`.
+- `kindgi`: **Eval runs are now test runs.** This is a breaking rename, and no
+  old name is kept. `client.eval_runs` is `client.test_runs`, sync and async.
+  The models follow (`EvalRun*` models are `TestRun*`, and `EvalComparison`,
+  `EvalBaseline1`, `EvalBaseline2`, `EvalOverrides` and `EvalSample` are
+  `TestRunComparison`, `TestRunBaseline1`, `TestRunBaseline2`, `TestRunOverrides`
+  and `TestRunSample`). A test run's own id is
+  `test_run_id` where it was `run_id`, `eval_run_id` is `test_run_id`, and the
+  stream's `eval-run.*` events are `test-run.*`.
+- `kindgi`: **a promotion into a scope where nothing runs yet raises
+  `ConflictError` with `server_code` `nothing-runs-in-scope`.** With no pin
+  covering the scope and no Latest there, there's nothing to measure the
+  version against: deploy or publish a version into the project first, or,
+  into a later environment, promote a build that ships one.
+- `kindgi`: **`client.agents.projects(agent_id)` says what runs in each
+  project.** Each project gains `runs` (the version a run there that names no
+  version gets, since when, and the pin or deployment behind it), `follows`
+  (`pin` or `latest`) and `segments` (the pins on segments inside it), and the
+  answer gains `highest`, the agent's highest version. A run that names no
+  version, in a scope no pin covers, now gets the agent's Latest in its
+  project: it moves only when a deployment into the project ships a version,
+  or when a person publishes a full version, and a derived version is never
+  Latest by itself. `client.agents.get(agent_id)` still answers the highest
+  version.
+- `kindgi`: **Improvement passes are now Improve runs.** This is a breaking
+  rename, and no old name is kept. `client.improvement_passes` and
+  `client.proposals` are `client.improve_runs`, sync and async, with `start`,
+  `check`, `list`, `get` and `cancel` (`start` and `check` were
+  `client.proposals.improve` and `improve_estimate`). The models follow
+  (`ImprovementPass*` models are `ImproveRun*`, `ImproveBody` is
+  `StartImproveRunBody`, `ImprovementPassEstimate` is `ImproveRunCheck`, and
+  `SuggestedChangeDrafter` is `SuggestedChangeMadeBy`). `pass_id` is
+  `improve_run_id`, a suggested change's `drafter` is `made_by` and its
+  `hypothesis` is `why`, and an Improve run's outcome `proposed` is
+  `suggested`. The webhook event `improvement-pass.finished` is
+  `improve-run.finished`, and its `data.pass_` is `data.improve_run`.
+- `kindgi`: **An agent's test set.** `client.agents.test_set` reads an agent's
+  test set one project at a time, sync and async: `get` (how many cases are
+  active and retired), `list_cases`, `add_case` (a case by hand, from a
+  correction's body on one of the agent's finished runs) and `retire_case`.
+  Its cases are the agent's corrections, except Won't fix and Removed ones,
+  and the cases added by hand. Once a test run has frozen the set, `get`
+  also answers `frozen_version`, the newest version frozen. The models are
+  `AgentTestSet`, `TestSetCaseCounts`, `TestSetFrozenVersion`, `TestCase*`
+  and `AddTestCaseBody`.
+- `kindgi`: **A frozen case says what it expects.** `CorrectedEvalCase` gains
+  `expect` (`TestCaseExpect`) and `segments` (its run's segment path), set on
+  a case of an agent's frozen test set.
+- `kindgi`: **Test sets built from corrections are gone.**
+  `client.test_sets.build_from_corrections` is removed, with
+  `BuildCorrectedTestSetBody`, `BuildCorrectedTestSetResult` and
+  `CorrectorGroupId`. A `corrections` test set built before is still read by
+  id, and `client.test_sets.list` lists it only with `kind="corrections"`,
+  as it does an agent's frozen versions.
+- `kindgi`: **A suggested change is made for one project, and checked on that
+  project's test set.** This is a breaking change.
+  - `client.suggested_changes.create` takes `agent_id`, `project_id`, `block`,
+    then `values` (a settings block) or `template` (a prompt block), `why` and
+    `fixes`. The change is built on the version the project runs, and its
+    check starts at once.
+  - In the check, its version (`with`) and the version it's built on (`now`)
+    run the same cases of the project's test set, frozen when the check
+    starts.
+  - `client.suggested_changes.check(suggested_change_id)` checks it again. It
+    replaces `evaluate` and `rescore`.
+  - `client.suggested_changes.add_as_latest(suggested_change_id)` makes its
+    version its project's Latest, for a project on Latest, with no gate. A
+    `reason` is kept on its `added_as_latest`.
+  - `list` filters by `agent_id`, `project_id`, `status` and `made_by`.
+  - `SuggestedChange` gains `project_id`, `title`, `built_on`, `version`,
+    `changes`, `fixes`, `check`, `note`, `pinned`, `approval_id`,
+    `added_as_latest` and `withdrawn`.
+  - Its `made_by` is now who or what made it: an Improve run, a person, a
+    service account, a deploy or an offer. It no longer says which drafter
+    wrote it.
+  - `from_version`, `scope`, `tier`, `change`, `evidence`, `candidate`,
+    `evaluation`, `pin` and `rolled_back` are gone.
+  - Its statuses are `checking`, `check-failed`, `ready`,
+    `waiting-for-second-person`, `pinned`, `added-as-latest` and `withdrawn`.
+  - A deploy makes one in each project that runs a pinned other version of
+    the agent (`made_by.kind` is `deploy`). Its one change is the code:
+    `kind` is `code`, with `deployment_id` and `image_digest`. When the
+    version its project runs has no finished run on the same cases, its
+    `note` is `not-running`, with that `version`, and its check has no `now`.
+  - Ids that start with `agent.` are agents' own test sets: publishing a
+    test set, or building a version from corrections, under one raises
+    `InvalidRequestError` (`400 bad-input`). A test set with such an id
+    published before keeps reading and running, but a new version of it is
+    refused: publish it under another id.
+  - `client.agents.derive_version` is removed, with
+    `POST /v1/agents/{agentId}/versions` and the `DeriveAgentVersionBody`
+    and `AgentPinSwaps` models. A suggested change makes an agent version
+    from a block's new content, and checks it.
+  - New models: `SuggestedChangeChange`, `SuggestedChangeCheck`,
+    `SuggestedChangeCheckSide`, `SuggestedChangeNote` and
+    `SuggestedChangeBlockContent`.
+  - Removed models: `SuggestedChangeBlockEdit`, `SuggestedChangeCandidate`,
+    `SuggestedChangeCost`, `SuggestedChangeDecisions`,
+    `SuggestedChangeEvaluation`, `SuggestedChangeEvidence`,
+    `SuggestedChangePin` and `EvaluateSuggestedChangeBody`.
+  - The numbered models `Model` to `Model4` are named after their owners:
+    - `ImproveRunModel` (an Improve run's model);
+    - `StartImproveRunBodyModel` (the start body's);
+    - `CorrectedComparisonSummarySamplingModel` (a corrected comparison's
+      sampling models);
+    - `ImproveScheduleInputModel` (an improve schedule's).
+  - New `server_code` values:
+    - `suggested-change-not-for-a-project` (`ConflictError`): one made for a
+      tenant, an org or a segment can only be withdrawn;
+    - `suggested-change-nothing-to-check` (`ConflictError`): the project's
+      test set has no cases;
+    - `pin-stops-latest` (`ConflictError`): a pin that would take a project
+      that follows Latest off it, without `stopFollowingLatest`;
+    - `suggested-change-project-pinned` (`ConflictError`): an add as Latest,
+      for a project that runs a pin;
+    - `suggested-change-check-unsupported` (`ServerError`, a 501): the
+      server freezes no test set, so nothing can be checked;
+    - `suggested-change-out-of-date` (`ConflictError`): a pin or an add as
+      Latest of one built on a version its project no longer runs. It's
+      being rebuilt on the version the project runs now when
+      `details["rebuilding"]` is true.
+  - A suggested change built on a version its project no longer runs is
+    rebuilt there, and checked again: `built_on.rebuilt_at` says when.
+  - An audit event's `kind` can be `suggested-change-created`,
+    `suggested-change-pinned`, `suggested-change-added-as-latest` or
+    `suggested-change-withdrawn`.
+- `kindgi`: **An agent's promotion is now a pin, as for flows and tools.** This
+  is a breaking rename, and no old name is kept. The models follow: `Promotion`,
+  `PromotionPage`, `PromotionCheck` and `SuggestedChangePromotion` are `Pin`,
+  `PinPage`, `PinCheck` and `SuggestedChangePin`; `PromoteBody` is
+  `AgentPinBody`, `UnpinBody` is `AgentUnpinBody`, and `LivePin`, `LivePinList`
+  and `LiveVersionResolution` are `AgentPinnedVersion`, `AgentPinnedVersionList`
+  and `AgentPinnedVersionResolution`. An agent pin's scope takes the flow and
+  tool pins' models: `LiveScopeOrg`, `LiveScopeProject`, `LiveScopeSegment` and
+  `LiveScopeTenant` are `PinScopeOrg`, `PinScopeProject`, `PinScopeSegment` and
+  `PinScopeTenant`, and `LiveScopeUnrecognized` is `AgentPinScopeUnrecognized`.
+  `RollbackBody` is removed, since going back is a pin of an earlier version.
+  `promotion_id` is `change_id`, a suggested change's `promotion` is `pin` and
+  its `live_now` is `pinned_now`, a pin's status `promoted` is `pinned`, and the
+  `via` value `live` is `pinned`, as is a queue rule's `when.versions` value. A
+  pin check's outcome `would-promote` is `would-pin`, and a pin's action is
+  `pin` or `unpin` (`promote` and `rollback` are gone). The approval subject
+  `agent-promotion` is `agent-pin`, and the permission `promote` on an agent is
+  `pin`. A test run's comparison baseline `live` is `pinned` (its model `Live`
+  is `Pinned`). The errors follow: `promotion-not-found` and
+  `promotion-superseded` are `pin-not-found` and `pin-superseded`,
+  `agent-version-live` is `agent-version-pinned`, and `nothing-to-roll-back` is
+  removed.
+- `kindgi`: **A gate policy is now a release gate.** This is a breaking rename,
+  and no old name is kept. `client.gate_policies` is `client.release_gates`, and
+  `client.agents.gate_policy` is `client.agents.release_gate`, sync and async;
+  `policy_id` is `release_gate_id`. The models follow: `GatePolicy`,
+  `GatePolicyPage`, `GatePolicyRef`, `GatePolicyResolution`, `GatePolicySpec`,
+  `GatePolicySpecComparisonTestSet` and `PublishGatePolicyBody` are
+  `ReleaseGate`, `ReleaseGatePage`, `ReleaseGateRef`, `ReleaseGateResolution`,
+  `ReleaseGateSpec`, `ReleaseGateSpecComparisonTestSet` and
+  `PublishReleaseGateBody`. A pin's, a pin check's, a release gate resolution's
+  and a deployment promotion's pin gate's `policy` is `release_gate`. The
+  metrics follow: a comparison's `weighted_yes_share` is `pass_rate` and its
+  `judged_coverage` is `case_coverage`, as are the metric names in a release
+  gate's spec and the `objective` value of a suggested change, an Improve run, a
+  schedule's Improve run and the Improve run webhook event (`passRate`). The
+  gate's check `baselineIsLive` is `baselineIsPinned`, and the `gate-policy-*`
+  errors are `release-gate-*`.
+- `kindgi`: **A deployment promotion's make-live is now a pin.** This is a
+  breaking rename, and no old name is kept. `client.deployments.promote`
+  takes `pin` where it took `make_live`, and its answer lists the carried
+  agents in `pinned` where it said `live` (`pinned_flows` stays), as does an
+  error's `details` after some were pinned. The models follow:
+  `DeploymentLivePin` and `DeploymentLivePinGate` are `DeploymentPinnedAgent`
+  and `DeploymentPinGate`.
+- `kindgi`: **a tool can store the files it fetches, and read the files it's
+  given.** `@tool(stores_files=True)` gives each call with an idempotency key
+  `ctx.files.store(name=…, content_type=…, data=…)` (`store_async` from an
+  async handler): it stores a file, such as a mail's attachment, as a file the
+  call's run owns. The runtime checks the bytes and answers the file's value,
+  which the tool returns in its result's top-level `files`, and an agent is
+  shown the file; or it answers why nothing was stored (`type`, `size`,
+  `limit` past 10 files a call, or `storage` when the tenant's storage is
+  full). A file over `MAX_STORED_FILE_BYTES` (10 MB, the most any type allows)
+  answers `size` without its bytes being sent. The same bytes again in the
+  same call answer the first file. `@tool(reads_files=True)` gives each call
+  `ctx.files.read(artifact_id)` (`read_async` from an async handler): the
+  bytes of a file the call's run may be shown, as `FileReadAnswer.data`, or
+  why there are none, as `not_read` (`rule`, `gone`, `changed` or `size`).
+  `ctx.files.stores` and `ctx.files.reads` say which a call has; the other
+  raises `FileStoreError`. The pack service posts a store's bytes to the
+  call's tool files link and gets a read's from under it, and the handler
+  never sees the link or its token. A call from a runtime before pack protocol
+  2.10.0 carries no tool files, and `ctx.files` is `None`. The pack's index (1.8.0)
+  carries them as `storesFiles` and `readsFiles`, and the client's `Tool`
+  gains `stores_files` and `reads_files`.
+
+- `kindgi`: **a conversation's messages carry their files.** The client's
+  `ConversationMessage` gains `files`: the stored files the message names, each
+  a `FileValue` (`artifact_id`, `name`, `content_type`, `size`, `sha256`), as
+  `conversations.messages` returns them. It's `None` on a message with none.
+  A file's `not_shown` is `reading` when what the model is sent in its place,
+  an image or a text made from it, isn't made yet, and `storage` when a tool's
+  store found the tenant's storage full.
 
 ## 0.3.0
 

@@ -2,54 +2,46 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * The Kindgi page in wp-admin: Ask (the person's conversations with the
- * project's agents) and Approvals (what waits for them to decide). Every
- * call goes to this site's own routes (`/wp-json/kindgi/v1/…`), which call
- * Kindgi as the signed-in person; no Kindgi token is ever in the browser.
+ * The Kindgi pages in wp-admin, one view each (`kindgiConfig.view`):
+ * - Inbox: the approvals that wait for the person, those that wait for
+ *   someone else (and why), and the project's decided ones;
+ * - Activity: what the project's agents and flows did, whoever or whatever
+ *   started it;
+ * - Ask: the person's conversations with the agents offered to staff.
+ * Every call goes to this site's own routes (`/wp-json/kindgi/v1/…`), which
+ * call Kindgi as the signed-in person; no Kindgi token is ever in the browser.
  *
  * Text from Kindgi or WordPress is only ever set as text, never as HTML.
  */
 (() => {
   const root = document.getElementById('kindgi-app');
   if (root === null) return;
-  const { __, sprintf } = wp.i18n;
+  const { __, _n, sprintf } = wp.i18n;
   const config = window.kindgiConfig ?? {};
+  const urls = config.urls ?? {};
   const pollMs = config.pollMs ?? 1500;
   const ENDED = ['completed', 'failed', 'cancelled'];
 
-  const api = (path, options = {}) => wp.apiFetch({ path: `/kindgi/v1${path}`, ...options });
-
+  const {
+    api,
+    el,
+    when,
+    ago,
+    notice,
+    technical,
+    loading,
+    muted,
+    empty,
+    stepWords,
+    askUrl,
+    approvalUrl,
+    runUrl,
+    approvalCard,
+    runState,
+    waitsFor,
+    timeEl,
+  } = window.kindgiCards;
   const absent = (value) => value === undefined || value === null || value === false;
-
-  /** One attribute: `on…` a listener, `className` the class, `true` a bare attribute. */
-  function setAttribute(node, key, value) {
-    if (key.startsWith('on')) node.addEventListener(key.slice(2), value);
-    else if (key === 'className') node.className = value;
-    else node.setAttribute(key, value === true ? '' : value);
-  }
-
-  /** An element with attributes and children; strings become text nodes. */
-  function el(tag, attrs = {}, ...children) {
-    const node = document.createElement(tag);
-    for (const [key, value] of Object.entries(attrs)) {
-      if (!absent(value)) setAttribute(node, key, value);
-    }
-    for (const child of children.flat(Number.POSITIVE_INFINITY)) {
-      if (absent(child)) continue;
-      node.append(typeof child === 'string' ? document.createTextNode(child) : child);
-    }
-    return node;
-  }
-
-  // The site's own date format and time zone (Settings → General).
-  const when = (iso) => (iso ? wp.date.dateI18n(wp.date.getSettings().formats.datetime, iso) : '');
-  const failure = (error) => error?.message ?? __('Something went wrong.', 'kindgi');
-  const notice = (error) =>
-    el(
-      'div',
-      { className: 'notice notice-error inline', role: 'alert' },
-      el('p', {}, failure(error)),
-    );
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   /** Resolves once the page is visible: polling waits while it's in a background tab. */
@@ -65,200 +57,36 @@
     });
   }
 
-  const state = {
-    me: null,
-    tab: config.approval ? 'approvals' : 'ask',
-    conversationId: null,
-    // A conversation to open with this agent at its first message.
-    newAgent: null,
-    // Bumped by every navigation: a poll started before it stops.
-    view: 0,
-    // Each conversation's turn still running, by its run: followed again on return.
-    running: new Map(),
-  };
-
-  // ---------- the shell: two tabs ----------
-
-  const TABS = [
-    ['ask', __('Ask', 'kindgi')],
-    ['approvals', __('Approvals', 'kindgi')],
-  ];
-  const panels = Object.fromEntries(
-    TABS.map(([tab]) => [
-      tab,
-      el('div', {
-        className: 'kindgi-panel',
-        role: 'tabpanel',
-        id: `kindgi-panel-${tab}`,
-        'aria-labelledby': `kindgi-tab-${tab}`,
-        tabindex: '0',
-      }),
-    ]),
-  );
-  const tabs = el('nav', { className: 'nav-tab-wrapper', role: 'tablist' });
-
-  function showTab(tab) {
-    state.tab = tab;
-    state.view += 1;
-    for (const button of tabs.querySelectorAll('[role=tab]')) {
-      const selected = button.dataset.tab === tab;
-      button.classList.toggle('nav-tab-active', selected);
-      button.setAttribute('aria-selected', selected ? 'true' : 'false');
-      button.tabIndex = selected ? 0 : -1;
-    }
-    for (const [name, panel] of Object.entries(panels)) panel.hidden = name !== tab;
-    if (tab === 'approvals') renderApprovals();
-    else renderAsk();
-  }
-
-  /** Arrow keys, Home and End move between the tabs, as ARIA's tab pattern has it. */
-  function tabKeys(event) {
-    const all = [...tabs.querySelectorAll('[role=tab]')];
-    const at = all.indexOf(event.target);
-    const next = {
-      ArrowRight: (at + 1) % all.length,
-      ArrowLeft: (at - 1 + all.length) % all.length,
-      Home: 0,
-      End: all.length - 1,
-    }[event.key];
-    if (next === undefined) return;
-    event.preventDefault();
-    all[next].focus();
-    showTab(all[next].dataset.tab);
-  }
-
-  async function start() {
-    root.append(el('p', { className: 'kindgi-muted' }, __('Signing you in to Kindgi…', 'kindgi')));
-    try {
-      state.me = await api('/me');
-    } catch (error) {
-      root.replaceChildren(notice(error));
-      return;
-    }
-    // The approvals surface is for reviewers; anyone else sees a wait in their turn instead.
-    const shown = TABS.filter(([tab]) => tab === 'ask' || state.me.reviewerRole !== null);
-    if (!shown.some(([tab]) => tab === state.tab)) state.tab = 'ask';
-    tabs.append(
-      ...shown.map(([tab, label]) =>
-        el(
-          'button',
-          {
-            type: 'button',
-            className: 'nav-tab',
-            role: 'tab',
-            id: `kindgi-tab-${tab}`,
-            'aria-controls': `kindgi-panel-${tab}`,
-            'data-tab': tab,
-            onclick: () => showTab(tab),
-            onkeydown: tabKeys,
-          },
-          label,
-        ),
-      ),
-    );
-    root.replaceChildren(tabs, ...shown.map(([tab]) => panels[tab]));
-    showTab(state.tab);
-  }
-
-  // ---------- Ask ----------
-
-  /** Opens a conversation (or, with null, the agent's new one) and redraws the tab. */
-  function open(conversationId, newAgent = null) {
-    state.conversationId = conversationId;
-    state.newAgent = newAgent;
-    renderAsk();
-  }
-
-  async function renderAsk() {
-    state.view += 1;
-    const panel = panels.ask;
-    panel.replaceChildren(el('p', { className: 'kindgi-muted' }, __('Loading…', 'kindgi')));
-    let agents;
-    let conversations;
-    try {
-      [agents, conversations] = await Promise.all([api('/agents'), api('/conversations')]);
-    } catch (error) {
-      panel.replaceChildren(notice(error));
-      return;
-    }
-    const nameOf = (id) => agents.agents.find((a) => a.id === id)?.name || id;
-    const picker = el(
-      'select',
-      { id: 'kindgi-agent' },
-      agents.agents.map((a, i) => el('option', { value: String(i) }, a.name || a.id)),
-    );
-    const startButton = el(
-      'button',
+  /** A link that, clicked, stays on the page: `go` draws what it names. */
+  const inPage = (href, go, ...children) =>
+    el(
+      'a',
       {
-        type: 'button',
-        className: 'button button-primary',
-        disabled: agents.agents.length === 0,
-        // Opened at its first message, which names it.
-        onclick: () => open(null, agents.agents[Number(picker.value)]),
+        href,
+        onclick: (event) => {
+          if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+          event.preventDefault();
+          window.history.replaceState(null, '', href);
+          go();
+        },
       },
-      __('New conversation', 'kindgi'),
+      ...children,
     );
-    const item = (c) =>
-      el(
-        'li',
-        {},
-        el(
-          'button',
-          {
-            type: 'button',
-            className: `button-link${c.id === state.conversationId ? ' kindgi-current' : ''}`,
-            onclick: () => open(c.id),
-          },
-          c.title || nameOf(c.agentId),
-        ),
-        el(
-          'span',
-          { className: 'kindgi-muted' },
-          ` ${nameOf(c.agentId)} · ${when(c.lastMessageAt ?? c.openedAt)}`,
-        ),
-      );
-    const list = el(
-      'ul',
-      { className: 'kindgi-conversations' },
-      conversations.conversations.map(item),
-    );
-    const side = el(
-      'div',
-      { className: 'kindgi-side' },
-      el('label', { for: 'kindgi-agent' }, __('Agent', 'kindgi')),
-      agents.agents.length === 0
-        ? el(
-            'p',
-            { className: 'kindgi-muted' },
-            __('No agent in this project you can ask.', 'kindgi'),
-          )
-        : picker,
-      startButton,
-      el('h2', {}, __('Your conversations', 'kindgi')),
-      conversations.conversations.length === 0
-        ? el('p', { className: 'kindgi-muted' }, __('None yet.', 'kindgi'))
-        : list,
-      olderButton(list, item, conversations.nextCursor),
-    );
-    const main = el('div', { className: 'kindgi-main' });
-    panel.replaceChildren(el('div', { className: 'kindgi-columns' }, side, main));
-    if (state.conversationId !== null || state.newAgent !== null) renderConversation(main);
-  }
 
-  /** "Show older": the list's next page, appended. */
-  function olderButton(list, item, firstCursor) {
+  /** "Show older": the list's next page, given to `append`. */
+  function olderButton(path, firstCursor, append) {
     let cursor = firstCursor;
     if (cursor === null) return null;
     const button = el(
       'button',
       {
         type: 'button',
-        className: 'button-link',
+        className: 'button',
         onclick: async () => {
           button.disabled = true;
           try {
-            const page = await api(`/conversations?cursor=${encodeURIComponent(cursor)}`);
-            list.append(...page.conversations.map(item));
+            const page = await api(`${path}?cursor=${encodeURIComponent(cursor)}`);
+            append(page);
             cursor = page.nextCursor;
             if (cursor === null) button.remove();
             else button.disabled = false;
@@ -269,7 +97,633 @@
       },
       __('Show older', 'kindgi'),
     );
-    return button;
+    return el('p', {}, button);
+  }
+
+  const state = {
+    me: null,
+    // The Inbox's list: `you`, `others` or `decided`.
+    filter: null,
+    conversationId: config.conversation ?? null,
+    // On the Ask page: the approval someone else's conversation opens through.
+    through: config.view === 'ask' ? (config.approval ?? null) : null,
+    // A conversation to open with this agent at its first message.
+    newAgent: null,
+    // "Ask about this order": a new conversation whose first words name the order, until it's sent.
+    order: config.view === 'ask' ? (config.order ?? null) : null,
+    // The dashboard box's question: a new conversation's first words, until it's sent.
+    question: config.view === 'ask' ? (config.question ?? null) : null,
+    // Bumped by every redraw: a poll started before it stops.
+    view: 0,
+    // Each conversation's turn still running, by its run: followed again on return.
+    running: new Map(),
+  };
+
+  async function start() {
+    root.replaceChildren(loading());
+    try {
+      state.me = await api('/me');
+    } catch (error) {
+      root.replaceChildren(notice(error, start));
+      return;
+    }
+    if (config.view === 'activity') renderActivity();
+    else if (config.view === 'ask') renderAsk();
+    else renderInbox();
+  }
+
+  // ---------- Inbox ----------
+
+  const FILTERS = [
+    ['you', __('Waits for you', 'kindgi')],
+    ['others', __('Waits for others', 'kindgi')],
+    ['decided', __('Decided', 'kindgi')],
+  ];
+  const filterUrl = (filter) => `${urls.inbox}&show=${filter}`;
+
+  /** The list the Inbox opens on: the one asked for, else what waits for the person. */
+  function firstFilter() {
+    const asked = new URLSearchParams(window.location.search).get('show');
+    if (FILTERS.some(([filter]) => filter === asked)) return asked;
+    return state.me.reviewerRole === null ? 'others' : 'you';
+  }
+
+  /**
+   * The Inbox's approvals: what waits, the decided ones when they're shown,
+   * and, for a link from an email, which list holds it.
+   */
+  async function loadInbox(opened) {
+    const page = await api('/approvals?view=waiting');
+    const loaded = {
+      waiting: page.approvals,
+      more: page.more === true,
+      decided: null,
+      linked: null,
+    };
+    const there = loaded.waiting.find((a) => a.id === opened);
+    if (there !== undefined) state.filter = there.waitsFor;
+    else if (opened !== null) {
+      loaded.decided = (await api('/approvals?view=decided')).approvals;
+      if (loaded.decided.some((a) => a.id === opened)) state.filter = 'decided';
+      // A link to an approval neither list holds: this one, whatever its state.
+      else {
+        loaded.linked = await api(`/approvals/${encodeURIComponent(opened)}`).catch((error) => ({
+          error,
+        }));
+      }
+    }
+    if (state.filter === 'decided' && loaded.decided === null) {
+      loaded.decided = (await api('/approvals?view=decided')).approvals;
+    }
+    return loaded;
+  }
+
+  function linkedCard(linked, reload) {
+    if (linked === null) return null;
+    return el(
+      'div',
+      { className: 'kindgi-linked' },
+      el('h2', {}, __('From your link', 'kindgi')),
+      linked.error !== undefined ? notice(linked.error) : approvalCard(linked, { after: reload }),
+    );
+  }
+
+  async function renderInbox() {
+    state.view += 1;
+    root.replaceChildren(loading());
+    const opened = config.approval ?? null;
+    config.approval = null;
+    state.filter ??= firstFilter();
+    let loaded;
+    try {
+      loaded = await loadInbox(opened);
+    } catch (error) {
+      // Try again opens the linked approval too.
+      config.approval = opened;
+      root.replaceChildren(notice(error, () => renderInbox()));
+      return;
+    }
+    const mine = loaded.waiting.filter((a) => a.waitsFor === 'you');
+    const others = loaded.waiting.filter((a) => a.waitsFor === 'others');
+    document.dispatchEvent(
+      new CustomEvent('kindgi-count', { detail: { n: mine.length, more: loaded.more } }),
+    );
+    const reload = () => renderInbox();
+    const list = { you: mine, others, decided: loaded.decided ?? [] }[state.filter];
+    // More waits than one page held: the oldest show, and the counts say "12+".
+    // "12+" when more may wait than the page held; none of yours on it reads "0".
+    const counted = (n) => (loaded.more && n > 0 ? `${n}+` : String(n));
+    root.replaceChildren(
+      ...[
+        linkedCard(loaded.linked, reload),
+        filters({ you: counted(mine.length), others: counted(others.length), decided: null }),
+        el(
+          'div',
+          { className: 'kindgi-cards' },
+          state.filter === 'decided'
+            ? muted(__("The project's latest decisions, whoever decided.", 'kindgi'))
+            : null,
+          list.length === 0 ? emptyInbox() : list.map((a) => approvalCard(a, { after: reload })),
+        ),
+      ].filter((child) => !absent(child)),
+    );
+    if (opened === null) return;
+    const target = root.querySelector(`[data-approval="${CSS.escape(opened)}"]`);
+    target?.classList.add('kindgi-target');
+    target?.scrollIntoView({ block: 'center' });
+  }
+
+  /** The Inbox's lists, as WordPress's own list screens have them ("All (3) | Mine (1)"). */
+  function filters(counts) {
+    const item = ([filter, label], at) => {
+      const link = inPage(
+        filterUrl(filter),
+        () => {
+          state.filter = filter;
+          renderInbox();
+        },
+        label,
+        counts[filter] === null
+          ? null
+          : [' ', el('span', { className: 'count' }, `(${counts[filter]})`)],
+      );
+      if (filter === state.filter) {
+        link.className = 'current';
+        link.setAttribute('aria-current', 'page');
+      }
+      // The space after the bar is the one WordPress's own markup leaves between items.
+      return el('li', {}, link, at < FILTERS.length - 1 ? ' | ' : null);
+    };
+    return el('ul', { className: 'subsubsub' }, FILTERS.map(item));
+  }
+
+  /** An Inbox list with nothing in it: what lands there, and where to go instead. */
+  function emptyInbox() {
+    if (state.filter === 'decided') {
+      return empty({
+        title: __('Nothing decided yet', 'kindgi'),
+        text: __("Each approval's decision shows here: who decided, when, and why.", 'kindgi'),
+      });
+    }
+    if (state.filter === 'others') {
+      return empty({
+        title: __('Nothing waits for anyone else', 'kindgi'),
+        text: __('An approval that someone else decides shows here, with who that is.', 'kindgi'),
+      });
+    }
+    if (state.me.reviewerRole === null) {
+      return empty({
+        title: __('No approvals are yours to decide', 'kindgi'),
+        text: __(
+          "You don't review approvals at Kindgi. An administrator decides who does.",
+          'kindgi',
+        ),
+        actions: [el('a', { className: 'button', href: urls.ask }, __('Ask an agent', 'kindgi'))],
+      });
+    }
+    return empty({
+      title: __("You're all caught up", 'kindgi'),
+      text: __(
+        'When an agent wants your OK, for a refund past its limit or a reply to a customer, it waits here.',
+        'kindgi',
+      ),
+      actions: [
+        el(
+          'a',
+          { className: 'button button-primary', href: urls.ask },
+          __('Ask an agent', 'kindgi'),
+        ),
+        ' ',
+        el(
+          'a',
+          { className: 'button', href: urls.activity },
+          __('See what the agents did', 'kindgi'),
+        ),
+      ],
+    });
+  }
+
+  // ---------- Activity ----------
+
+  /** Where a run came from, in words: who asked, or how it started. */
+  const SOURCE = {
+    you: __('You asked', 'kindgi'),
+    kindgi: __('Asked from Kindgi', 'kindgi'),
+    webhook: __('Webhook', 'kindgi'),
+    schedule: __('Schedule', 'kindgi'),
+    event: __('Event', 'kindgi'),
+    mail: __('Email', 'kindgi'),
+    key: __('Service key', 'kindgi'),
+  };
+  function sourceWords(by) {
+    if (by.kind !== 'person') return SOURCE[by.kind] ?? null;
+    /* translators: %s: a person's name */
+    return sprintf(__('%s asked', 'kindgi'), by.name);
+  }
+
+  /** A day's key and heading: "Today", "Yesterday", else its weekday and the site's date. */
+  function dayOf(iso) {
+    const { dateI18n, getSettings } = wp.date;
+    const key = (at) => dateI18n('Y-m-d', at);
+    const day = key(iso);
+    const today = key(new Date());
+    if (day === today) return [day, __('Today', 'kindgi')];
+    // The date before today's, not 24 hours ago: a day the clocks change is 23 or 25 hours long.
+    const [y, m, d] = today.split('-').map(Number);
+    if (day === new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10)) {
+      return [day, __('Yesterday', 'kindgi')];
+    }
+    return [
+      day,
+      sprintf(
+        /* translators: 1: a weekday, 2: a date in the site's format */
+        __('%1$s, %2$s', 'kindgi'),
+        dateI18n('l', iso),
+        dateI18n(getSettings().formats.date, iso),
+      ),
+    ];
+  }
+
+  /** A run's time on its row (its day heads the group), with the full date on hover. */
+  const timeOf = (iso) =>
+    el(
+      'time',
+      { datetime: iso, title: when(iso) },
+      wp.date.dateI18n(wp.date.getSettings().formats.time, iso),
+    );
+
+  /** Marks a run's row as the one the address names; with `scroll`, brings it into view. */
+  function markRun(runId, scroll = true) {
+    for (const row of root.querySelectorAll('.kindgi-run.kindgi-target')) {
+      row.classList.remove('kindgi-target');
+    }
+    const row = root.querySelector(`[data-run="${CSS.escape(runId)}"]`);
+    row?.classList.add('kindgi-target');
+    if (scroll) row?.scrollIntoView({ block: 'center' });
+  }
+
+  /** A name's first letter, for its round mark. */
+  const initial = (name) => [...name.trim()][0]?.toUpperCase() ?? '•';
+
+  /**
+   * What a run returned, in a sheet beside the page. It's a modal dialog:
+   * focus moves into it, Escape, Close or a click outside shuts it, and
+   * focus goes back to the button that opened it.
+   */
+  function outputSheet(run, name) {
+    const close = el('button', { type: 'button', className: 'button' }, __('Close', 'kindgi'));
+    const title = el(
+      'h2',
+      {},
+      /* translators: %s: the agent's or flow's name */
+      sprintf(__('What %s returned', 'kindgi'), name),
+    );
+    const sheet = el(
+      'dialog',
+      { className: 'kindgi-sheet' },
+      el(
+        'div',
+        { className: 'kindgi-sheet-inner' },
+        el('div', { className: 'kindgi-sheet-head' }, title, close),
+        el('p', { className: 'kindgi-muted' }, when(run.createdAt)),
+        el('pre', {}, run.output),
+      ),
+    );
+    title.id = `kindgi-sheet-${run.id}`;
+    sheet.setAttribute('aria-labelledby', title.id);
+    close.addEventListener('click', () => sheet.close());
+    // The sheet's own box is its inner one: a click on the dialog itself is on the backdrop.
+    // Pressed there too, so a text selection let go past the sheet's edge leaves it open.
+    let pressedOutside = false;
+    sheet.addEventListener('pointerdown', (event) => {
+      pressedOutside = event.target === sheet;
+    });
+    sheet.addEventListener('click', (event) => {
+      if (pressedOutside && event.target === sheet) sheet.close();
+    });
+    sheet.addEventListener('close', () => {
+      sheet.remove();
+      // The run stays the one the address names, marked; what it returned is shut.
+      window.history.replaceState(null, '', runUrl(run.id));
+      markRun(run.id, false);
+    });
+    return sheet;
+  }
+
+  /** Opens what a run returned, and names it in the address: a reload or a link opens it again. */
+  function openOutput(run, name) {
+    const sheet = outputSheet(run, name);
+    root.append(sheet);
+    window.history.replaceState(null, '', runUrl(run.id, true));
+    sheet.showModal();
+  }
+
+  /** Why a run failed, in words for staff; Kindgi's own words for it under Details, for an administrator. */
+  const failedWhy = (run) => [
+    el('p', { className: 'kindgi-run-why' }, __("It couldn't finish.", 'kindgi')),
+    run.failureMessage ? technical({ code: 'run-failed', message: run.failureMessage }) : null,
+  ];
+
+  /** A run's links: its conversation, for the person's own; what it returned, in a sheet. */
+  function runLinks(run, name) {
+    return [
+      run.conversationId
+        ? el('a', { href: askUrl(run.conversationId) }, __('Open the conversation', 'kindgi'))
+        : null,
+      run.output === null
+        ? null
+        : el(
+            'button',
+            {
+              type: 'button',
+              className: 'button-link',
+              onclick: () => openOutput(run, name),
+            },
+            __('What it returned', 'kindgi'),
+          ),
+    ].filter((link) => link !== null);
+  }
+
+  /** A run's name: its agent's, else its flow's. */
+  const runName = (run, nameOf) =>
+    run.agentId !== null ? nameOf(run.agentId) : (run.flow ?? __('A run', 'kindgi'));
+
+  function activityRow(run, nameOf) {
+    const name = runName(run, nameOf);
+    const source = sourceWords(run.startedBy);
+    // The time links to the run: its row, marked, as the address names it.
+    const time = inPage(runUrl(run.id), () => markRun(run.id, false), timeOf(run.createdAt));
+    time.className = 'kindgi-run-link';
+    return el(
+      'li',
+      { className: 'kindgi-run', 'data-run': run.id },
+      el('span', { className: 'kindgi-mark-round', 'aria-hidden': 'true' }, initial(name)),
+      el(
+        'div',
+        { className: 'kindgi-run-body' },
+        el('div', { className: 'kindgi-run-head' }, el('strong', {}, name), runState(run)),
+        run.summary ? el('p', { className: 'kindgi-run-summary' }, run.summary) : null,
+        waitsFor(run),
+        run.status === 'failed' ? failedWhy(run) : null,
+        run.private === 'orders'
+          ? muted(__('What it found shows to people who can edit orders.', 'kindgi'))
+          : null,
+        el(
+          'p',
+          { className: 'kindgi-run-meta' },
+          time,
+          source ? [' · ', source] : null,
+          runLinks(run, name).flatMap((link) => [' · ', link]),
+        ),
+      ),
+    );
+  }
+
+  /** The feed: runs under their day's heading, newest first; an older page carries on under the last. */
+  function feed(nameOf) {
+    const node = el('div', { className: 'kindgi-feed' });
+    let lastDay = null;
+    let list = null;
+    const add = (runs) => {
+      for (const run of runs) {
+        const [day, heading] = dayOf(run.createdAt);
+        if (day !== lastDay) {
+          lastDay = day;
+          list = el('ul', { className: 'kindgi-runs', role: 'list' });
+          node.append(el('h2', { className: 'kindgi-day' }, heading), list);
+        }
+        list.append(activityRow(run, nameOf));
+      }
+    };
+    return { node, add };
+  }
+
+  /**
+   * The run a link names (`&run=<id>`), when the feed's first page doesn't
+   * hold it: read on its own, or what kept it from being read.
+   */
+  async function linkedRun(opened, page) {
+    if (opened === null || page.runs.some((run) => run.id === opened)) return null;
+    return api(`/activity/${encodeURIComponent(opened)}`).catch((error) => ({ error }));
+  }
+
+  /** The linked run above the feed, as the Inbox shows a linked approval. */
+  function linkedRow(linked, nameOf) {
+    if (linked === null) return null;
+    return el(
+      'div',
+      { className: 'kindgi-linked' },
+      el('h2', {}, __('From your link', 'kindgi')),
+      linked.error !== undefined
+        ? notice(linked.error)
+        : el('ul', { className: 'kindgi-runs', role: 'list' }, activityRow(linked, nameOf)),
+    );
+  }
+
+  async function renderActivity() {
+    state.view += 1;
+    root.replaceChildren(loading());
+    const opened = config.run ?? null;
+    const output = new URLSearchParams(window.location.search).get('show') === 'output';
+    let agents;
+    let page;
+    let linked;
+    try {
+      [agents, page] = await Promise.all([api('/agents'), api('/activity')]);
+      linked = await linkedRun(opened, page);
+    } catch (error) {
+      root.replaceChildren(notice(error, () => renderActivity()));
+      return;
+    }
+    config.run = null;
+    const nameOf = (id) => agents.agents.find((a) => a.id === id)?.name || id;
+    if (page.runs.length === 0) {
+      root.replaceChildren(
+        empty({
+          title: __('Nothing yet', 'kindgi'),
+          text: __(
+            "What the agents and flows do shows here: each order they review, each mail they answer, each question they're asked.",
+            'kindgi',
+          ),
+          actions: [
+            el(
+              'a',
+              { className: 'button button-primary', href: urls.ask },
+              __('Ask an agent', 'kindgi'),
+            ),
+          ],
+        }),
+      );
+      return;
+    }
+    const runs = feed(nameOf);
+    runs.add(page.runs);
+    root.replaceChildren(
+      ...[
+        linkedRow(linked, nameOf),
+        muted(
+          __(
+            "What the project's agents and flows did, newest first, whoever or whatever started it.",
+            'kindgi',
+          ),
+        ),
+        runs.node,
+        olderButton('/activity', page.nextCursor, (more) => runs.add(more.runs)),
+      ].filter((child) => !absent(child)),
+    );
+    if (opened === null) return;
+    markRun(opened);
+    const run = page.runs.find((r) => r.id === opened) ?? (linked?.error ? null : linked);
+    if (output) openLinkedOutput(opened, run, nameOf);
+  }
+
+  /**
+   * `&show=output`: what the linked run returned, open as it was when the
+   * link was made; with nothing to open, the address names the row only, as
+   * the page shows it.
+   */
+  function openLinkedOutput(opened, run, nameOf) {
+    if (run && run.output !== null) openOutput(run, runName(run, nameOf));
+    else window.history.replaceState(null, '', runUrl(opened));
+  }
+
+  // ---------- Ask ----------
+
+  /** Opens a conversation (or, with null, a new one) and redraws the page. */
+  function open(conversationId, newAgent = null) {
+    state.conversationId = conversationId;
+    state.through = null;
+    state.newAgent = newAgent;
+    // The address names the open conversation: a reload opens it again.
+    window.history.replaceState(
+      null,
+      '',
+      conversationId === null ? urls.ask : askUrl(conversationId),
+    );
+    renderAsk();
+  }
+
+  /** Questions a store's staff often start with: each fills the box, to send as it is or change. */
+  const STARTERS = [
+    __('Which orders are still processing?', 'kindgi'),
+    __('Has any order waited more than a day to ship?', 'kindgi'),
+    __('What sold best this week?', 'kindgi'),
+  ];
+
+  /**
+   * A new conversation's agent: the one the person last asked (the
+   * conversation with the newest message, theirs or its), when it's still
+   * offered; else the first offered.
+   */
+  function lastAsked(offered, conversations) {
+    const asked = conversations.filter(
+      (c) => c.lastMessageAt && offered.some((a) => a.id === c.agentId),
+    );
+    const latest = asked.reduce(
+      (best, c) => (best === null || c.lastMessageAt > best.lastMessageAt ? c : best),
+      null,
+    );
+    return offered.find((a) => a.id === latest?.agentId) ?? offered[0];
+  }
+
+  /**
+   * Ask: the person's conversations beside the open one. With none open,
+   * the page is a new conversation, ready to type in, with the first agent
+   * offered until the person picks another.
+   */
+  async function renderAsk() {
+    state.view += 1;
+    root.replaceChildren(loading());
+    let agents;
+    let conversations;
+    try {
+      [agents, conversations] = await Promise.all([api('/agents'), api('/conversations')]);
+    } catch (error) {
+      root.replaceChildren(notice(error, () => renderAsk()));
+      return;
+    }
+    // Only the agents an administrator offered to staff (Kindgi → Settings).
+    const offered = agents.agents.filter((a) => a.offered);
+    const nameOf = (id) => agents.agents.find((a) => a.id === id)?.name || id;
+    if (state.conversationId === null && offered.length === 0) {
+      root.replaceChildren(noAgents());
+      return;
+    }
+    if (state.conversationId === null)
+      state.newAgent ??= lastAsked(offered, conversations.conversations);
+    const item = (c) =>
+      el(
+        'li',
+        { className: c.id === state.conversationId ? 'kindgi-current' : null },
+        inPage(
+          askUrl(c.id),
+          () => open(c.id),
+          el('span', { className: 'kindgi-conversation-title' }, c.title || nameOf(c.agentId)),
+          el(
+            'span',
+            { className: 'kindgi-muted' },
+            `${nameOf(c.agentId)} · ${ago(c.lastMessageAt ?? c.openedAt)}`,
+          ),
+        ),
+      );
+    const list = el(
+      'ul',
+      { className: 'kindgi-conversations' },
+      conversations.conversations.map(item),
+    );
+    const rail = el(
+      'nav',
+      { className: 'kindgi-rail', 'aria-label': __('Your conversations', 'kindgi') },
+      el(
+        'button',
+        {
+          type: 'button',
+          className: 'button kindgi-new',
+          disabled: offered.length === 0,
+          onclick: () => open(null),
+        },
+        __('New conversation', 'kindgi'),
+      ),
+      el('h2', {}, __('Your conversations', 'kindgi')),
+      conversations.conversations.length === 0
+        ? muted(__('What you ask shows here, to come back to.', 'kindgi'))
+        : null,
+      list,
+      olderButton('/conversations', conversations.nextCursor, (more) =>
+        list.append(...more.conversations.map(item)),
+      ),
+    );
+    const chat = el('section', { className: 'kindgi-chat' });
+    root.replaceChildren(el('div', { className: 'kindgi-ask' }, chat, rail));
+    // The person's open conversation shows in the list even when it's older; someone else's isn't theirs to list.
+    const follows = (conversation) => {
+      if (conversation === null || conversation.mine === false) return;
+      if (!conversations.conversations.some((c) => c.id === conversation.id)) {
+        list.prepend(item(conversation));
+      }
+    };
+    renderConversation(chat, { nameOf, offered, follows });
+  }
+
+  /** Ask with no agent offered to staff: who offers one. */
+  function noAgents() {
+    return empty({
+      title: __('No agent here to ask yet', 'kindgi'),
+      text:
+        urls.settings === null || urls.settings === undefined
+          ? __('An administrator offers agents to staff, under Kindgi → Settings.', 'kindgi')
+          : __('Offer agents to your staff in Settings, under Agents offered to staff.', 'kindgi'),
+      actions:
+        urls.settings === null || urls.settings === undefined
+          ? []
+          : [
+              el(
+                'a',
+                { className: 'button button-primary', href: urls.settings },
+                __('Open Settings', 'kindgi'),
+              ),
+            ],
+    });
   }
 
   /** The first line of a message, as a conversation's title. */
@@ -278,72 +732,281 @@
     return line.length > 80 ? `${line.slice(0, 79)}…` : line;
   };
 
-  /** The open conversation, or a new one's empty page until its first message. */
-  async function renderConversation(main) {
+  /**
+   * The open conversation, or a new one ready to type in. Someone else's
+   * (opened from an approval its reader reviews) is shown to read, without
+   * the box to write in.
+   */
+  async function renderConversation(chat, { nameOf, offered, follows }) {
     const view = state.view;
-    main.replaceChildren(el('p', { className: 'kindgi-muted' }, __('Loading…', 'kindgi')));
-    let messages = { messages: [], earlier: false };
-    if (state.conversationId !== null) {
-      try {
-        messages = await api(`/conversations/${encodeURIComponent(state.conversationId)}/messages`);
-      } catch (error) {
-        main.replaceChildren(notice(error));
-        return;
-      }
+    chat.replaceChildren(loading());
+    let conversation;
+    let messages;
+    let approval;
+    try {
+      [conversation, messages, approval] = await loadConversation();
+    } catch (error) {
+      chat.replaceChildren(notice(error, () => renderAsk()));
+      return;
     }
     if (view !== state.view) return;
+    follows(conversation);
+    const page = conversationPage(chat, conversation, messages, { nameOf, offered, approval });
+    chat.classList.toggle('kindgi-started', conversation !== null);
+    chat.replaceChildren(...page.children);
+    if (conversation === null) page.box.focus();
+    else page.log.lastElementChild?.scrollIntoView({ block: 'nearest' });
+    // A turn this page started is still running: follow it again.
+    const running = state.running.get(state.conversationId);
+    if (running !== undefined) await followTurn(state.conversationId, running, page.progress);
+  }
+
+  /**
+   * What the chat shows: the conversation's head (or a new one's), its
+   * messages, the approval it was opened from where the agent waits on it,
+   * the box to write in when it's the person's own, and starters for a
+   * new one.
+   */
+  function conversationPage(chat, conversation, messages, { nameOf, offered, approval = null }) {
     const log = el(
       'ol',
       { className: 'kindgi-messages', 'aria-live': 'polite' },
-      messages.messages.map(message).filter((m) => m !== null),
+      logItems(messages.messages),
+      approval === null ? null : awaits(approval),
     );
+    // Mail that started it: its thread's subject heads the page.
+    const thread = messages.messages.find((m) => m.mail)?.mail ?? null;
     const progress = el('div', { className: 'kindgi-progress', 'aria-live': 'polite' });
-    const input = el('textarea', { id: 'kindgi-message', rows: '3', maxlength: '20000' });
+    const fresh = conversation === null ? freshHead(state.newAgent) : null;
+    const box =
+      conversation === null || conversation.mine
+        ? composer({
+            log,
+            progress,
+            conversation,
+            offered,
+            onAgent: (agent) => fresh?.show(agent),
+            onSend: () => chat.classList.add('kindgi-started'),
+          })
+        : null;
+    const children = [
+      el(
+        'div',
+        { className: 'kindgi-thread' },
+        fresh === null ? conversationHead(conversation, nameOf, thread) : fresh.node,
+        messages.earlier ? muted(__("Earlier messages aren't shown.", 'kindgi')) : null,
+        log,
+        progress,
+      ),
+      box?.node,
+      fresh === null ? null : starters(box.fill),
+    ].filter((child) => !absent(child));
+    return { log, progress, box, children };
+  }
+
+  /**
+   * The open conversation and its newest messages, or none for a new one.
+   * Someone else's opens through the approval named in the address, which
+   * comes too (null when it can't be read: the conversation still shows).
+   */
+  function loadConversation() {
+    if (state.conversationId === null) return [null, { messages: [], earlier: false }, null];
+    const id = encodeURIComponent(state.conversationId);
+    const approval = state.through === null ? '' : encodeURIComponent(state.through);
+    const through = approval === '' ? '' : `?approval=${approval}`;
+    return Promise.all([
+      api(`/conversations/${id}${through}`),
+      api(`/conversations/${id}/messages${through}`),
+      approval === '' ? null : api(`/approvals/${approval}`).catch(() => null),
+    ]);
+  }
+
+  /** A new conversation's top: whom it asks, and what that agent does. */
+  function freshHead(agent) {
+    const title = el('h2', {});
+    const about = el('p', { className: 'kindgi-muted kindgi-about' });
+    const show = (a) => {
+      /* translators: %s: the agent's name */
+      title.textContent = sprintf(__('Ask %s', 'kindgi'), a.name || a.id);
+      about.textContent = a.description;
+    };
+    show(agent);
+    return { node: el('div', { className: 'kindgi-fresh' }, title, about), show };
+  }
+
+  /**
+   * The conversation's title and agent, or, when mail started it, the
+   * thread's subject and the agent answering it. Someone else's says it's
+   * there to read.
+   */
+  function conversationHead(conversation, nameOf, thread) {
+    const agent = nameOf(conversation.agentId);
+    return el(
+      'div',
+      { className: 'kindgi-thread-head' },
+      el('h2', {}, thread?.subject ?? (conversation.title || agent)),
+      el(
+        'p',
+        { className: 'kindgi-muted' },
+        thread
+          ? /* translators: %s: the agent's name */
+            sprintf(__('Email thread · answered by %s', 'kindgi'), agent)
+          : /* translators: %s: the agent's name */
+            sprintf(__('With %s', 'kindgi'), agent),
+      ),
+      conversation.mine ? null : readOnly(),
+    );
+  }
+
+  /** Someone else's conversation is there to read; opened from an approval, with the way back to it. */
+  function readOnly() {
+    if (state.through === null) {
+      return el(
+        'p',
+        { className: 'kindgi-note' },
+        __("Someone else's conversation: you can read it, not continue it.", 'kindgi'),
+      );
+    }
+    return el(
+      'p',
+      { className: 'kindgi-note' },
+      __('Read only: you opened it from an approval.', 'kindgi'),
+      ' ',
+      el('a', { href: approvalUrl(state.through) }, __('Back to the Inbox', 'kindgi')),
+    );
+  }
+
+  /** What a new conversation's box suggests: a store's staff ask about its orders. */
+  const firstWords = () =>
+    config.store === true
+      ? __('Ask about orders, products or customers…', 'kindgi')
+      : __('Ask a question…', 'kindgi');
+
+  /** What a new conversation's box starts with: the dashboard box's question, or the order it's about. */
+  function writtenIn() {
+    if (state.question !== null) return state.question;
+    if (state.order === null) return '';
+    /* translators: %s: the order's number */
+    return sprintf(__('About order #%s: ', 'kindgi'), state.order);
+  }
+
+  /** Whether the page is used by touch, where Enter starts a new line. */
+  const touch = () => window.matchMedia?.('(pointer: coarse)').matches === true;
+
+  /**
+   * The box to write in. Enter sends and Shift+Enter starts a new line (by
+   * touch, Enter starts a new line); it grows with what's written. A new
+   * conversation picks its agent here, and one about an order starts with
+   * its number.
+   */
+  function composer({ log, progress, conversation, offered, onAgent, onSend }) {
+    const fit = () => {
+      input.style.height = 'auto';
+      input.style.height = `${Math.min(input.scrollHeight, 240)}px`;
+    };
+    const input = el('textarea', {
+      id: 'kindgi-message',
+      rows: '2',
+      maxlength: '20000',
+      placeholder: conversation === null ? firstWords() : __('Reply…', 'kindgi'),
+      oninput: () => fit(),
+      onkeydown: (event) => {
+        // A phone's keyboard has no Shift+Enter: there Enter starts a new line and Send sends.
+        if (event.key !== 'Enter' || event.shiftKey || event.isComposing || touch()) return;
+        event.preventDefault();
+        if (!send.disabled) send.click();
+      },
+    });
+    if (conversation === null) input.value = writtenIn();
     const send = el(
       'button',
       {
         type: 'button',
-        className: 'button button-primary',
-        onclick: () => sendTurn(input, send, log, progress),
+        className: 'button button-primary kindgi-send',
+        // Once the new conversation is open, its agent is fixed: the picker goes.
+        onclick: () =>
+          sendTurn(input, send, log, progress, { onSend, onOpen: () => picker?.remove() }),
       },
       __('Send', 'kindgi'),
     );
-    main.replaceChildren(
-      state.conversationId === null
+    const picker =
+      conversation === null && offered.length > 1
         ? el(
-            'p',
-            { className: 'kindgi-muted' },
-            sprintf(
-              __('A new conversation with %s.', 'kindgi'),
-              state.newAgent.name || state.newAgent.id,
+            'select',
+            {
+              className: 'kindgi-agent-pick',
+              'aria-label': __('Agent', 'kindgi'),
+              onchange: (event) => {
+                state.newAgent = offered[Number(event.target.value)];
+                onAgent(state.newAgent);
+              },
+            },
+            offered.map((a, i) =>
+              el(
+                'option',
+                { value: String(i), selected: a.id === state.newAgent.id },
+                a.name || a.id,
+              ),
             ),
           )
-        : null,
-      messages.earlier
-        ? el('p', { className: 'kindgi-muted' }, __("Earlier messages aren't shown.", 'kindgi'))
-        : null,
-      log,
-      progress,
-      el(
-        'label',
-        { for: 'kindgi-message', className: 'screen-reader-text' },
-        __('Your message', 'kindgi'),
+        : null;
+    return {
+      node: el(
+        'div',
+        { className: 'kindgi-composer' },
+        el(
+          'label',
+          { for: 'kindgi-message', className: 'screen-reader-text' },
+          __('Your message', 'kindgi'),
+        ),
+        input,
+        el(
+          'div',
+          { className: 'kindgi-composer-bar' },
+          picker,
+          el(
+            'span',
+            { className: 'kindgi-hint' },
+            __('Enter sends. Shift+Enter starts a new line.', 'kindgi'),
+          ),
+          send,
+        ),
       ),
-      input,
-      send,
+      focus: () => {
+        // Grown to fit what it starts with, once it's on the page and has a height.
+        fit();
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      },
+      fill: (text) => {
+        input.value = text;
+        fit();
+        input.focus();
+      },
+    };
+  }
+
+  /** A new conversation's first questions, on a store: each fills the box. */
+  function starters(fill) {
+    if (config.store !== true) return null;
+    return el(
+      'div',
+      { className: 'kindgi-starters' },
+      STARTERS.map((text) =>
+        el('button', { type: 'button', className: 'kindgi-chip', onclick: () => fill(text) }, text),
+      ),
     );
-    // A turn this page started is still running: follow it again.
-    const running = state.running.get(state.conversationId);
-    if (running !== undefined) await followTurn(state.conversationId, running, progress);
   }
 
   /** Sends a message: opens the conversation first when it's new, then follows the turn. */
-  async function sendTurn(input, send, log, progress) {
+  async function sendTurn(input, send, log, progress, { onSend, onOpen }) {
     const text = input.value.trim();
     if (text === '') return;
     send.disabled = true;
+    onSend?.();
     log.append(el('li', { className: 'kindgi-message kindgi-user' }, text));
     input.value = '';
+    input.dispatchEvent(new Event('input'));
     try {
       if (state.conversationId === null) {
         const agent = state.newAgent;
@@ -353,6 +1016,10 @@
         });
         state.conversationId = opened.id;
         state.newAgent = null;
+        state.order = null;
+        state.question = null;
+        window.history.replaceState(null, '', askUrl(opened.id));
+        onOpen();
       }
       const conversationId = state.conversationId;
       const turn = await api(`/conversations/${encodeURIComponent(conversationId)}/turns`, {
@@ -360,60 +1027,302 @@
         data: { message: text },
       });
       state.running.set(conversationId, turn.runId);
-      await followTurn(conversationId, turn.runId, progress);
+      if ((await followTurn(conversationId, turn.runId, progress)) === 'failed') {
+        again(input, send, text);
+      }
     } catch (error) {
       progress.replaceChildren(notice(error));
-      send.disabled = false;
+      again(input, send, text);
     }
   }
 
-  /** Follows a turn; when it ends (and the person is still here), redraws with its answer. */
-  async function followTurn(conversationId, runId, progress) {
-    const ended = await follow(runId, progress, state.view);
-    if (!ended) return;
-    state.running.delete(conversationId);
-    if (state.tab === 'ask' && state.conversationId === conversationId) renderAsk();
+  /** A turn that didn't go: its words back in the box, to send again as they are or changed. */
+  function again(input, send, text) {
+    if (input.value.trim() === '') {
+      input.value = text;
+      input.dispatchEvent(new Event('input'));
+    }
+    send.disabled = false;
   }
-  /** One message: words, the tools an agent called, or a tool's answer (its raw result a click away). */
-  function message(m) {
-    if (m.role === 'tool') {
+
+  /**
+   * Follows a turn to its end: its status, or null when the person moved
+   * on. An answer redraws the conversation with it; a failed turn stays as
+   * it is, saying why.
+   */
+  async function followTurn(conversationId, runId, progress) {
+    const status = await follow(runId, progress, state.view);
+    if (status === null) return null;
+    state.running.delete(conversationId);
+    if (status !== 'failed' && state.conversationId === conversationId) renderAsk();
+    return status;
+  }
+
+  /** A line of an agent's words: **bold** and `code` as such, the rest as text. */
+  function inline(line) {
+    return line
+      .split(/(\*\*[^*]+\*\*|`[^`]+`)/g)
+      .filter((part) => part !== '')
+      .map((part) => {
+        if (part.length > 4 && part.startsWith('**') && part.endsWith('**')) {
+          return el('strong', {}, part.slice(2, -2));
+        }
+        if (part.length > 2 && part.startsWith('`') && part.endsWith('`')) {
+          return el('code', {}, part.slice(1, -1));
+        }
+        return part;
+      });
+  }
+
+  const BULLET = /^\s*[-*•]\s+/;
+  const NUMBERED = /^\s*\d+[.)]\s+/;
+  const HEADING = /^\s*#{1,6}\s+/;
+
+  /** A line's kind: an item of a list, a heading, a blank, or text. */
+  function kindOf(line) {
+    if (line.trim() === '') return 'blank';
+    if (BULLET.test(line)) return 'ul';
+    if (NUMBERED.test(line)) return 'ol';
+    if (HEADING.test(line)) return 'h';
+    return 'p';
+  }
+
+  /** A run of lines of one kind, as elements. A numbered list goes on from its first number. */
+  const BLOCKS = {
+    ul: (lines) =>
+      el(
+        'ul',
+        {},
+        lines.map((l) => el('li', {}, inline(l.replace(BULLET, '')))),
+      ),
+    ol: (lines) => {
+      const first = Number.parseInt(lines[0], 10);
       return el(
-        'li',
-        { className: 'kindgi-message kindgi-tool' },
+        'ol',
+        { start: first > 1 ? String(first) : null },
+        lines.map((l) => el('li', {}, inline(l.replace(NUMBERED, '')))),
+      );
+    },
+    h: (lines) => lines.map((l) => el('p', {}, el('strong', {}, inline(l.replace(HEADING, ''))))),
+    p: (lines) =>
+      el(
+        'p',
+        {},
+        lines.map((l, i) => (i === 0 ? inline(l) : [el('br'), inline(l)])),
+      ),
+  };
+
+  /**
+   * An agent's words with the little Markdown agents write: paragraphs,
+   * lists (a lead-in line right above one too), headings, **bold** and
+   * `code`. Built as elements, so nothing an agent says is ever read as HTML.
+   */
+  function rich(text) {
+    const runs = [];
+    for (const line of text.replace(/\r\n/g, '\n').split('\n')) {
+      const kind = kindOf(line);
+      const last = runs.at(-1);
+      if (last !== undefined && last.kind === kind) last.lines.push(line);
+      else runs.push({ kind, lines: [line] });
+    }
+    return runs.filter((run) => run.kind !== 'blank').flatMap((run) => BLOCKS[run.kind](run.lines));
+  }
+
+  /**
+   * The conversation's messages as the page lists them: words, mail, and
+   * the tools the agent used, each tool's answer folded under its step.
+   */
+  function logItems(messages) {
+    const items = [];
+    // The steps still without their answer, by the call each makes.
+    const open = new Map();
+    for (const m of messages) {
+      if (m.role === 'tool') {
+        placeAnswer(m, open, items);
+        continue;
+      }
+      const item = message(m);
+      if (item === null) continue;
+      items.push(item);
+      for (const step of item.querySelectorAll('[data-call]')) open.set(step.dataset.call, step);
+    }
+    return items;
+  }
+
+  /**
+   * A tool's answer: its step, which now says whether the call ran, in the
+   * place of the step that asked; on a line of its own when no step waits
+   * for it.
+   */
+  function placeAnswer(m, open, items) {
+    const step = m.callId === null ? undefined : open.get(m.callId);
+    open.delete(m.callId);
+    if (step) step.replaceWith(stepOf(step.dataset.tool, m.callId, m));
+    else
+      items.push(
         el(
-          'details',
-          {},
-          el(
-            'summary',
-            {},
-            sprintf(__('%s answered', 'kindgi'), m.toolId ?? __('A tool', 'kindgi')),
-          ),
-          el('pre', {}, JSON.stringify(m.result, null, 2)),
+          'li',
+          { className: 'kindgi-message kindgi-used' },
+          el('ul', { className: 'kindgi-steps-done', role: 'list' }, stepOf(m.toolId, m.callId, m)),
         ),
       );
-    }
+  }
+
+  /**
+   * A tool call's step (`stepWords`): what the agent did with the tool, and
+   * why a call that ran nothing didn't. A call that ran has its answer
+   * folded under it, for whoever wants to see what the agent saw.
+   */
+  function stepOf(tool, callId, answer) {
+    const words = stepWords(tool, answer);
+    return el(
+      'li',
+      {
+        className: words.ran ? 'kindgi-step' : 'kindgi-step kindgi-step-not-run',
+        'data-call': callId,
+        'data-tool': tool,
+      },
+      el('span', {}, words.line),
+      words.why === null ? null : el('span', { className: 'kindgi-step-why' }, words.why),
+      words.ran ? answerOf(answer) : null,
+    );
+  }
+
+  /** What a tool answered, folded: its raw result. */
+  const answerOf = (m) =>
+    el(
+      'details',
+      { className: 'kindgi-answer' },
+      el('summary', {}, __('What it answered', 'kindgi')),
+      el('pre', {}, JSON.stringify(m.result, null, 2)),
+    );
+
+  /** The tools a message calls, a step each: the answer to its call takes its place when it comes. */
+  const stepsOf = (calls) =>
+    calls.length === 0
+      ? null
+      : el(
+          'ul',
+          { className: 'kindgi-steps-done', role: 'list' },
+          calls.map((call) => stepOf(call.name, call.id)),
+        );
+
+  /** One message: the person's words or the mail that started the turn, the agent's words, and its steps. */
+  function message(m) {
     if (m.role !== 'user' && m.role !== 'agent') return null;
-    const calls =
-      m.calls.length > 0
-        ? el(
-            'span',
-            { className: 'kindgi-muted' },
-            sprintf(__('Calls %s', 'kindgi'), m.calls.join(', ')),
-          )
-        : null;
-    if (m.text === '' && calls === null) return null;
+    if (m.mail) return mailTurn(m.mail);
+    const steps = stepsOf(m.calls);
+    if (m.text === '' && steps === null) return null;
+    if (m.text === '') return el('li', { className: 'kindgi-message kindgi-used' }, steps);
     return el(
       'li',
       { className: `kindgi-message kindgi-${m.role}` },
-      m.text,
-      m.text !== '' && calls ? ' ' : '',
-      calls,
+      m.role === 'agent' ? rich(m.text) : m.text,
+      steps,
+    );
+  }
+
+  /** Whom a new mail went to, by kind, in words. */
+  const RECIPIENTS = {
+    To: __('To', 'kindgi'),
+    Cc: __('Cc', 'kindgi'),
+    'Reply-To': __('Reply to', 'kindgi'),
+  };
+
+  /** Mail that started a turn: each mail of its thread as an email, oldest first. */
+  const mailTurn = (thread) =>
+    el(
+      'li',
+      { className: 'kindgi-message kindgi-mail-turn' },
+      thread.leftOut > 0
+        ? muted(
+            sprintf(
+              /* translators: %d: how many mails */
+              _n(
+                '%d mail of the thread was left out, for its length.',
+                '%d mails of the thread were left out, for their length.',
+                thread.leftOut,
+                'kindgi',
+              ),
+              thread.leftOut,
+            ),
+          )
+        : null,
+      thread.mails.map(mailItem),
+    );
+
+  /** One mail: who it's from and when, whom it went to, its text, and what it carries. */
+  const mailItem = (mail) =>
+    el(
+      'article',
+      { className: `kindgi-mail${mail.new ? ' kindgi-mail-new' : ''}` },
+      mailHead(mail),
+      mail.from.unsure
+        ? el(
+            'p',
+            { className: 'kindgi-note' },
+            __("It bears this mailbox's address, but this mailbox didn't send it.", 'kindgi'),
+          )
+        : null,
+      mail.subject === null ? null : el('p', { className: 'kindgi-mail-subject' }, mail.subject),
+      el(
+        'div',
+        { className: 'kindgi-mail-text' },
+        mail.text === '' ? el('em', {}, __('No text', 'kindgi')) : mail.text,
+      ),
+      mail.cut ? muted(__('The rest of this mail was cut short for the agent.', 'kindgi')) : null,
+      mail.attachments === null
+        ? null
+        : el(
+            'p',
+            { className: 'kindgi-muted kindgi-mail-files' },
+            /* translators: %s: the mail's attachments, numbered */
+            sprintf(__('Attachments: %s', 'kindgi'), mail.attachments),
+          ),
+    );
+
+  /** Who a mail is from, whom it went to, and when it came. */
+  function mailHead(mail) {
+    const { name, address, mine } = mail.from;
+    let who = name ?? address ?? __('No sender', 'kindgi');
+    if (mine) who = __('This mailbox', 'kindgi');
+    const to = mail.recipients.map((r) => `${RECIPIENTS[r.kind] ?? r.kind}: ${r.who}`).join(' · ');
+    return el(
+      'header',
+      { className: 'kindgi-mail-head' },
+      el('span', { className: 'kindgi-mark-round', 'aria-hidden': 'true' }, initial(who)),
+      el(
+        'div',
+        { className: 'kindgi-mail-who' },
+        el('strong', {}, who),
+        address !== null && who !== address
+          ? el('span', { className: 'kindgi-muted' }, ` ${address}`)
+          : null,
+        to === '' ? null : el('span', { className: 'kindgi-mail-to kindgi-muted' }, to),
+      ),
+      mail.at === null ? null : el('span', { className: 'kindgi-mail-at' }, timeEl(mail.at)),
     );
   }
 
   /**
-   * Follows a turn until it ends (true), or until the person moves on
-   * (false): its tools, and what it waits for. While it waits for a person,
+   * The approval the conversation was opened from, where the agent waits
+   * on it: decided there, the page reads again to show what followed.
+   */
+  function awaits(card) {
+    let words = __('Its approval', 'kindgi');
+    if (card.waitsFor === 'you') words = __('Waits for your approval', 'kindgi');
+    else if (card.waitsFor === 'others') words = __("Waits for a reviewer's approval", 'kindgi');
+    return el(
+      'li',
+      { className: 'kindgi-message kindgi-awaits' },
+      el('h3', { className: 'kindgi-awaits-head' }, words),
+      approvalCard(card, { inConversation: true, after: () => renderAsk() }),
+    );
+  }
+
+  /**
+   * Follows a turn until it ends (its status), or until the person moves on
+   * (null): its tools, and what it waits for. While it waits for a person,
    * polls back off to every 30 s, and none run while the page is hidden.
    */
   async function follow(runId, progress, view) {
@@ -422,18 +1331,39 @@
     const steps = el('ul', { className: 'kindgi-steps' });
     const waits = el('div');
     const shown = new Map();
-    progress.replaceChildren(steps, waits);
+    // While it works: three dots and the tools it used so far.
+    const working = el(
+      'p',
+      { className: 'kindgi-working' },
+      el(
+        'span',
+        { className: 'kindgi-dots', 'aria-hidden': 'true' },
+        el('span'),
+        el('span'),
+        el('span'),
+      ),
+      __('Working on it…', 'kindgi'),
+    );
+    progress.replaceChildren(working, steps, waits);
     for (;;) {
       await visible();
-      if (view !== state.view) return false;
+      if (view !== state.view) return null;
       const run = await api(`/runs/${encodeURIComponent(runId)}?since=${since}`);
-      if (view !== state.view) return false;
+      if (view !== state.view) return null;
       since = run.since;
       steps.append(
-        ...run.steps.map((step) => el('li', {}, sprintf(__('Tool: %s', 'kindgi'), step.toolId))),
+        ...run.steps.map((step) =>
+          // Its answer isn't in the journal's steps: the conversation shows it once the turn ends.
+          el('li', {}, stepWords(step.toolId).line),
+        ),
       );
       showWaits(waits, shown, run.waitingFor);
-      if (hasEnded(run, progress)) return true;
+      // Waiting for a person: the approval's box says so, not the dots.
+      working.hidden = run.status === 'suspended';
+      if (hasEnded(run, progress)) {
+        working.remove();
+        return run.status;
+      }
       delay = nextDelay(run.status, delay);
       await sleep(delay);
     }
@@ -442,7 +1372,10 @@
   /** Whether the turn has ended; a failed one says why. */
   function hasEnded(run, progress) {
     if (!ENDED.includes(run.status)) return false;
-    if (run.status === 'failed') progress.append(notice({ message: run.failureMessage }));
+    // Kindgi's words for why it failed are for an administrator, under Details.
+    if (run.status === 'failed') {
+      progress.append(notice({ code: 'run-failed', message: run.failureMessage }));
+    }
     return true;
   }
 
@@ -466,252 +1399,21 @@
     }
   }
 
-  /** A wait in a turn: for a reviewer, the approval's card; for anyone else, who it waits for. */
+  /** A wait in a turn: for a reviewer, the approval's card; for anyone else, what it waits for. */
   function waitFor(wait) {
     const box = el(
       'div',
       { className: 'kindgi-wait' },
-      el(
-        'p',
-        {},
-        sprintf(__('Waiting for a person to approve %s.', 'kindgi'), wait.toolId ?? wait.title),
-      ),
+      /* translators: %s: what waits for approval */
+      el('p', {}, sprintf(__('Waiting for a person to approve: %s', 'kindgi'), wait.heading)),
     );
     if (state.me.reviewerRole !== null) {
       // The turn's own polling shows what happens after a decision.
       api(`/approvals/${encodeURIComponent(wait.approvalId)}`)
-        .then((card) => box.replaceChildren(approvalCard(card)))
+        .then((card) => box.replaceChildren(approvalCard(card, { inConversation: true })))
         .catch((error) => box.append(notice(error)));
     }
     return box;
-  }
-
-  // ---------- Approvals ----------
-
-  async function renderApprovals() {
-    const panel = panels.approvals;
-    panel.replaceChildren(el('p', { className: 'kindgi-muted' }, __('Loading…', 'kindgi')));
-    let waiting;
-    let decided;
-    try {
-      [waiting, decided] = await Promise.all([
-        api('/approvals?view=waiting'),
-        api('/approvals?view=decided'),
-      ]);
-    } catch (error) {
-      panel.replaceChildren(notice(error));
-      return;
-    }
-    const reload = () => renderApprovals();
-    const opened = config.approval ?? null;
-    config.approval = null;
-    const parts = [];
-    if (opened !== null && !waiting.approvals.some((a) => a.id === opened)) {
-      // A link from an email: this one approval, whatever its state.
-      try {
-        parts.push(
-          el('h2', {}, __('From your link', 'kindgi')),
-          approvalCard(await api(`/approvals/${encodeURIComponent(opened)}`), reload),
-        );
-      } catch (error) {
-        parts.push(notice(error));
-      }
-    }
-    parts.push(
-      el('h2', {}, __('Waiting for you', 'kindgi')),
-      waiting.approvals.length === 0
-        ? el('p', { className: 'kindgi-muted' }, __('Nothing waits for you.', 'kindgi'))
-        : el(
-            'div',
-            { className: 'kindgi-cards' },
-            waiting.approvals.map((a) => approvalCard(a, reload)),
-          ),
-      el('h2', {}, __('Decided by you lately', 'kindgi')),
-      decided.approvals.length === 0
-        ? el('p', { className: 'kindgi-muted' }, __('None yet.', 'kindgi'))
-        : el(
-            'div',
-            { className: 'kindgi-cards' },
-            decided.approvals.map((a) => approvalCard(a, reload)),
-          ),
-    );
-    panel.replaceChildren(...parts);
-    const target =
-      opened === null ? null : panel.querySelector(`[data-approval="${CSS.escape(opened)}"]`);
-    target?.scrollIntoView({ block: 'center' });
-  }
-
-  const who = (name) => name ?? __('someone outside this site', 'kindgi');
-
-  /** A tool call's arguments: a list of its fields, and the raw JSON a click away. */
-  function argumentsOf(args) {
-    if (args === undefined || args === null) return [];
-    const rows =
-      typeof args === 'object' && !Array.isArray(args)
-        ? Object.entries(args).map(([key, value]) => [
-            el('dt', {}, key),
-            el('dd', {}, typeof value === 'string' ? value : JSON.stringify(value)),
-          ])
-        : [];
-    return [
-      rows.length > 0 ? el('dl', { className: 'kindgi-args' }, rows) : null,
-      el(
-        'details',
-        {},
-        el('summary', {}, __('Raw arguments', 'kindgi')),
-        el('pre', {}, JSON.stringify(args, null, 2)),
-      ),
-    ];
-  }
-
-  /** Who asked (when Kindgi recorded it) and when, the agent, the expiry, and the role it needs. */
-  function aboutCard(card) {
-    let asked = sprintf(__('Asked %s', 'kindgi'), when(card.createdAt));
-    if (card.askedByMe) asked = sprintf(__('Asked by you, %s', 'kindgi'), when(card.createdAt));
-    else if (card.askedByKnown) {
-      asked = sprintf(__('Asked by %1$s, %2$s', 'kindgi'), who(card.askedBy), when(card.createdAt));
-    }
-    return el(
-      'p',
-      { className: 'kindgi-muted' },
-      asked,
-      card.agentId ? ` · ${sprintf(__('agent %s', 'kindgi'), card.agentId)}` : '',
-      card.expiresAt ? ` · ${sprintf(__('expires %s', 'kindgi'), when(card.expiresAt))}` : '',
-      ` · ${sprintf(__('needs a %s reviewer', 'kindgi'), card.requiredRole)}`,
-    );
-  }
-
-  function conversationLink(card) {
-    if (!card.conversationId) return null;
-    return el(
-      'button',
-      {
-        type: 'button',
-        className: 'button-link',
-        onclick: () => {
-          state.conversationId = card.conversationId;
-          state.newAgent = null;
-          showTab('ask');
-          tabs.querySelector('#kindgi-tab-ask')?.focus();
-        },
-      },
-      __('Open the conversation', 'kindgi'),
-    );
-  }
-
-  /** What a card ends with: the decision made, why none can be, or the controls to make one. */
-  function cardEnding(card, after) {
-    if (card.decision !== null) return decisionLine(card.decision);
-    if (card.status !== 'pending') {
-      return el('p', {}, sprintf(__('This approval is %s.', 'kindgi'), card.status));
-    }
-    if (card.askedByMe && card.separateApprover) {
-      return el(
-        'p',
-        { className: 'kindgi-note' },
-        __('You asked for this; another reviewer decides.', 'kindgi'),
-      );
-    }
-    return decisionControls(card, after);
-  }
-
-  /** One approval: what the tool would do, who asked, and the decision. */
-  function approvalCard(card, after) {
-    return el(
-      'div',
-      { className: 'kindgi-card', 'data-approval': card.id },
-      el('h3', {}, card.tool !== null ? card.tool.id : card.title),
-      card.description ? el('p', {}, card.description) : null,
-      argumentsOf(card.tool?.arguments),
-      aboutCard(card),
-      conversationLink(card),
-      cardEnding(card, after),
-    );
-  }
-
-  /** What a decision did, once Kindgi recorded it. */
-  function decided(done) {
-    const line =
-      done.approval.decision !== null ? decisionLine(done.approval.decision) : el('p', {}, '');
-    if (done.waitpointResolved) return [line];
-    return [
-      line,
-      el(
-        'p',
-        { className: 'kindgi-muted' },
-        sprintf(__('The turn had already moved on (%s).', 'kindgi'), done.runStatus ?? ''),
-      ),
-    ];
-  }
-
-  /** Approve, or reject with a reason. */
-  function decisionControls(card, after) {
-    const reason = el('textarea', {
-      rows: '2',
-      maxlength: '2000',
-      'aria-label': __('Reason', 'kindgi'),
-    });
-    const result = el('div', { 'aria-live': 'polite' });
-    const buttons = el('p');
-    const setDisabled = (disabled) => {
-      for (const b of buttons.querySelectorAll('button')) b.disabled = disabled;
-    };
-    const decide = async (decision) => {
-      if (decision === 'reject' && reason.value.trim() === '') {
-        result.replaceChildren(notice({ message: __('Say why you reject it.', 'kindgi') }));
-        reason.focus();
-        return;
-      }
-      setDisabled(true);
-      try {
-        const done = await api(`/approvals/${encodeURIComponent(card.id)}/decide`, {
-          method: 'POST',
-          data: { decision, reason: reason.value.trim() },
-        });
-        result.replaceChildren(...decided(done));
-        buttons.remove();
-        reason.remove();
-        if (after !== undefined) setTimeout(after, 1500);
-      } catch (error) {
-        setDisabled(false);
-        result.replaceChildren(notice(error));
-      }
-    };
-    buttons.append(
-      el(
-        'button',
-        { type: 'button', className: 'button button-primary', onclick: () => decide('approve') },
-        __('Approve', 'kindgi'),
-      ),
-      ' ',
-      el(
-        'button',
-        { type: 'button', className: 'button', onclick: () => decide('reject') },
-        __('Reject', 'kindgi'),
-      ),
-    );
-    return el('div', {}, reason, buttons, result);
-  }
-
-  function decisionLine(decision) {
-    const text =
-      decision.decision === 'approve' || decision.decision === 'approved'
-        ? sprintf(
-            __('Approved by %1$s, %2$s', 'kindgi'),
-            who(decision.by),
-            when(decision.decidedAt),
-          )
-        : sprintf(
-            __('Rejected by %1$s, %2$s', 'kindgi'),
-            who(decision.by),
-            when(decision.decidedAt),
-          );
-    return el(
-      'p',
-      { className: 'kindgi-decision' },
-      text,
-      decision.reason ? `: ${decision.reason}` : '',
-    );
   }
 
   start();

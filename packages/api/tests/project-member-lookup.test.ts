@@ -9,7 +9,7 @@
  * admin who can't list the tenant's people adds a member this way.
  *
  * `GET /v1/projects/default` is checked as `GET /v1/projects/{id}` is:
- * someone with a role on another project only can't read the Default.
+ * someone with a role on another project only can't read the default.
  */
 
 import { randomUUID } from 'node:crypto';

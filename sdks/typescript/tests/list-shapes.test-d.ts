@@ -90,27 +90,25 @@ describe('every list call answers with data, hasMore and nextCursor', () => {
   test('env.list', () => {
     expectTypeOf<Answer<KindgiClient['env']['list']>>().toMatchTypeOf<WirePage>();
   });
-  test('evalRuns.list', () => {
-    expectTypeOf<Answer<KindgiClient['evalRuns']['list']>>().toMatchTypeOf<WirePage>();
+  test('testRuns.list', () => {
+    expectTypeOf<Answer<KindgiClient['testRuns']['list']>>().toMatchTypeOf<WirePage>();
   });
-  test('evalSuites.list', () => {
-    expectTypeOf<Answer<KindgiClient['evalSuites']['list']>>().toMatchTypeOf<WirePage>();
+  test('testSets.list', () => {
+    expectTypeOf<Answer<KindgiClient['testSets']['list']>>().toMatchTypeOf<WirePage>();
   });
-  test('evalSuites.listCases', () => {
-    expectTypeOf<Answer<KindgiClient['evalSuites']['listCases']>>().toMatchTypeOf<WirePage>();
+  test('testSets.listCases', () => {
+    expectTypeOf<Answer<KindgiClient['testSets']['listCases']>>().toMatchTypeOf<WirePage>();
   });
-  test('gatePolicies.list', () => {
-    expectTypeOf<Answer<KindgiClient['gatePolicies']['list']>>().toMatchTypeOf<WirePage>();
+  test('releaseGates.list', () => {
+    expectTypeOf<Answer<KindgiClient['releaseGates']['list']>>().toMatchTypeOf<WirePage>();
   });
-  test('gatePolicies.versions.list', () => {
+  test('releaseGates.versions.list', () => {
     expectTypeOf<
-      Answer<KindgiClient['gatePolicies']['versions']['list']>
+      Answer<KindgiClient['releaseGates']['versions']['list']>
     >().toMatchTypeOf<WirePage>();
   });
-  test('evalSuites.versions.list', () => {
-    expectTypeOf<
-      Answer<KindgiClient['evalSuites']['versions']['list']>
-    >().toMatchTypeOf<WirePage>();
+  test('testSets.versions.list', () => {
+    expectTypeOf<Answer<KindgiClient['testSets']['versions']['list']>>().toMatchTypeOf<WirePage>();
   });
   test('events.query', () => {
     expectTypeOf<Answer<KindgiClient['events']['query']>>().toMatchTypeOf<WirePage>();
@@ -143,11 +141,11 @@ describe('every list call answers with data, hasMore and nextCursor', () => {
       Answer<KindgiClient['identity']['users']['listSessions']>
     >().toMatchTypeOf<WirePage>();
   });
-  test('judgeClasses.list', () => {
-    expectTypeOf<Answer<KindgiClient['judgeClasses']['list']>>().toMatchTypeOf<WirePage>();
+  test('correctorGroups.list', () => {
+    expectTypeOf<Answer<KindgiClient['correctorGroups']['list']>>().toMatchTypeOf<WirePage>();
   });
-  test('judgments.list', () => {
-    expectTypeOf<Answer<KindgiClient['judgments']['list']>>().toMatchTypeOf<WirePage>();
+  test('corrections.list', () => {
+    expectTypeOf<Answer<KindgiClient['corrections']['list']>>().toMatchTypeOf<WirePage>();
   });
   test('mcp.tools', () => {
     expectTypeOf<Answer<KindgiClient['mcp']['tools']>>().toMatchTypeOf<WirePage>();
@@ -222,17 +220,11 @@ describe('every list call answers with data, hasMore and nextCursor', () => {
   test('signingKeys.list', () => {
     expectTypeOf<Answer<KindgiClient['signingKeys']['list']>>().toMatchTypeOf<WirePage>();
   });
-  test('supervisor.list', () => {
-    expectTypeOf<Answer<KindgiClient['supervisor']['list']>>().toMatchTypeOf<WirePage>();
+  test('improveRuns.list', () => {
+    expectTypeOf<Answer<KindgiClient['improveRuns']['list']>>().toMatchTypeOf<WirePage>();
   });
-  test('supervisor.versions', () => {
-    expectTypeOf<Answer<KindgiClient['supervisor']['versions']>>().toMatchTypeOf<WirePage>();
-  });
-  test('improvementPasses.list', () => {
-    expectTypeOf<Answer<KindgiClient['improvementPasses']['list']>>().toMatchTypeOf<WirePage>();
-  });
-  test('proposals.list', () => {
-    expectTypeOf<Answer<KindgiClient['proposals']['list']>>().toMatchTypeOf<WirePage>();
+  test('suggestedChanges.list', () => {
+    expectTypeOf<Answer<KindgiClient['suggestedChanges']['list']>>().toMatchTypeOf<WirePage>();
   });
   test('teams.list', () => {
     expectTypeOf<Answer<KindgiClient['teams']['list']>>().toMatchTypeOf<WirePage>();

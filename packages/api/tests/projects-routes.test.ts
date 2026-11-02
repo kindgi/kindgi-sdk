@@ -5,8 +5,9 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import type { AuthzCheckBinding, Decision } from '@kindgi/authz';
 import { makeInMemoryProjectBinding } from '@kindgi/platform';
-import type { ProjectId, TenantId } from '@kindgi/types';
+import type { ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 import { makeInMemoryEnvironmentOrderBinding } from './support/in-memory-environment-order-binding.js';
@@ -24,12 +25,15 @@ import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
 
 const TOKEN_A = 'projects-token-tenant-a';
 const TOKEN_B = 'projects-token-tenant-b';
+/** A signed-in user in tenant A, for the authorization tests. */
+const USER_A = 'projects-token-user-a';
 const tenantA = randomUUID() as TenantId;
 const tenantB = randomUUID() as TenantId;
 
 const resolveToken: TokenResolver = async (token) => {
   if (token === TOKEN_A) return { tenantId: tenantA };
   if (token === TOKEN_B) return { tenantId: tenantB };
+  if (token === USER_A) return { tenantId: tenantA, userId: 'user-a' as UserId };
   return null;
 };
 
@@ -48,7 +52,7 @@ const runHandler: RunHandlerBinding = {
   }),
 };
 
-function makeApp() {
+function makeApp(authz?: AuthzCheckBinding) {
   const trio = makeInMemoryProjectBinding();
   const app = createApp({
     ...createStubAppBindings(),
@@ -57,6 +61,9 @@ function makeApp() {
     projectBinding: trio.projects,
     projectMembershipBinding: trio.memberships,
     teamProjectGrantBinding: trio.grants,
+    ...(authz !== undefined && {
+      authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding: authz },
+    }),
   });
   return { app, trio };
 }
@@ -208,6 +215,86 @@ describe('API — projects CRUD', () => {
     expect(del.status).toBe(204);
   });
 
+  test('sortEndUserCorrections reads false until a PATCH turns it on; a non-boolean is a 400 that changes nothing', async () => {
+    const { app } = makeApp();
+    const id = await createProject(app, TOKEN_A, { name: 'x', slug: 'x' });
+    const read = async () =>
+      (
+        (await (
+          await app.request(`/v1/projects/${id}`, {
+            headers: { authorization: `Bearer ${TOKEN_A}` },
+          })
+        ).json()) as { sortEndUserCorrections?: boolean }
+      ).sortEndUserCorrections;
+    const patch = (body: unknown) =>
+      app.request(`/v1/projects/${id}`, {
+        method: 'PATCH',
+        headers: { authorization: `Bearer ${TOKEN_A}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    expect(await read()).toBe(false);
+    expect((await patch({ sortEndUserCorrections: true })).status).toBe(204);
+    expect(await read()).toBe(true);
+
+    const bad = await patch({ sortEndUserCorrections: 'yes' });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: { message: string } }).error.message).toBe(
+      '`sortEndUserCorrections` must be a boolean when present',
+    );
+    expect(await read()).toBe(true);
+
+    expect((await patch({ sortEndUserCorrections: false })).status).toBe(204);
+    expect(await read()).toBe(false);
+  });
+
+  test('turning sortEndUserCorrections on takes admin on the project: write is a 403 that changes nothing', async () => {
+    const granted = new Set<string>();
+    const authz = {
+      check: async (
+        _principal: unknown,
+        action: string,
+        resource: { type: string; id: string },
+      ) => {
+        const allowed = granted.has(`${action} ${resource.type}:${resource.id}`);
+        return { allowed, reason: 'test', failing: allowed ? undefined : 'actor' } as Decision;
+      },
+    } as unknown as AuthzCheckBinding;
+    const { app, trio } = makeApp(authz);
+    const made = await trio.projects.create(tenantA, {
+      name: 'x',
+      slug: 'x',
+      role: 'owner',
+    } as never);
+    if (made.kind !== 'ok') throw new Error(made.kind);
+    const id = made.projectId as unknown as string;
+    granted.add(`read project:${id}`).add(`write project:${id}`);
+    const patch = () =>
+      app.request(`/v1/projects/${id}`, {
+        method: 'PATCH',
+        headers: { authorization: `Bearer ${USER_A}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ sortEndUserCorrections: true }),
+      });
+    const read = async () => {
+      const res = await app.request(`/v1/projects/${id}`, {
+        headers: { authorization: `Bearer ${USER_A}` },
+      });
+      expect(res.status).toBe(200);
+      return ((await res.json()) as { sortEndUserCorrections?: boolean }).sortEndUserCorrections;
+    };
+
+    expect(await read()).toBe(false);
+    const refused = await patch();
+    expect(refused.status).toBe(403);
+    expect(((await refused.json()) as { error: { code: string } }).error.code).toBe(
+      'permission-denied',
+    );
+    expect(await read()).toBe(false);
+
+    granted.add(`admin project:${id}`);
+    expect((await patch()).status).toBe(204);
+    expect(await read()).toBe(true);
+  });
+
   test('pagination with limit + cursor', async () => {
     const { app } = makeApp();
     for (let i = 0; i < 3; i += 1) {
@@ -234,7 +321,7 @@ describe('API — projects CRUD', () => {
 });
 
 describe('API — projects /default', () => {
-  test('no Default → 404 project-not-found', async () => {
+  test('no default → 404 project-not-found', async () => {
     const { app } = makeApp();
     const res = await app.request('/v1/projects/default', {
       headers: { authorization: `Bearer ${TOKEN_A}` },
@@ -244,7 +331,7 @@ describe('API — projects /default', () => {
     expect(body.error.code).toBe('project-not-found');
   });
 
-  test('after Default created → 200 with isDefault: true', async () => {
+  test('after the default is created → 200 with isDefault: true', async () => {
     const { app } = makeApp();
     await createProject(app, TOKEN_A, {
       name: 'Default',
@@ -266,7 +353,7 @@ describe('API — projects /default', () => {
     // before the param handler), the /default segment resolves to
     // getDefault, not to a get-by-id call.
     const { app } = makeApp();
-    // No Default provisioned — /default returns 404 project-not-found
+    // No default provisioned — /default returns 404 project-not-found
     // (a proof that the /default route ran, not the :projectId route
     // which would return 404 with the same code but different message
     // — the message helps disambiguate but the code is the same, so
@@ -276,10 +363,10 @@ describe('API — projects /default', () => {
     });
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error: { message: string } };
-    // getDefault's 404 says "Tenant has no Default project"; the
+    // getDefault's 404 says "Tenant has no default project"; the
     // :projectId 404 says "No project with id 'default'". Distinct
     // messages confirm the /default route handled the request.
-    expect(body.error.message).toContain('Default');
+    expect(body.error.message).toBe('Tenant has no default project');
   });
 });
 
@@ -409,7 +496,7 @@ describe('API — projects cross-tenant isolation', () => {
     expect(get.status).toBe(404);
   });
 
-  test("tenant A's Default is not tenant B's Default", async () => {
+  test("tenant A's default is not tenant B's default", async () => {
     const { app } = makeApp();
     await createProject(app, TOKEN_A, {
       name: 'A-Default',

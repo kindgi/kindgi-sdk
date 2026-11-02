@@ -943,6 +943,50 @@ describe('runIndexer — Zod schemas', () => {
     );
   });
 
+  test("a tool's `storesFiles` is carried into the index; a tool the pack doesn't run can't store files", async () => {
+    const fixture = await makeFixture({
+      files: {
+        'kindgi.config.mjs': config(),
+        'tools/fetch.mjs': toolModule({ id: 'acme.fetch', storesFiles: true }),
+        'tools/both.mjs': toolModule({ id: 'acme.both', storesFiles: true, pauses: true }),
+        'tools/plain.mjs': toolModule({ id: 'acme.plain', storesFiles: false }),
+      },
+    });
+    const outcome = await runIndexer({
+      packDir: fixture.packDir,
+      publishedAt: FIXED_TIMESTAMP,
+      importModule: fixture.importModule,
+    });
+    expect(outcome.kind).toBe('ok');
+    if (outcome.kind !== 'ok') return;
+    const parsed = await readValidIndex(outcome.value.outputPath);
+    const byId = new Map((parsed.tools as { id: string }[]).map((t) => [t.id, t]));
+    expect(byId.get('acme.fetch')).toMatchObject({ storesFiles: true });
+    expect(byId.get('acme.fetch')).not.toHaveProperty('pauses');
+    expect(byId.get('acme.both')).toMatchObject({ storesFiles: true, pauses: true });
+    expect(byId.get('acme.plain')).not.toHaveProperty('storesFiles');
+
+    for (const remote of [
+      { id: 'acme.remote', storesFiles: true, transport: 'mcp' },
+      { id: 'acme.declared', storesFiles: true, spec: { kind: 'http' } },
+    ]) {
+      const refusedPack = await makeFixture({
+        files: { 'kindgi.config.mjs': config(), 'tools/remote.mjs': toolModule(remote) },
+      });
+      const refused = await runIndexer({
+        packDir: refusedPack.packDir,
+        publishedAt: FIXED_TIMESTAMP,
+        importModule: refusedPack.importModule,
+      });
+      expect(refused.kind).toBe('ok');
+      if (refused.kind !== 'ok') return;
+      expect(refused.value.fileErrors[0]?.code).toBe('manifest-validation-failed');
+      expect(refused.value.fileErrors[0]?.message).toContain(
+        "'storesFiles: true' needs a handler the pack runs",
+      );
+    }
+  });
+
   test("the pack's declared env is carried, sorted; a pack that declares none has no `env`", async () => {
     const declared = await makeFixture({
       files: {

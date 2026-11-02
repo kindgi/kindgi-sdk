@@ -22,13 +22,14 @@ import { createStubAppBindings, createStubBinding } from '../src/testing/index.j
 
 import { createApp } from '../src/index.js';
 import type {
-  AgentReleaseBindings,
+  AgentPinBindings,
+  AgentPinnedVersion,
+  AgentPinnedVersionBinding,
   ListCoveringPinsInput,
-  LivePin,
-  LiveVersionBinding,
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
+import { noLatest } from './support/latest.js';
 import { type Grant, type ItemRow, grantsAuthz, itemProjects } from './support/order-items.js';
 
 const tenantId = randomUUID() as TenantId;
@@ -79,16 +80,20 @@ const PEOPLE: Record<string, readonly Grant[]> = {
 const resolveToken: TokenResolver = async (token) =>
   token in PEOPLE || token === 'anyone' ? { tenantId, userId: token as UserId } : null;
 
-const pin = (agentId: string, version: string, scope: LivePin['scope']): LivePin => ({
+const pin = (
+  agentId: string,
+  version: string,
+  scope: AgentPinnedVersion['scope'],
+): AgentPinnedVersion => ({
   agentId,
   scope,
   version: version as Semver,
-  promotionId: `p-${agentId}-${version}`,
+  changeId: `p-${agentId}-${version}`,
   setAt: NOW,
 });
 
 /** The pins that cover prod: the tenant's, the org's, prod's own and one of its segments'. */
-const COVERING_PROD: readonly LivePin[] = [
+const COVERING_PROD: readonly AgentPinnedVersion[] = [
   pin(SERVED, '1.1.0', { kind: 'tenant' }),
   pin(SERVED, '0.9.0', { kind: 'project', projectId: PROD }),
   pin(SERVED, '1.0.0', {
@@ -102,10 +107,10 @@ const COVERING_PROD: readonly LivePin[] = [
 /** A fake binding: `listCovering` answers the page each test sets, `issuedCursor` knows `c-…`. */
 function fakeLive(opts: { covering?: boolean } = {}) {
   const asked: ListCoveringPinsInput[] = [];
-  const state: { page: { data: readonly LivePin[]; nextCursor?: Cursor } } = {
+  const state: { page: { data: readonly AgentPinnedVersion[]; nextCursor?: Cursor } } = {
     page: { data: COVERING_PROD },
   };
-  const live: LiveVersionBinding = {
+  const pinned: AgentPinnedVersionBinding = {
     resolve: async () => null,
     list: async () => [],
     issuedCursor: (_list, cursor) => (cursor as unknown as string).startsWith('c-'),
@@ -116,7 +121,7 @@ function fakeLive(opts: { covering?: boolean } = {}) {
       },
     }),
   };
-  return { live, asked, state };
+  return { pinned, asked, state };
 }
 
 const projects = {
@@ -144,9 +149,10 @@ function harness(
       invokeFlow: true,
       resumeRun: true,
     }),
-    agentReleases: {
-      live: fake.live,
-      promotions: {} as AgentReleaseBindings['promotions'],
+    agentPins: {
+      pinned: fake.pinned,
+      latest: noLatest,
+      changes: {} as AgentPinBindings['changes'],
     },
     ...(opts.withProjects !== false && { projectBinding: projects }),
     ...(opts.rights === true && { authz: authz.authz }),
@@ -167,7 +173,7 @@ const versions = (body: Record<string, any>) =>
   (body.data as { agentId: string; version: string }[]).map((p) => `${p.agentId}@${p.version}`);
 
 describe('GET /v1/projects/:projectId/pinned-versions', () => {
-  test("lists each pin as an agent's live-versions does, every scope kind on the wire", async () => {
+  test("lists each pin as an agent's pinned-versions does, every scope kind on the wire", async () => {
     const { list, asked } = harness();
     const res = await list('anyone', PROD);
     expect(res.status, res.text).toBe(200);
@@ -177,28 +183,28 @@ describe('GET /v1/projects/:projectId/pinned-versions', () => {
           agentId: SERVED,
           scope: { kind: 'tenant' },
           version: '1.1.0',
-          promotionId: `p-${SERVED}-1.1.0`,
+          changeId: `p-${SERVED}-1.1.0`,
           setAt: NOW,
         },
         {
           agentId: SERVED,
           scope: { kind: 'project', projectId: PROD },
           version: '0.9.0',
-          promotionId: `p-${SERVED}-0.9.0`,
+          changeId: `p-${SERVED}-0.9.0`,
           setAt: NOW,
         },
         {
           agentId: SERVED,
           scope: { kind: 'segment', projectId: PROD, path: [{ key: 'plan', value: 'pro' }] },
           version: '1.0.0',
-          promotionId: `p-${SERVED}-1.0.0`,
+          changeId: `p-${SERVED}-1.0.0`,
           setAt: NOW,
         },
         {
           agentId: SOLO,
           scope: { kind: 'org', orgId: ORG },
           version: '1.0.0',
-          promotionId: `p-${SOLO}-1.0.0`,
+          changeId: `p-${SOLO}-1.0.0`,
           setAt: NOW,
         },
       ],
@@ -207,7 +213,7 @@ describe('GET /v1/projects/:projectId/pinned-versions', () => {
     expect(asked).toEqual([{ tenantId, projectId: PROD, limit: 25 }]);
   });
 
-  test('pages as the promotions list does: limit, a cursor it issued, hasMore', async () => {
+  test('pages as the pin history does: limit, a cursor it issued, hasMore', async () => {
     const { list, asked, state } = harness();
     state.page = { data: COVERING_PROD.slice(0, 1), nextCursor: 'c-1' as Cursor };
     const first = await list('anyone', PROD, '?limit=1');

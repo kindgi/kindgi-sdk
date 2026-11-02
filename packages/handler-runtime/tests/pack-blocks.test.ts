@@ -19,7 +19,13 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { runIndexer } from '../src/kindgi-index.js';
-import { readPackBlocks, writePackBlock } from '../src/pack-blocks.js';
+import {
+  blockFileText,
+  holdsContent,
+  packBlockFiles,
+  readPackBlocks,
+  writePackBlock,
+} from '../src/pack-blocks.js';
 
 const addFormats = ((addFormatsModule as { default?: unknown }).default ??
   addFormatsModule) as unknown as (ajv: Ajv2020) => void;
@@ -367,6 +373,23 @@ async function index(
   return { outcome, written };
 }
 
+describe('packBlockFiles: what writing some blocks touches', () => {
+  test("each block's file, and a prompt's template file, sorted; an id the pack lacks has none", async () => {
+    await write({
+      'blocks/style.json': json(settings()),
+      'blocks/support/reply.json': json(
+        prompt({ content: { templateFile: '../templates/reply.liquid', parameters: [] } }),
+      ),
+      'blocks/templates/reply.liquid': 'Reply.\n',
+      'blocks/other.json': json(settings({ id: 'acme.other' })),
+    });
+    expect(
+      await packBlockFiles(packDir, BLOCKS, ['acme.reply-style', 'acme.reply-prompt', 'acme.gone']),
+    ).toEqual(['blocks/style.json', 'blocks/support/reply.json', 'blocks/templates/reply.liquid']);
+    expect(await packBlockFiles(packDir, BLOCKS, [])).toEqual([]);
+  });
+});
+
 describe('runIndexer — blocks', () => {
   test("the index carries the pack's blocks, and the report counts them", async () => {
     const { outcome, written } = await index({
@@ -619,5 +642,256 @@ describe('writePackBlock', () => {
       content: { template: 'Hi.' },
     });
     expect(out).toMatchObject({ kind: 'err', reason: 'invalid' });
+  });
+
+  describe('with `expected`: what the file must hold for the write to go', () => {
+    const made = { template: 'Reply to {{ customer_name }}, briefly.', parameters: [] };
+
+    test('a file that holds it is written, its keys in any order', async () => {
+      await write({ 'blocks/reply.json': json(prompt()) });
+      const out = await writePackBlock(packDir, BLOCKS, {
+        id: 'acme.reply-prompt',
+        version: '1.2.1',
+        content: made,
+        expected: { parameters: [], template: 'Reply to {{ customer_name }}.' },
+      });
+      expect(out).toMatchObject({ kind: 'ok', replaced: '1.2.0' });
+      expect(JSON.parse(await read('blocks/reply.json')).content).toEqual(made);
+    });
+
+    test('an edit that kept the version is refused as changed, naming the file, and nothing is written', async () => {
+      const edited = prompt({
+        content: { template: 'Reply to {{ customer_name }}, kindly.', parameters: [] },
+      });
+      await write({ 'blocks/reply.json': json(edited) });
+      const out = await writePackBlock(packDir, BLOCKS, {
+        id: 'acme.reply-prompt',
+        version: '1.2.1',
+        content: made,
+        expected: { template: 'Reply to {{ customer_name }}.', parameters: [] },
+      });
+      expect(out).toEqual({
+        kind: 'err',
+        reason: 'changed',
+        message:
+          "blocks/reply.json was edited since acme.reply-prompt 1.2.1 was made from it, so it isn't written over: make the change again from the file as it is",
+      });
+      expect(await read('blocks/reply.json')).toBe(json(edited));
+    });
+
+    test("a prompt's template file is part of what it holds: an edit there is refused too", async () => {
+      await write({
+        'blocks/reply.json': json(prompt({ content: { templateFile: 'reply.liquid' } })),
+        'blocks/reply.liquid': 'Reply to {{ customer_name }}, kindly.',
+      });
+      const out = await writePackBlock(packDir, BLOCKS, {
+        id: 'acme.reply-prompt',
+        version: '1.3.0',
+        content: { template: 'Reply to {{ customer_name }}, warmly.' },
+        expected: { template: 'Reply to {{ customer_name }}.' },
+      });
+      expect(out).toMatchObject({ kind: 'err', reason: 'changed' });
+      expect(await read('blocks/reply.liquid')).toBe('Reply to {{ customer_name }}, kindly.');
+    });
+
+    test('a settings file that gives no schema holds a version stored with the schema it carried', async () => {
+      const values = { values: { tone: 'warm' } };
+      await write({ 'blocks/style.json': json(settings({ content: values })) });
+      const out = await writePackBlock(packDir, BLOCKS, {
+        id: 'acme.reply-style',
+        version: '1.0.1',
+        content: { values: { tone: 'brief' } },
+        expected: settings().content as Record<string, unknown>,
+      });
+      expect(out).toMatchObject({ kind: 'ok', replaced: '1.0.0' });
+    });
+
+    test("a settings block's whole content is compared, its values too", async () => {
+      await write({ 'blocks/style.json': json(settings()) });
+      const was = settings().content as Record<string, unknown>;
+      const out = await writePackBlock(packDir, BLOCKS, {
+        id: 'acme.reply-style',
+        version: '1.0.1',
+        content: { ...was, values: { tone: 'brief' } },
+        expected: { ...was, values: { tone: 'formal' } },
+      });
+      expect(out).toMatchObject({ kind: 'err', reason: 'changed' });
+      expect(await read('blocks/style.json')).toBe(json(settings()));
+    });
+
+    test('going back: an older version is written when the file holds what `expected` says', async () => {
+      await write({ 'blocks/reply.json': json(prompt()) });
+      const earlier = { template: 'Reply to {{ customer_name }}, as before.', parameters: [] };
+      const out = await writePackBlock(packDir, BLOCKS, {
+        id: 'acme.reply-prompt',
+        version: '1.1.0',
+        content: earlier,
+        expected: { template: 'Reply to {{ customer_name }}.', parameters: [] },
+      });
+      expect(out).toMatchObject({ kind: 'ok', replaced: '1.2.0' });
+      const file = JSON.parse(await read('blocks/reply.json'));
+      expect(file.version).toBe('1.1.0');
+      expect(file.content).toEqual(earlier);
+    });
+
+    test('going back over a file edited since is refused as changed, and nothing is written', async () => {
+      const edited = prompt({
+        content: { template: 'Reply to {{ customer_name }}, kindly.', parameters: [] },
+      });
+      await write({ 'blocks/reply.json': json(edited) });
+      const out = await writePackBlock(packDir, BLOCKS, {
+        id: 'acme.reply-prompt',
+        version: '1.1.0',
+        content: made,
+        expected: { template: 'Reply to {{ customer_name }}.', parameters: [] },
+      });
+      expect(out).toMatchObject({ kind: 'err', reason: 'changed' });
+      expect(await read('blocks/reply.json')).toBe(json(edited));
+    });
+
+    test("the file's own version is refused as not newer, `expected` or not", async () => {
+      await write({ 'blocks/reply.json': json(prompt()) });
+      const out = await writePackBlock(packDir, BLOCKS, {
+        id: 'acme.reply-prompt',
+        version: '1.2.0',
+        content: made,
+        expected: { template: 'Reply to {{ customer_name }}.', parameters: [] },
+      });
+      expect(out).toMatchObject({ kind: 'err', reason: 'not-newer' });
+      expect(await read('blocks/reply.json')).toBe(json(prompt()));
+    });
+
+    test('an `expected` that is not an object is refused as invalid', async () => {
+      await write({ 'blocks/reply.json': json(prompt()) });
+      const out = await writePackBlock(packDir, BLOCKS, {
+        id: 'acme.reply-prompt',
+        version: '1.2.1',
+        content: made,
+        expected: 'Reply to {{ customer_name }}.' as never,
+      });
+      expect(out).toMatchObject({ kind: 'err', reason: 'invalid' });
+    });
+  });
+});
+
+describe('holdsContent: whether a block file holds a version', () => {
+  const template = { template: 'Reply to {{ customer_name }}.', parameters: [] };
+  const schema = { type: 'object', properties: { tone: { type: 'string' } } };
+
+  test('the same content holds, its keys in any order', () => {
+    expect(holdsContent('prompt', template, { parameters: [], template: template.template })).toBe(
+      true,
+    );
+    expect(
+      holdsContent(
+        'settings',
+        { values: { tone: 'warm', length: 2 }, schema },
+        { schema, values: { length: 2, tone: 'warm' } },
+      ),
+    ).toBe(true);
+  });
+
+  test("a prompt's template is compared as the index holds it, read in from its file", () => {
+    expect(holdsContent('prompt', template, { ...template, template: 'Reply kindly.' })).toBe(
+      false,
+    );
+    expect(holdsContent('prompt', template, { template: template.template })).toBe(false);
+  });
+
+  test('a settings file without a schema holds the version stored with one; with one, it must be the same', () => {
+    const values = { values: { tone: 'warm' } };
+    expect(holdsContent('settings', values, { ...values, schema })).toBe(true);
+    expect(holdsContent('settings', values, { values: { tone: 'brief' }, schema })).toBe(false);
+    expect(holdsContent('settings', { ...values, schema }, values)).toBe(false);
+    expect(
+      holdsContent('settings', { ...values, schema }, { ...values, schema: { type: 'object' } }),
+    ).toBe(false);
+  });
+
+  test("the schema rule is a settings block's: a prompt's other fields are all compared", () => {
+    expect(holdsContent('prompt', { template: 'Hi.' }, { template: 'Hi.', schema: {} })).toBe(
+      false,
+    );
+  });
+});
+
+describe('blockFileText: the same write, without the disk', () => {
+  test("a prompt's file text with the new version and content; other fields, order and layout kept", () => {
+    const text = JSON.stringify({ ...prompt(), owner: 'support' }, null, '\t');
+    const out = blockFileText(text, 'prompt', {
+      id: 'acme.reply-prompt',
+      version: '1.2.1',
+      content: { template: 'Reply to {{ customer_name }}, briefly.', parameters: [] },
+    });
+    expect(out).toEqual({
+      kind: 'ok',
+      text: JSON.stringify(
+        {
+          ...prompt(),
+          version: '1.2.1',
+          content: { template: 'Reply to {{ customer_name }}, briefly.', parameters: [] },
+          owner: 'support',
+        },
+        null,
+        '\t',
+      ),
+      replaced: '1.2.0',
+    });
+  });
+
+  test('a prompt that keeps its template apart: the file keeps templateFile, the template comes back for it', () => {
+    const out = blockFileText(
+      json(prompt({ content: { templateFile: 'reply.liquid' } })),
+      'prompt',
+      {
+        id: 'acme.reply-prompt',
+        version: '1.3.0',
+        content: { template: 'Reply to {{ customer_name }}, warmly.' },
+      },
+    );
+    expect(out).toEqual({
+      kind: 'ok',
+      text: json(prompt({ version: '1.3.0', content: { templateFile: 'reply.liquid' } })),
+      template: { file: 'reply.liquid', text: 'Reply to {{ customer_name }}, warmly.' },
+      replaced: '1.2.0',
+    });
+  });
+
+  test("refused: a version not past the file's, text that isn't the block's file, content that doesn't fit", () => {
+    const text = json(prompt());
+    const write = { id: 'acme.reply-prompt', version: '1.3.0', content: { template: 'Hi.' } };
+    expect(blockFileText(text, 'prompt', { ...write, version: '1.2.0' })).toMatchObject({
+      kind: 'err',
+      reason: 'not-newer',
+    });
+    expect(blockFileText(text, 'prompt', { ...write, version: '1.1.0' })).toMatchObject({
+      kind: 'err',
+      reason: 'not-newer',
+    });
+    // With `expected`, which its caller checks against the file: older goes, the file's own doesn't.
+    const expected = { template: 'Reply to {{ customer_name }}.', parameters: [] };
+    expect(blockFileText(text, 'prompt', { ...write, version: '1.1.0', expected })).toMatchObject({
+      kind: 'ok',
+      replaced: '1.2.0',
+    });
+    expect(blockFileText(text, 'prompt', { ...write, version: '1.2.0', expected })).toMatchObject({
+      kind: 'err',
+      reason: 'not-newer',
+    });
+    for (const [other, kind] of [
+      ['not json', 'prompt'],
+      [json(prompt({ id: 'acme.other-prompt' })), 'prompt'],
+      [json(prompt({ version: 'v1' })), 'prompt'],
+      [text, 'settings'],
+    ] as const) {
+      expect(blockFileText(other, kind, write)).toMatchObject({ kind: 'err', reason: 'invalid' });
+    }
+    expect(
+      blockFileText(text, 'prompt', { ...write, content: { template: 'Hi.', values: {} } }),
+    ).toMatchObject({
+      kind: 'err',
+      reason: 'invalid',
+      message: '"content.values" doesn\'t fit a prompt block',
+    });
   });
 });

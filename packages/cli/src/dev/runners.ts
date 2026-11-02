@@ -35,7 +35,7 @@ export interface RunningApiServer {
    * Default project id for the boot tenant. Required for POST-body
    * primitive-registration routes. `kindgi dev`
    * threads this into `registerFromIndex` so scaffolded packs land
-   * under the tenant's Default project.
+   * under the tenant's default project.
    */
   readonly defaultProjectId: string;
   readonly token: string;
@@ -194,7 +194,7 @@ export interface DevPackServiceOptions {
   /** A notice for the user from starting the pack service (the sandbox's). */
   readonly onNotice?: (line: string) => void;
   /**
-   * The pack's blocks (`discovery.blocks`). A version made live in the
+   * The pack's blocks (`discovery.blocks`). A version pinned in the
    * console is written into its file through the front (`POST
    * /v1/blocks`), and `onWritten` says so.
    */
@@ -204,7 +204,7 @@ export interface DevPackServiceOptions {
   };
 }
 
-/** What the front wrote for a block made live: its file, and its template file too. */
+/** What the front wrote for a block pinned in the console: its file, and its template file too. */
 export type PackBlockWritten = Extract<PackBlockWriteOutcome, { readonly kind: 'ok' }>;
 
 /**
@@ -371,8 +371,14 @@ export interface DevRunners {
   }) => PackBuilder;
   /** The local pack service (not yet started). */
   readonly createPackService: (opts: DevPackServiceOptions) => DevPackService;
-  /** Whether this machine can sandbox the pack service, and with what (`dev/sandbox/detect.ts`). */
-  readonly detectSandbox: () => Promise<SandboxAvailability>;
+  /**
+   * Whether this machine can sandbox the pack service, and with what
+   * (`dev/sandbox/detect.ts`). `env` is the CLI's own, whose `PATH` the
+   * probe searches.
+   */
+  readonly detectSandbox: (
+    env: Readonly<Record<string, string | undefined>>,
+  ) => Promise<SandboxAvailability>;
   /**
    * Check a Python pack's interpreter can run pack code (`import kindgi`),
    * with the pack's environment: a one-line description, or why not.

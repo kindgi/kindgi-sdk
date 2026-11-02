@@ -69,7 +69,7 @@ function setup(nameRefusal?: SecretBinding['nameRefusal']) {
 }
 
 describe('registering a webhook trigger', () => {
-  test('keeps the defaults: the Default project, the caller as owner, hex in X-Kindgi-Signature, 256 KiB, 600 a minute', async () => {
+  test('keeps the defaults: the default project, the caller as owner, hex in X-Kindgi-Signature, 256 KiB, 600 a minute', async () => {
     const { call, base } = setup();
     const res = await call('POST', '', base);
     expect(res.status).toBe(201);

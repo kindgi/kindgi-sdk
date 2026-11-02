@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { KindgiApiError, fromWire } from '@kindgi/client';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { runCli } from '../src/main.js';
@@ -168,5 +169,250 @@ describe('kindgi blocks', () => {
       ['versions.unregister', 'acme.weights', '1.0.0'],
       ['versions.reinstate', 'acme.weights', '1.0.0'],
     ]);
+  });
+});
+
+describe('kindgi blocks pull', () => {
+  /** A pack in `cwd` with a prompt block at 1.0.0 and a settings block at 2.0.0. */
+  async function pack() {
+    await mkdir(join(cwd, 'blocks'), { recursive: true });
+    const tone = {
+      id: 'acme.tone',
+      version: '1.0.0',
+      kind: 'prompt',
+      description: 'How replies sound',
+      content: { template: 'Be brief.' },
+    };
+    const weights = {
+      id: 'acme.weights',
+      version: '2.0.0',
+      kind: 'settings',
+      content: { values: {} },
+    };
+    await writeFile(join(cwd, 'blocks/tone.json'), `${JSON.stringify(tone, null, 2)}\n`);
+    await writeFile(join(cwd, 'blocks/weights.json'), `${JSON.stringify(weights, null, 2)}\n`);
+  }
+  const row = (blockVersion: string) => ({
+    projectId: 'p-1',
+    agentId: 'acme.desk',
+    agentVersion: '1.0.0',
+    blockVersion,
+    follows: 'pin',
+  });
+  /** The runtime's block versions: the pack's files hold acme.tone 1.0.0 and acme.weights 2.0.0. */
+  const VERSIONS: Record<string, Record<string, unknown>> = {
+    'acme.intro@1.0.0': { template: 'Hello.' },
+    'acme.intro@1.1.0': { template: 'Hello there.' },
+    'acme.tone@1.0.0': { template: 'Be brief.' },
+    'acme.tone@1.2.0': { template: 'Be brief and kind.' },
+    'acme.weights@2.0.0': { values: {}, schema: { type: 'object' } },
+    'acme.weights@2.1.0': { values: { calls: 2 }, schema: { type: 'object' } },
+  };
+  /** `versions.get` from VERSIONS, recording each call; any other is block-not-found. */
+  function versionsGet(calls: [string, ...unknown[]][]) {
+    return async (blockId: string, version: string) => {
+      calls.push(['versions.get', blockId, version]);
+      const content = VERSIONS[`${blockId}@${version}`];
+      if (content === undefined) {
+        throw new KindgiApiError(
+          fromWire({ code: 'block-not-found', message: `No ${blockId} ${version}.` }, 404),
+        );
+      }
+      return { content };
+    };
+  }
+  /** `runsIn` that runs each block at these versions, recording each call. */
+  function runsInAt(calls: [string, ...unknown[]][], versions: Record<string, string[]>) {
+    return async (blockId: string) => {
+      calls.push(['runsIn', blockId]);
+      return { data: (versions[blockId] ?? []).map(row) };
+    };
+  }
+  async function pull(argv: readonly string[], client: Record<string, unknown>) {
+    return runCli({
+      argv: ['blocks', 'pull', ...argv, '--url=https://x', '--token=t'],
+      env: {},
+      cwd,
+      home,
+      clientFactory: () => client as never,
+      buildConfigLoader: async () => ({ pack: { id: 'acme.app', version: '1.0.0' } }),
+    });
+  }
+
+  test('writes the newest version running anywhere where it is newer than the file', async () => {
+    await pack();
+    const calls: [string, ...unknown[]][] = [];
+    const out = await pull([], {
+      blocks: {
+        runsIn: runsInAt(calls, { 'acme.tone': ['1.1.0', '1.2.0'], 'acme.weights': ['1.0.0'] }),
+        versions: { get: versionsGet(calls) },
+      },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    // Every block is checked against its file's own version before any is written.
+    expect(calls).toEqual([
+      ['runsIn', 'acme.tone'],
+      ['versions.get', 'acme.tone', '1.0.0'],
+      ['runsIn', 'acme.weights'],
+      ['versions.get', 'acme.tone', '1.2.0'],
+    ]);
+    expect(JSON.parse(out.stdout)).toEqual({
+      wrote: [{ blockId: 'acme.tone', from: '1.0.0', to: '1.2.0', file: 'blocks/tone.json' }],
+      // 2.0.0 in the file is newer than anything that runs: it's left as it is.
+      unchanged: [{ blockId: 'acme.weights', version: '2.0.0', runs: '1.0.0' }],
+    });
+    expect(JSON.parse(await readFile(join(cwd, 'blocks/tone.json'), 'utf8'))).toEqual({
+      id: 'acme.tone',
+      version: '1.2.0',
+      kind: 'prompt',
+      description: 'How replies sound',
+      content: { template: 'Be brief and kind.' },
+    });
+  });
+
+  test('only the blocks named, and a block that runs nowhere is left', async () => {
+    await pack();
+    const { calls, rec } = recorder();
+    const out = await pull(['acme.weights'], {
+      blocks: { runsIn: rec('runsIn', { data: [] }) },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['runsIn', 'acme.weights']]);
+    expect(JSON.parse(out.stdout)).toEqual({
+      wrote: [],
+      unchanged: [{ blockId: 'acme.weights', version: '2.0.0' }],
+    });
+  });
+
+  describe("a file that doesn't hold its own version as the runtime has it is refused, and nothing is written", () => {
+    test.each<[string, () => Promise<void>, string]>([
+      [
+        'an edited block file',
+        async () => {
+          const tone = JSON.parse(await readFile(join(cwd, 'blocks/tone.json'), 'utf8'));
+          await writeFile(
+            join(cwd, 'blocks/tone.json'),
+            `${JSON.stringify({ ...tone, content: { template: 'Be short.' } }, null, 2)}\n`,
+          );
+        },
+        "blocks/tone.json holds acme.tone 1.0.0 with edits that aren't in the runtime's 1.0.0: pulling 1.2.0 would drop them. Give the edits a version of their own and deploy it, or undo them (for edits git hasn't committed: `git checkout HEAD -- blocks/tone.json`), then pull again.",
+      ],
+      [
+        'an edited template file',
+        async () => {
+          const tone = JSON.parse(await readFile(join(cwd, 'blocks/tone.json'), 'utf8'));
+          await writeFile(join(cwd, 'blocks/tone.liquid'), 'Be short.');
+          await writeFile(
+            join(cwd, 'blocks/tone.json'),
+            `${JSON.stringify({ ...tone, content: { templateFile: 'tone.liquid' } }, null, 2)}\n`,
+          );
+        },
+        "blocks/tone.json and its template blocks/tone.liquid hold acme.tone 1.0.0 with edits that aren't in the runtime's 1.0.0: pulling 1.2.0 would drop them. Give the edits a version of their own and deploy it, or undo them (for edits git hasn't committed: `git checkout HEAD -- blocks/tone.json blocks/tone.liquid`), then pull again.",
+      ],
+      [
+        "a version the runtime doesn't have",
+        async () => {
+          const tone = JSON.parse(await readFile(join(cwd, 'blocks/tone.json'), 'utf8'));
+          await writeFile(
+            join(cwd, 'blocks/tone.json'),
+            `${JSON.stringify({ ...tone, version: '1.0.1' }, null, 2)}\n`,
+          );
+        },
+        "blocks/tone.json holds acme.tone 1.0.1, which this runtime doesn't have, so Kindgi can't tell whether it holds edits. Deploy 1.0.1 first, or bring the file back to a version the runtime has.",
+      ],
+      [
+        "a block and its template at a version the runtime doesn't have",
+        async () => {
+          const tone = JSON.parse(await readFile(join(cwd, 'blocks/tone.json'), 'utf8'));
+          await writeFile(join(cwd, 'blocks/tone.liquid'), 'Be brief.');
+          await writeFile(
+            join(cwd, 'blocks/tone.json'),
+            `${JSON.stringify({ ...tone, version: '1.0.1', content: { templateFile: 'tone.liquid' } }, null, 2)}\n`,
+          );
+        },
+        "blocks/tone.json and its template blocks/tone.liquid hold acme.tone 1.0.1, which this runtime doesn't have, so Kindgi can't tell whether they hold edits. Deploy 1.0.1 first, or bring the files back to a version the runtime has.",
+      ],
+    ])('%s', async (_name, edit, said) => {
+      await pack();
+      await edit();
+      const before = await readFile(join(cwd, 'blocks/tone.json'), 'utf8');
+      const calls: [string, ...unknown[]][] = [];
+      const out = await pull(['acme.tone'], {
+        blocks: {
+          runsIn: runsInAt(calls, { 'acme.tone': ['1.2.0'] }),
+          versions: { get: versionsGet(calls) },
+        },
+      });
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(said);
+      expect(await readFile(join(cwd, 'blocks/tone.json'), 'utf8')).toBe(before);
+      // The version that runs isn't even fetched.
+      expect(calls.filter(([name]) => name === 'versions.get')).toHaveLength(1);
+    });
+  });
+
+  test('every refused file is named, and no block is written, not even one that could be', async () => {
+    await pack();
+    const intro = `${JSON.stringify({ id: 'acme.intro', version: '1.0.0', kind: 'prompt', content: { template: 'Hello.' } }, null, 2)}\n`;
+    await writeFile(join(cwd, 'blocks/intro.json'), intro);
+    const tone = JSON.parse(await readFile(join(cwd, 'blocks/tone.json'), 'utf8'));
+    await writeFile(
+      join(cwd, 'blocks/tone.json'),
+      `${JSON.stringify({ ...tone, content: { template: 'Be short.' } }, null, 2)}\n`,
+    );
+    const weights = JSON.parse(await readFile(join(cwd, 'blocks/weights.json'), 'utf8'));
+    await writeFile(
+      join(cwd, 'blocks/weights.json'),
+      `${JSON.stringify({ ...weights, version: '2.0.1' }, null, 2)}\n`,
+    );
+    const calls: [string, ...unknown[]][] = [];
+    const out = await pull([], {
+      blocks: {
+        runsIn: runsInAt(calls, {
+          'acme.intro': ['1.1.0'],
+          'acme.tone': ['1.2.0'],
+          'acme.weights': ['2.1.0'],
+        }),
+        versions: { get: versionsGet(calls) },
+      },
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      "blocks/tone.json holds acme.tone 1.0.0 with edits that aren't in the runtime's 1.0.0",
+    );
+    expect(out.stderr).toContain(
+      "blocks/weights.json holds acme.weights 2.0.1, which this runtime doesn't have",
+    );
+    expect(JSON.parse(await readFile(join(cwd, 'blocks/tone.json'), 'utf8')).version).toBe('1.0.0');
+    expect(JSON.parse(await readFile(join(cwd, 'blocks/weights.json'), 'utf8')).version).toBe(
+      '2.0.1',
+    );
+    // acme.intro holds its 1.0.0 and 1.1.0 runs, so alone it would be written.
+    expect(await readFile(join(cwd, 'blocks/intro.json'), 'utf8')).toBe(intro);
+  });
+
+  test('a settings file that gives no schema holds its version, which the runtime stored with the schema it carried', async () => {
+    await pack();
+    const calls: [string, ...unknown[]][] = [];
+    const out = await pull(['acme.weights'], {
+      blocks: {
+        runsIn: runsInAt(calls, { 'acme.weights': ['2.1.0'] }),
+        versions: { get: versionsGet(calls) },
+      },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(JSON.parse(out.stdout).wrote).toEqual([
+      { blockId: 'acme.weights', from: '2.0.0', to: '2.1.0', file: 'blocks/weights.json' },
+    ]);
+  });
+
+  test("a block the pack doesn't have is a usage error, before any call", async () => {
+    await pack();
+    const { calls, rec } = recorder();
+    const out = await pull(['acme.nothing'], { blocks: { runsIn: rec('runsIn') } });
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain("Not among the pack's blocks");
+    expect(out.stderr).toContain('acme.nothing');
+    expect(calls).toEqual([]);
   });
 });

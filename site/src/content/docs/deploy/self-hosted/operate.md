@@ -34,11 +34,24 @@ days after it was released, and the runtime warns from 30 days before
 ([Licensing](../../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
 A restart after that day doesn't come back up.
 
+Each way of running the runtime has its own way to upgrade:
+
+| You run the runtime | How to upgrade | Script |
+| --- | --- | --- |
+| With Docker, as [Self-host Kindgi](../self-host/) sets it up | [With Docker](#with-docker), below: back up, then pull and restart | None |
+| On Cloud Run | With runtime 0.1.8 or later, in any `network_mode`: the module's `upgrade.sh`, under [Operate it](../cloud-run/#operate-it) on the Cloud Run page. Or [Upgrade by hand](../cloud-run/#upgrade-by-hand), on the same page | `upgrade.sh`, for runtime 0.1.8 or later |
+| On Azure Container Apps | With runtime 0.1.8 or later, in either network shape: the module's `upgrade.sh`. Or by hand. Both are under [Upgrade](../azure-container-apps/#upgrade) on the Azure Container Apps page | `upgrade.sh`, for runtime 0.1.8 or later |
+
 **Before you start, read the upgrade steps of each release you're
-upgrading across:** [0.1.10's](../../../releases/0.1.10/#upgrade-steps),
+upgrading across.** From 0.1.8 on, they're in each release's notes, which
+[Release notes](../../../releases/) lists newest first;
+[0.1.10's](../../../releases/0.1.10/#upgrade-steps),
 [0.1.9's](../../../releases/0.1.9/#upgrade-steps) and
-[0.1.8's](../../../releases/0.1.8/#upgrade-steps) are in their release
-notes, and earlier releases' are below.
+[0.1.8's](../../../releases/0.1.8/#upgrade-steps) are the oldest three.
+Up to 0.1.7, they're on this page, from
+[From 0.1.6 to 0.1.7](#from-016-to-017) down.
+
+### With Docker
 
 1. [Back up Postgres.](../back-up-and-restore/#back-up-postgres)
 2. Pull the new version, with Docker logged in to `registry.kindgi.com` with your license key ([Pull the runtime image](../pull-the-runtime-image/)), and [restart](../restart-and-check-health/#restart-the-runtime) with it, with the same `kindgi.env`:
@@ -76,6 +89,7 @@ Nothing starts and nothing is written, and they print names and ids, never a val
 | `provider-keys` | Each tool version, MCP endpoint and webhook endpoint that names a model provider's key. A model provider's key is used by its provider only, so from 0.1.6 they're refused: a tool's calls fail with `provider-key-refused`, and so do an MCP endpoint's connections and a webhook endpoint's deliveries. For each, store the key it needs under its own name (the same value is fine), name that instead, and deploy or register it again. See [Give a tool a secret](../../../guides/tools/give-a-tool-a-secret/#a-model-providers-key-isnt-a-tools). |
 | `secret-scopes` | Each tool version, MCP endpoint and webhook trigger in a project or an org that reads a secret at the tenant, registered by an earlier runtime that didn't record where its secrets are read. They keep reading at the tenant. One a tenant admin registered can stay. Register each other one again so where its secrets are read is recorded: a tool, publish a new version; an MCP endpoint, unregister it and register it again; a webhook trigger, `kindgi webhooks update <trigger-id> --secret=<name>`. The check ends with what to do about each, and also lists an unregistered tool version a flow or agent version still pins. |
 | `mcp-header-credentials` | Each MCP endpoint that keeps a credential in plaintext `config.headers` (`X-Api-Key`, `Authorization`, …), registered by an earlier runtime that allowed it. They keep working, and their requests never follow a redirect. For each, store each header's value as a secret, and register the endpoint again with `auth` in place of the header. See [Not in `config.headers`](../../../guides/tools/mcp-servers/#not-in-configheaders). |
+| `mcp-env-credentials` | Runtime 0.4.0 or later. Each stdio MCP endpoint that keeps a credential in plaintext `config.env` (`GITHUB_TOKEN`, `OPENAI_API_KEY`, …), or a `secretRef`, which a stdio server is never sent, registered by an earlier runtime that allowed it. They keep working. For each, store each variable's value as a secret, and register the endpoint again with `secretEnv` in place of the variable and without `secretRef`. See [Give a stdio server a secret](../../../guides/tools/mcp-servers/#give-a-stdio-server-a-secret). |
 | `stored-secrets` | Each live version of a stored secret that doesn't decrypt with the secrets' keys: the KMS key, the runtime's access to it, and the AAD key. Run it after a restore, before the runtime serves, since a restore brings back the database, not the keys. It needs `KINDGI_SECRETS_BACKEND=postgres`. See [Back up and restore](../back-up-and-restore/#restore-into-a-fresh-database). |
 | `purged-tenants` | Each tenant marked purged that still holds rows, with each table and its count: rows written after its mark, by work in flight then. Rows only, not the bytes under its prefix. Run it a day after a purge. For each tenant it lists, `kindgi-runtime tenants purge <tenant id> --confirm <its slug>`, with the server's `KINDGI_ARTIFACTS` and `KINDGI_OPENFGA_API_URL`, deletes them and leaves its mark and its record as they were. See [Close and purge a tenant](../serve-many-tenants/#close-and-purge-a-tenant). |
 
@@ -113,6 +127,21 @@ At every start, the runtime logs one `WARN` per such endpoint:
 
 ```json
 {"time":"2026-10-10T23:54:31.368Z","level":"warn","severity":"WARNING","subsystem":"mcp.headers","message":"mcp-header-credential tenant=… mcp-endpoint=inventory-legacy headers=X-Api-Key,X-Api-Secret: this endpoint keeps a credential in plaintext config.headers, from before that was refused. It still works, and its requests never follow a redirect. Store each value as a secret, then unregister the endpoint and register it again with auth: { scheme: \"header\", headers: [{ name: \"X-Api-Key\", secretRef: { envName, name } }, { name: \"X-Api-Secret\", secretRef: { envName, name } }] } in place of the header","tenantId":"…","endpointId":"inventory-legacy","headerNames":["X-Api-Key","X-Api-Secret"]}
+```
+
+Here `check mcp-env-credentials` (runtime 0.4.0 or later) runs on a database with two stdio endpoints registered by an earlier runtime, one with a token in `config.env` and one with a `secretRef` (exit `1`). Each line ends with the `secretEnv` that replaces it:
+
+```text
+mcp-env-credentials: 2 stdio MCP endpoints keep a credential in plaintext config.env, or a secretRef (1 tenant checked):
+  tenant=… mcp-endpoint=files-legacy secretRef=never-sent → secretEnv: { <NAME>: { envName, name } }, and without secretRef
+  tenant=… mcp-endpoint=inventory-legacy env=INVENTORY_TOKEN → secretEnv: { INVENTORY_TOKEN: { envName, name } }
+They still work, but each value in config.env is stored as given, and a stdio server is never sent its secretRef. For each, store each variable's value as a secret (kindgi secrets set <NAME> --env=<env> --scope=tenant), then unregister the endpoint and register it again with that secretEnv in place of the variable.
+```
+
+At every start, the runtime logs one `WARN` per such endpoint:
+
+```json
+{"time":"2026-10-20T12:35:16.428Z","level":"warn","severity":"WARNING","subsystem":"mcp.env","message":"mcp-env-credential tenant=… mcp-endpoint=inventory-legacy env=INVENTORY_TOKEN: this stdio endpoint keeps a credential in plaintext config.env, from before that was refused. It still works. Store each value as a secret, then unregister the endpoint and register it again with secretEnv: { INVENTORY_TOKEN: { envName, name } }","tenantId":"…","endpointId":"inventory-legacy","envNames":["INVENTORY_TOKEN"],"secretRef":false}
 ```
 
 ### From 0.1.6 to 0.1.7
@@ -180,7 +209,7 @@ What to check before you upgrade, and what's different after:
   runtime-only subpath `@kindgi/agents/migrations` now, with no alias.
 - **The API:**
   - A page cursor a list didn't issue answers `400 bad-input` on the
-    agents, flows, policies and eval-suites `/versions` lists and on an
+    agents, flows, policies and test-sets `/versions` lists and on an
     agent's go-live history, as it does on blocks' and tools' `/versions`.
   - When an admin ends someone's sessions, it shows on that person's
     sign-in history (`GET /v1/audit/sign-ins?userId=`), with `byUserId`
@@ -188,8 +217,8 @@ What to check before you upgrade, and what's different after:
   - Adding a team member who isn't a person of the tenant, was removed, or
     is named by a malformed id is refused with `404 identity-user-not-found`,
     as adding a project member is. Before, an unknown id was added.
-  - A judging rule's results count the runs their corrections come from
-    (`runsWithJudgments`).
+  - A queue rule's results count the runs their corrections come from
+    (`runsWithCorrections`).
 - **Models:**
   - Claude Haiku 4.5 asks for up to 16,000 output tokens by default in the
     `anthropic` and `bedrock` presets (it was 8,192). A model's
@@ -360,10 +389,10 @@ The database migrates when 0.1.6 starts.
   tool, an MCP endpoint or a webhook endpoint could name a model provider's
   key as its secret, and so hand the key to a pack's code or to another
   server. 0.1.6 refuses that (run `check provider-keys` first, below).
-- **Who may correct as a class was shown to every reader.** Anyone who
-  could read a judge class, a project viewer included, got the ids of the
+- **Who may correct as a group was shown to every reader.** Anyone who
+  could read a corrector group, a project viewer included, got the ids of the
   people and service accounts allowed to correct as it. 0.1.6 sends those ids only to
-  an admin of the class's scope; everyone else gets their number
+  an admin of the group's scope; everyone else gets their number
   (`assertableBy.principalCount`).
 - **A malformed MCP credential could appear in the runtime's log.** An MCP
   endpoint's credential, or a value in its `config.headers`, with a line
@@ -570,11 +599,11 @@ What to check before you upgrade, and what's different after:
   (in memory by default) to share the sign-in lookup limit across instances;
   a store that fails doesn't block sign-in.
 - **New in 0.1.6:**
-  - **Corrections:** a project's judging rules queue the runs that need a
+  - **Corrections:** a project's queue rules queue the runs that need a
     person's verdict, results per agent version, and runs on the test cases
     and suggested changes rescored after people correct the new answers
-    ([Correct a run's output](../../../guides/evals/judge-a-runs-output/),
-    [Improve an agent](../../../guides/evals/improve-an-agent/)).
+    ([Correct a run's output](../../../guides/improve/correct-a-runs-output/),
+    [Improve an agent](../../../guides/improve/improve-an-agent/)).
   - **What failed and why:** a project's failed runs grouped by cause and
     version (`GET /v1/runs/failures`) and a failure's `reason`
     ([See why runs failed](../../../guides/runs/see-why-runs-failed/)), and
@@ -597,7 +626,7 @@ What to check before you upgrade, and what's different after:
     [guardrails](../../../guides/guardrails/write-a-guardrail/#in-the-console) and
     [members](../../authorization/#in-the-console-members), each with a page of
     its own, plus
-    [Quality](../../../guides/evals/judging-reference/#in-the-console) for
+    [Quality](../../../guides/improve/expert-queue-reference/#in-the-console) for
     correcting runs, and [costs](../../../guides/observability/cost-per-run/#cost-in-the-console)
     for the project and each run. The tenant gets
     [Teams](../../authorization/#in-the-console-teams),
@@ -771,7 +800,7 @@ and what's different after:
   sessions. A project admin adds a member by email
   (`POST /v1/projects/<id>/memberships` with `email`), and a project admin's
   member key can manage that project's members.
-- **A project editor can start an eval run** (try a version on the test
+- **A project editor can start a test run** (try a version on the test
   cases); it took a project admin. Unregistering or reinstating a version
   of the test cases still does.
 - **The cost aggregate counts only what you may read.** Across projects (no
@@ -793,7 +822,7 @@ and what's different after:
 - **An agent, flow, tool or set of test cases stays in the project it was
   first published into.** Publishing a version of one under another project is
   refused with a `409` (`agent-project-mismatch`, `flow-…`, `tool-…`,
-  `eval-suite-project-mismatch`), even for an admin of both, and nothing is
+  `test-set-project-mismatch`), even for an admin of both, and nothing is
   written; 0.1.4 accepted it. A deploy that includes one is refused whole,
   even when it's unchanged. The refusal carries the id, not the other project
   ([Organize work by org and project](../../../guides/projects/organize-by-org-and-project/)).
@@ -937,7 +966,7 @@ and what's different after:
 - **The clients read every `409` as a conflict** (TypeScript
   `code: 'conflict'`, Python `ConflictError`). Twenty codes used to come back
   as a server error, among them `run-lease-lost`, `agent-version-mismatch` and
-  `secret-write-conflict`. Code that matched one of them by its class should
+  `secret-write-conflict`. Code that matched one of them by its group should
   match its code alone: `err.serverCode` (Python `e.server_code`).
 - **TypeScript's `runs.follow` and `runs.followProgress`** follow a run to its
   end, as in Python, which gains `runs.follow` too. `runs.stream` and
@@ -982,9 +1011,9 @@ and what's different after:
     tenant admin can erase an end user's words, their conversations and the
     runs that served them (`kindgi memory erasures`).
   - **Improve:** suggest new settings or a new prompt for an agent
-    version, try the candidate on the test cases, and make it live through
-    the release gate policy where it goes live, after review
-    (`kindgi proposals`). Improve can look for better settings on its own,
+    version, try the candidate on the test cases, and pin it through
+    the release gate where it is pinned, after review
+    (`kindgi suggested-changes`). Improve can look for better settings on its own,
     and a schedule can start an Improve run.
   - **Files kept with a run** (artifacts) and the capability catalog
     ([Keep files with a run](../../../guides/runs/keep-files-with-a-run/)).
@@ -1119,7 +1148,7 @@ one at a time, and logs it at `info`.
   agent acme.matcher: registered new version 1.4.1 (1.4.0 was published before pins; 1.4.1 pins its tools); set version: '1.4.1' in acme.matcher to match
   ```
 
-  Set that version in the agent's code. An app that runs an exact version (`agentVersion: '1.4.0'`) keeps running the unpinned one until you change it; an app that runs the latest gets the pinned one.
+  Set that version in the agent's code. An app that runs an exact version (`agentVersion: '1.4.0'`) keeps running the unpinned one until you change it; an app that names no version gets the pinned one, since the deploy made it Latest.
 - **With authorization on** (`KINDGI_OPENFGA_API_URL`), the first start brings each tenant's authorization store up to 0.1.4's model, with a line per store before the banner:
 
   ```text

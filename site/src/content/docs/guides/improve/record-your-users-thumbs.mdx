@@ -1,0 +1,268 @@
+---
+title: Record your users' thumbs
+description: Put a thumbs up and a thumbs down under your app's answers, and record each one from your app's server as a correction of the run's answer, made for the user who gave it.
+sidebar:
+  order: 1.2
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide puts a thumbs up and a thumbs down under each answer your app
+shows, and records each one as a correction of the run's answer, made for
+the user who gave it.
+
+It comes in two halves:
+
+- **The page** shows the thumbs and posts them to your app's own server. A
+  Kindgi token never goes to a browser, so the page needs no Kindgi package.
+- **Your server** checks who is asking, then calls `corrections.thumbs` with
+  the run's id and your id for the user.
+
+A thumbs up is a correction with `answer: "right"`. A thumbs down is
+`answer: "wrong"`, with the user's words as `why`: a bare "wrong" can't be
+checked, so a thumbs down needs them. Like any of your users' corrections,
+it stays `open` and unsorted until a person sorts it, unless the project
+sorts your users' corrections, as
+[Where a correction goes](../correct-a-runs-output/#where-a-correction-goes)
+shows.
+
+## Before you start
+
+- **An app that starts runs and shows their answers,** and keeps each run's
+  id with the answer it shows.
+- **A token for your app's server** with write access to the runs' project,
+  when authorization is on, in `KINDGI_API_URL` and `KINDGI_API_TOKEN`.
+- **For TypeScript:** Node 22.12 or later, with Kindgi 0.4's `@kindgi/sdk`.
+- **For Python:** Python 3.11 or later, with Kindgi 0.4's `kindgi`, and
+  FastAPI and uvicorn.
+
+## The page
+
+Under each answer, the page shows the two thumbs, with the run's id your
+server sent along with the answer. A thumbs up posts at once. A thumbs down
+first asks what was wrong, in one line.
+
+```html excerpt
+<!-- Under each answer; data-run-id is the run's id your server sent with it. -->
+<div class="thumbs" data-run-id="RUN_ID">
+  <button type="button" data-up="true">Thumbs up</button>
+  <button type="button" data-up="false">Thumbs down</button>
+  <form hidden>
+    <label>What was wrong? <input name="why" required maxlength="4000" /></label>
+    <button type="submit">Send</button>
+  </form>
+</div>
+<script>
+  for (const thumbs of document.querySelectorAll('.thumbs')) {
+    const form = thumbs.querySelector('form');
+    const send = (up, why) =>
+      fetch('/api/thumbs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ runId: thumbs.dataset.runId, up, ...(why ? { why } : {}) }),
+      });
+    thumbs.querySelector('[data-up="true"]').addEventListener('click', () => send(true));
+    thumbs.querySelector('[data-up="false"]').addEventListener('click', () => {
+      form.hidden = false;
+      form.elements.why.focus();
+    });
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      send(false, form.elements.why.value);
+      form.hidden = true;
+    });
+  }
+</script>
+```
+
+The page posts to your app's own `/api/thumbs`, with your app's own sign-in,
+the way it calls the rest of your app.
+
+## Your server
+
+Your server takes the thumbs only from a signed-in user, and only for a run
+it showed that user. Then it records them for the user.
+
+Ask your coding agent: "I want my app's server to record a user's thumbs up
+or down on a run's answer." For reference, the handler looks like this:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+This server uses Node's `http` module. With a framework, read the user and
+the body the same way.
+
+```ts
+// thumbs-server.ts
+import { type IncomingMessage, createServer } from 'node:http';
+import { KindgiApiError, createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+// The runs your app showed each user, kept where it starts them; use your database in production.
+const shownTo = new Map<string, Set<string>>();
+
+// Your app's sign-in: here, the user's id from a header your sign-in proxy sets.
+const userIdOf = (req: IncomingMessage): string | undefined => {
+  const id = req.headers['x-acme-user'];
+  return typeof id === 'string' && id !== '' ? id : undefined;
+};
+
+createServer(async (req, res) => {
+  if (req.method !== 'POST' || req.url !== '/api/thumbs') {
+    res.writeHead(404).end();
+    return;
+  }
+  const userId = userIdOf(req);
+  if (userId === undefined) {
+    res.writeHead(401).end();
+    return;
+  }
+  let body: { readonly runId?: unknown; readonly up?: unknown; readonly why?: unknown };
+  try {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk as Buffer);
+    body = JSON.parse(Buffer.concat(chunks).toString('utf8')) ?? {};
+  } catch {
+    res.writeHead(400).end(); // not JSON
+    return;
+  }
+  const { runId, up, why } = body;
+  if (typeof runId !== 'string' || typeof up !== 'boolean' || !shownTo.get(userId)?.has(runId)) {
+    res.writeHead(400).end();
+    return;
+  }
+  try {
+    await kindgi.corrections.thumbs({
+      runId,
+      participantId: userId,
+      up,
+      ...(typeof why === 'string' && why !== '' && { why }),
+    });
+  } catch (err) {
+    if (err instanceof KindgiApiError && err.error.code === 'invalid-request') {
+      res.writeHead(422).end(err.error.message); // a thumbs down with no words, say
+    } else {
+      console.error(err);
+      res.writeHead(502).end();
+    }
+    return;
+  }
+  res.writeHead(204).end();
+}).listen(8787, () => console.log('listening on http://localhost:8787/api/thumbs'));
+```
+
+Run it with `KINDGI_API_URL` and `KINDGI_API_TOKEN` set, the way your app
+runs TypeScript.
+
+</TabItem>
+<TabItem label="Python">
+
+This server, `thumbs_server.py`, uses FastAPI. With another framework, read
+the user and the body the same way.
+
+Add FastAPI and uvicorn to your app's project:
+
+```sh
+uv add fastapi uvicorn
+```
+
+{/* check-samples: the reader's install step, which the docs' sample check runs before it checks thumbs_server.py; readers don't see it.
+
+```sh
+uv add fastapi uvicorn
+```
+
+*/}
+
+```python
+# thumbs_server.py
+from fastapi import FastAPI, Header, HTTPException, Response
+from pydantic import BaseModel, Field
+
+from kindgi.client import InvalidRequestError, Kindgi
+
+app = FastAPI()
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+# The runs your app showed each user, kept where it starts them; use your database in production.
+shown_to: dict[str, set[str]] = {}
+
+
+class Thumbs(BaseModel):
+    run_id: str = Field(alias="runId")
+    up: bool
+    why: str | None = None
+
+
+@app.post("/api/thumbs", status_code=204)
+def thumbs(
+    body: Thumbs,
+    # Your app's sign-in: here, the user's id from a header your sign-in proxy sets.
+    x_acme_user: str | None = Header(default=None),
+) -> Response:
+    if not x_acme_user:
+        raise HTTPException(401)
+    if body.run_id not in shown_to.get(x_acme_user, set()):
+        raise HTTPException(400)
+    try:
+        kindgi.corrections.thumbs(
+            run_id=body.run_id,
+            participant_id=x_acme_user,
+            up=body.up,
+            why=body.why or None,
+        )
+    except InvalidRequestError as err:
+        raise HTTPException(422, str(err)) from err  # a thumbs down with no words, say
+    return Response(status_code=204)
+```
+
+Run it with `KINDGI_API_URL` and `KINDGI_API_TOKEN` set:
+`uv run uvicorn thumbs_server:app --port 8787`.
+
+</TabItem>
+<TabItem label="Java">
+
+Not in the Java SDK. Have your server call `kindgi.corrections().create`
+with the run's id, `participantId`, `answer` (`right` for a thumbs up,
+`wrong` for a thumbs down) and the user's words as `why`, as
+[Correct a run's answer](../correct-a-runs-output/#correct-a-runs-answer)
+shows.
+
+</TabItem>
+<TabItem label="Scala">
+
+Not in the Scala SDK. Have your server call the Java client's
+`corrections().create` with the run's id, `participantId`, `answer` (`right`
+for a thumbs up, `wrong` for a thumbs down) and the user's words as `why`,
+as [Correct a run's answer](../correct-a-runs-output/#correct-a-runs-answer)
+shows.
+
+</TabItem>
+</Tabs>
+
+- **`participantId`** is your app's own opaque id for the user, never their
+  email or name. Kindgi keeps it as given, and your server's token is
+  `madeBy`.
+- **A user who changes their mind** replaces their earlier thumbs: a second
+  correction of the run, by the same token for the same `participantId`,
+  replaces the first, which stays in the history.
+- **A thumbs down without `why`** is refused with a 400, `answer: "wrong"
+  needs shouldSay or why.`, which the client raises as an invalid-request
+  error.
+
+## See the thumbs
+
+Your users' thumbs are corrections like any other. In the console, a run's
+**Corrections** page lists each one as
+`End user <your-user-id>, in app <token-id>`: your app's own id for the
+user, then the start of your server's token id. From the CLI,
+`kindgi corrections list --participant=<your-user-id>` lists one user's.
+[See the corrections](../correct-a-runs-output/#see-the-corrections) has the
+other filters.
+
+## Next
+
+- [Correct a run's output](../correct-a-runs-output/)
+- [An agent's test set](../build-a-test-set/)
+- [Corrections reference](../expert-queue-reference/)

@@ -1,14 +1,14 @@
 ---
 title: List runs
-description: List the newest runs page by page, only the ones your app started, the agent turns inside one run, or one agent's turns.
+description: List the newest runs page by page, only the ones that aren't inside another run, the agent turns inside one run, or one agent's turns.
 sidebar:
   order: 7
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-This guide lists runs: the newest page by page, only the ones your app
-started, the runs inside one run, or one agent's turns.
+This guide lists runs: the newest page by page, only the ones that aren't
+inside another run, the runs inside one run, or one agent's turns.
 
 ## Before you start
 
@@ -91,8 +91,9 @@ scope.
 ## From your app
 
 Your app lists runs with `runs.list`. Ask your coding agent: "I want my app
-to list the runs it started, newest first, a page at a time." For reference,
-this code lists the newest runs your app started, then gets the next page:
+to list the runs, newest first, a page at a time, without the runs inside
+them." For reference, this code lists the newest runs that aren't inside
+another run, then gets the next page:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -103,7 +104,7 @@ import { createClient } from '@kindgi/sdk/client';
 
 const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN
 
-// The newest runs your app started, without the agent turns inside them
+// The newest runs, without the agent turns inside them
 const page = await kindgi.runs.list({ topLevel: true, limit: 3 });
 for (const run of page.data) console.log(run.id, run.flowId, run.status);
 
@@ -130,7 +131,7 @@ from kindgi.client import Kindgi, paginate
 
 kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN
 
-# The newest runs your app started, without the agent turns inside them
+# The newest runs, without the agent turns inside them
 page = kindgi.runs.list(top_level=True, limit=3)
 for run in page.data:
     print(run.id, run.flow_id, run.status)
@@ -161,7 +162,7 @@ public final class ListRuns {
   public static void main(String[] args) {
     Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN
 
-    // The newest runs your app started, without the agent turns inside them
+    // The newest runs, without the agent turns inside them
     RunsListParams params = RunsListParams.builder().topLevel(true).limit(3L).build();
     RunCollectionPage page = kindgi.runs().list(params);
     for (RunCollectionPage.DataItem run : page.data()) {
@@ -202,7 +203,7 @@ object ListRuns {
   def main(args: Array[String]): Unit = {
     val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN
 
-    // The newest runs your app started, without the agent turns inside them
+    // The newest runs, without the agent turns inside them
     val params = RunsListParams.builder().topLevel(true).limit(3L).build()
     val page = kindgi.runs().list(params)
     for (run <- page.data.asScala) println(s"${run.id} ${run.flowId} ${run.status}")
@@ -233,7 +234,9 @@ The page holds the runs, and its `nextCursor` leads to the next one.
 `list` takes these filters, with their Python names in brackets:
 
 - **`topLevel: true`** (`top_level=True`) leaves out runs started inside
-  other runs, such as agent turns: the runs your app and the CLI started.
+  other runs, such as agent turns. It keeps every other run, whatever
+  started it: your app, the CLI, a schedule, a webhook trigger or a mail
+  trigger.
 - **`includeOutput: true`** (`include="output"`) adds each run's `output`.
 - **`scope`** (`scope_kind` / `scope_id`) lists one project's runs, or the runs
   of every project in an org: `{ kind: 'project', projectId }`
@@ -664,6 +667,14 @@ with the step it belongs to. Their cost is in the flow run's. The list has a
 search box and sorts by a column's header. **Columns** chooses which columns
 it shows.
 
+An agent or a flow has its own **Runs** page: the same list, kept to its
+runs, with the same filters. **Runs →** on one of its versions opens the
+page filtered to that version, and **All runs →**, under its **Recent
+runs**, opens it whole. A run opens under its agent or flow, and the ▾ at
+the end of the breadcrumbs lists the run's pages: **Overview**,
+**Journal**, **Provenance**, **Cost**, and **Corrections** on a finished
+run you may correct or one with corrections.
+
 ![The Runs page with the flow run acme.refunds opened to its agent turns: step answer and step triage, each a Dev-Echo Agent run of demo.echo-agent @1.0.0, under the flow run's $0.08; then a Dev-Echo Agent run of its own, $0.08. A search box and the Columns menu are above the list.](../../../../assets/runs/runs-agent-turns.png)
 
 ![The Runs page filtered to Status: Failed and Started in the last hour: three failed runs of Support agent (two of acme.support @1.1.0, one of @1.0.0), each with when it started, how long it took and its cost.](../../../../assets/runs/runs-filters.png)
@@ -672,19 +683,20 @@ Its filters:
 - **Status:** Pending, Running, Waiting, Completed, Failed or Cancelled. A
   waiting run waits on something, such as an approval.
 - **Started:** in the last hour, 24 hours, 7 days or 30 days.
-- **An agent or a flow, and its version,** from a link that names them. A
-  flow's page has **Runs** at the top, and **Runs →** on each version's row.
-  A schedule's page links **Runs it started →**. **Its failed runs** on
-  [What failed](#what-failed) names the agent or flow and its version. With
-  an agent chosen, a **Version** choice appears: **Every version**, or one.
-- **Include steps inside flows** and **Include eval replays.**
+- **An agent or a flow, and its version,** from a link that names them,
+  such as **Its failed runs** on [What failed](#what-failed). With an agent
+  chosen, a **Version** choice appears: **Every version**, or one.
+- **What started them:** **Runs it started →**, on a schedule's, an
+  incoming webhook's or a mail trigger's page, lists the runs it started.
+- **Include:** **Flow steps**, a flow's agent turns as rows of their own
+  too, and **Test run replays**. Both are left out to start with.
 
 Each filter shows as a chip ("Status: Failed", "Started in the last hour",
 "Flow: Refunds"). Removing an agent's or a flow's chip removes its version
 too. The page's address keeps the filters, the sort and the search, so a
 link opens the same list.
 
-![The Runs page reached from Runs → on a flow's 1.1.0 row: the chips Flow: Refunds and Flow version: 1.1.0.](../../../../assets/runs/runs-flow-version.png)
+![Refunds' Runs page, reached from Runs → on its 1.1.0 row: the status, start time and Include filters, the chip Flow version: 1.1.0, and its one run of 1.1.0, a completed flow run.](../../../../assets/runs/runs-flow-version.png)
 
 ### What failed
 

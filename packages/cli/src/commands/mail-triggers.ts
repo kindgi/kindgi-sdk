@@ -82,7 +82,10 @@ const FIRES_TABLE: TableSpec<FirePage, Fire> = {
 };
 
 const TARGET_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
-  agent: { type: 'string', description: 'Run this agent (at its live version, else the latest).' },
+  agent: {
+    type: 'string',
+    description: 'Run this agent (at its pinned version, else the latest).',
+  },
   'agent-version': { type: 'string', description: 'With --agent: run this exact version.' },
   flow: { type: 'string', description: 'Run this flow (with --flow-version).' },
   'flow-version': { type: 'string', description: 'With --flow: the flow version to run.' },
@@ -229,7 +232,7 @@ const create: LeafCommand = {
     ...mailFlags('register'),
     project: {
       type: 'string',
-      description: "The trigger's project, by id (default: the tenant's Default project).",
+      description: "The trigger's project, by id (default: the tenant's default project).",
     },
     ...RUN_AS_FLAG,
     ...allowUnattendedFlag('register'),

@@ -526,7 +526,7 @@ describe('a key limited to a project', () => {
       await h.call(key.token, 'GET', `/v1/agents?projectId=${P2}`),
       await h.call(key.token, 'GET', `/v1/agents?scopeKind=project&scopeId=${P2}`),
       await h.call(key.token, 'POST', '/v1/runs', { agent: 'acme.agent', projectId: P2 }),
-      await h.call(key.token, 'POST', '/v1/agents/acme.agent/live/rollback', {
+      await h.call(key.token, 'POST', '/v1/agents/acme.agent/pinned/unpin', {
         scope: { kind: 'project', projectId: P2 },
       }),
     ];

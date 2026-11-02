@@ -26,13 +26,22 @@ mock_provider "google" {
   }
 }
 
+# The pack account as Google names it: the orchestrator's grant to act as it
+# takes only that form, which the mock's own random name isn't.
+override_resource {
+  target = google_service_account.pack
+  values = {
+    name  = "projects/acme-app-dev/serviceAccounts/kindgi-dev-pack@acme-app-dev.iam.gserviceaccount.com"
+    email = "kindgi-dev-pack@acme-app-dev.iam.gserviceaccount.com"
+  }
+}
+
 variables {
   project_id      = "acme-app-dev"
   region          = "northamerica-northeast2"
   name_prefix     = "kindgi-dev"
   kindgi_env      = "dev"
   server_image    = "northamerica-northeast2-docker.pkg.dev/acme-app-dev/kindgi-dev/runtime@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-  pack_image      = "northamerica-northeast2-docker.pkg.dev/acme-app-dev/kindgi-dev/acme-app@sha256:0000000000000000000000000000000000000000000000000000000000000000"
   seed_tenant_id  = "00000000-0000-0000-0000-000000000001"
   seed_user_id    = "00000000-0000-0000-0000-000000000002"
   secrets_backend = "postgres"
@@ -46,8 +55,15 @@ run "a_deployment_without_a_store" {
   }
 
   assert {
-    condition     = length(google_kms_key_ring.kindgi) == 0 && !contains(keys(google_secret_manager_secret.server), "secrets_aad_key")
-    error_message = "Without a store there is no key ring and no AAD-key secret."
+    condition     = !contains(keys(google_secret_manager_secret.server), "secrets_aad_key")
+    error_message = "Without a store there is no AAD-key secret."
+  }
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
+      if e.name == "KINDGI_PACK_ENDPOINT_KMS_KEY"
+    ]) == google_kms_crypto_key.secrets.id
+    error_message = "Without a store, the key exists all the same: the server seals each pack endpoint's token under it."
   }
 }
 
@@ -74,12 +90,8 @@ run "the_targeted_apply_makes_what_the_store_stands_on" {
   }
 
   assert {
-    condition     = contains(keys(google_project_service.apis), "cloudkms.googleapis.com")
-    error_message = "The targeted apply turns Cloud KMS on."
-  }
-  assert {
-    condition     = length(google_kms_key_ring.kindgi) == 1 && length(google_kms_crypto_key.secrets) == 1 && length(google_kms_crypto_key_iam_member.server_wraps) == 1
-    error_message = "The targeted apply makes the key ring, the key and the server's grant on it."
+    condition     = google_kms_crypto_key_iam_member.server_wraps.crypto_key_id == google_kms_crypto_key.secrets.id
+    error_message = "The key and the server's grant on it are there from before the store."
   }
   assert {
     condition     = contains(keys(google_secret_manager_secret.server), "secrets_aad_key") && contains(keys(google_secret_manager_secret_iam_member.server_reads), "secrets_aad_key")
@@ -115,7 +127,10 @@ run "the_full_apply_turns_the_store_on" {
     error_message = "The server reads the AAD key at the version secrets_aad_key_version names."
   }
   assert {
-    condition     = length(google_kms_crypto_key_iam_member.server_reads_key) == 1
-    error_message = "After the full apply the server also has the grant on the key's metadata."
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
+      if e.name == "KINDGI_PACK_ENDPOINT_KMS_KEY"
+    ]) == google_kms_crypto_key.secrets.id
+    error_message = "The pack endpoints' tokens stay sealed under the same key, so turning the store on changes nothing for them."
   }
 }
