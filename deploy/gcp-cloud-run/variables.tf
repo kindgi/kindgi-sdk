@@ -442,6 +442,20 @@ variable "pack_ingress" {
   }
 }
 
+variable "server_ingress" {
+  description = <<-EOT
+    The server's ingress.
+    INGRESS_TRAFFIC_ALL: anyone reaches its run.app URL (the API still requires its bearer token, and Cloud Run IAM unless server_public or server_invoker_iam_disabled).
+    INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER: behind your own external Application Load Balancer (your domain, your Cloud Armor policy). The run.app URL then takes only the load balancer's calls and internal ones, so nothing goes around the policy. Needs network_mode = "direct" (the pack orchestrator reaches the server through the module's VPC) and public_url (the load balancer's address, which server_url and the orchestrator's key steps then name). README, "Behind your own load balancer".
+  EOT
+  type        = string
+  default     = "INGRESS_TRAFFIC_ALL"
+  validation {
+    condition     = contains(["INGRESS_TRAFFIC_ALL", "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"], var.server_ingress)
+    error_message = "server_ingress is INGRESS_TRAFFIC_ALL or INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER."
+  }
+}
+
 variable "server_invoker_iam_disabled" {
   description = "Let anyone reach the server without Cloud Run IAM (the API still requires its bearer token), instead of an allUsers run.invoker binding (server_public), which an org policy may forbid. Exclusive with server_public."
   type        = bool

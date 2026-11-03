@@ -190,6 +190,22 @@ resource "google_cloud_run_v2_job" "orchestrator" {
       timeout     = "600s"
       max_retries = 0
 
+      # Behind your load balancer (server_ingress), the server's run.app URL
+      # takes only internal calls: the Job's go through the module's VPC, the
+      # way the server reaches the internal pack services (Direct VPC egress
+      # with all traffic, Private Google Access on the subnet). Direct mode
+      # only, which the server's precondition holds it to.
+      dynamic "vpc_access" {
+        for_each = var.server_ingress != "INGRESS_TRAFFIC_ALL" && local.direct ? [1] : []
+        content {
+          network_interfaces {
+            network    = google_compute_network.kindgi[0].id
+            subnetwork = google_compute_subnetwork.run[0].id
+          }
+          egress = "ALL_TRAFFIC"
+        }
+      }
+
       containers {
         image = var.server_image
         args  = ["packs", "orchestrate"]
