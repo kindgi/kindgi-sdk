@@ -2526,7 +2526,7 @@ class MustNotCallItem(RootModel[str]):
 
 class CreateCorrectionBody(BaseModel):
     """
-    At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`.
+    At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`. A text of only spaces counts as not given.
     """
 
     model_config = ConfigDict(
@@ -2578,7 +2578,7 @@ class RemoveCorrectionResult(BaseModel):
 
 class AddTestCaseBody(BaseModel):
     """
-    A correction's body on one of the agent's runs. At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`.
+    A correction's body on one of the agent's runs. At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`. A text of only spaces counts as not given.
     """
 
     model_config = ConfigDict(
