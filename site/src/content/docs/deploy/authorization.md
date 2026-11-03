@@ -366,7 +366,7 @@ in it ([Team grants](#team-grants)).
 team, with the teams each may see. A tenant admin makes one with **New
 team**: "A group of people, run by its admins: they decide who is in it.
 You add the first people on its page." It takes a name, a slug ("Lowercase
-letters, digits and hyphens; unique in the tenant.") and what the team is.
+letters, digits and hyphens; unique in the workspace.") and what the team is.
 
 ![The Teams page as a tenant admin: "1 team.", Support crew (support-crew, "First-line support"), a New team button, and under the list "The console doesn't give a team a role on a project yet: the API does (team grants)."](../../../assets/teams/teams.png)
 
@@ -509,7 +509,7 @@ A project admin changes who works there:
 
 - **Add someone** by their email in the workspace, with one of the four roles.
   An email that isn't one of the workspace's people isn't added: "No one with
-  that email in this tenant: a tenant admin adds them on People first."
+  that email in this workspace: a tenant admin adds them on People first."
 - **Change** a person's role of their own. When another way in gives them
   more, it says so under it, such as "editor through another way in". A
   role through a team, an org or tenant admin is changed where it comes
