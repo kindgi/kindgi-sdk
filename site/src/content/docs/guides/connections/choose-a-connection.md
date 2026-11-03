@@ -142,8 +142,13 @@ company has two Google connections.
 
 - **Each owner keeps one connection per account,** registration and
   environment: the company, and each person. A connect that signs in to an
-  account its owner already has there reconnects that connection: it keeps
-  its name, whatever `--label` asked, and gains what was allowed.
+  account its owner already has there reconnects that connection when the
+  grant keeps every permission it holds: it keeps its name, whatever
+  `--label` asked, and gains what was allowed. Otherwise the connection
+  stays as it was: the connect answers connected if the connection is
+  working and already holds what was asked, and is declined with what's
+  `missing` if not. To add a permission, name the connection with
+  `--reconnect`.
 - **`--reconnect=<connection>`** reconnects one by name or id, and needs
   the same account. It doesn't take `--label`: a reconnect keeps its name.
 - **Rename one** with `kindgi connections update`. Its owner or a
