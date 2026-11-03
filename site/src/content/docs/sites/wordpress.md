@@ -406,8 +406,8 @@ another reviewer decides." instead of **Approve**.
   every session the site opened. `kindgi sites get <site-id>` lists the
   site's keys, with thumbprints to compare with the plugin's key id under
   **Kindgi → Settings**. Kindgi won't enroll a revoked key again, for this
-  site or another site in the tenant at the same address (runtime 0.6.0 or
-  later).
+  site or another site in the workspace at the same address (runtime 0.6.0
+  or later).
 - **Remove one person** (`kindgi people remove <user-id>`). Their next
   sign-in is refused, "This person was removed: their site can't sign them
   in again", until a tenant admin lets them back in.

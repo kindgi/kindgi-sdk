@@ -286,7 +286,7 @@ const revokeKey: LeafCommand = {
   kind: 'leaf',
   name: 'revoke-key',
   description:
-    "Revoke one of a site's keys, by its id (`kindgi sites get` lists them, with thumbprints to compare with the plugin's): statements signed with it are refused from now on, Kindgi won't enroll it again (for this site, or another site in the tenant at the same address), and the site's live sessions end. Tenant admins only.",
+    "Revoke one of a site's keys, by its id (`kindgi sites get` lists them, with thumbprints to compare with the plugin's): statements signed with it are refused from now on, Kindgi won't enroll it again (for this site, or another site in the workspace at the same address), and the site's live sessions end. Tenant admins only.",
   usage: 'kindgi sites revoke-key <site-id> <kid> [--project=<project-id>]',
   optionSpec: PROJECT_FLAG,
   run: (ctx) =>

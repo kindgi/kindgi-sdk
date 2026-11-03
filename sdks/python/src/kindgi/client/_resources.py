@@ -7474,7 +7474,7 @@ class AuthSitesResource:
     ) -> _models.EnrollSiteResult:
         """A site posts its public key with its enrollment code. `POST /v1/auth/sites/enroll`
 
-        Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Once the code checks out, a key this site retired, or another site in the tenant at the same address retired, is refused unless it's live on this site now (`409 site-enrollment-key-retired`), and the code isn't used up. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.
+        Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Once the code checks out, a key this site retired, or another site in the workspace at the same address retired, is refused unless it's live on this site now (`409 site-enrollment-key-retired`), and the code isn't used up. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.
         """
         return self._client._request(
             _OPERATIONS["auth.sites.enroll"],
@@ -9546,7 +9546,7 @@ class ProjectsSitesResource:
     ) -> _models.Site:
         """Revoke one of a site's keys. `POST /v1/projects/{projectId}/sites/{siteId}/keys/{kid}/revoke`
 
-        Statements signed with it are refused from now on, and Kindgi won't enroll it again, for this site or another site in the tenant at the same address. The site's live sessions end. Tenant admins only.
+        Statements signed with it are refused from now on, and Kindgi won't enroll it again, for this site or another site in the workspace at the same address. The site's live sessions end. Tenant admins only.
         """
         return self._client._request(
             _OPERATIONS["projects.sites.revokeKey"],
@@ -17818,7 +17818,7 @@ class AsyncAuthSitesResource:
     ) -> _models.EnrollSiteResult:
         """A site posts its public key with its enrollment code. `POST /v1/auth/sites/enroll`
 
-        Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Once the code checks out, a key this site retired, or another site in the tenant at the same address retired, is refused unless it's live on this site now (`409 site-enrollment-key-retired`), and the code isn't used up. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.
+        Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Once the code checks out, a key this site retired, or another site in the workspace at the same address retired, is refused unless it's live on this site now (`409 site-enrollment-key-retired`), and the code isn't used up. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.
         """
         return await self._client._request(
             _OPERATIONS["auth.sites.enroll"],
@@ -19892,7 +19892,7 @@ class AsyncProjectsSitesResource:
     ) -> _models.Site:
         """Revoke one of a site's keys. `POST /v1/projects/{projectId}/sites/{siteId}/keys/{kid}/revoke`
 
-        Statements signed with it are refused from now on, and Kindgi won't enroll it again, for this site or another site in the tenant at the same address. The site's live sessions end. Tenant admins only.
+        Statements signed with it are refused from now on, and Kindgi won't enroll it again, for this site or another site in the workspace at the same address. The site's live sessions end. Tenant admins only.
         """
         return await self._client._request(
             _OPERATIONS["projects.sites.revokeKey"],
