@@ -19,11 +19,14 @@
  *   4. A skill's links to docs.kindgi.com name this release line's docs
  *      (`/v<major>.<minor>/…`, from `@kindgi/sdk`'s version): a skill ships
  *      inside a release, and the site's root moves to the next line's docs.
- *      When a release changes the minor, this fails until the links follow.
  *      So do the links in what a package or SDK ships from its `src/` (a
  *      message the CLI prints, a template `kindgi init` writes; not tests).
+ *      When a release changes the minor, scripts/sync-docs-line.mjs moves
+ *      the links on a line to the new one (`pnpm run version-packages` runs
+ *      it); a link on no line, or on a patch version's, stays failing.
  *      A program builds its links with `@kindgi/client`'s `docsUrl(path, version)`
  *      (the CLI passes its own version), which follows the release on its own.
+ *      Which files: scripts/lib/docs-line.mjs, shared with that script.
  *
  * A reference to `.claude/skills/<name>/SKILL.md` or
  * `.agents/skills/<name>/SKILL.md` is a path in a user's project, where
@@ -37,6 +40,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { basename, dirname, join, normalize } from 'node:path';
 
+import { DOCS_URL, docsLineOf, isShipped, isSkill } from './lib/docs-line.mjs';
 import { MARKERS, NAME_HIT, nameHits } from './text-scan.mjs';
 
 const TEXT = /\.(ts|tsx|mts|cts|js|mjs|cjs|md|json|ya?ml)$/;
@@ -74,10 +78,10 @@ function isTrackedPath(path) {
   return trackedSet.has(clean) || tracked.some((f) => f.startsWith(`${clean}/`));
 }
 
-/** `.claude/skills/<name>/SKILL.md` or `.agents/skills/<name>/SKILL.md` in a user's project, installed from `packages/sdk/skills/`. */
+/** A skill's file in a user's project, `.claude/skills/<name>/<file>` or `.agents/skills/…`, installed from `packages/sdk/skills/`. */
 function installedSkill(ref) {
-  const name = /^\.(?:claude|agents)\/skills\/([\w.-]+)\/SKILL\.md$/.exec(ref)?.[1];
-  return name !== undefined && trackedSet.has(`packages/sdk/skills/${name}/SKILL.md`);
+  const file = /^\.(?:claude|agents)\/skills\/([\w.-]+\/[\w.-]+\.md)$/.exec(ref)?.[1];
+  return file !== undefined && trackedSet.has(`packages/sdk/skills/${file}`);
 }
 
 function resolves(from, ref) {
@@ -91,18 +95,15 @@ function resolves(from, ref) {
 const sdkVersion = JSON.parse(
   readFileSync(join(root, 'packages/sdk/package.json'), 'utf8'),
 ).version;
-const docsLine = `https://docs.kindgi.com/v${sdkVersion.split('.').slice(0, 2).join('.')}/`;
-const DOCS_URL = /https:\/\/docs\.kindgi\.com\/[^\s)>`'"]*/g;
-/** What a package or SDK ships from its `src/`, any file type, its tests aside (rule 4). */
-const SHIPPED = /^(?:packages\/[\w-]+|sdks\/(?:[\w-]+\/)*?[\w-]+)\/src\/(?!test\/)(?!.*\.test\.)/;
+const docsLine = docsLineOf(sdkVersion);
 
 const problems = [];
 for (const file of tracked) {
   if (nameHits(file) > 0) problems.push(`${file}: its path holds ${NAME_HIT}`);
-  const shipped = SHIPPED.test(file);
+  const shipped = isShipped(file);
   if ((!TEXT.test(file) && !shipped) || SELF.has(file)) continue;
   const text = readFileSync(join(root, file), 'utf8');
-  const skill = basename(file) === 'SKILL.md';
+  const skill = isSkill(file);
   if (skill) {
     for (const source of skillSources(text)) {
       if (!isTrackedPath(source))
@@ -114,7 +115,7 @@ for (const file of tracked) {
       if (!url.startsWith(docsLine))
         problems.push(
           skill
-            ? `${file}: links ${url}; a skill links this release line's docs (${docsLine}…)`
+            ? `${file}: links ${url}; a skill links this release line's docs (${docsLine}…; node scripts/sync-docs-line.mjs moves a link on another line)`
             : `${file}: links ${url}; what ships links this release line's docs (${docsLine}…; build it with @kindgi/client's docsUrl(path, version))`,
         );
     }

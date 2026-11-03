@@ -17,6 +17,8 @@
  * are HTTP statuses, never messages.
  */
 
+import type { ToolConnection } from '@kindgi/tools';
+
 /** Wire version of every v2 message. */
 export const PACK_PROTOCOL_VERSION = 2 as const;
 export type PackProtocolVersion = typeof PACK_PROTOCOL_VERSION;
@@ -40,15 +42,60 @@ export interface PackCallContext {
   readonly idempotencyKey?: string;
   /**
    * The env values the tool declares (`needsSpec.env`), resolved for this
-   * call: project, else org, else tenant (protocol 2.5.0). Strings.
+   * call: project, else org, else workspace (protocol 2.5.0). Strings.
    */
   readonly env?: Readonly<Record<string, unknown>>;
   readonly secrets?: Readonly<Record<string, unknown>>;
+  /**
+   * The connections the tool declares (`needsSpec.connections`), resolved
+   * for this call, by the tool's name for each: an account at another app
+   * and a short-lived token for it (protocol 2.9.0). Like `secrets`, never
+   * logged. Absent when the tool declares none, and from an older runtime.
+   */
+  readonly connections?: Readonly<Record<string, ToolConnection>>;
   /** Reserved: no runtime sends it yet. */
   readonly config?: Readonly<Record<string, unknown>>;
   /** The calling agent version's settings blocks' values, by block id (protocol 2.4.0). */
   readonly settings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+  /**
+   * The wait token a tool that declares `pauses` may answer with
+   * (protocol 2.8.0): sent only for such a tool. A pack service from
+   * before 2.8.0 ignores it.
+   */
+  readonly waitToken?: WaitTokenRef;
+  /**
+   * Where a tool that declares `storesFiles` or `readsFiles` stores and
+   * reads files (protocol 2.10.0): sent only for such a tool, when the
+   * runtime has a file store, and for one that only stores, when the call
+   * has an `idempotencyKey`. Like `secrets`, never logged. The runner keeps
+   * it from the handler, which gets `files`. A pack service from before
+   * 2.10.0 ignores it.
+   */
+  readonly toolFiles?: ToolFilesRef;
 }
+
+/** A wait token: its id, and the link the other system posts its answer to. */
+export interface WaitTokenRef {
+  readonly id: string;
+  readonly url: string;
+}
+
+/**
+ * A call's tool files (protocol 2.10.0): the link the runner posts each
+ * stored file's bytes to, and under which it gets each read file's bytes
+ * (`<url>/<artifactId>`), and the token it sends in `Authorization`. For
+ * this call only, until its deadline or its answer, and only for what the
+ * tool declares.
+ */
+export interface ToolFilesRef {
+  readonly url: string;
+  readonly token: string;
+}
+
+/** The longest a pause may wait: 24 days, in milliseconds (protocol 2.8.0). */
+export const MAX_PAUSE_TIMEOUT_MS = 24 * 24 * 60 * 60 * 1000;
+/** The longest a pause's `name` may be (protocol 2.8.0). */
+export const MAX_PAUSE_NAME_LENGTH = 200;
 
 export interface ToolRef {
   readonly id: string;
@@ -83,6 +130,18 @@ export interface ToolResultMessage {
   readonly output: unknown;
 }
 
+/**
+ * A `pauses` tool's answer that its call waits for another system
+ * (protocol 2.8.0). Valid only as the answer to an `invoke` whose context
+ * carried `waitToken`. Without `timeoutMs`, the runtime's default applies.
+ */
+export interface ToolPauseMessage {
+  readonly v: PackProtocolVersion;
+  readonly kind: 'pause';
+  readonly timeoutMs?: number;
+  readonly name?: string;
+}
+
 export interface CheckResultMessage {
   readonly v: PackProtocolVersion;
   readonly kind: 'check-result';
@@ -95,6 +154,7 @@ export type PackErrorCode =
   | 'handler-import-failed'
   | 'handler-shape-invalid'
   | 'handler-throw'
+  | 'connection-rejected'
   | 'check-shape-invalid'
   | 'malformed-message'
   | 'unknown-protocol-version'
@@ -103,7 +163,8 @@ export type PackErrorCode =
   | 'check-not-in-pack'
   | 'tool-version-mismatch'
   | 'deadline-exceeded'
-  | 'cancelled';
+  | 'cancelled'
+  | 'pause-not-available';
 
 export interface PackErrorMessage {
   readonly v: PackProtocolVersion;
@@ -115,10 +176,20 @@ export interface PackErrorMessage {
   readonly cause?: unknown;
   /** Schema-validation issues (Ajv-style), for the validation codes. */
   readonly issues?: readonly unknown[];
+  /**
+   * For `connection-rejected` (protocol 2.9.0): the tool's name for the
+   * connection whose token the app refused. The runtime renews that token
+   * once and runs the call again.
+   */
+  readonly connection?: string;
 }
 
 export type PackRequest = ToolInvokeMessage | CheckInvokeMessage;
-export type PackResponse = ToolResultMessage | CheckResultMessage | PackErrorMessage;
+export type PackResponse =
+  | ToolResultMessage
+  | ToolPauseMessage
+  | CheckResultMessage
+  | PackErrorMessage;
 
 export type ParseOutcome<T> =
   | { readonly kind: 'ok'; readonly value: T }
@@ -205,6 +276,7 @@ export function parsePackResponse(value: unknown): ParseOutcome<PackResponse> {
   if (m.kind === 'result' || m.kind === 'check-result') {
     return { kind: 'ok', value: m as unknown as PackResponse };
   }
+  if (m.kind === 'pause') return parseToolPause(m);
   if (m.kind === 'error' && typeof m.code === 'string' && typeof m.message === 'string') {
     return { kind: 'ok', value: m as unknown as PackErrorMessage };
   }
@@ -212,6 +284,27 @@ export function parsePackResponse(value: unknown): ParseOutcome<PackResponse> {
     kind: 'err',
     error: packError('unexpected-message-kind', `Unknown response kind ${JSON.stringify(m.kind)}`),
   };
+}
+
+function parseToolPause(m: Record<string, unknown>): ParseOutcome<ToolPauseMessage> {
+  const { timeoutMs, name } = m;
+  if (
+    timeoutMs !== undefined &&
+    (typeof timeoutMs !== 'number' ||
+      !Number.isInteger(timeoutMs) ||
+      timeoutMs < 1 ||
+      timeoutMs > MAX_PAUSE_TIMEOUT_MS)
+  ) {
+    return malformed(`\`timeoutMs\` must be a whole number from 1 to ${MAX_PAUSE_TIMEOUT_MS}`);
+  }
+  // In code points, as the schema's `maxLength` and a Python pack count it.
+  if (
+    name !== undefined &&
+    (typeof name !== 'string' || name.length === 0 || [...name].length > MAX_PAUSE_NAME_LENGTH)
+  ) {
+    return malformed(`\`name\` must be a string of 1 to ${MAX_PAUSE_NAME_LENGTH} characters`);
+  }
+  return { kind: 'ok', value: m as unknown as ToolPauseMessage };
 }
 
 /**
@@ -235,10 +328,10 @@ export const PACK_HEADERS = {
    */
   traceparent: 'traceparent',
   /**
-   * The tenant the call is for, set by the server from the deployment it
+   * The workspace the call is for, set by the server from the deployment it
    * routed the call to (never copied from a caller), on `/v1/invoke` and
    * `/v1/info`. A pack service with `KINDGI_PACK_TENANT_ID` refuses a call
-   * whose header is missing or names another tenant, with 421. Optional: a
+   * whose header is missing or names another workspace, with 421. Optional: a
    * pack service that doesn't read it ignores it.
    */
   tenantId: 'kindgi-tenant-id',

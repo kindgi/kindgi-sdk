@@ -25,11 +25,14 @@ const NAMED_IMPORTERS = 3;
 
 export interface DevOnlyImportsCheck {
   /**
-   * Check a build's externals: the lines to print, a warning for the
-   * packages that just became dev-only imports and a note for those that
-   * stopped being ones. Nothing when the set is unchanged.
+   * Check a build's externals: a warning for the packages that just
+   * became dev-only imports, then a line for those that stopped being
+   * ones. Nothing when the set is unchanged.
    */
-  check(externals: readonly ExternalPackage[]): Promise<readonly string[]>;
+  check(externals: readonly ExternalPackage[]): Promise<{
+    readonly warnings: readonly string[];
+    readonly lines: readonly string[];
+  }>;
   /** The dev-only imports as of the last check, with the files importing each. */
   current(): readonly ExternalPackage[];
 }
@@ -46,12 +49,13 @@ export function createDevOnlyImportsCheck(packDir: string): DevOnlyImportsCheck 
       const added = next.filter((e) => !known.has(e.name));
       const gone = current.filter((e) => !devOnly.includes(e.name)).map((e) => e.name);
       current = next;
-      return [
-        ...(added.length > 0 ? [describeDevOnlyImports(added)] : []),
-        ...(gone.length > 0
-          ? [`✓ The pack no longer imports ${gone.join(', ')} from devDependencies only.`]
-          : []),
-      ];
+      return {
+        warnings: added.length > 0 ? [describeDevOnlyImports(added)] : [],
+        lines:
+          gone.length > 0
+            ? [`✓ The pack no longer imports ${gone.join(', ')} from devDependencies only.`]
+            : [],
+      };
     },
     current: () => current,
   };

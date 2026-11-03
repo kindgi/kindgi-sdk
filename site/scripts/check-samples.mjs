@@ -181,7 +181,7 @@ export function missingGenerated(dir = docs) {
   return GENERATED.filter((folder) => !existsSync(join(dir, folder)));
 }
 
-/** The `SKILL.md` of every skill whose samples are checked. */
+/** The markdown files of every skill whose samples are checked: its `SKILL.md` and those beside it. */
 function skillFiles() {
   const sources = JSON.parse(readFileSync(join(site, 'skills-sources.json'), 'utf8'));
   for (const [name, skill] of Object.entries(sources.skills)) {
@@ -196,7 +196,12 @@ function skillFiles() {
   }
   return Object.entries(sources.skills)
     .filter(([, skill]) => skill.samples === 'checked')
-    .map(([name]) => join(skills, name, 'SKILL.md'));
+    .flatMap(([name]) =>
+      readdirSync(join(skills, name), { withFileTypes: true })
+        .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
+        .map((entry) => join(skills, name, entry.name))
+        .sort(),
+    );
 }
 
 /**
@@ -741,7 +746,7 @@ const PYPI = /^kindgi(?:-cli)?$/;
 
 /** The arguments a launcher passes the CLI, or undefined when it doesn't run it. */
 function launched(w) {
-  if (w[0] === 'kindgi') return w.slice(1);
+  if (w[0] === 'kindgi' || w[0] === './kindgiw') return w.slice(1);
   if (w[0] === 'npx') return after(w, afterFlags(w, 1, NPX_VALUE), [PACKAGE]);
   if (w[0] === 'pnpm' && w[1] === 'dlx') return after(w, afterFlags(w, 2, NPX_VALUE), [PACKAGE]);
   if (w[0] === 'pnpm' || w[0] === 'yarn') return after(w, w[1] === 'exec' ? 2 : 1, [KINDGI]);
@@ -752,9 +757,10 @@ function launched(w) {
 
 /**
  * A command's arguments to the Kindgi CLI, or undefined when the command
- * isn't the CLI: `kindgi …`, `npx [flags] [--] @kindgi/cli[@v] …` (or
- * `kindgi`), `pnpm [exec|dlx] kindgi …`, `uv run [flags] kindgi …`,
- * `uvx [flags] kindgi …`, after any `NAME=value` words.
+ * isn't the CLI: `kindgi …`, `./kindgiw …` (a Java or Scala project's
+ * wrapper, which passes its arguments on), `npx [flags] [--]
+ * @kindgi/cli[@v] …` (or `kindgi`), `pnpm [exec|dlx] kindgi …`, `uv run
+ * [flags] kindgi …`, `uvx [flags] kindgi …`, after any `NAME=value` words.
  */
 export function kindgiArgs(words) {
   let start = 0;

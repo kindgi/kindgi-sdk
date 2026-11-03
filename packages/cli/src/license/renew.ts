@@ -63,6 +63,13 @@ export type CountsSent =
   | { readonly sent: true; readonly usage: RenewalUsage }
   | { readonly sent: false; readonly reason: string };
 
+/**
+ * Why a production key's renewal sends no counts: by design, so `renew
+ * --quiet` leaves its line out. The Azure module's counts alert leaves out
+ * this reason by its text: keep it.
+ */
+export const PRODUCTION_NO_COUNTS = "a production key's renewal carries no counts";
+
 export type RenewOutcome =
   | {
       readonly kind: 'renewed' | 'unchanged';
@@ -157,9 +164,7 @@ async function countUsage(
   usage: (since: Date) => Promise<RenewalUsage>,
   current: LicenseClaims,
 ): Promise<CountsSent> {
-  if (current.use === 'production') {
-    return { sent: false, reason: "a production key's renewal carries no counts" };
-  }
+  if (current.use === 'production') return { sent: false, reason: PRODUCTION_NO_COUNTS };
   let answer: unknown;
   try {
     answer = await usage(current.issuedAt);
@@ -204,7 +209,7 @@ async function whatIsHeld(
   if (renewer === undefined) {
     return {
       kind: 'failed',
-      message: `There's no renewer key in ${input.renewer.describe}. Enroll this deployment first: kindgi license enroll --for <your GitHub login> --renewer <where to keep its key>.`,
+      message: `There's no renewer key in ${input.renewer.describe}. Enroll this deployment first: kindgi license enroll --for <your GitHub login, or the em- id your key page shows> --renewer <where to keep its key>.`,
     };
   }
   return { kind: 'held', currentKey, current: current.claims, renewer };

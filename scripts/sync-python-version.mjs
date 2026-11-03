@@ -29,8 +29,8 @@
  * changes) and re-locks, so writing needs uv.
  *
  * `--release` also stamps `sdks/python/CHANGELOG.md`: its `## Unreleased`
- * section becomes `## <v>`, spelled for PEP 440
- * (scripts/lib/stamp-unreleased.mjs). `pnpm run version-packages` runs it
+ * section becomes `## <v>`, spelled for PEP 440, and a release's section
+ * gathers its prereleases' entries (scripts/lib/stamp-unreleased.mjs). `pnpm run version-packages` runs it
  * that way after `changeset version`, so the "Version Packages" pull
  * request moves and stamps the Python projects too. A plain run only moves
  * the versions: a branch catching up with main's version releases nothing.
@@ -81,6 +81,17 @@ export function toPep440(version) {
   }
   const [, major, minor, patch, tag, n] = match;
   return `${major}.${minor}.${patch}${tag === undefined ? '' : `${PRERELEASE[tag]}${n}`}`;
+}
+
+/**
+ * For a release (PEP 440 `X.Y.Z`), whether a changelog section's version is
+ * one of its prereleases, which its section gathers; a prerelease gathers
+ * none, so it gets `undefined`.
+ */
+export function prereleasesOf(version) {
+  if (!/^\d+\.\d+\.\d+$/.test(version)) return undefined;
+  const pattern = new RegExp(`^${version.replaceAll('.', '\\.')}(?:a|b|rc)(?:0|[1-9]\\d*)$`);
+  return (section) => pattern.test(section);
 }
 
 /** A Changesets fixed-group pattern as a RegExp; only `*` wildcards (one name segment). */
@@ -310,7 +321,9 @@ function main(args) {
   if (!check) {
     // Stamp before writing anything: a changelog that can't be stamped stops the run whole.
     const stamped = release
-      ? stampUnreleased(changelog, version, NO_CHANGES, CHANGELOG)
+      ? stampUnreleased(changelog, version, NO_CHANGES, CHANGELOG, {
+          gathers: prereleasesOf(version),
+        })
       : changelog;
     for (const dir of PYTHON_PROJECTS) writeProject(root, dir, version);
     if (stamped !== changelog) {

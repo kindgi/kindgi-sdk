@@ -111,12 +111,16 @@ public enum SourceLayout {
     return rel.substring(root.length()).split("/");
   }
 
-  /** @return the discovery globs a pack of this layout gets by default, by folder */
+  /**
+   * @return the discovery globs a pack of this layout gets by default, by folder, and its data
+   *     blocks' ({@code blocks/**}{@code /*.json} in every language)
+   */
   public Map<String, String> defaultDiscovery() {
     Map<String, String> d = new LinkedHashMap<>();
     for (String folder : List.of("tools", "guardrails", "agents", "flows")) {
       d.put(folder, root + "**/" + folder + "/**/*" + extension);
     }
+    d.put("blocks", "blocks/**/*.json");
     return Collections.unmodifiableMap(d);
   }
 }

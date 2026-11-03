@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createClient } from '../../src/index.js';
-import { recordingFetch } from '../support/recording-fetch.js';
+import { errorFetch, noContentFetch, recordingFetch } from '../support/recording-fetch.js';
 
 const AUTH = { kind: 'apiToken' as const, token: 't' };
 const API = 'https://api.example.com';
@@ -34,5 +34,32 @@ describe('tenant — wire round-trips', () => {
       'GET /v1/tenant/config',
       'PATCH /v1/tenant/config',
     ]);
+  });
+
+  it('update: PATCH /v1/tenant with the fields given and the idempotency key; a 204 resolves to nothing', async () => {
+    const stub = noContentFetch();
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    expect(
+      await client.tenant.update(
+        { name: 'Acme Store', slug: 'acme-store' },
+        { idempotencyKey: 'k-1' },
+      ),
+    ).toBeUndefined();
+    const call = stub.calls[0]!;
+    expect(`${call.method} ${call.url}`).toBe(`PATCH ${API}/v1/tenant`);
+    expect(JSON.parse(call.body ?? '{}')).toEqual({ name: 'Acme Store', slug: 'acme-store' });
+    expect(call.headers['idempotency-key']).toBe('k-1');
+  });
+
+  it('update: a slug the sign-in settings name surfaces as a conflict with its own code', async () => {
+    const stub = errorFetch(409, {
+      code: 'tenant-slug-in-config',
+      message: 'The server names the slug "acme".',
+      details: { slug: 'acme' },
+    });
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    await expect(client.tenant.update({ slug: 'acme' })).rejects.toMatchObject({
+      error: { code: 'conflict', serverCode: 'tenant-slug-in-config' },
+    });
   });
 });

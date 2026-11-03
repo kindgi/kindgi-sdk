@@ -35,13 +35,12 @@ export function previewRefusalHint(message: string, source: DevRuntimeSource): s
 }
 
 /**
- * The warning for a preview runtime near the end of its life: before
- * Kindgi 1.0, a release stops starting 90 days after it was released.
- * From 30 days before, and once past it (a runtime started before then,
- * still running), `kindgi dev` says so with the way to a newer one.
- * `undefined` when there's nothing to say: no expiry (a 1.0 release, a
- * build from source, a production key), more than 30 days left, or a
- * runtime too old to report it.
+ * The warning for a preview runtime near the end of its life: a preview
+ * release stops starting 90 days after it was released. From 30 days
+ * before, and once past it (a runtime started before then, still running),
+ * `kindgi dev` says so with the way to a newer one. `undefined` when
+ * there's nothing to say: no expiry (a build from source, a production
+ * key), more than 30 days left, or a runtime too old to report it.
  */
 export function previewExpiryWarning(
   status: LicenseStatus | undefined,
@@ -54,7 +53,7 @@ export function previewExpiryWarning(
     preview.standing === 'expired'
       ? `expired on ${on}: it runs on, but won't start again`
       : `stops starting on ${on}, in ${preview.daysLeft} day${preview.daysLeft === 1 ? '' : 's'}`;
-  return `⚠ This preview runtime (${preview.version}) ${when}. Preview releases stop starting 90 days after their release, until Kindgi 1.0. ${NEWER[source]}`;
+  return `⚠ This preview runtime (${preview.version}) ${when}. A preview release stops starting 90 days after it was released. ${NEWER[source]}`;
 }
 
 /**

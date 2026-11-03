@@ -4,16 +4,20 @@
 import type { NodeHandler } from '@kindgi/handler';
 import type { Timestamp } from '@kindgi/types';
 
+import { turnMessageIsEvent } from '../event-data.js';
 import type { ConversationMessage } from '../types.js';
 
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
+import { admitInputFiles } from './files.js';
 import { recallOf } from './history.js';
 import { addInputNode } from './turn-provenance.js';
 
 /**
  * Persist the caller's user message BEFORE the model is called. A
- * crash mid-turn leaves the question intact for a later replay. Also
+ * crash mid-turn leaves the question intact for a later replay. It keeps
+ * the files the run's rule admits from the turn's input, so a later turn
+ * is shown them too. Also
  * seeds the provenance DAG with the `input:<sequence>` node — every
  * subsequent model/tool node ties back through that root.
  *
@@ -24,6 +28,10 @@ import { addInputNode } from './turn-provenance.js';
  */
 export function buildPersistUserMessageHandler(ctx: TurnContext): NodeHandler {
   return async (_input, kctx) => {
+    // A webhook's or an event's message is marked as it's kept: every
+    // later turn reads it back as data.
+    const fromEvent = turnMessageIsEvent(ctx.input);
+    const files = await admitInputFiles(ctx, ctx.input.files);
     if (kctx.dryRun) {
       const synthetic: ConversationMessage = {
         sequence: -1,
@@ -31,6 +39,8 @@ export function buildPersistUserMessageHandler(ctx: TurnContext): NodeHandler {
         content: ctx.input.userMessage,
         createdAt: new Date().toISOString() as Timestamp,
         ...(ctx.input.participantId !== undefined && { actor: ctx.input.participantId }),
+        ...(fromEvent && { fromEvent: true }),
+        ...(files.length > 0 && { files }),
       };
       ctx.userMessage = synthetic;
       ctx.appended.push(synthetic);
@@ -45,6 +55,8 @@ export function buildPersistUserMessageHandler(ctx: TurnContext): NodeHandler {
       role: 'user',
       content: ctx.input.userMessage,
       ...(ctx.input.participantId !== undefined && { actor: ctx.input.participantId }),
+      ...(fromEvent && { fromEvent: true }),
+      ...(files.length > 0 && { files }),
       recall: recallOf(ctx),
     });
     if (persisted.kind === 'err') throwAgentTurnFailure(persisted.error);

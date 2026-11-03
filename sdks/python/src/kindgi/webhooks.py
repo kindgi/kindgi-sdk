@@ -94,7 +94,7 @@ VerifyFailure = Literal[
 
 WebhookEvent: TypeAlias = Annotated[
     models.RunFinishedEvent
-    | models.ImprovementPassFinishedEvent
+    | models.ImproveRunFinishedEvent
     | models.ApprovalRequestedEvent
     | models.WebhookTestEvent,
     Field(discriminator="type"),

@@ -33,7 +33,7 @@ describe('capabilities.list', () => {
     });
 
     const page = await client.capabilities.list({ feature: 'tool-use', limit: 10 });
-    expect(page.items[0]?.feature).toBe('tool-use');
+    expect(page.data[0]?.feature).toBe('tool-use');
     const url = new URL(stub.calls[0]?.url);
     expect(url.searchParams.get('feature')).toBe('tool-use');
     expect(url.searchParams.get('limit')).toBe('10');
@@ -50,7 +50,7 @@ describe('capabilities.providers.list / get / configure / capabilitiesFor / dele
     });
 
     const page = await client.capabilities.providers.list({ feature: 'tool-use' });
-    expect(page.items[0]?.id).toBe('anthropic-eu');
+    expect(page.data[0]?.id).toBe('anthropic-eu');
     const url = new URL(stub.calls[0]?.url);
     expect(url.searchParams.get('feature')).toBe('tool-use');
   });

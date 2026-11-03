@@ -2,22 +2,26 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * `kindgi skills sync` and the `kindgi dev` drift check copy a pack only
- * the skills written for its language (`pack_languages` in a skill's
+ * `kindgi skills sync` and `kindgi dev`'s refresh copy a pack only the
+ * skills written for its language (`pack_languages` in a skill's
  * frontmatter), into `.claude/skills/` and `.agents/skills/` alike, under
  * one manifest.
  */
 
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import {
+  type SkillSyncOutcome,
   type SkillSyncReport,
+  describeDevSkillsRefresh,
   describeSkillDrift,
   detectSkillDrift,
+  refreshSkillsForDev,
+  skillCopyPaths,
   skillPackLanguages,
   syncSkills,
 } from '../src/commands/skills.js';
@@ -246,6 +250,366 @@ describe('syncSkills — both folders, one manifest', () => {
   });
 });
 
+describe("syncSkills — a skill's folder", () => {
+  /** A file's name, built so check-refs doesn't read it as a document reference. */
+  const md = (name: string) => `${name}.md`;
+  const [A, B, NOTES, OUTSIDE] = [md('path-a'), md('path-b'), md('notes'), md('outside')];
+  const sync = (force = false, dryRun = false): Promise<SkillSyncReport> =>
+    syncSkills({ skillsRoot, targetDir: packDir, language: 'node', force, dryRun });
+  const local = (folder: string, file: string) => join(packDir, folder, 'two', file);
+  const read = (folder: string, file: string) => readFile(local(folder, file), 'utf8');
+  const exists = (path: string) =>
+    stat(path).then(
+      () => true,
+      () => false,
+    );
+  const manifestPath = () => join(packDir, '.claude', 'skills', '.kindgi-manifest.json');
+  const manifest = async () => JSON.parse(await readFile(manifestPath(), 'utf8'));
+  const statuses = (report: SkillSyncReport) => report.outcomes.map((o) => [o.folder, o.status]);
+
+  /** A file beside the bundled skill's entry. */
+  const topic = (file: string, text: string) => writeFile(join(skillsRoot, 'two', file), text);
+
+  beforeEach(async () => {
+    await bundle('two', '');
+    await topic(A, '# path a\n');
+    await topic(B, '# path b\n');
+  });
+
+  test('copies every file of the folder into both, and records each one', async () => {
+    const report = await sync();
+    expect(report.outcomes.map((o) => [o.folder, o.status, o.files])).toEqual([
+      ['.claude/skills', 'added', ['SKILL.md', A, B]],
+      ['.agents/skills', 'added', ['SKILL.md', A, B]],
+    ]);
+    for (const folder of ['.claude/skills', '.agents/skills']) {
+      expect(await read(folder, A)).toBe('# path a\n');
+      expect(await read(folder, B)).toBe('# path b\n');
+    }
+    const entry = (await manifest()).skills.two;
+    expect(Object.keys(entry.installedFiles)).toEqual(['SKILL.md', A, B]);
+    expect(entry.installedFiles['SKILL.md']).toBe(entry.installedHash);
+    expect(report.outcomes.map((o) => o.written)).toEqual([
+      ['SKILL.md', A, B],
+      ['SKILL.md', A, B],
+    ]);
+    expect(skillCopyPaths(packDir, report.outcomes[0] as SkillSyncOutcome, 'files')).toEqual([
+      local('.claude/skills', 'SKILL.md'),
+      local('.claude/skills', A),
+      local('.claude/skills', B),
+    ]);
+    expect(statuses(await sync())).toEqual([
+      ['.claude/skills', 'unchanged'],
+      ['.agents/skills', 'unchanged'],
+    ]);
+  });
+
+  test('a file the bundle changed is written, and the only one named as written; the rest are left as they are', async () => {
+    await sync();
+    await topic(B, '# path b, again\n');
+    await utimes(local('.claude/skills', A), 0, 0);
+    const report = await sync();
+    expect(statuses(report)).toEqual([
+      ['.claude/skills', 'updated'],
+      ['.agents/skills', 'updated'],
+    ]);
+    expect(report.outcomes.map((o) => o.written)).toEqual([[B], [B]]);
+    expect(skillCopyPaths(packDir, report.outcomes[0] as SkillSyncOutcome, 'written')).toEqual([
+      local('.claude/skills', B),
+    ]);
+    expect(await read('.claude/skills', B)).toBe('# path b, again\n');
+    expect((await stat(local('.claude/skills', A))).mtimeMs).toBe(0);
+  });
+
+  test('an edited file keeps the whole copy as it is; --force overwrites it', async () => {
+    await sync();
+    await writeFile(local('.agents/skills', A), '# mine\n');
+    await topic(B, '# path b, again\n');
+    expect(statuses(await sync())).toEqual([
+      ['.claude/skills', 'updated'],
+      ['.agents/skills', 'skipped-modified'],
+    ]);
+    expect(await read('.agents/skills', A)).toBe('# mine\n');
+    expect(await read('.agents/skills', B)).toBe('# path b\n');
+    const forced = await sync(true);
+    expect(forced.outcomes.find((o) => o.folder === '.agents/skills')).toMatchObject({
+      status: 'updated',
+      reason: 'Overwrote local edits (--force)',
+    });
+    expect(await read('.agents/skills', A)).toBe('# path a\n');
+    expect(await read('.agents/skills', B)).toBe('# path b, again\n');
+  });
+
+  test("a file that's gone comes back, as a deleted skill does", async () => {
+    await sync();
+    await rm(local('.claude/skills', A));
+    const report = await sync();
+    expect(statuses(report)).toEqual([
+      ['.claude/skills', 'updated'],
+      ['.agents/skills', 'unchanged'],
+    ]);
+    expect(report.outcomes.map((o) => o.written)).toEqual([[A], undefined]);
+    expect(await read('.claude/skills', A)).toBe('# path a\n');
+  });
+
+  test('a file the bundle no longer ships is removed, unless it was edited', async () => {
+    await sync();
+    await writeFile(local('.agents/skills', B), '# mine\n');
+    await rm(join(skillsRoot, 'two', B));
+    const report = await sync();
+    expect(report.outcomes.map((o) => [o.folder, o.status, o.removed])).toEqual([
+      ['.claude/skills', 'updated', [B]],
+      ['.agents/skills', 'skipped-modified', undefined],
+    ]);
+    expect(await exists(local('.claude/skills', B))).toBe(false);
+    expect(await read('.agents/skills', B)).toBe('# mine\n');
+    expect(Object.keys((await manifest()).skills.two.installedFiles)).toEqual(['SKILL.md', A]);
+    // Still recorded as installed there, so --force removes it too.
+    expect(Object.keys((await manifest()).agentsSkills.two.installedFiles)).toContain(B);
+    expect((await sync(true)).outcomes.find((o) => o.folder === '.agents/skills')?.removed).toEqual(
+      [B],
+    );
+    expect(await exists(local('.agents/skills', B))).toBe(false);
+  });
+
+  test('a dry run writes and removes nothing, and says what it would do', async () => {
+    await sync();
+    await rm(join(skillsRoot, 'two', B));
+    await topic(A, '# path a, again\n');
+    const report = await sync(false, true);
+    expect(report.outcomes.map((o) => [o.status, o.removed])).toEqual([
+      ['updated', [B]],
+      ['updated', [B]],
+    ]);
+    expect(await read('.claude/skills', A)).toBe('# path a\n');
+    expect(await exists(local('.claude/skills', B))).toBe(true);
+  });
+
+  test('a file you added to the folder is yours: never counted, written or removed', async () => {
+    await sync();
+    await writeFile(local('.claude/skills', NOTES), '# my notes\n');
+    expect(statuses(await sync())).toEqual([
+      ['.claude/skills', 'unchanged'],
+      ['.agents/skills', 'unchanged'],
+    ]);
+    await topic(A, '# path a, again\n');
+    expect(statuses(await sync(true))).toEqual([
+      ['.claude/skills', 'updated'],
+      ['.agents/skills', 'updated'],
+    ]);
+    expect(await read('.claude/skills', NOTES)).toBe('# my notes\n');
+    expect(Object.keys((await manifest()).skills.two.installedFiles)).not.toContain(NOTES);
+    // A file of yours the bundle starts shipping under the same name is an edit.
+    await topic(NOTES, '# the bundle notes\n');
+    expect(statuses(await sync())).toEqual([
+      ['.claude/skills', 'skipped-modified'],
+      ['.agents/skills', 'updated'],
+    ]);
+    expect(await read('.claude/skills', NOTES)).toBe('# my notes\n');
+  });
+
+  test('an entry from before skills had more files reads as its SKILL.md alone', async () => {
+    await rm(join(skillsRoot, 'two', A));
+    await rm(join(skillsRoot, 'two', B));
+    await sync();
+    // An older CLI rewrites the manifest without the field it doesn't know.
+    const { skills } = await manifest();
+    const { installedFiles: _, ...older } = skills.two;
+    await writeFile(manifestPath(), JSON.stringify({ v: 2, skills: { two: older } }));
+    await topic(A, '# path a\n');
+    expect(statuses(await sync())).toEqual([
+      ['.claude/skills', 'updated'],
+      ['.agents/skills', 'updated'],
+    ]);
+    expect(await read('.claude/skills', A)).toBe('# path a\n');
+    // An edited SKILL.md is still an edit under the older entry.
+    await writeFile(manifestPath(), JSON.stringify({ v: 2, skills: { two: older } }));
+    await writeFile(local('.claude/skills', 'SKILL.md'), '# mine\n');
+    expect(statuses(await sync())).toEqual([
+      ['.claude/skills', 'skipped-modified'],
+      ['.agents/skills', 'unchanged'],
+    ]);
+  });
+
+  test("a manifest can't point the sync outside the copy", async () => {
+    await sync();
+    const outside = join(packDir, OUTSIDE);
+    await writeFile(outside, '# not a skill\n');
+    const recorded = await manifest();
+    const hash = recorded.skills.two.installedFiles[A];
+    await writeFile(outside, '# path a\n');
+    for (const folder of ['skills', 'agentsSkills']) {
+      recorded[folder].two.installedFiles[`../../../${OUTSIDE}`] = hash;
+      recorded[folder].two.installedFiles['.hidden'] = hash;
+    }
+    await writeFile(manifestPath(), JSON.stringify(recorded));
+    expect(statuses(await sync())).toEqual([
+      ['.claude/skills', 'unchanged'],
+      ['.agents/skills', 'unchanged'],
+    ]);
+    expect(await readFile(outside, 'utf8')).toBe('# path a\n');
+    expect(Object.keys((await manifest()).skills.two.installedFiles)).toEqual(['SKILL.md', A, B]);
+  });
+});
+
+describe('refreshSkillsForDev — kindgi dev as it starts', () => {
+  const commands = { sync: 'kindgi skills sync', force: 'kindgi skills sync --force' };
+  const sync = () =>
+    syncSkills({ skillsRoot, targetDir: packDir, language: 'node', force: false, dryRun: false });
+  const start = async () =>
+    describeDevSkillsRefresh(
+      await refreshSkillsForDev({ skillsRoot, targetDir: packDir, language: 'node' }),
+      commands,
+    );
+  const copy = (folder: string) => readFile(join(packDir, folder, 'one', 'SKILL.md'), 'utf8');
+  const manifestPath = () => join(packDir, '.claude', 'skills', '.kindgi-manifest.json');
+  const ignore = () => join(packDir, '.prettierignore');
+  const said = (text: string) => ({ text, problem: false });
+  // A warning: said under `--quiet` too.
+  const warned = (text: string) => ({ text, problem: true });
+  const wrote = '  ✓ Framework skills: 1 updated, 1 added.';
+
+  beforeEach(async () => {
+    await bundle('one', '');
+    await sync();
+  });
+
+  /** This CLI's skills after an upgrade: `one` moved on, and `two` is new. */
+  async function upgrade(): Promise<void> {
+    await writeFile(
+      join(skillsRoot, 'one', 'SKILL.md'),
+      '---\nname: one\nversion: "2.0.0"\n---\n# one, again\n',
+    );
+    await bundle('two', '');
+  }
+
+  test('after an upgrade, brings each copy up to date and adds the new skill to both folders', async () => {
+    await upgrade();
+    expect(await start()).toEqual([said(wrote)]);
+    for (const folder of ['.claude/skills', '.agents/skills']) {
+      expect(await copy(folder)).toContain('# one, again');
+      expect(await installed(folder)).toEqual(['one', 'two']);
+    }
+    const recorded = JSON.parse(await readFile(manifestPath(), 'utf8'));
+    expect(recorded.skills.one.installedVersion).toBe('2.0.0');
+    expect(recorded.agentsSkills.two.installedVersion).toBe('1.0.0');
+  });
+
+  test('with nothing new, writes nothing and says nothing', async () => {
+    const then = new Date('2026-01-01T00:00:00Z');
+    await utimes(manifestPath(), then, then);
+    await writeFile(ignore(), 'dist/\n');
+    expect(await start()).toEqual([]);
+    expect((await stat(manifestPath())).mtime).toEqual(then);
+    expect(await readFile(ignore(), 'utf8')).toBe('dist/\n');
+  });
+
+  test("records a copy that already matches but isn't in the manifest, so an upgrade doesn't take it for an edit", async () => {
+    const recorded = JSON.parse(await readFile(manifestPath(), 'utf8'));
+    await writeFile(manifestPath(), JSON.stringify({ ...recorded, skills: {}, agentsSkills: {} }));
+    expect(await start()).toEqual([]);
+    expect(JSON.parse(await readFile(manifestPath(), 'utf8'))).toEqual(recorded);
+    await upgrade();
+    expect(await start()).toEqual([said(wrote)]);
+    for (const folder of ['.claude/skills', '.agents/skills']) {
+      expect(await copy(folder)).toContain('# one, again');
+    }
+  });
+
+  test('an edited copy is kept while its other copy moves on, and it says how to replace it: a warning, and the heading with it', async () => {
+    await writeFile(join(packDir, '.agents', 'skills', 'one', 'SKILL.md'), '# mine\n');
+    expect(await start()).toEqual([]);
+    await upgrade();
+    expect(await start()).toEqual([
+      warned(wrote),
+      warned('    · 1 you edited is kept: `kindgi skills sync --force` replaces it.'),
+    ]);
+    expect(await copy('.agents/skills')).toBe('# mine\n');
+    expect(await copy('.claude/skills')).toContain('# one, again');
+  });
+
+  test('a copy you deleted stays deleted, and is said while it is behind; kindgi skills sync brings it back', async () => {
+    await rm(join(packDir, '.claude', 'skills', 'one'), { recursive: true, force: true });
+    expect(await start()).toEqual([]);
+    await upgrade();
+    const deleted = warned('    · 1 you deleted: `kindgi skills sync` brings it back.');
+    expect(await start()).toEqual([warned(wrote), deleted]);
+    expect(await installed('.claude/skills')).toEqual(['two']);
+    expect(await copy('.agents/skills')).toContain('# one, again');
+    expect(await start()).toEqual([warned('  ⚠ Framework skills: 1 out of date.'), deleted]);
+    await sync();
+    expect(await installed('.claude/skills')).toEqual(['one', 'two']);
+  });
+
+  test('.prettierignore gets the skills folders only when a skill was written', async () => {
+    await writeFile(ignore(), 'dist/\n');
+    expect(await start()).toEqual([]);
+    expect(await readFile(ignore(), 'utf8')).toBe('dist/\n');
+    await upgrade();
+    expect(await start()).toEqual([
+      said(wrote),
+      said(
+        expect.stringMatching(
+          /^ {4}· Added \.claude\/skills\/kindgi-\*\/ and \.agents\/skills\/kindgi-\*\/ to \S*\.prettierignore\.$/,
+        ),
+      ),
+    ]);
+    expect(await readFile(ignore(), 'utf8')).toContain('.agents/skills/kindgi-*/');
+  });
+
+  test("a .prettierignore it can't patch is a warning, and the heading with it", async () => {
+    await mkdir(ignore());
+    await upgrade();
+    expect(await start()).toEqual([
+      warned(wrote),
+      warned(
+        expect.stringMatching(/^ {4}· Couldn't add the skills' folders to \S*\.prettierignore: /),
+      ),
+    ]);
+  });
+
+  test.each([
+    {
+      lost: 'is gone with .claude/skills',
+      lose: () => rm(join(packDir, '.claude'), { recursive: true, force: true }),
+      drift: '1 out of date, 2 not yet installed',
+    },
+    {
+      lost: "can't be read",
+      lose: () => writeFile(manifestPath(), '{ not json'),
+      drift: '1 out of date, 1 not yet installed',
+    },
+  ])('with no manifest (it $lost), it writes nothing and says what a sync would do', async (c) => {
+    await c.lose();
+    await upgrade();
+    expect(await start()).toEqual([
+      warned(`  ⚠ Framework skills: ${c.drift}.`),
+      warned('    Run `kindgi skills sync` to pull the latest.'),
+    ]);
+    expect(await installed('.agents/skills')).toEqual(['one']);
+    expect(
+      await readFile(join(packDir, '.agents', 'skills', 'one', 'SKILL.md'), 'utf8'),
+    ).not.toContain('again');
+    if (c.lost === "can't be read") {
+      expect(await readFile(manifestPath(), 'utf8')).toBe('{ not json');
+    } else {
+      await expect(stat(join(packDir, '.claude'))).rejects.toThrow(/ENOENT/);
+    }
+  });
+
+  test('a skills folder that is gone stays gone: a new skill goes only to the folder that is there', async () => {
+    await rm(join(packDir, '.agents'), { recursive: true, force: true });
+    expect(await start()).toEqual([]);
+    await upgrade();
+    expect(await start()).toEqual([
+      warned(wrote),
+      warned('    · .agents/skills/ is gone: `kindgi skills sync` brings it back.'),
+    ]);
+    await expect(stat(join(packDir, '.agents'))).rejects.toThrow(/ENOENT/);
+    expect(await installed('.claude/skills')).toEqual(['one', 'two']);
+  });
+});
+
 describe('kindgi skills sync', () => {
   test('in a Python pack, copies the bundled skills written for Python packs', async () => {
     await writeFile(
@@ -263,6 +627,7 @@ describe('kindgi skills sync', () => {
     expect(await installed()).toEqual([
       'kindgi-authoring-mcp-servers',
       'kindgi-authoring-providers',
+      'kindgi-fix-corrections',
       'kindgi-framework-feedback',
       'kindgi-python-authoring-agents',
       'kindgi-python-authoring-flows',
@@ -289,6 +654,7 @@ describe('kindgi skills sync', () => {
     expect(await installed()).toEqual([
       'kindgi-authoring-mcp-servers',
       'kindgi-authoring-providers',
+      'kindgi-fix-corrections',
       'kindgi-framework-feedback',
       'kindgi-scala-authoring-agents',
       'kindgi-scala-authoring-flows',
@@ -315,6 +681,7 @@ describe('kindgi skills sync', () => {
     expect(await installed()).toEqual([
       'kindgi-authoring-mcp-servers',
       'kindgi-authoring-providers',
+      'kindgi-fix-corrections',
       'kindgi-framework-feedback',
       'kindgi-java-authoring-agents',
       'kindgi-java-authoring-flows',
@@ -338,12 +705,14 @@ describe('kindgi skills sync', () => {
     expect(asked.stderr).toBe('');
     const out = await sync();
     expect(out.exitCode).toBe(0);
-    expect(JSON.parse(out.stdout).outcomes).toHaveLength(18);
+    expect(JSON.parse(out.stdout).outcomes).toHaveLength(20);
     expect(out.stderr).toMatch(/^Synced \S*\/\.claude\/skills\/ and \S*\/\.agents\/skills\/$/m);
     expect(out.stderr).toMatch(/^\.claude\/skills\/\n {2}\+ kindgi-/m);
     expect(out.stderr).toMatch(/^\.agents\/skills\/\n {2}\+ kindgi-/m);
     expect(
-      out.stderr.match(/^ {2}9 added, 0 updated, 0 unchanged, 0 skipped-modified, 0 local-only$/gm),
+      out.stderr.match(
+        /^ {2}10 added, 0 updated, 0 unchanged, 0 skipped-modified, 0 local-only$/gm,
+      ),
     ).toHaveLength(2);
   });
 
@@ -395,7 +764,7 @@ describe('kindgi skills sync', () => {
       await mkdir(ignore());
       const out = await sync();
       expect(out.exitCode).toBe(0);
-      expect(await installed('.agents/skills')).toHaveLength(9);
+      expect(await installed('.agents/skills')).toHaveLength(10);
       expect(JSON.parse(out.stdout).prettierignore).toEqual({
         path: expect.stringMatching(/\.prettierignore$/),
         status: 'error',

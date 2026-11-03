@@ -22,7 +22,8 @@
  *     version := "<v>"` line (any other line stays).
  *
  * `--release` also stamps `sdks/java/CHANGELOG.md`: its `## Unreleased`
- * section becomes `## <v>` (scripts/lib/stamp-unreleased.mjs).
+ * section becomes `## <v>`, and a release's section gathers its
+ * prereleases' entries (scripts/lib/stamp-unreleased.mjs).
  * `pnpm run version-packages` runs it that way after `changeset version`,
  * so the "Version Packages" pull request moves and stamps the JVM SDKs
  * too. A plain run only moves the versions: a branch catching up with
@@ -71,6 +72,19 @@ export function toMaven(version) {
     );
   }
   return version;
+}
+
+/**
+ * For a release (`X.Y.Z`), whether a changelog section's version is one of
+ * its prereleases, which its section gathers; a prerelease gathers none, so
+ * it gets `undefined`.
+ */
+export function prereleasesOf(version) {
+  if (!/^\d+\.\d+\.\d+$/.test(version)) return undefined;
+  const pattern = new RegExp(
+    `^${version.replaceAll('.', '\\.')}-(?:alpha|beta|rc)\\.(?:0|[1-9]\\d*)$`,
+  );
+  return (section) => pattern.test(section);
 }
 
 /** `version.sbt`'s one line for a version. */
@@ -269,7 +283,11 @@ function main(args) {
   }
 
   // Stamp before writing anything: a changelog that can't be stamped stops the run whole.
-  const stamped = release ? stampUnreleased(changelog, version, NO_CHANGES, CHANGELOG) : changelog;
+  const stamped = release
+    ? stampUnreleased(changelog, version, NO_CHANGES, CHANGELOG, {
+        gathers: prereleasesOf(version),
+      })
+    : changelog;
   writeVersions(root, read, version);
   if (stamped !== changelog) {
     writeFileSync(join(root, CHANGELOG), stamped);

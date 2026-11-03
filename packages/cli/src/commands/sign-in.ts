@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { UsageError } from '../errors.js';
-import { renderJson } from '../output.js';
+import { renderJson, successNote } from '../output.js';
 import { runSdkRendered, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
@@ -55,7 +55,7 @@ const settings: LeafCommand = {
       ];
       return {
         stdout: renderJson(now, ctx.globals.format).stdout,
-        stderr: ctx.globals.format === 'quiet' ? '' : `${lines.join('\n')}\n`,
+        stderr: successNote(ctx.globals.format, `${lines.join('\n')}\n`),
       };
     }),
 };

@@ -111,6 +111,12 @@ final class WidgetJson {
 
         @JsonProperty("nodes")
         abstract List<Node> nodes();
+
+        @JsonProperty("history")
+        abstract List<WidgetState> history();
+
+        @JsonProperty("stateByRegion")
+        abstract Map<String, WidgetState> stateByRegion();
     }
 
     abstract static class WidgetSizeMixIn {

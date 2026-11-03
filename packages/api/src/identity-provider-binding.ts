@@ -76,7 +76,9 @@ export type IdentityProviderUpdateOutcome =
       readonly kind: 'invalid';
       readonly message: string;
     }
-  | { readonly kind: 'not-found' };
+  | { readonly kind: 'not-found' }
+  /** As on registration: 409 `identity-providers-need-secrets-store`. */
+  | { readonly kind: 'needs-secrets-store' };
 
 export interface SignInOptionsInput {
   /** Lowercase, from the email the person typed. */
@@ -288,6 +290,15 @@ export type IdentityProviderRegisterOutcome =
        */
       readonly kind: 'invalid';
       readonly message: string;
+    }
+  | {
+      /**
+       * The deployment has no secrets store (`KINDGI_SECRETS_BACKEND`), and
+       * a provider's client secret and keys are references into one: it
+       * takes no provider of a tenant's own. Removing one still works.
+       * 409 `identity-providers-need-secrets-store`.
+       */
+      readonly kind: 'needs-secrets-store';
     };
 
 export interface IdentityProviderUnregisterInput {

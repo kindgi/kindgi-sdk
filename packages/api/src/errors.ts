@@ -41,6 +41,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'schema-validation-failed': 400,
   // Platform hierarchy scope filter.
   'scope-invalid': 400,
+  // Another system's answer to a paused tool call doesn't fit the tool's output schema.
+  'wait-token-output-invalid': 400,
   // 401 — auth
   'auth-missing': 401,
   'auth-expired': 401,
@@ -70,6 +72,11 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'guardrail-not-found': 404,
   'fact-not-found': 404,
   'flow-not-found': 404,
+  // No wait token matches the link (an unknown token and a wrong secret alike).
+  'wait-token-not-found': 404,
+  // No tool call's files match the bearer (no token, an unknown one, a wrong
+  // secret, and a call that may not do what's asked alike).
+  'tool-file-token-not-found': 404,
   // 409 — conflict
   'already-terminal': 409,
   'fact-changed': 409,
@@ -77,6 +84,11 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'erasure-in-progress': 409,
   'run-already-terminal': 409,
   'run-lease-lost': 409,
+  // The wait a token belongs to is over (`details.state`).
+  'wait-token-closed': 409,
+  // A tool call's files whose call has answered, whose time has passed, or whose run has ended.
+  'tool-file-token-closed': 409,
+  'run-held-by-parent': 409,
   'idempotency-key-body-mismatch': 409,
   'idempotency-key-in-flight': 409,
   'idempotency-key-replay-withheld': 409,
@@ -87,14 +99,18 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'agent-already-registered': 409,
   'agent-project-mismatch': 409,
   'registry-read-only': 409,
+  /** An agent, flow or tool pinned wider than one project, for an item in an environment order. */
+  'pin-scope-spans-environments': 409,
   'agent-gone': 410,
   'run-erased': 410,
   'flow-gone': 410,
   'policy-gone': 410,
-  'eval-suite-gone': 410,
+  'test-set-gone': 410,
   'tool-gone': 410,
   'tool-already-registered': 409,
   'tool-project-mismatch': 409,
+  // A tool's active versions are all one kind: an MCP endpoint's, or published here.
+  'tool-kind-mismatch': 409,
   'guardrail-already-registered': 409,
   // A deploy's guardrail id is live in another project: a deploy never takes it.
   'guardrail-project-mismatch': 409,
@@ -102,6 +118,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'flow-already-registered': 409,
   'flow-project-mismatch': 409,
   'conversation-closed': 409,
+  // A turn names a project other than its conversation's: a conversation belongs to one.
+  'conversation-project-mismatch': 409,
   'invalid-agent': 400,
   'invalid-tool-definition': 400,
   'invalid-schema': 400,
@@ -117,6 +135,11 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'capability-unsatisfiable': 422,
   /** A tool the agent names has no version satisfying its range (or the pinned one is gone). */
   'tool-version-unresolvable': 422,
+  /**
+   * A data block the agent names can't be loaded: no version in its range
+   * (or the pinned one is gone), the wrong kind, or no blocks on the runtime.
+   */
+  'block-unresolvable': 422,
   'tool-invocation-failed': 422,
   'capability-routing-failed': 422,
   'runtime-not-configured': 422,
@@ -158,6 +181,19 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
    * other method answers 500 (`mapThrownError`).
    */
   'database-busy': 503,
+  // 503 — the Idempotency-Key store, on a write before it runs. With `Retry-After`.
+  /**
+   * A write with an `Idempotency-Key` whose store couldn't be read before
+   * it ran (`idempotencyMiddleware`): nothing ran, so a retry with the
+   * same key is safe.
+   */
+  'idempotency-store-unavailable': 503,
+  // 503 — the runtime's memory for files, on a pack tool's store or read.
+  /**
+   * A pack tool's store or read of a file the runtime's memory for files has
+   * no room for now (`/v1/tool-files`, `Retry-After`).
+   */
+  'tool-files-busy': 503,
   // Waitpoint domain: "no pending token" or "already resolved" are
   // 409-shaped (a caller conflict with the run's current state).
   'waitpoint-error': 409,
@@ -183,17 +219,27 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'signing-key-revoked': 409,
   'signing-key-algorithm-unsupported': 400,
   'signing-key-store-error': 500,
-  // Improvement proposals.
-  'proposal-not-found': 404,
-  'proposal-invalid-state-transition': 409,
+  // suggested changes.
+  'suggested-change-not-found': 404,
+  'suggested-change-invalid-state-transition': 409,
   // Evaluating would make a version that serves every unpinned scope.
-  'proposal-needs-pin': 409,
-  // Improvement passes.
+  // Made before suggested changes were for one project: withdraw only.
+  'suggested-change-not-for-a-project': 409,
+  // The runtime freezes no test set, so nothing can be checked.
+  'suggested-change-check-unsupported': 501,
+  'suggested-change-nothing-to-check': 409,
+  // An add as Latest for a project that runs a pin.
+  'suggested-change-project-pinned': 409,
+  'suggested-change-out-of-date': 409,
+  // Improve runs.
   'improve-unsupported': 501,
-  'improvement-pass-not-found': 404,
-  'improvement-pass-finished': 409,
+  'improve-run-not-found': 404,
+  'improve-run-finished': 409,
+  /** Something an Improve run needs is missing (`details.items`, as `POST /check` lists them). */
+  'improve-not-ready': 409,
+  /** The agent has a running Improve run in the project (`details.improveRunId`): one at a time. */
+  'improve-run-running': 409,
   'version-already-exists': 409,
-  'supervisor-header-missing': 400,
   // Artifacts.
   'blob-not-found': 404,
   'blob-hash-mismatch': 400,
@@ -216,47 +262,59 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'policy-scope-changed': 409,
   /** A retention policy that keeps its domain's rows longer than the server's limit allows (`retentionLimits`), or holds them. */
   'retention-over-limit': 400,
-  // Admin plane — eval suites.
+  // Admin plane — test sets.
   'block-not-found': 404,
   'block-already-registered': 409,
   'block-project-mismatch': 409,
-  'eval-suite-not-found': 404,
-  'eval-suite-already-registered': 409,
-  'eval-suite-project-mismatch': 409,
-  // Admin plane — eval-run dispatch.
-  'eval-run-not-found': 404,
-  'eval-run-not-rescorable': 409,
-  // Judgments (yes/no on a run's output items) and judge classes.
-  'judgment-not-found': 404,
-  'judge-class-not-found': 404,
-  /** A judging rule that isn't in the project (`/v1/projects/:projectId/judging-rules/:ruleId`). */
-  'judging-rule-not-found': 404,
-  /** A run that isn't in the project's judging queue. */
-  'judging-item-not-found': 404,
+  // Where a block runs needs the agents' pins and Latest.
+  'runs-in-unsupported': 501,
+  'test-set-not-found': 404,
+  'test-set-already-registered': 409,
+  'test-set-project-mismatch': 409,
+  // Admin plane — test-run dispatch.
+  'test-run-not-found': 404,
+  'test-run-not-rescorable': 409,
+  // Corrections (whether a run's decisions, answer and items were right) and corrector groups.
+  'correction-not-found': 404,
+  'correction-status-change-not-allowed': 409,
+  'corrector-group-not-found': 404,
+  /** The agent's test set has no case by that id (`/v1/agents/:agentId/test-set/cases/:caseId`). */
+  'test-case-not-found': 404,
+  /** Retiring a case that's retired already: there's no un-retire. */
+  'test-case-retired': 409,
+  /** A queue rule that isn't in the project (`/v1/projects/:projectId/queue-rules/:ruleId`). */
+  'queue-rule-not-found': 404,
+  /** A run that isn't in the project's expert queue. */
+  'expert-queue-item-not-found': 404,
   /** Dismissing a queued run that isn't open, or reopening one that wasn't dismissed. */
-  'judging-item-not-open': 409,
-  'judge-class-name-taken': 409,
-  'judge-class-not-applicable': 400,
-  // The judge class is restricted (`assertableBy`), and the caller isn't one who may assert it.
-  'judge-class-not-allowed': 403,
-  // Live versions of agents and their promotions.
+  'expert-queue-item-not-open': 409,
+  'corrector-group-name-taken': 409,
+  'corrector-group-not-applicable': 400,
+  // The corrector group is restricted (`assertableBy`), and the caller isn't one who may assert it.
+  'corrector-group-not-allowed': 403,
+  // Pinned versions of agents and their pin history.
   'agent-version-not-found': 404,
-  'promotion-not-found': 404,
-  'nothing-to-roll-back': 409,
+  'pin-not-found': 404,
+  /** A pin into a scope where no version of the agent runs yet: no pin, and no Latest. */
+  'nothing-runs-in-scope': 409,
+  // A pin that would take a project that follows Latest off it, which the request didn't ask for.
+  'pin-stops-latest': 409,
   'not-pinned': 409,
-  // The gate (evals step 4b).
+  // The release gate.
   'gate-failed': 422,
-  'promotion-superseded': 409,
-  // The binding can't record a gated promotion, so one a policy applies to is refused.
-  'promotion-gate-unsupported': 501,
+  'pin-superseded': 409,
+  // The binding can't record a gated pin, so one a release gate applies to is refused.
+  'pin-gate-unsupported': 501,
   'separate-approver-required': 403,
-  'gate-policy-not-found': 404,
-  'gate-policy-already-registered': 409,
-  'gate-policy-scope-taken': 409,
-  'gate-policy-scope-changed': 409,
-  'gate-policy-scope-unpinned': 409,
-  'gate-policy-needs-pin': 409,
-  'gate-policy-descendant-unpinned': 409,
+  // An approval addressed to one member: someone else who reads it can't decide it.
+  'named-approver-required': 403,
+  'release-gate-not-found': 404,
+  'release-gate-already-registered': 409,
+  'release-gate-scope-taken': 409,
+  'release-gate-scope-changed': 409,
+  'release-gate-scope-unpinned': 409,
+  'release-gate-needs-pin': 409,
+  'release-gate-descendant-unpinned': 409,
   // API keys: whom a key acts for, and what it may do.
   /** Mint: the person or service account named doesn't exist. */
   'principal-not-found': 404,
@@ -276,16 +334,38 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'system-principal-required': 403,
   /** A system key without the scope the system route takes (`details.scope`). */
   'system-scope-missing': 403,
+  /** Serving one tenant: a system key holding more than `system:license` (`details.scopes`), refused on every route. */
+  'system-key-scope-not-served': 403,
   /** No system key with that id. */
   'system-key-not-found': 404,
   /** A full system key minted by another system key, with no `expiresAt`: only the deployment's own token mints one that never expires. */
   'system-key-expiry-required': 403,
   /** The operator's access record can't be written, so a system request that would change something was not acted on. */
   'access-record-unavailable': 503,
+  /**
+   * A pack service's secret values, not given just now: the secret store is
+   * out, a secret changed while it was read (twice), or their audit rows
+   * weren't written. No `Retry-After`: the orchestrator's back-off decides.
+   */
+  'pack-env-unavailable': 503,
   /** A system route naming a tenant in a state it refuses. */
   'tenant-closing': 409,
   'tenant-suspended': 409,
-  /** A deployment, eval run or improvement pass whose project, or pack, is suspended. */
+  /** A purge's `confirm` that isn't the tenant's slug: nothing was changed. */
+  'tenant-slug-mismatch': 400,
+  /** A purge of a tenant that isn't closing (`details.state`). */
+  'tenant-not-closing': 409,
+  /** A purge of a closing tenant whose export window is still open (`details.windowEndsAt`). */
+  'tenant-export-window-open': 409,
+  /** A purge on a runtime with nowhere set to keep purge records, so a restore couldn't purge it again. */
+  'purge-record-unset': 409,
+  /** A purge of a tenant holding what a setting the runtime lacks reaches (its artifacts' bytes, its authorization store). */
+  'purge-setting-missing': 409,
+  /** A purge's delete of the tenant's authorization store failed; the message says what that left. */
+  'authz-store-delete-failed': 502,
+  /** A runtime whose tenants binding doesn't purge. */
+  'tenant-purge-unsupported': 501,
+  /** A deployment, test run or Improve run whose project, or pack, is suspended. */
   'project-suspended': 409,
   'pack-suspended': 409,
   /** A deployment's endpoint refused: its URL isn't `https://<host>`, with no user info or path. */
@@ -300,8 +380,25 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'endpoint-info-mismatch': 422,
   /** A problem recorded for a deployment whose endpoint isn't pending. */
   'endpoint-not-pending': 409,
-  /** Creating a tenant with a slug another tenant has. */
+  /** What a pack service runs, recorded for a deployment whose endpoint isn't ready. */
+  'endpoint-not-ready': 409,
+  /** A retired deployment's pack env asked for: it isn't given out. */
+  'endpoint-retired': 409,
+  /** What a pack service runs, recorded over another revision recorded since. */
+  'pack-env-conflict': 409,
+  /** The orchestrator's round claimed while another pass's live claim holds it. */
+  'orchestrator-round-held': 409,
+  /** The orchestrator's round ended by a pass whose claim ran out. */
+  'orchestrator-round-not-held': 409,
+  /** Creating or renaming a tenant with a slug another tenant has. */
   'tenant-slug-taken': 409,
+  /**
+   * Renaming a tenant's slug while the deployment's verified sign-in
+   * domains name its current slug, or name the new one.
+   */
+  'tenant-slug-in-config': 409,
+  /** Renaming a tenant whose setup hasn't finished. */
+  'tenant-setup-pending': 409,
   /** A deployment's image outside its tenant's repository (`details.imagePrefix`, the tenant's own). */
   'image-not-allowed': 409,
   /** A deployment on a runtime serving many tenants, by a tenant with no image repository set. */
@@ -315,6 +412,14 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'service-account-name-taken': 409,
   /** A grant for an unregistered service account. */
   'service-account-unregistered': 409,
+  /** A trigger's owner can't run what it starts: a service account it's named to run as, the project's own account, or the owner a new target keeps. */
+  'trigger-owner-cannot-run-target': 409,
+  /**
+   * A project's own account, used where it can't be: a grant or ungrant
+   * (its grant is fixed), a key (it has none), or naming it by id as a
+   * trigger's owner (`runAsProject` names it).
+   */
+  'service-account-project-owned': 409,
   /** Adding a person with an email another person of the tenant has. */
   'identity-user-email-taken': 409,
   /** Removing tenant admin from the only person who holds it: the tenant would have none. */
@@ -332,18 +437,26 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'identity-user-not-invited': 409,
   /** A person's grants on a runtime without an authorization store. */
   'person-grants-unsupported': 501,
+  /** Setting an agent's owner on a runtime whose agent store doesn't keep one. */
+  'agent-owner-unsupported': 501,
   /** A caller's permissions on a runtime without an authorization store (`GET /v1/identity/me/permissions`). */
   'permissions-unsupported': 501,
-  /** Unregister: the version is live in a scope; move that pin first. */
-  'agent-version-live': 409,
+  /** Unregister: the version is pinned in a scope; move or remove that pin first. */
+  'agent-version-pinned': 409,
+  /** Unregister or delete: the flow version is pinned in a scope; move or remove that pin first. */
+  'flow-version-pinned': 409,
+  /** Unregister or delete: the tool version is pinned in a scope; move or remove that pin first. */
+  'tool-version-pinned': 409,
+  /** A pin of a tool that follows its server (an MCP catalog tool) or the runtime (one it ships). */
+  'tool-not-pinnable': 400,
   /** An artifact upload over the runtime's cap (`KINDGI_ARTIFACT_MAX_BYTES`). */
   'artifact-too-large': 413,
   /** A request body over the API's limit (`requestMaxBytes`); `details.maxBytes` says how much. */
   'request-too-large': 413,
+  /** A body that isn't JSON where a route takes JSON alone (a wait token's answer). */
+  'unsupported-media-type': 415,
   'run-not-finished': 409,
   'item-not-found': 400,
-  // The judgment binding can't list judged runs, so no test sets from judgments.
-  'test-sets-not-supported': 501,
   'run-failures-not-supported': 501,
   'memory-operation-unsupported': 501,
   // The conversation binding can't unregister (a runtime built before it).
@@ -352,7 +465,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'authz-membership-unsupported': 501,
   // The guardrail registry keeps no outcome ledger.
   'guardrail-outcomes-not-supported': 501,
-  'eval-run-already-terminal': 409,
+  // The agent pin binding can't list the pins that cover a project.
+  'pinned-versions-not-supported': 501,
+  'test-run-already-terminal': 409,
   'dispatcher-not-registered': 422,
   'dispatcher-input-invalid': 400,
   // Interop plane — MCP endpoint registry.
@@ -382,6 +497,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // The operator manages sign-in (KINDGI_AUTH_TENANT_PROVIDERS=off): a
   // change to a provider takes the deployment's own token.
   'identity-providers-operator-managed': 403,
+  // The deployment has no secrets store (KINDGI_SECRETS_BACKEND), which a
+  // provider's client secret and keys are references into: adding or
+  // changing a provider waits until it has one.
+  'identity-providers-need-secrets-store': 409,
   // `GET /v1/license` or `GET /v1/license/usage` by anyone but the
   // deployment's own token or a system key holding `system:license`, save a
   // sole tenant's admins reading the license's countdown.
@@ -423,6 +542,11 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // A grant, membership or reviewer role given to a person a site signs in:
   // they hold only what their site's sign-in writes.
   'site-person-grants-managed': 403,
+  // `POST …/sites/:siteId/people/:userId/restore`: the site has no link to
+  // that person, live or retired.
+  'site-person-not-found': 404,
+  // The restore refused, with nothing changed; `details.reason` says why.
+  'site-person-restore-refused': 409,
   // `POST /v1/auth/token-sign-in` signed in by a session (a cookie or a
   // session token) rather than an API token: there's nothing to exchange.
   'token-sign-in-needs-an-api-token': 400,
@@ -439,6 +563,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'image-unverifiable': 400,
   'deployment-validation-failed': 400,
   'deployment-not-found': 404,
+  // A deploy, or a promotion that pins, that would put back an older
+  // version of a block than runs now, each in `details` (`deploy-check.ts`).
+  'deploy-would-put-back-older-blocks': 409,
   // Compliance routes.
   'compliance-evidence-not-found': 404,
   'compliance-export-failed': 500,
@@ -452,6 +579,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'production-limit-reached': 403,
   /** The production route on a runtime whose project binding can't set it. */
   'production-unsupported': 501,
+  /** A repo connection that isn't a company-wide GitHub connection (`details.connectionId`, `app`, `owner`). */
+  'repo-connection-not-company-github': 400,
+  /** The repo-connection routes on a runtime whose project binding can't set one, or, to set one, that has no connections. */
+  'repo-connection-unsupported': 501,
   'team-membership-not-found': 404,
   'project-membership-not-found': 404,
   // Re-adding a member with another role: the role they hold is kept.
@@ -463,12 +594,48 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'project-access-unsupported': 501,
   // The tenant's env names, from a runtime whose env or secret store can't list them.
   'environments-unsupported': 501,
+  // A pack service's declared env, from a server that doesn't give it one:
+  // the system routes (`pack-env-unsupported`), and a deployment's names
+  // (`pack-env-not-served`), where its pack services take it from how they're run.
+  'pack-env-unsupported': 501,
+  // A server that keeps no orchestrator round: whatever runs its pack services keeps one pass at a time itself.
+  'orchestrator-round-unsupported': 501,
+  'pack-env-not-served': 501,
+  /** Secret values asked for from a server with nowhere to audit them: none is read or given. */
+  'pack-env-secrets-unaudited': 501,
+  // An env name set to a cloud secret, on a server that keeps none (hosted, for one).
+  'cloud-secrets-unsupported': 501,
+  // A cloud secret that isn't a numbered version's resource name, or names a pack service's own `kp-` copy.
+  'cloud-secret-invalid': 400,
+  // A cloud secret sent by a tenant: only the operator's system key sets one.
+  'cloud-secret-system-only': 403,
+  // A project named in `PUT /v1/environment-orders/*` already belongs to another order.
+  'project-in-another-order': 409,
+  // A build, a publish or a derived version aimed at a later environment of
+  // an order: a later environment takes builds by promotion only.
+  'environment-takes-promotions': 409,
+  // Deleting or moving (to another parent) a project that is a member of an environment order.
+  'project-in-environment-order': 409,
+  // Deleting an org that is the parent of an environment order; a tenant admin clears the order first.
+  'org-has-environment-order': 409,
+  // A promotion to a project that isn't the next environment of the
+  // deployment's order (`details.nextProjectId` when the caller reads it).
+  'promotion-not-next-environment': 409,
+  // A promotion whose build needs values the target environment doesn't
+  // have ready, each in `details.values`.
+  'promotion-values-not-ready': 409,
+  // A promotion from a deployment that no longer serves its environment, or
+  // onto a copy in the target that doesn't: newer deployments serve its
+  // tool versions (`details.newerDeploymentId`).
+  'deployment-superseded': 409,
+  // A runtime whose deployment ledger can't promote.
+  'promotions-unsupported': 501,
   // A model provider's key is used by its provider only: named by a tool or
   // an endpoint (400), or registered for a provider while one uses it (409).
   'provider-key-refused': 400,
   'provider-key-in-use': 409,
   // A slug another org, team or project in the tenant already has; a
-  // second Default project.
+  // second default project.
   'slug-conflict': 409,
   'project-default-already-exists': 409,
   'tenant-not-found': 404,
@@ -488,6 +655,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'scope-mismatch': 400,
   'env-name-required': 400,
   'env-name-mismatch': 400,
+  // A runtime that refuses other envs keeps every value under the one it
+  // serves: a value or a reference under another would never be read.
+  'env-not-served': 409,
   'env-cross-scope': 400,
   'reserved-name-prefix': 400,
   /** A name the secrets store can't write (the dev store's env-file keys); the message says its rule. */
@@ -508,6 +678,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'env-store-error': 500,
   // Trigger HTTP surface.
   'trigger-not-found': 404,
+  /** The trigger is there, but has no version with that number. */
+  'trigger-version-not-found': 404,
   'trigger-invalid-config': 400,
   'trigger-webhook-id-conflict': 409,
   'trigger-already-in-state': 409,
@@ -516,6 +688,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'trigger-lifecycle-failed': 500,
   /** The deployment's trigger registry can't do this yet (fire history, run-now, a new owner). */
   'trigger-operation-unsupported': 501,
+  /** The agent and project have an Improve schedule already (`details.scheduleId`). */
+  'schedule-exists': 409,
   // The inbound receiver (`POST /v1/hooks/…`): one answer for any request
   // that doesn't prove its sender, whatever the reason (recorded, not said).
   'webhook-refused': 401,
@@ -528,6 +702,63 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'webhook-url-refused': 400,
   'webhook-secret-not-found': 400,
   'webhook-secret-too-weak': 400,
+  // Connections (`/v1/connection-apps`, `/v1/connections`, `/v1/connection-choices`).
+  'connection-app-not-found': 404,
+  'connection-not-found': 404,
+  'connection-request-not-found': 404,
+  /** A choice that isn't there, or is removed: `details.choiceId` names it. */
+  'connection-choice-not-found': 404,
+  /** A registration that doesn't fit its entry; `field` names what. */
+  'connection-app-invalid': 400,
+  'connection-app-unknown-entry': 400,
+  /** A registration removed while it still has live connections, without `withConnections`. */
+  'connection-app-in-use': 409,
+  /** A finish by someone other than whoever started the request. */
+  'connection-not-yours': 403,
+  /**
+   * A GitHub App's finish whose person's GitHub account doesn't reach the
+   * installation (or any): `details.connectRequestId` names the request,
+   * to start again with `newInstallation`.
+   */
+  'connection-installation-unreachable': 403,
+  'connection-request-expired': 410,
+  'connection-request-used': 409,
+  /** The sign-in at the app took longer than its state lives: start again. */
+  'connection-state-expired': 410,
+  /** A reconnect signed in to an account other than the connection's. */
+  'connection-account-mismatch': 409,
+  /**
+   * A connect's or a rename's `label` another live connection of the same
+   * app, owner and env has, by `comparableName`: `details.field` is
+   * `label`.
+   */
+  'connection-label-taken': 409,
+  /**
+   * A call needs a connection of an app, there are several in the env,
+   * and nothing picks one: the turn fails. A company need's names them in
+   * `details.choices`; a person's counts them in the message and lists
+   * none. Or a mail trigger's create or patch names no
+   * `config.mailbox.connectionId`, and on the company's mailbox the
+   * project has several of the app: `details.choices` lists them
+   * (`{connectionId, name}`, sorted by name). On a person's, its owner has
+   * several and no main: the message counts them, and lists none. Either
+   * way `details.field` is `config.mailbox.connectionId`, and nothing
+   * changes.
+   */
+  'connection-not-chosen': 409,
+  /**
+   * A connect, or its finish, for a connection still being disconnected:
+   * disconnect it again to finish, then connect.
+   */
+  'connection-removing': 409,
+  /** The app wouldn't give a token for the code: its client id, secret or redirect URL. */
+  'connection-app-refused': 502,
+  'connection-store-failed': 503,
+  // An app's notice (`POST /v1/connection-notices/…`): one answer for any
+  // notice not accepted, whatever the reason; the server's own trouble is a
+  // 503, and the app sends it again.
+  'connection-notice-invalid': 400,
+  'connection-notice-unavailable': 503,
   // Public run tokens.
   'token-mint-failed': 500,
 } as const;

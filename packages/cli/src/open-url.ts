@@ -12,6 +12,8 @@
 
 import { spawn } from 'node:child_process';
 
+import { programPath } from './program-path.js';
+
 /** Tests inject one; production uses {@link openUrlInBrowser}. */
 export type OpenUrl = (url: string) => Promise<OpenUrlOutcome>;
 
@@ -35,11 +37,18 @@ export function browserOpener(
   }
 }
 
-export const openUrlInBrowser: OpenUrl = (url) =>
-  new Promise((resolve) => {
-    const { command, args } = browserOpener(process.platform, url);
+export const openUrlInBrowser: OpenUrl = async (url) => {
+  const { command, args } = browserOpener(process.platform, url);
+  // The opener on PATH (`rundll32` is in System32's entry), never one in this folder.
+  let file: string;
+  try {
+    file = await programPath(command);
+  } catch (err) {
+    return { ok: false, reason: `${command}: ${(err as NodeJS.ErrnoException).code}` };
+  }
+  return new Promise((resolve) => {
     try {
-      const child = spawn(command, [...args], { detached: true, stdio: 'ignore' });
+      const child = spawn(file, [...args], { detached: true, stdio: 'ignore' });
       child.once('error', (err) =>
         resolve({
           ok: false,
@@ -54,3 +63,4 @@ export const openUrlInBrowser: OpenUrl = (url) =>
       resolve({ ok: false, reason: (err as Error).message });
     }
   });
+};

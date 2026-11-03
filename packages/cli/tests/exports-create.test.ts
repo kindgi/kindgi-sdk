@@ -244,6 +244,65 @@ describe('kindgi exports create', () => {
     expect(journals.filter((l) => l.parent.runId === 'run-0').map((l) => l.item)).toEqual(journal);
   });
 
+  test('test sets of every kind: an agent’s frozen one too, which the list holds only when asked by kind', async () => {
+    const frozen = 'agent.acme.desk.p-1';
+    const page = (data: readonly unknown[]) => json(200, { data, hasMore: false });
+    const fake = server({
+      '/v1/test-sets': (url) =>
+        page(
+          url.searchParams.get('kind') === 'corrections'
+            ? [{ id: frozen, kind: 'corrections', version: '1.0.0' }]
+            : [{ id: 'acme.smoke', kind: 'custom', version: '1.0.0' }],
+        ),
+      [`/v1/test-sets/${frozen}/versions`]: [{ id: frozen, version: '1.0.0' }],
+      [`/v1/test-sets/${frozen}/versions/1.0.0/cases`]: [{ caseId: 'c-1', runId: 'run-1' }],
+    });
+    const res = await cli(fake);
+    expect(res.exitCode, res.stderr).toBe(0);
+    expect(fake.calls).toContain(
+      'GET /v1/test-sets?includeRetired=true&kind=corrections&limit=100',
+    );
+    expect(((await lines('test-sets')) as { id: string }[]).map((s) => s.id)).toEqual([
+      'acme.smoke',
+      frozen,
+    ]);
+    const cases = (await lines('eval-cases')) as {
+      parent: Record<string, string>;
+      item: unknown;
+    }[];
+    expect(cases).toEqual([
+      { parent: { testSetId: frozen, version: '1.0.0' }, item: { caseId: 'c-1', runId: 'run-1' } },
+    ]);
+  });
+
+  test('an agent’s test set in each project it serves: a hand case and a retired one, as stored', async () => {
+    const hand = { id: 'case-1', kind: 'hand', runId: 'run-1' };
+    const retired = {
+      id: 'case-2',
+      kind: 'hand',
+      runId: 'run-2',
+      retired: { reason: 'Old policy', at: '2026-10-20T10:00:00.000Z' },
+    };
+    const fake = server({
+      '/v1/agents': [{ id: 'acme.desk' }],
+      '/v1/agents/acme.desk/projects': [{ projectId: 'p-1' }],
+      '/v1/agents/acme.desk/test-set/cases': (url) =>
+        json(200, {
+          data: url.searchParams.get('projectId') === 'p-1' ? [hand, retired] : [],
+          hasMore: false,
+        }),
+    });
+    const res = await cli(fake);
+    expect(res.exitCode, res.stderr).toBe(0);
+    expect(fake.calls).toContain(
+      'GET /v1/agents/acme.desk/test-set/cases?include=retired&projectId=p-1&limit=100',
+    );
+    expect(await lines('agent-test-set-cases')).toEqual([
+      { parent: { agentId: 'acme.desk', projectId: 'p-1' }, item: hand },
+      { parent: { agentId: 'acme.desk', projectId: 'p-1' }, item: retired },
+    ]);
+  });
+
   test('env and secrets are read for each env name at each scope; a secret’s versions at its own', async () => {
     const fake = server({
       '/v1/environments': [{ envName: 'prod' }],
@@ -287,6 +346,32 @@ describe('kindgi exports create', () => {
         parent: { name: 'STRIPE_KEY' },
         item: { name: 'STRIPE_KEY', versionId: 'v1', value: null },
       },
+    ]);
+  });
+
+  test('a project’s connection choices are read by its id, removed ones too', async () => {
+    const choice = {
+      choiceId: 'choice-1',
+      projectId: 'proj-1',
+      connectionId: 'conn-1',
+      version: 1,
+    };
+    const fake = server({
+      '/v1/projects': [{ id: 'proj-1' }, { id: 'proj-2' }],
+      '/v1/connection-choices': (url) =>
+        json(200, {
+          data: url.searchParams.get('projectId') === 'proj-1' ? [choice] : [],
+          hasMore: false,
+        }),
+    });
+    const res = await cli(fake);
+    expect(res.exitCode, res.stderr).toBe(0);
+    expect(fake.calls.filter((c) => c.startsWith('GET /v1/connection-choices?'))).toEqual([
+      'GET /v1/connection-choices?includeRemoved=true&projectId=proj-1&limit=100',
+      'GET /v1/connection-choices?includeRemoved=true&projectId=proj-2&limit=100',
+    ]);
+    expect(await lines('connection-choices')).toEqual([
+      { parent: { projectId: 'proj-1' }, item: choice },
     ]);
   });
 
@@ -338,7 +423,7 @@ describe('kindgi exports create', () => {
       '/v1/environments': () =>
         json(501, { error: { code: 'environments-unsupported', message: 'No env names here' } }),
       '/v1/projects': [{ id: 'proj-1' }],
-      '/v1/projects/proj-1/judging-rules': notMounted,
+      '/v1/projects/proj-1/queue-rules': notMounted,
       '/v1/provenance': [{ runId: 'run-1' }],
       '/v1/provenance/run-1': () =>
         json(501, { error: { code: 'provenance-unsupported', message: 'No provenance here' } }),
@@ -361,19 +446,19 @@ describe('kindgi exports create', () => {
       status: 'skipped',
       reason: "it's made for each record of compliance-evidence, which wasn't exported",
     });
-    expect(m.kinds['judging-rules']).toEqual({
+    expect(m.kinds['queue-rules']).toEqual({
       status: 'skipped',
-      reason: "this server doesn't serve /v1/projects/{projectId}/judging-rules (404)",
+      reason: "this server doesn't serve /v1/projects/{projectId}/queue-rules (404)",
     });
-    expect(m.kinds['judging-rule-versions']).toEqual({
+    expect(m.kinds['queue-rule-versions']).toEqual({
       status: 'skipped',
-      reason: "it's read for each record of judging-rules, which wasn't exported",
+      reason: "it's read for each record of queue-rules, which wasn't exported",
     });
     expect(m.kinds.provenance).toEqual({
       status: 'skipped',
       reason: "this server doesn't serve /v1/provenance/{runId} (501)",
     });
-    expect(m.kinds['judging-queue']).toMatchObject({ status: 'ok' });
+    expect(m.kinds['expert-queue']).toMatchObject({ status: 'ok' });
     expect(m.kinds.artifacts).toEqual({
       status: 'skipped',
       reason: "this server doesn't serve /v1/artifacts/{blobId} (404)",
@@ -509,6 +594,16 @@ describe('kindgi exports create', () => {
     expect(m.kinds.users).toEqual({ status: 'skipped', reason: 'it needs a tenant admin' });
     expect(m.kinds.agents).toMatchObject({ status: 'ok' });
     expect(fake.calls.some((c) => c.startsWith('GET /v1/identity/users'))).toBe(false);
+    // Every webhook-endpoints and compliance route is a tenant admin's, so
+    // they're skipped rather than refused.
+    for (const kind of ['webhook-endpoints', 'compliance-evidence']) {
+      expect(refused.stderr).toContain(kind);
+      expect(m.kinds[kind]).toEqual({ status: 'skipped', reason: 'it needs a tenant admin' });
+    }
+    expect(m.kinds['webhook-deliveries']).toMatchObject({ status: 'skipped' });
+    expect(fake.calls.some((c) => /^GET \/v1\/(webhook-endpoints|compliance)\b/.test(c))).toBe(
+      false,
+    );
   });
 
   test('a folder that isn’t empty is refused without --resume', async () => {
@@ -696,7 +791,7 @@ describe('kindgi exports create', () => {
     const nameless = await cli(server({ '/v1/identity/whoami': { scopes: ['tenant-admin'] } }));
     expect(nameless.exitCode).toBe(1);
     expect(nameless.stderr).toContain(
-      'GET /v1/identity/whoami answered no tenantId, so the export has no tenant to name.',
+      'GET /v1/identity/whoami answered no tenantId, so the export has no workspace to name.',
     );
     await expect(readdir(out)).rejects.toThrow();
   });
@@ -724,7 +819,7 @@ describe('kindgi exports create', () => {
     await rm(out, { recursive: true, force: true });
     expect((await cli(server(answers))).exitCode).toBe(0);
     expect((await manifest()).consistency).toBe(
-      'The tenant is closing: nothing in it changes but deletes, revocations and erasures, so the files agree with each other, but for one of those made while the export ran.',
+      'The workspace is closing: nothing in it changes but deletes, revocations and erasures, so the files agree with each other, but for one of those made while the export ran.',
     );
 
     // Suspended when it started, active again by the end.
@@ -772,6 +867,57 @@ describe('kindgi exports create', () => {
       'signed',
       'signed/provenance',
     ]);
+  });
+
+  test('--quiet: an export that is whole says nothing; without it, each kind and the summary say what was done', async () => {
+    const answers = { '/v1/agents': [{ id: 'agent-a' }] };
+    const loud = await cli(server(answers));
+    expect(loud.exitCode, loud.stderr).toBe(0);
+    expect(loud.progress).toContain('agents: 1 record\n');
+    expect(loud.stdout).toContain(`Exported to ${out}:`);
+
+    await rm(out, { recursive: true, force: true });
+    const quiet = await cli(server(answers), ['--quiet']);
+    expect(quiet).toMatchObject({ exitCode: 0, stdout: '', stderr: '', progress: [] });
+    expect((await manifest()).kinds.agents).toMatchObject({ status: 'ok', records: 1 });
+  });
+
+  test('--quiet: a kind that fails says its line alone, then how to read it again', async () => {
+    const fake = server({
+      '/v1/flows': () =>
+        json(503, { error: { code: 'unavailable', message: 'Down for a moment' } }),
+    });
+    const res = await cli(fake, ['--quiet']);
+    expect(res.exitCode).toBe(1);
+    expect(res.progress).toEqual([
+      `flows: failed, GET ${API}/v1/flows?includeRetired=true&limit=100 answered 503 unavailable: Down for a moment\n`,
+    ]);
+    expect(res.stdout).toBe('');
+    expect(res.stderr).toBe('Run it again with --resume to read the failed kinds again.\n');
+  });
+
+  test('--quiet: an export that stops says how to finish it', async () => {
+    const stop = new AbortController();
+    const fake = server({
+      '/v1/flows': () => {
+        stop.abort();
+        throw new DOMException('The operation was aborted.', 'AbortError');
+      },
+    });
+    const res = await cli(fake, ['--quiet'], { stopSignal: stop.signal });
+    expect(res.exitCode).toBe(130);
+    expect(res.progress).toEqual([]);
+    expect(res.stdout).toBe('');
+    expect(res.stderr).toBe(
+      `Stopped. The export in ${out} is unfinished: run it again with --resume to finish it.\n`,
+    );
+  });
+
+  test('--quiet: a refusal still says why', async () => {
+    const refused = await cli(server({}, { admin: false }), ['--quiet']);
+    expect(refused.exitCode).toBe(1);
+    expect(refused.stdout).toBe('');
+    expect(refused.stderr).toContain("You aren't a tenant admin here");
   });
 
   test('--json prints the manifest', async () => {

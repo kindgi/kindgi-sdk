@@ -43,8 +43,13 @@ export interface ResponseSpec {
   readonly description: string;
   /** JSON body schema for `application/json` responses. Omit for streaming responses. */
   readonly schema?: JsonSchema;
-  /** Content-type of the response body. Defaults to `application/json`. */
-  readonly contentType?: string;
+  /**
+   * Content-type of the response body, or several, each with the schema.
+   * Defaults to `application/json`.
+   */
+  readonly contentType?: string | readonly string[];
+  /** A JSON body the status may carry instead of `contentType`'s (`application/json`). */
+  readonly orJson?: JsonSchema;
 }
 
 export interface OperationSpec {
@@ -91,6 +96,12 @@ export interface OperationSpec {
    * `x-kindgi-sender-only`, and the client generators skip it.
    */
   readonly senderOnly?: string;
+  /**
+   * The 2xx body is handed on as it arrives, not read whole
+   * (`corrections.export`). Emitted as `x-kindgi-streamed: true`; the
+   * Python client yields its chunks.
+   */
+  readonly streamed?: true;
 }
 
 // ---------------- shared parameters ----------------
@@ -100,7 +111,7 @@ const IdempotencyKeyParam: ParameterSpec = {
   in: 'header',
   required: false,
   description:
-    "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5).",
+    "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0).",
   schema: { type: 'string', minLength: 1 },
 };
 
@@ -193,6 +204,15 @@ const LimitQueryParam: ParameterSpec = {
   schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 },
 };
 
+const PackEnvSecretsQueryParam: ParameterSpec = {
+  name: 'secrets',
+  in: 'query',
+  required: false,
+  description:
+    '`values`: give the values of the names set only as a secret too, in `secrets`, each audited before the answer. Only for a key holding `system:pack-env` itself. Left out: such a name is `pack-env-secret-not-yet`, and no secret is read.',
+  schema: { type: 'string', enum: ['values'] },
+};
+
 const ParentRunIdQueryParam: ParameterSpec = {
   name: 'parentRunId',
   in: 'query',
@@ -223,7 +243,7 @@ const RunReplaysQueryParam: ParameterSpec = {
   in: 'query',
   required: false,
   description:
-    'Replay runs (an eval run re-running a past run). `exclude` (default) leaves them out; `include` lists them with the other runs; `only` lists just them.',
+    'Replay runs (a test run re-running a past run). `exclude` (default) leaves them out; `include` lists them with the other runs; `only` lists just them.',
   schema: { type: 'string', enum: ['exclude', 'include', 'only'], default: 'exclude' },
 };
 
@@ -236,12 +256,12 @@ const ConversationReplaysQueryParam: ParameterSpec = {
   schema: { type: 'string', enum: ['exclude', 'include', 'only'], default: 'exclude' },
 };
 
-const RunEvalRunIdQueryParam: ParameterSpec = {
-  name: 'evalRunId',
+const RunTestRunIdQueryParam: ParameterSpec = {
+  name: 'testRunId',
   in: 'query',
   required: false,
   description:
-    'Only the replay runs of this eval run. Implies replays are included; cannot be combined with `replays=exclude`.',
+    'Only the replay runs of this test run. Implies replays are included; cannot be combined with `replays=exclude`.',
   schema: { type: 'string', minLength: 1 },
 };
 
@@ -304,11 +324,62 @@ const RunFlowVersionQueryParam: ParameterSpec = {
   schema: { type: 'string', minLength: 1 },
 };
 
-const LiveProjectQueryParam: ParameterSpec = {
+const ItemProjectQueryParam: ParameterSpec = {
   name: 'projectId',
   in: 'query',
   required: false,
-  description: "The run's project; omit → only the agent's tenant-wide pin applies.",
+  description:
+    "The newest active version that can run in this project, a project the caller reads; `404` when there's none, or when the caller doesn't read the project. An item with one project answers its latest version for its own project and `404` for any other; one that names no project (under `kindgi dev`, a pack's agents, flows and tools) answers it for any. With authorization off, the caller reads every project. An older runtime ignores it and answers the latest version.",
+  schema: { type: 'string', format: 'uuid' },
+};
+
+/** `?projectId=` on an agent's test set: it's read one project at a time. */
+const TestSetProjectQueryParam: ParameterSpec = {
+  name: 'projectId',
+  in: 'query',
+  required: true,
+  description:
+    "The project whose cases to read: the agent's set, narrowed to that project's cases.",
+  schema: { type: 'string', format: 'uuid' },
+};
+
+const TestCaseIncludeQueryParam: ParameterSpec = {
+  name: 'include',
+  in: 'query',
+  required: false,
+  description: '`retired`: retired cases too. Left out, active ones only.',
+  schema: { type: 'string', enum: ['retired'] },
+};
+
+const TestCaseKindQueryParam: ParameterSpec = {
+  name: 'kind',
+  in: 'query',
+  required: false,
+  description: 'Comma-separated `correction` and `hand`. Left out, both.',
+  schema: { type: 'string', pattern: '^(correction|hand)(,(correction|hand))*$' },
+};
+
+const TestCaseIdPathParam: ParameterSpec = {
+  name: 'caseId',
+  in: 'path',
+  required: true,
+  description: "A correction's id, or a hand case's `case-…` id.",
+  schema: { type: 'string', minLength: 1 },
+};
+
+/** Who may change an agent's test set (`/v1/agents/{agentId}/test-set/cases…`). */
+const TEST_CASE_WRITE_RIGHTS =
+  "Needs `publish` on the agent and `read` on the case's project; for an agent more than one project serves, `write` on the case's project.";
+
+/** What a single read of an order's item answers (`GET /v1/agents/{agentId}` and its twins). */
+const NEWEST_VISIBLE_DESCRIPTION =
+  'An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.';
+
+const AgentPinProjectQueryParam: ParameterSpec = {
+  name: 'projectId',
+  in: 'query',
+  required: false,
+  description: "The run's project; omit → only the agent's workspace-wide pin applies.",
   schema: { type: 'string', format: 'uuid' },
 };
 
@@ -321,7 +392,7 @@ const SegmentQueryParam: ParameterSpec = {
   segmentPath: true,
 };
 
-const PromotionScopeKindQueryParam: ParameterSpec = {
+const PinScopeKindQueryParam: ParameterSpec = {
   name: 'scopeKind',
   in: 'query',
   required: false,
@@ -330,8 +401,8 @@ const PromotionScopeKindQueryParam: ParameterSpec = {
   schema: { type: 'string', enum: ['tenant', 'org', 'project', 'segment'] },
 };
 
-const PromotionIdPathParam: ParameterSpec = {
-  name: 'promotionId',
+const PinChangeIdPathParam: ParameterSpec = {
+  name: 'changeId',
   in: 'path',
   required: true,
   schema: { type: 'string', format: 'uuid' },
@@ -381,19 +452,19 @@ const LastEventIdParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
-const GatePolicyIdPathParam: ParameterSpec = {
-  name: 'policyId',
+const ReleaseGateIdPathParam: ParameterSpec = {
+  name: 'releaseGateId',
   in: 'path',
   required: true,
-  description: 'The gate policy id.',
+  description: 'The release gate id.',
   schema: { type: 'string' },
 };
 
-const GatePolicyVersionPathParam: ParameterSpec = {
+const ReleaseGateVersionPathParam: ParameterSpec = {
   name: 'version',
   in: 'path',
   required: true,
-  description: 'A semver version of the gate policy.',
+  description: 'A semver version of the release gate.',
   schema: { type: 'string' },
 };
 
@@ -739,7 +810,7 @@ const ScopeIdQueryParam: ParameterSpec = {
   in: 'query',
   required: false,
   description:
-    'Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid.',
+    'Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (the workspace is implicit from the session). Malformed combinations return 400 scope-invalid.',
   schema: { type: 'string', minLength: 1 },
 };
 
@@ -752,19 +823,35 @@ const InheritQueryParam: ParameterSpec = {
   schema: { type: 'boolean', default: true },
 };
 
-const ImprovementPassIdPathParam: ParameterSpec = {
-  name: 'passId',
+const ImproveRunIdPathParam: ParameterSpec = {
+  name: 'improveRunId',
   in: 'path',
   required: true,
-  description: 'The improvement pass id (a UUID).',
+  description: 'The Improve run id (a UUID).',
   schema: { type: 'string', format: 'uuid' },
 };
 
-const ProposalIdPathParam: ParameterSpec = {
-  name: 'proposalId',
+const ImproveRunProjectIdQueryParam: ParameterSpec = {
+  name: 'projectId',
+  in: 'query',
+  required: false,
+  description: 'Only the Improve runs in this project.',
+  schema: { type: 'string', format: 'uuid' },
+};
+
+const ImproveRunStatusQueryParam: ParameterSpec = {
+  name: 'status',
+  in: 'query',
+  required: false,
+  description: 'Only the Improve runs with this status.',
+  schema: { type: 'string', enum: ['running', 'completed', 'failed', 'cancelled'] },
+};
+
+const SuggestedChangeIdPathParam: ParameterSpec = {
+  name: 'suggestedChangeId',
   in: 'path',
   required: true,
-  description: 'The proposal id (a UUID).',
+  description: 'The suggested change id (a UUID).',
   schema: { type: 'string', format: 'uuid' },
 };
 
@@ -785,6 +872,15 @@ const ProvenanceAgentIdQueryParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
+const ProvenanceFlowIdQueryParam: ParameterSpec = {
+  name: 'flowId',
+  in: 'query',
+  required: false,
+  description:
+    "Only the records of this flow's runs, at any version (`flowRef.id`, exact match). An agent's turns aren't matched: use `agentId` for those.",
+  schema: { type: 'string', minLength: 1 },
+};
+
 const ProvenanceCreatedAfterQueryParam: ParameterSpec = {
   name: 'createdAfter',
   in: 'query',
@@ -793,20 +889,28 @@ const ProvenanceCreatedAfterQueryParam: ParameterSpec = {
   schema: { type: 'string', format: 'date-time' },
 };
 
-const ProposalStatusQueryParam: ParameterSpec = {
+const SuggestedChangeStatusQueryParam: ParameterSpec = {
   name: 'status',
   in: 'query',
   required: false,
-  description: 'Only proposals with this (derived) status.',
-  schema: { $ref: '#/components/schemas/FixProposalStatus' },
+  description: 'Only suggested changes with this (derived) status.',
+  schema: { $ref: '#/components/schemas/SuggestedChangeStatus' },
 };
 
-const ProposalTierQueryParam: ParameterSpec = {
-  name: 'tier',
+const SuggestedChangeProjectQueryParam: ParameterSpec = {
+  name: 'projectId',
   in: 'query',
   required: false,
-  description: 'Only proposals of this tier.',
-  schema: { $ref: '#/components/schemas/ProposalTier' },
+  description: 'Only suggested changes for this project.',
+  schema: { type: 'string', format: 'uuid' },
+};
+
+const SuggestedChangeMadeByQueryParam: ParameterSpec = {
+  name: 'madeBy',
+  in: 'query',
+  required: false,
+  description: 'Only suggested changes made by this kind of maker (`madeBy.kind`).',
+  schema: { type: 'string', enum: ['improve-run', 'person', 'service', 'deploy', 'offer'] },
 };
 
 // Admin plane — capabilities + providers.
@@ -1031,12 +1135,44 @@ const TriggerIdPathParam: ParameterSpec = {
   schema: { type: 'string', format: 'uuid' },
 };
 
+const TriggerVersionPathParam: ParameterSpec = {
+  name: 'version',
+  in: 'path',
+  required: true,
+  description: "The version's number: 1 for the trigger's first, one more for each after.",
+  schema: { type: 'integer', minimum: 1 },
+};
+
 const WebhookEndpointIdPathParam: ParameterSpec = {
   name: 'endpointId',
   in: 'path',
   required: true,
   description: 'The webhook endpoint id.',
   schema: { type: 'string' },
+};
+
+const ConnectionAppIdPathParam: ParameterSpec = {
+  name: 'appId',
+  in: 'path',
+  required: true,
+  description: 'The app registration id (a UUID).',
+  schema: { type: 'string', format: 'uuid' },
+};
+
+const ConnectionIdPathParam: ParameterSpec = {
+  name: 'connectionId',
+  in: 'path',
+  required: true,
+  description: 'The connection id (a UUID).',
+  schema: { type: 'string', format: 'uuid' },
+};
+
+const ConnectRequestIdPathParam: ParameterSpec = {
+  name: 'requestId',
+  in: 'path',
+  required: true,
+  description: 'The connect request id (a UUID).',
+  schema: { type: 'string', format: 'uuid' },
 };
 
 const WebhookDeliveryIdPathParam: ParameterSpec = {
@@ -1141,38 +1277,38 @@ const RetentionDomainPathParam: ParameterSpec = {
   schema: { $ref: '#/components/schemas/RetentionDomain' },
 };
 
-// Admin plane — eval suites.
+// Admin plane — test sets.
 
-const EvalSuiteIdPathParam: ParameterSpec = {
-  name: 'suiteId',
+const TestSetIdPathParam: ParameterSpec = {
+  name: 'testSetId',
   in: 'path',
   required: true,
-  description: 'EvalSuiteId — stable string chosen by the caller (e.g. `acme.drafting-accuracy`).',
+  description: 'TestSetId — stable string chosen by the caller (e.g. `acme.drafting-accuracy`).',
   schema: { type: 'string', minLength: 1 },
 };
 
-const EvalSuiteVersionPathParam: ParameterSpec = {
+const TestSetVersionPathParam: ParameterSpec = {
   name: 'version',
   in: 'path',
   required: true,
-  description: 'Semver version string of the eval suite (e.g. `1.2.0`).',
+  description: 'Semver version string of the test set (e.g. `1.2.0`).',
   schema: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
 };
 
-const EvalSuiteKindFilterQueryParam: ParameterSpec = {
+const TestSetKindFilterQueryParam: ParameterSpec = {
   name: 'kind',
   in: 'query',
   required: false,
   description:
-    'Filter to eval suites of a single kind. Values: `accuracy | pairwise | regression | human-review | benchmark | custom | judged`.',
-  schema: { $ref: '#/components/schemas/EvalKind' },
+    "Filter to test sets of a single kind. `corrections` is listed only when asked for here: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`), and its frozen versions are `corrections` test sets.",
+  schema: { $ref: '#/components/schemas/TestSetKind' },
 };
 
-const EvalSuiteNameFilterQueryParam: ParameterSpec = {
+const TestSetNameFilterQueryParam: ParameterSpec = {
   name: 'name',
   in: 'query',
   required: false,
-  description: 'Prefix match on `EvalSuite.id`. Dotted namespaces are the natural filter shape.',
+  description: 'Prefix match on `TestSet.id`. Dotted namespaces are the natural filter shape.',
   schema: { type: 'string' },
 };
 
@@ -1208,33 +1344,33 @@ const BlockNameFilterQueryParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
-// Admin plane — eval-run data plane.
+// Admin plane — test-run data plane.
 
-const EvalRunIdPathParam: ParameterSpec = {
-  name: 'runId',
+const TestRunIdPathParam: ParameterSpec = {
+  name: 'testRunId',
   in: 'path',
   required: true,
-  description: 'EvalRunId — opaque branded UUID.',
+  description: 'TestRunId — opaque branded UUID.',
   schema: { type: 'string', format: 'uuid' },
 };
 
-const EvalRunSuiteIdFilterQueryParam: ParameterSpec = {
-  name: 'suiteId',
+const TestRunTestSetIdFilterQueryParam: ParameterSpec = {
+  name: 'testSetId',
   in: 'query',
   required: false,
-  description: 'Filter to runs against a specific suite id.',
+  description: 'Filter to runs against the test set with this id.',
   schema: { type: 'string' },
 };
 
-const EvalRunStatusFilterQueryParam: ParameterSpec = {
+const TestRunStatusFilterQueryParam: ParameterSpec = {
   name: 'status',
   in: 'query',
   required: false,
-  description: 'Filter to a single EvalRunStatus.',
-  schema: { $ref: '#/components/schemas/EvalRunStatus' },
+  description: 'Filter to a single TestRunStatus.',
+  schema: { $ref: '#/components/schemas/TestRunStatus' },
 };
 
-const EvalRunAgentIdFilterQueryParam: ParameterSpec = {
+const TestRunAgentIdFilterQueryParam: ParameterSpec = {
   name: 'agentId',
   in: 'query',
   required: false,
@@ -1242,7 +1378,7 @@ const EvalRunAgentIdFilterQueryParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
-const EvalRunFlowIdFilterQueryParam: ParameterSpec = {
+const TestRunFlowIdFilterQueryParam: ParameterSpec = {
   name: 'flowId',
   in: 'query',
   required: false,
@@ -1250,7 +1386,7 @@ const EvalRunFlowIdFilterQueryParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
-const EvalRunFromFilterQueryParam: ParameterSpec = {
+const TestRunFromFilterQueryParam: ParameterSpec = {
   name: 'from',
   in: 'query',
   required: false,
@@ -1258,7 +1394,7 @@ const EvalRunFromFilterQueryParam: ParameterSpec = {
   schema: { type: 'string', format: 'date-time' },
 };
 
-const EvalRunToFilterQueryParam: ParameterSpec = {
+const TestRunToFilterQueryParam: ParameterSpec = {
   name: 'to',
   in: 'query',
   required: false,
@@ -1317,7 +1453,7 @@ const EnvEntryNamePathParam: ParameterSpec = {
   name: 'name',
   in: 'path',
   required: true,
-  description: 'Env entry name (opaque string within the tenant + envName).',
+  description: 'Env entry name (opaque string within the workspace + envName).',
   schema: { type: 'string', minLength: 1 },
 };
 
@@ -1325,29 +1461,29 @@ const SecretNamePathParam: ParameterSpec = {
   name: 'name',
   in: 'path',
   required: true,
-  description: 'Secret name (opaque string within the tenant + envName).',
+  description: 'Secret name (opaque string within the workspace + envName).',
   schema: { type: 'string', minLength: 1 },
 };
 
-// ---------------- judgments + judge classes: parameters ----------------
+// ---------------- corrections + corrector groups: parameters ----------------
 
-const JudgmentIdPathParam: ParameterSpec = {
-  name: 'judgmentId',
+const CorrectionIdPathParam: ParameterSpec = {
+  name: 'correctionId',
   in: 'path',
   required: true,
-  description: 'Judgment id.',
+  description: 'Correction id.',
   schema: { type: 'string', minLength: 1 },
 };
 
-const JudgeClassIdPathParam: ParameterSpec = {
-  name: 'judgeClassId',
+const CorrectorGroupIdPathParam: ParameterSpec = {
+  name: 'correctorGroupId',
   in: 'path',
   required: true,
-  description: 'Judge class id.',
+  description: 'Corrector group id.',
   schema: { type: 'string', minLength: 1 },
 };
 
-const judgmentQuery = (name: string, description: string, schema: JsonSchema): ParameterSpec => ({
+const correctionQuery = (name: string, description: string, schema: JsonSchema): ParameterSpec => ({
   name,
   in: 'query',
   required: false,
@@ -1355,34 +1491,79 @@ const judgmentQuery = (name: string, description: string, schema: JsonSchema): P
   schema,
 });
 
-const JudgmentListQueryParams: readonly ParameterSpec[] = [
-  judgmentQuery('runId', 'Only judgments of this run.', { type: 'string', minLength: 1 }),
-  judgmentQuery('agentId', 'Only judgments of runs of this agent.', {
+const CorrectionListQueryParams: readonly ParameterSpec[] = [
+  correctionQuery('runId', 'Only corrections of this run.', { type: 'string', minLength: 1 }),
+  correctionQuery('agentId', 'Only corrections of runs of this agent.', {
     type: 'string',
     minLength: 1,
   }),
-  judgmentQuery('agentVersion', 'Only judgments of runs of this agent version. Needs `agentId`.', {
+  correctionQuery(
+    'agentVersion',
+    'Only corrections of runs of this agent version. Needs `agentId`.',
+    {
+      type: 'string',
+      minLength: 1,
+    },
+  ),
+  correctionQuery('flowId', 'Only corrections of runs of this flow.', {
     type: 'string',
     minLength: 1,
   }),
-  judgmentQuery('flowId', 'Only judgments of runs of this flow.', { type: 'string', minLength: 1 }),
-  judgmentQuery('verdict', 'Only judgments with this verdict.', {
+  {
+    name: 'status',
+    in: 'query',
+    required: false,
+    description:
+      'Only corrections in these statuses: one, or several, repeated or comma-separated. `not-fixed` is short for `open`, `being-fixed` and `with-owner`. Removed corrections come back only when `removed` is asked for.',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'string',
+        enum: ['not-fixed', 'open', 'being-fixed', 'with-owner', 'fixed', 'wont-fix', 'removed'],
+      },
+    },
+  },
+  {
+    name: 'sortedTo',
+    in: 'query',
+    required: false,
+    description:
+      'Only corrections sorted to these (repeated or comma-separated), with `none` for unsorted ones.',
+    schema: {
+      type: 'array',
+      items: { type: 'string', enum: ['none', 'improve', 'developer', 'owner'] },
+    },
+  },
+  correctionQuery(
+    'from',
+    "`experts`: corrections under a restricted corrector group. `end-users`: an app's end users' (`participantId`), not experts'. `all` (the default): every one.",
+    { type: 'string', enum: ['experts', 'end-users', 'all'] },
+  ),
+  correctionQuery('madeBy', "`me`: only the caller's own corrections.", {
     type: 'string',
-    enum: ['yes', 'no'],
+    enum: ['me'],
   }),
-  judgmentQuery('judgeClassId', 'Only judgments recorded under this judge class.', {
+  correctionQuery('since', 'Only corrections made at or after this time.', {
+    type: 'string',
+    format: 'date-time',
+  }),
+  correctionQuery('until', 'Only corrections made before this time.', {
+    type: 'string',
+    format: 'date-time',
+  }),
+  correctionQuery('correctorGroupId', 'Only corrections recorded under this corrector group.', {
     type: 'string',
     minLength: 1,
   }),
-  judgmentQuery('participantId', "Only judgments made for this app end user's opaque id.", {
+  correctionQuery('participantId', "Only corrections made for this app end user's opaque id.", {
     type: 'string',
     minLength: 1,
   }),
 ];
 
-const JudgeClassScopeKindQueryParam: ParameterSpec = judgmentQuery(
+const CorrectorGroupScopeKindQueryParam: ParameterSpec = correctionQuery(
   'scopeKind',
-  'Only classes of this scope kind. `project` and `agent` need `projectId`; `agent` also needs `agentId`.',
+  'Only groups of this scope kind. `project` and `agent` need `projectId`; `agent` also needs `agentId`.',
   { type: 'string', enum: ['tenant', 'project', 'agent'] },
 );
 
@@ -1395,13 +1576,13 @@ const ScheduleProjectIdQueryParam: ParameterSpec = {
   schema: { type: 'string', format: 'uuid' },
 };
 
-const JudgeClassProjectIdQueryParam: ParameterSpec = judgmentQuery(
+const CorrectorGroupProjectIdQueryParam: ParameterSpec = correctionQuery(
   'projectId',
   'Project of the scope, for `scopeKind=project|agent`.',
   { type: 'string', minLength: 1 },
 );
 
-const JudgeClassAgentIdQueryParam: ParameterSpec = judgmentQuery(
+const CorrectorGroupAgentIdQueryParam: ParameterSpec = correctionQuery(
   'agentId',
   'Agent of the scope, for `scopeKind=agent`.',
   { type: 'string', minLength: 1 },
@@ -1418,9 +1599,16 @@ const ErrorResponse = (description: string): ResponseSpec => ({
  * A request that publishes schemas, refused by its tenant's compile
  * budget before it stored anything.
  */
-const SCHEMA_COMPILE_BUDGET = ErrorResponse(
-  '`rate-limit-exceeded` with `details.limit: "schema-compile-time"`, on a server with a compile budget (Kindgi Cloud): this tenant\'s schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.',
-);
+const SCHEMA_COMPILE_BUDGET_TEXT =
+  '`rate-limit-exceeded` with `details.limit: "schema-compile-time"`, on a server with a compile budget (Kindgi Cloud): this workspace\'s schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.';
+const SCHEMA_COMPILE_BUDGET = ErrorResponse(SCHEMA_COMPILE_BUDGET_TEXT);
+
+/**
+ * A publish through the API into a later environment of an environment
+ * order, refused before anything is written; each publish's 409 names it.
+ */
+const TAKES_PROMOTIONS =
+  "Or `environment-takes-promotions`: the project is a later environment of an environment order, which takes builds only by promotion from the one before it; publish in the order's first environment instead (`details.firstProjectId`, when you can read that project; `details.position`, the project's place from 0). Nothing is written.";
 
 const CommonAuthErrors: Readonly<Record<string, ResponseSpec>> = {
   '401': ErrorResponse('Missing / malformed / expired / revoked bearer token.'),
@@ -1435,7 +1623,42 @@ const CommonMutationErrors: Readonly<Record<string, ResponseSpec>> = {
   '500': ErrorResponse('Server error (unmapped domain code or framework crash).'),
 };
 
-/** A secrets store's external provider (the router's), answering a read or a write: each at its own status. */
+/** A change a schedule's owner rule refuses (`trigger-owners.ts`). */
+const ScheduleChangeRefused: ResponseSpec = ErrorResponse(
+  "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (for an `improve` schedule, `publish` on the agent) is refused first, and learns nothing of its owner.",
+);
+
+/** A change a webhook trigger's owner rule refuses (`trigger-owners.ts`). */
+const WebhookChangeRefused: ResponseSpec = ErrorResponse(
+  "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner.",
+);
+
+/** A read of a tenant-wide setting (`tenantResourceAccess`): a tenant member's; without an authorization store, anyone's. */
+const TenantSettingReadErrors: Readonly<Record<string, ResponseSpec>> = {
+  '403': ErrorResponse(
+    'Not a member of the workspace (`permission-denied`). Without an authorization store, anyone reads it.',
+  ),
+};
+
+/** Who a tenant admin is on a runtime without an authorization store, ending a 403's text. */
+const WITHOUT_STORE_ADMIN =
+  "Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.";
+
+/**
+ * A change to a tenant-wide setting (`tenantResourceAccess`), and every
+ * call to one only a tenant admin uses (`tenantAdminAccess`: webhook
+ * endpoints, compliance): a tenant admin's, with an authorization store or
+ * without one.
+ */
+const TenantAdminErrors: Readonly<Record<string, ResponseSpec>> = {
+  '403': ErrorResponse(`Not a tenant admin (\`permission-denied\`). ${WITHOUT_STORE_ADMIN}`),
+};
+
+/**
+ * A secrets store's external provider (the router's), answering a read or a
+ * write: each at its own status. Each operation that spreads it is a write
+ * that takes an `Idempotency-Key`, so its 503 names that store's too.
+ */
 const SecretProviderErrors: Readonly<Record<string, ResponseSpec>> = {
   '429': ErrorResponse(
     "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
@@ -1444,24 +1667,328 @@ const SecretProviderErrors: Readonly<Record<string, ResponseSpec>> = {
     "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
   ),
   '503': ErrorResponse(
-    "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
+    "`secret-provider-unavailable`: the secrets store's external provider can't be reached. `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.",
   ),
 };
 
 /** A secret's value written: a body that fails validation, a name or value the store refuses (the caller's), or its provider's answer. */
 const SecretWriteErrors: Readonly<Record<string, ResponseSpec>> = {
   '400': ErrorResponse(
-    "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its value: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule), `secret-value-too-large`, or `secret-value-invalid` (under `kindgi dev`, a value no env-file quoting can hold so that it reads back unchanged; the message says why).",
+    "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its value: `reserved-name-prefix`, `secret-name-invalid` (a new name that isn't 1 to 255 ASCII letters, digits, `.`, `-` and `_` starting with a letter, digit or `_`, with any `.` between two non-`.` characters, or, under `kindgi dev`, isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule), `secret-value-too-large`, or `secret-value-invalid` (under `kindgi dev`, a value no env-file quoting can hold so that it reads back unchanged; the message says why).",
   ),
   ...SecretProviderErrors,
 };
 
+/**
+ * `env-not-served` for a value: on a runtime that keeps every value under
+ * the env it serves (`refuseOtherEnvs`), one under another env.
+ */
+const ENV_NOT_SERVED_VALUE =
+  "`env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), so a value under another env would never be read. `details.envName` is the env asked for, `details.servedEnv` the one to use. A secret that a provider, MCP endpoint or webhook endpoint registered before names under that env, at the scope it's read at, is still written: it's read there. Nothing is stored otherwise.";
+
+/** `env-not-served` for a registration that names its secret under another env. */
+const ENV_NOT_SERVED_REFERENCE =
+  "`env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), and the secret reference names another. Name it under `details.servedEnv`. Nothing is stored.";
+
+/** The 409 a write answers anyway, and `env-not-served`. */
+function conflictOrEnvNotServed(text: string): ResponseSpec {
+  return ErrorResponse(
+    `Idempotency-Key was reused with a different body, or resource-state conflict. Or ${text}`,
+  );
+}
+
 /** A change to the tenant's identity providers: not a tenant admin, or the operator manages sign-in. */
 const ProviderChangeRefused: ResponseSpec = ErrorResponse(
-  "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
+  `Not a tenant admin (\`permission-denied\`). ${WITHOUT_STORE_ADMIN} Or this deployment's operator manages sign-in (\`identity-providers-operator-managed\`, \`KINDGI_AUTH_TENANT_PROVIDERS=off\`): only the deployment's own token can change its providers.`,
 );
 
+/**
+ * Reads that never reach the storage backend, so they can't answer
+ * `503 database-busy`: the liveness probe (`GET /health`) and the spec
+ * document (`GET /v1/openapi.json`). Every other served `GET`/`HEAD`
+ * declares the shared 503 — see `buildOperation` in `generate.ts`.
+ */
+export const READS_WITHOUT_STORAGE: ReadonlySet<string> = new Set([
+  'system.health',
+  'system.openapi',
+]);
+
+/**
+ * Whether a served operation can answer `503 database-busy`: a `GET` or
+ * `HEAD` that isn't one of the storage-free reads. The spec generator
+ * injects the 503 for these (unless the operation declares a 503 of its
+ * own), and a test holds every one of them to it, so a new read can't miss
+ * it.
+ */
+export function answersDatabaseBusy(op: OperationSpec): boolean {
+  return (
+    (op.method === 'get' || op.method === 'head') && !READS_WITHOUT_STORAGE.has(op.operationId)
+  );
+}
+
+/**
+ * Whether a served operation can answer `503 idempotency-store-unavailable`:
+ * a write that takes an `Idempotency-Key`, which `idempotencyMiddleware`
+ * answers so when the key's store fails before the write runs. The spec
+ * generator injects the 503 for these (unless the operation declares a 503
+ * of its own, which then names it too), and a test holds every one of them
+ * to it.
+ */
+export function answersIdempotencyStoreUnavailable(op: OperationSpec): boolean {
+  return (
+    op.method !== 'get' &&
+    op.method !== 'head' &&
+    (op.parameters ?? []).some((p) => p.in === 'header' && p.name === IdempotencyKeyParam.name)
+  );
+}
+
+/** Adding or changing a provider: the usual conflicts, or a deployment without a secrets store. */
+function providerChangeConflict(text: string): ResponseSpec {
+  return ErrorResponse(
+    `Idempotency-Key was reused with a different body, or resource-state conflict${text}. Or this deployment has no secrets store (\`identity-providers-need-secrets-store\`, \`KINDGI_SECRETS_BACKEND\`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.`,
+  );
+}
+
 // ---------------- operation registry ----------------
+
+function usageQueryParams(groupBy: string): ParameterSpec[] {
+  return [
+    {
+      name: 'from',
+      in: 'query',
+      required: true,
+      description:
+        'Records at or after this time: a time with a zone, such as `2026-11-01T00:00:00Z`.',
+      schema: { type: 'string', format: 'date-time' },
+    },
+    {
+      name: 'to',
+      in: 'query',
+      required: true,
+      description: 'Records before this time. At most 92 days after `from`.',
+      schema: { type: 'string', format: 'date-time' },
+    },
+    {
+      name: 'groupBy',
+      in: 'query',
+      required: false,
+      description: groupBy,
+      schema: { type: 'string' },
+    },
+    {
+      name: 'kind',
+      in: 'query',
+      required: false,
+      description:
+        'Only these kinds, comma-separated (`run.started`, `run.ended`, `approval.requested`, `approval.decided`, `llm.inference`, `llm.embedding`, `project.production`).',
+      schema: { type: 'string' },
+    },
+    {
+      name: 'class',
+      in: 'query',
+      required: false,
+      description:
+        'Only these run classes, comma-separated (`production`, `staging`, `dry-run`, `replay`, `eval`, `child`).',
+      schema: { type: 'string' },
+    },
+    {
+      name: 'state',
+      in: 'query',
+      required: false,
+      description:
+        "Only these states, comma-separated: `on`, `off` (`project.production`); `completed`, `failed`, `cancelled` (`run.ended`); `escalation` (`approval.requested`, an escalation's next tier); `approved`, `rejected`, `withdrawn`, `escalated`, `expired` (`approval.decided`).",
+      schema: { type: 'string' },
+    },
+    {
+      name: 'limit',
+      in: 'query',
+      required: false,
+      description: 'Groups a page: 1 to 10000, default 1000.',
+      schema: { type: 'integer', minimum: 1, maximum: 10000 },
+    },
+    {
+      name: 'cursor',
+      in: 'query',
+      required: false,
+      description: "The previous page's `nextCursor`.",
+      schema: { type: 'string' },
+    },
+  ];
+}
+
+// ---------------- pinned versions (flows, tools) ----------------
+
+const PinProjectQueryParam: ParameterSpec = {
+  name: 'projectId',
+  in: 'query',
+  required: false,
+  description:
+    "The project to resolve for; omit → only the org's pin (with `orgId`) and the workspace-wide pin apply.",
+  schema: { type: 'string', format: 'uuid' },
+};
+
+const PinOrgQueryParam: ParameterSpec = {
+  name: 'orgId',
+  in: 'query',
+  required: false,
+  description:
+    "The project's org, when it has one. A runtime may look it up from `projectId` itself.",
+  schema: { type: 'string', format: 'uuid' },
+};
+
+/** What the pin operations say about one kind of item. */
+interface PinKindSpec {
+  /** `flow` or `tool`: the error codes' prefix, and the noun in the text. */
+  readonly noun: string;
+  readonly tag: string;
+  readonly idParam: ParameterSpec;
+  /** `/v1/flows/{flowId}` */
+  readonly openapiBase: string;
+  /** `/v1/flows/:flowId` */
+  readonly honoBase: string;
+  /** What a pin does, in a sentence. */
+  readonly acts: string;
+  /** What `…/pinned` answers when no pin covers. */
+  readonly latest: string;
+  /** The pin write's own 400s and 409s, after the shared ones. */
+  readonly pin400: string;
+  readonly pin409: string;
+}
+
+const FLOW_PINS: PinKindSpec = {
+  noun: 'flow',
+  tag: 'flows',
+  idParam: FlowIdPathParam,
+  openapiBase: '/v1/flows/{flowId}',
+  honoBase: '/v1/flows/:flowId',
+  acts: "A run that names no flow version takes the version pinned for its project (the project's own pin, then its org's, then the workspace's), else the newest version the project reaches. A run that names its version isn't affected, and a run already started keeps its version.",
+  latest:
+    "else the newest version the project reaches, as a run that names no version takes it. A pin whose version doesn't reach the project is passed over, as a run passes it over.",
+  pin400: '',
+  pin409: '',
+};
+
+const TOOL_PINS: PinKindSpec = {
+  noun: 'tool',
+  tag: 'tools',
+  idParam: ToolIdPathParam,
+  openapiBase: '/v1/tools/{toolId}',
+  honoBase: '/v1/tools/:toolId',
+  acts: "An agent or flow version made in a project the pin covers (the project's own pin, then its org's, then the workspace's) locks the tool at the pinned version: a flow's tool step always, an agent's tool reference when the pinned version is in its range. A version already made keeps its lock; a pin reaches an agent or flow through its next version.",
+  latest:
+    'else the newest active version, the one a flow version made now would lock its tool step to.',
+  pin400:
+    " Or `tool-not-pinnable`: the tool follows its server (an MCP endpoint's catalog lists it; its metadata has the catalog's `kindgi.mcp` key) or the runtime (a tool the runtime ships), so a pin couldn't keep it still; reference it with a range.",
+  pin409:
+    " Or `environment-takes-promotions`: the project is a later environment of an environment order, where no agent or flow version is made, so a pin there would never act; pin the tool in the order's first environment (`details.firstProjectId`).",
+};
+
+/** The five pin operations of a flow or a tool (`routes/pinned-versions.ts`). */
+function pinnedVersionOperations(kind: PinKindSpec): readonly OperationSpec[] {
+  const { noun, tag, idParam } = kind;
+  const notFound = `\`${noun}-not-found\`: no ${noun} with that id, or the version isn't registered or was unregistered.`;
+  const readOnly =
+    " Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.";
+  return [
+    {
+      method: 'get',
+      honoPath: `${kind.honoBase}/pinned`,
+      openapiPath: `${kind.openapiBase}/pinned`,
+      operationId: `${tag}.pinned.resolve`,
+      summary: 'The version in use for a project',
+      description: `Resolves the version in use for a project (or an org, or the whole workspace): the most specific pin covering it (the project, its org, then the workspace) whose version is still active, ${kind.latest} \`via\` says which; \`pinnedScope\` names the pin that matched.`,
+      tags: [tag],
+      security: 'bearer',
+      parameters: [idParam, PinProjectQueryParam, PinOrgQueryParam],
+      responses: {
+        '200': { description: 'The version in use.', schema: ref('PinnedVersionResolution') },
+        ...CommonAuthErrors,
+        '400': ErrorResponse('A malformed project or org id.'),
+        '404': ErrorResponse(
+          `\`${noun}-not-found\`: no ${noun} with that id, or no version of it for that project.`,
+        ),
+      },
+    },
+    {
+      method: 'get',
+      honoPath: `${kind.honoBase}/pinned-versions`,
+      openapiPath: `${kind.openapiBase}/pinned-versions`,
+      operationId: `${tag}.pinned.list`,
+      summary: `List a ${noun}'s pinned versions`,
+      description: 'Every scope with a version pinned, and the change that set it.',
+      tags: [tag],
+      security: 'bearer',
+      parameters: [idParam],
+      responses: {
+        '200': { description: 'The pins.', schema: ref('PinnedVersionList') },
+        ...CommonAuthErrors,
+      },
+    },
+    {
+      method: 'post',
+      honoPath: `${kind.honoBase}/pinned/pin`,
+      openapiPath: `${kind.openapiBase}/pinned/pin`,
+      operationId: `${tag}.pinned.pin`,
+      summary: 'Pin a version for a scope',
+      description: `Pins \`version\` for \`scope\` (the workspace, an org or a project), or moves the scope's pin to it. ${kind.acts} The version must be registered and active. Pinning the version the scope already pins changes nothing and answers the change that set it. Every change is recorded, with who asked and why. Needs \`pin\` on the ${noun}.`,
+      tags: [tag],
+      security: 'bearer',
+      parameters: [idParam, IdempotencyKeyParam],
+      requestBody: { required: true, schema: ref('PinVersionBody') },
+      responses: {
+        '200': { description: 'Pinned.', schema: ref('PinnedVersionChange') },
+        ...CommonMutationErrors,
+        '400': ErrorResponse(
+          `Malformed request body. Or \`scope-invalid\`: a segment scope, since ${noun}s pin per project, org or workspace. Or \`reference-out-of-scope\`: a project scope whose project doesn't reach the ${noun === 'flow' ? 'version' : noun} (\`details.issues\`).${kind.pin400}`,
+        ),
+        '404': ErrorResponse(notFound),
+        '409': ErrorResponse(
+          `Idempotency-Key was reused with a different body. Or \`pin-scope-spans-environments\`: the ${noun} has a project in an environment order, and a workspace- or org-wide pin would act in every environment of the order at once; pin it per project instead.${kind.pin409}${readOnly}`,
+        ),
+        '410': ErrorResponse(`\`${noun}-gone\`: the ${noun} has no active version left.`),
+      },
+    },
+    {
+      method: 'post',
+      honoPath: `${kind.honoBase}/pinned/unpin`,
+      openapiPath: `${kind.openapiBase}/pinned/unpin`,
+      operationId: `${tag}.pinned.unpin`,
+      summary: "Remove a scope's pin",
+      description: `Removes the scope's own pin: the scope then follows the next scope up (its org's pin, then the workspace's), or, with none above, takes what it would if it had never been pinned. Recorded like a pin. Needs \`pin\` on the ${noun}.`,
+      tags: [tag],
+      security: 'bearer',
+      parameters: [idParam, IdempotencyKeyParam],
+      requestBody: { required: true, schema: ref('UnpinVersionBody') },
+      responses: {
+        '200': { description: 'Unpinned.', schema: ref('PinnedVersionChange') },
+        ...CommonMutationErrors,
+        '400': ErrorResponse(
+          `Malformed request body. Or \`scope-invalid\`: a segment scope, since ${noun}s pin per project, org or workspace.`,
+        ),
+        '404': ErrorResponse(`\`${noun}-not-found\`: no ${noun} with that id.`),
+        '409': ErrorResponse(
+          `Idempotency-Key was reused with a different body. Or \`not-pinned\`: the scope has no pin of its own.${readOnly}`,
+        ),
+      },
+    },
+    {
+      method: 'get',
+      honoPath: `${kind.honoBase}/pin-history`,
+      openapiPath: `${kind.openapiBase}/pin-history`,
+      operationId: `${tag}.pinned.history`,
+      summary: `List a ${noun}'s pin changes`,
+      description:
+        'Every pin and unpin of the item, newest first: what each scope pinned before and after, who asked and why.',
+      tags: [tag],
+      security: 'bearer',
+      parameters: [idParam, LimitQueryParam, CursorQueryParam],
+      responses: {
+        '200': { description: 'Page of pin changes.', schema: ref('PinnedVersionChangePage') },
+        ...CommonAuthErrors,
+      },
+    },
+  ];
+}
 
 export const OPERATIONS: readonly OperationSpec[] = [
   // ---------- health ----------
@@ -1519,20 +2046,20 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '404': ErrorResponse(
-        'Agent or flow not found; or `projectId` names no project of this tenant (`project-not-found`).',
+        "Agent or flow not found; or `projectId` names no project of this workspace (`project-not-found`); or `input.conversationId` names no conversation of this workspace (`conversation-not-found`), answered before any turn starts, with `options.wait: false` too. A caller who can't read the conversation gets the same answer, byte for byte, in place of the 409 for a turn naming another project, of the 403 for a turn into it they may not add (a conversation with no participant, or `participant-not-allowed` for its stored participant), or of the 409 for a closed conversation they may not add a turn to.",
       ),
       '403': ErrorResponse(
-        "No `execute` on the agent or flow; naming a `projectId` without `write` on it; or a turn run as a participant whose memory the caller may not read (`participant-not-allowed`). A turn runs with its participant's memory (the conversation's stored participant, else `input.participantId`), so running as one takes being them (a person, by their user id) or `write` on the turn's project, as reading their memory does.",
+        "No `execute` on the agent or flow; or, for one more than one project serves run in one of its projects (the one named, else the conversation's, else a project-scoped key's when it is one of them, else its first), no `call` there for an agent (`caller` or `editor`) or `execute` there for a flow (`executor` or `editor`), asked in place of its own `execute` and of `write` on a named project; otherwise, naming a `projectId` without `write` on it; or a turn run as a participant whose memory the caller may not read (`participant-not-allowed`; for a conversation's stored participant, only to a caller who can read the conversation). A turn runs with its participant's memory (the conversation's stored participant, else `input.participantId`), so running as one takes being them (a person, by their user id) or `write` on the turn's project, as reading their memory does. A turn into a conversation with no participant takes having opened it (the caller `?openedBy=me` names) or `write` on its project (on its agent, for a conversation from before projects): `permission-denied`, with `details.resource` the conversation, to a caller who can read it.",
       ),
       '422': ErrorResponse('Guardrail violation or budget exceeded.'),
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body; or an erasure of the turn's person (its conversation or its `participantId`) is in progress (`erasure-in-progress`): no new turn starts for them until it completes; or the run's project is suspended (`project-suspended`): no run starts in it until it's restored.",
+        "Idempotency-Key was reused with a different body; or `projectId` names a project other than `input.conversationId`'s (`conversation-project-mismatch`, with `details.projectId` and `details.conversationProjectId`): a conversation belongs to one project, so name its own or omit `projectId`; or an erasure of the turn's person (its conversation or its `participantId`) is in progress (`erasure-in-progress`): no new turn starts for them until it completes; or the run's project is suspended (`project-suspended`): no run starts in it until it's restored; or `input.conversationId` names a closed conversation (`conversation-closed`, with `details.conversationId`): it takes no new turns, so start a new one. It's answered before a run is made, with `options.wait: false` too, and only once the caller may add the turn: the 404 and 403 rules come first.",
       ),
       '400': ErrorResponse(
-        "Malformed request body, or the body's `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: the agent or flow isn't registered in the named `projectId`'s project, its org or the tenant (`details.issues`).",
+        "Malformed request body, or the body's `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: the agent or flow isn't registered in the named `projectId`'s project, its org or the workspace (`details.issues`).",
       ),
       '429': ErrorResponse(
-        "A limit of the tenant's (set by the runtime's operator): past its limit on runs waiting to start, `rate-limit-exceeded` with `details.limit: 'runs-pending'`, with the limit in `details.runsPending`; a turn whose gate asked for an approval past its limit on approvals waiting for a decision, `approvals-pending-limit` (`details.approvalsPending`), when the call waits for the run (with `options.wait: false`, the call answers 202 and the run fails with that code). On a server with budgets kept per tenant (Kindgi Cloud), also `rate-limit-exceeded` when work the agent's turn needed was refused, because this tenant's work of that kind took `details.budgetMs` in the last 60 seconds: `details.limit` names the budget, `template-render-time` (rendering instructions templates) or `schema-compile-time` (compiling schemas). The turn's run failed with this error (`details.runId`); `Retry-After` says when to start the turn again.",
+        "A limit of the workspace's (set by the runtime's operator): past its limit on runs waiting to start, `rate-limit-exceeded` with `details.limit: 'runs-pending'`, with the limit in `details.runsPending`; a turn whose gate asked for an approval past its limit on approvals waiting for a decision, `approvals-pending-limit` (`details.approvalsPending`), when the call waits for the run (with `options.wait: false`, the call answers 202 and the run fails with that code). On a server with budgets kept per workspace (Kindgi Cloud), also `rate-limit-exceeded` when work the agent's turn needed was refused, because this workspace's work of that kind took `details.budgetMs` in the last 60 seconds: `details.limit` names the budget, `template-render-time` (rendering instructions templates) or `schema-compile-time` (compiling schemas). The turn's run failed with this error (`details.runId`); `Retry-After` says when to start the turn again.",
       ),
     },
   },
@@ -1554,7 +2081,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       TopLevelQueryParam,
       RunAgentIdQueryParam,
       RunReplaysQueryParam,
-      RunEvalRunIdQueryParam,
+      RunTestRunIdQueryParam,
       RunTriggerIdQueryParam,
       RunIncludeQueryParam,
       RunStatusQueryParam,
@@ -1577,7 +2104,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'runs.failures',
     summary: "A project's failed runs, grouped by cause and version",
     description:
-      "Counts from the server, never from a page: per group, how many runs failed, when the first and the latest failed in the window, and the latest run. People's decisions (`hitl-*`: an approval rejected, cancelled or timed out) come apart as `outcomes`, never as failures. Runs that failed before their cause was recorded come apart as `unrecorded`, by subject and version only. Replays, eval runs' runs and dry runs aren't counted; a child run counts under its own agent or flow. Failed runs go with their retention, so a window can hold fewer than happened. Needs `read` on the project.",
+      "Counts from the server, never from a page: per group, how many runs failed, when the first and the latest failed in the window, and the latest run. People's decisions (`hitl-*`: an approval rejected, cancelled or timed out) come apart as `outcomes`, never as failures. Runs that failed before their cause was recorded come apart as `unrecorded`, by subject and version only. Replays, test runs' runs and dry runs aren't counted; a child run counts under its own agent or flow. Failed runs go with their retention, so a window can hold fewer than happened. Needs `read` on the project.",
     tags: ['runs'],
     security: 'bearer',
     parameters: [
@@ -1657,7 +2184,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse('`runId` is not a run id (a UUID).'),
       '200': { description: 'Run row.', schema: ref('Run') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No run with that id under this tenant.'),
+      '404': ErrorResponse('No run with that id under this workspace.'),
     },
   },
   {
@@ -1674,7 +2201,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Updated run row.', schema: ref('Run') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No run with that id under this tenant.'),
+      '404': ErrorResponse('No run with that id under this workspace.'),
     },
   },
   {
@@ -1682,16 +2209,32 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/runs/:runId/resume',
     openapiPath: '/v1/runs/{runId}/resume',
     operationId: 'runs.resume',
-    summary: 'Resume a suspended run at a waitpoint (not available in this release)',
+    summary: "Answer a run's wait for another system",
     description:
-      'Not available in this release: always `422 run-resume-not-supported`, and no waitpoint is completed. Every waitpoint a run can wait at belongs to an approval or to the runtime itself. A run waiting for an approval continues when a reviewer decides it: `POST /v1/approvals/{approvalId}/complete`.',
+      "Answers a run paused on a tool call until another system answers (a pack tool that declares `pauses`; its waitpoint id starts with `pause:`, as the run's `waitingFor.tokens` lists it), as that system would through the wait token's link, and resumes the run in the same request. `value` is the tool's output, checked against its output schema; absent, `{}`. Answering stands in for the other system, and the run acts on the answer, so it needs `write` on the run's project and `execute` on the agent or flow it runs, as starting it does. The same answer again is accepted again, even after the run has ended; a different one to a wait that's over is `409 wait-token-closed`. Every other waitpoint belongs to an approval or to the runtime itself, and is `422 run-resume-not-supported`: a run waiting for an approval continues when a reviewer decides it (`POST /v1/approvals/{approvalId}/complete`).",
     tags: ['runs'],
     security: 'bearer',
     parameters: [RunIdPathParam, IdempotencyKeyParam],
     requestBody: { required: true, schema: ref('ResumeRunBody') },
     responses: {
+      '200': {
+        description:
+          'The run after the answer: running again, finished, or waiting at its next wait (`waitingFor`).',
+        schema: ref('Run'),
+      },
       ...CommonMutationErrors,
-      '422': ErrorResponse('`run-resume-not-supported`: not available in this release.'),
+      '400': ErrorResponse(
+        "`bad-input`: no `waitpointId`, or a field the body doesn't take. `wait-token-output-invalid` (`details.issues`): the value doesn't fit the tool's output schema, and the wait stays open.",
+      ),
+      '404': ErrorResponse(
+        '`run-not-found`: no run with that id under this workspace. `wait-token-not-found`: the run has no such wait.',
+      ),
+      '409': ErrorResponse(
+        "`wait-token-closed` (`details.state`): the wait is over (`completed`, `timed-out`, `cancelled`, `unused`), or holds a different answer the run hasn't taken yet (`answered`). `project-suspended`: nothing runs in the run's project, and the suspension cancels its runs, so the value wasn't taken. Or an `Idempotency-Key` reused with a different body.",
+      ),
+      '422': ErrorResponse(
+        "`run-resume-not-supported`: a waitpoint that isn't a pause, or a runtime that pauses no run.",
+      ),
     },
   },
   {
@@ -1711,7 +2254,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '200': { description: 'Journal page.', schema: ref('RunJournalPage') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No run with that id under this tenant.'),
+      '404': ErrorResponse('No run with that id under this workspace.'),
     },
   },
   {
@@ -1733,7 +2276,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('RunEvent'),
       },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No run with that id under this tenant.'),
+      '404': ErrorResponse('No run with that id under this workspace.'),
     },
   },
   {
@@ -1785,7 +2328,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'signingKeys.trust',
     summary: 'Trust a signing key',
     description:
-      "Adds a public key to the tenant's trust list: deployments it signs verify. Needs the `signing-keys:write` capability. Trusting the same key again answers `200`; a known `keyId` with a different public key is `409 signing-key-conflict` (rotate under a new id). Mounted when the deployment supplies a signing-key registry.",
+      "Adds a public key to the workspace's trust list: deployments it signs verify. Needs the `signing-keys:write` capability. Trusting the same key again answers `200`; a known `keyId` with a different public key is `409 signing-key-conflict` (rotate under a new id). Mounted when the deployment supplies a signing-key registry.",
     tags: ['signing-keys'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -1794,6 +2337,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Trusted.', schema: ref('TrustedSigningKey') },
       '200': { description: 'Already trusted.', schema: ref('TrustedSigningKey') },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        `Not a tenant admin, or the key doesn't carry the \`signing-keys:write\` capability (\`permission-denied\`). ${WITHOUT_STORE_ADMIN}`,
+      ),
       '409': ErrorResponse(
         '`keyId` is already trusted with a different public key (`signing-key-conflict`), or was revoked (`signing-key-revoked`: revocation is final).',
       ),
@@ -1830,6 +2376,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of trusted keys.', schema: ref('TrustedSigningKeyPage') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
     },
   },
   {
@@ -1845,7 +2392,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The key.', schema: ref('TrustedSigningKey') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No signing key with that id under this tenant.'),
+      ...TenantSettingReadErrors,
+      '404': ErrorResponse('No signing key with that id under this workspace.'),
     },
   },
   {
@@ -1866,6 +2414,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('RevokeSigningKeyResult'),
       },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        `Not a tenant admin, or the key doesn't carry the \`signing-keys:write\` capability (\`permission-denied\`). ${WITHOUT_STORE_ADMIN}`,
+      ),
     },
   },
 
@@ -1886,7 +2437,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Token minted.', schema: ref('MintTokenResult') },
       ...CommonMutationErrors,
       '409': ErrorResponse(
-        "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`, with its `status` and `at`).",
+        "`for` names a project's own service account, which has no keys (`service-account-project-owned`). Or Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`, with its `status` and `at`).",
       ),
       '403': ErrorResponse(
         "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`); a key that would outlive the key minting it, with an `expiresAt` later than that key's or none (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a session limited to a project or a role, which mints no keys (`limited-session-cannot-mint`); a key for a person a site signs in, whose access is only the sessions their site gives (`site-person-grants-managed`).",
@@ -1895,7 +2446,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed request body, or the body's `projectId` isn't a project id (a UUID).",
       ),
       '404': ErrorResponse(
-        "The body's `projectId` names no project of this tenant (`project-not-found`), or `for` names no person or service account (`principal-not-found`).",
+        "The body's `projectId` names no project of this workspace (`project-not-found`), or `for` names no person or service account (`principal-not-found`).",
       ),
     },
   },
@@ -1972,7 +2523,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemKeys.mint',
     summary: 'Mint a system key',
     description:
-      "A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token on a runtime serving many tenants, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. A runtime serving one tenant has no system keys: there, the deployment's own token is that tenant's, and this route isn't mounted.",
+      "A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. On a runtime serving one tenant, only the deployment's own token reaches the system keys, and a key holds `system:license` alone: it reads `GET /v1/license` and `GET /v1/license/usage`, for the license renewal, and every other route refuses it.",
     tags: ['system-keys'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -1981,16 +2532,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'System key minted.', schema: ref('MintSystemKeyResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        'Malformed request body: no scopes, one that is not a system scope, a scope twice, `kindgi:system` beside another, a past `expiresAt`, or an empty label.',
+        'Malformed request body: no scopes, one that is not a system scope, a scope twice, `kindgi:system` beside another, a past `expiresAt`, or an empty label; on a runtime serving one tenant, any scope but `system:license`.',
       ),
       '403': ErrorResponse(
-        "A tenant's key or session (`system-principal-required`); a scoped system key (`system-scope-missing`, `details.scope` `kindgi:system`); a key that would outlive the key minting it (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a full key minted by another system key without `expiresAt` (`system-key-expiry-required`: only the deployment's own token mints one that never expires).",
+        "A tenant's key or session (`system-principal-required`); a scoped system key (`system-scope-missing`, `details.scope` `kindgi:system`; on a runtime serving one tenant, `system-key-scope-not-served` for one holding anything but `system:license`); a key that would outlive the key minting it (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a full key minted by another system key without `expiresAt` (`system-key-expiry-required`: only the deployment's own token mints one that never expires).",
       ),
       '409': ErrorResponse(
         "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`).",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`): a request that changes something is recorded before it acts.",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`): a request that changes something is recorded before it acts. Or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`), so nothing was changed.",
       ),
     },
   },
@@ -2001,14 +2552,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemKeys.list',
     summary: 'List system keys',
     description:
-      "The operator's system keys (`kgi_sy_…`) on a runtime serving many tenants: each acts in no tenant, for one service, with the scopes it was minted with. Newest first, revoked ones too. Never returns secrets. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) lists them.",
+      "The operator's system keys (`kgi_sy_…`): each acts in no tenant, for one service, with the scopes it was minted with. Newest first, revoked ones too. Never returns secrets. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) lists them; on a runtime serving one tenant, the deployment's own token alone.",
     tags: ['system-keys'],
     security: 'bearer',
     responses: {
       '200': { description: 'The system keys.', schema: ref('SystemKeyList') },
       ...CommonAuthErrors,
       '403': ErrorResponse(
-        "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`).",
+        "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`; on a runtime serving one tenant, `system-key-scope-not-served` for one holding anything but `system:license`).",
       ),
     },
   },
@@ -2019,7 +2570,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemKeys.revoke',
     summary: 'Revoke a system key',
     description:
-      "Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them.",
+      "Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them; on a runtime serving one tenant, the deployment's own token alone.",
     tags: ['system-keys'],
     security: 'bearer',
     parameters: [
@@ -2039,12 +2590,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`).",
+        "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`; on a runtime serving one tenant, `system-key-scope-not-served` for one holding anything but `system:license`).",
       ),
       '400': ErrorResponse('`keyId` is not a system key id (a UUID).'),
       '404': ErrorResponse('No system key with that id (`system-key-not-found`).'),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2077,7 +2628,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Another tenant has the slug, or a create whose setup is pending holds it with another request (`tenant-slug-taken`); or its image prefix overlaps another tenant's (`image-prefix-taken`); or an Idempotency-Key reused with another body; or that key's replay, when the first answer held the admin key (`idempotency-key-replay-withheld`).",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2129,13 +2680,52 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'patch',
+    honoPath: '/v1/system/tenants/:tenantId',
+    openapiPath: '/v1/system/tenants/{tenantId}',
+    operationId: 'systemTenants.update',
+    summary: 'Rename a tenant',
+    description:
+      "Changes its name, its slug, or both, as the tenant's own admins can (`PATCH /v1/tenant`); a field left out stays as it is. Its id stays. The same values again change nothing. Takes `system:tenants`. A closing tenant is refused (`409 tenant-closing`). A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('TenantPatch') },
+    responses: {
+      '204': { description: 'Renamed, or already so. No body.' },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'A malformed body or a field out of its rules (`bad-input`), or a field other than `name` and `slug` (`unknown-field`).',
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '409': ErrorResponse(
+        "Another tenant has the slug (`tenant-slug-taken`); the server's verified sign-in domains name the tenant by its current slug, or name the new one (`tenant-slug-in-config`); the tenant is closing (`tenant-closing`); its setup hasn't finished (`tenant-setup-pending`); or an Idempotency-Key reused with another body.",
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+      ),
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/system/tenants/:tenantId/close',
     openapiPath: '/v1/system/tenants/{tenantId}/close',
     operationId: 'systemTenants.close',
     summary: 'Close a tenant',
     description:
-      'Starts the end of its contract: the tenant becomes `closing`. Its own keys and sessions still read and export it for its window; nothing runs (its running runs are cancelled), and nothing is written but deletes. One-way: the purge follows the window. A second close keeps the first. Takes `system:tenants`.',
+      'Starts the end of its contract: the tenant becomes `closing`. Its own keys and sessions still read and export it for its window; nothing runs (its unfinished runs, waiting ones included, are cancelled), and nothing is written but deletes. One-way: the purge follows the window. A second close keeps the first. Takes `system:tenants`.',
     tags: ['system-tenants'],
     security: 'bearer',
     parameters: [
@@ -2156,7 +2746,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2167,7 +2757,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemTenants.setSuspended',
     summary: 'Suspend a tenant, or restore it',
     description:
-      "Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its running runs are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or pass hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).",
+      "Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its unfinished runs, waiting ones included, are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or Improve run hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).",
     tags: ['system-tenants'],
     security: 'bearer',
     parameters: [
@@ -2192,7 +2782,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2229,7 +2819,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The tenant is closing (`tenant-closing`); the prefix equals, holds or sits inside another tenant's (`image-prefix-taken`); or an Idempotency-Key reused with another body.",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2240,7 +2830,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemTenants.setProjectSuspended',
     summary: "Suspend one of a tenant's projects, or restore it",
     description:
-      "Reversible: nothing new runs or deploys in the project, its running runs are cancelled and its deployments retired; reads and the rest of the tenant are untouched. Its schedules' fires are recorded `skipped` (`project-suspended`) and don't count toward the auto-pause, so a schedule stays on and fires again once the project is restored. A delivery to one of its webhook triggers is answered `skipped: project-suspended`, and nothing is recorded. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`. A closing tenant is refused (`409 tenant-closing`).",
+      "Reversible: nothing new runs or deploys in the project, its unfinished runs, waiting ones included, are cancelled, and its deployments retired; reads and the rest of the tenant are untouched. Its schedules' fires are recorded `skipped` (`project-suspended`) and don't count toward the auto-pause, so a schedule stays on and fires again once the project is restored. A delivery to one of its webhook triggers is answered `skipped: project-suspended`, and nothing is recorded. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`. A closing tenant is refused (`409 tenant-closing`).",
     tags: ['system-tenants'],
     security: 'bearer',
     parameters: [
@@ -2275,7 +2865,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2308,19 +2898,69 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'post',
+    honoPath: '/v1/system/tenants/:tenantId/purge',
+    openapiPath: '/v1/system/tenants/{tenantId}/purge',
+    operationId: 'systemTenants.purge',
+    summary: 'Purge a closed tenant, for good',
+    description:
+      "Deletes a `closing` tenant whose 30-day export window has passed: every row of it, its artifacts' bytes and its authorization store. Once nothing of it is left, its purge record is written, so a restore from an older backup purges it again, and it's marked purged: its tenants row stays, and nothing of it signs in or is served. Then, once each server has seen the mark, it deletes again what work under way at the mark wrote meanwhile. Irreversible. `confirm` is the tenant's slug, a second check on the id. It answers when done. Safe to run again: a run that stopped part-way (`complete: false`, or a request that ended before its answer) is finished by the next, and on a tenant already purged it deletes what was written after its mark, leaving its mark and its record as they were. A run again is a new request: a new Idempotency-Key, or none. Takes its own scope, `system:tenants:purge`, which no other scope includes, or `kindgi:system`.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('PurgeTenantBody') },
+    responses: {
+      '200': {
+        description: 'What it deleted, and what of it is left.',
+        schema: ref('SystemTenantPurge'),
+      },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "No `confirm`, or one that isn't the tenant's slug (`tenant-slug-mismatch`). Nothing was changed.",
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants:purge` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse(
+        'No tenant with that id (`tenant-not-found`). A purged one is found, for a run again.',
+      ),
+      '409': ErrorResponse(
+        "Nothing was changed: the tenant isn't closing (`tenant-not-closing`), or its export window is still open (`tenant-export-window-open`); the runtime has nowhere set to keep purge records (`purge-record-unset`), or lacks the setting that reaches what the tenant holds (`purge-setting-missing`); or an Idempotency-Key reused with another body.",
+      ),
+      '501': ErrorResponse("This runtime doesn't purge tenants (`tenant-purge-unsupported`)."),
+      '502': ErrorResponse(
+        "Deleting the tenant's authorization store failed (`authz-store-delete-failed`): the message says what that left. Run it again.",
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+      ),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/system/whoami',
     openapiPath: '/v1/system/whoami',
     operationId: 'systemKeys.whoami',
     summary: 'Which system key this is',
     description:
-      "A system key's own id, scopes and expiry, for a service checking its key. Any system principal; a tenant's key or session is refused (`system-principal-required`). `GET /v1/identity/whoami` is a tenant route, which refuses a system key.",
+      "A system key's own id, scopes and expiry, for a service checking its key: any system principal, on a runtime serving many tenants. A tenant's key or session is refused (`system-principal-required`). `GET /v1/identity/whoami` is a tenant route, which refuses a system key. A runtime serving one tenant answers no one here: its own token is that tenant's outside `/v1/system/keys`, and a system key reads the license routes alone.",
     tags: ['system-keys'],
     security: 'bearer',
     responses: {
       '200': { description: 'The key.', schema: ref('SystemWhoami') },
       ...CommonAuthErrors,
-      '403': ErrorResponse("A tenant's key or session (`system-principal-required`)."),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`). On a runtime serving one tenant, the deployment's own token too (`system-principal-required`), a system key (`system-scope-missing`), and one holding anything but `system:license` (`system-key-scope-not-served`).",
+      ),
     },
   },
   // ---------- system: tenant settings and usage ----------
@@ -2418,15 +3058,198 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
     },
   },
+  {
+    method: 'put',
+    honoPath: '/v1/system/tenants/:tenantId/env/:name',
+    openapiPath: '/v1/system/tenants/{tenantId}/env/{name}',
+    operationId: 'systemEnv.setCloudSecret',
+    summary: 'Set an env name to a cloud secret',
+    description:
+      "Sets an env name, at a scope of the tenant and one env, to a version of a secret the operator's cloud holds. A pack service whose pack declares the name is given it by that name, and its host reads the value from the cloud as the pack service's own account: the runtime keeps the name, never a value. Every pack service runs as that one account, so only a system key sets one. The version is a number, so what a pack service runs changes only when this does. A name set both to this and to a plain value or a secret is `pack-env-ambiguous`. The tenant sees the name as set (`GET /v1/env/cloud-secrets`, the pack-env check), never the path. Recorded as `env-set` in the tenant's audit record, naming the system key and marked `cloudSecret`, never with the path. Every write bumps `revision`; `ifRevision` guards it. Takes `system:env-refs`. A closing tenant is frozen: `409 tenant-closing`.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      EnvEntryNamePathParam,
+      EnvNameQueryParam,
+      ScopeKindRequiredQueryParam,
+      ScopeIdQueryParam,
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('EnvCloudSecretSetRequest') },
+    responses: {
+      '200': { description: 'The cloud secret now.', schema: ref('EnvCloudSecret') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "`cloudSecret` isn't a numbered version of a secret, or names a `kp-` secret (`cloud-secret-invalid`); or a missing or malformed scope or `envName`, or another field in the body (`bad-input`).",
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:env-refs` (`system-scope-missing`). On a runtime serving one tenant, a system key reaches these only when it runs a pack service per deployment.",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '409': ErrorResponse(
+        `\`ifRevision\` mismatch (\`env-write-conflict\`); the tenant is closing (\`tenant-closing\`); or an Idempotency-Key reused with another body. Or ${ENV_NOT_SERVED_VALUE}`,
+      ),
+      '501': ErrorResponse(
+        'This runtime keeps no cloud secrets (`cloud-secrets-unsupported`): hosted, for one.',
+      ),
+    },
+  },
+  {
+    method: 'delete',
+    honoPath: '/v1/system/tenants/:tenantId/env/:name',
+    openapiPath: '/v1/system/tenants/{tenantId}/env/{name}',
+    operationId: 'systemEnv.deleteCloudSecret',
+    summary: "Remove an env name's cloud secret",
+    description:
+      "Removes the cloud secret an env name is set to, at that scope and env: its pack services lose the name at their next revision. Idempotent: `{ deleted: false }` when there's none. Recorded as `env-deleted` in the tenant's audit record, naming the system key and marked `cloudSecret`, never with the path. Takes `system:env-refs`. A closing tenant is frozen: `409 tenant-closing`.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      EnvEntryNamePathParam,
+      EnvNameQueryParam,
+      ScopeKindRequiredQueryParam,
+      ScopeIdQueryParam,
+    ],
+    responses: {
+      '200': { description: 'Delete outcome.', schema: ref('EnvDeleteResult') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Missing or malformed scope / envName.'),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:env-refs` (`system-scope-missing`). On a runtime serving one tenant, a system key reaches these only when it runs a pack service per deployment.",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '409': ErrorResponse('The tenant is closing (`tenant-closing`).'),
+      '501': ErrorResponse(
+        'This runtime keeps no cloud secrets (`cloud-secrets-unsupported`): hosted, for one.',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/system/tenants/:tenantId/env',
+    openapiPath: '/v1/system/tenants/{tenantId}/env',
+    operationId: 'systemEnv.listCloudSecrets',
+    summary: "List a tenant's cloud secrets",
+    description:
+      'The env names set to a cloud secret at one scope of the tenant and one env, in name order, each with its `cloudSecret`. Takes `system:env-refs`.',
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      EnvNameQueryParam,
+      ScopeKindRequiredQueryParam,
+      ScopeIdQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
+    responses: {
+      '200': { description: 'A page of them.', schema: ref('EnvCloudSecretPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Missing or malformed scope / envName.'),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:env-refs` (`system-scope-missing`). On a runtime serving one tenant, a system key reaches these only when it runs a pack service per deployment.",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '501': ErrorResponse(
+        'This runtime keeps no cloud secrets (`cloud-secrets-unsupported`): hosted, for one.',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/system/usage',
+    openapiPath: '/v1/system/usage',
+    operationId: 'systemUsage.read',
+    summary: 'Read usage across tenants',
+    description:
+      "Usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Records are counted when the counted thing happens, exactly once (the kinds `kind` lists, each run with its class). `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end; every page of one read carries the same watermark. A test tenant's usage, and one whose setup is pending, are never in the answer, even when `tenantId` names one. Takes `system:usage:read`; the access record marks a read across every tenant, or of the one named. A runtime that doesn't count usage (`KINDGI_USAGE_METERING` unset or `off`) answers 404.",
+    tags: ['system-usage'],
+    security: 'bearer',
+    parameters: [
+      ...usageQueryParams(
+        'Comma-separated, each once: `tenant`, `project`, `agent`, `kind`, `class`, `state`, `day` (the UTC date). Default `tenant,kind`.',
+      ),
+      {
+        name: 'tenantId',
+        in: 'query',
+        required: false,
+        description: 'Only this tenant.',
+        schema: { type: 'string', format: 'uuid' },
+      },
+    ],
+    responses: {
+      '200': { description: 'A page of groups.', schema: ref('UsagePage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        "A window, filter, `limit` or `cursor` this route can't read (`bad-input`), naming which.",
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:usage:read` (`system-scope-missing`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/usage',
+    openapiPath: '/v1/usage',
+    operationId: 'usage.read',
+    summary: "Read your workspace's usage",
+    description:
+      "Your workspace's usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Over the projects you may read: a tenant admin's covers every project and the records with none; anyone else's, only the projects they may read, and one they can't read is absent rather than an error. `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end; every page of one read carries the same watermark. A runtime that doesn't count usage (`KINDGI_USAGE_METERING` unset or `off`) answers 404. Model-call cost is on `/v1/cost`.",
+    tags: ['usage'],
+    security: 'bearer',
+    parameters: [
+      ...usageQueryParams(
+        'Comma-separated, each once: `project`, `agent`, `kind`, `class`, `state`, `day` (the UTC date). Default `project,kind`.',
+      ),
+      {
+        name: 'projectId',
+        in: 'query',
+        required: false,
+        description: "Only this project. One you can't read gives an empty answer.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+    ],
+    responses: {
+      '200': { description: 'A page of groups.', schema: ref('UsagePage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        "A window, filter, `limit` or `cursor` this route can't read (`bad-input`), naming which.",
+      ),
+      '403': ErrorResponse(
+        "The projects you may read can't be listed on this deployment, so usage across projects can't be limited to them (`permission-denied`): ask for one with `projectId`.",
+      ),
+    },
+  },
   // ---------- system deployments (per-deployment routing) ----------
   {
     method: 'get',
     honoPath: '/v1/system/deployments',
     openapiPath: '/v1/system/deployments',
     operationId: 'systemDeployments.list',
-    summary: 'List deployments that need a pack service, or should lose theirs',
+    summary: 'List deployments that need a pack service, have a ready one, or should lose theirs',
     description:
-      "Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (the newest deployment with routes for some tool version or pack check), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.",
+      "Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each serves something a call can still ask for, and no newer deployment into its project serves it: a tool, agent or flow version that's registered or held (a flow or agent version a run can reach pins it, or an unfinished run uses it), a tool deployed without a version, or a pack check a registered guardrail runs in its project (from Kindgi 0.4.0; before, each was the newest into its project with routes for some tool version or pack check, and one whose endpoint an earlier runtime made or last set still needs that too). Each has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=ready`: deployments whose endpoint is `ready` and whose pack service stays (no `retire` reason applies). Both lists say whether each service is `warm`: keep an instance running. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.",
     tags: ['system-deployments'],
     security: 'bearer',
     parameters: [
@@ -2435,8 +3258,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
         in: 'query',
         required: true,
         description:
-          '`missing`: deployments that need a pack service. `retire`: deployments whose pack service should go.',
-        schema: { type: 'string', enum: ['missing', 'retire'] },
+          '`missing`: deployments that need a pack service. `ready`: deployments whose pack service is ready and stays. `retire`: deployments whose pack service should go.',
+        schema: { type: 'string', enum: ['missing', 'ready', 'retire'] },
       },
       CursorQueryParam,
       LimitQueryParam,
@@ -2445,10 +3268,72 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'One page of deployments.', schema: ref('SystemDeploymentPage') },
       ...CommonAuthErrors,
       '400': ErrorResponse(
-        '`endpoint` missing or neither `missing` nor `retire`; a `limit` out of range; a cursor refused.',
+        '`endpoint` missing or not one of `missing`, `ready` and `retire`; a `limit` out of range; a cursor refused.',
       ),
       '403': ErrorResponse(
         "A tenant's key or session (`system-principal-required`), or a system key without `system:deployments` (`system-scope-missing`).",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/system/deployments/round',
+    openapiPath: '/v1/system/deployments/round',
+    operationId: 'systemDeployments.claimRound',
+    summary: "Claim the orchestrator's round",
+    description:
+      "One orchestrator pass at a time, whatever starts them (scheduled runs can overlap): a pass claims the round before it acts, for `holdSeconds`, and stops on a `409`. A claim is never renewed, the claimant's own included: the pass ends within its hold (`round/end`), or its claim lapses and the next pass takes the round over. Takes `system:deployments`.",
+    tags: ['system-deployments'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('ClaimOrchestratorRoundBody') },
+    responses: {
+      '200': { description: 'Claimed, until `heldUntil`.', schema: ref('OrchestratorRound') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A malformed body, a `claimant` that isn't 1 to 128 printable characters, or a `holdSeconds` that isn't a whole number from 30 to 3600 (`bad-input`).",
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:deployments` (`system-scope-missing`).",
+      ),
+      '409': ErrorResponse(
+        "Another pass's live claim holds the round (`orchestrator-round-held`): this pass stops.",
+      ),
+      '501': ErrorResponse(
+        'This server keeps no orchestrator round (`orchestrator-round-unsupported`): whatever runs its pack services keeps one pass at a time itself.',
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/system/deployments/round/end',
+    openapiPath: '/v1/system/deployments/round/end',
+    operationId: 'systemDeployments.endRound',
+    summary: "End the orchestrator's round",
+    description:
+      'Ends the round the pass claimed, so the next pass claims it at once instead of waiting for the hold to lapse. Takes `system:deployments`.',
+    tags: ['system-deployments'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('EndOrchestratorRoundBody') },
+    responses: {
+      '204': { description: 'Ended.' },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('A malformed body, or a malformed `claimant` (`bad-input`).'),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:deployments` (`system-scope-missing`).",
+      ),
+      '409': ErrorResponse(
+        "The claimant doesn't hold the round: its hold ran out, and another pass may hold it now (`orchestrator-round-not-held`).",
+      ),
+      '501': ErrorResponse(
+        'This server keeps no orchestrator round (`orchestrator-round-unsupported`).',
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2486,7 +3371,101 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The host isn't allowed (`endpoint-host-not-allowed`) or doesn't name the deployment's service (`endpoint-name-mismatch`, with `details.expected`); the pack service didn't answer (`endpoint-unreachable`) or answered as another pack or version (`endpoint-info-mismatch`, with `details.differs`).",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/system/pack-env',
+    openapiPath: '/v1/system/pack-env',
+    operationId: 'systemDeployments.listPackEnvChanged',
+    summary: 'List deployments whose pack service runs on values that changed',
+    description:
+      "Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision, but for one held as `pack-env-update-failed`, listed for an hour after it was first held so it's tried again, and one held for a cause the platform fixes, `pack-env-secret-unreadable` or `pack-env-secrets-unaudited`, listed every time with its `held`, as the revision doesn't move when that's fixed). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`, sending back the `appliedRevision` it was listed with. Ids, the image and the revision each runs, never a value. Takes `system:pack-env`.",
+    tags: ['system-deployments'],
+    security: 'bearer',
+    parameters: [CursorQueryParam, LimitQueryParam],
+    responses: {
+      '200': { description: 'One page of deployments.', schema: ref('SystemPackEnvPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('A `limit` out of range, or a cursor refused.'),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:pack-env` (`system-scope-missing`).",
+      ),
+      '501': ErrorResponse(
+        "The server doesn't give a pack service its declared env: its pack services take theirs from how they're run (`pack-env-unsupported`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/system/tenants/:tenantId/deployments/:deploymentId/pack-env',
+    openapiPath: '/v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env',
+    operationId: 'systemDeployments.getPackEnv',
+    summary: "Read the env a deployment's pack service is to be given",
+    description:
+      "For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the values when nothing stands in the way. A name set two ways (`pack-env-ambiguous`: two of a plain value, a secret and a cloud secret), a required one set nowhere (`pack-env-missing`), or one set only as a secret whose value wasn't asked for (`pack-env-secret-not-yet`) is a `problem`, and then no value is given. With `secrets=values`, each name set only as a secret is given in `secrets`, read at the version its revision names; a secret that can't be read for a reason the platform fixes is `pack-env-secret-unreadable`, and then no value is given. Each name set to a cloud secret is given in `cloudSecrets`, with its version's resource name, for the pack service's host to read as the pack service's own account. Each value given out is on the audit record, a secret's written before the answer. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value, and `kindgi:system` no secret's.",
+    tags: ['system-deployments'],
+    security: 'bearer',
+    parameters: [SystemTenantIdPathParam, SystemDeploymentIdPathParam, PackEnvSecretsQueryParam],
+    responses: {
+      '200': {
+        description: 'Where each name is set, and the values when there is no problem.',
+        schema: ref('SystemPackEnv'),
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('A `secrets` other than `values` (`bad-input`).'),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), a system key without `system:pack-env` (`system-scope-missing`), or with `secrets=values`, a key that doesn't hold `system:pack-env` itself, `kindgi:system` included (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse(
+        'No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).',
+      ),
+      '409': ErrorResponse(
+        "The tenant is closing or suspended (`tenant-closing`, `tenant-suspended`), or the deployment's pack service was retired (`endpoint-retired`).",
+      ),
+      '501': ErrorResponse(
+        "The server doesn't give a pack service its declared env: its pack services take theirs from how they're run (`pack-env-unsupported`). Or, with `secrets=values`, it has nowhere to audit a secret given out, so it gives none (`pack-env-secrets-unaudited`).",
+      ),
+      '503': ErrorResponse(
+        "With `secrets=values`: the secret store is out, a secret changed while it was read, twice, or the secrets' audit rows weren't written. Nothing is given: try again (`pack-env-unavailable`). Or the database was too busy to answer in time (`database-busy`, with `Retry-After`).",
+      ),
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/system/tenants/:tenantId/deployments/:deploymentId/pack-env',
+    openapiPath: '/v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env',
+    operationId: 'systemDeployments.recordPackEnv',
+    summary: "Record the env revision a deployment's pack service runs",
+    description:
+      "After giving a `ready` pack service its values: the `revision` it now runs. Or, with `held`, that this revision's values couldn't be given (a required one was removed, say), or were given and its new revision didn't start (`pack-env-update-failed`): the service keeps what it runs, and the tenant sees the code on the endpoint (`packEnvProblem`) until a later revision is given. The same code for the same revision keeps the time it was first recorded. Compare-and-set: `appliedRevision` is the one the service was found running, and another recorded since is `pack-env-conflict`. A new service's revision goes with its endpoint instead (`packEnvRevision`). Takes `system:pack-env`.",
+    tags: ['system-deployments'],
+    security: 'bearer',
+    parameters: [SystemTenantIdPathParam, SystemDeploymentIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('RecordPackEnvBody') },
+    responses: {
+      '200': {
+        description: "Recorded: the deployment's endpoint as its tenant sees it.",
+        schema: ref('DeploymentEndpoint'),
+      },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('A malformed body, or a `held` code not on the list (`bad-input`).'),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:pack-env` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse(
+        'No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).',
+      ),
+      '409': ErrorResponse(
+        "The tenant is closing (`tenant-closing`); the endpoint isn't `ready` (`endpoint-not-ready`, with `details.status`); another revision was recorded since (`pack-env-conflict`, with `details.appliedRevision`).",
+      ),
+      '501': ErrorResponse(
+        "The server doesn't give a pack service its declared env: its pack services take theirs from how they're run (`pack-env-unsupported`).",
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2514,7 +3493,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).',
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2547,7 +3526,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The deployment's endpoint isn't waiting for a pack service: `ready`, or `cleared` and not `waiting` (`endpoint-not-pending`, with `details.status`).",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2577,7 +3556,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'The tenant is closing (`tenant-closing`): closing is one-way, and its deployments already list to retire.',
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2589,7 +3568,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'serviceAccounts.create',
     summary: 'Create a service account',
     description:
-      "A named, non-human principal with its first grants, written before it is returned. It isn't a tenant member unless a grant makes it one (`{kind: 'tenant-member'}`: read the tenant's settings); give it only what its job needs. Mint its keys at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the deployment supplies a `ServiceAccountBinding`.",
+      "A named, non-human principal with its first grants, written before it is returned. It isn't a tenant member unless a grant makes it one (`{kind: 'tenant-member'}`: read the workspace's settings); give it only what its job needs. Mint its keys at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the deployment supplies a `ServiceAccountBinding`.",
     tags: ['service-accounts'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -2598,7 +3577,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Created.', schema: ref('ServiceAccount') },
       ...CommonMutationErrors,
       '403': ErrorResponse('Not a tenant admin.'),
-      '404': ErrorResponse('A grant names no project of this tenant (`project-not-found`).'),
+      '404': ErrorResponse('A grant names no project of this workspace (`project-not-found`).'),
       '409': ErrorResponse(
         'An active service account has the name (`service-account-name-taken`), or an idempotency conflict.',
       ),
@@ -2668,7 +3647,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No such service account (`service-account-not-found`), or no such project (`project-not-found`).',
       ),
       '409': ErrorResponse(
-        'The account is unregistered (`service-account-unregistered`), or an idempotency conflict.',
+        "The account is unregistered (`service-account-unregistered`), or a project's own account, whose grant is fixed (`service-account-project-owned`), or an idempotency conflict.",
       ),
     },
   },
@@ -2688,6 +3667,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '403': ErrorResponse('Not a tenant admin.'),
       '404': ErrorResponse('No such service account (`service-account-not-found`).'),
+      '409': ErrorResponse(
+        "A project's own account, whose grant is fixed (`service-account-project-owned`), or an idempotency conflict.",
+      ),
     },
   },
   {
@@ -2697,7 +3679,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'serviceAccounts.unregister',
     summary: 'Unregister a service account',
     description:
-      'A tombstone: its grants go and its keys stop working; it stays readable. Idempotent. Tenant admins only.',
+      "A tombstone: its grants go and its keys stop working; it stays readable. Idempotent. Tenant admins only. Unregistering a project's own account stops the triggers that run as it until an admin takes each over; the next `runAsProject` makes a new one.",
     tags: ['service-accounts'],
     security: 'bearer',
     parameters: [ServiceAccountIdPathParam, IdempotencyKeyParam],
@@ -2728,7 +3710,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '400': ErrorResponse('Malformed body, or `expiresInSeconds` above the deployment maximum.'),
       '403': ErrorResponse('The caller may not read one of the runs (`permission-denied`).'),
-      '404': ErrorResponse('A run does not exist under this tenant (`run-not-found`).'),
+      '404': ErrorResponse('A run does not exist under this workspace (`run-not-found`).'),
     },
   },
 
@@ -2740,7 +3722,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'approvals.list',
     summary: 'List approvals visible to the caller',
     description:
-      "Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). With authorization on, a person who is the tenant's admin (through a session or an `admin` key not limited to a project) reads at every tier: with no roster entry, as an `admin` reviewer; with a lower role, their own tier, and any tier they ask for with `requiredRole`. The roster doesn't show such a reader, but the access audit records the tenant-admin check (`authz-decision`), made only where it changes what the roster gives. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). With authorization on, only approvals whose project the caller may read. `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.",
+      "Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). With authorization on, a person who is the workspace's admin (through a session or an `admin` key not limited to a project) reads at every tier: with no roster entry, as an `admin` reviewer; with a lower role, their own tier, and any tier they ask for with `requiredRole`. The roster doesn't show such a reader, but the access audit records the tenant-admin check (`authz-decision`), made only where it changes what the roster gives. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). With authorization on, only approvals whose project the caller may read. `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.",
     tags: ['approvals'],
     security: 'bearer',
     parameters: [
@@ -2776,7 +3758,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonAuthErrors,
       '400': ErrorResponse('Malformed query parameter or scope.'),
       '403': ErrorResponse(
-        "The caller isn't a reviewer or the tenant's admin, or asked for a tier above its own and isn't the tenant's admin.",
+        "The caller isn't a reviewer or the workspace's admin, or asked for a tier above its own and isn't the workspace's admin.",
       ),
     },
   },
@@ -2787,14 +3769,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'approvals.get',
     summary: 'Fetch a single approval',
     description:
-      "Requires a reviewer, or (with authorization on) a person who is the tenant's admin, as the list does; the tenant's admin reads an approval of any tier. Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4), or that are in a project the caller may not read. A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).",
+      "Requires a reviewer, or (with authorization on) a person who is the workspace's admin, as the list does; the workspace's admin reads an approval of any tier. Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4), or that are in a project the caller may not read. A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).",
     tags: ['approvals'],
     security: 'bearer',
     parameters: [ApprovalIdPathParam],
     responses: {
       '200': { description: 'Approval.', schema: ref('Approval') },
       ...CommonAuthErrors,
-      '403': ErrorResponse("The caller isn't a reviewer or the tenant's admin."),
+      '403': ErrorResponse("The caller isn't a reviewer or the workspace's admin."),
       '404': ErrorResponse('No approval with that id — or the caller cannot see it.'),
     },
   },
@@ -2827,7 +3809,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/approvals/reviewers',
     openapiPath: '/v1/approvals/reviewers',
     operationId: 'approvals.reviewers.list',
-    summary: "List reviewers registered for the caller's tenant",
+    summary: "List reviewers registered for the caller's workspace",
     description:
       'Cursor-paginated. Optional `?role=` narrows to a specific role class. The roster names people: with authorization on, a tenant admin or a reviewer (a role on the token, or one the roster gives the user) reads it, and anyone else gets `403 permission-denied`.',
     tags: ['approvals'],
@@ -2853,7 +3835,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reviewer.', schema: ref('Reviewer') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No reviewer with that id under this tenant.'),
+      '404': ErrorResponse('No reviewer with that id under this workspace.'),
     },
   },
   {
@@ -2872,7 +3854,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Reviewer registered.', schema: ref('Reviewer') },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        "With authorization enforced, the caller is not an admin of the tenant; or the person is one a site signs in, whose reviewer role is their site's to give (`site-person-grants-managed`).",
+        "With authorization enforced, the caller is not an admin of the workspace; or the person is one a site signs in, whose reviewer role is their site's to give (`site-person-grants-managed`).",
       ),
     },
   },
@@ -2890,9 +3872,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterReviewerResult') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No reviewer with that id under this tenant.'),
+      '404': ErrorResponse('No reviewer with that id under this workspace.'),
       '403': ErrorResponse(
-        'With authorization enforced, the caller is not an admin of the tenant; or the person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).',
+        'With authorization enforced, the caller is not an admin of the workspace; or the person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).',
       ),
     },
   },
@@ -2949,14 +3931,33 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/agents/:agentId',
     openapiPath: '/v1/agents/{agentId}',
     operationId: 'agents.get',
-    summary: 'Fetch the latest version of an agent',
+    summary: 'Fetch the highest version of an agent',
+    description: `${NEWEST_VISIBLE_DESCRIPTION} For an agent, that is its highest version, which numbers the next one. It is not always what a project runs: \`agents.projects\` says what runs in each project.`,
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [AgentIdPathParam, ItemProjectQueryParam],
+    responses: {
+      '200': { description: 'Agent.', schema: ref('Agent') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('`projectId` is not a project id (a UUID).'),
+      '404': ErrorResponse('No agent with that id under this workspace.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/agents/:agentId/projects',
+    openapiPath: '/v1/agents/{agentId}/projects',
+    operationId: 'agents.projects',
+    summary: 'List the projects an agent runs in, and what runs in each',
+    description:
+      "The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty. Each project says what a run there that names no version gets (`runs`) and why (`follows`): a pin that covers the project, else its Latest. Latest moves only when a deployment into the project ships a version, or when a person publishes a full version or adds one as the latest version; a pin never moves it. `segments` lists the pins on segments inside the project. `highest` is the agent's highest version, which numbers the next one. A version the caller can't see is left out.",
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam],
     responses: {
-      '200': { description: 'Agent.', schema: ref('Agent') },
+      '200': { description: 'The projects.', schema: ref('AgentProjectList') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No agent with that id under this tenant.'),
+      '404': ErrorResponse('No agent with that id under this workspace.'),
     },
   },
   {
@@ -2974,39 +3975,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Page of agent versions.', schema: ref('AgentCollectionPage') },
       '400': ErrorResponse("`bad-input`: a `cursor` this list didn't issue."),
       ...CommonAuthErrors,
-      '404': ErrorResponse('No agent was ever registered with that id under this tenant.'),
-    },
-  },
-  {
-    method: 'post',
-    honoPath: '/v1/agents/:agentId/versions',
-    openapiPath: '/v1/agents/{agentId}/versions',
-    operationId: 'agents.deriveVersion',
-    summary: 'Derive an agent version with data-block pins swapped',
-    description:
-      "An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent.",
-    tags: ['agents'],
-    security: 'bearer',
-    parameters: [AgentIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('DeriveAgentVersionBody') },
-    responses: {
-      '200': {
-        description:
-          'An active version already holds this definition and these pins (the same swap derived before, or a deploy that registered it): that version, unchanged.',
-        schema: ref('Agent'),
-      },
-      '201': { description: 'The derived agent version.', schema: ref('Agent') },
-      ...CommonMutationErrors,
-      '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `agent-project-mismatch`: the agent belongs to another project than the body's `projectId` (agents never move; the message doesn't name the project). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
-      ),
-      '400': ErrorResponse(
-        "`validation-failed`: `from` has no pins, a swap names a block it doesn't reference, or a version that isn't published, active or the right kind (see `details.issues`); or `projectId` isn't a project id (a UUID).",
-      ),
-      '404': ErrorResponse(
-        '`agent-not-found`: no agent at `from`; or `projectId` names no project of this tenant (`project-not-found`).',
-      ),
-      '429': SCHEMA_COMPILE_BUDGET,
+      '404': ErrorResponse('No agent was ever registered with that id under this workspace.'),
     },
   },
   {
@@ -3021,7 +3990,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Agent version.', schema: ref('Agent') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No agent at that (id, version) under this tenant.'),
+      '404': ErrorResponse('No agent at that (id, version) under this workspace.'),
     },
   },
   {
@@ -3040,15 +4009,128 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Agent published.', schema: ref('PublishAgentResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: a tool, guardrail or data block it names isn't registered in its project, its org or the tenant (`details.issues`, each with `path`, `kind` and `id`).",
+        "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: a tool, guardrail or data block it names isn't registered in its project, its org or the workspace (`details.issues`, each with `path`, `kind` and `id`).",
       ),
       '409': ErrorResponse(
-        "`agent-already-registered`: that (id, version) is taken. Or `agent-project-mismatch`: the agent's versions live in another project (an agent belongs to the project its first version was published into and never moves; the message doesn't name the project). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+        `\`agent-already-registered\`: that (id, version) is taken. Or \`agent-project-mismatch\`: the agent's versions live in another project (an agent belongs to the project its first version was published into and never moves, though in a workspace with environment orders a version may be made in another project of that project's order; the message doesn't name the project). ${TAKES_PROMOTIONS} Or \`registry-read-only\`: this registry takes no writes (under \`kindgi dev\`, the pack's files are the source); the message says what to do instead.`,
       ),
       '404': ErrorResponse(
-        "The body's `projectId` names no project of this tenant (`project-not-found`).",
+        "The body's `projectId` names no project of this workspace (`project-not-found`).",
       ),
       '429': SCHEMA_COMPILE_BUDGET,
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/agents/:agentId/owner',
+    openapiPath: '/v1/agents/{agentId}/owner',
+    operationId: 'agents.setOwner',
+    summary: "Set an agent's owner",
+    description:
+      "One owner per agent: the person its corrections go to when they need the owner. Setting it again replaces the one before. Needs `admin` on the agent (an admin of its project). With a directory of people, the owner must be one of the workspace's.",
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [AgentIdPathParam],
+    requestBody: { required: true, schema: ref('SetAgentOwnerBody') },
+    responses: {
+      '200': { description: 'The owner is set.', schema: ref('SetAgentOwnerResult') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('The body is not `{ "userId": "…" }`.'),
+      '404': ErrorResponse(
+        'No agent with that id under this workspace (`agent-not-found`), or no person with that id in it (`identity-user-not-found`).',
+      ),
+      '409': ErrorResponse(
+        "`registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source).",
+      ),
+      '501': ErrorResponse(
+        "The runtime's agent store doesn't keep an owner (`agent-owner-unsupported`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/agents/:agentId/test-set',
+    openapiPath: '/v1/agents/{agentId}/test-set',
+    operationId: 'agents.testSet.get',
+    summary: "A project's test set of an agent",
+    description:
+      "How many cases the agent's test set has in the project. Its cases are the agent's corrections there, except Won't fix and Removed ones (Fixed and With the owner included), and cases added by hand. It's computed when it's read. Needs `read` on the project.",
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [AgentIdPathParam, TestSetProjectQueryParam],
+    responses: {
+      '200': { description: 'The test set.', schema: ref('AgentTestSet') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('`projectId` is missing, or not a project id (a UUID).'),
+      '404': ErrorResponse('`agent-not-found`.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/agents/:agentId/test-set/cases',
+    openapiPath: '/v1/agents/{agentId}/test-set/cases',
+    operationId: 'agents.testSet.listCases',
+    summary: "List a project's cases of an agent's test set",
+    description:
+      'Cursor-paginated, newest added first. A retired case comes back only with `include=retired`. Needs `read` on the project.',
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [
+      AgentIdPathParam,
+      TestSetProjectQueryParam,
+      TestCaseIncludeQueryParam,
+      TestCaseKindQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
+    responses: {
+      '200': { description: 'Page of cases.', schema: ref('TestCaseCollectionPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        '`projectId` is missing or not a project id (a UUID), or `include` or `kind` names something else.',
+      ),
+      '404': ErrorResponse('`agent-not-found`.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/agents/:agentId/test-set/cases',
+    openapiPath: '/v1/agents/{agentId}/test-set/cases',
+    operationId: 'agents.testSet.addCase',
+    summary: "Add a case to an agent's test set",
+    description: `A case by hand, from a correction's body on one of the agent's finished runs. It has no status, isn't sorted, and nothing that counts corrections counts it (Improve's trigger, the expert queue's progress, a rule's yes-rate). The run's first correction or case stores a copy of its input and output. A comparison's replay can't be a case. ${TEST_CASE_WRITE_RIGHTS}`,
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [AgentIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('AddTestCaseBody') },
+    responses: {
+      '201': { description: 'Case added.', schema: ref('TestCase') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "Malformed body; the run isn't one of the agent's, or is a comparison's replay; or `item-not-found` (an item's pointer resolves to nothing in the output).",
+      ),
+      '404': ErrorResponse('`run-not-found`.'),
+      '409': ErrorResponse('`run-not-finished`: the run has no output yet.'),
+      '410': ErrorResponse("`run-erased`: an erasure cleared the run's content."),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/agents/:agentId/test-set/cases/:caseId/retire',
+    openapiPath: '/v1/agents/{agentId}/test-set/cases/{caseId}/retire',
+    operationId: 'agents.testSet.retireCase',
+    summary: "Retire a case of an agent's test set",
+    description: `A retired case stays listed, and no test run checks it again. There's no un-retire, and retiring a correction's case doesn't change the correction's status. ${TEST_CASE_WRITE_RIGHTS}`,
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [AgentIdPathParam, TestCaseIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('RetireTestCaseBody') },
+    responses: {
+      '200': { description: 'Retired.', schema: ref('TestCase') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('`reason` is missing, empty, or over 4000 characters.'),
+      '404': ErrorResponse("`test-case-not-found`: the agent's test set has no case by that id."),
+      '409': ErrorResponse('`test-case-retired`: the case is retired already.'),
     },
   },
   {
@@ -3064,9 +4146,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Unregistered.', schema: ref('UnregisterAgentResult') },
       ...CommonMutationErrors,
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead. Or `agent-version-live`: the version is the live version of the scopes in `details.scopes`; roll back, unpin, or promote another version there first.",
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead. Or `agent-version-pinned`: the version is the pinned version of the scopes in `details.scopes`; unpin, or pin another version there first.",
       ),
-      '404': ErrorResponse('No agent at that (id, version) under this tenant.'),
+      '404': ErrorResponse('No agent at that (id, version) under this workspace.'),
     },
   },
   {
@@ -3076,7 +4158,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'agents.reinstateVersion',
     summary: 'Reinstate a specific tombstoned agent version',
     description:
-      'Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version. Restores the manifest bytes verbatim (semver hygiene: reinstate never mutates). Idempotent — reinstating an active version is a no-op (returns `wasTombstoned: false`). Reinstating any version of a fully-retired agent reactivates the identity: subsequent GETs return 200, invocations succeed. Publish is always allowed regardless of retirement state — this verb is for restoring previously-unregistered bytes, not for reactivating a retired identity (a fresh publish does that).',
+      'Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the highest active version, which numbers the next one. Restores the manifest bytes verbatim (semver hygiene: reinstate never mutates). Idempotent — reinstating an active version is a no-op (returns `wasTombstoned: false`). Reinstating any version of a fully-retired agent reactivates the identity: subsequent GETs return 200, invocations succeed. Publish is always allowed regardless of retirement state — this verb is for restoring previously-unregistered bytes, not for reactivating a retired identity (a fresh publish does that).',
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, AgentVersionPathParam, IdempotencyKeyParam],
@@ -3089,133 +4171,138 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
-      '404': ErrorResponse('No agent at that (id, version) under this tenant.'),
+      '404': ErrorResponse('No agent at that (id, version) under this workspace.'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/agents/:agentId/live',
-    openapiPath: '/v1/agents/{agentId}/live',
-    operationId: 'agents.live.resolve',
+    honoPath: '/v1/agents/:agentId/pinned',
+    openapiPath: '/v1/agents/{agentId}/pinned',
+    operationId: 'agents.pinned.resolve',
     summary: 'The version a run would use',
     description:
-      "Resolves the version a run of this agent would use for a project and segment path: the most specific live version (segment path, project, org, tenant), else the latest registered. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.",
+      "Resolves the version a run of this agent would use for a project and segment path: the most specific pinned version (segment path, project, org, workspace), else the project's Latest: the version the newest deployment into the project shipped, or that a person published or added as the latest version there, whichever is newer. Without a project, Latest is taken over every version of the agent. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.",
     tags: ['agents'],
     security: 'bearer',
-    parameters: [AgentIdPathParam, LiveProjectQueryParam, SegmentQueryParam],
+    parameters: [AgentIdPathParam, AgentPinProjectQueryParam, SegmentQueryParam],
     responses: {
-      '200': { description: 'The resolved version.', schema: ref('LiveVersionResolution') },
+      '200': { description: 'The resolved version.', schema: ref('AgentPinnedVersionResolution') },
       ...CommonAuthErrors,
       '400': ErrorResponse('A malformed project id or segment, or a segment without a project.'),
-      '404': ErrorResponse('No agent with that id.'),
+      '404': ErrorResponse(
+        'No version of the agent runs in this scope: none is pinned there, and none is its Latest.',
+      ),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/agents/:agentId/live-versions',
-    openapiPath: '/v1/agents/{agentId}/live-versions',
-    operationId: 'agents.live.list',
-    summary: "List an agent's live versions",
-    description: 'Every scope with a live version pinned, and the promotion that set it.',
+    honoPath: '/v1/agents/:agentId/pinned-versions',
+    openapiPath: '/v1/agents/{agentId}/pinned-versions',
+    operationId: 'agents.pinned.list',
+    summary: "List an agent's pinned versions",
+    description: 'Every scope with a pinned version, and the pin change that set it.',
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam],
     responses: {
-      '200': { description: 'The pins.', schema: ref('LivePinList') },
+      '200': { description: 'The pins.', schema: ref('AgentPinnedVersionList') },
       ...CommonAuthErrors,
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/agents/:agentId/promotions',
-    openapiPath: '/v1/agents/{agentId}/promotions',
-    operationId: 'agents.promotions.create',
-    summary: 'Make a version live for a scope',
+    honoPath: '/v1/agents/:agentId/pinned/pin',
+    openapiPath: '/v1/agents/{agentId}/pinned/pin',
+    operationId: 'agents.pinned.pin',
+    summary: 'Pin a version for a scope',
     description:
-      "Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.\n\nWith a gate policy for the scope (`GET …/gate-policy`), the promotion is checked first against the comparison named by `evalRunId`: `201` promoted; `202` the gate passed and the policy wants a reviewer's approval (a HITL approval, subject `agent-promotion`; the live version moves once it's approved, if nothing changed meanwhile); `422 gate-failed` with `details.promotionId`, `details.policy` and every check in `details.checks`. A refused promotion is recorded too.\n\nA pin in place skips the gate: when the scope has no live version of its own and already serves exactly `version` (from a scope above, or as the latest), pinning it there changes nothing any run gets, so it is promoted (`201`) with one passing `pinInPlace` check, no comparison and no approval, its reason starting `pin-in-place`. It is re-checked as it is written; if the scope moved meanwhile, `409 promotion-superseded`: check again.",
+      "Pins `version` for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every pin is recorded, with who asked and why. Needs `pin` on the agent.\n\nThe pin checks the version in each project whose running version it changes and that has active cases, on the project's agent test set (`testRuns`): with the run `testRunId` names when that run completed there on the test set as it stands, whose outcome changes the corrections' statuses at once (`fixed`, `reopened`); otherwise with a run it starts, correlation id `pin:<changeId>`, whose outcome changes them when it ends. A pin that waits for approval starts its runs at once, and its statuses change once it's approved.\n\nA pin that would take a project that follows Latest now off it (a project or segment pin there, or a workspace or org pin over it) is refused with `409 pin-stops-latest` before any gate, whether or not its version changes, unless the body has `stopFollowingLatest: true`. The pin then records `stoppedFollowingLatest`, and the project runs the pinned version from then on, not each new Latest.\n\nWith a release gate for the scope (`GET …/release-gate`), the pin is checked first against the comparison named by `testRunId`: `201` pinned; `202` the gate passed and wants a reviewer's approval (a HITL approval, subject `agent-pin`; the pinned version moves once it's approved, if nothing changed meanwhile); `422 gate-failed` with `details.changeId`, `details.releaseGate` and every check in `details.checks`. A refused pin is recorded too.\n\nA pin in place skips the gate: when the scope has no pinned version of its own and already serves exactly `version` (from a scope above, or as the latest), pinning it there changes nothing any run gets, so it is pinned (`201`) with one passing `pinInPlace` check, no comparison and no approval, its reason starting `pin-in-place`. It is re-checked as it is written; if the scope moved meanwhile, `409 pin-superseded`: check again.\n\nUnder `kindgi dev`, nothing is pinned, since the pack's files are what runs: pinning a version writes the data blocks it changes into the pack's own files (each block's new version and content, and a prompt's template into its template file), and the dev server reloads them. Only for the whole workspace (the `tenant` scope), which the pack's files serve. If one of those files changed since the version was made (the changed block's file holds another version than the one its suggested change changed, or other content than its suggested change was drafted from, even at that version, or another block's file a version not older), or the block left the pack, `409 pin-superseded`, and the message names the file; an approval's decision settles it `superseded` the same way. Once the dev server reloads the files, the pinned version is what runs, and the pin's test runs check it in the agent's project (the default one) and change the corrections' statuses as anywhere else.",
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('PromoteBody') },
+    requestBody: { required: true, schema: ref('AgentPinBody') },
     responses: {
-      '201': { description: 'Promoted.', schema: ref('Promotion') },
+      '201': {
+        description:
+          'Pinned, with the test runs that check it (`testRuns`), and the corrections a reused run changed.',
+        schema: ref('PinAnswer'),
+      },
       '202': {
-        description: 'The gate passed; the promotion waits for an approval (`approvalId`).',
-        schema: ref('Promotion'),
+        description:
+          'The gate passed; the pin waits for an approval (`pin.approvalId`). Its test runs are started, and `fixed` and `reopened` are empty.',
+        schema: ref('PinAnswer'),
       },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed request body. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
+        "Malformed request body, or the test run isn't a completed comparison: a cancelled or failed one is refused, even with the summary of the cases it got through. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
       ),
       '404': ErrorResponse(
-        'The version is not registered, or was unregistered; or the eval run is not found.',
+        'The version is not registered, or was unregistered; or the test run is not found.',
       ),
       '409': ErrorResponse(
-        "`promotion-superseded`: the scope's live version changed while the gate ran; check again. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first.",
+        "`pin-stops-latest`: the pin would take a project that follows Latest now off it, and the body doesn't have `stopFollowingLatest: true`; `details.projects` lists each one, `{ projectId, version }`, with the version it runs now. Nothing is recorded. `nothing-runs-in-scope`: no version of the agent runs in the scope yet (no pin covers it, and it has no Latest), so there's nothing to measure the version against; deploy or publish a version into the project first (into a later environment, promote a build that ships one). `project-suspended`: nothing runs there because the scope's project is suspended. `pin-superseded`: the scope's pinned version changed while the gate ran; check again. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `pin-scope-spans-environments`: the agent has a project in an environment order, and a workspace- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead. Under `kindgi dev`, `pin-superseded` also when a pack file the version's data blocks go into changed since the version was made, or the block left the pack; the message names the file. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole workspace, since the pack's files serve every scope.",
       ),
       '422': ErrorResponse(
-        '`gate-failed`: the gate refused it. `details.checks` has every check; the refusal is recorded (`details.promotionId`).',
+        "`gate-failed`: the gate refused it. `details.checks` has every check; the refusal is recorded (`details.changeId`). With the gate's `cases` rule, `details.passing` and `details.needs` come with `minPassing`, and `details.newlyFailing` (the cases that passed before and fail now) with `noNewFailures`.",
       ),
       '429': ErrorResponse(
-        "`approvals-pending-limit`: the gate wants an approval, and the tenant's approvals waiting for a decision are at its limit (set by the runtime's operator). Nothing is recorded.",
+        "`approvals-pending-limit`: the gate wants an approval, and the workspace's approvals waiting for a decision are at its limit (set by the runtime's operator). Nothing is recorded.",
       ),
       '501': ErrorResponse(
-        "`promotion-gate-unsupported`: a gate policy applies, and the deployment can't record a gated promotion.",
+        "`pin-gate-unsupported`: a release gate applies, and the deployment can't record a gated pin.",
       ),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/agents/:agentId/promotions/check',
-    openapiPath: '/v1/agents/{agentId}/promotions/check',
-    operationId: 'agents.promotions.check',
-    summary: 'Check a promotion against its gate',
+    honoPath: '/v1/agents/:agentId/pinned/check',
+    openapiPath: '/v1/agents/{agentId}/pinned/check',
+    operationId: 'agents.pinned.check',
+    summary: 'Check a pin against its gate',
     description:
-      'What `POST …/promotions` with the same body would do, with nothing recorded: `would-promote`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, promote. Needs `read` on the agent.',
+      "What `POST …/pinned/pin` with the same body would do, with nothing recorded: `would-pin`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, pin. Under `kindgi dev`, where a pin writes the version into the pack's files, it also warns about the files it would write over that git hasn't committed (`uncommittedFiles`), or that the pack isn't in git (`notInGit`). Needs `read` on the agent.",
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam],
-    requestBody: { required: true, schema: ref('PromoteBody') },
+    requestBody: { required: true, schema: ref('AgentPinBody') },
     responses: {
-      '200': { description: "The gate's answer.", schema: ref('PromotionCheck') },
+      '200': { description: "The gate's answer.", schema: ref('PinCheck') },
       ...CommonAuthErrors,
       '400': ErrorResponse(
-        "Malformed body, or the eval run is not a finished comparison. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
+        "Malformed body, or the test run isn't a completed comparison: a cancelled or failed one is refused, even with the summary of the cases it got through. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
       ),
-      '404': ErrorResponse('The version, the agent or the eval run is not found.'),
+      '404': ErrorResponse('The version, the agent or the test run is not found.'),
+      '409': ErrorResponse(
+        '`nothing-runs-in-scope` or `project-suspended`, as `POST …/promotions` answers: no version of the agent runs in the scope yet.',
+      ),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/agents/:agentId/gate-policy',
-    openapiPath: '/v1/agents/{agentId}/gate-policy',
-    operationId: 'agents.gatePolicy.resolve',
-    summary: 'The gate policy for a scope',
+    honoPath: '/v1/agents/:agentId/release-gate',
+    openapiPath: '/v1/agents/{agentId}/release-gate',
+    operationId: 'agents.releaseGate.resolve',
+    summary: 'The release gate for a scope',
     description:
-      "The gate policy a promotion of the agent for the scope would be checked against: the most specific scope with an active policy (a segment path's longer prefixes first, then its project, the project's org, the tenant), at its latest active version. `policy: null` when none applies.",
+      "The release gate a pin of the agent for the scope would be checked against: the most specific scope with an active gate (a segment path's longer prefixes first, then its project, the project's org, the workspace), at its latest active version. `releaseGate: null` when none applies.",
     tags: ['agents'],
     security: 'bearer',
-    parameters: [
-      AgentIdPathParam,
-      PromotionScopeKindQueryParam,
-      ScopeIdQueryParam,
-      SegmentQueryParam,
-    ],
+    parameters: [AgentIdPathParam, PinScopeKindQueryParam, ScopeIdQueryParam, SegmentQueryParam],
     responses: {
-      '200': { description: 'The policy, or null.', schema: ref('GatePolicyResolution') },
+      '200': { description: 'The release gate, or null.', schema: ref('ReleaseGateResolution') },
       ...CommonAuthErrors,
       '400': ErrorResponse('Missing or malformed scope.'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/gate-policies',
-    openapiPath: '/v1/gate-policies',
-    operationId: 'gatePolicies.list',
-    summary: 'List gate policies',
+    honoPath: '/v1/release-gates',
+    openapiPath: '/v1/release-gates',
+    operationId: 'releaseGates.list',
+    summary: 'List release gates',
     description:
-      "Each gate policy's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.",
-    tags: ['gate-policies'],
+      "Each release gate's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's. A retired gate (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.",
+    tags: ['release-gates'],
     security: 'bearer',
     parameters: [
       LimitQueryParam,
@@ -3224,200 +4311,184 @@ export const OPERATIONS: readonly OperationSpec[] = [
         name: 'agentId',
         in: 'query',
         required: false,
-        description: 'Only the policies gating this agent.',
+        description: 'Only the release gates of this agent.',
         schema: { type: 'string' },
       },
-      PromotionScopeKindQueryParam,
+      PinScopeKindQueryParam,
       ScopeIdQueryParam,
       SegmentQueryParam,
+      IncludeRetiredQueryParam,
     ],
     responses: {
-      '200': { description: 'Page of gate policies.', schema: ref('GatePolicyPage') },
+      '200': { description: 'Page of release gates.', schema: ref('ReleaseGatePage') },
       ...CommonAuthErrors,
       '400': ErrorResponse('Malformed scope or cursor.'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/gate-policies',
-    openapiPath: '/v1/gate-policies',
-    operationId: 'gatePolicies.publish',
-    summary: 'Publish a gate policy',
+    honoPath: '/v1/release-gates',
+    openapiPath: '/v1/release-gates',
+    operationId: 'releaseGates.publish',
+    summary: 'Publish a release gate',
     description:
-      "Registers a gate policy, or a new version of one: what a promotion of `agentId` for `scope` must show. One policy per agent and scope: another policy id for a scope that has one is refused with `409 gate-policy-scope-taken` (`details.heldBy` names it; publish a new version of that one instead), and a new version can't change the agent or scope (`409 gate-policy-scope-changed`). The `spec` is checked strictly: an unknown key is refused (`400 validation-failed`, `details.issues`). Needs `admin` on the tenant: whoever may promote can't loosen their own gate.",
-    tags: ['gate-policies'],
+      "Registers a release gate, or a new version of one: what a pin of `agentId` for `scope` must show. One gate per agent and scope: another gate id for a scope that has one is refused with `409 release-gate-scope-taken` (`details.heldBy` names it; publish a new version of that one instead), and a new version can't change the agent or scope (`409 release-gate-scope-changed`). The `spec` is checked strictly: an unknown key is refused (`400 validation-failed`, `details.issues`). Needs `admin` on the workspace: whoever may pin can't loosen their own gate.",
+    tags: ['release-gates'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('PublishGatePolicyBody') },
+    requestBody: { required: true, schema: ref('PublishReleaseGateBody') },
     responses: {
-      '201': { description: 'Gate policy published.', schema: ref('GatePolicy') },
+      '201': { description: 'Release gate published.', schema: ref('ReleaseGate') },
       ...CommonMutationErrors,
       '400': ErrorResponse('Validation failed (see `details.issues`).'),
       '409': ErrorResponse(
-        '`gate-policy-already-registered`: that (id, version) exists. `gate-policy-scope-taken`: another policy gates the agent for the scope (`details.heldBy`). `gate-policy-scope-changed`: the version would change the agent or scope. `gate-policy-scope-unpinned`: the scope has no live version of its own; a gated scope holds its own pin (a pin above it is not enough, since a promotion there would change this scope ungated), so pin a version for the scope first.',
+        '`release-gate-already-registered`: that (id, version) exists. `release-gate-scope-taken`: another release gate gates the agent for the scope (`details.heldBy`). `release-gate-scope-changed`: the version would change the agent or scope. `release-gate-scope-unpinned`: the scope has no pinned version of its own; a gated scope holds its own pin (a pin above it is not enough, since a pin there would change this scope ungated), so pin a version for the scope first.',
       ),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/gate-policies/:policyId',
-    openapiPath: '/v1/gate-policies/{policyId}',
-    operationId: 'gatePolicies.get',
-    summary: 'Get a gate policy',
-    description: "The policy's latest active version.",
-    tags: ['gate-policies'],
+    honoPath: '/v1/release-gates/:releaseGateId',
+    openapiPath: '/v1/release-gates/{releaseGateId}',
+    operationId: 'releaseGates.get',
+    summary: 'Get a release gate',
+    description: "The release gate's latest active version.",
+    tags: ['release-gates'],
     security: 'bearer',
-    parameters: [GatePolicyIdPathParam],
+    parameters: [ReleaseGateIdPathParam],
     responses: {
-      '200': { description: 'The gate policy.', schema: ref('GatePolicy') },
+      '200': { description: 'The release gate.', schema: ref('ReleaseGate') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No active gate policy with that id.'),
+      '404': ErrorResponse('No active release gate with that id.'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/gate-policies/:policyId/versions',
-    openapiPath: '/v1/gate-policies/{policyId}/versions',
-    operationId: 'gatePolicies.versions.list',
-    summary: "List a gate policy's versions",
+    honoPath: '/v1/release-gates/:releaseGateId/versions',
+    openapiPath: '/v1/release-gates/{releaseGateId}/versions',
+    operationId: 'releaseGates.versions.list',
+    summary: "List a release gate's versions",
     description: 'Every version, oldest first, unregistered ones too (with `unregisteredAt`).',
-    tags: ['gate-policies'],
+    tags: ['release-gates'],
     security: 'bearer',
-    parameters: [GatePolicyIdPathParam],
+    parameters: [ReleaseGateIdPathParam],
     responses: {
-      '200': { description: 'The versions.', schema: ref('GatePolicyPage') },
+      '200': { description: 'The versions.', schema: ref('ReleaseGatePage') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No gate policy with that id.'),
+      '404': ErrorResponse('No release gate with that id.'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/gate-policies/:policyId/versions/:version',
-    openapiPath: '/v1/gate-policies/{policyId}/versions/{version}',
-    operationId: 'gatePolicies.versions.get',
-    summary: 'Get a gate policy version',
-    tags: ['gate-policies'],
+    honoPath: '/v1/release-gates/:releaseGateId/versions/:version',
+    openapiPath: '/v1/release-gates/{releaseGateId}/versions/{version}',
+    operationId: 'releaseGates.versions.get',
+    summary: 'Get a release gate version',
+    tags: ['release-gates'],
     security: 'bearer',
-    parameters: [GatePolicyIdPathParam, GatePolicyVersionPathParam],
+    parameters: [ReleaseGateIdPathParam, ReleaseGateVersionPathParam],
     responses: {
-      '200': { description: 'The version.', schema: ref('GatePolicy') },
+      '200': { description: 'The version.', schema: ref('ReleaseGate') },
       ...CommonAuthErrors,
       '404': ErrorResponse('No such version.'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/gate-policies/:policyId/versions/:version/unregister',
-    openapiPath: '/v1/gate-policies/{policyId}/versions/{version}/unregister',
-    operationId: 'gatePolicies.versions.unregister',
-    summary: 'Unregister a gate policy version',
+    honoPath: '/v1/release-gates/:releaseGateId/versions/:version/unregister',
+    openapiPath: '/v1/release-gates/{releaseGateId}/versions/{version}/unregister',
+    operationId: 'releaseGates.versions.unregister',
+    summary: 'Unregister a release gate version',
     description:
-      "The version stops applying; the policy's latest remaining active version applies, or, with none, the scope above's policy. Promotions keep the version they were checked against. Needs `admin` on the tenant.",
-    tags: ['gate-policies'],
+      "The version stops applying; the gate's latest remaining active version applies, or, with none, the scope above's gate. Pins keep the version they were checked against. Needs `admin` on the workspace.",
+    tags: ['release-gates'],
     security: 'bearer',
-    parameters: [GatePolicyIdPathParam, GatePolicyVersionPathParam],
+    parameters: [ReleaseGateIdPathParam, ReleaseGateVersionPathParam],
     responses: {
-      '200': { description: 'The unregistered version.', schema: ref('GatePolicy') },
+      '200': { description: 'The unregistered version.', schema: ref('ReleaseGate') },
       ...CommonMutationErrors,
       '404': ErrorResponse('No such version.'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/gate-policies/:policyId/versions/:version/reinstate',
-    openapiPath: '/v1/gate-policies/{policyId}/versions/{version}/reinstate',
-    operationId: 'gatePolicies.versions.reinstate',
-    summary: 'Reinstate a gate policy version',
-    description: 'Needs `admin` on the tenant.',
-    tags: ['gate-policies'],
+    honoPath: '/v1/release-gates/:releaseGateId/versions/:version/reinstate',
+    openapiPath: '/v1/release-gates/{releaseGateId}/versions/{version}/reinstate',
+    operationId: 'releaseGates.versions.reinstate',
+    summary: 'Reinstate a release gate version',
+    description: 'Needs `admin` on the workspace.',
+    tags: ['release-gates'],
     security: 'bearer',
-    parameters: [GatePolicyIdPathParam, GatePolicyVersionPathParam],
+    parameters: [ReleaseGateIdPathParam, ReleaseGateVersionPathParam],
     responses: {
-      '200': { description: 'The reinstated version.', schema: ref('GatePolicy') },
+      '200': { description: 'The reinstated version.', schema: ref('ReleaseGate') },
       ...CommonMutationErrors,
       '404': ErrorResponse('No such version.'),
       '409': ErrorResponse(
-        '`gate-policy-scope-taken`: another policy gates the agent for the scope now (`details.heldBy`). `gate-policy-scope-unpinned`: the scope has no live version of its own; pin one first.',
+        '`release-gate-scope-taken`: another release gate gates the agent for the scope now (`details.heldBy`). `release-gate-scope-unpinned`: the scope has no pinned version of its own; pin one first.',
       ),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/agents/:agentId/promotions',
-    openapiPath: '/v1/agents/{agentId}/promotions',
-    operationId: 'agents.promotions.list',
-    summary: "List an agent's promotions",
+    honoPath: '/v1/agents/:agentId/pin-history',
+    openapiPath: '/v1/agents/{agentId}/pin-history',
+    operationId: 'agents.pinned.history',
+    summary: "List an agent's pin history",
     description:
-      'The history of live-version changes (promotions, rollbacks, unpins), newest first. `scopeKind` (`tenant`, `org`, `project`, `segment`) with `scopeId` and `segment` narrows it to one scope.',
+      'The history of pinned-version changes (pins and unpins), newest first. `scopeKind` (`tenant`, `org`, `project`, `segment`) with `scopeId` and `segment` narrows it to one scope.',
     tags: ['agents'],
     security: 'bearer',
     parameters: [
       AgentIdPathParam,
       LimitQueryParam,
       CursorQueryParam,
-      PromotionScopeKindQueryParam,
+      PinScopeKindQueryParam,
       ScopeIdQueryParam,
       SegmentQueryParam,
     ],
     responses: {
-      '200': { description: 'Page of promotions.', schema: ref('PromotionPage') },
+      '200': { description: 'Page of pin changes.', schema: ref('PinPage') },
       ...CommonAuthErrors,
       '400': ErrorResponse('Malformed scope or cursor.'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/agents/:agentId/promotions/:promotionId',
-    openapiPath: '/v1/agents/{agentId}/promotions/{promotionId}',
-    operationId: 'agents.promotions.get',
-    summary: 'Get a promotion',
+    honoPath: '/v1/agents/:agentId/pin-history/:changeId',
+    openapiPath: '/v1/agents/{agentId}/pin-history/{changeId}',
+    operationId: 'agents.pinned.getChange',
+    summary: 'Get a pin change',
     tags: ['agents'],
     security: 'bearer',
-    parameters: [AgentIdPathParam, PromotionIdPathParam],
+    parameters: [AgentIdPathParam, PinChangeIdPathParam],
     responses: {
-      '200': { description: 'The promotion.', schema: ref('Promotion') },
+      '200': { description: 'The pin change.', schema: ref('Pin') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No such promotion for this agent.'),
+      '404': ErrorResponse('No such pin change for this agent.'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/agents/:agentId/live/rollback',
-    openapiPath: '/v1/agents/{agentId}/live/rollback',
-    operationId: 'agents.live.rollback',
-    summary: 'Roll a scope back to its previous live version',
+    honoPath: '/v1/agents/:agentId/pinned/unpin',
+    openapiPath: '/v1/agents/{agentId}/pinned/unpin',
+    operationId: 'agents.pinned.unpin',
+    summary: "Remove a scope's pinned version",
     description:
-      "Back to the scope's previous live version, or `toVersion`. Recorded like a promotion. Needs `promote` on the agent.",
+      "Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a pin. Needs `pin` on the agent.\n\nThe unpin answers as a pin does, with the unpin change under `pin`. It checks each project the pin covered that now runs another version and has active cases, on the project's agent test set (`testRuns`), with a run of the version it runs now that it starts, correlation id `pin:<changeId>` of the unpin, whose outcome changes the corrections' statuses when it ends. An unpin reuses no run, so `fixed` and `reopened` are empty.",
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('RollbackBody') },
+    requestBody: { required: true, schema: ref('AgentUnpinBody') },
     responses: {
-      '200': { description: 'Rolled back.', schema: ref('Promotion') },
-      ...CommonMutationErrors,
-      '404': ErrorResponse('`toVersion` is not registered, or was unregistered.'),
-      '409': ErrorResponse(
-        '`not-pinned`: the scope has no pin of its own. `nothing-to-roll-back`: no earlier version to go back to. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first.',
-      ),
-    },
-  },
-  {
-    method: 'post',
-    honoPath: '/v1/agents/:agentId/live/unpin',
-    openapiPath: '/v1/agents/{agentId}/live/unpin',
-    operationId: 'agents.live.unpin',
-    summary: "Remove a scope's live version",
-    description:
-      "Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a promotion. Needs `promote` on the agent.",
-    tags: ['agents'],
-    security: 'bearer',
-    parameters: [AgentIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('UnpinBody') },
-    responses: {
-      '200': { description: 'Unpinned.', schema: ref('Promotion') },
+      '201': {
+        description:
+          'Unpinned, with the test runs that check what each project runs now (`testRuns`).',
+        schema: ref('PinAnswer'),
+      },
       ...CommonMutationErrors,
       '409': ErrorResponse(
-        '`not-pinned`: the scope has no pin of its own. `gate-policy-needs-pin`: the scope has a gate policy of its own, and a gated scope keeps its own pin; unregister the policy first, or roll back instead. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first.',
+        "`not-pinned`: the scope has no pin of its own. `release-gate-needs-pin`: the scope has a release gate of its own, and a gated scope keeps its own pin; unregister the gate first, or pin an earlier version instead. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. Or `registry-read-only`: under `kindgi dev`, a pinned version was written into the pack's files; to undo a pin, pin the version before.",
       ),
     },
   },
@@ -3454,13 +4525,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/flows/{flowId}',
     operationId: 'flows.get',
     summary: 'Fetch the latest version of a flow',
+    description: NEWEST_VISIBLE_DESCRIPTION,
     tags: ['flows'],
     security: 'bearer',
-    parameters: [FlowIdPathParam],
+    parameters: [FlowIdPathParam, ItemProjectQueryParam],
     responses: {
       '200': { description: 'Flow.', schema: ref('Flow') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No flow with that id under this tenant.'),
+      '400': ErrorResponse('`projectId` is not a project id (a UUID).'),
+      '404': ErrorResponse('No flow with that id under this workspace.'),
     },
   },
   {
@@ -3478,7 +4551,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Page of flow versions.', schema: ref('FlowCollectionPage') },
       '400': ErrorResponse("`bad-input`: a `cursor` this list didn't issue."),
       ...CommonAuthErrors,
-      '404': ErrorResponse('No flow was ever registered with that id under this tenant.'),
+      '404': ErrorResponse('No flow was ever registered with that id under this workspace.'),
     },
   },
   {
@@ -3493,7 +4566,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Flow version.', schema: ref('Flow') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No flow at that (id, version) under this tenant.'),
+      '404': ErrorResponse('No flow at that (id, version) under this workspace.'),
     },
   },
   {
@@ -3512,13 +4585,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Flow published.', schema: ref('PublishFlowResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: a tool, agent or subflow it names isn't registered in its project, its org or the tenant (`details.issues`, each with `path`, `kind` and `id`).",
+        "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: a tool, agent or subflow it names isn't registered in its project, its org or the workspace (`details.issues`, each with `path`, `kind` and `id`).",
       ),
       '409': ErrorResponse(
-        "`flow-already-registered`: that (id, version) is taken. Or `flow-project-mismatch`: the flow's versions live in another project (a flow belongs to the project its first version was published into and never moves; the message doesn't name the project). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+        `\`flow-already-registered\`: that (id, version) is taken. Or \`flow-project-mismatch\`: the flow's versions live in another project (a flow belongs to the project its first version was published into and never moves, though in a workspace with environment orders a version may be made in another project of that project's order; the message doesn't name the project). ${TAKES_PROMOTIONS} Or \`registry-read-only\`: this registry takes no writes (under \`kindgi dev\`, the pack's files are the source); the message says what to do instead.`,
       ),
       '404': ErrorResponse(
-        "The body's `projectId` names no project of this tenant (`project-not-found`).",
+        "The body's `projectId` names no project of this workspace (`project-not-found`).",
       ),
       '429': SCHEMA_COMPILE_BUDGET,
     },
@@ -3536,9 +4609,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Unregistered.', schema: ref('UnregisterFlowResult') },
       ...CommonMutationErrors,
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `flow-version-pinned`: the version is pinned in one or more scopes (`details.scopes`); move those pins to another version, or unpin them, first. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
-      '404': ErrorResponse('No flow at that (id, version) under this tenant.'),
+      '404': ErrorResponse('No flow at that (id, version) under this workspace.'),
     },
   },
   {
@@ -3561,9 +4634,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
-      '404': ErrorResponse('No flow at that (id, version) under this tenant.'),
+      '404': ErrorResponse('No flow at that (id, version) under this workspace.'),
     },
   },
+  ...pinnedVersionOperations(FLOW_PINS),
 
   // ---------- tools ----------
   {
@@ -3597,15 +4671,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/tools/{toolId}',
     operationId: 'tools.get',
     summary: 'Fetch a tool manifest (latest active version)',
-    description:
-      'Returns the latest active version of the tool. When all versions are unregistered (retired), the head row still exists but has no active version — the response is 410 tool-gone with the id, distinct from 404 tool-not-found (never registered).',
+    description: `Returns the latest active version of the tool. When all versions are unregistered (retired), the head row still exists but has no active version — the response is 410 tool-gone with the id, distinct from 404 tool-not-found (never registered). ${NEWEST_VISIBLE_DESCRIPTION}`,
     tags: ['tools'],
     security: 'bearer',
-    parameters: [ToolIdPathParam],
+    parameters: [ToolIdPathParam, ItemProjectQueryParam],
     responses: {
       '200': { description: 'Tool manifest.', schema: ref('Tool') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No tool with that id under this tenant.'),
+      '400': ErrorResponse('`projectId` is not a project id (a UUID).'),
+      '404': ErrorResponse('No tool with that id under this workspace.'),
       '410': ErrorResponse('Tool retired (all versions unregistered).'),
     },
   },
@@ -3624,7 +4698,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Page of tool versions.', schema: ref('ToolVersionCollectionPage') },
       '400': ErrorResponse("`bad-input`: a `cursor` this list didn't issue."),
       ...CommonAuthErrors,
-      '404': ErrorResponse('No tool with that id under this tenant.'),
+      '404': ErrorResponse('No tool with that id under this workspace.'),
     },
   },
   {
@@ -3639,7 +4713,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Tool manifest at the requested version.', schema: ref('Tool') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No tool at that (id, version) under this tenant.'),
+      '404': ErrorResponse('No tool at that (id, version) under this workspace.'),
     },
   },
   {
@@ -3649,7 +4723,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tools.register',
     summary: 'Register a tool manifest',
     description:
-      "Body is a `ToolManifest` (Tool minus its runtime handler). Server validates via `@kindgi/tools.validateToolManifest`. Metadata only: the handler is not uploaded through this route and must already be available to the runtime. A tool never gets a model provider's key: one that declares (`needsSpec.secrets`) or sends (`spec.authorization.secretRef`) a secret a provider registration of the tenant names, in any env, is refused. Where each secret it names is read is recorded on the version (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only.",
+      "Body is a `ToolManifest` (Tool minus its runtime handler). Server validates via `@kindgi/tools.validateToolManifest`. Metadata only: the handler is not uploaded through this route and must already be available to the runtime. A tool never gets a model provider's key: one that declares (`needsSpec.secrets`) or sends (`spec.authorization.secretRef`) a secret a provider registration of the workspace names, in any env, is refused. Where each secret it names is read is recorded on the version (`secretScopes`): the first of its own scope, its project's org and the workspace that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only.",
     tags: ['tools'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -3658,13 +4732,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Tool registered.', schema: ref('RegisterToolResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `provider-key-refused`: the tool names a model provider's key (`details.secret`, `details.providerId`); store the key it needs under its own name (the same value is fine) and name that. Or `validation-failed` for a `metadata` key under `kindgi.`: those are the runtime's own (`details.issues`, at `/metadata/<key>`).",
+        "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `provider-key-refused`: the tool names a model provider's key (`details.secret`, `details.providerId`); store the key it needs under its own name (the same value is fine) and name that. Or `reserved-name-prefix`: the tool names a secret under the reserved `kindgi.` prefix (`details.secret`); those are Kindgi's own. Or `validation-failed` for a `metadata` key under `kindgi.`: those are the runtime's own (`details.issues`, at `/metadata/<key>`).",
       ),
       '409': ErrorResponse(
-        "`tool-already-registered`: that (id, version) is taken. Or `tool-project-mismatch`: the tool's versions live in another project (a tool belongs to the project its first version was published into and never moves; the message doesn't name the project). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+        `\`tool-already-registered\`: that (id, version) is taken. Or \`tool-project-mismatch\`: the tool's versions live in another project (a tool belongs to the project its first version was published into and never moves, though in a workspace with environment orders a version may be made in another project of that project's order; the message doesn't name the project). Or \`tool-kind-mismatch\`: the tool's active versions are of another kind, an MCP endpoint's tool (\`details.endpointId\`) where this version is published here, or the other way round; a tool's active versions are all one kind, and nothing was written (\`details.toolId\`, \`details.version\`). ${TAKES_PROMOTIONS} Or \`registry-read-only\`: this registry takes no writes (under \`kindgi dev\`, the pack's files are the source); the message says what to do instead.`,
       ),
       '404': ErrorResponse(
-        "The body's `projectId` names no project of this tenant (`project-not-found`).",
+        "The body's `projectId` names no project of this workspace (`project-not-found`).",
       ),
       '429': SCHEMA_COMPILE_BUDGET,
     },
@@ -3682,9 +4756,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Unregistered.', schema: ref('UnregisterToolResult') },
       ...CommonMutationErrors,
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `tool-version-pinned`: the version is pinned in one or more scopes (`details.scopes`); move those pins to another version, or unpin them, first. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
-      '404': ErrorResponse('No tool at that (id, version) under this tenant.'),
+      '404': ErrorResponse('No tool at that (id, version) under this workspace.'),
     },
   },
   {
@@ -3702,14 +4776,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Reinstated.', schema: ref('ReinstateToolVersionResult') },
       ...CommonMutationErrors,
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `tool-kind-mismatch`: the tool's active versions are of another kind than this one, an MCP endpoint's tool (`details.endpointId`) or tools published here, so it stays unregistered (`details.toolId`, `details.version`). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
-      '404': ErrorResponse('No tool at that (id, version) under this tenant.'),
+      '404': ErrorResponse('No tool at that (id, version) under this workspace.'),
       '400': ErrorResponse(
-        "`provider-key-refused`: the version declares or sends a model provider's key (`details.secret`, `details.providerId`), so it stays retired; publish a version that names a key of its own.",
+        "`provider-key-refused`: the version declares or sends a model provider's key (`details.secret`, `details.providerId`), or `reserved-name-prefix`: it names a secret under the reserved `kindgi.` prefix (`details.secret`); either way it stays retired; publish a version that names a key of its own.",
       ),
     },
   },
+
+  ...pinnedVersionOperations(TOOL_PINS),
 
   // ---------- guardrails ----------
   {
@@ -3748,7 +4824,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Guardrail.', schema: ref('Guardrail') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No guardrail with that id under this tenant.'),
+      '404': ErrorResponse('No guardrail with that id under this workspace.'),
     },
   },
   {
@@ -3758,7 +4834,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'guardrails.outcomes',
     summary: "What a guardrail's checks came to in a project",
     description:
-      "Counts from the server, over a window: how many of the guardrail's checks on agent turns in the project `passed`, were `violated` (the answer went through: `log-only`, `noop`, or an action handed back), `blocked` (a `halt` failed the turn) or `errored` (the check couldn't run; a `halt` guardrail's error fails the turn too, and is counted here). The same counts per agent version, and the window's latest blocked turns, by run id and time only: a blocked answer stays behind its run's page. A guardrail whose scope didn't match a turn wasn't checked on it. Replays and dry runs aren't counted. Outcomes go with their run's retention, so a window can hold fewer than asked; `recordedSince` says how far back they go. A guardrail no longer registered still has its outcomes. Needs `read` on the guardrail and on the project.",
+      "Counts from the server, over a window: how many of the guardrail's checks on agent turns in the project `passed`, were `violated` (the answer went through: `log-only`, `noop`, or an action handed back; or a `retry` sent it back for a new one), `blocked` (a `halt` failed the turn, or a `retry` whose attempts had run out) or `errored` (the check couldn't run; a `halt` guardrail's error fails the turn too, and is counted here). The same counts per agent version, and the window's latest blocked turns, by run id and time only: a blocked answer stays behind its run's page. A guardrail whose scope didn't match a turn wasn't checked on it. A check is counted per answer it judged: a guardrail judges a turn's final answer, and, in a turn with a `retry` guardrail, its `halt` and `retry` guardrails judge each answer. Replays and dry runs aren't counted. Outcomes go with their run's retention, so a window can hold fewer than asked; `recordedSince` says how far back they go. A guardrail no longer registered still has its outcomes. Needs `read` on the guardrail and on the project.",
     tags: ['guardrails'],
     security: 'bearer',
     parameters: [
@@ -3819,13 +4895,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Guardrail registered.', schema: ref('RegisterGuardrailResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: a pack check it names isn't registered in its project, its org or the tenant (`details.issues`); a built-in check is every project's.",
+        "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: a pack check it names isn't registered in its project, its org or the workspace (`details.issues`); a built-in check is every project's.",
       ),
       '409': ErrorResponse(
-        "Guardrail already registered at that id. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+        `Guardrail already registered at that id. ${TAKES_PROMOTIONS} Or \`registry-read-only\`: this registry takes no writes (under \`kindgi dev\`, the pack's files are the source); the message says what to do instead.`,
       ),
       '404': ErrorResponse(
-        "The body's `projectId` names no project of this tenant (`project-not-found`).",
+        "The body's `projectId` names no project of this workspace (`project-not-found`).",
       ),
       '422': ErrorResponse(
         "`guardrail-config-invalid`: the guardrail's `config` breaks the `configSchema` of the check it names (a pack check's, or a built-in's), which would refuse it on every call. `details.issues` lists each problem, `{ path, message }` with `path` a JSON pointer into the guardrail (`/config/maxChars`); the message names the guardrail, the check and the setting. Checked when the check's deployment carries its schema.",
@@ -3848,7 +4924,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
-      '404': ErrorResponse('No guardrail with that id under this tenant.'),
+      '404': ErrorResponse('No guardrail with that id under this workspace.'),
     },
   },
 
@@ -3895,7 +4971,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Conversation.', schema: ref('Conversation') },
       ...CommonAuthErrors,
       '400': ErrorResponse('`conversationId` is not a conversation id (a UUID).'),
-      '404': ErrorResponse('No conversation with that id under this tenant.'),
+      '404': ErrorResponse(
+        "No conversation with that id under this workspace, or one the caller can't read (`read` on its project, or on its agent for one from before projects): the same answer, byte for byte.",
+      ),
     },
   },
   {
@@ -3905,7 +4983,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'conversations.open',
     summary: 'Open a conversation',
     description:
-      'Pins `(agentId, agentVersion)` at open time. `title` defaults to `"Untitled conversation"` when omitted; `projectId` puts it in a project, which must reach the agent (lists filter by it; omitted, the agent\'s own project, as for a run, or the Default project for an agent filed under none); `scope` accepts arbitrary JSON.',
+      'Pins `(agentId, agentVersion)` at open time. `title` defaults to `"Untitled conversation"` when omitted; `projectId` puts it in a project, which must reach the agent (lists filter by it; omitted, the agent\'s own project, as for a run, or the default project for an agent filed under none); `scope` accepts arbitrary JSON.',
     tags: ['conversations'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -3914,10 +4992,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Conversation opened.', schema: ref('Conversation') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed request body, or `projectId` names no project of this tenant. Or `reference-out-of-scope`: the agent isn't registered in the conversation's project, its org or the tenant (`details.issues`).",
+        "Malformed request body, or `projectId` names no project of this workspace. Or `reference-out-of-scope`: the agent isn't registered in the conversation's project, its org or the workspace, or `agentVersion` isn't a version that project runs, such as one made in an earlier environment and not yet promoted (`details.issues`, at `/agentId`, whose message names the version). Nothing is opened.",
       ),
       '403': ErrorResponse(
-        "No `execute` on the agent; or a `participantId` whose memory the caller may not read (`participant-not-allowed`): its turns run with that participant's memory, so opening it for someone takes being them (a person, by their user id) or `write` on its project.",
+        "No `execute` on the agent, or, for an agent more than one project serves opened in one of its projects, no `call` there (`caller` or `editor`); or, otherwise, naming a `projectId` without `write` on it (its turns land there, as a run naming one does); or a `participantId` whose memory the caller may not read (`participant-not-allowed`): its turns run with that participant's memory, so opening it for someone takes being them (a person, by their user id) or `write` on its project. The rights on the agent and on a named project are checked before `projectId` is looked up, so they answer the same whether or not it names a project.",
       ),
     },
   },
@@ -3939,7 +5017,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '400': ErrorResponse('`conversationId` is not a conversation id (a UUID).'),
-      '404': ErrorResponse('No conversation with that id under this tenant.'),
+      '403': ErrorResponse(
+        "The caller can read the conversation, and has no `execute` on its agent or, for an agent more than one project serves, no `call` on the conversation's project (`caller` or `editor`). Closing one doesn't take reading it.",
+      ),
+      '404': ErrorResponse(
+        "No conversation with that id under this workspace, or one the caller may not close and can't read: the same answer, byte for byte.",
+      ),
     },
   },
   {
@@ -3949,7 +5032,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'conversations.unregister',
     summary: 'Unregister a conversation',
     description:
-      "A tombstone: from now on no read, list or recall of earlier conversations returns it, and no message can be added. The retention sweep removes it after the tenant's grace.",
+      "A tombstone: from now on no read, list or recall of earlier conversations returns it, and no message can be added. The retention sweep removes it after the workspace's grace.",
     tags: ['conversations'],
     security: 'bearer',
     parameters: [ConversationIdPathParam, IdempotencyKeyParam],
@@ -3960,8 +5043,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '400': ErrorResponse('`conversationId` is not a conversation id (a UUID).'),
+      '403': ErrorResponse(
+        'The caller can read the conversation, and has no `write` on its project (on its agent, for one from before projects).',
+      ),
       '404': ErrorResponse(
-        'No conversation with that id under this tenant, or it is unregistered already.',
+        "No conversation with that id under this workspace, or it is unregistered already, or the caller may not unregister it and can't read it: the same answer, byte for byte.",
       ),
       '501': ErrorResponse(
         "`conversation-unregister-unsupported`: this runtime can't unregister conversations.",
@@ -3988,7 +5074,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         'Malformed cursor, or `conversationId` is not a conversation id (a UUID).',
       ),
-      '404': ErrorResponse('No conversation with that id under this tenant.'),
+      '404': ErrorResponse(
+        "No conversation with that id under this workspace, or one the caller can't read (`read` on its project, or on its agent for one from before projects): the same answer, byte for byte.",
+      ),
     },
   },
 
@@ -4000,7 +5088,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'memory.listFacts',
     summary: 'List facts',
     description:
-      "Cursor-paginated: the current revision of each fact the caller may see. That is tenant-wide facts, the projects they may read (with those projects' orgs), their own user facts, and every end user's and conversation's facts in the projects they may write; a tenant admin sees every fact. Filters: `?type=` (exact match on `Fact.type`), `?scope=` (URL-encoded JSON partial memory `Scope`), `?scopeKind + ?scopeId + ?inherit` (discriminated `PlatformScope` triplet — threaded into the binding as `platformScope`; both fields coexist), `?asOf=` (memory as it stood then). Sort order is binding-defined.",
+      "Cursor-paginated: the current revision of each fact the caller may see. That is workspace-wide facts, the projects they may read (with those projects' orgs), their own user facts, and every end user's and conversation's facts in the projects they may write; a tenant admin sees every fact. Filters: `?type=` (exact match on `Fact.type`), `?scope=` (URL-encoded JSON partial memory `Scope`), `?scopeKind + ?scopeId + ?inherit` (discriminated `PlatformScope` triplet — threaded into the binding as `platformScope`; both fields coexist), `?asOf=` (memory as it stood then). Sort order is binding-defined.",
     tags: ['memory'],
     security: 'bearer',
     parameters: [
@@ -4066,7 +5154,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'memory.writeFact',
     summary: 'Write a fact',
     description:
-      "Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. The caller needs write where the scope says: `write` on its project (an end user's or a conversation's fact included), `write` on its conversation outside a project, `admin` on its org for an org-wide fact, being that user for a user's fact, and tenant `admin` for a tenant-wide fact. The fact records who wrote it (`attributedTo`).",
+      "Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. The caller needs write where the scope says: `write` on its project (an end user's or a conversation's fact included), `write` on its conversation outside a project, `admin` on its org for an org-wide fact, being that user for a user's fact, and workspace `admin` for a workspace-wide fact. The fact records who wrote it (`attributedTo`).",
     tags: ['memory'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -4188,7 +5276,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'memory.createErasure',
     summary: "Erase a person's words",
     description:
-      "Starts erasing, in the background, one fact (`factId`), a person (`subject`: an app's end user `participant`, or an `external` subject facts name) or one conversation (`conversationId`): their facts, conversations (messages, recall rows), the runs that served them (input, output, journal, snapshots) and the free text they left in provenance; facts written from them go to review. Answers `202` with the erasure; follow it with `GET /v1/memory/erasures/{erasureId}`. A completed erasure keeps no identifier, only a keyed hash for a replay after a backup restore; `warnings` says when this deployment can't keep one (`erasure-unmatchable`: no erasure ledger key, `KINDGI_ERASURE_LEDGER_KEY`). Requires `admin` on the tenant.",
+      "Starts erasing, in the background, one fact (`factId`), a person (`subject`: an app's end user `participant`, or an `external` subject facts name) or one conversation (`conversationId`): their facts, conversations (messages, recall rows), the runs that served them (input, output, journal, snapshots) and the free text they left in provenance; facts written from them go to review. Answers `202` with the erasure; follow it with `GET /v1/memory/erasures/{erasureId}`. A completed erasure keeps no identifier, only a keyed hash for a replay after a backup restore; `warnings` says when this deployment can't keep one (`erasure-unmatchable`: no erasure ledger key, `KINDGI_ERASURE_LEDGER_KEY`). Requires `admin` on the workspace.",
     tags: ['memory'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -4212,7 +5300,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'memory.listErasures',
     summary: 'List erasures',
     description:
-      'Cursor-paginated, newest first: each erasure, how far it got and what it cleared. A completed one shows no selector. Requires `admin` on the tenant.',
+      'Cursor-paginated, newest first: each erasure, how far it got and what it cleared. A completed one shows no selector. Requires `admin` on the workspace.',
     tags: ['memory'],
     security: 'bearer',
     parameters: [LimitQueryParam, CursorQueryParam],
@@ -4230,7 +5318,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'memory.exportErasures',
     summary: 'Export the erasure ledger',
     description:
-      "The whole ledger, oldest first, content-free: each erasure's selector kind, the keyed hash of whom it erased, who asked and when. Keep it off-box: restoring a backup rolls the ledger back too, and `POST /v1/memory/erasures/replay` with it runs the erasures again. Requires `admin` on the tenant.",
+      "The whole ledger, oldest first, content-free: each erasure's selector kind, the keyed hash of whom it erased, who asked and when. Keep it off-box: restoring a backup rolls the ledger back too, and `POST /v1/memory/erasures/replay` with it runs the erasures again. Requires `admin` on the workspace.",
     tags: ['memory'],
     security: 'bearer',
     responses: {
@@ -4246,7 +5334,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'memory.replayErasures',
     summary: 'Replay erasures after a backup restore',
     description:
-      "Takes the ledger `GET /v1/memory/erasures/export` gave, puts back the rows the restore lost, and finds each erasure's person (or fact, or conversation) again by its keyed hash: those run again (`replayed`); ones nothing in the tenant matches are only restored (`restored`); ones with no keyed hash, or a key this deployment doesn't hold, are `unmatched`. Requires `admin` on the tenant.",
+      "Takes the ledger `GET /v1/memory/erasures/export` gave, puts back the rows the restore lost, and finds each erasure's person (or fact, or conversation) again by its keyed hash: those run again (`replayed`); ones nothing in the workspace matches are only restored (`restored`); ones with no keyed hash, or a key this deployment doesn't hold, are `unmatched`. Requires `admin` on the workspace.",
     tags: ['memory'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -4265,7 +5353,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'memory.resumeErasure',
     summary: 'Resume an erasure',
     description:
-      "Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people) stops waiting: the run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.",
+      "Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people, or a test run still going with a case from their runs) stops waiting: that run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the workspace.",
     tags: ['memory'],
     security: 'bearer',
     parameters: [ErasureIdPathParam, IdempotencyKeyParam],
@@ -4275,7 +5363,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '400': ErrorResponse('The body is `{force?: boolean}`.'),
       '403': ErrorResponse('Not a tenant admin.'),
-      '404': ErrorResponse('No such erasure in this tenant.'),
+      '404': ErrorResponse('No such erasure in this workspace.'),
     },
   },
   {
@@ -4285,7 +5373,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'memory.getErasure',
     summary: 'Get an erasure',
     description:
-      'One erasure: its status (`pending`, `running`, `completed`, `failed`), phase, what each store cleared (`counts`), and `lastError` (a code, or `not-yet:<reason>` while it waits for a run to finish). Requires `admin` on the tenant.',
+      'One erasure: its status (`pending`, `running`, `completed`, `failed`), phase, what each store cleared (`counts`), and `lastError` (a code, or `not-yet:<reason>` while it waits for a run to finish). Requires `admin` on the workspace.',
     tags: ['memory'],
     security: 'bearer',
     parameters: [ErasureIdPathParam],
@@ -4293,272 +5381,314 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The erasure.', schema: ref('MemoryErasure') },
       ...CommonAuthErrors,
       '403': ErrorResponse('Not a tenant admin.'),
-      '404': ErrorResponse('No such erasure in this tenant.'),
+      '404': ErrorResponse('No such erasure in this workspace.'),
     },
   },
 
-  // ---------- improvement proposals ----------
+  // ---------- suggested changes ----------
   {
     method: 'get',
-    honoPath: '/v1/proposals',
-    openapiPath: '/v1/proposals',
-    operationId: 'proposals.list',
-    summary: 'List improvement proposals',
+    honoPath: '/v1/suggested-changes',
+    openapiPath: '/v1/suggested-changes',
+    operationId: 'suggestedChanges.list',
+    summary: 'List suggested changes',
     description:
-      'Newest first, cursor-paginated, only the proposals of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a proposal is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).',
-    tags: ['proposals'],
+      'Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?projectId=` (the project a suggested change is for), `?status=` and `?madeBy=` (a kind of maker). Statuses and makers are derived, so a page filtered by either can hold fewer rows than `limit`.',
+    tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [
       LimitQueryParam,
       CursorQueryParam,
-      ProposalStatusQueryParam,
+      SuggestedChangeStatusQueryParam,
       AgentIdQueryParam,
-      ProposalTierQueryParam,
-      PromotionScopeKindQueryParam,
-      ScopeIdQueryParam,
-      SegmentQueryParam,
+      SuggestedChangeProjectQueryParam,
+      SuggestedChangeMadeByQueryParam,
     ],
     responses: {
-      '200': { description: 'Page of proposals.', schema: ref('FixProposalCollectionPage') },
+      '200': {
+        description: 'Page of suggested changes.',
+        schema: ref('SuggestedChangeCollectionPage'),
+      },
       ...CommonAuthErrors,
       '400': ErrorResponse('A malformed query parameter.'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/proposals/improve',
-    openapiPath: '/v1/proposals/improve',
-    operationId: 'proposals.improve',
-    summary: 'Start an improvement pass',
+    honoPath: '/v1/improve-runs',
+    openapiPath: '/v1/improve-runs',
+    operationId: 'improveRuns.start',
+    summary: 'Start an Improve run',
     description:
-      "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts for an agent whose project is suspended (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
-    tags: ['proposals'],
+      "Starts an Improve run for an agent in a project. From the version the project runs (pinned there, else its Latest), it looks for better wording (the prompt tier) or settings values (the settings tier) on the project's test set, learning from the project's open corrections sorted to improve, within the budget. Its best change is proven on every case of the test set, at the reference's repetitions: when it passes more cases than that version and fails none that passed, it becomes a suggested change for a reviewer. It answers at once with the Improve run, `running`. Under `kindgi dev`, the run counts in its project (its corrections, its test set and its cost), and its suggested change is for the whole workspace (the `tenant` scope), which the pack's files serve: pinning it writes its block into the pack's files. The readiness check (`POST /v1/improve-runs/check`) runs first: when something the Improve run needs is missing, it's refused with `409 improve-not-ready`, listing every missing item at once (`details.items`, each with its fix); while the agent has a running Improve run in the project, with `409 improve-run-running` (`details.improveRunId`). An Improve run going when its project is suspended ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent; for an agent more than one project serves, `write` where its versions are made. Without Improve runs in this runtime, `501 improve-unsupported`.",
+    tags: ['improve-runs'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('ImproveBody') },
+    requestBody: { required: true, schema: ref('StartImproveRunBody') },
     responses: {
-      '202': { description: 'The pass, running.', schema: ref('ImprovementPass') },
+      '202': { description: 'The Improve run, running.', schema: ref('ImproveRun') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed request body, or `validation-failed`. Or `reference-out-of-scope`: the test set isn't registered in the agent's project, its org or the tenant, or a project or segment scope doesn't reach the agent (`details.issues`).",
+        "Malformed request body (`bad-input`): no `projectId`, or a field the body doesn't have (`scope`, `testSetId` and `fromVersion` among them), named in the message.",
       ),
       '404': ErrorResponse(
-        '`fromVersion` (or the version serving the scope) is not an active version.',
+        "The body's `projectId` names no project of this workspace (`project-not-found`).",
       ),
       '409': ErrorResponse(
-        "`registry-read-only`, `proposal-needs-pin`, or `project-suspended`: the agent's project is suspended. Or Idempotency-Key was reused with a different body.",
+        '`improve-not-ready`: something the Improve run needs is missing (`details.items`, as `POST /v1/improve-runs/check` lists them). `improve-run-running`: the agent has a running Improve run in the project (`details.improveRunId`); one runs at a time. Or `registry-read-only`: the agent registry is read-only and takes no versions an Improve run makes; the message says why. Or Idempotency-Key was reused with a different body.',
       ),
-      '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
+      '501': ErrorResponse('`improve-unsupported`: this runtime runs no Improve runs.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/improve-runs/check',
+    openapiPath: '/v1/improve-runs/check',
+    operationId: 'improveRuns.check',
+    summary: 'Check an Improve run',
+    description:
+      "Whether the Improve run this input would start is ready, and what it's estimated to cost, before you start it. The body is the start body of `POST /v1/improve-runs`. `items` lists everything an Improve run needs, in a fixed order, missing or not; each missing one says where it's fixed (`repo`: in the agent's code, then a deploy; `kindgi`: in Kindgi) and how. `estimate.costUsd` prices each replay at the version's mean cost over its recent completed runs: the search's replays at most `budget.maxCostUsd`, plus the proof's (`estimate.basis.proofReplays`), which the budget doesn't cap. It's absent when the version has no cost history; `estimate.basis` gives the inputs. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and it leaves out a prompt Improve run's one-off drafting of its templates: an Improve run can cost more than the estimate. The Improve run checks its cost before each comparison, so the one already running can take it a little over, and its search starts no more once the cost reaches `budget.maxCostUsd`. It proves its best change after that, uncapped. With an Improve schedule on the agent and project, `month` is this UTC month's spend on their Improve runs against the schedule's monthly cap; only the schedule stops at the cap. It changes nothing (no Improve run starts) and takes no Idempotency-Key. Needs `publish` on the agent; for an agent more than one project serves, `write` where its versions are made. Without Improve runs in this runtime, `501 improve-unsupported`.",
+    tags: ['improve-runs'],
+    security: 'bearer',
+    requestBody: { required: true, schema: ref('StartImproveRunBody') },
+    responses: {
+      '200': { description: 'Its readiness, and the estimate.', schema: ref('ImproveRunCheck') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        "Malformed request body (`bad-input`): no `projectId`, or a field the body doesn't have (`scope`, `testSetId` and `fromVersion` among them), named in the message.",
+      ),
+      '404': ErrorResponse(
+        "The body's `projectId` names no project of this workspace (`project-not-found`).",
+      ),
+      '409': ErrorResponse(
+        '`registry-read-only`: the agent registry is read-only and takes no versions an Improve run makes; the message says why.',
+      ),
+      '501': ErrorResponse('`improve-unsupported`: this runtime runs no Improve runs.'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/proposals/:proposalId',
-    openapiPath: '/v1/proposals/{proposalId}',
-    operationId: 'proposals.get',
-    summary: 'Fetch an improvement proposal',
-    description: 'Needs `read` on its agent.',
-    tags: ['proposals'],
+    honoPath: '/v1/suggested-changes/:suggestedChangeId',
+    openapiPath: '/v1/suggested-changes/{suggestedChangeId}',
+    operationId: 'suggestedChanges.get',
+    summary: 'Fetch a suggested change',
+    description:
+      "With its block's content before and after (`changes[].before`, `changes[].after`): before is the block as the change was drafted, or last rebuilt. Needs `read` on its agent.",
+    tags: ['suggested-changes'],
     security: 'bearer',
-    parameters: [ProposalIdPathParam],
+    parameters: [SuggestedChangeIdPathParam],
     responses: {
-      '200': { description: 'The proposal.', schema: ref('FixProposal') },
+      '200': { description: 'The suggested change.', schema: ref('SuggestedChange') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No such proposal (or none the caller can read).'),
+      '404': ErrorResponse('No such suggested change (or none the caller can read).'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/proposals',
-    openapiPath: '/v1/proposals',
-    operationId: 'proposals.create',
-    summary: 'Propose new content for a data block',
+    honoPath: '/v1/suggested-changes',
+    openapiPath: '/v1/suggested-changes',
+    operationId: 'suggestedChanges.create',
+    summary: 'Suggest a change to a block, for a project',
     description:
-      'A hand-written proposal: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one proposal: answered `200` with `X-Proposal-Deduped: true`. Needs `publish` on the agent.',
-    tags: ['proposals'],
+      "New settings values or a new prompt template for one block, in what the project runs: its pin, or Latest. Checked as publishing that block version would be (its schema carries over; for the version's model-settings block, as model settings), and refused when it equals the content the version pins. Then the block version is published, an agent version is derived from what the project runs with that one block changed (it serves nothing until it's pinned or added as Latest), and the check starts on the project's test set, frozen now: the new version and what the project runs replay the same cases. The same change on the same version for the same project is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`, unchecked again. Under `kindgi dev`, it's for the whole workspace (the `tenant` scope), as an Improve run's is, and checked in the project the version it's built on was made in. Needs `publish` on the agent.",
+    tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('CreateProposalBody') },
+    requestBody: { required: true, schema: ref('CreateSuggestedChangeBody') },
     responses: {
-      '201': { description: 'The proposal, a `draft`.', schema: ref('FixProposal') },
-      '200': { description: 'The same proposal, made before.', schema: ref('FixProposal') },
-      ...CommonMutationErrors,
-      '400': ErrorResponse(
-        "Malformed request body, or the change fails validation. Or `reference-out-of-scope`: a project or segment scope whose project doesn't reach the agent, or a block the agent's project doesn't reach (`details.issues`).",
-      ),
-      '404': ErrorResponse(
-        "`fromVersion` isn't an active version of the agent (`agent-version-not-found`).",
-      ),
-    },
-  },
-  {
-    method: 'post',
-    honoPath: '/v1/proposals/:proposalId/evaluate',
-    openapiPath: '/v1/proposals/{proposalId}/evaluate',
-    operationId: 'proposals.evaluate',
-    summary: 'Compare a proposal on a test set',
-    description:
-      "The first evaluation publishes the block version and derives the agent version (`derivedFrom.proposalId`); they serve no scope until a promotion makes them live. Then a comparison eval run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 proposal-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.",
-    tags: ['proposals'],
-    security: 'bearer',
-    parameters: [ProposalIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('EvaluateProposalBody') },
-    responses: {
-      '202': { description: 'The proposal, `evaluating`.', schema: ref('FixProposal') },
-      ...CommonMutationErrors,
-      '400': ErrorResponse(
-        "Malformed request body. Or `reference-out-of-scope`: the test set isn't registered in the agent's project, its org or the tenant (`details.issues`).",
-      ),
-      '404': ErrorResponse('No such proposal, or no such test set.'),
-      '409': ErrorResponse(
-        "`proposal-needs-pin`: the agent has no live version for the whole tenant. `proposal-invalid-state-transition`: the proposal's status doesn't allow it. `registry-read-only`: the agent registry takes no writes (under `kindgi dev`).",
-      ),
-      '429': SCHEMA_COMPILE_BUDGET,
-    },
-  },
-  {
-    method: 'post',
-    honoPath: '/v1/proposals/:proposalId/rescore',
-    openapiPath: '/v1/proposals/{proposalId}/rescore',
-    operationId: 'proposals.rescore',
-    summary: "Rescore a proposal's latest evaluation",
-    description:
-      "After people judge a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those judgments, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.",
-    tags: ['proposals'],
-    security: 'bearer',
-    parameters: [ProposalIdPathParam, IdempotencyKeyParam],
-    responses: {
-      '202': { description: 'The proposal, `evaluating`.', schema: ref('FixProposal') },
-      ...CommonMutationErrors,
-      '404': ErrorResponse(
-        'No such proposal, or its candidate version is unregistered (`agent-version-not-found`).',
-      ),
-      '409': ErrorResponse(
-        "`proposal-invalid-state-transition`: the proposal's status doesn't allow it. `eval-run-not-rescorable`: the latest evaluation isn't a completed comparison.",
-      ),
-    },
-  },
-  {
-    method: 'post',
-    honoPath: '/v1/proposals/:proposalId/request',
-    openapiPath: '/v1/proposals/{proposalId}/request',
-    operationId: 'proposals.request',
-    summary: "Request a proposal's promotion for its scope",
-    description:
-      "A promotion of the candidate for the proposal's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.",
-    tags: ['proposals'],
-    security: 'bearer',
-    parameters: [ProposalIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: false, schema: ref('ProposalReasonBody') },
-    responses: {
-      '201': { description: 'Promoted: the proposal, `promoted`.', schema: ref('FixProposal') },
-      '202': {
-        description: 'The gate passed and an approval is open: the proposal, `in-review`.',
-        schema: ref('FixProposal'),
+      '201': {
+        description: 'The suggested change, `checking`.',
+        schema: ref('SuggestedChange'),
+      },
+      '200': {
+        description: 'The same suggested change, made before.',
+        schema: ref('SuggestedChange'),
       },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed request body. Or `reference-out-of-scope`: the proposal's project or segment scope no longer reaches the agent (`details.issues`).",
+        "Malformed request body, or the change fails validation: a block the project's version doesn't pin, `values` for a prompt block or `template` for a settings block (`details.issues`). Or `reference-out-of-scope`: the project doesn't reach the agent, or the agent's project doesn't reach the block (`details.issues`). Or `validation-failed` when an id in `fixes` is no correction in the project: `details.fixes` lists those ids, and `details.issues` their places.",
       ),
-      '404': ErrorResponse('No such proposal.'),
-      '409': ErrorResponse("The proposal's status doesn't allow it."),
+      '404': ErrorResponse(
+        "The version the project runs isn't active (`agent-version-not-found`), the body's `projectId` names no project of this workspace (`project-not-found`), or a check's test run couldn't start (`test-set-not-found`).",
+      ),
+      '409': ErrorResponse(
+        "`nothing-runs-in-scope`: the project runs no version of the agent. `suggested-change-nothing-to-check`: the project's test set has no cases for the agent. `environment-takes-promotions`: the project is a later environment of its order, where new versions arrive only by promotion (`details.position`, and `details.firstProjectId` when you can read it). `registry-read-only`: the agent registry takes no writes, not even the version a suggested change makes; the message says why. Or Idempotency-Key was reused with a different body.",
+      ),
+      '429': SCHEMA_COMPILE_BUDGET,
+      '501': ErrorResponse(
+        "`suggested-change-check-unsupported`: this runtime doesn't freeze a project's test set, so it can't check a suggested change.",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/suggested-changes/:suggestedChangeId/check',
+    openapiPath: '/v1/suggested-changes/{suggestedChangeId}/check',
+    operationId: 'suggestedChanges.check',
+    summary: 'Check a suggested change again',
+    description:
+      "Checks it again on its project's test set, frozen now: its version and the version it's built on replay the same cases, so new corrections count. Its version is made first if it has none. When its project runs another version than the one it's built on, it's rebuilt there first: its block change on that version, as a new version, and `builtOn.rebuiltAt` says when. Takes no body fields. Needs `publish` on the agent. Allowed from `check-failed` and `ready`.",
+    tags: ['suggested-changes'],
+    security: 'bearer',
+    parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '202': { description: 'The suggested change, `checking`.', schema: ref('SuggestedChange') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('A body with fields: a check takes none.'),
+      '404': ErrorResponse(
+        'No such suggested change, or its version is unregistered (`agent-version-not-found`).',
+      ),
+      '409': ErrorResponse(
+        "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-nothing-to-check`: the project's test set has no cases for the agent. `suggested-change-out-of-date`: its project runs another version, which it can't be rebuilt on. `registry-read-only`: the agent registry takes no writes, not even the version a suggested change makes, or (under `kindgi dev`) the suggested change is for a project; the message says why.",
+      ),
+      '429': SCHEMA_COMPILE_BUDGET,
+      '501': ErrorResponse(
+        "`suggested-change-check-unsupported`: this runtime doesn't freeze a project's test set.",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/suggested-changes/:suggestedChangeId/pin',
+    openapiPath: '/v1/suggested-changes/{suggestedChangeId}/pin',
+    operationId: 'suggestedChanges.pin',
+    summary: "Pin a suggested change's version for its project",
+    description:
+      "A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. A project on Latest takes the change as its Latest (`add-as-latest`); a pin there is refused with `409 pin-stops-latest`, before any rebuild, unless the body has `stopFollowingLatest: true`, which takes the project off Latest. Under `kindgi dev`, a suggested change is for the whole workspace (the `tenant` scope): it's pinned there, through the project its version was made in. Needs `pin` on the agent. Allowed from `ready`.",
+    tags: ['suggested-changes'],
+    security: 'bearer',
+    parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('SuggestedChangePinBody') },
+    responses: {
+      '201': {
+        description:
+          'Pinned: the pin, as `POST /v1/agents/{agentId}/pinned/pin` answers it, with the suggested change, `pinned`.',
+        schema: ref('SuggestedChangePinAnswer'),
+      },
+      '202': {
+        description:
+          'The gate passed and an approval is open: the pin, with the suggested change, `waiting-for-second-person`.',
+        schema: ref('SuggestedChangePinAnswer'),
+      },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "Malformed request body. Or `reference-out-of-scope`: the suggested change's project no longer reaches the agent (`details.issues`).",
+      ),
+      '404': ErrorResponse('No such suggested change.'),
+      '409': ErrorResponse(
+        "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `pin-stops-latest`: its project follows Latest, and the body doesn't have `stopFollowingLatest: true`; `details.projects` has `{ projectId, version }` with the version it runs now, and `details.suggestedChangeId`. `suggested-change-out-of-date`: its project now runs another version than the one it's built on, so it's being rebuilt there and checked again (`details.rebuilding`), or it can't be.",
+      ),
       '422': ErrorResponse(
-        '`gate-failed`: the gate refused it (the error carries the checks and `proposalId`).',
+        "`gate-failed`: the gate refused it (the error carries the checks and `suggestedChangeId`, and, with the gate's `cases` rule, `passing`, `needs` and `newlyFailing` as the agent pin does). The suggested change stays `ready`, with a `note`.",
       ),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/proposals/:proposalId/rollback',
-    openapiPath: '/v1/proposals/{proposalId}/rollback',
-    operationId: 'proposals.rollback',
-    summary: 'Roll back a promoted proposal',
+    honoPath: '/v1/suggested-changes/:suggestedChangeId/add-as-latest',
+    openapiPath: '/v1/suggested-changes/{suggestedChangeId}/add-as-latest',
+    operationId: 'suggestedChanges.addAsLatest',
+    summary: "Add a suggested change's version as its project's Latest",
     description:
-      "The scope goes back to the version its own pin held before the proposal's promotion (or, with none, falls back to the scope above). Only while the proposal's version still serves the scope. Needs `promote` on the agent.",
-    tags: ['proposals'],
+      'Makes its version Latest in its project, now, so the project runs it. Only for a project on Latest, which takes each new Latest without a gate; a pinned project takes a pin of the change instead. `reason` is kept on its `addedAsLatest`. Needs `pin` on the agent. Allowed from `ready`.',
+    tags: ['suggested-changes'],
     security: 'bearer',
-    parameters: [ProposalIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: false, schema: ref('ProposalReasonBody') },
+    parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('SuggestedChangeReasonBody') },
     responses: {
-      '200': { description: 'The proposal, `rolled-back`.', schema: ref('FixProposal') },
+      '200': {
+        description: 'The suggested change, `added-as-latest`.',
+        schema: ref('SuggestedChange'),
+      },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No such proposal.'),
-      '409': ErrorResponse("It isn't promoted, or its version doesn't serve the scope anymore."),
+      '404': ErrorResponse(
+        'No such suggested change. Or `agent-version-not-found`: its version was unregistered.',
+      ),
+      '409': ErrorResponse(
+        "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-project-pinned`: its project runs a pin, not Latest. `suggested-change-out-of-date`: its project now runs another version than the one it's built on, so it's being rebuilt there and checked again (`details.rebuilding`), or it can't be. `registry-read-only`: the agent registry takes no writes (under `kindgi dev`, the pack's files are what runs, with no Latest); the message says why.",
+      ),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/proposals/:proposalId/withdraw',
-    openapiPath: '/v1/proposals/{proposalId}/withdraw',
-    operationId: 'proposals.withdraw',
-    summary: 'Withdraw a proposal',
+    honoPath: '/v1/suggested-changes/:suggestedChangeId/withdraw',
+    openapiPath: '/v1/suggested-changes/{suggestedChangeId}/withdraw',
+    operationId: 'suggestedChanges.withdraw',
+    summary: 'Withdraw a suggested change',
     description:
-      "Closes it. Not while it's in review (decide its approval instead), nor once promoted, rejected or rolled back. Needs `publish` on the agent.",
-    tags: ['proposals'],
+      'Closes it. Allowed from `checking`, `check-failed` and `ready`: not while it waits for a second person (they reject it instead), nor once pinned or added as Latest. Needs `publish` on the agent.',
+    tags: ['suggested-changes'],
     security: 'bearer',
-    parameters: [ProposalIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('WithdrawProposalBody') },
+    parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('WithdrawSuggestedChangeBody') },
     responses: {
-      '200': { description: 'The proposal, `withdrawn`.', schema: ref('FixProposal') },
+      '200': { description: 'The suggested change, `withdrawn`.', schema: ref('SuggestedChange') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No such proposal.'),
-      '409': ErrorResponse("The proposal's status doesn't allow it."),
+      '404': ErrorResponse('No such suggested change.'),
+      '409': ErrorResponse("The suggested change's status doesn't allow it."),
     },
   },
 
-  // ---------- improvement passes ----------
+  // ---------- Improve runs ----------
   {
     method: 'get',
-    honoPath: '/v1/improvement-passes',
-    openapiPath: '/v1/improvement-passes',
-    operationId: 'improvementPasses.list',
-    summary: 'List improvement passes',
+    honoPath: '/v1/improve-runs',
+    openapiPath: '/v1/improve-runs',
+    operationId: 'improveRuns.list',
+    summary: 'List Improve runs',
     description:
-      'Newest first, only the passes of agents the caller can read. `?agentId=` narrows them.',
-    tags: ['proposals'],
+      'Newest first, only the Improve runs of agents the caller can read. `?agentId=`, `?projectId=` and `?status=` narrow them.',
+    tags: ['improve-runs'],
     security: 'bearer',
-    parameters: [LimitQueryParam, CursorQueryParam, AgentIdQueryParam],
+    parameters: [
+      LimitQueryParam,
+      CursorQueryParam,
+      AgentIdQueryParam,
+      ImproveRunProjectIdQueryParam,
+      ImproveRunStatusQueryParam,
+    ],
     responses: {
-      '200': { description: 'Page of passes.', schema: ref('ImprovementPassCollectionPage') },
+      '200': { description: 'Page of Improve runs.', schema: ref('ImproveRunCollectionPage') },
       ...CommonAuthErrors,
-      '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
+      '400': ErrorResponse('`bad-input`: `projectId` is not a UUID, or `status` is not a status.'),
+      '501': ErrorResponse('`improve-unsupported`: this runtime runs no Improve runs.'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/improvement-passes/:passId',
-    openapiPath: '/v1/improvement-passes/{passId}',
-    operationId: 'improvementPasses.get',
-    summary: 'Fetch an improvement pass',
+    honoPath: '/v1/improve-runs/:improveRunId',
+    openapiPath: '/v1/improve-runs/{improveRunId}',
+    operationId: 'improveRuns.get',
+    summary: 'Fetch an Improve run',
     description:
       'Its status, the candidates it compared and what they cost, and once it ends, what it found. Needs `read` on its agent.',
-    tags: ['proposals'],
+    tags: ['improve-runs'],
     security: 'bearer',
-    parameters: [ImprovementPassIdPathParam],
+    parameters: [ImproveRunIdPathParam],
     responses: {
-      '200': { description: 'The pass.', schema: ref('ImprovementPass') },
+      '200': { description: 'The Improve run.', schema: ref('ImproveRun') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No such pass (or none the caller can read).'),
-      '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
+      '404': ErrorResponse('No such Improve run (or none the caller can read).'),
+      '501': ErrorResponse('`improve-unsupported`: this runtime runs no Improve runs.'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/improvement-passes/:passId/cancel',
-    openapiPath: '/v1/improvement-passes/{passId}/cancel',
-    operationId: 'improvementPasses.cancel',
-    summary: 'Cancel an improvement pass',
+    honoPath: '/v1/improve-runs/:improveRunId/cancel',
+    openapiPath: '/v1/improve-runs/{improveRunId}/cancel',
+    operationId: 'improveRuns.cancel',
+    summary: 'Cancel an Improve run',
     description:
-      'A running pass stops and ends `cancelled`, writing no proposal. Needs `publish` on its agent.',
-    tags: ['proposals'],
+      'A running Improve run stops and ends `cancelled`, writing no suggested change. Needs `publish` on its agent.',
+    tags: ['improve-runs'],
     security: 'bearer',
-    parameters: [ImprovementPassIdPathParam, IdempotencyKeyParam],
+    parameters: [ImproveRunIdPathParam, IdempotencyKeyParam],
     responses: {
-      '200': { description: 'The pass, cancelled.', schema: ref('ImprovementPass') },
+      '200': { description: 'The Improve run, cancelled.', schema: ref('ImproveRun') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No such pass.'),
-      '409': ErrorResponse('`improvement-pass-finished`: it has ended already.'),
-      '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
+      '404': ErrorResponse('No such Improve run.'),
+      '409': ErrorResponse('`improve-run-finished`: it has ended already.'),
+      '501': ErrorResponse('`improve-unsupported`: this runtime runs no Improve runs.'),
     },
   },
 
@@ -4570,7 +5700,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'provenance.list',
     summary: 'List provenance records',
     description:
-      "Cursor-paginated. Metadata rows only — clients fetch the DAG payload via `GET /v1/provenance/{runId}`. Fixed sort: `createdAt desc, id desc`. Filters: `?runId=`, `?agentId=`, `?createdAfter=`, and `scopeKind`/`scopeId` for one project's records, or every project's in an org (records from before Kindgi 0.1.3 have no project and are listed only without a scope).",
+      "Cursor-paginated. Metadata rows only — clients fetch the DAG payload via `GET /v1/provenance/{runId}`. Fixed sort: `createdAt desc, id desc`. Filters: `?runId=`, `?agentId=`, `?flowId=`, `?createdAfter=`, and `scopeKind`/`scopeId` for one project's records, or every project's in an org (records from before Kindgi 0.1.3 have no project and are listed only without a scope).",
     tags: ['provenance'],
     security: 'bearer',
     parameters: [
@@ -4580,6 +5710,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ScopeIdQueryParam,
       ProvenanceRunIdQueryParam,
       ProvenanceAgentIdQueryParam,
+      ProvenanceFlowIdQueryParam,
       ProvenanceCreatedAfterQueryParam,
     ],
     responses: {
@@ -4595,14 +5726,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'provenance.get',
     summary: 'Fetch the full provenance DAG for a run',
     description:
-      'Returns the full DAG (nodes + edges) plus record metadata. 404 when no provenance was emitted for the run (e.g. the deployment does not run the emitter, or the run was pre-provenance).',
+      "Returns the full DAG (nodes + edges) plus record metadata: an agent turn's record, or a flow run's. A flow run's record is written just after the run ends. From the run's end until it is, the answer is 404 `provenance-not-found` with `error.details.recordState: being-written`; if writing it failed, `recordState: failed` and `error.details.reason`, a code. More states and codes may come. 404 with neither when the run has no record: a run still running, a dry run, an erased run, a run from before records were kept for it, or a deployment that doesn't write them.",
     tags: ['provenance'],
     security: 'bearer',
     parameters: [RunIdPathParam],
     responses: {
       '200': { description: 'Full provenance record.', schema: ref('ProvenanceRecord') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No provenance record for that run under this tenant.'),
+      '404': ErrorResponse(
+        'No provenance record for that run under this workspace (`provenance-not-found`; `error.details.recordState` says when it is still being written, or failed).',
+      ),
     },
   },
   {
@@ -4612,15 +5745,30 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'license.get',
     summary: "Where the deployment's license key stands",
     description:
-      "Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`), or a system key holding `system:license` (the renewal job's), reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused. A deployment that doesn't report it answers 404.",
+      "Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`), or a system key holding `system:license` (the renewal job's), reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused: `GET /v1/identity/me/permissions` says so before asking (`licenseOperatorOnly`, with `tenant.admin`). A deployment that doesn't report it answers 404.",
     tags: ['system'],
     security: 'bearer',
     responses: {
       '200': { description: 'The license status.', schema: ref('LicenseStatus') },
       ...CommonAuthErrors,
       '403': ErrorResponse(
-        "Not the deployment's own token, a system key holding `system:license`, or an admin of the one tenant it serves (`license-operator-only`).",
+        "Not the deployment's own token, a system key holding `system:license`, or an admin of the one tenant it serves (`license-operator-only`). On a runtime serving one tenant, a system key holding anything but `system:license` (`system-key-scope-not-served`).",
       ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/runtime',
+    openapiPath: '/v1/runtime',
+    operationId: 'runtime.get',
+    summary: 'Which runtime answers',
+    description:
+      "Its version, how many tenants it serves and whether it runs in development mode: what a client says about the runtime it's connected to. Any caller of a workspace reads it; no right is asked. A runtime that doesn't report it answers 404.",
+    tags: ['system'],
+    security: 'bearer',
+    responses: {
+      '200': { description: 'Which runtime answers.', schema: ref('RuntimeInfo') },
+      ...CommonAuthErrors,
     },
   },
   {
@@ -4630,7 +5778,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'license.usage',
     summary: 'How much the deployment was used since a time',
     description:
-      "What a free license key's renewal carries (`kindgi license renew --runtime`): the runs started since `since` (not dry runs, replays, evals or child runs), the distinct people who started runs or decided approvals (counted in each tenant and summed, so a person in two tenants counts twice), the projects in production when the runtime can put projects in production (`PUT /v1/projects/{projectId}/production`), and the runtime's version. Counts only: no content, names or ids. Only the deployment's own token (`KINDGI_API_TOKEN`), or a system key holding `system:license`, reads it; anyone else is refused (`license-operator-only`), and the refusal recorded, before `since` is read. A deployment that doesn't report it answers 404.",
+      "What a free license key's renewal carries (`kindgi license renew --runtime`): the runs started since `since` (not dry runs, replays, test runs or child runs), the distinct people who started runs or decided approvals (counted in each tenant and summed, so a person in two tenants counts twice), the projects in production when the runtime can put projects in production (`PUT /v1/projects/{projectId}/production`), and the runtime's version. Counts only: no content, names or ids. Only the deployment's own token (`KINDGI_API_TOKEN`), or a system key holding `system:license`, reads it; anyone else is refused (`license-operator-only`), and the refusal recorded, before `since` is read. A deployment that doesn't report it answers 404.",
     tags: ['system'],
     security: 'bearer',
     parameters: [LicenseUsageSinceQueryParam],
@@ -4641,7 +5789,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       ...CommonAuthErrors,
       '403': ErrorResponse(
-        "Not the deployment's own token or a system key holding `system:license` (`license-operator-only`).",
+        "Not the deployment's own token or a system key holding `system:license` (`license-operator-only`). On a runtime serving one tenant, a system key holding anything but `system:license` (`system-key-scope-not-served`).",
       ),
     },
   },
@@ -4730,7 +5878,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.upload',
     summary: 'Upload an artifact',
     description:
-      "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the tenant's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.",
+      "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.",
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -4765,7 +5913,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.download',
     summary: 'Download an artifact (stream)',
     description:
-      'Streams raw bytes. Response headers: `Content-Type` (as declared at upload), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name).',
+      "Streams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name).",
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [
@@ -4785,7 +5933,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonAuthErrors,
       '404': ErrorResponse(
-        "No blob with that id under this tenant, or one in a project the caller can't read.",
+        "No blob with that id under this workspace, or one in a project the caller can't read.",
       ),
     },
   },
@@ -4813,7 +5961,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonAuthErrors,
       '404': {
-        description: 'No blob with that id under this tenant.',
+        description: 'No blob with that id under this workspace.',
       },
     },
   },
@@ -4852,7 +6000,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'observations.list',
     summary: 'Query supervisor observations',
     description:
-      'Cursor-paginated. Any authenticated caller can read observations for their tenant.',
+      'Cursor-paginated. Any authenticated caller can read observations for their workspace.',
     tags: ['observations'],
     security: 'bearer',
     parameters: [
@@ -4884,7 +6032,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'capabilities.list',
     summary: 'List capability descriptors',
     description:
-      'Cursor-paginated. Read-only — capabilities are framework-declared + deployment-extended at boot time, not tenant-created via HTTP. Optional `?feature=` filters by prefix on `feature`.',
+      'Cursor-paginated. Read-only — capabilities are framework-declared + deployment-extended at boot time, not workspace-created via HTTP. Optional `?feature=` filters by prefix on `feature`.',
     tags: ['capabilities'],
     security: 'bearer',
     parameters: [LimitQueryParam, CursorQueryParam, FeatureFilterQueryParam],
@@ -4894,6 +6042,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('CapabilityCollectionPage'),
       },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '400': ErrorResponse('Malformed query parameter.'),
     },
   },
@@ -4909,7 +6058,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Capability descriptor.', schema: ref('CapabilityDescriptor') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No capability with that id under this tenant.'),
+      ...TenantSettingReadErrors,
+      '404': ErrorResponse('No capability with that id under this workspace.'),
     },
   },
 
@@ -4928,6 +6078,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of providers.', schema: ref('ProviderCollectionPage') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '400': ErrorResponse('Malformed query parameter.'),
     },
   },
@@ -4945,7 +6096,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Provider metadata.', schema: ref('ProviderMetadata') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No provider with that id under this tenant.'),
+      ...TenantSettingReadErrors,
+      '404': ErrorResponse('No provider with that id under this workspace.'),
     },
   },
   {
@@ -4965,7 +6117,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('ProviderCapabilitiesResult'),
       },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No provider with that id under this tenant.'),
+      ...TenantSettingReadErrors,
+      '404': ErrorResponse('No provider with that id under this workspace.'),
     },
   },
   {
@@ -4975,14 +6128,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'providers.check',
     summary: "Check a provider's registration",
     description:
-      "Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `issues` lists what would keep the runtime from building the provider, each with a JSON-pointer `path`; an adapter this runtime doesn't have is one (`/adapter_id`). `checked` is false when this runtime has no check for the provider's adapter.",
+      "Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `issues` lists what would keep the runtime from building the provider, each with a JSON-pointer `path`; an adapter this runtime doesn't have is one (`/adapter_id`). `warnings` lists the `adapter_config` keys its adapter doesn't take: the runtime builds it without reading them. `checked` is false when this runtime has no check for the provider's adapter and the adapter declares no keys.",
     tags: ['providers'],
     security: 'bearer',
     parameters: [ProviderIdPathParam],
     responses: {
       '200': { description: 'The check.', schema: ref('ProviderCheckResult') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No provider with that id under this tenant.'),
+      ...TenantSettingReadErrors,
+      '404': ErrorResponse('No provider with that id under this workspace.'),
     },
   },
   {
@@ -5000,9 +6154,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Provider registered.', schema: ref('RegisterProviderResult') },
       ...CommonMutationErrors,
-      '400': ErrorResponse('Validation failed (see `details.reason`).'),
+      ...TenantAdminErrors,
+      '400': ErrorResponse(
+        'Validation failed (see `details.reason`), a `secret_ref.name` under the reserved `kindgi.` prefix among them (`bad-input`).',
+      ),
       '409': ErrorResponse(
-        "Provider already registered at that id. Or `provider-key-in-use`: `secret_ref` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint or a webhook trigger uses; `details.usedBy` lists each (`kind`, `id`, a tool's `version`). Store the provider's key under its own name. Nothing is stored.",
+        `Provider already registered at that id. Or \`provider-key-in-use\`: \`secret_ref\` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint or a webhook trigger uses; \`details.usedBy\` lists each (\`kind\`, \`id\`, a tool's \`version\`). Store the provider's key under its own name. Nothing is stored. Or ${ENV_NOT_SERVED_REFERENCE}`,
       ),
       '422': ErrorResponse(
         "`provider-config-invalid`: a `send_traceparent` that isn't a boolean, or the provider's adapter refuses the registration (its `adapter_config`, its metadata, or a missing `secret_ref`); `details.issues` lists each (`path`, a JSON pointer, and `message`), the registration's own fields first, as other validation errors do. Nothing is stored.",
@@ -5023,190 +6180,297 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterProviderResult') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No provider with that id under this tenant, or already unregistered.'),
+      ...TenantAdminErrors,
+      '404': ErrorResponse(
+        'No provider with that id under this workspace, or already unregistered.',
+      ),
     },
   },
 
-  // ---------- judgments ----------
+  // ---------- corrections ----------
   {
     method: 'post',
-    honoPath: '/v1/judgments',
-    openapiPath: '/v1/judgments',
-    operationId: 'judgments.create',
-    summary: "Judge an item of a run's output",
+    honoPath: '/v1/corrections',
+    openapiPath: '/v1/corrections',
+    operationId: 'corrections.create',
+    summary: 'Correct a run',
     description:
-      "Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a judge class that applies to the run's project or agent (unclassified judgments count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first judgment of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. Judging again as the same caller for the same run, item key and `participantId` supersedes the earlier judgment. Needs `judge` on the run.",
-    tags: ['judgments'],
+      "Records whether a finished run's decisions and answer were right, and what was right instead, optionally under a corrector group that applies to the run's project or agent (unclassified corrections count with weight 1). Each item's `pointer` (a JSON Pointer) must resolve in the run's output. It's sorted at save: an end user's correction stays open and unsorted; `decisions: \"wrong\"` goes to the agent's owner (`with-owner`); a wrong answer goes to Improve (`open`); nothing wrong is `fixed` as `recorded-right`. The first correction of a run also stores a copy of the run's input and output. `madeBy` is the authenticated caller, never the body. A second correction by the same caller for the same run and `participantId` supersedes the earlier one. Needs `write` on the run's project.",
+    tags: ['corrections'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('CreateJudgmentBody') },
+    requestBody: { required: true, schema: ref('CreateCorrectionBody') },
     responses: {
-      '201': { description: 'Judgment recorded.', schema: ref('Judgment') },
+      '201': { description: 'Correction recorded.', schema: ref('Correction') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        'Malformed body, or `item-not-found` (the pointer resolves to nothing in the output), or `judge-class-not-applicable`.',
+        "Malformed body, or `item-not-found` (an item's pointer resolves to nothing in the output), or `corrector-group-not-applicable`.",
       ),
       '403': ErrorResponse(
-        '`permission-denied`: not allowed to judge this run. `judge-class-not-allowed`: the judge class is restricted (`assertableBy`) and the caller may not assert it.',
+        '`permission-denied`: not allowed to correct this run. `corrector-group-not-allowed`: the corrector group is restricted (`assertableBy`) and the caller may not assert it.',
       ),
       '404': ErrorResponse('`run-not-found`.'),
-      '409': ErrorResponse('`run-not-finished`: the run has no output to judge yet.'),
+      '409': ErrorResponse('`run-not-finished`: the run has no output to correct yet.'),
       '410': ErrorResponse(
-        "`run-erased`: an erasure cleared the run's content (a person's words were removed); there's nothing to judge.",
+        "`run-erased`: an erasure cleared the run's content (a person's words were removed); there's nothing to correct.",
       ),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/judgments',
-    openapiPath: '/v1/judgments',
-    operationId: 'judgments.list',
-    summary: 'List judgments',
+    honoPath: '/v1/corrections',
+    openapiPath: '/v1/corrections',
+    operationId: 'corrections.list',
+    summary: 'List corrections',
     description:
-      'Live judgments (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, judge class or participant; `?scopeKind + ?scopeId` narrow to a project.',
-    tags: ['judgments'],
+      'Corrections (not superseded, and not removed unless `status` asks for `removed`), newest first, cursor-paginated. Filter by run, agent (and version), flow, status, sorting, who made them, when, corrector group or participant; `?scopeKind + ?scopeId` narrow to a project. Each one comes back only when the caller may read its project.',
+    tags: ['corrections'],
     security: 'bearer',
     parameters: [
       LimitQueryParam,
       CursorQueryParam,
-      ...JudgmentListQueryParams,
+      ...CorrectionListQueryParams,
       ScopeKindQueryParam,
       ScopeIdQueryParam,
     ],
     responses: {
-      '200': { description: 'Page of judgments.', schema: ref('JudgmentCollectionPage') },
+      '200': { description: 'Page of corrections.', schema: ref('CorrectionCollectionPage') },
       ...CommonAuthErrors,
       '400': ErrorResponse('Malformed query parameter.'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/judgments/:judgmentId',
-    openapiPath: '/v1/judgments/{judgmentId}',
-    operationId: 'judgments.get',
-    summary: 'Fetch a judgment with its copies',
+    honoPath: '/v1/corrections/export',
+    openapiPath: '/v1/corrections/export',
+    operationId: 'corrections.export',
+    summary: 'Export corrections',
     description:
-      "Returns the judgment (live or not) with the stored copy of the run's input and output and, when the judgment pointed at an item, its value.",
-    tags: ['judgments'],
+      "Every correction of an agent the list's filters match, streamed as CSV (`format=csv`, the default: RFC 4180, UTF-8, a header row) or JSON lines (`format=jsonl`: one correction per line, as the list sends it). Each comes only when the caller may read its project, and a project scope the caller can't read is a 403 before anything is sent. The run's own text isn't exported, only its id. A CSV field that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`, so a spreadsheet doesn't run it. Recorded in the audit log: `corrections-export-started` before the first row (when it can't be written, a 500 and nothing is sent), and `corrections-exported` when the stream ends, with the rows sent and `succeeded` or `failed`.",
+    tags: ['corrections'],
     security: 'bearer',
-    parameters: [JudgmentIdPathParam],
+    streamed: true,
+    parameters: [
+      correctionQuery('format', '`csv` (the default) or `jsonl`.', {
+        type: 'string',
+        enum: ['csv', 'jsonl'],
+      }),
+      ...CorrectionListQueryParams.map((p) =>
+        p.name === 'agentId'
+          ? { ...p, required: true, description: 'The agent whose corrections are exported.' }
+          : p,
+      ),
+      ScopeKindQueryParam,
+      ScopeIdQueryParam,
+    ],
     responses: {
-      '200': { description: 'Judgment with copies.', schema: ref('JudgmentWithCopies') },
+      '200': {
+        description: 'The corrections, as CSV or JSON lines (by `format`).',
+        contentType: ['text/csv', 'application/jsonl'],
+        schema: { type: 'string' },
+      },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No judgment with that id under this tenant.'),
-    },
-  },
-  {
-    method: 'post',
-    honoPath: '/v1/judgments/:judgmentId/unregister',
-    openapiPath: '/v1/judgments/{judgmentId}/unregister',
-    operationId: 'judgments.unregister',
-    summary: 'Remove a judgment',
-    description:
-      'Soft delete: the judgment stops listing; retention policy decides when it is purged.',
-    tags: ['judgments'],
-    security: 'bearer',
-    parameters: [JudgmentIdPathParam, IdempotencyKeyParam],
-    responses: {
-      '200': { description: 'Removed.', schema: ref('UnregisterJudgmentResult') },
-      ...CommonMutationErrors,
-      '403': ErrorResponse('`permission-denied`.'),
-      '404': ErrorResponse('No live judgment with that id under this tenant.'),
-    },
-  },
-
-  // ---------- judge classes ----------
-  {
-    method: 'post',
-    honoPath: '/v1/judge-classes',
-    openapiPath: '/v1/judge-classes',
-    operationId: 'judgeClasses.create',
-    summary: 'Create a judge class',
-    description:
-      'A named kind of judge with a weight, scoped to the tenant, a project, or an agent in a project. Names are unique among the live classes of a scope. Needs `admin` on the tenant (tenant scope) or the project.',
-    tags: ['judge-classes'],
-    security: 'bearer',
-    parameters: [IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('CreateJudgeClassBody') },
-    responses: {
-      '201': { description: 'Judge class created.', schema: ref('JudgeClass') },
-      ...CommonMutationErrors,
-      '403': ErrorResponse('`permission-denied`.'),
-      '409': ErrorResponse('`judge-class-name-taken`, or an idempotency conflict.'),
+      '400': ErrorResponse('Malformed query parameter, no `agentId`, or a `limit` or `cursor`.'),
+      '403': ErrorResponse("`permission-denied`: a project scope the caller can't read."),
+      '500': ErrorResponse(
+        "`persistence-error`: the export couldn't be recorded, so nothing was sent.",
+      ),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/judge-classes',
-    openapiPath: '/v1/judge-classes',
-    operationId: 'judgeClasses.list',
-    summary: 'List judge classes',
+    honoPath: '/v1/corrections/:correctionId',
+    openapiPath: '/v1/corrections/{correctionId}',
+    operationId: 'corrections.get',
+    summary: 'Fetch a correction with its copies',
     description:
-      'Live classes, newest first, cursor-paginated. `?scopeKind=tenant|project|agent` (with `projectId` / `agentId`) narrows to one scope.',
-    tags: ['judge-classes'],
+      "Returns the correction (live or not) with the stored copy of the run's input and output.",
+    tags: ['corrections'],
+    security: 'bearer',
+    parameters: [CorrectionIdPathParam],
+    responses: {
+      '200': { description: 'Correction with copies.', schema: ref('CorrectionWithCopies') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No correction with that id under this workspace.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/corrections/:correctionId/remove',
+    openapiPath: '/v1/corrections/{correctionId}/remove',
+    operationId: 'corrections.remove',
+    summary: 'Remove a correction',
+    description:
+      "Its status becomes `removed`, and it can't come back. It lists only when `status=removed` is asked for; retention policy decides when it is purged. Needs to be its author, or `admin` on its project.",
+    tags: ['corrections'],
+    security: 'bearer',
+    parameters: [CorrectionIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'Removed.', schema: ref('RemoveCorrectionResult') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('`permission-denied`.'),
+      '404': ErrorResponse('No live correction with that id under this workspace.'),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/corrections/:correctionId',
+    openapiPath: '/v1/corrections/{correctionId}',
+    operationId: 'corrections.change',
+    summary: 'Re-sort a correction or change its status',
+    description:
+      "A re-sort, a status, or both (the re-sort first), by the change table: re-sorting from `open`, `being-fixed` or `with-owner` (to `owner` sets `with-owner`; away from `owner`, `open`); `being-fixed` from `open` or `with-owner`, with `link`; `open` from `being-fixed` or `wont-fix` (`with-owner` for one sorted to the owner); `wont-fix` from anything but `removed`, with `reason`, and it drops `fixedIn`. `fixed` is set only by a pin or a deploy. Anything else is `409 correction-status-change-not-allowed`. Needs `publish` on the correction's agent (or flow), or, for one more than one project serves, `write` on the correction's project.",
+    tags: ['corrections'],
+    security: 'bearer',
+    parameters: [CorrectionIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('ChangeCorrectionBody') },
+    responses: {
+      '200': { description: 'The changed correction.', schema: ref('Correction') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'Malformed body: a link without `being-fixed`, `being-fixed` without a link, or `wont-fix` without a reason.',
+      ),
+      '403': ErrorResponse(
+        "`permission-denied`: this needs publish on the agent, or write on the correction's project for an agent more than one project serves.",
+      ),
+      '404': ErrorResponse('No live correction with that id under this workspace.'),
+      '409': ErrorResponse(
+        '`correction-status-change-not-allowed`: the change table does not allow it from its status, or it changed twice while the change was made: read it and try again (`details: { from, to }`).',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/corrections/counts',
+    openapiPath: '/v1/corrections/counts',
+    operationId: 'corrections.counts',
+    summary: 'Count corrections by status',
+    description:
+      "How many of a project's corrections (or one agent's in it) are in each status. Needs `?scopeKind=project&scopeId=<project>` and `read` on the project. Only a project scope is taken: the list filters each row by what the caller reads, and a count can't.",
+    tags: ['corrections'],
+    security: 'bearer',
+    parameters: [
+      correctionQuery('agentId', 'Only corrections of runs of this agent.', {
+        type: 'string',
+        minLength: 1,
+      }),
+      {
+        name: 'scopeKind',
+        in: 'query',
+        required: true,
+        description: '`project`, the only scope a count is taken in.',
+        schema: { type: 'string', enum: ['project'] },
+      },
+      {
+        name: 'scopeId',
+        in: 'query',
+        required: true,
+        description: 'The project whose corrections are counted.',
+        schema: { type: 'string', minLength: 1 },
+      },
+    ],
+    responses: {
+      '200': { description: 'Counts by status.', schema: ref('CorrectionCounts') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Malformed query parameter, or no project scope.'),
+    },
+  },
+
+  // ---------- corrector groups ----------
+  {
+    method: 'post',
+    honoPath: '/v1/corrector-groups',
+    openapiPath: '/v1/corrector-groups',
+    operationId: 'correctorGroups.create',
+    summary: 'Create a corrector group',
+    description:
+      'A named kind of person who corrects with a weight, scoped to the workspace, a project, or an agent in a project. Names are unique among the live groups of a scope. Needs `admin` on the workspace (tenant scope) or the project.',
+    tags: ['corrector-groups'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('CreateCorrectorGroupBody') },
+    responses: {
+      '201': { description: 'Corrector group created.', schema: ref('CorrectorGroup') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('`permission-denied`.'),
+      '409': ErrorResponse('`corrector-group-name-taken`, or an idempotency conflict.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/corrector-groups',
+    openapiPath: '/v1/corrector-groups',
+    operationId: 'correctorGroups.list',
+    summary: 'List corrector groups',
+    description:
+      'Live groups, newest first, cursor-paginated. `?scopeKind=tenant|project|agent` (with `projectId` / `agentId`) narrows to one scope.',
+    tags: ['corrector-groups'],
     security: 'bearer',
     parameters: [
       LimitQueryParam,
       CursorQueryParam,
-      JudgeClassScopeKindQueryParam,
-      JudgeClassProjectIdQueryParam,
-      JudgeClassAgentIdQueryParam,
+      CorrectorGroupScopeKindQueryParam,
+      CorrectorGroupProjectIdQueryParam,
+      CorrectorGroupAgentIdQueryParam,
     ],
     responses: {
-      '200': { description: 'Page of judge classes.', schema: ref('JudgeClassCollectionPage') },
+      '200': {
+        description: 'Page of corrector groups.',
+        schema: ref('CorrectorGroupCollectionPage'),
+      },
       ...CommonAuthErrors,
       '400': ErrorResponse('Malformed scope parameters.'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/judge-classes/:judgeClassId',
-    openapiPath: '/v1/judge-classes/{judgeClassId}',
-    operationId: 'judgeClasses.get',
-    summary: 'Fetch a judge class',
+    honoPath: '/v1/corrector-groups/:correctorGroupId',
+    openapiPath: '/v1/corrector-groups/{correctorGroupId}',
+    operationId: 'correctorGroups.get',
+    summary: 'Fetch a corrector group',
     description:
-      'Also returns a retired class (`unregisteredAt` set): judgments keep naming theirs.',
-    tags: ['judge-classes'],
+      'Also returns a retired group (`unregisteredAt` set): corrections keep naming theirs.',
+    tags: ['corrector-groups'],
     security: 'bearer',
-    parameters: [JudgeClassIdPathParam],
+    parameters: [CorrectorGroupIdPathParam],
     responses: {
-      '200': { description: 'Judge class.', schema: ref('JudgeClass') },
+      '200': { description: 'Corrector group.', schema: ref('CorrectorGroup') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No judge class with that id under this tenant.'),
+      '404': ErrorResponse('No corrector group with that id under this workspace.'),
     },
   },
   {
     method: 'patch',
-    honoPath: '/v1/judge-classes/:judgeClassId',
-    openapiPath: '/v1/judge-classes/{judgeClassId}',
-    operationId: 'judgeClasses.update',
-    summary: "Change a judge class's weight or description",
-    tags: ['judge-classes'],
+    honoPath: '/v1/corrector-groups/:correctorGroupId',
+    openapiPath: '/v1/corrector-groups/{correctorGroupId}',
+    operationId: 'correctorGroups.update',
+    summary: "Change a corrector group's weight or description",
+    tags: ['corrector-groups'],
     security: 'bearer',
-    parameters: [JudgeClassIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('UpdateJudgeClassBody') },
+    parameters: [CorrectorGroupIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('UpdateCorrectorGroupBody') },
     responses: {
-      '200': { description: 'Updated judge class.', schema: ref('JudgeClass') },
+      '200': { description: 'Updated corrector group.', schema: ref('CorrectorGroup') },
       ...CommonMutationErrors,
       '403': ErrorResponse('`permission-denied`.'),
-      '404': ErrorResponse('No live judge class with that id under this tenant.'),
+      '404': ErrorResponse('No live corrector group with that id under this workspace.'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/judge-classes/:judgeClassId/unregister',
-    openapiPath: '/v1/judge-classes/{judgeClassId}/unregister',
-    operationId: 'judgeClasses.unregister',
-    summary: 'Retire a judge class',
-    description: 'No new judgments may name it; existing judgments keep it.',
-    tags: ['judge-classes'],
+    honoPath: '/v1/corrector-groups/:correctorGroupId/unregister',
+    openapiPath: '/v1/corrector-groups/{correctorGroupId}/unregister',
+    operationId: 'correctorGroups.unregister',
+    summary: 'Retire a corrector group',
+    description: 'No new corrections may name it; existing corrections keep it.',
+    tags: ['corrector-groups'],
     security: 'bearer',
-    parameters: [JudgeClassIdPathParam, IdempotencyKeyParam],
+    parameters: [CorrectorGroupIdPathParam, IdempotencyKeyParam],
     responses: {
-      '200': { description: 'Retired.', schema: ref('UnregisterJudgeClassResult') },
+      '200': { description: 'Retired.', schema: ref('UnregisterCorrectorGroupResult') },
       ...CommonMutationErrors,
       '403': ErrorResponse('`permission-denied`.'),
-      '404': ErrorResponse('No live judge class with that id under this tenant.'),
+      '404': ErrorResponse('No live corrector group with that id under this workspace.'),
     },
   },
 
@@ -5242,14 +6506,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mcp.endpoints.get',
     summary: 'Fetch an MCP endpoint',
     description:
-      'Returns the wire-safe `MCPEndpoint` (secrets never cross the wire — `secretRef` names a secret the runtime resolves inside the deployment).',
+      "Returns the wire-safe `MCPEndpoint` (secrets never cross the wire — `secretRef`, `auth` and `secretEnv` name secrets the runtime resolves inside the deployment). A stdio endpoint's `config.env` values read back as `[redacted]`, their names kept.",
     tags: ['mcp'],
     security: 'bearer',
     parameters: [MCPEndpointIdPathParam],
     responses: {
       '200': { description: 'MCP endpoint.', schema: ref('MCPEndpoint') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No MCP endpoint with that id under this tenant.'),
+      '404': ErrorResponse('No MCP endpoint with that id under this workspace.'),
     },
   },
   {
@@ -5259,7 +6523,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mcp.endpoints.register',
     summary: 'Register an MCP endpoint',
     description:
-      "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef` names a secret in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
+      "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). A credential in plaintext `config.headers` or a stdio endpoint's `config.env` is refused (`400 invalid-mcp-endpoint`, reason `credential-in-headers` or `credential-in-env`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the workspace that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
     tags: ['mcp'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -5271,12 +6535,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Validation failed (see `details.reason`). Or `provider-key-refused`: `secretRef` names a model provider's key (`details.secret`, `details.providerId`).",
+        "Validation failed (see `details.reason`). Or `provider-key-refused`: `secretRef` names a model provider's key (`details.secret`, `details.providerId`). Or `reserved-name-prefix`: it names a secret under the reserved `kindgi.` prefix (`details.secret`).",
       ),
       '403': ErrorResponse(
         '`host-access-denied`: a `stdio` endpoint on a deployment that refuses commands on its host (`KINDGI_TENANT_HOST_ACCESS=deployed` or `isolated`); or `authz-denied`.',
       ),
-      '409': ErrorResponse('MCP endpoint already registered at that id.'),
+      '409': ErrorResponse(
+        `MCP endpoint already registered at that id. Or ${ENV_NOT_SERVED_REFERENCE}`,
+      ),
       '429': SCHEMA_COMPILE_BUDGET,
     },
   },
@@ -5292,7 +6558,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterMCPEndpointResult') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No MCP endpoint with that id under this tenant.'),
+      '404': ErrorResponse('No MCP endpoint with that id under this workspace.'),
     },
   },
 
@@ -5311,7 +6577,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'MCP resource descriptors.', schema: ref('MCPResourceCollection') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No MCP endpoint with that id under this tenant.'),
+      '404': ErrorResponse('No MCP endpoint with that id under this workspace.'),
       '502': ErrorResponse('Remote MCP endpoint failed to serve resources/list.'),
     },
   },
@@ -5347,7 +6613,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'MCP prompt descriptors.', schema: ref('MCPPromptCollection') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No MCP endpoint with that id under this tenant.'),
+      '404': ErrorResponse('No MCP endpoint with that id under this workspace.'),
       '502': ErrorResponse('Remote MCP endpoint failed to serve prompts/list.'),
     },
   },
@@ -5421,7 +6687,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Cost record.', schema: ref('CostRecord') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No cost record with that id under this tenant.'),
+      '404': ErrorResponse('No cost record with that id under this workspace.'),
     },
   },
   {
@@ -5431,7 +6697,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'cost.aggregate',
     summary: 'Aggregate cost across a time window',
     description:
-      "Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. It needs `read` on the scope, and across projects (no scope, the tenant, or an org) it counts only the projects the caller may read, and records with no project; a tenant admin's counts every project. Each group, and the total, carries its cost and its token sums (`tokens`). `groups` is ordered by `totalUsd`, highest first (ties by key), and capped at `limit` (default 1000): `truncated` and `totalGroups` say when there were more, and the totals still cover every record. For every record, page through `/v1/cost/records`. `inherit` has no effect on cost records, which always belong to a project.",
+      "Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. It needs `read` on the scope, and across projects (no scope, the workspace, or an org) it counts only the projects the caller may read, and records with no project; a tenant admin's counts every project. Each group, and the total, carries its cost and its token sums (`tokens`). `groups` is ordered by `totalUsd`, highest first (ties by key), and capped at `limit` (default 1000): `truncated` and `totalGroups` say when there were more, and the totals still cover every record. For every record, page through `/v1/cost/records`. `inherit` has no effect on cost records, which always belong to a project.",
     tags: ['cost'],
     security: 'bearer',
     parameters: [
@@ -5482,6 +6748,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of adapters.', schema: ref('AdapterCollectionPage') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '400': ErrorResponse('Malformed query parameter (unknown `kind` or `status`).'),
     },
   },
@@ -5499,7 +6766,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Adapter descriptor.', schema: ref('Adapter') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No adapter with that id under this tenant.'),
+      ...TenantSettingReadErrors,
+      '404': ErrorResponse('No adapter with that id under this workspace.'),
     },
   },
   {
@@ -5517,7 +6785,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Probe outcome.', schema: ref('AdapterTestOutcome') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No adapter with that id under this tenant.'),
+      ...TenantAdminErrors,
+      '404': ErrorResponse('No adapter with that id under this workspace.'),
     },
   },
   {
@@ -5538,6 +6807,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: { type: 'string' },
       },
       ...CommonAuthErrors,
+      ...TenantAdminErrors,
       '400': ErrorResponse(
         'Adapter has no prepare() implementation, or adapter factories not wired.',
       ),
@@ -5551,9 +6821,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/policies',
     openapiPath: '/v1/policies',
     operationId: 'policies.list',
-    summary: 'List tenant policies',
+    summary: 'List workspace policies',
     description:
-      'Cursor-paginated. Optional `?kind=` narrows to a single policy kind (exact match); optional `?name=` is a prefix match on `Policy.id`. Sort order: policy id ascending. Latest version per id.',
+      'Cursor-paginated. Optional `?kind=` narrows to a single policy kind (exact match); optional `?name=` is a prefix match on `Policy.id`. Sort order: policy id ascending. Latest version per id. A retired policy (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.',
     tags: ['policies'],
     security: 'bearer',
     parameters: [
@@ -5561,10 +6831,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CursorQueryParam,
       PolicyKindFilterQueryParam,
       PolicyNameFilterQueryParam,
+      IncludeRetiredQueryParam,
     ],
     responses: {
       '200': { description: 'Page of policies.', schema: ref('PolicyCollectionPage') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '400': ErrorResponse('Malformed query parameter (unknown `kind`).'),
     },
   },
@@ -5580,7 +6852,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Latest policy version.', schema: ref('Policy') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No policy with that id under this tenant.'),
+      ...TenantSettingReadErrors,
+      '404': ErrorResponse('No policy with that id under this workspace.'),
     },
   },
   {
@@ -5601,7 +6874,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       '400': ErrorResponse("`bad-input`: a `cursor` this list didn't issue."),
       ...CommonAuthErrors,
-      '404': ErrorResponse('No policy with that id under this tenant.'),
+      ...TenantSettingReadErrors,
+      '404': ErrorResponse('No policy with that id under this workspace.'),
     },
   },
   {
@@ -5617,7 +6891,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Policy at that version.', schema: ref('PolicyVersionRow') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No policy at that (id, version) under this tenant.'),
+      ...TenantSettingReadErrors,
+      '404': ErrorResponse('No policy at that (id, version) under this workspace.'),
     },
   },
   {
@@ -5627,7 +6902,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'policies.publish',
     summary: 'Publish a policy',
     description:
-      "Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object), and `spec` for `tool-errors`, `hitl` and `retention` (a retention policy with an unknown domain or `mode: archive` is refused with `400 validation-failed`, naming the field). Other kinds' specs are their runtime consumer's to validate. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A tenant has one retention policy per domain, plus one for `*`: a second policy id for a covered domain is refused with `409 policy-scope-taken` (`details.heldBy` names the policy that covers it; publish a new version of that one instead), and a new version can't move a policy to another domain (`409 policy-scope-changed`). Where this server has a retention limit for a domain, a policy for that domain that keeps its rows longer, or holds them (`graceSeconds: -1`), is refused with `400 retention-over-limit` (`details.limitSeconds` is the limit); a `*` policy isn't, as the server caps each limited domain when it sweeps. A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).",
+      "Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object), and `spec` for `tool-errors`, `hitl` and `retention` (a retention policy with an unknown domain or `mode: archive` is refused with `400 validation-failed`, naming the field). Other kinds' specs are their runtime consumer's to validate. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A workspace has one retention policy per domain, plus one for `*`: a second policy id for a covered domain is refused with `409 policy-scope-taken` (`details.heldBy` names the policy that covers it; publish a new version of that one instead), and a new version can't move a policy to another domain (`409 policy-scope-changed`). Where this server has a retention limit for a domain, a policy for that domain that keeps its rows longer, or holds them (`graceSeconds: -1`), is refused with `400 retention-over-limit` (`details.limitSeconds` is the limit); a `*` policy isn't, as the server caps each limited domain when it sweeps. A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).",
     tags: ['policies'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -5635,6 +6910,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Policy published.', schema: ref('PublishPolicyResult') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '400': ErrorResponse(
         "Validation failed (see `details.issues`); `kind-not-applied`: no runtime consumer applies that kind yet; or `retention-over-limit`: the retention policy keeps its domain's rows longer than this server's limit, or holds them (`details.limitSeconds`).",
       ),
@@ -5655,7 +6931,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterPolicyResult') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No policy at that (id, version) under this tenant.'),
+      ...TenantAdminErrors,
+      '404': ErrorResponse('No policy at that (id, version) under this workspace.'),
     },
   },
   {
@@ -5672,10 +6949,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstatePolicyVersionResult') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '400': ErrorResponse(
         "`retention-over-limit`: the version's retention policy keeps its domain's rows longer than this server's limit, or holds them (`details.limitSeconds`); it stays retired.",
       ),
-      '404': ErrorResponse('No policy at that (id, version) under this tenant.'),
+      '404': ErrorResponse('No policy at that (id, version) under this workspace.'),
       '409': ErrorResponse(
         "`policy-scope-taken`: another policy now covers the version's retention domain (`details.heldBy`); unregister it first. `policy-scope-changed`: the version covers a different domain from the policy's other versions.",
       ),
@@ -5690,7 +6968,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'retention.scheduled',
     summary: 'List deleted rows scheduled for purging',
     description:
-      "Tombstoned rows in every domain a retention policy or this server's retention limit covers, with when each is purged (`purgeAt`) and what decides it: the policy (`policyId`), or the limit (`limitApplied`) when no policy covers the domain or its policy keeps rows longer. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones neither covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). `limit` caps the rows **per domain**; `hasMore` says some domain has more than it returned, and `nextCursor` (when the runtime can continue) is the `cursor` for the next page. Requires `admin` on the tenant.",
+      "Tombstoned rows in every domain a retention policy or this server's retention limit covers, with when each is purged (`purgeAt`) and what decides it: the policy (`policyId`), or the limit (`limitApplied`) when no policy covers the domain or its policy keeps rows longer. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones neither covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). `limit` caps the rows **per domain**; `hasMore` says some domain has more than it returned, and `nextCursor` (when the runtime can continue) is the `cursor` for the next page. Requires `admin` on the workspace.",
     tags: ['retention'],
     security: 'bearer',
     parameters: [
@@ -5713,7 +6991,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'retention.sweep',
     summary: 'Purge the deleted rows past their grace',
     description:
-      "Purges, for good, every tombstoned row past its grace (or only `domain`'s): the grace of the retention policy that covers its domain, or this server's limit for the domain when no policy covers it or the policy keeps rows longer (`limitApplied`), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows, unless the domain has a limit. Idempotent: a second call purges nothing new. Requires `admin` on the tenant.",
+      "Purges, for good, every tombstoned row past its grace (or only `domain`'s): the grace of the retention policy that covers its domain, or this server's limit for the domain when no policy covers it or the policy keeps rows longer (`limitApplied`), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows, unless the domain has a limit. Idempotent: a second call purges nothing new. Requires `admin` on the workspace.",
     tags: ['retention'],
     security: 'bearer',
     requestBody: { required: false, schema: ref('RetentionSweepBody') },
@@ -5730,7 +7008,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/retention/sweep/{domain}',
     operationId: 'retention.sweepDomain',
     summary: "Purge one domain's deleted rows past their grace",
-    description: 'As `POST /v1/retention/sweep`, for one domain. Requires `admin` on the tenant.',
+    description:
+      'As `POST /v1/retention/sweep`, for one domain. Requires `admin` on the workspace.',
     tags: ['retention'],
     security: 'bearer',
     parameters: [RetentionDomainPathParam],
@@ -5743,196 +7022,168 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
 
-  // ---------- eval suites (admin plane) ----------
+  // ---------- test sets (admin plane) ----------
   {
     method: 'get',
-    honoPath: '/v1/eval-suites',
-    openapiPath: '/v1/eval-suites',
-    operationId: 'evalSuites.list',
-    summary: 'List tenant eval suites',
+    honoPath: '/v1/test-sets',
+    openapiPath: '/v1/test-sets',
+    operationId: 'testSets.list',
+    summary: 'List workspace test sets',
     description:
-      'Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id. A retired suite (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.',
-    tags: ['eval-suites'],
+      "Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated. A `corrections` test set (an agent's frozen versions, and those built from corrections before) is listed only with `?kind=corrections`: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`).",
+    tags: ['test-sets'],
     security: 'bearer',
     parameters: [
       LimitQueryParam,
       CursorQueryParam,
-      EvalSuiteKindFilterQueryParam,
-      EvalSuiteNameFilterQueryParam,
+      TestSetKindFilterQueryParam,
+      TestSetNameFilterQueryParam,
       ScopeKindQueryParam,
       ScopeIdQueryParam,
       InheritQueryParam,
       IncludeRetiredQueryParam,
     ],
     responses: {
-      '200': { description: 'Page of eval suites.', schema: ref('EvalSuiteCollectionPage') },
+      '200': { description: 'Page of test sets.', schema: ref('TestSetCollectionPage') },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Malformed query parameter (unknown `kind`).'),
+      '400': ErrorResponse('Malformed query parameter (unknown `kind`, or `corrections`).'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/eval-suites/:suiteId',
-    openapiPath: '/v1/eval-suites/{suiteId}',
-    operationId: 'evalSuites.get',
-    summary: 'Fetch an eval suite (latest version)',
-    tags: ['eval-suites'],
+    honoPath: '/v1/test-sets/:testSetId',
+    openapiPath: '/v1/test-sets/{testSetId}',
+    operationId: 'testSets.get',
+    summary: 'Fetch a test set (latest version)',
+    description: NEWEST_VISIBLE_DESCRIPTION,
+    tags: ['test-sets'],
     security: 'bearer',
-    parameters: [EvalSuiteIdPathParam],
+    parameters: [TestSetIdPathParam, ItemProjectQueryParam],
     responses: {
-      '200': { description: 'Latest eval suite version.', schema: ref('EvalSuite') },
+      '200': { description: 'Latest test set version.', schema: ref('TestSet') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No eval suite with that id under this tenant.'),
+      '400': ErrorResponse('`projectId` is not a project id (a UUID).'),
+      '404': ErrorResponse('No test set with that id under this workspace.'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/eval-suites/:suiteId/versions',
-    openapiPath: '/v1/eval-suites/{suiteId}/versions',
-    operationId: 'evalSuites.versions.list',
-    summary: 'List versions of an eval suite',
+    honoPath: '/v1/test-sets/:testSetId/versions',
+    openapiPath: '/v1/test-sets/{testSetId}/versions',
+    operationId: 'testSets.versions.list',
+    summary: 'List versions of a test set',
     description:
-      'Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired suite (every version unregistered) answers too, with its versions to reinstate.',
-    tags: ['eval-suites'],
+      'Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired test set (every version unregistered) answers too, with its versions to reinstate.',
+    tags: ['test-sets'],
     security: 'bearer',
     parameters: [
-      EvalSuiteIdPathParam,
+      TestSetIdPathParam,
       LimitQueryParam,
       CursorQueryParam,
       IncludeTombstonedQueryParam,
     ],
     responses: {
       '200': {
-        description: 'Page of eval suite versions.',
-        schema: ref('EvalSuiteCollectionPage'),
+        description: 'Page of test set versions.',
+        schema: ref('TestSetCollectionPage'),
       },
       '400': ErrorResponse("`bad-input`: a `cursor` this list didn't issue."),
       ...CommonAuthErrors,
-      '404': ErrorResponse('No eval suite was ever registered with that id under this tenant.'),
+      '404': ErrorResponse('No test set was ever registered with that id under this workspace.'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/eval-suites/:suiteId/versions/:version',
-    openapiPath: '/v1/eval-suites/{suiteId}/versions/{version}',
-    operationId: 'evalSuites.versions.get',
-    summary: 'Fetch a specific eval suite version',
-    tags: ['eval-suites'],
+    honoPath: '/v1/test-sets/:testSetId/versions/:version',
+    openapiPath: '/v1/test-sets/{testSetId}/versions/{version}',
+    operationId: 'testSets.versions.get',
+    summary: 'Fetch a specific test set version',
+    tags: ['test-sets'],
     security: 'bearer',
-    parameters: [EvalSuiteIdPathParam, EvalSuiteVersionPathParam],
+    parameters: [TestSetIdPathParam, TestSetVersionPathParam],
     responses: {
-      '200': { description: 'Eval suite at that version.', schema: ref('EvalSuite') },
+      '200': { description: 'Test set at that version.', schema: ref('TestSet') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No eval suite at that (id, version) under this tenant.'),
+      '404': ErrorResponse('No test set at that (id, version) under this workspace.'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/eval-suites',
-    openapiPath: '/v1/eval-suites',
-    operationId: 'evalSuites.publish',
-    summary: 'Publish an eval suite',
+    honoPath: '/v1/test-sets',
+    openapiPath: '/v1/test-sets',
+    operationId: 'testSets.publish',
+    summary: 'Publish a test set',
     description:
-      "Body is a full `EvalSuite` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(suiteId, version)` returns `409 eval-suite-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).",
-    tags: ['eval-suites'],
+      "Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201). An id that starts with `agent.` is refused with `400 bad-input`: those are agents' own test sets, whose versions only a check or a test run makes.",
+    tags: ['test-sets'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('PublishEvalSuiteBody') },
+    requestBody: { required: true, schema: ref('PublishTestSetBody') },
     responses: {
-      '201': { description: 'Eval suite published.', schema: ref('PublishEvalSuiteResult') },
+      '201': { description: 'Test set published.', schema: ref('PublishTestSetResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
+        "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID); or the id starts with `agent.` (`bad-input`), an agent's own test set.",
       ),
       '409': ErrorResponse(
-        "`eval-suite-already-registered`: that (id, version) is taken. Or `eval-suite-project-mismatch`: the suite's versions live in another project (a suite belongs to the project its first version was published into and never moves; the message doesn't name the project).",
+        "`test-set-already-registered`: that (id, version) is taken. Or `test-set-project-mismatch`: the test set's versions live in another project (a test set belongs to the project its first version was published into and never moves; the message doesn't name the project).",
       ),
       '404': ErrorResponse(
-        "The body's `projectId` names no project of this tenant (`project-not-found`).",
-      ),
-    },
-  },
-  {
-    method: 'post',
-    honoPath: '/v1/eval-suites/:suiteId/versions/from-judgments',
-    openapiPath: '/v1/eval-suites/{suiteId}/versions/from-judgments',
-    operationId: 'evalSuites.buildFromJudgments',
-    summary: 'Build a test set from judgments',
-    description:
-      "Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.",
-    tags: ['eval-suites'],
-    security: 'bearer',
-    parameters: [EvalSuiteIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('BuildJudgedSuiteBody') },
-    responses: {
-      '201': { description: 'Version published.', schema: ref('BuildJudgedSuiteResult') },
-      ...CommonMutationErrors,
-      '400': ErrorResponse("Malformed body; or `projectId` isn't a project id (a UUID)."),
-      '403': ErrorResponse('`permission-denied`.'),
-      '409': ErrorResponse(
-        "`eval-suite-already-registered`: that (id, version) is taken. Or `eval-suite-project-mismatch`: the suite belongs to another project than the body's `projectId` (suites never move).",
-      ),
-      '501': ErrorResponse('`test-sets-not-supported`: this deployment cannot build test sets.'),
-      '404': ErrorResponse(
-        "The body's `projectId` names no project of this tenant (`project-not-found`).",
+        "The body's `projectId` names no project of this workspace (`project-not-found`).",
       ),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/eval-suites/:suiteId/versions/:version/cases',
-    openapiPath: '/v1/eval-suites/{suiteId}/versions/{version}/cases',
-    operationId: 'evalSuites.listCases',
-    summary: 'List the cases of a judged eval suite version',
-    description: 'Cursor-paginated, in the order the cases were stored (newest judged run first).',
-    tags: ['eval-suites'],
-    security: 'bearer',
-    parameters: [
-      EvalSuiteIdPathParam,
-      EvalSuiteVersionPathParam,
-      LimitQueryParam,
-      CursorQueryParam,
-    ],
-    responses: {
-      '200': { description: 'Page of cases.', schema: ref('JudgedEvalCaseCollectionPage') },
-      ...CommonAuthErrors,
-      '404': ErrorResponse('No eval suite with that id.'),
-    },
-  },
-  {
-    method: 'post',
-    honoPath: '/v1/eval-suites/:suiteId/versions/:version/unregister',
-    openapiPath: '/v1/eval-suites/{suiteId}/versions/{version}/unregister',
-    operationId: 'evalSuites.versions.unregister',
-    summary: 'Unregister an eval suite version',
-    tags: ['eval-suites'],
-    security: 'bearer',
-    parameters: [EvalSuiteIdPathParam, EvalSuiteVersionPathParam, IdempotencyKeyParam],
-    responses: {
-      '200': { description: 'Unregistered.', schema: ref('UnregisterEvalSuiteResult') },
-      ...CommonMutationErrors,
-      '404': ErrorResponse('No eval suite at that (id, version) under this tenant.'),
-    },
-  },
-  {
-    method: 'post',
-    honoPath: '/v1/eval-suites/:suiteId/versions/:version/reinstate',
-    openapiPath: '/v1/eval-suites/{suiteId}/versions/{version}/reinstate',
-    operationId: 'evalSuites.reinstateVersion',
-    summary: 'Reinstate a specific tombstoned eval suite version',
+    honoPath: '/v1/test-sets/:testSetId/versions/:version/cases',
+    openapiPath: '/v1/test-sets/{testSetId}/versions/{version}/cases',
+    operationId: 'testSets.listCases',
+    summary: 'List the cases of a corrections test set version',
     description:
-      'Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (refreshes `suiteKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Publish is always allowed regardless of retirement state.',
-    tags: ['eval-suites'],
+      'Cursor-paginated, in the order the cases were stored (newest corrected run first).',
+    tags: ['test-sets'],
     security: 'bearer',
-    parameters: [EvalSuiteIdPathParam, EvalSuiteVersionPathParam, IdempotencyKeyParam],
+    parameters: [TestSetIdPathParam, TestSetVersionPathParam, LimitQueryParam, CursorQueryParam],
     responses: {
-      '200': { description: 'Reinstated.', schema: ref('ReinstateEvalSuiteVersionResult') },
+      '200': { description: 'Page of cases.', schema: ref('CorrectedTestCaseCollectionPage') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No test set with that id.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/test-sets/:testSetId/versions/:version/unregister',
+    openapiPath: '/v1/test-sets/{testSetId}/versions/{version}/unregister',
+    operationId: 'testSets.versions.unregister',
+    summary: 'Unregister a test set version',
+    tags: ['test-sets'],
+    security: 'bearer',
+    parameters: [TestSetIdPathParam, TestSetVersionPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'Unregistered.', schema: ref('UnregisterTestSetResult') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No eval suite at that (id, version) under this tenant.'),
+      '404': ErrorResponse('No test set at that (id, version) under this workspace.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/test-sets/:testSetId/versions/:version/reinstate',
+    openapiPath: '/v1/test-sets/{testSetId}/versions/{version}/reinstate',
+    operationId: 'testSets.reinstateVersion',
+    summary: 'Reinstate a specific tombstoned test set version',
+    description:
+      'Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (refreshes `testSetKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Publish is always allowed regardless of retirement state.',
+    tags: ['test-sets'],
+    security: 'bearer',
+    parameters: [TestSetIdPathParam, TestSetVersionPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'Reinstated.', schema: ref('ReinstateTestSetVersionResult') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No test set at that (id, version) under this workspace.'),
     },
   },
 
-  // ---------- eval runs (data plane) ----------
+  // ---------- test runs (data plane) ----------
   {
     method: 'get',
     honoPath: '/v1/blocks',
@@ -5940,7 +7191,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'blocks.list',
     summary: 'List data blocks (latest version of each)',
     description:
-      'Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do.',
+      'Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do. A retired block (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.',
     tags: ['blocks'],
     security: 'bearer',
     parameters: [
@@ -5950,6 +7201,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       BlockNameFilterQueryParam,
       ScopeKindQueryParam,
       ScopeIdQueryParam,
+      IncludeRetiredQueryParam,
     ],
     responses: {
       '200': { description: 'Page of blocks.', schema: ref('BlockCollectionPage') },
@@ -5965,12 +7217,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/blocks/{blockId}',
     operationId: 'blocks.get',
     summary: 'Fetch a data block (latest version)',
+    description: NEWEST_VISIBLE_DESCRIPTION,
     tags: ['blocks'],
     security: 'bearer',
-    parameters: [BlockIdPathParam],
+    parameters: [BlockIdPathParam, ItemProjectQueryParam],
     responses: {
       '200': { description: 'Latest active version.', schema: ref('Block') },
       ...CommonAuthErrors,
+      '400': ErrorResponse('`projectId` is not a project id (a UUID).'),
       '404': ErrorResponse(
         "`block-not-found`: no such block, or one in a project the caller can't read.",
       ),
@@ -6011,13 +7265,35 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/blocks/:blockId/runs-in',
+    openapiPath: '/v1/blocks/{blockId}/runs-in',
+    operationId: 'blocks.runsIn',
+    summary: "List where a data block's versions run",
+    description:
+      "Where the block's versions run now: one row for each project, and each segment pin inside one, whose running version of an agent pins a version of the block (as a prompt, a settings block or its model settings). Each agent's projects are the ones `agents.projects` lists, and what runs in each is what it says: a pin that covers the project, else its Latest. Only the projects the caller can read are named, and an agent version the caller can't see is left out. A block no running version pins answers an empty list. Without the agents' pins and Latest in this runtime, `501 runs-in-unsupported`.",
+    tags: ['blocks'],
+    security: 'bearer',
+    parameters: [BlockIdPathParam],
+    responses: {
+      '200': { description: 'Where it runs.', schema: ref('BlockRunsInList') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse(
+        "`block-not-found`: no such block, or one in a project the caller can't read.",
+      ),
+      '501': ErrorResponse(
+        "`runs-in-unsupported`: this runtime doesn't read the agents' pins and Latest.",
+      ),
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/blocks',
     openapiPath: '/v1/blocks',
     operationId: 'blocks.publish',
     summary: 'Publish a data block version',
     description:
-      "Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project (`409 block-project-mismatch`). Idempotency-Key applies.",
+      "Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A settings block an agent version uses as its model settings takes only model settings, which never name the model that agent version names too. The version records the caller as `publishedBy`, and `source: { kind: \"api\" }`. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project, or another project of that project's environment order (`409 block-project-mismatch`). A later environment of an order takes no publishes (`409 environment-takes-promotions`). Idempotency-Key applies.",
     tags: ['blocks'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6026,12 +7302,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Published.', schema: ref('PublishBlockResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "`validation-failed` (see `details.issues`), or an unknown `projectId`; or `projectId` isn't a project id (a UUID).",
+        "`validation-failed` (see `details.issues`; for an agent version's model settings, each issue names the agent and its version), or an unknown `projectId`; or `projectId` isn't a project id (a UUID).",
       ),
       '403': ErrorResponse('`permission-denied`: no `write` on the project.'),
-      '409': ErrorResponse('`block-already-registered` or `block-project-mismatch`.'),
+      '409': ErrorResponse(
+        `\`block-already-registered\` or \`block-project-mismatch\`. ${TAKES_PROMOTIONS} Or \`registry-read-only\`: this registry takes no writes (under \`kindgi dev\`, the pack's files are the source); the message says what to do instead.`,
+      ),
       '404': ErrorResponse(
-        "The body's `projectId` names no project of this tenant (`project-not-found`).",
+        "The body's `projectId` names no project of this workspace (`project-not-found`).",
       ),
       '429': SCHEMA_COMPILE_BUDGET,
     },
@@ -6050,6 +7328,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterBlockResult') },
       ...CommonMutationErrors,
+      '409': ErrorResponse(
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+      ),
       '403': ErrorResponse('`permission-denied`: no `write` on the project.'),
       '404': ErrorResponse('`block-not-found`, or already unregistered.'),
     },
@@ -6067,140 +7348,146 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstateBlockResult') },
       ...CommonMutationErrors,
+      '409': ErrorResponse(
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+      ),
       '403': ErrorResponse('`permission-denied`: no `write` on the project.'),
       '404': ErrorResponse('`block-not-found`.'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/eval-suites/:suiteId/runs',
-    openapiPath: '/v1/eval-suites/{suiteId}/runs',
-    operationId: 'evalRuns.start',
-    summary: 'Start an eval run against a suite',
+    honoPath: '/v1/test-sets/:testSetId/runs',
+    openapiPath: '/v1/test-sets/{testSetId}/runs',
+    operationId: 'testRuns.start',
+    summary: 'Start a test run against a test set',
     description:
-      'Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.',
-    tags: ['eval-runs'],
+      "Dispatches a test run against the latest version of the test set. An agent's own test set (`agent.<agentId>.<projectId>`, read at `GET /v1/agents/{agentId}/test-set`) is frozen first, as a suggested change's check freezes it, and the run records the frozen version as `testSetVersion`; a dry run freezes it too; it runs only its agent, in its project. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or workspace stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.",
+    tags: ['test-runs'],
     security: 'bearer',
-    parameters: [EvalSuiteIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('StartEvalRunBody') },
+    parameters: [TestSetIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('StartTestRunBody') },
     responses: {
-      '201': { description: 'Eval run started.', schema: ref('StartEvalRunResult') },
+      '201': { description: 'Test run started.', schema: ref('StartTestRunResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed body (both / neither of `agentRef` / `flowRef`, dispatcher-input-invalid); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: the suite, or the agent or flow, isn't registered in `projectId`'s project, its org or the tenant (`details.issues`).",
+        "Malformed body (both / neither of `agentRef` / `flowRef`, dispatcher-input-invalid); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: the test set, the agent or flow, or an agent or tool a flow candidate's `versions` names, isn't registered in `projectId`'s project, its org or the workspace; or a version named (by `agentRef`, `flowRef` or `versions.agents`) isn't one `projectId`'s project runs (`details.issues`, each at the path it was named, whose message names the version). Or `bad-input` for an agent's own test set run with another agent, in another project, or with `flowRef`: the message names the test set this run's agent and project have. Nothing runs.",
       ),
       '404': ErrorResponse(
-        'No eval suite with that id under this tenant; or `projectId` names no project of this tenant (`project-not-found`).',
+        'No test set with that id under this workspace; or `projectId` names no project of this workspace (`project-not-found`).',
       ),
       '409': ErrorResponse(
-        '`project-suspended`: the project is suspended, so no eval run starts in it. Or Idempotency-Key was reused with a different body.',
+        "`project-suspended`: the project is suspended, so no test run starts in it. Or `suggested-change-nothing-to-check`: an agent's own test set has no cases in the project (`details.projectId`), as a suggested change's check answers. Or Idempotency-Key was reused with a different body.",
       ),
-      '422': ErrorResponse('No dispatcher registered for the suite kind.'),
+      '422': ErrorResponse('No dispatcher registered for the test set kind.'),
+      '501': ErrorResponse(
+        "`suggested-change-check-unsupported`: an agent's own test set, on a runtime that doesn't freeze a project's test set.",
+      ),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/eval-runs',
-    openapiPath: '/v1/eval-runs',
-    operationId: 'evalRuns.list',
-    summary: 'List eval runs',
+    honoPath: '/v1/test-runs',
+    openapiPath: '/v1/test-runs',
+    operationId: 'testRuns.list',
+    summary: 'List test runs',
     description:
-      'Cursor-paginated. Filters: `?suiteId=` / `?status=` / `?agentId=` / `?flowId=` / `?from=` / `?to=`. Sort order: startedAt descending, runId descending as tie-breaker.',
-    tags: ['eval-runs'],
+      'Cursor-paginated. Filters: `?testSetId=` / `?status=` / `?agentId=` / `?flowId=` / `?from=` / `?to=`. Sort order: startedAt descending, runId descending as tie-breaker.',
+    tags: ['test-runs'],
     security: 'bearer',
     parameters: [
       LimitQueryParam,
       CursorQueryParam,
-      EvalRunSuiteIdFilterQueryParam,
-      EvalRunStatusFilterQueryParam,
-      EvalRunAgentIdFilterQueryParam,
-      EvalRunFlowIdFilterQueryParam,
-      EvalRunFromFilterQueryParam,
-      EvalRunToFilterQueryParam,
+      TestRunTestSetIdFilterQueryParam,
+      TestRunStatusFilterQueryParam,
+      TestRunAgentIdFilterQueryParam,
+      TestRunFlowIdFilterQueryParam,
+      TestRunFromFilterQueryParam,
+      TestRunToFilterQueryParam,
       ScopeKindQueryParam,
       ScopeIdQueryParam,
       InheritQueryParam,
     ],
     responses: {
-      '200': { description: 'Page of eval runs.', schema: ref('EvalRunCollectionPage') },
+      '200': { description: 'Page of test runs.', schema: ref('TestRunCollectionPage') },
       ...CommonAuthErrors,
       '400': ErrorResponse('Malformed query parameter (unknown `status`).'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/eval-runs/:runId',
-    openapiPath: '/v1/eval-runs/{runId}',
-    operationId: 'evalRuns.get',
-    summary: 'Fetch an eval run',
-    tags: ['eval-runs'],
+    honoPath: '/v1/test-runs/:testRunId',
+    openapiPath: '/v1/test-runs/{testRunId}',
+    operationId: 'testRuns.get',
+    summary: 'Fetch a test run',
+    tags: ['test-runs'],
     security: 'bearer',
-    parameters: [EvalRunIdPathParam],
+    parameters: [TestRunIdPathParam],
     responses: {
-      '200': { description: 'Eval run.', schema: ref('EvalRun') },
+      '200': { description: 'Test run.', schema: ref('TestRun') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No eval run with that id under this tenant.'),
+      '404': ErrorResponse('No test run with that id under this workspace.'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/eval-runs/:runId/cancel',
-    openapiPath: '/v1/eval-runs/{runId}/cancel',
-    operationId: 'evalRuns.cancel',
-    summary: 'Cancel an eval run',
+    honoPath: '/v1/test-runs/:testRunId/cancel',
+    openapiPath: '/v1/test-runs/{testRunId}/cancel',
+    operationId: 'testRuns.cancel',
+    summary: 'Cancel a test run',
     description: 'Best-effort cancel. Returns 409 when the run is already terminal.',
-    tags: ['eval-runs'],
+    tags: ['test-runs'],
     security: 'bearer',
-    parameters: [EvalRunIdPathParam],
+    parameters: [TestRunIdPathParam],
     responses: {
-      '200': { description: 'Cancel accepted.', schema: ref('EvalRun') },
+      '200': { description: 'Cancel accepted.', schema: ref('TestRun') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No eval run with that id under this tenant.'),
+      '404': ErrorResponse('No test run with that id under this workspace.'),
       '409': ErrorResponse('Run already terminal.'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/eval-runs/:runId/rescore',
-    openapiPath: '/v1/eval-runs/{runId}/rescore',
-    operationId: 'evalRuns.rescore',
-    summary: 'Rescore a comparison eval run',
+    honoPath: '/v1/test-runs/:testRunId/rescore',
+    openapiPath: '/v1/test-runs/{testRunId}/rescore',
+    operationId: 'testRuns.rescore',
+    summary: 'Rescore a comparison test run',
     description:
-      "Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the judgments recorded on them since (a changed answer judged on the replay itself; `changes.new` lists the items to judge). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.",
-    tags: ['eval-runs'],
+      "Starts a new comparison test run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's test set and `write` on its project.",
+    tags: ['test-runs'],
     security: 'bearer',
-    parameters: [EvalRunIdPathParam],
-    requestBody: { required: false, schema: ref('RescoreEvalRunBody') },
+    parameters: [TestRunIdPathParam],
+    requestBody: { required: false, schema: ref('RescoreTestRunBody') },
     responses: {
-      '201': { description: 'The rescore started.', schema: ref('StartEvalRunResult') },
+      '201': { description: 'The rescore started.', schema: ref('StartTestRunResult') },
       ...CommonAuthErrors,
       '400': ErrorResponse(
-        "`bad-input`: `projectId` is required (this runtime doesn't record the run's project), or isn't a project here. `dispatcher-input-invalid`: this runtime can't rescore (it doesn't read replays and their judgments again).",
+        "`bad-input`: `projectId` is required (this runtime doesn't record the run's project), or isn't a project here. `dispatcher-input-invalid`: this runtime can't rescore (it doesn't read replays and their corrections again).",
       ),
-      '404': ErrorResponse('No eval run with that id under this tenant.'),
+      '404': ErrorResponse('No test run with that id under this workspace.'),
       '409': ErrorResponse(
-        '`eval-run-not-rescorable`: only a completed comparison of a test set can be rescored.',
+        '`test-run-not-rescorable`: only a completed comparison of a test set can be rescored.',
       ),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/eval-runs/:runId/events',
-    openapiPath: '/v1/eval-runs/{runId}/events',
-    operationId: 'evalRuns.events',
-    summary: 'Stream eval-run events (SSE)',
+    honoPath: '/v1/test-runs/:testRunId/events',
+    openapiPath: '/v1/test-runs/{testRunId}/events',
+    operationId: 'testRuns.events',
+    summary: 'Stream test-run events (SSE)',
     description:
-      'Server-Sent Events. Per-case progress events (`eval-run.case-completed` / `eval-run.case-failed`) followed by a terminal event (`eval-run.completed` / `eval-run.failed` / `eval-run.cancelled`) carrying the aggregate result. Mirrors `/v1/runs/:runId/stream` structurally.',
-    tags: ['eval-runs'],
+      'Server-Sent Events. Per-case progress events (`test-run.case-completed` / `test-run.case-failed`) followed by a terminal event (`test-run.completed` / `test-run.failed` / `test-run.cancelled`) carrying the aggregate result. Mirrors `/v1/runs/:runId/stream` structurally.',
+    tags: ['test-runs'],
     security: 'bearer',
-    parameters: [EvalRunIdPathParam, LastEventIdParam],
+    parameters: [TestRunIdPathParam, LastEventIdParam],
     responses: {
       '200': {
         description: 'Server-Sent Event stream (`text/event-stream`).',
         contentType: 'text/event-stream',
       },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No eval run with that id under this tenant.'),
+      '404': ErrorResponse('No test run with that id under this workspace.'),
     },
   },
 
@@ -6210,9 +7497,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/auth/providers',
     openapiPath: '/v1/auth/providers',
     operationId: 'auth.providers.list',
-    summary: 'List identity providers configured for the tenant',
+    summary: 'List identity providers configured for the workspace',
     description:
-      "Returns the tenant's identity providers (OIDC, SAML), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.",
+      "Returns the workspace's identity providers (OIDC, SAML), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.",
     tags: ['auth'],
     security: 'bearer',
     responses: {
@@ -6221,6 +7508,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('IdentityProviderCollectionPage'),
       },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
     },
   },
   {
@@ -6230,7 +7518,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.signInOptions',
     summary: 'How a person can sign in',
     description:
-      'Public: nobody is signed in yet. With `email`, the ways in for that email\'s domain: the identity providers of the one tenant the domain is verified for (an unverified domain offers none), then any the deployment offers everyone it has added (`owner: deployment`, "Continue with Google"); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, an API token (`POST /v1/auth/token-sign-in`), and an emailed sign-in link (`emailLink`, with a captcha site key when it needs one); `identityProviders` and `apiToken` both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).',
+      'Public: nobody is signed in yet. With `email`, the ways in for that email\'s domain: the identity providers of the one workspace the domain is verified for (an unverified domain offers none), then any the deployment offers everyone it has added (`owner: deployment`, "Continue with Google"); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, an API token (`POST /v1/auth/token-sign-in`), and an emailed sign-in link (`emailLink`, with a captcha site key when it needs one); `identityProviders` and `apiToken` both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Lookups with an email are rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`); a read without one, the same for everyone, isn\'t counted.',
     tags: ['auth'],
     security: 'public',
     parameters: [
@@ -6255,7 +7543,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.tokenSignIn',
     summary: 'Sign in to the console with an API token',
     description:
-      "The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, or when the key expires if sooner. `403 token-sign-in-off` when the deployment doesn't allow it (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session. `403 second-factor-required` in a workspace that requires a second factor at sign-in, which a token can't give.",
+      "The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, when the key expires if sooner, or when the key is revoked: each request on it reads the key, and one revoked or gone answers `401 auth-revoked`. `403 token-sign-in-off` when the deployment doesn't allow it, or can't read its API keys to check such a session (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session. `403 second-factor-required` in a workspace that requires a second factor at sign-in, which a token can't give.",
     tags: ['auth'],
     security: 'bearer',
     responses: {
@@ -6268,7 +7556,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'Signed in by a session, not an API token (`token-sign-in-needs-an-api-token`).',
       ),
       '403': ErrorResponse(
-        "Not allowed here (`token-sign-in-off`), or not this key (`token-sign-in-not-allowed`): a service account's, or a narrowed one; or the workspace requires a second factor (`second-factor-required`).",
+        "Not allowed here (`token-sign-in-off`: the deployment doesn't allow it, or can't read its API keys), or not this key (`token-sign-in-not-allowed`): a service account's, or a narrowed one; or the workspace requires a second factor (`second-factor-required`).",
       ),
       '409': ErrorResponse(
         "A retry with the Idempotency-Key of a sign-in that succeeded: its session was in the cookie, which isn't kept (`idempotency-key-replay-withheld`). Sign in again without the key.",
@@ -6282,7 +7570,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.providers.register',
     summary: 'Register an identity provider (OIDC or SAML)',
     description:
-      'Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.',
+      'Unique per workspace on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.',
     tags: ['auth'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6294,6 +7582,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '403': ProviderChangeRefused,
+      '409': providerChangeConflict(
+        ' (`identity-provider-already-registered`: a provider with this id is registered)',
+      ),
       '422': ErrorResponse(
         'The deployment could not use the configuration, or `kind` is `oauth2`, a plain OAuth 2.0 provider, which sign-in does not use (`identity-provider-invalid`).',
       ),
@@ -6320,7 +7611,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The provider.', schema: ref('GetIdentityProviderResult') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No identity provider registered with that id under this tenant.'),
+      ...TenantSettingReadErrors,
+      '404': ErrorResponse('No identity provider registered with that id under this workspace.'),
     },
   },
   {
@@ -6354,6 +7646,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('IdentityProviderSignInUrls'),
       },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '400': ErrorResponse(
         "`kind` missing for a provider that isn't registered, or a kind this deployment doesn't sign in with (`bad-input`).",
       ),
@@ -6383,7 +7676,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Updated.', schema: ref('UpdateIdentityProviderResult') },
       ...CommonMutationErrors,
       '403': ProviderChangeRefused,
-      '404': ErrorResponse('No identity provider registered with that id under this tenant.'),
+      '404': ErrorResponse('No identity provider registered with that id under this workspace.'),
+      '409': providerChangeConflict(''),
       '422': ErrorResponse(
         'The deployment could not use the configuration (`identity-provider-invalid`).',
       ),
@@ -6413,7 +7707,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '403': ProviderChangeRefused,
-      '404': ErrorResponse('No identity provider registered with that id under this tenant.'),
+      '404': ErrorResponse('No identity provider registered with that id under this workspace.'),
     },
   },
   {
@@ -6423,7 +7717,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.settings.get',
     summary: "The workspace's sign-in settings",
     description:
-      "Whether signing in takes a second factor, and how many people's keys are still on the deployment's previous sign-in secret, or on neither. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).",
+      "Whether signing in takes a second factor, and how many people's keys are still on the deployment's previous sign-in secret, or on neither. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.9).",
     tags: ['auth'],
     security: 'bearer',
     responses: {
@@ -6439,7 +7733,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.settings.update',
     summary: 'Require a second factor at sign-in',
     description:
-      "Covers signing in by the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub). Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. Once required, a session made without a second factor ends at its next request, and signing in to the console with an API token is refused. API keys aren't covered: keep them to service accounts, and rotate them. From a session, turning it on takes a session made with your own second factor (`409 second-factor-enroll-first`): it would end yours. Audited. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).",
+      "Covers signing in by the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub). Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. Once required, a session made without a second factor ends at its next request, and signing in to the console with an API token is refused. API keys aren't covered: keep them to service accounts, and rotate them. From a session, turning it on takes a session made with your own second factor (`409 second-factor-enroll-first`): it would end yours. Audited. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.9).",
     tags: ['auth'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6500,9 +7794,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/identity/users',
     openapiPath: '/v1/identity/users',
     operationId: 'identity.users.list',
-    summary: 'List users in the tenant',
+    summary: 'List users in the workspace',
     description:
-      'Cursor-paginated list of tenant users (sort order is binding-defined), for tenant admins only. Optional `?query=` is a prefix match on `displayName` — the natural filter shape for a "search users" surface. `primaryEmail` may be redacted per tenant policy. Anyone else adds a person to a project by their email or id (`POST /v1/projects/{projectId}/memberships`).',
+      'Cursor-paginated list of workspace users (sort order is binding-defined), for tenant admins only. Optional `?query=` is a prefix match on `displayName` — the natural filter shape for a "search users" surface. `primaryEmail` may be redacted per workspace policy. Anyone else adds a person to a project by their email or id (`POST /v1/projects/{projectId}/memberships`).',
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -6527,7 +7821,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         in: 'query',
         required: false,
         description:
-          "With `true`, only people with an open invitation (`invite`: pending or expired), who haven't signed in yet. An older runtime ignores it and lists everyone (from 0.1.8.1).",
+          "With `true`, only people with an open invitation (`invite`: pending or expired), who haven't signed in yet. An older runtime ignores it and lists everyone (from 0.1.9).",
         schema: { type: 'boolean' },
       },
       {
@@ -6552,7 +7846,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.create',
     summary: 'Add a person',
     description:
-      "Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. A person added with an email is invited (`invite`): they sign in within 7 days, or a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`); the invitation is emailed where the deployment sends email, and `inviteEmail` says whether it was. Tenant admins only. Mounted when the identity directory can add people.",
+      "Adds a person to the workspace as a tenant member, written before it answers: they can read the workspace's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. A person added with an email is invited (`invite`): they sign in within 7 days, or a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`); the invitation is emailed where the deployment sends email, and `inviteEmail` says whether it was. Tenant admins only. Mounted when the identity directory can add people.",
     tags: ['identity'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6565,7 +7859,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '403': ErrorResponse('Not a tenant admin.'),
       '409': ErrorResponse(
-        'Another person of the tenant has the email (`identity-user-email-taken`), or an idempotency conflict.',
+        'Another person of the workspace has the email (`identity-user-email-taken`), or an idempotency conflict.',
       ),
     },
   },
@@ -6585,7 +7879,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'User record.', schema: ref('UserRecord') },
       ...CommonAuthErrors,
       '403': ErrorResponse("Someone else's record, and not a tenant admin."),
-      '404': ErrorResponse('No user with that id under this tenant.'),
+      '404': ErrorResponse('No user with that id under this workspace.'),
     },
   },
   {
@@ -6614,7 +7908,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.unregister',
     summary: 'Remove a person',
     description:
-      "Removes a person from the tenant, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, and every grant and membership they hold is taken away, all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed changes nothing. Refused for yourself and the deployment's seed user (`identity-user-unregister-refused`), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.",
+      "Removes a person from the workspace, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, and every grant and membership they hold is taken away, all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed changes nothing. Refused for yourself and the deployment's seed user (`identity-user-unregister-refused`), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.",
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -6628,7 +7922,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '403': ErrorResponse('Not a tenant admin.'),
-      '404': ErrorResponse('No user with that id under this tenant (`identity-user-not-found`).'),
+      '404': ErrorResponse(
+        'No user with that id under this workspace (`identity-user-not-found`).',
+      ),
       '409': ErrorResponse(
         'Yourself or the seed user (`identity-user-unregister-refused`, `details.reason`), the only tenant admin (`last-tenant-admin`), or an idempotency conflict.',
       ),
@@ -6641,7 +7937,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.resendInvite',
     summary: "Renew a person's invitation",
     description:
-      "For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times in 24 hours, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.8.1).",
+      "For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times in 24 hours, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.9).",
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -6656,7 +7952,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '403': ErrorResponse('Not a tenant admin.'),
       '404': ErrorResponse(
-        'No user with that id under this tenant, or one who was removed (`identity-user-not-found`).',
+        'No user with that id under this workspace, or one who was removed (`identity-user-not-found`).',
       ),
       '409': ErrorResponse(
         'They have signed in, were added before invitations, or have no email (`identity-user-not-invited`), or an idempotency conflict.',
@@ -6673,7 +7969,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.me.secondFactor',
     summary: 'My second factor',
     description:
-      'Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.8.1).',
+      'Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.9).',
     tags: ['identity'],
     security: 'bearer',
     responses: {
@@ -6689,7 +7985,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.me.startSecondFactor',
     summary: 'Start setting up a second factor',
     description:
-      'A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).',
+      'A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).',
     tags: ['identity'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6713,7 +8009,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.me.confirmSecondFactor',
     summary: 'Confirm a new second factor',
     description:
-      'A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).',
+      'A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).',
     tags: ['identity'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6741,7 +8037,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.me.newRecoveryCodes',
     summary: 'New recovery codes',
     description:
-      '10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).',
+      '10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).',
     tags: ['identity'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6768,7 +8064,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.me.removeSecondFactor',
     summary: 'Take my second factor off',
     description:
-      'Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).',
+      'Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).',
     tags: ['identity'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6795,7 +8091,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.secondFactor',
     summary: "A person's second factor",
     description:
-      'Whether they have a second factor set up, since when, how many recovery codes are left, and whether it can still be used. Never a key or a code. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).',
+      'Whether they have a second factor set up, since when, how many recovery codes are left, and whether it can still be used. Never a key or a code. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.9).',
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -6805,7 +8101,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Their second factor.', schema: ref('SecondFactorStatus') },
       ...CommonAuthErrors,
       '403': ErrorResponse('Not a tenant admin.'),
-      '404': ErrorResponse('No user with that id under this tenant (`identity-user-not-found`).'),
+      '404': ErrorResponse(
+        'No user with that id under this workspace (`identity-user-not-found`).',
+      ),
     },
   },
   {
@@ -6815,7 +8113,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.removeSecondFactor',
     summary: "Remove a person's second factor",
     description:
-      "For a lost phone, or lost recovery codes: their key is deleted, their recovery codes stop working, they're told by email where the deployment sends it, and it's audited. Their sessions stay: removing one gives no one access. Where the workspace requires one, they set one up at their next sign-in. `removed: false` when they had none. Tenant admins only, for anyone but themselves: an admin's own is taken off at `POST /v1/identity/me/second-factor/remove`, with a code from it (`403 permission-denied` here). Mounted when the deployment keeps second factors (from 0.1.8.1).",
+      "For a lost phone, or lost recovery codes: their key is deleted, their recovery codes stop working, they're told by email where the deployment sends it, and it's audited. Their sessions stay: removing one gives no one access. Where the workspace requires one, they set one up at their next sign-in. `removed: false` when they had none. Tenant admins only, for anyone but themselves: an admin's own is taken off at `POST /v1/identity/me/second-factor/remove`, with a code from it (`403 permission-denied` here). Mounted when the deployment keeps second factors (from 0.1.9).",
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -6828,7 +8126,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '403': ErrorResponse(
         "Not a tenant admin, or the caller's own (taken off at `/v1/identity/me/second-factor/remove`).",
       ),
-      '404': ErrorResponse('No user with that id under this tenant (`identity-user-not-found`).'),
+      '404': ErrorResponse(
+        'No user with that id under this workspace (`identity-user-not-found`).',
+      ),
     },
   },
   {
@@ -6859,7 +8159,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.me.permissions',
     summary: 'What I may do',
     description:
-      "What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.",
+      "What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Whether the deployment's license is held back from the caller whatever its role (`licenseOperatorOnly`), so a console doesn't ask `GET /v1/license`. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.",
     tags: ['identity'],
     security: 'bearer',
     responses: {
@@ -6869,7 +8169,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'The runtime has no authorization store (`permissions-unsupported`): read whoami instead.',
       ),
       '503': ErrorResponse(
-        "The authorization store couldn't be read (`authz-backend-unavailable`): try again.",
+        "The authorization store couldn't be read (`authz-backend-unavailable`), or the database was too busy to answer in time (`database-busy`, with `Retry-After`): try again.",
       ),
     },
   },
@@ -6890,7 +8190,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: "The person's grants.", schema: ref('PersonGrants') },
       ...CommonAuthErrors,
       '403': ErrorResponse("Another person's grants, and not a tenant admin."),
-      '404': ErrorResponse('No user with that id under this tenant (`identity-user-not-found`).'),
+      '404': ErrorResponse(
+        'No user with that id under this workspace (`identity-user-not-found`).',
+      ),
       '501': ErrorResponse('The runtime has no authorization store (`person-grants-unsupported`).'),
     },
   },
@@ -6915,9 +8217,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '403': ErrorResponse(
         "Not a tenant admin; or the person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
       ),
-      '404': ErrorResponse('No user with that id under this tenant (`identity-user-not-found`).'),
+      '404': ErrorResponse(
+        'No user with that id under this workspace (`identity-user-not-found`).',
+      ),
       '409': ErrorResponse(
-        'The person was removed from the tenant (`identity-user-unregistered`), or an idempotency conflict.',
+        'The person was removed from the workspace (`identity-user-unregistered`), or an idempotency conflict.',
       ),
       '501': ErrorResponse('The runtime has no authorization store (`person-grants-unsupported`).'),
     },
@@ -6941,7 +8245,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: "The person's grants, after.", schema: ref('PersonGrants') },
       ...CommonMutationErrors,
       '403': ErrorResponse('Not a tenant admin.'),
-      '404': ErrorResponse('No user with that id under this tenant (`identity-user-not-found`).'),
+      '404': ErrorResponse(
+        'No user with that id under this workspace (`identity-user-not-found`).',
+      ),
       '409': ErrorResponse(
         'The only person who is a tenant admin (`last-tenant-admin`), the seed user (`seed-user-admin`), or an idempotency conflict.',
       ),
@@ -6953,7 +8259,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/identity/whoami',
     openapiPath: '/v1/identity/whoami',
     operationId: 'identity.whoami',
-    summary: "Self — the caller's user + tenant + session context",
+    summary: "Self — the caller's user + workspace + session context",
     description:
       "Reflects the auth middleware's attached context: `tenantId` + `scopes` always; `userId` / `sessionId` / `providerId` / `expiresAt` when the caller is on a session token; the fuller `UserRecord` under `user` when a `userId` is present and the `IdentityDirectoryBinding` resolves it. Always mounted — the `/users/*` routes only mount when the directory binding is wired.",
     tags: ['identity'],
@@ -6972,7 +8278,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.register',
     summary: 'Register a signed deployment',
     description:
-      "Atomic transaction: check the signing key against the tenant's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the tenant's Default project), then record the deployment. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.",
+      "Atomic transaction: check the signing key against the workspace's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the workspace's default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. Its tools are checked the same way before anything is written: a tool version the runtime holds is kept only with the same definition (`409 tool-already-registered`). A runtime that does this lists `deploy-publishes-pack-blocks` in `info[\"x-kindgi-capabilities\"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.",
     tags: ['deployments'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6985,18 +8291,52 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body, or resource-state conflict. Or, on a runtime serving many tenants (`KINDGI_TENANCY=multi`), where each tenant deploys only its own images: `image-not-allowed`, the image is outside the tenant's repository (`details.imagePrefix`, its own), or `image-prefix-unset`, the tenant has no repository set yet; both are checked before any registry read, and never on a runtime serving one tenant. Or `tool-project-mismatch`, `agent-project-mismatch` or `flow-project-mismatch`: one of the image's tools, agents or flows belongs to another project (`details.primitive`, `details.id`; the message doesn't name the project); nothing was deployed, even when it was unchanged. Or `project-suspended`: the project the deploy goes into (the named one, or the Default for a tenant-wide deploy) is suspended, and nothing deploys into it until it's restored. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or, on a runtime serving many workspaces (`KINDGI_TENANCY=multi`), where each workspace deploys only its own images: `image-not-allowed`, the image is outside the workspace's repository (`details.imagePrefix`, its own), or `image-prefix-unset`, the workspace has no repository set yet; both are checked before any registry read, and never on a runtime serving one tenant. Or `tool-project-mismatch`, `agent-project-mismatch`, `flow-project-mismatch` or `block-project-mismatch`: one of the image's tools, agents, flows or data blocks belongs to another project (`details.primitive`, `details.id`; the message doesn't name the project); nothing was deployed, even when it was unchanged. Or `block-already-registered`: the runtime holds one of the pack's data block versions with other content, and a version never changes; or holds versions of the pack's blocks unregistered, by hand or by the rollback of a deploy that failed after publishing them, and a deploy never reinstates one (`details.primitive` is `block`, `details.id` is `<id>@<version>`, the first such block); the message says to give it a new version, or names each unregistered one with the command that reinstates it; nothing was deployed. Or `tool-already-registered`: the runtime holds one of the pack's tool versions, active or unregistered, with another definition, and a version never changes (`details.primitive` is `tool`, `details.id` is `<id>@<version>`, `details.fields` the fields of its definition that differ: the manifest's top-level fields, and `modulePath` for where its code lives in the pack). A new image of the same tool isn't another definition: its image and artifact version aren't compared. The message says to give the tool a new version; nothing was deployed. Or `tool-kind-mismatch`: one of the image's tools has the id of an MCP endpoint's tool (`details.endpointId`; `details.primitive`, `details.id`), whose active versions are all the endpoint's; nothing was deployed. Or `project-suspended`: the project the deploy goes into (the named one, or the default for a workspace-wide deploy) is suspended, and nothing deploys into it until it's restored. Or `environment-takes-promotions`: the project the deploy goes into is a later environment of an environment order, which takes builds only by promotion from the one before it; deploy into the order's first environment and promote the build from there (`details.firstProjectId`, when you can read that project; `details.position`, the project's place from 0). Nothing is written. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead. Or `deploy-would-put-back-older-blocks`: a newer version of one of the pack's data blocks than its files' runs now in a project of one of its agents (a project's own version, or a segment pin inside one), and the body's `replace` doesn't name it. `details.blocks` lists each (`DeployCheckStop`): the files' version and the newest that runs, where, who made it run there and when, and the pull request opened for it; in a project the caller can't read, the version only. Every project counts, whoever deploys. Nothing was deployed. A runtime that doesn't read the agents' pins and Latest doesn't check.",
       ),
       '400': ErrorResponse(
-        "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. A tool that declares or sends a model provider's key is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile is one too (`path` where it sits, such as `/output/schema` or `/nodes/<i>/branches/<k>/outputSchema`), as `defineAgent` and the flow loader refuse it: every turn or run would. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`. Or `reference-out-of-scope`: an agent or flow names a tool, agent, flow, guardrail or data block that neither the deployment brings nor its project reaches (`details.issues`, at `/agents/<i>/…` or `/flows/<i>/…`); nothing is registered.",
+        "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. When `image-unverifiable` comes from a failed registry read, `details.cause` names why: `image-not-found`, `image-file-not-found`, `image-registry-unreachable`, `image-registry-unauthorized`, `image-unreadable` (a layer that isn't a readable archive), or `image-limit-exceeded`, with the bound in `details.limit` (`manifest`, `file`, `layer`, `read` or `unpack`: the image's own, so the same image is refused again). The workspace's hour of image reads passes, so it answers `429`. A tool that declares or sends a model provider's key, or a secret under the reserved `kindgi.` prefix, is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key or one of Kindgi's own secrets. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile is one too (`path` where it sits, such as `/output/schema` or `/nodes/<i>/branches/<k>/outputSchema`), as `defineAgent` and the flow loader refuse it: every turn or run would. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`. Or `reference-out-of-scope`: an agent or flow names a tool, agent, flow, guardrail or data block that neither the deployment brings nor its project reaches (`details.issues`, at `/agents/<i>/…` or `/flows/<i>/…`); nothing is registered.",
       ),
       '403': ErrorResponse(
-        "Signer key not on the tenant's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the tenant.",
+        "Signer key not on the workspace's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the workspace.",
       ),
       '404': ErrorResponse(
-        "The body's `projectId` names no project of this tenant (`project-not-found`).",
+        "The body's `projectId` names no project of this workspace (`project-not-found`).",
       ),
-      '429': SCHEMA_COMPILE_BUDGET,
+      '429': ErrorResponse(
+        `${SCHEMA_COMPILE_BUDGET_TEXT} Or \`details.limit: "tenant-unpack-hour"\`, on a server that bounds each workspace's image reads (Kindgi Cloud): this workspace's image reads unpacked as much as they may in an hour. Nothing was deployed; \`Retry-After\` says when there's room again.`,
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/deployments/check',
+    openapiPath: '/v1/deployments/check',
+    operationId: 'deployments.check',
+    summary: "Check a deploy's blocks against what runs",
+    description:
+      "What `POST /v1/deployments` answers about the pack's data blocks against what runs, with nothing written: `kindgi deploy` asks it before it builds the image. For each block, the newest version that runs in a project of one of `agents` (a project's own version, or a segment pin inside one; every project, whoever asks) is compared with the body's: a newer one stops the deploy unless `replace` names the block. Equal passes, a newer one in the files passes, and a block that runs nowhere passes. It takes the deploy's own right: admin on `projectId`, else on the workspace.",
+    tags: ['deployments'],
+    security: 'bearer',
+    requestBody: { required: true, schema: ref('DeployCheckBody') },
+    responses: {
+      '200': {
+        description:
+          'The deploy can go: the blocks it puts back on purpose, and the ones `replace` names that need none.',
+        schema: ref('DeployCheckResult'),
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        "`bad-input`: a body that isn't `{ projectId?, agents, blocks, replace? }`, a block named twice, a version that isn't one, or a `replace` reason that isn't 1 to 500 characters with no control characters (`details.issues`).",
+      ),
+      '403': ErrorResponse(
+        'No admin on `projectId` (`forbidden`), or a key limited to another project; without it, no admin on the workspace.',
+      ),
+      '409': ErrorResponse(
+        '`deploy-would-put-back-older-blocks`, as `POST /v1/deployments` answers it: each block in `details.blocks` (`DeployCheckStop`).',
+      ),
+      '501': ErrorResponse(
+        "`runs-in-unsupported`: this runtime doesn't read the agents' pins and Latest, or the agent versions that pin each block, so it can't check; its deploys aren't checked either.",
+      ),
     },
   },
   {
@@ -7006,7 +8346,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.list',
     summary: 'List signed deployments',
     description:
-      'Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits).',
+      "Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Only the deployments in projects the caller reads are listed (a deployment naming no project is the default project's), so a page can hold fewer than `limit` with `hasMore` true: page by `nextCursor`, not by count. Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the default also finds those naming no project); `?packId=` to one pack.",
     tags: ['deployments'],
     security: 'bearer',
     parameters: [
@@ -7026,6 +8366,21 @@ export const OPERATIONS: readonly OperationSpec[] = [
         description: 'Filter to deployments signed by this key id.',
         schema: { type: 'string' },
       },
+      {
+        name: 'projectId',
+        in: 'query',
+        required: false,
+        description:
+          "Filter to one environment's deployments. The workspace's default project also finds those that name no project. Needs `read` on that project.",
+        schema: { type: 'string' },
+      },
+      {
+        name: 'packId',
+        in: 'query',
+        required: false,
+        description: "Filter to one pack's deployments (`packId`).",
+        schema: { type: 'string' },
+      },
     ],
     responses: {
       '200': {
@@ -7033,6 +8388,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('DeploymentCollectionPage'),
       },
       ...CommonAuthErrors,
+      '403': ErrorResponse(
+        "No `read` on the workspace, or a `projectId` naming a project the caller doesn't read, or one that isn't there (the tenant admin too, so it tells no one what exists).",
+      ),
       '500': ErrorResponse('List failed inside the caller-plugged binding.'),
     },
   },
@@ -7056,7 +8414,39 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Deployment record.', schema: ref('DeploymentRecord') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No deployment with that id under this tenant.'),
+      '404': ErrorResponse(
+        "No deployment with that id under this workspace, or one in a project the caller doesn't read (`deployment-not-found`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/deployments/:deploymentId/pack-env',
+    openapiPath: '/v1/deployments/{deploymentId}/pack-env',
+    operationId: 'deployments.packEnv',
+    summary: "Show where each name a deployment's pack declares is set",
+    description:
+      "On a server that runs a pack service per deployment and gives it the env its pack declares: each declared name, where it's set (the deployment's project, then its org, then the workspace, at the env the server serves) and why it can't be given, if it can't. Never a value. A name set only as a secret can't be given into the pack service's environment yet: a tool reads it per call (`ctx.secrets`).",
+    tags: ['deployments'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'deploymentId',
+        in: 'path',
+        required: true,
+        description: 'Deployment id assigned by the ledger at register time.',
+        schema: { type: 'string', minLength: 1 },
+      },
+    ],
+    responses: {
+      '200': { description: 'Where each declared name is set.', schema: ref('PackEnvNames') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse(
+        "No deployment with that id under this workspace, or one in a project the caller doesn't read (`deployment-not-found`).",
+      ),
+      '501': ErrorResponse(
+        "The server's pack services take their env from how they're run, not from the env store (`pack-env-not-served`).",
+      ),
     },
   },
   {
@@ -7066,7 +8456,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.syncSecrets',
     summary: 'Sync secrets against a deployment',
     description:
-      'Deployment-scoped bulk secret sync. Body carries `{ envName, secrets: Array<{ name, ref } | { name, value }> }`. `{ name, ref }` entries validate against `SecretBinding.get` — no bytes cross the wire; missing → 404 `secret-not-found`. `{ name, value }` entries write via `SecretBinding.set` with `writeMode: add-version` + `tags.deployment = deploymentId` and return the created reference. The write scope is derived from the deployment record itself (tenant scope, or project scope when the deployment carries a `projectId`) and CANNOT be overridden on the wire. Requires the `secrets:write` capability. Idempotency-Key applies.',
+      'Deployment-scoped bulk secret sync. Body carries `{ envName, secrets: Array<{ name, ref } | { name, value }> }`. `{ name, ref }` entries validate against `SecretBinding.get` — no bytes cross the wire; missing → 404 `secret-not-found`. `{ name, value }` entries write via `SecretBinding.set` with `writeMode: add-version` + `tags.deployment = deploymentId` and return the created reference. The write scope is derived from the deployment record itself (tenant scope, or project scope when the deployment carries a `projectId`) and CANNOT be overridden on the wire. A secret the tools of this deployment name that was set nowhere when a deploy or a promotion published them is read at that scope, when whoever published them administers it: a deploy needs `admin` there, while a promotion into the default project needs it only on that project. Requires the `secrets:write` capability. Idempotency-Key applies.',
     tags: ['deployments'],
     security: 'bearer',
     parameters: [
@@ -7087,8 +8477,148 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       ...SecretWriteErrors,
-      '403': ErrorResponse('Bearer token missing `secrets:write` capability.'),
-      '404': ErrorResponse('No deployment with that id, or referenced secret does not exist.'),
+      '403': ErrorResponse(
+        "Bearer token missing `secrets:write` capability, or no `admin` on the scope it writes: the deployment's project, else the workspace.",
+      ),
+      '404': ErrorResponse(
+        "No deployment with that id, or one in a project the caller doesn't read, or referenced secret does not exist.",
+      ),
+      '409': conflictOrEnvNotServed(ENV_NOT_SERVED_VALUE),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/deployments/:deploymentId/values',
+    openapiPath: '/v1/deployments/{deploymentId}/values',
+    operationId: 'deployments.values.list',
+    summary: 'List the values a deployment needs in a project',
+    description:
+      "Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), `read` on the project the deployment serves, and `read` on the workspace, as every deployments route does.",
+    tags: ['deployments'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'deploymentId',
+        in: 'path',
+        required: true,
+        description: 'Deployment id assigned by the ledger at register time.',
+        schema: { type: 'string', minLength: 1 },
+      },
+      {
+        name: 'projectId',
+        in: 'query',
+        required: false,
+        description:
+          "The project the values are needed in. Default: the deployment's own project (the workspace's default project for a workspace-wide deployment).",
+        schema: { type: 'string', format: 'uuid' },
+      },
+    ],
+    responses: {
+      '200': {
+        description: 'The values, names only.',
+        schema: ref('DeploymentValueList'),
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        "A `projectId` that isn't a project id, or none for a deployment whose project this runtime doesn't record (`bad-input`).",
+      ),
+      '403': ErrorResponse('No `admin` on the project, or no `read` on the workspace.'),
+      '404': ErrorResponse(
+        "No deployment with that id under this workspace, or one in a project the caller doesn't read (`deployment-not-found`), or `projectId` names no project of this workspace (`project-not-found`).",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/deployments/:deploymentId/promotions',
+    openapiPath: '/v1/deployments/{deploymentId}/promotions',
+    operationId: 'deployments.promote',
+    summary: 'Promote a deployment to the next environment',
+    description:
+      "Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since. With `pin`, the build's blocks (`contents.blocks`) are checked first against what runs in the target, as a deploy's are against what runs: a newer version of one running there stops the promotion with nothing written, unless `replace` names the block, and `blockCheck` answers what the check found. Then the move commits; then each carried agent is pinned through its target scope's release gate, and each carried flow is pinned. `pin` is the ask to take a target project that follows Latest off it: such a pin gets no `409 pin-stops-latest`, and records `stoppedFollowingLatest`. A release gate that refuses or holds an agent isn't an error: its `pinned` entry has `pinned: false` and the gate's `status`. A refusal after the move leaves the move in place, and lists the pins already made in `details.pinned` and `details.pinnedFlows`.",
+    tags: ['deployments'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'deploymentId',
+        in: 'path',
+        required: true,
+        description: 'The deployment to promote: one serving an environment of an order.',
+        schema: { type: 'string', minLength: 1 },
+      },
+    ],
+    requestBody: { required: true, schema: ref('DeploymentPromotionBody') },
+    responses: {
+      '201': {
+        description: 'Promoted: a new deployment in the target.',
+        schema: ref('DeploymentPromotion'),
+      },
+      '200': {
+        description:
+          'The target has this build already: its deployment, with the edits made since recorded.',
+        schema: ref('DeploymentPromotion'),
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        "Malformed body (`bad-input`). Or `signature-invalid`: the deployment's signature doesn't verify over the fields it keeps.",
+      ),
+      '403': ErrorResponse(
+        "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, and a promotion reads one project and writes another (`details.keyProjectId`, `details.projectId`). Or `signer-not-trusted`: the key that signed the build is no longer on the workspace's trust list (`details.signerKeyId`). With `pin`, after the move: no right to pin a carried agent or a carried flow in the target; nothing is pinned.",
+      ),
+      '404': ErrorResponse(
+        "`deployment-not-found`: no deployment with that id in this workspace, or one in a project you don't read.",
+      ),
+      '409': ErrorResponse(
+        "`promotion-not-next-environment`: the target isn't the next environment of the deployment's order, or the deployment's environment is last or in no order (`details.position`, the next environment's place; `details.nextProjectId`, when you can read it). `promotion-values-not-ready`: values the build needs aren't ready in the target, each in `details.values` (`DeploymentValue`). `deployment-superseded`: the deployment no longer serves its environment, or the target's copy no longer serves there: newer deployments serve every tool version it ships (`details.environment`, `source` or `target`; `details.newerDeploymentId`). `project-suspended`, `pack-suspended`, `tenant-suspended` or `tenant-closing`: a suspension of the source or the target (`details.environment`). `deploy-would-put-back-older-blocks`, with `pin`: a newer version of one of the build's blocks than its own runs in the target now, each in `details.blocks` (`DeployCheckStop`). Nothing is written for any of these. With `pin`, after the move has committed: `nothing-runs-in-scope`, a carried agent has no version running in the target yet (the message names it); or `pin-superseded` or `release-gate-descendant-unpinned`, as `POST /v1/agents/{agentId}/pinned/pin` answers them. The carried agents pinned before it are in `details.pinned`; it, the ones after it and the carried flows aren't pinned.",
+      ),
+      '429': ErrorResponse(
+        "`approvals-pending-limit`, with `pin`, after the move has committed: a carried agent's release gate wants an approval, and the workspace's approvals waiting for a decision are at its limit. The carried agents pinned before it are in `details.pinned`; it, the ones after it and the carried flows aren't pinned.",
+      ),
+      '500': ErrorResponse('Server error (unmapped domain code or framework crash).'),
+      '501': ErrorResponse(
+        "`promotions-unsupported`: this runtime's deployment ledger can't promote. With `pin`, after the move: `promotions-unsupported` when this runtime can't pin versions, or `pin-gate-unsupported` when a release gate applies to a carried agent's scope and the runtime can't record a gated pin; nothing is pinned.",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/deployments/:deploymentId/promotions/check',
+    openapiPath: '/v1/deployments/{deploymentId}/promotions/check',
+    operationId: 'deployments.promoteCheck',
+    summary: 'Check a promotion without making it',
+    description:
+      "Runs every check a promotion makes and writes nothing: what would move, the next environment, and each value with a problem in the target (where a promotion refuses with `promotion-values-not-ready`). Refused as the promotion is for every other check. Needs `read` on the deployment's project and `admin` on the target.",
+    tags: ['deployments'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'deploymentId',
+        in: 'path',
+        required: true,
+        description: 'The deployment to promote: one serving an environment of an order.',
+        schema: { type: 'string', minLength: 1 },
+      },
+    ],
+    requestBody: { required: true, schema: ref('DeploymentPromotionCheckBody') },
+    responses: {
+      '200': {
+        description: 'What a promotion would move, and the values not ready in the target.',
+        schema: ref('DeploymentPromotionCheck'),
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        "Malformed body (`bad-input`). Or `signature-invalid`: the deployment's signature doesn't verify over the fields it keeps.",
+      ),
+      '403': ErrorResponse(
+        "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, which a promotion's check is refused as the promotion is. Or `signer-not-trusted`: the key that signed the build is no longer trusted.",
+      ),
+      '404': ErrorResponse(
+        "`deployment-not-found`: no deployment with that id in this workspace, or one in a project you don't read.",
+      ),
+      '409': ErrorResponse(
+        '`promotion-not-next-environment`, `deployment-superseded`, or a suspension of the source or the target, as on the promotion.',
+      ),
+      '500': ErrorResponse('Server error (unmapped domain code or framework crash).'),
     },
   },
 
@@ -7133,7 +8663,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         in: 'query',
         required: false,
         description:
-          'Filter by evidence kind (any `EvidenceKind`). A kind the classifier does not mark exportable yields an empty page.',
+          'Filter by evidence kind: a built-in `EvidenceKind`, or a kind the classifier names. Any other kind is a 400. A kind the classifier does not mark exportable yields an empty page.',
         schema: { $ref: '#/components/schemas/EvidenceKind' },
       },
       {
@@ -7157,7 +8687,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('ComplianceEvidenceCollectionPage'),
       },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Malformed cursor, `from`, or `to`.'),
+      ...TenantAdminErrors,
+      '400': ErrorResponse(
+        'Malformed cursor, `from` or `to`, or a `kind` that is no evidence kind.',
+      ),
     },
   },
   {
@@ -7167,7 +8700,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'compliance.evidence.get',
     summary: 'Fetch one compliance-evidence record',
     description:
-      "Returns the full evidence record. 404 `compliance-evidence-not-found` when the id is unknown within the tenant scope (never leaks the existence of another tenant's records).",
+      "Returns the full evidence record. 404 `compliance-evidence-not-found` when the id is unknown within the tenant scope (never leaks the existence of another workspace's records).",
     tags: ['compliance'],
     security: 'bearer',
     parameters: [
@@ -7182,7 +8715,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Full evidence record.', schema: ref('ComplianceEvidence') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No evidence record with that id under this tenant.'),
+      ...TenantAdminErrors,
+      '404': ErrorResponse('No evidence record with that id under this workspace.'),
     },
   },
   {
@@ -7203,6 +8737,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SignedComplianceEvidenceBundle'),
       },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '404': ErrorResponse('Signing key id unknown, or signing not configured on this deployment.'),
     },
   },
@@ -7215,7 +8750,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'audit.signIns.list',
     summary: 'List sign-in audit events',
     description:
-      "The tenant's sign-in history: who signed in and out, how (`method`), when and from where (`clientAddress`), what was refused and why, and emailed links sent or capped. `?userId=` narrows to one person's own sign-ins and sign-outs. Oldest first; `?order=desc` for newest first. A tenant admin's to read (403 `permission-denied` otherwise). Only mounted when `CreateAppInput.auditEvents` is wired.",
+      "The workspace's sign-in history: who signed in and out, how (`method`), when and from where (`clientAddress`), what was refused and why, and emailed links sent or capped. `?userId=` narrows to one person's own sign-ins and sign-outs. Oldest first; `?order=desc` for newest first. A tenant admin's to read (403 `permission-denied` otherwise). Only mounted when `CreateAppInput.auditEvents` is wired.",
     tags: ['audit'],
     security: 'bearer',
     parameters: [
@@ -7294,7 +8829,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'audit.authz.list',
     summary: 'List authz decision audit events',
     description:
-      'Cursor-paginated read of `authz-decision` audit events for the tenant. Filters (all AND-composed): `?actorSubject=` / `?onBehalfOf=` / `?action=` / `?resource=` / `?outcome=` / `?runId=` / `?from=` / `?to=`. Oldest first; `?order=desc` for newest first. Admin@tenant only. Only mounted when `CreateAppInput.auditEvents` is wired.',
+      'Cursor-paginated read of `authz-decision` audit events for the workspace. Filters (all AND-composed): `?actorSubject=` / `?onBehalfOf=` / `?action=` / `?resource=` / `?outcome=` / `?runId=` / `?from=` / `?to=`. Oldest first; `?order=desc` for newest first. Admin@tenant only. Only mounted when `CreateAppInput.auditEvents` is wired.',
     tags: ['audit'],
     security: 'bearer',
     parameters: [
@@ -7420,7 +8955,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/orgs',
     openapiPath: '/v1/orgs',
     operationId: 'orgs.list',
-    summary: "List orgs in the caller's tenant",
+    summary: "List orgs in the caller's workspace",
     description:
       'Cursor-paginated list of orgs. Optional `?nameContains=` narrows by substring match on `Org.name`.',
     tags: ['orgs'],
@@ -7477,7 +9012,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Org.', schema: ref('Org') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No org with that id under this tenant.'),
+      '404': ErrorResponse('No org with that id under this workspace.'),
     },
   },
   {
@@ -7502,7 +9037,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Updated. No body.' },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No org with that id under this tenant.'),
+      '404': ErrorResponse('No org with that id under this workspace.'),
     },
   },
   {
@@ -7512,7 +9047,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'orgs.delete',
     summary: 'Delete an org (idempotent)',
     description:
-      "A tombstone, not an erase: from then on the org is gone from get and list, and its slug is free for a new org. Its projects and teams stay, without an org; when one of those projects has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first). In the Kindgi runtime, the org's own secrets and secret mappings are deleted with it, for good, and its own environments and MCP endpoints are unregistered. A retention policy on the `org` domain purges the org's row. Idempotent: deleting an unknown or already-deleted org returns 204.",
+      "A tombstone, not an erase: from then on the org is gone from get and list, and its slug is free for a new org. Its projects and teams stay, without an org; when one of those projects has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first). When the org is the parent of an environment order, nothing is deleted either: `409 org-has-environment-order` names the order (a tenant admin clears it first). In the Kindgi runtime, the org's own secrets and secret mappings are deleted with it, for good, and its own environments and MCP endpoints are unregistered. A retention policy on the `org` domain purges the org's row. Idempotent: deleting an unknown or already-deleted org returns 204.",
     tags: ['orgs'],
     security: 'bearer',
     parameters: [
@@ -7529,7 +9064,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '204': { description: 'Deleted (or already absent). No body.' },
       ...CommonAuthErrors,
       '409': ErrorResponse(
-        "slug-conflict: the org's projects would leave it with slugs that projects without an org already have.",
+        "`slug-conflict`: the org's projects would leave it with slugs that projects without an org already have. Or `org-has-environment-order`: the org is the parent of an environment order, so it can't be deleted — a tenant admin clears the order first.",
       ),
     },
   },
@@ -7540,7 +9075,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/teams',
     openapiPath: '/v1/teams',
     operationId: 'teams.list',
-    summary: "List teams in the caller's tenant",
+    summary: "List teams in the caller's workspace",
     description:
       'Cursor-paginated. Optional `?orgId=` narrows to a specific org (absent = every team, including teams with no org). `?nameContains=` substring-matches on `Team.name`.',
     tags: ['teams'],
@@ -7583,7 +9118,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Team created.', schema: ref('CreateResourceResult') },
       ...CommonMutationErrors,
       '404': ErrorResponse(
-        'org-not-found: `orgId` names no org of the tenant (it never existed, or it was deleted).',
+        'org-not-found: `orgId` names no org of the workspace (it never existed, or it was deleted).',
       ),
     },
   },
@@ -7607,7 +9142,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Team.', schema: ref('Team') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No team with that id under this tenant.'),
+      '404': ErrorResponse('No team with that id under this workspace.'),
     },
   },
   {
@@ -7632,8 +9167,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Updated. No body.' },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        'No `admin` on the team; or the body names `orgId` (even the current one) and the caller is not a tenant admin, as making a team in an org needs (`permission-denied`).',
+      ),
       '404': ErrorResponse(
-        'team-not-found: no team with that id under this tenant; or org-not-found: `orgId` names no org of the tenant (it never existed, or it was deleted).',
+        'team-not-found: no team with that id under this workspace; or org-not-found: `orgId` names no org of the workspace (it never existed, or it was deleted).',
       ),
     },
   },
@@ -7689,7 +9227,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('TeamMembershipCollectionPage'),
       },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No team with that id under this tenant.'),
+      '404': ErrorResponse('No team with that id under this workspace.'),
     },
   },
   {
@@ -7699,7 +9237,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'teams.memberships.add',
     summary: 'Add a user to a team',
     description:
-      'Someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.',
+      'Someone who is not a person of this workspace, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.',
     tags: ['teams'],
     security: 'bearer',
     parameters: [
@@ -7720,7 +9258,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
       ),
       '404': ErrorResponse(
-        'No team with that id under this tenant (`team-not-found`), or the person named is not a member of this tenant (`identity-user-not-found`).',
+        'No team with that id under this workspace (`team-not-found`), or the person named is not a member of this workspace (`identity-user-not-found`).',
       ),
       '409': ErrorResponse(
         'A member already, with another role (`membership-exists`, `details.role`); or an Idempotency-Key reused with another body.',
@@ -7796,7 +9334,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
       ),
       '404': ErrorResponse(
-        'No membership for that (team, user) pair, or no such team under this tenant.',
+        'No membership for that (team, user) pair, or no such team under this workspace.',
       ),
       '501': ErrorResponse(
         "With authorization enforced, a runtime whose tenant-hierarchy binding can't change the membership together with its authorization tuple refuses with `authz-membership-unsupported`; nothing is changed.",
@@ -7810,16 +9348,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/projects/default',
     openapiPath: '/v1/projects/default',
     operationId: 'projects.getDefault',
-    summary: "Fetch the tenant's Default project",
+    summary: "Fetch the workspace's default project",
     description:
-      'Returns the row where `Project.isDefault = true` (exactly one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when no Default has been provisioned.',
+      'Returns the row where `Project.isDefault = true` (at most one per workspace), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when the workspace has none.',
     tags: ['projects'],
     security: 'bearer',
     responses: {
       '200': { description: 'Default project.', schema: ref('Project') },
       ...CommonAuthErrors,
-      '403': ErrorResponse("The caller can't read the Default project."),
-      '404': ErrorResponse('Tenant has no Default project.'),
+      '403': ErrorResponse("The caller can't read the default project."),
+      '404': ErrorResponse('Workspace has no default project.'),
     },
   },
   {
@@ -7827,7 +9365,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/projects',
     openapiPath: '/v1/projects',
     operationId: 'projects.list',
-    summary: "List projects in the caller's tenant",
+    summary: "List projects in the caller's workspace",
     description:
       'Cursor-paginated. Optional `?orgId=` narrows to a specific org (projects may have no org; absent = all); `?nameContains=` substring-matches on `Project.name`.',
     tags: ['projects'],
@@ -7863,7 +9401,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.create',
     summary: 'Create a project',
     description:
-      "A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second Default, `409 project-default-already-exists`.",
+      "A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second default project, `409 project-default-already-exists`.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -7872,7 +9410,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Project created.', schema: ref('CreateResourceResult') },
       ...CommonMutationErrors,
       '404': ErrorResponse(
-        'org-not-found: `orgId` names no org of the tenant (it never existed, or it was deleted).',
+        'org-not-found: `orgId` names no org of the workspace (it never existed, or it was deleted).',
       ),
     },
   },
@@ -7896,7 +9434,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Project.', schema: ref('Project') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No project with that id under this tenant.'),
+      '404': ErrorResponse('No project with that id under this workspace.'),
     },
   },
   {
@@ -7923,8 +9461,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Updated. No body.' },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        'No `admin` on the project; or the body names `orgId` (even the current one) and the caller is not a tenant admin, as making a project in an org needs (`permission-denied`).',
+      ),
+      '409': ErrorResponse(
+        "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up; or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
+      ),
       '404': ErrorResponse(
-        'project-not-found: no project with that id under this tenant; or org-not-found: `orgId` names no org of the tenant (it never existed, or it was deleted).',
+        'project-not-found: no project with that id under this workspace; or org-not-found: `orgId` names no org of the workspace (it never existed, or it was deleted).',
       ),
     },
   },
@@ -7934,6 +9478,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/projects/{projectId}',
     operationId: 'projects.delete',
     summary: 'Delete a project (idempotent)',
+    description:
+      "Once the project is deleted, its own service account (`runAsProject`), if it has one, is unregistered. That's best effort: a failure is logged, and the delete still answers 204.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -7949,17 +9495,20 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Deleted (or already absent). No body.' },
       ...CommonAuthErrors,
+      '409': ErrorResponse(
+        "`project-in-environment-order`: the project is a member of an environment order, so it can't be deleted — clear it from the order first.",
+      ),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/projects/:projectId/judging-rules',
-    openapiPath: '/v1/projects/{projectId}/judging-rules',
-    operationId: 'projects.judgingRules.list',
-    summary: "List a project's judging rules",
+    honoPath: '/v1/projects/:projectId/queue-rules',
+    openapiPath: '/v1/projects/{projectId}/queue-rules',
+    operationId: 'projects.queueRules.list',
+    summary: "List a project's queue rules",
     description:
-      "The live rules (their latest versions), oldest first. A rule says which of the project's runs to queue for a person's judgment when they end. Needs `read` on the project.",
-    tags: ['judging'],
+      "The live rules (their latest versions), oldest first. A rule says which of the project's runs to queue for a person's correction when they end. Needs `read` on the project.",
+    tags: ['expert-queue'],
     security: 'bearer',
     parameters: [
       {
@@ -7973,20 +9522,20 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CursorQueryParam,
     ],
     responses: {
-      '200': { description: 'A page of rules.', schema: ref('JudgingRulePage') },
+      '200': { description: 'A page of rules.', schema: ref('QueueRulePage') },
       ...CommonAuthErrors,
       '404': ErrorResponse('No project with that id (`project-not-found`).'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/projects/:projectId/judging-rules',
-    openapiPath: '/v1/projects/{projectId}/judging-rules',
-    operationId: 'projects.judgingRules.create',
-    summary: 'Create a judging rule',
+    honoPath: '/v1/projects/:projectId/queue-rules',
+    openapiPath: '/v1/projects/{projectId}/queue-rules',
+    operationId: 'projects.queueRules.create',
+    summary: 'Create a queue rule',
     description:
-      "Version 1 of a rule. From then on, a top-level run of the project that matches `when` as it ends (and falls in `sample`, while the rule has fewer than `maxOpen` open items) is queued for a person's judgment; replays never are. A rule only lists runs: it never starts a model. Needs `write` on the project.",
-    tags: ['judging'],
+      "Version 1 of a rule. From then on, a top-level run of the project that matches `when` as it ends (and falls in `sample`, while the rule has fewer than `maxOpen` open items) is queued for a person's correction; replays never are. A rule only lists runs: it never starts a model. Needs `write` on the project.",
+    tags: ['expert-queue'],
     security: 'bearer',
     parameters: [
       {
@@ -7998,24 +9547,24 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       IdempotencyKeyParam,
     ],
-    requestBody: { required: true, schema: ref('JudgingRuleSpec') },
+    requestBody: { required: true, schema: ref('QueueRuleSpec') },
     responses: {
-      '201': { description: 'The rule, version 1.', schema: ref('JudgingRule') },
+      '201': { description: 'The rule, version 1.', schema: ref('QueueRule') },
       ...CommonMutationErrors,
       '404': ErrorResponse(
-        'No project with that id (`project-not-found`), or no live judge class `judgeClassId` (`judge-class-not-found`).',
+        'No project with that id (`project-not-found`), or no live corrector group `correctorGroupId` (`corrector-group-not-found`).',
       ),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/projects/:projectId/judging-rules/preview',
-    openapiPath: '/v1/projects/{projectId}/judging-rules/preview',
-    operationId: 'projects.judgingRules.preview',
+    honoPath: '/v1/projects/:projectId/queue-rules/preview',
+    openapiPath: '/v1/projects/{projectId}/queue-rules/preview',
+    operationId: 'projects.queueRules.preview',
     summary: 'What a rule would have queued',
     description:
       'Among the project\'s last `last` top-level runs (not replays), how many a rule with these fields (and its `sample`) would have queued. The rule editor\'s "would have added N of the last 100". Lists are comma-separated. Needs `read` on the project.',
-    tags: ['judging'],
+    tags: ['expert-queue'],
     security: 'bearer',
     parameters: [
       {
@@ -8043,7 +9592,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         name: 'versions',
         in: 'query',
         required: false,
-        description: 'Comma-separated; `live` for the live version.',
+        description: 'Comma-separated; `pinned` for the pinned version.',
         schema: { type: 'string' },
       },
       {
@@ -8084,7 +9633,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
     ],
     responses: {
-      '200': { description: 'The preview.', schema: ref('JudgingRulePreview') },
+      '200': { description: 'The preview.', schema: ref('QueueRulePreview') },
       ...CommonAuthErrors,
       '400': ErrorResponse('A malformed field (`bad-input`).'),
       '404': ErrorResponse('No project with that id (`project-not-found`).'),
@@ -8092,12 +9641,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
-    honoPath: '/v1/projects/:projectId/judging-rules/:ruleId',
-    openapiPath: '/v1/projects/{projectId}/judging-rules/{ruleId}',
-    operationId: 'projects.judgingRules.get',
-    summary: 'Fetch a judging rule',
+    honoPath: '/v1/projects/:projectId/queue-rules/:ruleId',
+    openapiPath: '/v1/projects/{projectId}/queue-rules/{ruleId}',
+    operationId: 'projects.queueRules.get',
+    summary: 'Fetch a queue rule',
     description: 'Its latest version. Needs `read` on the project.',
-    tags: ['judging'],
+    tags: ['expert-queue'],
     security: 'bearer',
     parameters: [
       {
@@ -8110,20 +9659,20 @@ export const OPERATIONS: readonly OperationSpec[] = [
       { name: 'ruleId', in: 'path', required: true, schema: { type: 'string' } },
     ],
     responses: {
-      '200': { description: 'The rule.', schema: ref('JudgingRule') },
+      '200': { description: 'The rule.', schema: ref('QueueRule') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No such rule in the project (`judging-rule-not-found`).'),
+      '404': ErrorResponse('No such rule in the project (`queue-rule-not-found`).'),
     },
   },
   {
     method: 'patch',
-    honoPath: '/v1/projects/:projectId/judging-rules/:ruleId',
-    openapiPath: '/v1/projects/{projectId}/judging-rules/{ruleId}',
-    operationId: 'projects.judgingRules.update',
-    summary: 'Change a judging rule',
+    honoPath: '/v1/projects/:projectId/queue-rules/:ruleId',
+    openapiPath: '/v1/projects/{projectId}/queue-rules/{ruleId}',
+    operationId: 'projects.queueRules.update',
+    summary: 'Change a queue rule',
     description:
       'A new version with these fields changed (`when` is replaced whole). Earlier versions are kept: `…/versions` shows who changed what, when. Needs `write` on the project.',
-    tags: ['judging'],
+    tags: ['expert-queue'],
     security: 'bearer',
     parameters: [
       {
@@ -8135,24 +9684,24 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       { name: 'ruleId', in: 'path', required: true, schema: { type: 'string' } },
     ],
-    requestBody: { required: true, schema: ref('JudgingRulePatch') },
+    requestBody: { required: true, schema: ref('QueueRulePatch') },
     responses: {
-      '200': { description: 'The new version.', schema: ref('JudgingRule') },
+      '200': { description: 'The new version.', schema: ref('QueueRule') },
       ...CommonMutationErrors,
       '404': ErrorResponse(
-        'No such rule (`judging-rule-not-found`), or no live judge class `judgeClassId` (`judge-class-not-found`).',
+        'No such rule (`queue-rule-not-found`), or no live corrector group `correctorGroupId` (`corrector-group-not-found`).',
       ),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/projects/:projectId/judging-rules/:ruleId/unregister',
-    openapiPath: '/v1/projects/{projectId}/judging-rules/{ruleId}/unregister',
-    operationId: 'projects.judgingRules.unregister',
-    summary: 'Stop a judging rule',
+    honoPath: '/v1/projects/:projectId/queue-rules/:ruleId/unregister',
+    openapiPath: '/v1/projects/{projectId}/queue-rules/{ruleId}/unregister',
+    operationId: 'projects.queueRules.unregister',
+    summary: 'Stop a queue rule',
     description:
       'It queues nothing more; its versions and the items it queued stay. `unregistered: false` when it was already stopped. Needs `write` on the project.',
-    tags: ['judging'],
+    tags: ['expert-queue'],
     security: 'bearer',
     parameters: [
       {
@@ -8167,21 +9716,21 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': {
         description: 'Whether it was stopped now.',
-        schema: ref('JudgingRuleUnregisterResult'),
+        schema: ref('QueueRuleUnregisterResult'),
       },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No such rule (`judging-rule-not-found`).'),
+      '404': ErrorResponse('No such rule (`queue-rule-not-found`).'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/projects/:projectId/judging-rules/:ruleId/versions',
-    openapiPath: '/v1/projects/{projectId}/judging-rules/{ruleId}/versions',
-    operationId: 'projects.judgingRules.versions',
-    summary: "A judging rule's versions",
+    honoPath: '/v1/projects/:projectId/queue-rules/:ruleId/versions',
+    openapiPath: '/v1/projects/{projectId}/queue-rules/{ruleId}/versions',
+    operationId: 'projects.queueRules.versions',
+    summary: "A queue rule's versions",
     description:
       'Every version, newest first: who wrote it, when, and what it said. Needs `read` on the project.',
-    tags: ['judging'],
+    tags: ['expert-queue'],
     security: 'bearer',
     parameters: [
       {
@@ -8196,20 +9745,20 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CursorQueryParam,
     ],
     responses: {
-      '200': { description: 'A page of versions.', schema: ref('JudgingRulePage') },
+      '200': { description: 'A page of versions.', schema: ref('QueueRulePage') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No such rule (`judging-rule-not-found`).'),
+      '404': ErrorResponse('No such rule (`queue-rule-not-found`).'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/projects/:projectId/judging-rules/:ruleId/results',
-    openapiPath: '/v1/projects/{projectId}/judging-rules/{ruleId}/results',
-    operationId: 'projects.judgingRules.results',
-    summary: "A judging rule's results",
+    honoPath: '/v1/projects/:projectId/queue-rules/:ruleId/results',
+    openapiPath: '/v1/projects/{projectId}/queue-rules/{ruleId}/results',
+    operationId: 'projects.queueRules.results',
+    summary: "A queue rule's results",
     description:
-      "By the rule's version and the agent's: the runs it queued (open, judged, dismissed, erased), the ones its `maxOpen` skipped, and the live judgments on them, with their class-weighted `yes` share and a count by class. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.",
-    tags: ['judging'],
+      "By the rule's version and the agent's: the runs it queued (open, corrected, dismissed, erased), the ones its `maxOpen` skipped, and the live corrections on them, with their group-weighted `yes` share and a count by group. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.",
+    tags: ['expert-queue'],
     security: 'bearer',
     parameters: [
       {
@@ -8229,20 +9778,50 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
     ],
     responses: {
-      '200': { description: 'The results.', schema: ref('JudgingRuleResults') },
+      '200': { description: 'The results.', schema: ref('QueueRuleResults') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No such rule (`judging-rule-not-found`).'),
+      '404': ErrorResponse('No such rule (`queue-rule-not-found`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/projects/:projectId/queue-rules/:ruleId/queue-recent',
+    openapiPath: '/v1/projects/{projectId}/queue-rules/{ruleId}/queue-recent',
+    operationId: 'projects.queueRules.queueRecent',
+    summary: "Queue a rule's recent matches",
+    description:
+      "Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. The answer splits the matches into `queued` (newly added), `alreadyQueued` (this rule already had them) and `alreadyReviewed` (their run was already corrected or dismissed, so they're left as they are); an erased run is no longer a match. At least one of `last`, `since` is given. Needs `write` on the project.",
+    tags: ['expert-queue'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'projectId',
+        in: 'path',
+        required: true,
+        description: 'ProjectId — opaque branded string.',
+        schema: { type: 'string' },
+      },
+      { name: 'ruleId', in: 'path', required: true, schema: { type: 'string' } },
+    ],
+    requestBody: { required: true, schema: ref('ExpertQueueRecentInput') },
+    responses: {
+      '200': {
+        description: 'The matches, split into queued, already queued and already reviewed.',
+        schema: ref('ExpertQueueRecentQueued'),
+      },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No such rule (`queue-rule-not-found`).'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/projects/:projectId/judging-queue',
-    openapiPath: '/v1/projects/{projectId}/judging-queue',
-    operationId: 'projects.judgingQueue.list',
-    summary: "The project's judging queue",
+    honoPath: '/v1/projects/:projectId/expert-queue',
+    openapiPath: '/v1/projects/{projectId}/expert-queue',
+    operationId: 'projects.expertQueue.list',
+    summary: "The project's expert queue",
     description:
-      "Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose judgment they want and the judgments so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the judgment it wants. `forMe=true`: the items any judgment closes, or that want a class the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.",
-    tags: ['judging'],
+      "Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose correction they want and the corrections so far, and what the caller may do with it (`can`). An item closes as `corrections` once every rule that queued it has the correction it wants. `forMe=true`: the items any correction closes, or that want a group the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.",
+    tags: ['expert-queue'],
     security: 'bearer',
     parameters: [
       {
@@ -8256,8 +9835,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
         name: 'state',
         in: 'query',
         required: false,
-        description: 'open, judged, dismissed or erased.',
-        schema: { $ref: '#/components/schemas/JudgingQueueState' },
+        description: 'open, corrected, dismissed or erased.',
+        schema: { $ref: '#/components/schemas/ExpertQueueState' },
       },
       {
         name: 'agentId',
@@ -8274,17 +9853,17 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: { type: 'string' },
       },
       {
-        name: 'judgeClassId',
+        name: 'correctorGroupId',
         in: 'query',
         required: false,
-        description: 'Only items that want this class.',
+        description: 'Only items that want this group.',
         schema: { type: 'string' },
       },
       {
         name: 'forMe',
         in: 'query',
         required: false,
-        description: '`true`: what the caller is asked to judge.',
+        description: '`true`: what the caller is asked to correct.',
         schema: { type: 'boolean' },
       },
       {
@@ -8301,11 +9880,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
         description: 'Closed from this time on.',
         schema: { type: 'string', format: 'date-time' },
       },
-      { ...LimitQueryParam, description: 'Page size; `0` for the `total` alone.' },
+      {
+        ...LimitQueryParam,
+        description: 'Page size; `0` for the `total` alone.',
+        schema: { ...LimitQueryParam.schema, minimum: 0 },
+      },
       CursorQueryParam,
     ],
     responses: {
-      '200': { description: 'A page of queued runs.', schema: ref('JudgingQueuePage') },
+      '200': { description: 'A page of queued runs.', schema: ref('ExpertQueuePage') },
       ...CommonAuthErrors,
       '400': ErrorResponse('A malformed filter (`bad-input`).'),
       '404': ErrorResponse('No project with that id (`project-not-found`).'),
@@ -8313,13 +9896,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'post',
-    honoPath: '/v1/projects/:projectId/judging-queue/:runId/dismiss',
-    openapiPath: '/v1/projects/{projectId}/judging-queue/{runId}/dismiss',
-    operationId: 'projects.judgingQueue.dismiss',
+    honoPath: '/v1/projects/:projectId/expert-queue/:runId/dismiss',
+    openapiPath: '/v1/projects/{projectId}/expert-queue/{runId}/dismiss',
+    operationId: 'projects.expertQueue.dismiss',
     summary: 'Dismiss a queued run',
     description:
-      'Not worth judging: it leaves the open queue, with who dismissed it and why. `reopen` undoes it. Needs `write` on the project, as judging the run does.',
-    tags: ['judging'],
+      'Not worth correcting: it leaves the open queue, with who dismissed it and why. `reopen` undoes it. Needs `write` on the project, as correcting the run does.',
+    tags: ['expert-queue'],
     security: 'bearer',
     parameters: [
       {
@@ -8331,23 +9914,23 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       { name: 'runId', in: 'path', required: true, schema: { type: 'string' } },
     ],
-    requestBody: { required: false, schema: ref('JudgingDismissBody') },
+    requestBody: { required: false, schema: ref('ExpertQueueDismissBody') },
     responses: {
-      '200': { description: 'The item, dismissed.', schema: ref('JudgingQueueItem') },
+      '200': { description: 'The item, dismissed.', schema: ref('ExpertQueueItem') },
       ...CommonMutationErrors,
-      '404': ErrorResponse("The run isn't in the project's queue (`judging-item-not-found`)."),
-      '409': ErrorResponse("The item isn't open (`judging-item-not-open`)."),
+      '404': ErrorResponse("The run isn't in the project's queue (`expert-queue-item-not-found`)."),
+      '409': ErrorResponse("The item isn't open (`expert-queue-item-not-open`)."),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/projects/:projectId/judging-queue/:runId/reopen',
-    openapiPath: '/v1/projects/{projectId}/judging-queue/{runId}/reopen',
-    operationId: 'projects.judgingQueue.reopen',
+    honoPath: '/v1/projects/:projectId/expert-queue/:runId/reopen',
+    openapiPath: '/v1/projects/{projectId}/expert-queue/{runId}/reopen',
+    operationId: 'projects.expertQueue.reopen',
     summary: 'Reopen a dismissed run',
     description:
-      'Back in the open queue. Only a dismissed item reopens: a judged one was closed by its judgments. Needs `write` on the project.',
-    tags: ['judging'],
+      'Back in the open queue. Only a dismissed item reopens: a corrected one was closed by its corrections. Needs `write` on the project.',
+    tags: ['expert-queue'],
     security: 'bearer',
     parameters: [
       {
@@ -8360,10 +9943,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       { name: 'runId', in: 'path', required: true, schema: { type: 'string' } },
     ],
     responses: {
-      '200': { description: 'The item, open again.', schema: ref('JudgingQueueItem') },
+      '200': { description: 'The item, open again.', schema: ref('ExpertQueueItem') },
       ...CommonMutationErrors,
-      '404': ErrorResponse("The run isn't in the project's queue (`judging-item-not-found`)."),
-      '409': ErrorResponse("The item wasn't dismissed (`judging-item-not-open`)."),
+      '404': ErrorResponse("The run isn't in the project's queue (`expert-queue-item-not-found`)."),
+      '409': ErrorResponse("The item wasn't dismissed (`expert-queue-item-not-open`)."),
     },
   },
   {
@@ -8393,7 +9976,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('ProjectMembershipCollectionPage'),
       },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No project with that id under this tenant.'),
+      '404': ErrorResponse('No project with that id under this workspace.'),
     },
   },
   {
@@ -8403,7 +9986,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.memberships.add',
     summary: 'Add a user directly to a project',
     description:
-      'Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.',
+      'Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this workspace, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.',
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -8427,7 +10010,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
       ),
       '404': ErrorResponse(
-        'No project with that id under this tenant (`project-not-found`), or the person named is not a member of this tenant (`identity-user-not-found`).',
+        'No project with that id under this workspace (`project-not-found`), or the person named is not a member of this workspace (`identity-user-not-found`).',
       ),
       '409': ErrorResponse(
         'A member already, with another role (`membership-exists`, `details.role`); or an Idempotency-Key reused with another body.',
@@ -8448,9 +10031,33 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of who has access.', schema: ref('ProjectAccessPage') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No project with that id under this tenant.'),
+      '404': ErrorResponse('No project with that id under this workspace.'),
       '501': ErrorResponse(
         'The runtime has no authorization store (`project-access-unsupported`).',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/projects/:projectId/pinned-versions',
+    openapiPath: '/v1/projects/{projectId}/pinned-versions',
+    operationId: 'projects.pinnedVersions.list',
+    summary: 'List the pinned versions that cover a project',
+    description:
+      "Every agent's pinned versions that cover the project: the workspace's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/pinned-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': {
+        description: 'Page of pinned versions.',
+        schema: ref('ProjectPinnedVersionPage'),
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('A malformed project id or cursor.'),
+      '404': ErrorResponse('No project with that id under this workspace.'),
+      '501': ErrorResponse(
+        "The runtime can't list a project's pinned versions (`pinned-versions-not-supported`).",
       ),
     },
   },
@@ -8461,7 +10068,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.production.set',
     summary: 'Put a project in production, or take it out',
     description:
-      "A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the tenant), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the tenant isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. With the tenant's `projectsInProduction` limit set, putting another project in production is refused with 403 `production-limit-reached` while that many of its projects are in production, or more; taking one out is never refused. 501 `production-unsupported` from a runtime whose projects can't be put in production.",
+      "A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the workspace), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the workspace isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. With the workspace's `projectsInProduction` limit set, putting another project in production is refused with 403 `production-limit-reached` while that many of its projects are in production, or more; taking one out is never refused. 501 `production-unsupported` from a runtime whose projects can't be put in production.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [ProjectIdPathParam, IdempotencyKeyParam],
@@ -8473,11 +10080,60 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        "Not a tenant admin (`permission-denied`); the tenant isn't allowed to put projects in production (`production-not-allowed`, `details.projectId`, `details.next` when the runtime names one); or its projects in production are at its limit (`production-limit-reached`, `details.limit` `projects-in-production`, `details.projectsInProduction` the limit, `details.inProduction` the count, `details.projectId`, `details.next` when the runtime names one).",
+        "Not a tenant admin (`permission-denied`); the workspace isn't allowed to put projects in production (`production-not-allowed`, `details.projectId`, `details.next` when the runtime names one); or its projects in production are at its limit (`production-limit-reached`, `details.limit` `projects-in-production`, `details.projectsInProduction` the limit, `details.inProduction` the count, `details.projectId`, `details.next` when the runtime names one).",
       ),
-      '404': ErrorResponse('No project with that id under this tenant (`project-not-found`).'),
+      '404': ErrorResponse('No project with that id under this workspace (`project-not-found`).'),
       '501': ErrorResponse(
         "The runtime's projects can't be put in production (`production-unsupported`).",
+      ),
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/projects/:projectId/repo-connection',
+    openapiPath: '/v1/projects/{projectId}/repo-connection',
+    operationId: 'projects.repoConnection.set',
+    summary: "Set a project's repo connection",
+    description:
+      "The company-wide GitHub connection the project opens its block changes' pull requests through. For the project's admins (`admin` on it). It replaces any connection set before; setting the one already set answers 200 unchanged. The connection must be the workspace's, made through the GitHub app entry, and owned by the company: 404 `connection-not-found` for one that isn't there or was removed, and 400 `repo-connection-not-company-github` for any other. The project keeps only the id: a connection removed later reads as none. 501 `repo-connection-unsupported` from a runtime that can't keep one, or has no connections.",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('ProjectRepoConnectionBody') },
+    responses: {
+      '200': { description: 'The connection is set.', schema: ref('ProjectRepoConnection') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "Malformed request body (`bad-input`), or the connection isn't a company-wide GitHub connection (`repo-connection-not-company-github`, `details.connectionId`, `details.app`, `details.owner`).",
+      ),
+      '404': ErrorResponse(
+        'No project with that id under this workspace (`project-not-found`), or no connection with that id (`connection-not-found`).',
+      ),
+      '501': ErrorResponse(
+        "The runtime can't connect a project to a repo (`repo-connection-unsupported`).",
+      ),
+    },
+  },
+  {
+    method: 'delete',
+    honoPath: '/v1/projects/:projectId/repo-connection',
+    openapiPath: '/v1/projects/{projectId}/repo-connection',
+    operationId: 'projects.repoConnection.clear',
+    summary: "Clear a project's repo connection",
+    description:
+      "After this, a block change pinned in the project, or added as its latest version, opens no pull request. For the project's admins (`admin` on it). Clearing a project with none answers 200 unchanged. 501 `repo-connection-unsupported` from a runtime that can't keep one.",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': {
+        description: 'The project has no repo connection.',
+        schema: ref('ProjectRepoConnection'),
+      },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No project with that id under this workspace (`project-not-found`).'),
+      '501': ErrorResponse(
+        "The runtime can't connect a project to a repo (`repo-connection-unsupported`).",
       ),
     },
   },
@@ -8495,7 +10151,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of team grants.', schema: ref('TeamProjectGrantCollectionPage') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No project with that id under this tenant.'),
+      '404': ErrorResponse('No project with that id under this workspace.'),
     },
   },
   {
@@ -8517,7 +10173,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '404': ErrorResponse(
-        'No project (`project-not-found`) or team (`team-not-found`) with that id under this tenant.',
+        'No project (`project-not-found`) or team (`team-not-found`) with that id under this workspace.',
       ),
       '409': ErrorResponse(
         'The team holds another role on the project (`team-grant-exists`, `details.role`); or an Idempotency-Key reused with another body.',
@@ -8579,7 +10235,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of team grants.', schema: ref('TeamProjectGrantCollectionPage') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No team with that id under this tenant.'),
+      '404': ErrorResponse('No team with that id under this workspace.'),
     },
   },
   {
@@ -8651,7 +10307,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
       ),
       '404': ErrorResponse(
-        'No membership for that (project, user) pair, or no such project under this tenant.',
+        'No membership for that (project, user) pair, or no such project under this workspace.',
       ),
       '501': ErrorResponse(
         "With authorization enforced, a runtime whose tenant-hierarchy binding can't change the membership together with its authorization tuple refuses with `authz-membership-unsupported`; nothing is changed.",
@@ -8665,15 +10321,40 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/tenant',
     openapiPath: '/v1/tenant',
     operationId: 'tenant.get',
-    summary: "Fetch the caller's tenant",
+    summary: "Fetch the caller's workspace",
     description:
-      "Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the tenant's `limits`, and a deployment that publishes where its calls come from adds `egress`.",
+      "Returns the workspace the bearer token authenticates as. There is no `/v1/tenants` collection — workspaces are the sovereignty boundary, not a listable resource under a workspace. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the workspace's `limits`, and a deployment that publishes where its calls come from adds `egress`.",
     tags: ['tenant'],
     security: 'bearer',
     responses: {
-      '200': { description: 'Tenant.', schema: ref('Tenant') },
+      '200': { description: 'Workspace.', schema: ref('Tenant') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('The tenant id on the token does not resolve to a stored row.'),
+      '404': ErrorResponse('The workspace id on the token does not resolve to a stored row.'),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/tenant',
+    openapiPath: '/v1/tenant',
+    operationId: 'tenant.update',
+    summary: "Rename the caller's workspace",
+    description:
+      "Changes its name, its slug, or both; a field left out stays as it is. Its id stays, so whatever names it by its id keeps working. The console's addresses carry the slug: after a new one, links with the old one stop opening the workspace, and another workspace may take the old one. The same values again change nothing. Takes `admin` on the workspace. A runtime whose tenant-hierarchy binding can't rename workspaces doesn't serve this route.",
+    tags: ['tenant'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('TenantPatch') },
+    responses: {
+      '204': { description: 'Renamed, or already so. No body.' },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'A malformed body or a field out of its rules (`bad-input`), or a field other than `name` and `slug` (`unknown-field`).',
+      ),
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('The workspace id on the token does not resolve to a stored row.'),
+      '409': ErrorResponse(
+        "Another workspace has the slug (`tenant-slug-taken`); the server's verified sign-in domains name the workspace by its current slug, or name the new one (`tenant-slug-in-config`); the workspace is closing (`tenant-closing`); its setup hasn't finished (`tenant-setup-pending`); or an Idempotency-Key reused with another body.",
+      ),
     },
   },
   {
@@ -8681,9 +10362,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/tenant/config',
     openapiPath: '/v1/tenant/config',
     operationId: 'tenant.config.list',
-    summary: "List the tenant's config entries",
+    summary: "List the workspace's config entries",
     description:
-      'Cursor-paginated: the env entries (in the env binding order), then the secret entries (in the secrets binding order); a page holds at most `limit` entries and `nextCursor` resumes where it ended. Optional `?kind=` narrows to one slot (env / config / secret); `?keyPrefix=` matches on entry key. **Secret values are ALWAYS redacted on this admin surface** — the dispatch path is the only reader that receives raw material.',
+      'Cursor-paginated: the env entries (in the env binding order), then the `config` entries when they live apart from them, then the secret entries (in the secrets binding order); a page holds at most `limit` entries and `nextCursor` resumes where it ended. Optional `?kind=` narrows to one slot (env / config / secret); `?keyPrefix=` matches on entry key. `env` and `secret` entries are the ones under the env the runtime serves (`servedEnv` in whoami), where its tools read them; `config` entries, the workspace settings, are under `default` whatever it serves. On a runtime that serves none, all of them are under `default`. **Secret values are ALWAYS redacted on this admin surface** — the dispatch path is the only reader that receives raw material.',
     tags: ['tenant'],
     security: 'bearer',
     parameters: [
@@ -8706,7 +10387,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     ],
     responses: {
       '200': {
-        description: 'Page of tenant-config entries.',
+        description: 'Page of workspace config entries.',
         schema: ref('TenantConfigCollectionPage'),
       },
       ...CommonAuthErrors,
@@ -8718,9 +10399,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/tenant/config',
     openapiPath: '/v1/tenant/config',
     operationId: 'tenant.config.upsert',
-    summary: 'Upsert a tenant-config entry',
+    summary: 'Upsert a workspace config entry',
     description:
-      'Set / update an entry keyed by `(kind, key)`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.',
+      'Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a workspace setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.',
     tags: ['tenant'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -8736,15 +10417,124 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
 
+  // ---------- environment orders ----------
+  {
+    method: 'get',
+    honoPath: '/v1/environment-orders',
+    openapiPath: '/v1/environment-orders',
+    operationId: 'environmentOrders.list',
+    summary: "List the workspace's environment orders",
+    description:
+      "The order a workspace runs a project through on its way to live — its environments: the workspace's own order and each org's. An order is listed when the caller can read a project in it; a project the caller can't read is named by its position alone, without its id.",
+    tags: ['environments'],
+    security: 'bearer',
+    parameters: [LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of environment orders.', schema: ref('EnvironmentOrderPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse("`cursor` isn't one this list gave (`bad-input`)."),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/environment-orders/tenant',
+    openapiPath: '/v1/environment-orders/tenant',
+    operationId: 'environmentOrders.getTenant',
+    summary: "Get the workspace's environment order",
+    description:
+      "The workspace's own environment order; empty when it was never set or was cleared. A project the caller can't read is named by its position alone.",
+    tags: ['environments'],
+    security: 'bearer',
+    responses: {
+      '200': { description: 'The order.', schema: ref('EnvironmentOrder') },
+      ...CommonAuthErrors,
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/environment-orders/tenant',
+    openapiPath: '/v1/environment-orders/tenant',
+    operationId: 'environmentOrders.setTenant',
+    summary: "Set the workspace's environment order",
+    description:
+      'Replace the order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live in the workspace and in no other order. A write that changes nothing is a no-op. Removing a project from the order or reordering leaves running deployments where they are; a project in no order takes builds directly, as before.',
+    tags: ['environments'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('EnvironmentOrderSetRequest') },
+    responses: {
+      '200': { description: 'The order as it now stands.', schema: ref('EnvironmentOrder') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Only a tenant admin sets an environment order (`permission-denied`).'),
+      '409': ErrorResponse(
+        'A project in the order already belongs to another one (`project-in-another-order`).',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/environment-orders/orgs/:orgId',
+    openapiPath: '/v1/environment-orders/orgs/{orgId}',
+    operationId: 'environmentOrders.getOrg',
+    summary: "Get an org's environment order",
+    description:
+      "An org's environment order; empty when it was never set or was cleared. A project the caller can't read is named by its position alone.",
+    tags: ['environments'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'orgId',
+        in: 'path',
+        required: true,
+        description: 'OrgId — opaque branded string.',
+        schema: { type: 'string' },
+      },
+    ],
+    responses: {
+      '200': { description: 'The order.', schema: ref('EnvironmentOrder') },
+      ...CommonAuthErrors,
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/environment-orders/orgs/:orgId',
+    openapiPath: '/v1/environment-orders/orgs/{orgId}',
+    operationId: 'environmentOrders.setOrg',
+    summary: "Set an org's environment order",
+    description:
+      "Replace the org's order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live under this org and in no other order. A write that changes nothing is a no-op. Removing a project from the order or reordering leaves running deployments where they are; a project in no order takes builds directly, as before.",
+    tags: ['environments'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'orgId',
+        in: 'path',
+        required: true,
+        description: 'OrgId — opaque branded string.',
+        schema: { type: 'string' },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('EnvironmentOrderSetRequest') },
+    responses: {
+      '200': { description: 'The order as it now stands.', schema: ref('EnvironmentOrder') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Only a tenant admin sets an environment order (`permission-denied`).'),
+      '409': ErrorResponse(
+        'A project in the order already belongs to another one (`project-in-another-order`).',
+      ),
+    },
+  },
+
   // ---------- env ----------
   {
     method: 'get',
     honoPath: '/v1/environments',
     openapiPath: '/v1/environments',
     operationId: 'environments.list',
-    summary: "List the tenant's env names",
+    summary: "List the workspace's env names",
     description:
-      "The env names the tenant holds an env value or a secret under, at any scope, each once, in byte order: the `envName` that `GET /v1/env` and `GET /v1/secrets` take. A revoked secret doesn't count. For a tenant admin. 501 `environments-unsupported` from a runtime whose env or secret store can't list its env names.",
+      "The env names the workspace holds an env value or a secret under, at any scope, each once, in byte order: the `envName` that `GET /v1/env` and `GET /v1/secrets` take. A revoked secret doesn't count. For a tenant admin. 501 `environments-unsupported` from a runtime whose env or secret store can't list its env names.",
     tags: ['env'],
     security: 'bearer',
     parameters: [LimitQueryParam, CursorQueryParam],
@@ -8784,6 +10574,32 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
+    honoPath: '/v1/env/cloud-secrets',
+    openapiPath: '/v1/env/cloud-secrets',
+    operationId: 'env.listCloudSecrets',
+    summary: 'List the names set to a cloud secret',
+    description:
+      "The env names the operator set to a cloud secret at `(scope, envName)`, in name order: a version of a secret the operator's cloud holds, which a pack service's host reads as the pack service's own account. Which secret is the operator's to know, so it isn't given. The operator sets them with a system key (`PUT /v1/system/tenants/{tenantId}/env/{name}`).",
+    tags: ['env'],
+    security: 'bearer',
+    parameters: [
+      EnvNameQueryParam,
+      ScopeKindRequiredQueryParam,
+      ScopeIdQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
+    responses: {
+      '200': { description: 'A page of them.', schema: ref('EnvCloudSecretNamePage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Missing or malformed scope / envName.'),
+      '501': ErrorResponse(
+        'This runtime keeps no cloud secrets (`cloud-secrets-unsupported`): hosted, for one.',
+      ),
+    },
+  },
+  {
+    method: 'get',
     honoPath: '/v1/env/:name',
     openapiPath: '/v1/env/{name}',
     operationId: 'env.get',
@@ -8811,7 +10627,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'env.put',
     summary: 'Upsert an env entry',
     description:
-      "Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`). Env values aren't secret: they're recorded with each run that uses them. A credential goes in `/v1/secrets`.",
+      "Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`). Env values aren't secret: they're recorded with each run that uses them. A credential goes in `/v1/secrets`. A body with `cloudSecret` is refused: only the operator sets a name to a cloud secret, with a system key.",
     tags: ['env'],
     security: 'bearer',
     parameters: [
@@ -8825,8 +10641,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Env record.', schema: ref('EnvRecord') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('Bearer token missing `env:write` capability.'),
-      '409': ErrorResponse('`ifRevision` mismatch (env-write-conflict).'),
+      '403': ErrorResponse(
+        'Bearer token missing `env:write` capability; or a body with `cloudSecret`, which only the operator sets (`cloud-secret-system-only`).',
+      ),
+      '409': ErrorResponse(
+        `\`ifRevision\` mismatch (env-write-conflict). Or ${ENV_NOT_SERVED_VALUE}`,
+      ),
+      '501': ErrorResponse(
+        'A body with `cloudSecret`, on a runtime that keeps no cloud secrets (`cloud-secrets-unsupported`).',
+      ),
     },
   },
   {
@@ -8861,7 +10684,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'secrets.list',
     summary: 'List secret metadata',
     description:
-      'Cursor-paginated list of secret metadata at the given `(scope, envName)`, in name order, with `nextCursor` while more remain. Live secrets only unless `?includeRevoked=true`. `value` is ALWAYS absent (structural redaction).',
+      'Cursor-paginated list of secret metadata at the given `(scope, envName)`, in name order, with `nextCursor` while more remain. Live secrets only unless `?includeRevoked=true`. Names that start with `kindgi.` are reserved for Kindgi and never listed. `value` is ALWAYS absent (structural redaction).',
     tags: ['secrets'],
     security: 'bearer',
     parameters: [
@@ -8998,6 +10821,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       ...SecretWriteErrors,
       '403': ErrorResponse('Bearer token missing `secrets:write` capability.'),
+      '409': conflictOrEnvNotServed(ENV_NOT_SERVED_VALUE),
     },
   },
   {
@@ -9034,6 +10858,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...SecretProviderErrors,
       '403': ErrorResponse('Bearer token missing `secrets:rotate` capability.'),
       '404': ErrorResponse('Unknown secret.'),
+      '409': conflictOrEnvNotServed(ENV_NOT_SERVED_VALUE),
       '501': ErrorResponse(
         "The store doesn't rotate (`secret-operation-unsupported`): under `kindgi dev` secrets live in the env files and have no versions; the message says what to do instead.",
       ),
@@ -9104,7 +10929,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'secrets.revoke',
     summary: 'Revoke a secret',
     description:
-      'Requires the `secrets:revoke` capability (soft-revoke) or `secrets:revoke:hard` when `?hard=true` (cryptographic erasure). Optional `?reason=<text>` records the revoke reason.',
+      "Requires the `secrets:revoke` capability (soft-revoke), or `secrets:revoke:hard` when `?hard=true`: that erases the value at Kindgi and hard-deletes it in a secret manager, and can't be undone. Backups, and a secret manager's own retention, may keep copies for a time. If your secret manager keeps a recoverable copy, the answer's `recoverableUntil` says until when. Optional `?reason=<text>` records the revoke reason.",
     tags: ['secrets'],
     security: 'bearer',
     parameters: [
@@ -9116,7 +10941,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
         name: 'hard',
         in: 'query',
         required: false,
-        description: 'Set to `true` to perform cryptographic erasure.',
+        description:
+          "Set to `true` to erase the value, which can't be undone. Backups, and a secret manager's own retention, may keep copies for a time. If your secret manager keeps a recoverable copy, the answer's `recoverableUntil` says until when.",
         schema: { type: 'boolean' },
       },
       {
@@ -9130,7 +10956,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Revoke outcome.', schema: ref('SecretRevokeResult') },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Missing or malformed scope / envName.'),
+      '400': ErrorResponse(
+        'Missing or malformed scope / envName, or `reserved-name-prefix` for a `kindgi.` name.',
+      ),
       '403': ErrorResponse('Bearer token missing revoke capability.'),
       '404': ErrorResponse('Unknown secret.'),
       '501': ErrorResponse(
@@ -9147,7 +10975,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.register',
     summary: 'Register a cron schedule',
     description:
-      'Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering.',
+      "Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering. An `improve` schedule is in the project it improves, one per agent and project (a second is `409 schedule-exists`), and needs `publish` on the agent as well as `write` on the project. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the schedule's project, each id must be a tool what it runs calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -9156,7 +10984,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Schedule registered.', schema: ref('ScheduleRecord') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed request body. Or `reference-out-of-scope`: what it runs isn't registered in the schedule's project, its org or the tenant (`details.issues`).",
+        "Malformed request body, or `runAsProject` with `runAsServiceAccountId`, or for a schedule with no project (`bad-input`). Or `reference-out-of-scope`: what it runs isn't registered in the schedule's project, its org or the workspace, or the version it names (`flowVersion`, or `agentVersion` when given) isn't one that project runs (`details.issues`, at `/target`, whose message names the version). Nothing is registered.",
+      ),
+      '403': ErrorResponse(
+        "`permission-denied`: no `write` on the schedule's project or no `execute` on what it runs (for an `improve` schedule, `publish` on the agent); or no `admin` on the project where it's needed, for `toolsAllowedUnattended` or `runAsProject`; or no `act_as` on the account `runAsServiceAccountId` names.",
+      ),
+      '409': ErrorResponse(
+        "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the schedule runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the schedule runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). `schedule-exists`: the agent has an Improve schedule in the project already (`details.scheduleId`). Or an idempotency conflict.",
+      ),
+      '501': ErrorResponse(
+        "`trigger-operation-unsupported`: `runAsProject` on a runtime that can't make a project's own account.",
       ),
     },
   },
@@ -9212,7 +11049,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.update',
     summary: 'Update a cron schedule',
     description:
-      'Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`.',
+      "Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve run) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed and the schedule's version after it, never their values.",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -9221,9 +11058,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Updated schedule.', schema: ref('ScheduleRecord') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed request body, or `trigger-invalid-config`. Or `reference-out-of-scope`: a new target isn't registered in the schedule's project, its org or the tenant (`details.issues`).",
+        "Malformed request body, or `trigger-invalid-config`. Or `reference-out-of-scope`: a new target isn't registered in the schedule's project, its org or the workspace, or the version it names isn't one that project runs (`details.issues`, at `/target`, whose message names the version). Nothing changes.",
       ),
+      '403': ScheduleChangeRefused,
       '404': ErrorResponse('No cron trigger with that id.'),
+      '409': ErrorResponse(
+        "A new target the schedule's owner can't run (`trigger-owner-cannot-run-target`), with an authorization store. `schedule-exists`: a new `improve` target whose agent has another Improve schedule in the project (`details.scheduleId`). Or an Idempotency-Key reused with a different body.",
+      ),
     },
   },
   {
@@ -9233,13 +11074,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.pause',
     summary: 'Pause a cron schedule',
     description:
-      'Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`.',
+      "Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`. A personal schedule's owner or a project admin pauses it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may pause it without `publish`.",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
     responses: {
       '200': { description: 'Paused schedule.', schema: ref('ScheduleRecord') },
       ...CommonMutationErrors,
+      '403': ScheduleChangeRefused,
       '404': ErrorResponse('No cron trigger with that id.'),
     },
   },
@@ -9250,13 +11092,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.resume',
     summary: 'Resume a cron schedule',
     description:
-      'Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick.',
+      "Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick. A personal schedule's owner or a project admin resumes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent.",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
     responses: {
       '200': { description: 'Resumed schedule.', schema: ref('ScheduleRecord') },
       ...CommonMutationErrors,
+      '403': ScheduleChangeRefused,
       '404': ErrorResponse('No cron trigger with that id.'),
     },
   },
@@ -9267,13 +11110,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.unregister',
     summary: 'Soft-delete a cron schedule (tombstone)',
     description:
-      'Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window.',
+      "Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
     responses: {
       '200': { description: 'Tombstone outcome.', schema: ref('ScheduleUnregisterResult') },
       ...CommonMutationErrors,
+      '403': ScheduleChangeRefused,
     },
   },
   {
@@ -9297,13 +11141,48 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/schedules/:triggerId/versions',
+    openapiPath: '/v1/schedules/{triggerId}/versions',
+    operationId: 'schedules.listVersions',
+    summary: "A schedule's versions",
+    description:
+      "Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. The versions keep every input the schedule has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the schedule can read its versions.",
+    tags: ['schedules'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of versions, newest first.', schema: ref('ScheduleVersionPage') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No cron trigger with that id.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/schedules/:triggerId/versions/:version',
+    openapiPath: '/v1/schedules/{triggerId}/versions/{version}',
+    operationId: 'schedules.getVersion',
+    summary: 'Fetch one version of a schedule',
+    tags: ['schedules'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, TriggerVersionPathParam],
+    responses: {
+      '200': { description: 'The version.', schema: ref('ScheduleVersion') },
+      '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
+      ...CommonAuthErrors,
+      '404': ErrorResponse(
+        'No cron trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
+      ),
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/schedules/:triggerId/run-now',
     openapiPath: '/v1/schedules/{triggerId}/run-now',
     operationId: 'schedules.runNow',
     summary: 'Run a schedule now',
     description:
-      "One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged.",
+      "One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged. A personal schedule's owner or a project admin fires it; a shared one, any writer of its project.",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -9313,6 +11192,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('ScheduleFire'),
       },
       ...CommonMutationErrors,
+      '403': ScheduleChangeRefused,
       '404': ErrorResponse('No cron trigger with that id.'),
       '501': ErrorResponse('`trigger-operation-unsupported`: this deployment has no run-now.'),
     },
@@ -9324,7 +11204,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.takeOwnership',
     summary: 'Take over a schedule',
     description:
-      "The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs.",
+      "The caller becomes the schedule's owner, so its runs act as the caller from the next run that starts. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`, naming the schedule's version after it; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the schedule is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -9332,9 +11212,18 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The schedule, with its new owner.', schema: ref('ScheduleRecord') },
       ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'A malformed body, or `runAsProject` with `runAsServiceAccountId`, or a body naming `toolsAllowedUnattended` (`bad-input`).',
+      ),
+      '403': ErrorResponse(
+        "`permission-denied`: not an admin of the schedule's project, or no `execute` on what it runs, or no `act_as` on the account named.",
+      ),
       '404': ErrorResponse('No cron trigger with that id, or no such service account.'),
+      '409': ErrorResponse(
+        "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the schedule runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the schedule runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or an idempotency conflict.",
+      ),
       '501': ErrorResponse(
-        "`trigger-operation-unsupported`: this deployment can't change a schedule's owner.",
+        "`trigger-operation-unsupported`: this deployment can't change a schedule's owner, or can't make a project's own account (`runAsProject`).",
       ),
     },
   },
@@ -9453,6 +11342,46 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
     },
   },
+  {
+    method: 'get',
+    honoPath: '/v1/event-triggers/:triggerId/versions',
+    openapiPath: '/v1/event-triggers/{triggerId}/versions',
+    operationId: 'eventTriggers.listVersions',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    summary: "An event trigger's versions",
+    description:
+      "Newest first: each version of the event trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next: a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). An event trigger from before versions has none until its next change or its first fire. The versions keep every input the event trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the event trigger can read its versions.",
+    tags: ['event-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': {
+        description: 'Page of versions, newest first.',
+        schema: ref('EventTriggerVersionPage'),
+      },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No event trigger with that id.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/event-triggers/:triggerId/versions/:version',
+    openapiPath: '/v1/event-triggers/{triggerId}/versions/{version}',
+    operationId: 'eventTriggers.getVersion',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    summary: 'Fetch one version of an event trigger',
+    tags: ['event-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, TriggerVersionPathParam],
+    responses: {
+      '200': { description: 'The version.', schema: ref('EventTriggerVersion') },
+      '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
+      ...CommonAuthErrors,
+      '404': ErrorResponse(
+        'No event trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
+      ),
+    },
+  },
 
   // ---------- webhooks (trigger surface) ----------
   {
@@ -9462,7 +11391,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.register',
     summary: 'Register a webhook trigger',
     description:
-      "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the tenant that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's Default project. Needs `write` on the project and `execute` on the flow.",
+      "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the workspace that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the workspace's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -9471,10 +11400,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Webhook registered.', schema: ref('WebhookTriggerRecord') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "A body that fails validation (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key. Or `reference-out-of-scope`: the flow isn't registered in the trigger's project, its org or the tenant (`details.issues`). Or, with `generateSecret`, a name the secrets store can't write, refused before anything is stored: `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `reserved-name-prefix`.",
+        "A body that fails validation (`bad-input`), `runAsProject` with `runAsServiceAccountId` or for a trigger with no project (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key, or `reserved-name-prefix`: it's under the reserved `kindgi.` prefix. Or `reference-out-of-scope`: the flow isn't registered in the trigger's project, its org or the workspace, or `flowVersion` isn't a version that project runs (`details.issues`, at `/flowId`, whose message names the version), and nothing is registered. Or, with `generateSecret`, a name the secrets store can't write, refused before anything is stored: `secret-name-invalid` (a name that isn't 1 to 255 ASCII letters, digits, `.`, `-` and `_` starting with a letter, digit or `_`, with any `.` between two non-`.` characters, or, under `kindgi dev`, isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule).",
       ),
       '409': ErrorResponse(
-        "`secret-write-conflict`: with `generateSecret`, the trigger's project already has a secret of that name (it's never overwritten, and no trigger is left). Or the route-minted webhookId collided (astronomically rare).",
+        "`secret-write-conflict`: with `generateSecret`, the trigger's project already has a secret of that name (it's never overwritten, and no trigger is left). Or `runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run the flow (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run the flow either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the route-minted webhookId collided (astronomically rare).",
+      ),
+      '501': ErrorResponse(
+        "`trigger-operation-unsupported`: `runAsProject` on a runtime that can't make a project's own account.",
       ),
     },
   },
@@ -9485,7 +11417,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.list',
     summary: 'List webhook triggers',
     description:
-      "The tenant's webhook triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).",
+      "The workspace's webhook triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [
@@ -9530,7 +11462,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.update',
     summary: 'Update a webhook trigger',
     description:
-      "Changes the flow version (which needs `execute` on the flow), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`.",
+      "Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited. A webhook trigger is personal or shared, and no change moves its owner: only `POST /v1/webhooks/{triggerId}/owner` does. A trigger a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A trigger a service account owns is shared: changing its flow version, its input, its `toolsAllowedUnattended` or `hmacSecretName` takes `admin` on its project, and the project's writers may change its label and delivery settings. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal trigger's owner is audited as `trigger-changed-for-owner`, naming the fields changed (and the signing secret's name before and after) and the trigger's version after it, never their values.",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -9538,6 +11470,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Updated webhook trigger.', schema: ref('WebhookTriggerRecord') },
       ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A body that fails validation (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key, or `reserved-name-prefix`: it's under the reserved `kindgi.` prefix. Or `reference-out-of-scope`: the new `flowVersion` isn't a version the trigger's project runs, such as one made in an earlier environment and not yet promoted (`details.issues`, at `/flowVersion`, whose message names the version). Nothing changes.",
+      ),
+      '403': WebhookChangeRefused,
       '404': ErrorResponse('No webhook trigger with that id.'),
     },
   },
@@ -9548,13 +11484,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.pause',
     summary: 'Pause a webhook trigger',
     description:
-      "While paused, a signed delivery is answered `202` and recorded as a `skipped` fire, and no run starts: **its event is dropped**. Senders such as WooCommerce never resend, so resuming doesn't bring those events back.",
+      "While paused, a signed delivery is answered `202` and recorded as a `skipped` fire, and no run starts: **its event is dropped**. Senders such as WooCommerce never resend, so resuming doesn't bring those events back. A personal trigger's owner or a project admin pauses it; a shared one, any writer of its project.",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
     responses: {
       '200': { description: 'Paused webhook.', schema: ref('WebhookTriggerRecord') },
       ...CommonMutationErrors,
+      '403': WebhookChangeRefused,
       '404': ErrorResponse('No webhook trigger with that id.'),
     },
   },
@@ -9564,12 +11501,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/webhooks/{triggerId}/resume',
     operationId: 'webhooks.resume',
     summary: 'Resume a webhook trigger',
+    description:
+      "A personal trigger's owner or a project admin resumes it; a shared one, any writer of its project.",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
     responses: {
       '200': { description: 'Resumed webhook.', schema: ref('WebhookTriggerRecord') },
       ...CommonMutationErrors,
+      '403': WebhookChangeRefused,
       '404': ErrorResponse('No webhook trigger with that id.'),
     },
   },
@@ -9579,12 +11519,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/webhooks/{triggerId}/unregister',
     operationId: 'webhooks.unregister',
     summary: 'Soft-delete a webhook trigger (tombstone)',
+    description:
+      "A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project.",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
     responses: {
       '200': { description: 'Tombstone outcome.', schema: ref('WebhookTriggerUnregisterResult') },
       ...CommonMutationErrors,
+      '403': WebhookChangeRefused,
     },
   },
   {
@@ -9594,7 +11537,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.fires',
     summary: "A webhook trigger's deliveries",
     description:
-      "Newest first: each delivery the trigger received and what came of it: the run it started (`started`, or `pending` while it starts), or why it was `skipped` (paused, its project or tenant suspended, or its tenant closing) or `refused` (`detail`: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access). A delivery that repeated an earlier one's dedupe key counts on that one (`duplicates`). A fire keeps the event only until its run starts. Refusals and skipped deliveries past 20 a minute only count (the trigger's `suppressedRefusals`).",
+      "Newest first: each delivery the trigger received and what came of it: the run it started (`started`, or `pending` while it starts), or why it was `skipped` (paused, its project or workspace suspended, or its workspace closing) or `refused` (`detail`: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access). A delivery that repeated an earlier one's dedupe key counts on that one (`duplicates`). A fire keeps the event only until its run starts. Refusals and skipped deliveries past 20 a minute only count (the trigger's `suppressedRefusals`).",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
@@ -9608,13 +11551,51 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/webhooks/:triggerId/versions',
+    openapiPath: '/v1/webhooks/{triggerId}/versions',
+    operationId: 'webhooks.listVersions',
+    summary: "A webhook trigger's versions",
+    description:
+      "Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. The versions keep every input the webhook trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the webhook trigger can read its versions.",
+    tags: ['webhooks'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': {
+        description: 'Page of versions, newest first.',
+        schema: ref('WebhookTriggerVersionPage'),
+      },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No webhook trigger with that id.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/webhooks/:triggerId/versions/:version',
+    openapiPath: '/v1/webhooks/{triggerId}/versions/{version}',
+    operationId: 'webhooks.getVersion',
+    summary: 'Fetch one version of a webhook trigger',
+    tags: ['webhooks'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, TriggerVersionPathParam],
+    responses: {
+      '200': { description: 'The version.', schema: ref('WebhookTriggerVersion') },
+      '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
+      ...CommonAuthErrors,
+      '404': ErrorResponse(
+        'No webhook trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
+      ),
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/webhooks/:triggerId/owner',
     openapiPath: '/v1/webhooks/{triggerId}/owner',
     operationId: 'webhooks.takeOwnership',
     summary: 'Take over a webhook trigger',
     description:
-      "The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow.",
+      "The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project (without an authorization store, a tenant-admin key) and `execute` on its flow. For a trigger whose owner left or lost access, or to make one shared or personal. It's the one way a trigger's owner changes, audited as `trigger-owner-set`, naming the trigger's version after it; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the trigger is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -9625,9 +11606,251 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('WebhookTriggerRecord'),
       },
       ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'A malformed body, or `runAsProject` with `runAsServiceAccountId`, or a body naming `toolsAllowedUnattended` (`bad-input`).',
+      ),
+      '403': ErrorResponse(
+        "`permission-denied`: not an admin of the trigger's project, or no `execute` on its flow, or no `act_as` on the account named.",
+      ),
       '404': ErrorResponse('No webhook trigger with that id, or no such service account.'),
+      '409': ErrorResponse(
+        "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run the flow (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run the flow either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or an idempotency conflict.",
+      ),
       '501': ErrorResponse(
-        "`trigger-operation-unsupported`: this deployment can't change a trigger's owner.",
+        "`trigger-operation-unsupported`: this deployment can't change a trigger's owner, or can't make a project's own account (`runAsProject`).",
+      ),
+    },
+  },
+  // ---------- mail triggers (trigger surface) ----------
+  {
+    method: 'post',
+    honoPath: '/v1/mail-triggers',
+    openapiPath: '/v1/mail-triggers',
+    operationId: 'mailTriggers.register',
+    summary: 'Register a mail trigger',
+    description:
+      "Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through a company connection of the app and needs `admin` on the project: `config.mailbox.connectionId` names one of the project's candidates (`GET /v1/connection-choices/candidates`), and with none named the project's only one is stored, several are `409 connection-not-chosen`, and none stores nothing; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the workspace's default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
+    tags: ['mail-triggers'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('RegisterMailTriggerBody') },
+    responses: {
+      '201': { description: 'Mail trigger registered.', schema: ref('MailTriggerRecord') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A body that fails validation (`bad-input`): no target or two, a `config` with anything but `mailbox`, `folder`, `pollSeconds` and `runsPerHour`, a service account named or calling or `runAsProject` for a person's mailbox, a `connectionId` for a person's mailbox or naming a person's own live connection of the app, or `runAsProject` with `runAsServiceAccountId` or with no project. Or `reference-out-of-scope`: what it runs isn't the project's to reach (`details.issues`, at `/target`), and nothing is registered.",
+      ),
+      '409': ErrorResponse(
+        "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the trigger runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the trigger runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the company's mailbox names no connection and the project has several company connections of the app (`connection-not-chosen`: `details.choices` lists them, `{connectionId, name}` sorted by name, and `details.field` is `config.mailbox.connectionId`). Or the Idempotency-Key was reused with a different body, or a resource-state conflict.",
+      ),
+      '404': ErrorResponse(
+        "`config.mailbox.connectionId` isn't one of the project's company connections of the app, the same answer as for one that doesn't exist (`connection-not-found`, `details.field` `config.mailbox.connectionId`).",
+      ),
+      '501': ErrorResponse(
+        "`trigger-operation-unsupported`: `runAsProject` on a runtime that can't make a project's own account.",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/mail-triggers',
+    openapiPath: '/v1/mail-triggers',
+    operationId: 'mailTriggers.list',
+    summary: 'List mail triggers',
+    description:
+      "The workspace's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).",
+    tags: ['mail-triggers'],
+    security: 'bearer',
+    parameters: [
+      LimitQueryParam,
+      CursorQueryParam,
+      TriggerStatusFilterQueryParam,
+      {
+        name: 'projectId',
+        in: 'query',
+        required: false,
+        description: "Only this project's mail triggers.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+    ],
+    responses: {
+      '200': { description: 'Page of mail triggers.', schema: ref('MailTriggerCollectionPage') },
+      ...CommonAuthErrors,
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/mail-triggers/:triggerId',
+    openapiPath: '/v1/mail-triggers/{triggerId}',
+    operationId: 'mailTriggers.get',
+    summary: 'Fetch a mail trigger',
+    tags: ['mail-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam],
+    responses: {
+      '200': { description: 'Mail trigger record.', schema: ref('MailTriggerRecord') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No mail trigger with that id, or the row was tombstoned.'),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/mail-triggers/:triggerId',
+    openapiPath: '/v1/mail-triggers/{triggerId}',
+    operationId: 'mailTriggers.update',
+    summary: 'Update a mail trigger',
+    description:
+      "Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). A new company mailbox's connection is decided as at registration: the one `connectionId` names, else the project's only one; another connection, or one named where none was, is another mailbox. The company's mailbox it reads now, sent again with no `connectionId`, is the same mailbox: it keeps the one it reads with, or stores the only one. To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`, naming the trigger's version after each. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.",
+    tags: ['mail-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('PatchMailTriggerBody') },
+    responses: {
+      '200': { description: 'Updated mail trigger.', schema: ref('MailTriggerRecord') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A body that fails validation (`bad-input`): `runAsServiceAccountId` or `runAsProject` (the owner changes only by `POST …/owner`), a person's mailbox for a shared trigger, a `connectionId` for a person's mailbox or naming a person's own live connection of the app, or a new target or mailbox without the list it holds. Or `reference-out-of-scope`: the new target isn't the project's to reach. Nothing changes.",
+      ),
+      '404': ErrorResponse(
+        "No mail trigger with that id. Or the new mailbox's `connectionId` isn't one of the project's company connections of the app (`connection-not-found`, `details.field` `config.mailbox.connectionId`).",
+      ),
+      '409': ErrorResponse(
+        "A new target the trigger's owner can't run (`trigger-owner-cannot-run-target`), with an authorization store. Or a new company mailbox names no connection and the project has several of the app (`connection-not-chosen`, with `details.choices` and `details.field` as at registration). Or an Idempotency-Key reused with a different body.",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/mail-triggers/:triggerId/pause',
+    openapiPath: '/v1/mail-triggers/{triggerId}/pause',
+    operationId: 'mailTriggers.pause',
+    summary: 'Pause a mail trigger',
+    description:
+      "A paused trigger doesn't poll. A personal trigger's pause is its owner's or a project admin's; a shared one's needs `write` on the project.",
+    tags: ['mail-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'Paused mail trigger.', schema: ref('MailTriggerRecord') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No mail trigger with that id.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/mail-triggers/:triggerId/resume',
+    openapiPath: '/v1/mail-triggers/{triggerId}/resume',
+    operationId: 'mailTriggers.resume',
+    summary: 'Resume a mail trigger',
+    description:
+      "It starts afresh: mail that came while it was paused doesn't start runs. Who may resume it is as for a pause.",
+    tags: ['mail-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'Resumed mail trigger.', schema: ref('MailTriggerRecord') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No mail trigger with that id.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/mail-triggers/:triggerId/unregister',
+    openapiPath: '/v1/mail-triggers/{triggerId}/unregister',
+    operationId: 'mailTriggers.unregister',
+    summary: 'Soft-delete a mail trigger (tombstone)',
+    description: 'Who may unregister it is as for a pause.',
+    tags: ['mail-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'Tombstone outcome.', schema: ref('WebhookTriggerUnregisterResult') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No mail trigger with that id.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/mail-triggers/:triggerId/fires',
+    openapiPath: '/v1/mail-triggers/{triggerId}/fires',
+    operationId: 'mailTriggers.fires',
+    summary: "A mail trigger's mail",
+    description:
+      'Newest first: each mail the trigger found and what came of it (`MailFire`): the run it started, why it waits (`thread-busy:`), or why it was skipped, refused or failed.',
+    tags: ['mail-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: "Page of the trigger's mail.", schema: ref('MailFirePage') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No mail trigger with that id.'),
+      '501': ErrorResponse(
+        '`trigger-operation-unsupported`: this deployment keeps no fire history.',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/mail-triggers/:triggerId/versions',
+    openapiPath: '/v1/mail-triggers/{triggerId}/versions',
+    operationId: 'mailTriggers.listVersions',
+    summary: "A mail trigger's versions",
+    description:
+      "Newest first: each version of the mail trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A new mail's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A mail trigger from before versions has none until its next change or its next look at the mailbox. Whoever can read the mail trigger can read its versions.",
+    tags: ['mail-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': {
+        description: 'Page of versions, newest first.',
+        schema: ref('MailTriggerVersionPage'),
+      },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No mail trigger with that id.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/mail-triggers/:triggerId/versions/:version',
+    openapiPath: '/v1/mail-triggers/{triggerId}/versions/{version}',
+    operationId: 'mailTriggers.getVersion',
+    summary: 'Fetch one version of a mail trigger',
+    tags: ['mail-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, TriggerVersionPathParam],
+    responses: {
+      '200': { description: 'The version.', schema: ref('MailTriggerVersion') },
+      '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
+      ...CommonAuthErrors,
+      '404': ErrorResponse(
+        'No mail trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/mail-triggers/:triggerId/owner',
+    openapiPath: '/v1/mail-triggers/{triggerId}/owner',
+    operationId: 'mailTriggers.takeOwnership',
+    summary: 'Take over a mail trigger',
+    description:
+      "The only way a mail trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next poll; on a person's mailbox, the mailbox becomes the caller's own, and the next poll starts afresh. Needs `admin` on the trigger's project and `execute` on its target. On the company's mailbox, name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account, and the account must itself hold what its target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project. It runs only what the project's editors can, and is checked the same way. The trigger keeps its `toolsAllowedUnattended`; a body naming it is refused (change it with PATCH).",
+    tags: ['mail-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('TakeTriggerOwnerBody') },
+    responses: {
+      '200': { description: 'The trigger, with its new owner.', schema: ref('MailTriggerRecord') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "`bad-input`: a body naming `toolsAllowedUnattended`, a service account or `runAsProject` for a person's mailbox, or `runAsProject` with `runAsServiceAccountId`.",
+      ),
+      '404': ErrorResponse('No mail trigger with that id, or no such service account.'),
+      '409': ErrorResponse(
+        "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the trigger runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the trigger runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the Idempotency-Key was reused with a different body, or a resource-state conflict.",
+      ),
+      '501': ErrorResponse(
+        "`trigger-operation-unsupported`: this deployment can't change a trigger's owner, or can't make a project's own account (`runAsProject`).",
       ),
     },
   },
@@ -9640,7 +11863,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       "The trigger's sender (WooCommerce, Drupal, GitHub…) posts here, signed with the trigger's secret; a Kindgi client never does.",
     summary: 'Receive a webhook delivery',
     description:
-      "The receive URL a webhook trigger's sender posts to: no sign-in, and a bearer token, if sent, is never read. The request's signature, made with the trigger's secret in its `signature` scheme over the raw body, is what lets it start the trigger's flow as the trigger's owner. Every request that doesn't prove its sender (an unknown tenant or id, a missing, wrong or stale signature, a secret that can't be read) is `401 webhook-refused`, with the reason only in the trigger's history and the access audit; the URL isn't a secret, the signature is. A WooCommerce save-time ping (unsigned `webhook_id=<n>`) is answered `200` and starts nothing. A closing tenant takes no delivery: a signed one is `409 tenant-closing`, and nothing is recorded. A suspended tenant or project takes a signed one without keeping it: `202` with `skipped`, nothing recorded or started, and the event isn't kept, so a sender that can redeliver by hand (GitHub) can resend it once it's restored. The event the flow gets is the body, parsed as JSON for a JSON content type, else its text: data from outside, never instructions. A run's start isn't waited for.",
+      "The receive URL a webhook trigger's sender posts to: no sign-in, and a bearer token, if sent, is never read. The request's signature, made with the trigger's secret in its `signature` scheme over the raw body, is what lets it start the trigger's flow as the trigger's owner. Every request that doesn't prove its sender (an unknown workspace or id, a missing, wrong or stale signature, a secret that can't be read) is `401 webhook-refused`, with the reason only in the trigger's history and the access audit; the URL isn't a secret, the signature is. A WooCommerce save-time ping (unsigned `webhook_id=<n>`) is answered `200` and starts nothing. A closing workspace takes no delivery: a signed one is `409 tenant-closing`, and nothing is recorded. A suspended workspace or project takes a signed one without keeping it: `202` with `skipped`, nothing recorded or started, and the event isn't kept, so a sender that can redeliver by hand (GitHub) can resend it once it's restored. The event the flow gets is the body, parsed as JSON for a JSON content type, else its text: data from outside, never instructions. A run's start isn't waited for.",
     tags: ['webhooks'],
     security: 'public',
     parameters: [
@@ -9648,7 +11871,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         name: 'tenantId',
         in: 'path',
         required: true,
-        description: "The trigger's tenant.",
+        description: 'The workspace that owns the trigger.',
         schema: { type: 'string', format: 'uuid' },
       },
       {
@@ -9673,7 +11896,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       '202': {
         description:
-          "Taken: a fire recorded, its run starting as the owner (`fireId`). Or, on a paused trigger, a `skipped` fire and no run (`skipped: paused`). Or, when the trigger's tenant or project is suspended, nothing recorded and no run (`skipped: tenant-suspended`, `skipped: project-suspended`).",
+          "Taken: a fire recorded, its run starting as the owner (`fireId`). Or, on a paused trigger, a `skipped` fire and no run (`skipped: paused`). Or, when the trigger's workspace or project is suspended, nothing recorded and no run (`skipped: tenant-suspended`, `skipped: project-suspended`).",
         schema: ref('WebhookReceipt'),
       },
       '400': ErrorResponse(
@@ -9683,7 +11906,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "`webhook-refused`: the request doesn't prove its sender (the same answer whatever the reason).",
       ),
       '409': ErrorResponse(
-        "`tenant-closing` (`details.state`): the trigger's tenant is closing. Nothing was recorded.",
+        "`tenant-closing` (`details.state`): the trigger's workspace is closing. Nothing was recorded.",
       ),
       '410': ErrorResponse('`webhook-gone`: the trigger was unregistered.'),
       '413': ErrorResponse(
@@ -9693,7 +11916,154 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "`rate-limit-exceeded`: past the trigger's `rateLimitPerMinute`, or too many refused requests from this client; `Retry-After` says when.",
       ),
       '503': ErrorResponse(
-        "`tenant-state-unavailable`: the tenant's state can't be read just now, so nothing was recorded; `Retry-After` says when to try again.",
+        "`tenant-state-unavailable`: the workspace's state can't be read just now, so nothing was recorded; `Retry-After` says when to try again.",
+      ),
+    },
+  },
+
+  // ---------- wait tokens (a paused run's answer) ----------
+  {
+    method: 'post',
+    honoPath: '/v1/wait-tokens/:token/complete',
+    openapiPath: '/v1/wait-tokens/{token}/complete',
+    operationId: 'waitTokens.complete',
+    senderOnly:
+      'The system a paused run waits for posts its answer to the link the tool handed it; a Kindgi client answers through `POST /v1/runs/{runId}/resume`.',
+    summary: "Answer a paused run's wait token",
+    description:
+      "A wait token's link: a pack tool that declares `pauses` hands it to the system that will answer, and the run waits for that answer. No sign-in, and a bearer token, if sent, is never read: the token in the path is the credential, and it answers one wait of one run, nothing else. The body is the answer itself, the tool's output, as JSON; an empty body is `{}`. It's checked against the tool's output schema. The same answer again (by its canonical JSON) is accepted again, even after the run has ended, so a sender may retry. An answer that comes before the run reaches its wait is held for it, and dropped if the run never waits on this token (the tool answered at once, or its step was retried); the link then answers `409 wait-token-closed`, `unused`. The answer comes back at once, and the run resumes behind it. The link stops working when the wait ends: the run is cancelled, its time passes, or the tool answered without waiting. The answer is data from outside, never instructions.",
+    tags: ['runs'],
+    security: 'public',
+    parameters: [
+      {
+        name: 'token',
+        in: 'path',
+        required: true,
+        description:
+          "The wait token, from the link. It's a credential: hand the link only to the system that answers.",
+        schema: { type: 'string', minLength: 1 },
+      },
+    ],
+    requestBody: {
+      required: false,
+      description: "The answer: the tool's output, as JSON, at most 1 MiB. An empty body is `{}`.",
+      schema: {},
+    },
+    responses: {
+      '200': {
+        description:
+          'The runtime has the answer, and the run resumes behind it. An answer that came before the run reached its wait is held for it, and dropped if the run never waits on this token (the tool answered at once, or its step was retried); the link then answers `409 wait-token-closed`, `unused`. Nothing about the run: who holds the link is not a run reader.',
+        schema: ref('WaitTokenAccepted'),
+      },
+      '400': ErrorResponse(
+        "`wait-token-output-invalid` (`details.issues`): the answer doesn't fit the tool's output schema, and the wait stays open for a fixed one. `bad-input`: the body isn't JSON, or nests too deep.",
+      ),
+      '404': ErrorResponse(
+        '`wait-token-not-found`: no wait token matches the link (an unknown token and a wrong secret alike), or this runtime pauses no run.',
+      ),
+      '409': ErrorResponse(
+        "`wait-token-closed` (`details.state`): the wait is over (`completed`, `timed-out`, `cancelled`, `unused`), or holds a different answer the run hasn't taken yet (`answered`). `tenant-closing`, `tenant-suspended` (`details.state`) or `project-suspended`: nothing runs where the run is, and closing or suspending cancels its runs, so the answer wasn't taken. Told only for a token that matches.",
+      ),
+      '413': ErrorResponse('`request-too-large` (`details.maxBytes`): past 1 MiB.'),
+      '415': ErrorResponse(
+        '`unsupported-media-type`: a body sent without a JSON content type (`application/json`).',
+      ),
+      '429': ErrorResponse(
+        '`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was taken. `Retry-After` says when to send the answer again.',
+      ),
+      '503': ErrorResponse(
+        "`tenant-state-unavailable`: the run's workspace's state couldn't be read, so the answer wasn't taken. `Retry-After` says when to send it again.",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/tool-files',
+    openapiPath: '/v1/tool-files',
+    operationId: 'toolFiles.store',
+    senderOnly:
+      "A pack service stores a file for a tool's call with the tool files the call carries (pack protocol 2.10.0); a Kindgi client stores files with `POST /v1/artifacts`.",
+    summary: "Store a file for a pack tool's call",
+    description:
+      "A pack tool that declares `storesFiles` gets the call's tool files with each call, and its pack service posts each file the tool stores here. No API key: `Authorization: Bearer` carries the call's token (`kgi_tf_…`), which names one call of one run and what it may do: store files for that call, read files its run may be shown (`GET /v1/tool-files/{artifactId}`), or both. The body is the file's bytes, at most 10 MB read; `Content-Type` is the type its source declares, and `Kindgi-File-Name` its name, percent-encoded UTF-8 (an empty name is stored as `unnamed`). The runtime checks the bytes, and only they decide the type. The stored file is owned by the call's run, in its project. The same bytes again in the same call, a re-run of it included, answer the first file. A call stores at most 10 files. The token closes when the call answers, when its time passes, or when its run ends.",
+    tags: ['runs'],
+    security: 'public',
+    parameters: [
+      {
+        name: 'Kindgi-File-Name',
+        in: 'header',
+        required: false,
+        description: "The file's name, percent-encoded UTF-8. Absent or empty: `unnamed`.",
+        schema: { type: 'string' },
+      },
+    ],
+    requestBody: {
+      required: true,
+      description: "The file's bytes, with the type its source declares as `Content-Type`.",
+      schema: { type: 'string', format: 'binary' },
+      contentType: '*/*',
+    },
+    responses: {
+      '200': {
+        description:
+          "The stored file (`file`), for the tool to return in its result's top-level `files`; or nothing stored, and why (`notStored`): `type` (not a type a model is shown, or the bytes aren't the type they claim), `size` (over its type's limit, or a body past 10 MB, not read to its end), `limit` (the call has stored 10 files), `storage` (the workspace's storage is full).",
+        schema: ref('ToolFileStoreAnswer'),
+      },
+      '400': ErrorResponse('`bad-input`: `Kindgi-File-Name` is not percent-encoded UTF-8.'),
+      '404': ErrorResponse(
+        "`tool-file-token-not-found`: no tool call's files match the bearer (none sent, an unknown token, a wrong secret, and a call that doesn't store files alike), or this runtime stores no files.",
+      ),
+      '409': ErrorResponse(
+        '`tool-file-token-closed`: the call has answered, its time has passed, or its run has ended. `tenant-closing`, `tenant-suspended` (`details.state`) or `project-suspended`: nothing runs where the run is, so nothing was stored. Told only for a token that matches.',
+      ),
+      '429': ErrorResponse(
+        '`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was stored. `Retry-After` says when to store the file again.',
+      ),
+      '503': ErrorResponse(
+        "`tenant-state-unavailable`: the run's workspace's state couldn't be read, so nothing was stored. `tool-files-busy`: the runtime's memory for files had no room for the bytes in time, so nothing was stored. `Retry-After` says when to store the file again.",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/tool-files/:artifactId',
+    openapiPath: '/v1/tool-files/{artifactId}',
+    operationId: 'toolFiles.read',
+    senderOnly:
+      "A pack service reads a file for a tool's call with the token the call carries (pack protocol 2.10.0); a Kindgi client reads files with `GET /v1/artifacts/{blobId}`.",
+    summary: "Read a file for a pack tool's call",
+    description:
+      "A pack tool that declares `readsFiles` gets the call's tool files with each call, and its pack service reads each file the tool asks for here, by its file value's `artifactId`. No API key: `Authorization: Bearer` carries the call's token (`kgi_tf_…`). The call reads a file its run may be shown, such as one in the run's input, in its conversation, or one a tool stored in it, with the bytes it was stored with, never a copy made for a model. A read isn't refused for a closing or suspended workspace or a suspended project: it changes nothing. The token closes when the call answers, when its time passes, or when its run ends.",
+    tags: ['runs'],
+    security: 'public',
+    parameters: [
+      {
+        name: 'artifactId',
+        in: 'path',
+        required: true,
+        description: "The file value's `artifactId`.",
+        schema: { type: 'string' },
+      },
+    ],
+    responses: {
+      '200': {
+        description:
+          "The file's bytes, as it was stored (`application/octet-stream`, as an attachment, never sniffed); or no bytes, and why, as JSON (`notRead`).",
+        contentType: 'application/octet-stream',
+        schema: { type: 'string', format: 'binary' },
+        orJson: ref('ToolFileNotRead'),
+      },
+      '404': ErrorResponse(
+        "`tool-file-token-not-found`: no tool call's files match the bearer (none sent, an unknown token, a wrong secret, and a call that doesn't read files alike), or this runtime stores no files.",
+      ),
+      '409': ErrorResponse(
+        '`tool-file-token-closed`: the call has answered, its time has passed, or its run has ended.',
+      ),
+      '429': ErrorResponse(
+        '`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was read. `Retry-After` says when to read the file again.',
+      ),
+      '503': ErrorResponse(
+        "`tool-files-busy`: the runtime's memory for files had no room for the bytes in time, so nothing was read. `database-busy`: the database was too busy to answer in time. `Retry-After` says when to read the file again.",
       ),
     },
   },
@@ -9714,10 +12084,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Endpoint registered.', schema: ref('WebhookEndpoint') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '400': ErrorResponse(
-        "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist (`webhook-secret-not-found`) or is too weak (`webhook-secret-too-weak`), or it's a model provider's key (`provider-key-refused`).",
+        "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist (`webhook-secret-not-found`) or is too weak (`webhook-secret-too-weak`), it's a model provider's key (`provider-key-refused`), or it's under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
       ),
       '404': ErrorResponse('`filter.projectId` names no project (`project-not-found`).'),
+      '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
     },
   },
   {
@@ -9733,6 +12105,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'A new secret.', schema: ref('GeneratedWebhookSecret') },
       ...CommonAuthErrors,
+      ...TenantAdminErrors,
       '409': ErrorResponse(
         "A retry with the Idempotency-Key of a request that succeeded: the secret isn't kept (`idempotency-key-replay-withheld`).",
       ),
@@ -9750,6 +12123,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of endpoints.', schema: ref('WebhookEndpointCollectionPage') },
       ...CommonAuthErrors,
+      ...TenantAdminErrors,
     },
   },
   {
@@ -9764,6 +12138,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The endpoint.', schema: ref('WebhookEndpoint') },
       ...CommonAuthErrors,
+      ...TenantAdminErrors,
       '404': ErrorResponse('No endpoint with that id, or it was unregistered.'),
     },
   },
@@ -9782,10 +12157,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The updated endpoint.', schema: ref('WebhookEndpoint') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '400': ErrorResponse(
-        "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist or is too weak, or it's a model provider's key (`provider-key-refused`).",
+        "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist or is too weak, it's a model provider's key (`provider-key-refused`), or it's under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
       ),
       '404': ErrorResponse('No endpoint with that id, or `filter.projectId` names no project.'),
+      '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
     },
   },
   {
@@ -9802,6 +12179,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Outcome.', schema: ref('WebhookEndpointUnregisterResult') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
     },
   },
   {
@@ -9822,6 +12200,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of deliveries.', schema: ref('WebhookDeliveryCollectionPage') },
       ...CommonAuthErrors,
+      ...TenantAdminErrors,
       '400': ErrorResponse('Unknown `status`.'),
       '404': ErrorResponse('No endpoint with that id.'),
     },
@@ -9839,6 +12218,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '202': { description: 'Queued.', schema: ref('WebhookDelivery') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '404': ErrorResponse('No endpoint, or no delivery with that id for it.'),
     },
   },
@@ -9856,7 +12236,694 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '202': { description: 'Queued.', schema: ref('WebhookDelivery') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '404': ErrorResponse('No endpoint with that id.'),
+    },
+  },
+  // ---------- connections (accounts at other apps that tools act with) ----------
+  {
+    method: 'get',
+    honoPath: '/v1/connection-entries',
+    openapiPath: '/v1/connection-entries',
+    operationId: 'connectionEntries.list',
+    summary: 'List the apps this server can connect to',
+    description:
+      'Each app with who may own a connection to it, how a person signs in, the permissions a tool may ask for (in plain words, and whether each changes anything) and the guide an admin follows to register the app. Any signed-in member. Mounted when the deployment supplies a `ConnectionBinding`.',
+    tags: ['connections'],
+    security: 'bearer',
+    responses: {
+      '200': { description: 'The apps.', schema: ref('ConnectionEntryList') },
+      ...CommonAuthErrors,
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/connection-apps',
+    openapiPath: '/v1/connection-apps',
+    operationId: 'connectionApps.list',
+    summary: "List the workspace's app registrations",
+    description:
+      "The workspace's own registrations of its client at an app: its client id, and its secrets by reference. Tenant admins only. Removed registrations are listed only with `includeRemoved=true`.",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'includeRemoved',
+        in: 'query',
+        required: false,
+        description: '`true` lists removed registrations too.',
+        schema: { type: 'boolean', default: false },
+      },
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
+    responses: {
+      '200': { description: 'Page of registrations.', schema: ref('ConnectionAppPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('An `includeRemoved` other than `true` or `false` (`bad-input`).'),
+      '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/connection-apps',
+    openapiPath: '/v1/connection-apps',
+    operationId: 'connectionApps.create',
+    summary: 'Register an app',
+    description:
+      "Registers the workspace's own client at an app. Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. Tenant admins only.",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('CreateConnectionAppBody') },
+    responses: {
+      '201': { description: 'App registered.', schema: ref('ConnectionApp') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "Malformed body or unknown field (`bad-input`, `details.field`); a registration that doesn't fit its entry, or that would serve a project another registration of the app serves (`connection-app-invalid`, `details.field`); no such app (`connection-app-unknown-entry`); a model provider's key named as a secret (`provider-key-refused`); or a secret under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
+      ),
+      '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
+      '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/connection-apps/:appId',
+    openapiPath: '/v1/connection-apps/{appId}',
+    operationId: 'connectionApps.get',
+    summary: 'Fetch an app registration',
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [ConnectionAppIdPathParam],
+    responses: {
+      '200': { description: 'The registration.', schema: ref('ConnectionApp') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('`appId` is not a UUID (`bad-input`).'),
+      '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
+      '404': ErrorResponse('No registration with that id (`connection-app-not-found`).'),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/connection-apps/:appId',
+    openapiPath: '/v1/connection-apps/{appId}',
+    operationId: 'connectionApps.update',
+    summary: 'Update an app registration',
+    description:
+      'Changes the label, the client or the projects that may use its connections. The app itself cannot change: register the other app on its own. Tenant admins only.',
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [ConnectionAppIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('UpdateConnectionAppBody') },
+    responses: {
+      '200': { description: 'The updated registration.', schema: ref('ConnectionApp') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "Malformed body, unknown field or an `app` (`bad-input`, `details.field`); a registration that doesn't fit its entry, that would serve a project another registration of the app serves, or a change of its client (`oauth2.clientId`, `oauth2.tenant`, `githubApp.appNumber` or `githubApp.clientId`) while it has live connections: disconnect them first (`connection-app-invalid`, `details.field`); a model provider's key named as a secret (`provider-key-refused`); or a secret under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
+      ),
+      '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
+      '404': ErrorResponse('No registration with that id (`connection-app-not-found`).'),
+      '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
+    },
+  },
+  {
+    method: 'delete',
+    honoPath: '/v1/connection-apps/:appId',
+    openapiPath: '/v1/connection-apps/{appId}',
+    operationId: 'connectionApps.remove',
+    summary: 'Remove an app registration',
+    description:
+      'Without `withConnections=true`, a registration that still has live connections is refused (`connection-app-in-use`). With it, those connections are removed too. Tenant admins only.',
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [
+      ConnectionAppIdPathParam,
+      {
+        name: 'withConnections',
+        in: 'query',
+        required: false,
+        description: 'Remove its live connections too. Default `false`.',
+        schema: { type: 'boolean', default: false },
+      },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': { description: 'Removed.', schema: ref('ConnectionAppRemoved') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        '`appId` is not a UUID, or `withConnections` is not a boolean (`bad-input`).',
+      ),
+      '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
+      '404': ErrorResponse('No registration with that id (`connection-app-not-found`).'),
+      '409': ErrorResponse(
+        'Idempotency-Key was reused with a different body, or the registration still has live connections (`connection-app-in-use`).',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/connections',
+    openapiPath: '/v1/connections',
+    operationId: 'connections.list',
+    summary: 'List connections',
+    description:
+      'A member sees their own; a tenant admin sees every one, unless `owner=me`. Removed connections are listed only with `state=removed`, or with the others under `includeRemoved=true`.',
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'projectId',
+        in: 'query',
+        required: false,
+        description: 'Only those whose registration allows this project.',
+        schema: { type: 'string' },
+      },
+      {
+        name: 'app',
+        in: 'query',
+        required: false,
+        description: "Only this app's (its entry id).",
+        schema: { type: 'string' },
+      },
+      {
+        name: 'owner',
+        in: 'query',
+        required: false,
+        description: "`me`: only the caller's own, even for a tenant admin.",
+        schema: { type: 'string', enum: ['me'] },
+      },
+      {
+        name: 'ownerKind',
+        in: 'query',
+        required: false,
+        description: "Only those a member owns, or only the company's.",
+        schema: { type: 'string', enum: ['member', 'company'] },
+      },
+      {
+        name: 'state',
+        in: 'query',
+        required: false,
+        description: 'Only those in this state.',
+        schema: { $ref: '#/components/schemas/ConnectionState' },
+      },
+      {
+        name: 'includeRemoved',
+        in: 'query',
+        required: false,
+        description: '`true` lists removed connections too.',
+        schema: { type: 'boolean', default: false },
+      },
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
+    responses: {
+      '200': { description: 'Page of connections.', schema: ref('ConnectionPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        'An unknown `app`, `owner`, `ownerKind` or `state`, or an `includeRemoved` other than `true` or `false` (`bad-input`).',
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/connections',
+    openapiPath: '/v1/connections',
+    operationId: 'connections.connect',
+    summary: 'Start a connect',
+    description:
+      "Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. The company and each person keep one connection per account, registration and environment: a connect lands on its owner's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('CreateConnectRequestBody') },
+    responses: {
+      '201': { description: 'Connect request made.', schema: ref('ConnectRequest') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "Malformed body, unknown field, a `reconnects` that isn't a UUID or a `label` that isn't 1 to 100 characters with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators) (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
+      ),
+      '403': ErrorResponse(
+        "`for: 'company'` from a caller who is not a tenant admin (`permission-denied`).",
+      ),
+      '404': ErrorResponse(
+        "No registration with that `appId` (`connection-app-not-found`); or `reconnects` names no live connection of the connect's own owner on that registration and environment, whether another owner's, another registration's or environment's, removed or unknown (`connection-not-found`, `details.field` `reconnects`).",
+      ),
+      '409': ErrorResponse(
+        "Idempotency-Key was reused with a different body; another live connection of the same app, owner and env has that `label`, ignoring case, an emoji's variation selector and how accented letters are encoded, and the connect isn't a reconnect (`connection-label-taken`, `details.field` `label`); or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/connections/finish',
+    openapiPath: '/v1/connections/finish',
+    operationId: 'connections.finish',
+    summary: 'Finish a connect',
+    description:
+      "Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A company connect that doesn't name `reconnects` lands on the company's connection of the account signed in to, when there is one, so one account never has two. `reconnected` says whether it landed on a connection that was already there, which keeps its name. A new connection whose name another connection took meanwhile is named the first free `<name> 2`, `<name> 3` and so on, and `labelTaken` gives the name it was to get. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`).",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('FinishConnectBody') },
+    responses: {
+      '200': { description: 'The outcome.', schema: ref('ConnectFinish') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'Malformed body, unknown field or no `state`; or neither `code` nor `error` (`bad-input`, `details.field`).',
+      ),
+      '403': ErrorResponse(
+        "Someone other than whoever started the request (`connection-not-yours`); or a GitHub App's person whose GitHub account doesn't reach the installation, or any (`connection-installation-unreachable`, with `details.connectRequestId`: start that request again with `newInstallation` to install the app on their account).",
+      ),
+      '404': ErrorResponse('No request for that state (`connection-request-not-found`).'),
+      '409': ErrorResponse(
+        'Idempotency-Key was reused with a different body; the request was finished already (`connection-request-used`); a reconnect signed in to another account (`connection-account-mismatch`); or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).',
+      ),
+      '410': ErrorResponse(
+        'The request expired (`connection-request-expired`), or the sign-in took longer than its state lives: start again (`connection-state-expired`).',
+      ),
+      '502': ErrorResponse(
+        "The app wouldn't give a token for the code: its client id, secret or redirect URL (`connection-app-refused`).",
+      ),
+      '503': ErrorResponse(
+        "The connection couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/connections/requests/:requestId',
+    openapiPath: '/v1/connections/requests/{requestId}',
+    operationId: 'connections.requests.get',
+    summary: 'Fetch a connect request',
+    description:
+      "A member's request is the member's alone; the company's is a tenant admin's. Anyone else gets the `404` of a request that doesn't exist.",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [ConnectRequestIdPathParam],
+    responses: {
+      '200': { description: 'The request.', schema: ref('ConnectRequest') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('`requestId` is not a UUID (`bad-input`).'),
+      '404': ErrorResponse(
+        "No request with that id, or not the caller's (`connection-request-not-found`).",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/connections/requests/:requestId/start',
+    openapiPath: '/v1/connections/requests/{requestId}/start',
+    operationId: 'connections.requests.start',
+    summary: 'Start a connect request',
+    description:
+      "Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`. A GitHub App's goes to the app's install page while the app has no installation, or with `newInstallation`; otherwise to GitHub's authorization, and the finish attaches the installation picked with `installationId`, one of the request's `installations`.",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [ConnectRequestIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('StartConnectBody') },
+    responses: {
+      '200': { description: 'Where to send the person.', schema: ref('ConnectStart') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        '`requestId` is not a UUID; a malformed body or unknown field; both `installationId` and `newInstallation`; or either on a request whose app is not a GitHub App (`bad-input`, `details.field`).',
+      ),
+      '404': ErrorResponse(
+        "No request with that id, or not the caller's (`connection-request-not-found`).",
+      ),
+      '409': ErrorResponse(
+        'Idempotency-Key was reused with a different body, or a retry of one that succeeded (`idempotency-key-replay-withheld`); or the request was finished already (`connection-request-used`).',
+      ),
+      '410': ErrorResponse('The request expired (`connection-request-expired`).'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/connections/:connectionId',
+    openapiPath: '/v1/connections/{connectionId}',
+    operationId: 'connections.get',
+    summary: 'Fetch a connection',
+    description:
+      "A member's connection is its owner's or a tenant admin's; the company's is a tenant admin's alone. Anyone else gets the `404` of a connection that doesn't exist.",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [ConnectionIdPathParam],
+    responses: {
+      '200': { description: 'The connection.', schema: ref('Connection') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('`connectionId` is not a UUID (`bad-input`).'),
+      '404': ErrorResponse(
+        "No connection with that id, or not the caller's (`connection-not-found`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/connections/:connectionId/choices',
+    openapiPath: '/v1/connections/{connectionId}/choices',
+    operationId: 'connections.choices',
+    summary: "List a connection's choices",
+    description:
+      "The live choices that name the connection, in every project of this server's environment: as `connectionId`, or in a set. Whoever the connection reaches: its owner or a tenant admin. Anyone else gets the `404` of a connection that doesn't exist.",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [ConnectionIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of choices.', schema: ref('ConnectionChoicePage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('`connectionId` is not a UUID (`bad-input`).'),
+      '404': ErrorResponse(
+        "No connection with that id, or not the caller's (`connection-not-found`).",
+      ),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/connections/:connectionId',
+    openapiPath: '/v1/connections/{connectionId}',
+    operationId: 'connections.update',
+    summary: 'Rename a connection, or make it your main',
+    description:
+      "One change. `label` renames it, the name people know it by: whoever may disconnect it, its owner or a tenant admin. `main: true` makes it its owner's main connection of its app through its registration and env, in place of the one that was, audited as `connection-main-set`: its owner alone, and only a person's. Making the main main again answers it as it is. A main never moves a mail trigger's stored connection. Anyone else gets the `404` of a connection that doesn't exist.",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [ConnectionIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('UpdateConnectionBody') },
+    responses: {
+      '200': { description: 'The connection, renamed or made main.', schema: ref('Connection') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "`connectionId` is not a UUID, or a malformed body, unknown field, both `label` and `main`, or a `label` that isn't 1 to 100 characters with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators) (`bad-input`, `details.field`). With `main` (`details.field` `main`): `false`, since a main moves only by making another connection main; the company's connection, which has no main; or a caller who isn't its owner, a tenant admin too.",
+      ),
+      '404': ErrorResponse(
+        "No connection with that id, it was disconnected, or it's not the caller's (`connection-not-found`).",
+      ),
+      '409': ErrorResponse(
+        "Idempotency-Key was reused with a different body; or another live connection of the same app, owner and env has that `label`, ignoring case, an emoji's variation selector and how accented letters are encoded (`connection-label-taken`, `details.field` `label`).",
+      ),
+      '503': ErrorResponse(
+        "The rename couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+      ),
+    },
+  },
+  {
+    method: 'delete',
+    honoPath: '/v1/connections/:connectionId',
+    openapiPath: '/v1/connections/{connectionId}',
+    operationId: 'connections.disconnect',
+    summary: 'Disconnect',
+    description:
+      'Withdraws access at the app where it can, destroys the token and removes the connection (`withdrawn` says what the app did). Its owner or a tenant admin. Repeating it on a connection still `removing` carries on from the withdrawal.',
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [ConnectionIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'The connection, removed.', schema: ref('Connection') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('`connectionId` is not a UUID (`bad-input`).'),
+      '404': ErrorResponse(
+        "No connection with that id, or not the caller's (`connection-not-found`).",
+      ),
+      '503': ErrorResponse(
+        "The removal couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/connection-choices',
+    openapiPath: '/v1/connection-choices',
+    operationId: 'connectionChoices.list',
+    summary: 'List connection choices',
+    description:
+      "The project's live choices in this server's environment: which connection each agent or flow, or one of its tools, uses for an app. The project's members may read them (`read` on the project): the company's, and their own. A tenant admin reads every person's too; with `owner=me`, anyone reads their own alone. Removed choices, a choice's history, are listed only with `includeRemoved=true`. A choice of a connection that's since been disconnected stays listed until it's set again or removed.",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'projectId',
+        in: 'query',
+        required: true,
+        description: 'The project.',
+        schema: { type: 'string', format: 'uuid' },
+      },
+      {
+        name: 'agentId',
+        in: 'query',
+        required: false,
+        description: "Only this agent's.",
+        schema: { type: 'string' },
+      },
+      {
+        name: 'flowId',
+        in: 'query',
+        required: false,
+        description: "Only this flow's.",
+        schema: { type: 'string' },
+      },
+      {
+        name: 'app',
+        in: 'query',
+        required: false,
+        description: "Only this app's (its entry id).",
+        schema: { type: 'string' },
+      },
+      {
+        name: 'toolId',
+        in: 'query',
+        required: false,
+        description: "Only this tool's own choices.",
+        schema: { type: 'string' },
+      },
+      {
+        name: 'owner',
+        in: 'query',
+        required: false,
+        description: "`me`: only the caller's own, even for a tenant admin.",
+        schema: { type: 'string', enum: ['me'] },
+      },
+      {
+        name: 'includeRemoved',
+        in: 'query',
+        required: false,
+        description: '`true` lists removed choices too.',
+        schema: { type: 'boolean', default: false },
+      },
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
+    responses: {
+      '200': { description: 'Page of choices.', schema: ref('ConnectionChoicePage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        'No `projectId`, or one that is not a UUID; an `app` that is not an entry id; both `agentId` and `flowId`; an `owner` other than `me`; or an `includeRemoved` other than `true` or `false` (`bad-input`).',
+      ),
+      '403': ErrorResponse('Not a member of the project (`permission-denied`).'),
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/connection-choices',
+    openapiPath: '/v1/connection-choices',
+    operationId: 'connectionChoices.set',
+    summary: 'Choose a connection',
+    description:
+      "Chooses which connection an agent or a flow uses, in the project and this server's environment, for the connection's app; with `toolId`, which one that tool uses, ahead of the agent's or flow's. A tool's choice may be a set (`connectionIds`): a call of a tool that changes nothing names one of them, by name, else uses `connectionId`. A company choice is the project's admins' (`admin` on the project). A person's (`person`) is that person's alone, for their own runs, and needs only what running the agent or flow does. The connection must be a candidate (`GET /v1/connection-choices/candidates`, with `owner=me` for your own). Choosing the connection already chosen answers that choice as it is. Choosing another removes that choice and makes a new one at the next `version`, in one step.",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('SetConnectionChoiceBody') },
+    responses: {
+      '200': { description: 'The choice.', schema: ref('ConnectionChoice') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A malformed body or unknown field; a `projectId` or `connectionId` that is not a UUID; both `agentId` and `flowId`, or neither; a person's own connection in a company choice; a `person` who isn't the caller; a `toolId` the agent or flow has no tool of the app by; a `need` that's missing for a tool that uses the app twice, or one the tool doesn't have; or a set that isn't for one tool, isn't 2 to 10 different connections with the default among them, is for a tool that changes things, may send what it reads elsewhere (`sensitive-data-egress`) or has its own `accounts` input, or has a member with no name (`bad-input`, `details.field`).",
+      ),
+      '403': ErrorResponse(
+        "A company choice by a caller who isn't an admin of the project, or a person's by one who may not run its agent or flow (`permission-denied`).",
+      ),
+      '404': ErrorResponse(
+        "No such project (`project-not-found`); the agent or flow isn't one of the project's (`agent-not-found`, `flow-not-found`); or a connection isn't a candidate, the same answer as for one that doesn't exist (`connection-not-found`, `details.field` `connectionId` or `connectionIds`).",
+      ),
+      '503': ErrorResponse(
+        "The choice couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+      ),
+    },
+  },
+  {
+    method: 'delete',
+    honoPath: '/v1/connection-choices/:choiceId',
+    openapiPath: '/v1/connection-choices/{choiceId}',
+    operationId: 'connectionChoices.remove',
+    summary: 'Remove a connection choice',
+    description:
+      "Removes a live choice. It's kept, with `removedAt` and `removedBy`: `GET /v1/connection-choices?includeRemoved=true` lists it. A company choice: the admins of its project only (`admin` on the project). A person's: that person alone; to anyone else it's not found.",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'choiceId',
+        in: 'path',
+        required: true,
+        description: 'The choice id (a UUID).',
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': { description: 'Delete outcome.', schema: ref('ConnectionChoiceDeleteResult') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('`choiceId` is not a UUID (`bad-input`).'),
+      '403': ErrorResponse("Reads its project, but isn't an admin of it (`permission-denied`)."),
+      '404': ErrorResponse(
+        "No live choice with that id in this environment: unknown, already removed, in a project the caller can't read, or another person's (`connection-choice-not-found`).",
+      ),
+      '503': ErrorResponse(
+        "The removal couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/connection-choices/candidates',
+    openapiPath: '/v1/connection-choices/candidates',
+    operationId: 'connectionChoices.candidates',
+    summary: 'List connection candidates',
+    description:
+      "The connections a choice in the project may name: live ones, working or needing a reconnect, in this server's environment, on a live registration that allows the project. The company's: the project's admins read each in full, and its members read `connectionId` and `name` only (`read` on the project). With `owner=me`, the caller's own instead, in full, with `main`.",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'projectId',
+        in: 'query',
+        required: true,
+        description: 'The project.',
+        schema: { type: 'string', format: 'uuid' },
+      },
+      {
+        name: 'app',
+        in: 'query',
+        required: false,
+        description: "Only this app's (its entry id).",
+        schema: { type: 'string' },
+      },
+      {
+        name: 'owner',
+        in: 'query',
+        required: false,
+        description: "`me`: only the caller's own, even for a tenant admin.",
+        schema: { type: 'string', enum: ['me'] },
+      },
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
+    responses: {
+      '200': { description: 'Page of candidates.', schema: ref('ConnectionCandidatePage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        'No `projectId`, or one that is not a UUID; an `app` that is not an entry id; or an `owner` other than `me` (`bad-input`).',
+      ),
+      '403': ErrorResponse('Not a member of the project (`permission-denied`).'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/connection-choices/needs',
+    openapiPath: '/v1/connection-choices/needs',
+    operationId: 'connectionChoices.needs',
+    summary: 'List what a choice may be for',
+    description:
+      "Each of an agent's or flow's tools' connections, at the version it resolves now: the tool, its name for the connection (`need`), the app and whose (`as`), and whether a choice for it may be a set (`set.allowed`, else `set.reason`: `changes`, `sensitive-data-egress` or `accounts-input`). A tool whose version couldn't be read is listed in `unread`. The project's members (`read` on the project).",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'projectId',
+        in: 'query',
+        required: true,
+        description: 'The project.',
+        schema: { type: 'string', format: 'uuid' },
+      },
+      {
+        name: 'agentId',
+        in: 'query',
+        required: false,
+        description: 'The agent; or `flowId`, one of them.',
+        schema: { type: 'string' },
+      },
+      {
+        name: 'flowId',
+        in: 'query',
+        required: false,
+        description: 'The flow; or `agentId`, one of them.',
+        schema: { type: 'string' },
+      },
+      {
+        name: 'app',
+        in: 'query',
+        required: false,
+        description: "Only this app's (its entry id).",
+        schema: { type: 'string' },
+      },
+    ],
+    responses: {
+      '200': { description: 'The needs.', schema: ref('ConnectionChoiceNeeds') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        'No `projectId`, or one that is not a UUID; an `app` that is not an entry id; or both or neither of `agentId` and `flowId` (`bad-input`).',
+      ),
+      '403': ErrorResponse('Not a member of the project (`permission-denied`).'),
+      '404': ErrorResponse(
+        "The agent or flow isn't one of the project's (`agent-not-found`, `flow-not-found`).",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/connection-notices/:tenantId/:appId',
+    openapiPath: '/v1/connection-notices/{tenantId}/{appId}',
+    operationId: 'connectionNotices.receive',
+    senderOnly:
+      'The app (GitHub, Google…) posts here, signed its own way; a Kindgi client never does.',
+    summary: 'Receive an app notice',
+    description:
+      "Where an app reports a removal (an uninstall, a revoke at the app): the registration's `noticesUrl`. No sign-in, and a bearer token, if sent, is never read. The app's own signature over the body's exact bytes is what the server checks: a JSON webhook from GitHub, or a security event token from Google. Every notice not accepted (an unknown workspace or id, a bad signature, a body over the cap) is the same `400 connection-notice-invalid`. A client past its refusals this minute gets `429`. If the server couldn't check or apply the notice just now, `503 connection-notice-unavailable`: the app may send it again.",
+    tags: ['connections'],
+    security: 'public',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: 'The workspace that owns the registration.',
+        schema: { type: 'string', format: 'uuid' },
+      },
+      {
+        name: 'appId',
+        in: 'path',
+        required: true,
+        description: 'The registration id (`appId`).',
+        schema: { type: 'string', format: 'uuid' },
+      },
+    ],
+    requestBody: {
+      required: true,
+      description:
+        "The app's signed notice, any content type: a JSON webhook from GitHub, or a security event token from Google.",
+      schema: { type: 'string', format: 'binary' },
+      contentType: '*/*',
+    },
+    responses: {
+      '202': { description: 'Accepted. No body.' },
+      '400': ErrorResponse(
+        '`connection-notice-invalid`: the notice was not accepted (the same answer whatever the reason).',
+      ),
+      '429': ErrorResponse(
+        '`rate-limit-exceeded`: too many refused notices from this client; `Retry-After` says when.',
+      ),
+      '503': ErrorResponse(
+        "`connection-notice-unavailable`: the notice couldn't be handled just now; the app may send it again.",
+      ),
     },
   },
   // ---------- sites (a site signs its own people in to one project) ----------
@@ -9867,7 +12934,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.sites.list',
     summary: "List the project's sites",
     description:
-      'The sites that sign their own people in to this project. Tenant admins only: a site creates people in the tenant. `includeUnregistered=true` lists unregistered ones too. Mounted when the deployment supplies a `SiteBinding`.',
+      'The sites that sign their own people in to this project. Tenant admins only: a site creates people in the workspace. `includeUnregistered=true` lists unregistered ones too. Mounted when the deployment supplies a `SiteBinding`.',
     tags: ['sites'],
     security: 'bearer',
     parameters: [
@@ -10056,6 +13123,43 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '403': ErrorResponse('Not a tenant admin.'),
       '404': ErrorResponse(
         'No site with that id in this project, or no key with that id (`site-not-found`).',
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/projects/:projectId/sites/:siteId/people/:userId/restore',
+    openapiPath: '/v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore',
+    operationId: 'projects.sites.restorePerson',
+    summary: 'Let a person removed in Kindgi back in, through their site',
+    description:
+      "For one of the site's people removed in Kindgi (`POST /v1/identity/users/{userId}/unregister`) while the site still knows them: they're in the workspace again, the same person, with their history, and their next sign-in through the site is theirs again. Their grants come back with that sign-in, from the site's role map then; their API keys and sessions stay gone. Refused, with nothing changed (`409 site-person-restore-refused`, `details.reason`): `not-removed` for someone in the workspace whose site still knows them; `left` when their site said they left it, removed in Kindgi too or not: a site forgets a person who leaves, and signs them in as a new person if they come back; `linked-elsewhere` when they also sign in another way (through another site, or the workspace's own sign-in), which letting them back in would open too: add them again instead, as a new person. A paused site's people can be let back in; an unregistered site's can't. Tenant admins only. Mounted when the deployment's site binding can let people back in.",
+    tags: ['sites'],
+    security: 'bearer',
+    parameters: [
+      ProjectIdPathParam,
+      SiteIdPathParam,
+      {
+        name: 'userId',
+        in: 'path',
+        required: true,
+        description: "The person's id.",
+        schema: { type: 'string', minLength: 1 },
+      },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': {
+        description: 'The person, in the workspace again.',
+        schema: ref('SitePersonRestoreResult'),
+      },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse(
+        'No site with that id in this project (`site-not-found`), or the site has no link to that person (`site-person-not-found`).',
+      ),
+      '409': ErrorResponse(
+        'Refused, with nothing changed (`site-person-restore-refused`, `details.reason`: `not-removed`, `left` or `linked-elsewhere`), or an idempotency conflict.',
       ),
     },
   },

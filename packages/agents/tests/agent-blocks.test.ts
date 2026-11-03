@@ -154,7 +154,7 @@ describe('a turn loads the blocks it references', () => {
       const ctx = turn(agent(), reader());
       return {
         ...ctx,
-        input: { ...ctx.input, replay: { of: 'run-past', evalRunId: 'eval-1' } },
+        input: { ...ctx.input, replay: { of: 'run-past', testRunId: 'eval-1' } },
         bindings: {
           ...ctx.bindings,
           replay: {
@@ -173,7 +173,7 @@ describe('a turn loads the blocks it references', () => {
     expect(blocks?.settings).toEqual({ 'acme.weights': { recency: 0.9 } });
     expect(blocks?.modelSettings).toEqual({ temperature: 0.5 });
     expect(blocks?.versions.settings).toEqual({ 'acme.weights': '1.2.0', 'acme.model': '1.0.0' });
-    expect(asked).toEqual([{ tenantId, replay: { of: 'run-past', evalRunId: 'eval-1' } }]);
+    expect(asked).toEqual([{ tenantId, replay: { of: 'run-past', testRunId: 'eval-1' } }]);
 
     const plain = await resolveTurnBlocks(replayTurn(undefined));
     expect(plain?.settings).toEqual({ 'acme.weights': { recency: 0.7 } });
@@ -186,7 +186,7 @@ describe('a turn loads the blocks it references', () => {
     const ctx = turn(agent(), reader());
     const blocks = await resolveTurnBlocks({
       ...ctx,
-      input: { ...ctx.input, replay: { of: 'run-past', evalRunId: 'eval-1' } },
+      input: { ...ctx.input, replay: { of: 'run-past', testRunId: 'eval-1' } },
       bindings: {
         ...ctx.bindings,
         replay: {
@@ -253,6 +253,23 @@ describe('a turn loads the blocks it references', () => {
         turn(agent({ settings: [{ id: 'acme.weights', version: '^3.0.0' }] }), reader()),
       ),
     ).toMatchObject({ code: 'block-unresolvable', blockId: 'acme.weights' });
+    // A reader that says where its blocks come from (kindgi dev) adds it to the miss.
+    const note =
+      "Under kindgi dev, blocks come from the pack's files: add it under the pack's blocks folder.";
+    expect(
+      await failure(
+        turn(agent({ settings: [{ id: 'acme.weights', version: '^3.0.0' }] }), {
+          ...reader(),
+          missNote: note,
+        }),
+      ),
+    ).toMatchObject({
+      code: 'block-unresolvable',
+      blockId: 'acme.weights',
+      message: expect.stringMatching(
+        /has no published version in "\^3\.0\.0" .*\. Under kindgi dev, blocks come from the pack's files: add it under the pack's blocks folder\.$/,
+      ),
+    });
     const notModel = BLOCKS.map((b) =>
       b.id === 'acme.model' ? { ...b, content: { values: { temperature: 'hot' } } } : b,
     ) as BlockDefinition[];

@@ -9,7 +9,8 @@
 The Python counterpart of `kindgi-index`: reads `[tool.kindgi]`, discovers
 the files under `tools/`, `guardrails/`, `agents/`, `flows/` (or the
 configured globs), imports each one, collects the primitives it defines,
-and writes the index (`@kindgi/specs/pack-index.schema.json`) atomically.
+reads the pack's data blocks (`blocks/**/*.json`, `blocks.py`), and writes
+the index (`@kindgi/specs/pack-index.schema.json`) atomically.
 Byte-deterministic: same source and pinned `--artifact-version` /
 `--published-at`, same bytes.
 
@@ -32,6 +33,7 @@ from typing import Any, cast
 
 from .._json import stable_dumps
 from .._schema import SchemaValidator, wire_schema
+from .blocks import read_pack_blocks
 from .config import ConfigError, PackConfig, PrimitiveKind, code_units, load_config
 from .define import Agent, Flow, Guardrail, Primitive, Tool
 from .discovery import discover
@@ -81,7 +83,8 @@ def run_indexer(
         )
 
     discovered = _discover(pack_dir, config)
-    if not discovered:
+    pack_blocks = read_pack_blocks(pack_dir, config.discovery["blocks"])
+    if not discovered and not pack_blocks.files and not pack_blocks.errors:
         return _err(
             "discovery-empty",
             f"Indexer discovered zero files under {pack_dir}. "
@@ -97,7 +100,10 @@ def run_indexer(
     }
     # Per (kind, id), the versions defined so far and their files.
     owners: dict[tuple[PrimitiveKind, str], dict[str | None, str]] = {}
-    file_errors: list[dict[str, Any]] = []
+    file_errors: list[dict[str, Any]] = [
+        _file_error("manifest-validation-failed", e["message"], e["filePath"])
+        for e in pack_blocks.errors
+    ]
     warnings: list[dict[str, Any]] = []
     flow_spec = _spec("flow")
 
@@ -186,6 +192,8 @@ def run_indexer(
         "agents": _sorted(entries["agent"]),
         "flows": _sorted(entries["flow"]),
     }
+    if pack_blocks.blocks:
+        index["blocks"] = pack_blocks.blocks
     if config.env is not None:
         index["env"] = {
             "optional": list(config.env.optional),
@@ -212,7 +220,10 @@ def run_indexer(
             "packVersion": config.version,
             "artifactVersion": version,
             "publishedAt": when,
-            "counts": {kind_plural: len(entries[kind]) for kind_plural, kind in _FOLDERS.items()},
+            "counts": {
+                **{kind_plural: len(entries[kind]) for kind_plural, kind in _FOLDERS.items()},
+                "blocks": len(pack_blocks.blocks),
+            },
             "outputPath": str(output),
             "fileErrors": file_errors,
             "warnings": warnings,
@@ -270,12 +281,17 @@ def _tool_entry(tool: Tool[..., Any], rel_path: str, config: PackConfig) -> dict
             "output": tool.output_schema,
             "effects": [dict(e) for e in tool.effects],
             "mutating": tool.mutating,
+            "needsApprovalWhenUnattended": tool.needs_approval_when_unattended,
+            "resultIsOutsideData": tool.result_is_outside_data,
             "needs": None if tool.needs is None else [dict(n) for n in tool.needs],
             "needsSpec": _dict(tool.needs_spec),
             "sandbox": tool.sandbox,
             "limits": _dict(tool.limits),
             "network": _dict(tool.network),
             "spec": _dict(tool.spec),
+            "pauses": True if tool.pauses else None,
+            "storesFiles": True if tool.stores_files else None,
+            "readsFiles": True if tool.reads_files else None,
             "modulePath": rel_path,
         }
     )
@@ -293,6 +309,7 @@ def _guardrail_entry(guardrail: Guardrail, rel_path: str) -> dict[str, Any]:
             "checkModulePath": rel_path,
             "checkId": guardrail.check_id,
             "config": _dict(guardrail.config),
+            "judgeCapabilities": _dict(guardrail.judge_capabilities),
             "configSchema": guardrail.config_schema,
             "sandbox": guardrail.sandbox,
             "limits": _dict(guardrail.limits),
@@ -349,6 +366,7 @@ def _agent_entry(agent: Agent, rel_path: str, config: PackConfig) -> dict[str, A
             "conversationPolicy": _dict(agent.conversation_policy),
             "output": output,
             "toolErrors": _dict(agent.tool_errors),
+            "parallelToolCalls": agent.parallel_tool_calls,
             "memory": _dict(agent.memory),
             "settings": [dict(s) for s in agent.settings],
             "modelSettings": _dict(agent.model_settings),
@@ -449,7 +467,7 @@ def _file_error(code: str, message: str, rel_path: str, **extra: Any) -> dict[st
 def _unprefixed_check(guardrail: Guardrail, rel_path: str, pack_id: str) -> dict[str, Any] | None:
     """A warning when a guardrail's check id doesn't start with the pack's id (`<pack id>.`).
 
-    Packs in one tenant share one space of check names, so a check named for its pack can't
+    Packs in one workspace share one space of check names, so a check named for its pack can't
     collide with another pack's. Never a refusal: the pack builds as it did.
     """
     if guardrail.check_id.startswith(f"{pack_id}."):
@@ -458,7 +476,7 @@ def _unprefixed_check(guardrail: Guardrail, rel_path: str, pack_id: str) -> dict
         "check-id-unprefixed",
         f"{rel_path}: check \"{guardrail.check_id}\" doesn't start with this pack's id "
         f'("{pack_id}."). Name it "{pack_id}.checks.<name>" so it can\'t collide with another '
-        "pack's check in the same tenant. The pack builds as it is.",
+        "pack's check in the same workspace. The pack builds as it is.",
         rel_path,
         field="check",
     )

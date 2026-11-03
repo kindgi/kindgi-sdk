@@ -1,0 +1,41 @@
+// {{PACK_ID}}.returns-helper — answers a store's customers about returns and
+// refunds an order within the store's rules.
+//
+// It takes three blocks from `blocks/`, each deployed with the pack and
+// pinned here by range:
+//   - `{{PACK_ID}}.tone`: its instructions, a prompt block. People change
+//     the wording without a deploy, and Improve can try rewrites;
+//   - `{{PACK_ID}}.refund-rules`: the return window, a settings block the
+//     instructions and the refund tool both read;
+//   - `{{PACK_ID}}.returns-model`: its model settings.
+// When people correct its runs, each correction is a case in its test set:
+// the `kindgi-fix-corrections` skill takes them to a fix.
+import { defineAgent } from '@kindgi/sdk/define';
+import type { AgentId, Semver } from '@kindgi/sdk/types';
+
+const defined = defineAgent({
+  id: '{{PACK_ID}}.returns-helper' as AgentId,
+  version: '{{PACK_VERSION}}' as Semver,
+  name: 'Returns helper',
+  description:
+    "Answers a store's customers about returns, and refunds an order within the store's return window and up to a limit.",
+  instructions: { prompt: '{{PACK_ID}}.tone', version: '^{{PACK_VERSION}}' },
+  settings: [{ id: '{{PACK_ID}}.refund-rules', version: '^{{PACK_VERSION}}' }],
+  modelSettings: { id: '{{PACK_ID}}.returns-model', version: '^{{PACK_VERSION}}' },
+  capabilities: [{ needs: [{ feature: 'tool-use' as const }] }],
+  tools: [
+    { id: '{{PACK_ID}}.find-order', version: '{{PACK_VERSION}}' },
+    { id: '{{PACK_ID}}.refund', version: '{{PACK_VERSION}}' },
+  ],
+  retrieval: [],
+  guardrails: [],
+  conversationPolicy: {
+    historyLimit: 20,
+  },
+});
+
+if (defined.kind === 'err') {
+  throw new Error(`{{PACK_ID}}.returns-helper failed to compile: ${defined.error.message}`);
+}
+
+export default defined.value;

@@ -2,14 +2,14 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Orgs — structural subdivisions within a tenant.
+ * Orgs — structural subdivisions within a workspace.
  *
  * @wire /v1/orgs/*  (packages/api/src/routes/orgs.ts)
  * @generated Wire shapes from `../generated/api.js`.
  *
  * Distinct from teams: orgs are STRUCTURAL (a firm's litigation
  * department), teams are OPERATIONAL (a specific working group).
- * Small tenants ignore orgs; large ones use them for hierarchy.
+ * Small workspaces ignore orgs; large ones use them for hierarchy.
  */
 
 import type {

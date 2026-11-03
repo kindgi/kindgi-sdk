@@ -20,6 +20,17 @@ export interface LeafCommand {
   readonly usage: string;
   /** Option spec merged with the global spec by the parser. */
   readonly optionSpec?: Readonly<Record<string, ParseArgsOption>>;
+  /**
+   * For a command whose run `--hosted` changes, not only where it goes
+   * (`kindgi build`, `kindgi deploy`): the env it acts in without `--env`,
+   * and the option naming its own build server, which leaves the env
+   * block's `build: 'hosted'` out. Its env block is always read
+   * (api-address.ts `hostedScope`).
+   */
+  readonly hostedRun?: {
+    readonly defaultEnv: string;
+    readonly buildServerOption?: string;
+  };
   readonly run: (ctx: CommandContext) => Promise<CommandResult>;
 }
 

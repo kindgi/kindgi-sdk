@@ -104,7 +104,12 @@ function lookupTool(): AnyTool {
   return defined.value as unknown as AnyTool;
 }
 
-const agent = { id: 'acme.desk', version: '1.0.0', retrieval: [] } as unknown as Agent;
+const agent = {
+  id: 'acme.desk',
+  version: '1.0.0',
+  capabilities: [],
+  retrieval: [],
+} as unknown as Agent;
 
 /** A turn set up on `provider`: what setup leaves on it, and a conversation store. */
 function turn(provider: ModelProvider, history: readonly ConversationMessage[] = []) {

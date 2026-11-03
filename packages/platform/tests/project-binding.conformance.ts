@@ -8,8 +8,8 @@
  *
  * Cases covered:
  * - CRUD happy paths.
- * - `getDefault` returns the tenant's Default row when `isDefault=true`.
- * - `isDefault` uniqueness guardrail — creating a second Default in
+ * - `getDefault` returns the tenant's default row when `isDefault=true`.
+ * - `isDefault` uniqueness guardrail — creating a second default in
  *   the same tenant resolves to `project-default-already-exists`
  *   (in-memory adapter enforces at write time; Postgres impl enforces
  *   via partial-unique-index).
@@ -68,6 +68,14 @@ export function runProjectBindingConformance(
      * production (`undefined` for none) where this binding reads it.
      */
     readonly setProductionLimit?: (tenantId: TenantId, limit: number | undefined) => Promise<void>;
+    /**
+     * With `checksEnvironmentOrders`: put the project in an environment order
+     * and return that order's id, or clear it from its order. The store backs
+     * this however it holds orders — the in-memory adapter a map, the durable
+     * one a `project_stages` row — so the one guard suite runs on both.
+     */
+    readonly putInEnvironmentOrder?: (tenantId: TenantId, projectId: ProjectId) => Promise<string>;
+    readonly clearEnvironmentOrder?: (tenantId: TenantId, projectId: ProjectId) => Promise<void>;
   },
   label = 'ProjectBinding',
   options: {
@@ -89,6 +97,19 @@ export function runProjectBindingConformance(
      * once can't both take the last place.
      */
     readonly productionLimit?: boolean;
+    /**
+     * The binding implements `setRepoConnection`: a connection set, read
+     * back on the project, kept by an update, and cleared, with repeats
+     * changing nothing.
+     */
+    readonly repoConnection?: boolean;
+    /**
+     * The binding refuses to delete, or to move to another parent, a project
+     * that is a member of an environment order (`project-in-environment-order`),
+     * while allowing a rename or slug change. Needs `putInEnvironmentOrder` +
+     * `clearEnvironmentOrder` on the binding.
+     */
+    readonly checksEnvironmentOrders?: boolean;
   } = {},
 ): void {
   describe(`${label} — project CRUD`, () => {
@@ -117,18 +138,140 @@ export function runProjectBindingConformance(
       expect(got?.name).toBe('A-updated');
     });
 
+    it("sorts end users' corrections only once a patch turns it on, and keeps it through other patches", async () => {
+      const { projects } = makeBinding();
+      const id = await createProject(projects, T1, { name: 'A', slug: 'a' });
+      expect((await projects.get(T1, id))?.sortEndUserCorrections).toBeUndefined();
+      await projects.update(T1, id, { sortEndUserCorrections: true });
+      expect((await projects.get(T1, id))?.sortEndUserCorrections).toBe(true);
+      await projects.update(T1, id, { name: 'A-renamed' });
+      expect((await projects.get(T1, id))?.sortEndUserCorrections).toBe(true);
+      await projects.update(T1, id, { sortEndUserCorrections: false });
+      expect((await projects.get(T1, id))?.sortEndUserCorrections).toBeUndefined();
+    });
+
     it('deletes a project + cascades memberships + grants', async () => {
       const { projects, memberships, grants } = makeBinding();
       const id = await createProject(projects, T1, { name: 'A', slug: 'a' });
       await memberships.add(T1, { projectId: id, userId: U1, role: 'editor' });
       await grants.add(T1, { teamId: TEAM_A, projectId: id, role: 'editor' });
-      await projects.delete(T1, id);
+      expect(await projects.delete(T1, id)).toEqual({ kind: 'ok' });
       const mPage = await memberships.listForUser(T1, U1, {});
       expect(mPage.items).toHaveLength(0);
       const gPage = await grants.listForTeam(T1, TEAM_A, {});
       expect(gPage.items).toHaveLength(0);
     });
   });
+
+  if (options.checksEnvironmentOrders === true) {
+    describe(`${label} — environment-order guard`, () => {
+      function orderOps(binding: ReturnType<typeof makeBinding>) {
+        const put = binding.putInEnvironmentOrder;
+        const clear = binding.clearEnvironmentOrder;
+        if (put === undefined || clear === undefined) {
+          throw new Error(
+            'checksEnvironmentOrders needs putInEnvironmentOrder + clearEnvironmentOrder',
+          );
+        }
+        return { put, clear };
+      }
+
+      it('refuses to delete a project in an environment order; the project stays', async () => {
+        const binding = makeBinding();
+        const { projects } = binding;
+        const { put } = orderOps(binding);
+        const id = await createProject(projects, T1, { name: 'Staging', slug: 'staging' });
+        const orderId = await put(T1, id);
+        expect(await projects.delete(T1, id)).toEqual({
+          kind: 'project-in-environment-order',
+          orderId,
+        });
+        expect((await projects.get(T1, id))?.id).toBe(id);
+      });
+
+      it('refuses to move a project in an environment order to another parent', async () => {
+        const binding = makeBinding();
+        const { projects } = binding;
+        const { put } = orderOps(binding);
+        // A project under the tenant (no org); the move adds a parent, refused.
+        const id = await createProject(projects, T1, { name: 'Prod', slug: 'prod' });
+        const orderId = await put(T1, id);
+        expect(await projects.update(T1, id, { orgId: ORG_A })).toEqual({
+          kind: 'project-in-environment-order',
+          orderId,
+        });
+        expect((await projects.get(T1, id))?.orgId).toBeUndefined();
+      });
+
+      it('allows a rename or slug change for a project in an environment order', async () => {
+        const binding = makeBinding();
+        const { projects } = binding;
+        const { put } = orderOps(binding);
+        const id = await createProject(projects, T1, { name: 'Dev', slug: 'dev' });
+        await put(T1, id);
+        expect(await projects.update(T1, id, { name: 'Dev-renamed', slug: 'dev-2' })).toEqual({
+          kind: 'ok',
+        });
+        const got = await projects.get(T1, id);
+        expect(got?.name).toBe('Dev-renamed');
+        expect(got?.slug).toBe('dev-2');
+      });
+
+      it("allows a patch naming an org-less project's current (no) org — a no-op move, not a refusal", async () => {
+        const binding = makeBinding();
+        const { projects } = binding;
+        const { put } = orderOps(binding);
+        // The project has no org; `orgId: null` names that same parent, so the
+        // patch isn't a move and isn't refused — only an actual change of parent
+        // is. A form that always sends `orgId` can still rename an ordered project.
+        const id = await createProject(projects, T1, { name: 'Staging', slug: 'staging' });
+        const orderId = await put(T1, id);
+        expect(await projects.update(T1, id, { name: 'Staging-2', orgId: null })).toEqual({
+          kind: 'ok',
+        });
+        const afterNoOrg = await projects.get(T1, id);
+        expect(afterNoOrg?.name).toBe('Staging-2');
+        expect(afterNoOrg?.orgId).toBeUndefined();
+        // Still in its order: an actual move is still refused, naming the order.
+        expect(await projects.update(T1, id, { orgId: ORG_A })).toEqual({
+          kind: 'project-in-environment-order',
+          orderId,
+        });
+      });
+
+      it("allows a patch naming an org project's current org, and refuses it leaving the order", async () => {
+        const binding = makeBinding();
+        const { projects } = binding;
+        const { put } = orderOps(binding);
+        // The project is under ORG_A; `orgId: ORG_A` names that same parent — a
+        // no-op move, allowed — while leaving the org (`orgId: null`) is a real
+        // move and refused while the project is in the order.
+        const id = await createProject(projects, T1, { name: 'Prod', slug: 'prod', orgId: ORG_A });
+        const orderId = await put(T1, id);
+        expect(await projects.update(T1, id, { name: 'Prod-2', orgId: ORG_A })).toEqual({
+          kind: 'ok',
+        });
+        const afterSameOrg = await projects.get(T1, id);
+        expect(afterSameOrg?.name).toBe('Prod-2');
+        expect(afterSameOrg?.orgId).toBe(ORG_A);
+        expect(await projects.update(T1, id, { orgId: null })).toEqual({
+          kind: 'project-in-environment-order',
+          orderId,
+        });
+      });
+
+      it('deletes a project once it is cleared from its order', async () => {
+        const binding = makeBinding();
+        const { projects } = binding;
+        const { put, clear } = orderOps(binding);
+        const id = await createProject(projects, T1, { name: 'Staging', slug: 'staging' });
+        await put(T1, id);
+        await clear(T1, id);
+        expect(await projects.delete(T1, id)).toEqual({ kind: 'ok' });
+        expect(await projects.get(T1, id)).toBeUndefined();
+      });
+    });
+  }
 
   if (options.production === true) {
     describe(`${label} — production`, () => {
@@ -198,6 +341,80 @@ export function runProjectBindingConformance(
         });
         expect(await set(T2, id, true)).toEqual({ kind: 'project-not-found' });
         expect((await projects.get(T1, id))?.productionSince).toBeUndefined();
+      });
+    });
+  }
+
+  if (options.repoConnection === true) {
+    describe(`${label} — repo connection`, () => {
+      function setter(projects: ProjectBinding) {
+        const set = projects.setRepoConnection?.bind(projects);
+        if (set === undefined) throw new Error('this binding has no setRepoConnection');
+        return set;
+      }
+
+      it('sets a connection, reads it back, and clears it', async () => {
+        const { projects } = makeBinding();
+        const id = await createProject(projects, T1, { name: 'Shop', slug: 'shop' });
+        const set = setter(projects);
+        expect(await set(T1, id, 'conn-1')).toEqual({
+          kind: 'ok',
+          repoConnectionId: 'conn-1',
+          changed: true,
+        });
+        expect((await projects.get(T1, id))?.repoConnectionId).toBe('conn-1');
+        expect((await projects.list(T1, {})).items.find((p) => p.id === id)?.repoConnectionId).toBe(
+          'conn-1',
+        );
+        expect(await set(T1, id, 'conn-2')).toEqual({
+          kind: 'ok',
+          repoConnectionId: 'conn-2',
+          changed: true,
+        });
+
+        expect(await set(T1, id, null)).toEqual({
+          kind: 'ok',
+          repoConnectionId: null,
+          changed: true,
+        });
+        expect((await projects.get(T1, id))?.repoConnectionId).toBeUndefined();
+      });
+
+      it('a repeat changes nothing', async () => {
+        const { projects } = makeBinding();
+        const id = await createProject(projects, T1, { name: 'Shop', slug: 'shop' });
+        const set = setter(projects);
+        await set(T1, id, 'conn-1');
+        expect(await set(T1, id, 'conn-1')).toEqual({
+          kind: 'ok',
+          repoConnectionId: 'conn-1',
+          changed: false,
+        });
+        await set(T1, id, null);
+        expect(await set(T1, id, null)).toEqual({
+          kind: 'ok',
+          repoConnectionId: null,
+          changed: false,
+        });
+      });
+
+      it('an update keeps the connection', async () => {
+        const { projects } = makeBinding();
+        const id = await createProject(projects, T1, { name: 'Shop', slug: 'shop' });
+        await setter(projects)(T1, id, 'conn-1');
+        expect(await projects.update(T1, id, { name: 'Shop, renamed' })).toEqual({ kind: 'ok' });
+        expect((await projects.get(T1, id))?.repoConnectionId).toBe('conn-1');
+      });
+
+      it("an unknown project, or another tenant's: project-not-found, nothing changed", async () => {
+        const { projects } = makeBinding();
+        const id = await createProject(projects, T1, { name: 'Shop', slug: 'shop' });
+        const set = setter(projects);
+        expect(await set(T1, 'project-missing' as ProjectId, 'conn-1')).toEqual({
+          kind: 'project-not-found',
+        });
+        expect(await set(T2, id, 'conn-1')).toEqual({ kind: 'project-not-found' });
+        expect((await projects.get(T1, id))?.repoConnectionId).toBeUndefined();
       });
     });
   }
@@ -302,8 +519,8 @@ export function runProjectBindingConformance(
     });
   }
 
-  describe(`${label} — Default project`, () => {
-    it('getDefault returns undefined before any Default is created', async () => {
+  describe(`${label} — the default project`, () => {
+    it('getDefault returns undefined before any default is created', async () => {
       const { projects } = makeBinding();
       expect(await projects.getDefault(T1)).toBeUndefined();
     });
@@ -321,7 +538,7 @@ export function runProjectBindingConformance(
       expect(got?.isDefault).toBe(true);
     });
 
-    it('isDefault uniqueness — a second Default in the same tenant → project-default-already-exists', async () => {
+    it('isDefault uniqueness — a second default in the same tenant → project-default-already-exists', async () => {
       const { projects } = makeBinding();
       await createProject(projects, T1, { name: 'D1', slug: 'd1', isDefault: true });
       expect(await projects.create(T1, { name: 'D2', slug: 'd2', isDefault: true })).toEqual({
@@ -339,7 +556,7 @@ export function runProjectBindingConformance(
       expect(await projects.getDefault(T1)).toBeUndefined();
     });
 
-    it('a Default in tenant A does NOT block a Default in tenant B', async () => {
+    it('a default in tenant A does NOT block a default in tenant B', async () => {
       const { projects } = makeBinding();
       await createProject(projects, T1, { name: 'D1', slug: 'd1', isDefault: true });
       const d2 = await createProject(projects, T2, {

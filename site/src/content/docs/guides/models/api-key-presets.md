@@ -30,7 +30,7 @@ direct vendor's preset, or [a model you serve yourself](../serve-your-own-model/
 
 ## Before you start
 
-- **A pack** with `kindgi dev` running, from Kindgi 0.1's CLI.
+- **A pack** with `kindgi dev` running, from Kindgi 0.2's CLI.
 - **The provider's API key.**
 
 ## 1. Store the key
@@ -39,14 +39,14 @@ The preset reads the key from a secret named in the table. In the pack,
 store it. Here it's OpenAI's:
 
 ```sh
-kindgi secrets set OPENAI_API_KEY --env=local --scope=tenant
+pnpm exec kindgi secrets set OPENAI_API_KEY --env=local --scope=tenant
 ```
 
 - `OPENAI_API_KEY` is the secret's name, the one the preset reads.
 - `--env=local` is the environment the secret belongs to. Under
   `kindgi dev`, `local` is the pack's env files, `.kindgi/secrets.env` among
   them.
-- `--scope=tenant` is where the secret lives: the tenant, rather than one org
+- `--scope=tenant` is where the secret lives: the workspace, rather than one org
   (`org:<orgId>`) or project (`project:<projectId>`).
 
 It prompts for the key without echoing it and writes it to Kindgi's own
@@ -60,7 +60,7 @@ env files out of git. `kindgi init` already keeps `.kindgi/` out.
 Register the preset's models with the runtime. `--preset` names the preset:
 
 ```sh
-kindgi providers register --preset=openai
+pnpm exec kindgi providers register --preset=openai
 ```
 
 ```text
@@ -116,7 +116,9 @@ The prices are the presets' own, checked against the providers on
 A turn's `totalCostUsd` uses them. A prompt over a model's long-context
 threshold prices the whole call at the higher rates.
 [Temperature and thinking](../#temperature-and-thinking) says which of these
-models take a temperature, and which think.
+models take a temperature, which think, and the thinking levels each takes.
+The presets register those levels, so an agent's level goes to the model as
+asked or rounded to one it takes.
 
 A provider registered from a preset that had no default model has none, so
 an agent that names no model gets the first by name, and it keeps only the

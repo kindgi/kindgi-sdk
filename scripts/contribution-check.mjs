@@ -28,8 +28,8 @@
  * comment instead of posting it (to try it against a real pull request).
  */
 
-import { appendFileSync, readFileSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
+import { appendFileSync, readFileSync, realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 /** The comment the check owns, found again by this marker. */
 export const COMMENT_MARKER = '<!-- kindgi-contribution-check -->';
@@ -250,7 +250,10 @@ async function main() {
   });
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+if (
+  process.argv[1] !== undefined &&
+  realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
   main().then(
     (code) => process.exit(code),
     (err) => {

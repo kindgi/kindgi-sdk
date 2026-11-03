@@ -39,10 +39,26 @@ import {
   isZodSchema,
   parseWithSchema,
 } from '@kindgi/schema';
+import {
+  type FileStore,
+  type ToolConnection,
+  connectionRejectionOf,
+  withoutConnectionTokens,
+} from '@kindgi/tools';
 import type { Result } from '@kindgi/types';
 
+import { serializeCause, stringifyError } from './error-text.js';
+import {
+  MAX_PAUSE_NAME_LENGTH,
+  MAX_PAUSE_TIMEOUT_MS,
+  type ToolFilesRef,
+  type WaitTokenRef,
+} from './protocol.js';
+import { withoutSecrets } from './secret-redaction.js';
+import { fileStoreOf, toolFilesOf } from './tool-files.js';
+
 /**
- * What a handler gets beside its input: the tenant and run it serves,
+ * What a handler gets beside its input: the workspace and run it serves,
  * and the "typed needs" it declares (`needsSpec.env`, `needsSpec.secrets`),
  * resolved by the runtime for this call and sent with it. `config` is
  * reserved: no runtime sends it yet.
@@ -55,9 +71,24 @@ export interface HandlerContext {
   /** The project's org, when it has one (2.3.0). */
   readonly orgId?: string;
   readonly requestId?: string;
-  /** The declared env values: project, else org, else tenant (protocol 2.5.0). */
+  /**
+   * The call's idempotency key: the same every time this call runs, and
+   * different for every other call (protocol 2.6.0). Absent from an older
+   * runtime, and outside a run.
+   */
+  readonly idempotencyKey?: string;
+  /** The declared env values: project, else org, else workspace (protocol 2.5.0). */
   readonly env?: Readonly<Record<string, unknown>>;
   readonly secrets?: Readonly<Record<string, unknown>>;
+  /**
+   * The declared connections (`needsSpec.connections`), by the tool's name
+   * for each, with a short-lived token (protocol 2.9.0). Not enumerable,
+   * like `secrets`. When the app refuses a token, throw
+   * `ConnectionRejectedError` (`@kindgi/tools`) with the name, or an error
+   * whose `cause` is one: the call answers `connection-rejected`, and the
+   * runtime renews the token once and runs the call again.
+   */
+  readonly connections?: Readonly<Record<string, ToolConnection>>;
   readonly config?: Readonly<Record<string, unknown>>;
   /**
    * The calling agent version's settings blocks' values, by block id
@@ -66,6 +97,42 @@ export interface HandlerContext {
    */
   readonly settings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
   /**
+   * The call's wait token (protocol 2.8.0), only for a tool that declares
+   * `pauses`: hand `url` to the system that will answer, then return
+   * `ctx.pause()`. Reading it when the runtime sent none (one from before
+   * 2.8.0) throws, and the call fails with `pause-not-available`. A
+   * re-run after a crash gets a new link to the same wait, and either
+   * link completes it. Hand on the new one only if the old one never went
+   * out, and dedupe on the call's `idempotencyKey`.
+   */
+  readonly waitToken?: WaitTokenRef;
+  /**
+   * Only for a tool that declares `pauses`: the value to return when the
+   * call waits for another system's answer (`return ctx.pause({ timeoutMs:
+   * 2 * 60 * 60 * 1000, name: "the carrier's pickup confirmation" })`).
+   * Without `timeoutMs`, the runtime waits 24 hours; at most 24 days.
+   * Never on the wire; the runner adds it.
+   */
+  readonly pause?: (options?: PauseOptions) => PauseAnswer;
+  /**
+   * Only for a tool that declares `storesFiles` or `readsFiles`: the
+   * call's files (protocol 2.10.0), with only what it declares. `store`
+   * sends a file's bytes to the runtime, which checks and stores them, and
+   * answers the file value to return in the result's top-level `files`, or
+   * why it stored nothing; it's absent on a call with no `idempotencyKey`.
+   * `read` answers the bytes of a file the call's run may be shown, or why
+   * there are none. Absent when the runtime sent no tool files (one from
+   * before 2.10.0, or one with no file store). Never on the wire; the
+   * runner adds it.
+   */
+  readonly files?: FileStore;
+  /**
+   * The call's tool files as the runtime sent them (protocol 2.10.0). The
+   * runner keeps them from the handler, which gets `files` instead. Not
+   * enumerable, like `secrets`.
+   */
+  readonly toolFiles?: ToolFilesRef;
+  /**
    * Never on the wire; the pack service adds it: aborted when the call
    * is cancelled or passes its deadline. Handlers that do slow I/O
    * should pass it on so they stop promptly.
@@ -73,7 +140,7 @@ export interface HandlerContext {
   readonly abortSignal?: AbortSignal;
   /**
    * Never on the wire; the pack service adds it: a logger bound to the
-   * call (its tenant, run, request and trace). Not enumerable, like
+   * call (its workspace, run, request and trace). Not enumerable, like
    * `secrets`.
    */
   readonly log?: Logger;
@@ -90,7 +157,49 @@ export interface ToolInvocationSpec {
   readonly modulePath: string;
   readonly inputSchema: Readonly<Record<string, unknown>>;
   readonly outputSchema: Readonly<Record<string, unknown>>;
+  /**
+   * The tool declares `pauses`: its handler gets `ctx.waitToken` and
+   * `ctx.pause`. A tool without it gets neither, even when the call
+   * carried a token.
+   */
+  readonly pauses?: boolean;
+  /**
+   * The tool declares `storesFiles`: its handler gets `ctx.files.store`
+   * when the call carried tool files and an `idempotencyKey`. No handler
+   * ever gets the tool files themselves.
+   */
+  readonly storesFiles?: boolean;
+  /**
+   * The tool declares `readsFiles`: its handler gets `ctx.files.read` when
+   * the call carried tool files.
+   */
+  readonly readsFiles?: boolean;
 }
+
+/** What a pausing handler passes to `ctx.pause`. */
+export interface PauseOptions {
+  /** How long the run waits, in milliseconds: 1 to 24 days' worth. Default: 24 hours. */
+  readonly timeoutMs?: number;
+  /** What the run waits for, in a few words: 1 to 200 characters. */
+  readonly name?: string;
+}
+
+/** What `ctx.pause` returns; the handler returns it as its result. */
+export interface PauseAnswer {
+  readonly timeoutMs?: number;
+  readonly name?: string;
+}
+
+/** A call that waits for another system's answer, as the pack service answers it. */
+export interface HandlerPause {
+  readonly timeoutMs?: number;
+  readonly name?: string;
+}
+
+/** A tool call's outcome when its caller can take a pause (`runHandlerOrPause`). */
+export type HandlerOutcome =
+  | Result<unknown, HandlerError>
+  | { readonly kind: 'pause'; readonly pause: HandlerPause };
 
 /**
  * The guardrail check being called (`RegisteredCheck.evaluate(config,
@@ -122,7 +231,9 @@ export type HandlerErrorCode =
   | 'handler-import-failed'
   | 'handler-shape-invalid'
   | 'handler-throw'
-  | 'check-shape-invalid';
+  | 'connection-rejected'
+  | 'check-shape-invalid'
+  | 'pause-not-available';
 
 export interface HandlerError {
   readonly code: HandlerErrorCode;
@@ -130,6 +241,8 @@ export interface HandlerError {
   readonly toolId?: string;
   readonly cause?: unknown;
   readonly issues?: readonly unknown[];
+  /** For `connection-rejected`: the tool's name for the connection the app refused. */
+  readonly connection?: string;
 }
 
 /**
@@ -219,11 +332,32 @@ export interface RunHandlerOptions {
 
 /**
  * Run one tool call; a typed `Result`, never a throw — every failure is
- * a `HandlerError`.
+ * a `HandlerError`. A caller that can make the run wait calls
+ * `runHandlerOrPause` instead: here, a tool's pause is refused as
+ * `pause-not-available`, so no caller reads a pause as output.
  */
 export async function runHandler(
   options: RunHandlerOptions,
 ): Promise<Result<unknown, HandlerError>> {
+  const outcome = await runHandlerOrPause(options);
+  if (outcome.kind !== 'pause') return outcome;
+  return {
+    kind: 'err',
+    error: {
+      code: 'pause-not-available',
+      message: `Tool "${options.tool.id}" paused, but its caller can't wait for an answer`,
+      toolId: options.tool.id,
+    },
+  };
+}
+
+/**
+ * Run one tool call whose caller can make the run wait: as `runHandler`,
+ * plus a third outcome, `pause`, when a tool that declares `pauses`
+ * returns `ctx.pause()`. A pause's output isn't validated: the answer
+ * that arrives later is.
+ */
+export async function runHandlerOrPause(options: RunHandlerOptions): Promise<HandlerOutcome> {
   const { tool, input, ctx } = options;
   const importHandler = options.importHandler ?? defaultImportHandler;
 
@@ -263,7 +397,7 @@ export async function runHandler(
       kind: 'err',
       error: {
         code: 'handler-import-failed',
-        message: `Failed to import handler module '${tool.modulePath}': ${stringifyError(cause)}`,
+        message: `Failed to import handler module '${tool.modulePath}': ${stringifyError(cause)}${missingPackageHint(cause)}`,
         toolId: tool.id,
         cause: serializeCause(cause),
       },
@@ -305,21 +439,58 @@ export async function runHandler(
     prepared = parsed.value;
   }
 
-  let output: unknown;
+  const called = await callHandler(handler, prepared, ctx, tool);
+  if (called.kind === 'err') return called;
+  if (isPauseAnswer(called.value)) return pauseOf(tool, ctx, called.value);
+  return checkedOutput(tool, called.value);
+}
+
+/** What the handler returned, or the error its throw is. */
+async function callHandler(
+  handler: HandlerFn,
+  input: unknown,
+  ctx: HandlerContext,
+  tool: ToolInvocationSpec,
+): Promise<Result<unknown, HandlerError>> {
   try {
-    output = await handler(prepared, ctx);
+    return { kind: 'ok', value: await handler(input, callContext(ctx, tool)) };
   } catch (cause) {
+    const rejection = connectionRejectionOf(cause);
+    if (rejection !== undefined) {
+      return {
+        kind: 'err',
+        error: {
+          code: 'connection-rejected',
+          message: `Tool "${tool.id}": ${rejection.message}`,
+          toolId: tool.id,
+          connection: rejection.connection,
+        },
+      };
+    }
+    if (isPauseNotAvailable(cause)) {
+      return {
+        kind: 'err',
+        error: { code: 'pause-not-available', message: cause.message, toolId: tool.id },
+      };
+    }
+    // The call's own values go before the message is built: its masking,
+    // its one-line causes and their cut could otherwise leave part of one
+    // where a match on the whole value no longer finds it.
+    const shown = withoutCallValues(cause, ctx);
     return {
       kind: 'err',
       error: {
         code: 'handler-throw',
-        message: `Handler for tool "${tool.id}" threw: ${stringifyError(cause)}`,
+        message: `Handler for tool "${tool.id}" threw: ${stringifyError(shown)}${missingPackageHint(shown)}`,
         toolId: tool.id,
-        cause: serializeCause(cause),
+        cause: serializeCause(shown),
       },
     };
   }
+}
 
+/** The handler's output, checked against the tool's output schema. */
+function checkedOutput(tool: ToolInvocationSpec, output: unknown): Result<unknown, HandlerError> {
   let outputValidator: ValidateFunction;
   try {
     outputValidator = compileSchema(tool.outputSchema, 'output');
@@ -345,8 +516,166 @@ export async function runHandler(
       },
     };
   }
-
   return { kind: 'ok', value: output };
+}
+
+// -----------------------------------------------------------------------
+// Pauses — `ctx.waitToken`, `ctx.pause`
+// -----------------------------------------------------------------------
+
+/**
+ * Marks what `ctx.pause` returns. Registered, so a handler module that
+ * loads its own copy of this package still returns a pause the runner
+ * recognizes.
+ */
+const PAUSE_ANSWER = Symbol.for('kindgi.pack.pause-answer');
+const PAUSE_NOT_AVAILABLE = Symbol.for('kindgi.pack.pause-not-available');
+
+class PauseNotAvailableError extends Error {
+  readonly [PAUSE_NOT_AVAILABLE] = true;
+}
+
+function isPauseNotAvailable(value: unknown): value is PauseNotAvailableError {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { readonly [PAUSE_NOT_AVAILABLE]?: unknown })[PAUSE_NOT_AVAILABLE] === true
+  );
+}
+
+function isPauseAnswer(value: unknown): value is PauseAnswer {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { readonly [PAUSE_ANSWER]?: unknown })[PAUSE_ANSWER] === true
+  );
+}
+
+function noWaitToken(toolId: string): PauseNotAvailableError {
+  return new PauseNotAvailableError(
+    `Tool "${toolId}" can't pause: the runtime that called it sent no wait token. Pausing needs a runtime that speaks pack protocol 2.8.0 or later.`,
+  );
+}
+
+/** What the runner decides for each call: never passed through from the caller. */
+const CALL_KEYS: ReadonlySet<string> = new Set(['waitToken', 'pause', 'toolFiles', 'files']);
+
+/**
+ * The context a handler gets. A tool that declares `pauses` gets the
+ * call's `waitToken` and `pause`; a tool that declares `storesFiles` or
+ * `readsFiles` gets `files` when the call carried tool files, with what it
+ * declares; any other tool gets none of them, even when the call carried a
+ * token. No handler gets the tool files themselves. The caller's context isn't changed; its properties,
+ * non-enumerable ones too (`secrets`, `connections`, `log`), are kept.
+ */
+function callContext(ctx: HandlerContext, tool: ToolInvocationSpec): HandlerContext {
+  const own = Object.getOwnPropertyDescriptors(ctx);
+  if (tool.pauses !== true && !Object.keys(own).some((key) => CALL_KEYS.has(key))) return ctx;
+  const descriptors = Object.fromEntries(
+    Object.entries(own).filter(([key]) => !CALL_KEYS.has(key)),
+  );
+  const out = Object.defineProperties({}, descriptors) as HandlerContext;
+  const may = {
+    store: tool.storesFiles === true && ctx.idempotencyKey !== undefined,
+    read: tool.readsFiles === true,
+  };
+  const link = may.store || may.read ? toolFilesOf(ctx.toolFiles) : undefined;
+  if (link !== undefined) {
+    Object.defineProperty(out, 'files', {
+      value: fileStoreOf(link, may, ctx.abortSignal),
+      enumerable: true,
+    });
+  }
+  if (tool.pauses === true) withPause(out, ctx.waitToken, tool);
+  return out;
+}
+
+/** `waitToken` and `pause` on a pausing tool's context, read from the call's token. */
+function withPause(
+  out: HandlerContext,
+  waitToken: WaitTokenRef | undefined,
+  tool: ToolInvocationSpec,
+): void {
+  if (waitToken === undefined) {
+    Object.defineProperty(out, 'waitToken', {
+      get: () => {
+        throw noWaitToken(tool.id);
+      },
+    });
+  } else {
+    Object.defineProperty(out, 'waitToken', {
+      value: Object.freeze({ id: waitToken.id, url: waitToken.url }),
+      enumerable: true,
+    });
+  }
+  Object.defineProperty(out, 'pause', {
+    value: (options: PauseOptions = {}): PauseAnswer => {
+      if (waitToken === undefined) throw noWaitToken(tool.id);
+      return Object.freeze({
+        ...(options.timeoutMs !== undefined && { timeoutMs: options.timeoutMs }),
+        ...(options.name !== undefined && { name: options.name }),
+        [PAUSE_ANSWER]: true,
+      });
+    },
+  });
+}
+
+/**
+ * A handler's pause, checked: from a tool that may pause, on a call that
+ * carried a wait token, within the limits the protocol states.
+ */
+function pauseOf(
+  tool: ToolInvocationSpec,
+  ctx: HandlerContext,
+  answer: PauseAnswer,
+): HandlerOutcome {
+  if (tool.pauses !== true || ctx.waitToken === undefined) {
+    return {
+      kind: 'err',
+      error: {
+        code: 'pause-not-available',
+        message:
+          tool.pauses !== true
+            ? `Tool "${tool.id}" answered with a pause, but doesn't declare \`pauses: true\``
+            : noWaitToken(tool.id).message,
+        toolId: tool.id,
+      },
+    };
+  }
+  const { timeoutMs, name } = answer;
+  if (
+    timeoutMs !== undefined &&
+    (typeof timeoutMs !== 'number' ||
+      !Number.isInteger(timeoutMs) ||
+      timeoutMs < 1 ||
+      timeoutMs > MAX_PAUSE_TIMEOUT_MS)
+  ) {
+    return shapeInvalid(
+      tool.id,
+      `Tool "${tool.id}" paused with timeoutMs ${String(timeoutMs)}: it must be a whole number of milliseconds from 1 to ${MAX_PAUSE_TIMEOUT_MS} (24 days)`,
+    );
+  }
+  // In code points, as the schema's `maxLength` and a Python pack count it.
+  if (
+    name !== undefined &&
+    (typeof name !== 'string' || name.length === 0 || [...name].length > MAX_PAUSE_NAME_LENGTH)
+  ) {
+    return shapeInvalid(
+      tool.id,
+      `Tool "${tool.id}" paused with a name that isn't 1 to ${MAX_PAUSE_NAME_LENGTH} characters`,
+    );
+  }
+  return {
+    kind: 'pause',
+    pause: {
+      ...(timeoutMs !== undefined && { timeoutMs }),
+      ...(name !== undefined && { name }),
+    },
+  };
+}
+
+function shapeInvalid(toolId: string, message: string): HandlerOutcome {
+  return { kind: 'err', error: { code: 'handler-shape-invalid', message, toolId } };
 }
 
 // -----------------------------------------------------------------------
@@ -430,7 +759,7 @@ export async function runCheck(options: RunCheckOptions): Promise<Result<unknown
       kind: 'err',
       error: {
         code: 'handler-import-failed',
-        message: `Failed to import check module '${check.modulePath}': ${stringifyError(cause)}`,
+        message: `Failed to import check module '${check.modulePath}': ${stringifyError(cause)}${missingPackageHint(cause)}`,
         toolId: check.id,
         cause: serializeCause(cause),
       },
@@ -459,7 +788,7 @@ export async function runCheck(options: RunCheckOptions): Promise<Result<unknown
       kind: 'err',
       error: {
         code: 'handler-throw',
-        message: `Check "${check.id}" evaluate() threw: ${stringifyError(cause)}`,
+        message: `Check "${check.id}" evaluate() threw: ${stringifyError(cause)}${missingPackageHint(cause)}`,
         toolId: check.id,
         cause: serializeCause(cause),
       },
@@ -553,34 +882,36 @@ async function defaultImportHandler(modulePath: string): Promise<HandlerModule> 
   return (await import(importSpecifier(modulePath))) as HandlerModule;
 }
 
-function stringifyError(err: unknown): string {
-  if (err instanceof Error) return `${err.name}: ${err.message}`;
-  return String(err);
+/**
+ * A thrown value with the call's connection tokens, secrets and tool
+ * files token replaced by `[redacted]`, at any depth
+ * (`withoutConnectionTokens`, `withoutSecrets`).
+ */
+function withoutCallValues(cause: unknown, ctx: HandlerContext): unknown {
+  const secrets = [
+    ...(ctx.secrets === undefined ? [] : Object.values(ctx.secrets)),
+    ...(ctx.toolFiles === undefined ? [] : [ctx.toolFiles.token]),
+  ];
+  return withoutSecrets(withoutConnectionTokens(cause, [ctx.connections]), secrets);
 }
 
 /**
- * Handlers may throw arbitrary values (Error, string, plain objects,
- * undefined). The wire protocol carries `cause` as JSON — serialize to
- * a shape JSON.stringify handles cleanly. Preserve the original message
- * + name when `err` is an Error; fall back to a stringified rep otherwise.
+ * In a pack image that keeps only what the pack loads (the image sets
+ * `KINDGI_IMAGE_DEPENDENCIES=loaded`), what to do about a package the
+ * code loads and the image doesn't have: a plugin named in a config
+ * string, say, which no build gate could see. Empty otherwise.
  */
-function serializeCause(err: unknown): unknown {
-  if (err instanceof Error) {
-    return { name: err.name, message: err.message, stack: err.stack };
-  }
-  if (err === undefined) return null;
-  if (
-    err === null ||
-    typeof err === 'string' ||
-    typeof err === 'number' ||
-    typeof err === 'boolean'
-  ) {
-    return err;
-  }
-  try {
-    JSON.stringify(err);
-    return err;
-  } catch {
-    return String(err);
-  }
+export function missingPackageHint(
+  cause: unknown,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  if (env.KINDGI_IMAGE_DEPENDENCIES !== 'loaded') return '';
+  const code = (cause as { code?: unknown } | null)?.code;
+  if (code !== 'ERR_MODULE_NOT_FOUND' && code !== 'MODULE_NOT_FOUND') return '';
+  const message = cause instanceof Error ? cause.message : String(cause);
+  const specifier = /Cannot find (?:package|module) '([^']+)'/.exec(message)?.[1];
+  if (specifier === undefined || specifier.startsWith('.') || specifier.startsWith('/')) return '';
+  const parts = specifier.split('/');
+  const name = specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
+  return `. ${name} isn't in this pack image, which keeps only the packages the pack's code imports by name: add it to image.keep in kindgi.config, or set image.dependencies: 'all'`;
 }

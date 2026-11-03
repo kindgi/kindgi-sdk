@@ -41,6 +41,15 @@ public final class GuardrailViolationException extends KindgiApiException {
     return evaluationErrors;
   }
 
+  /**
+   * @return the answers the turn had when a {@code retry} guardrail's attempts ran out, the first
+   *     one included, or {@code null} when a {@code halt} guardrail stopped it
+   */
+  public @Nullable Integer attempts() {
+    Object attempts = details().get("attempts");
+    return attempts instanceof Integer || attempts instanceof Long ? ((Number) attempts).intValue() : null;
+  }
+
   @Override
   public String code() {
     return "guardrail-violation";

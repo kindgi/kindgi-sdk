@@ -14,6 +14,10 @@ import { join } from 'node:path';
 import { after, describe, test } from 'node:test';
 
 import { changedFiles, decide, matches, range } from './changed-paths.mjs';
+import { scratchRepoEnv } from './lib/git-env.mjs';
+
+/** git's repository variables dropped, so a shell pointing at another repository leaves it alone. */
+const scratchEnv = scratchRepoEnv();
 
 const JVM = ['sdks/java/**', 'packages/api/openapi.json', '.github/workflows/java.yml'];
 const A = 'a'.repeat(40);
@@ -101,6 +105,7 @@ describe('changed-paths', () => {
     const git = (args) =>
       execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=t', ...args], {
         cwd: dir,
+        env: scratchEnv,
         encoding: 'utf8',
       });
     const commit = (path, message) => {

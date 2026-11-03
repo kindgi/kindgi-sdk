@@ -6,7 +6,8 @@ import type { Cursor, Filter, FlowId } from '@kindgi/types';
 import { KindgiApiError, notYetWired } from '../errors.js';
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
-import type { Flow } from '../types.js';
+import type { Flow, GetLatestOptions } from '../types.js';
+import { type PinnedVersionsClient, makePinnedVersionsClient } from './pinned-versions.js';
 
 /**
  * Flows resource — raw task-flow authoring.
@@ -29,7 +30,7 @@ export interface FlowsClient {
   /**
    * Publish a flow definition into a project (`options.projectId`,
    * sent next to the flow fields in the request body; `400 bad-input`
-   * when it does not name a project in the tenant). Server validates against
+   * when it does not name a project in the workspace). Server validates against
    * `@kindgi/specs/flow.schema.json` via `@kindgi/flow.loadFlow` (cycles
    * rejected, unresolved node references rejected, unresolved edge
    * references rejected). Validation failures return
@@ -57,8 +58,9 @@ export interface FlowsClient {
   /**
    * @wire `GET /v1/flows/{flowId}` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1flows~1{flowId}/get`.
+   *   Which version: `GetLatestOptions`.
    */
-  get(id: FlowId): Promise<Flow>;
+  get(id: FlowId, options?: GetLatestOptions): Promise<Flow>;
 
   /**
    * Flows, the latest version of each. `filter.includeRetired = true`
@@ -75,6 +77,12 @@ export interface FlowsClient {
    * directly lists them (deprecated: use `flows.versions.list`).
    */
   readonly versions: FlowVersionsClient;
+  /**
+   * Pinned versions: which version a run that names none takes, per
+   * project, org or workspace. Without a pin covering its project, a run
+   * takes the newest version the project reaches.
+   */
+  readonly pinned: PinnedVersionsClient;
   /** @deprecated Use `flows.versions.get`; removed in 0.2. */
   getVersion(id: FlowId, version: string): Promise<FlowVersionRow>;
   /** @deprecated Use `flows.versions.unregister`; removed in 0.2. */
@@ -296,10 +304,11 @@ export function makeFlowsClient(transport: Transport): FlowsClient {
       );
     },
 
-    async get(id) {
+    async get(id, options) {
       return transport.request<Flow>({
         method: 'GET',
         path: `/v1/flows/${encodeURIComponent(id as unknown as string)}`,
+        query: { ...(options?.projectId !== undefined && { projectId: options.projectId }) },
       });
     },
 
@@ -318,6 +327,16 @@ export function makeFlowsClient(transport: Transport): FlowsClient {
     },
 
     versions,
+    pinned: makePinnedVersionsClient(transport, (id) => {
+      const flow = encodeURIComponent(id);
+      return {
+        resolve: { path: `/v1/flows/${flow}/pinned` },
+        list: { path: `/v1/flows/${flow}/pinned-versions` },
+        pin: { path: `/v1/flows/${flow}/pinned/pin` },
+        unpin: { path: `/v1/flows/${flow}/pinned/unpin` },
+        history: { path: `/v1/flows/${flow}/pin-history` },
+      };
+    }),
     getVersion: (id, version) => versions.get(id, version),
     async delete(id, version, options) {
       await versions.unregister(id, version, options);

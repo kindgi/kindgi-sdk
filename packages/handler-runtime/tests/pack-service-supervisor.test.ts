@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
 
+import type { PackBlockWrite, PackBlockWriteOutcome, PackFilesState } from '../src/pack-blocks.js';
 import { createPackServiceSupervisor } from '../src/pack-service/index.js';
 import type {
   PackServiceSupervisor,
@@ -602,6 +603,168 @@ async function until(condition: () => boolean, timeoutMs = 5000): Promise<void> 
     await new Promise((r) => setTimeout(r, 10));
   }
 }
+
+describe('createPackServiceSupervisor — the front writes a block (kindgi dev)', () => {
+  const WRITE = { id: 'acme.reply', version: '1.0.1', content: { template: 'Hi.' } };
+
+  function writeBlock(running: Running, body: unknown, token = running.supervisor.token) {
+    return fetch(`${running.url}/v1/blocks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', [PACK_HEADERS.token]: token },
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+    });
+  }
+
+  function writer(outcome: PackBlockWriteOutcome) {
+    const writes: PackBlockWrite[] = [];
+    return {
+      writes,
+      writeBlock: async (write: PackBlockWrite) => {
+        writes.push(write);
+        return outcome;
+      },
+    };
+  }
+
+  test('POST /v1/blocks hands the write to writeBlock and answers what it wrote', async () => {
+    const w = writer({
+      kind: 'ok',
+      file: 'blocks/reply.json',
+      templateFile: 'blocks/reply.liquid',
+      replaced: '1.0.0',
+    });
+    const running = await supervisor({}, [], [], { writeBlock: w.writeBlock });
+    const res = await writeBlock(running, WRITE);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      file: 'blocks/reply.json',
+      templateFile: 'blocks/reply.liquid',
+      replaced: '1.0.0',
+    });
+    expect(w.writes).toEqual([WRITE]);
+  });
+
+  test('a missing or wrong token is refused (401), and nothing is written', async () => {
+    const w = writer({ kind: 'ok', file: 'blocks/reply.json', replaced: '1.0.0' });
+    const running = await supervisor({}, [], [], { writeBlock: w.writeBlock });
+    expect((await writeBlock(running, WRITE, 'not-the-token')).status).toBe(401);
+    expect(
+      (await fetch(`${running.url}/v1/blocks`, { method: 'POST', body: JSON.stringify(WRITE) }))
+        .status,
+    ).toBe(401);
+    expect(w.writes).toEqual([]);
+  });
+
+  test('without writeBlock (a deployment) the route is not there (404)', async () => {
+    const running = await supervisor();
+    expect((await writeBlock(running, WRITE)).status).toBe(404);
+    // Not there at all: no token asked for first.
+    expect(
+      (await fetch(`${running.url}/v1/blocks`, { method: 'POST', body: JSON.stringify(WRITE) }))
+        .status,
+    ).toBe(404);
+  });
+
+  test('GET is refused (405)', async () => {
+    const w = writer({ kind: 'ok', file: 'blocks/reply.json', replaced: '1.0.0' });
+    const running = await supervisor({}, [], [], { writeBlock: w.writeBlock });
+    const res = await fetch(`${running.url}/v1/blocks`, {
+      headers: { [PACK_HEADERS.token]: running.supervisor.token },
+    });
+    expect(res.status).toBe(405);
+  });
+
+  test.each([
+    ['not JSON', '{'],
+    ['no id', { version: '1.0.1', content: {} }],
+    ['content not an object', { id: 'acme.reply', version: '1.0.1', content: [] }],
+  ])(
+    'a body that is not a write (%s) is refused (400), and nothing is written',
+    async (_n, body) => {
+      const w = writer({ kind: 'ok', file: 'blocks/reply.json', replaced: '1.0.0' });
+      const running = await supervisor({}, [], [], { writeBlock: w.writeBlock });
+      const res = await writeBlock(running, body);
+      expect(res.status).toBe(400);
+      expect(w.writes).toEqual([]);
+    },
+  );
+
+  test.each([
+    ['not-in-pack', 404],
+    ['invalid', 400],
+    ['not-newer', 409],
+  ] as const)("the writer's refusal %s answers %i, with its message", async (reason, status) => {
+    const w = writer({ kind: 'err', reason, message: `refused: ${reason}` });
+    const running = await supervisor({}, [], [], { writeBlock: w.writeBlock });
+    const res = await writeBlock(running, WRITE);
+    expect(res.status).toBe(status);
+    expect(await res.json()).toEqual({ error: `refused: ${reason}`, reason });
+  });
+});
+
+describe("createPackServiceSupervisor — the front reads which blocks' files git hasn't committed (kindgi dev)", () => {
+  function readState(running: Running, body: unknown, token = running.supervisor.token) {
+    return fetch(`${running.url}/v1/blocks/uncommitted`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', [PACK_HEADERS.token]: token },
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+    });
+  }
+
+  function reader(state: PackFilesState) {
+    const asked: (readonly string[])[] = [];
+    return {
+      asked,
+      blockFilesState: async (ids: readonly string[]) => {
+        asked.push(ids);
+        return state;
+      },
+    };
+  }
+
+  test.each([
+    [
+      'git, with the files it has not committed',
+      { kind: 'git', uncommitted: ['blocks/reply.liquid'] },
+      { uncommittedFiles: ['blocks/reply.liquid'] },
+    ],
+    ['git, with all of them committed', { kind: 'git', uncommitted: [] }, { uncommittedFiles: [] }],
+    ['not in git', { kind: 'not-in-git' }, { notInGit: true }],
+    ['git could not say', { kind: 'unknown' }, {}],
+  ] as const)('%s', async (_n, state, answer) => {
+    const r = reader(state);
+    const running = await supervisor({}, [], [], { blockFilesState: r.blockFilesState });
+    const res = await readState(running, { ids: ['acme.reply', 'acme.tone'] });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(answer);
+    expect(r.asked).toEqual([['acme.reply', 'acme.tone']]);
+  });
+
+  test('a missing or wrong token is refused (401), and nothing is read', async () => {
+    const r = reader({ kind: 'git', uncommitted: [] });
+    const running = await supervisor({}, [], [], { blockFilesState: r.blockFilesState });
+    expect((await readState(running, { ids: [] }, 'not-the-token')).status).toBe(401);
+    expect(r.asked).toEqual([]);
+  });
+
+  test('without blockFilesState the route is not there (404), with or without writeBlock', async () => {
+    const running = await supervisor({}, [], [], {
+      writeBlock: async () => ({ kind: 'ok', file: 'blocks/reply.json', replaced: '1.0.0' }),
+    });
+    expect((await readState(running, { ids: [] })).status).toBe(404);
+  });
+
+  test.each([
+    ['not JSON', '{'],
+    ['no ids', {}],
+    ['an id that is not a string', { ids: ['acme.reply', 3] }],
+  ])('a body that is not the blocks to read (%s) is refused (400)', async (_n, body) => {
+    const r = reader({ kind: 'git', uncommitted: [] });
+    const running = await supervisor({}, [], [], { blockFilesState: r.blockFilesState });
+    expect((await readState(running, body)).status).toBe(400);
+    expect(r.asked).toEqual([]);
+  });
+});
 
 describe('the service lines the supervisor reads', () => {
   const record = (fields: Record<string, unknown>) =>

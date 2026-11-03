@@ -51,11 +51,11 @@ field is optional:
   shared with the pack service) is then required, and
   `KINDGI_PACK_CALL_TIMEOUT_MS` and `KINDGI_PACK_SERVICE_AUTH` apply. The
   server's `KINDGI_PACK_ROUTING` (`single` by default, or `per-deployment`,
-  which needs `KINDGI_TENANCY=multi`, with `KINDGI_PACK_ENDPOINT_HOSTS`)
-  picks the pack service for each call; their parsers
-  (`parsePackRouting`, `parsePackEndpointHosts`, `packEndpointHostAllowed`,
-  `parsePackTenantId`) are exported, so the server and the pack service
-  read them the same way.
+  which needs `KINDGI_PACK_ENDPOINT_HOSTS`, and `KINDGI_PACK_ENDPOINT_KMS_KEY`
+  unless the secrets backend is `postgres`) picks the pack service for each
+  call; their parsers (`parsePackRouting`, `parsePackEndpointHosts`,
+  `packEndpointHostAllowed`, `parsePackEndpointKmsKey`, `parsePackTenantId`)
+  are exported, so the server and the pack service read them the same way.
 
 ## What lives here
 

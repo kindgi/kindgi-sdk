@@ -12,9 +12,9 @@
 
 import type { TenantId } from '@kindgi/types';
 
-/** What a renderer renders: one tenant's template, against its scope. */
+/** What a renderer renders: one workspace's template, against its scope. */
 export interface TemplateRenderInput {
-  /** Whose template it is: a renderer that queues renders takes tenants in turn. */
+  /** Whose template it is: a renderer that queues renders takes workspaces in turn. */
   readonly tenantId: TenantId;
   /** The Liquid template. */
   readonly template: string;
@@ -36,7 +36,7 @@ export interface TemplateRenderer {
    * - `TemplateRenderError` for the template's own failure (a variable it
    *   names that the scope doesn't have, Liquid that doesn't parse, a
    *   partial, one of the bounds' limits);
-   * - `TemplateRenderBudgetError` when the tenant has spent its render
+   * - `TemplateRenderBudgetError` when the workspace has spent its render
    *   budget, which the turn answers as a retryable refusal.
    *
    * Any other rejection fails the render with its message.

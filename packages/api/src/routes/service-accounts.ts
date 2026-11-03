@@ -34,6 +34,11 @@ const MAX_DESCRIPTION_LENGTH = 500;
  * - `POST /:serviceAccountId/unregister` tombstones it: grants gone, keys dead.
  *
  * Keys for an account are minted at `POST /v1/tokens` with `for`.
+ *
+ * A project's own account (`projectId` set) is made by the first trigger
+ * that runs as its project, never here. Its grant is fixed, so the binding
+ * refuses a grant or ungrant on it (409 `service-account-project-owned`);
+ * a tenant admin may unregister it, which stops the triggers that run as it.
  */
 export function serviceAccountsRouter(
   binding: ServiceAccountBinding,
@@ -154,7 +159,7 @@ function fail(c: Context<AppEnv>, error: WireError): Response {
 function notFound(serviceAccountId: string): WireError {
   return {
     code: 'service-account-not-found',
-    message: `No service account with id "${serviceAccountId}" in this tenant`,
+    message: `No service account with id "${serviceAccountId}" in this workspace`,
   };
 }
 
@@ -177,6 +182,7 @@ function toWire(a: ServiceAccount): Record<string, unknown> {
     ...(a.createdBy !== undefined && { createdBy: a.createdBy }),
     createdAt: a.createdAt,
     ...(a.unregisteredAt !== undefined && { unregisteredAt: a.unregisteredAt }),
+    ...(a.projectId !== undefined && { projectId: a.projectId }),
   };
 }
 

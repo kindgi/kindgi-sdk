@@ -65,6 +65,7 @@ export function defineAgent(spec: DefineAgentSpec): Result<Agent, InvalidAgentEr
     ...validateBudget(spec.budget),
     ...validateConversationPolicy(spec.conversationPolicy, toolIdsOf(spec.tools)),
     ...validateToolErrors(spec.toolErrors),
+    ...validateParallelToolCalls(spec.parallelToolCalls),
   ];
   const output = resolveOutput(spec.output);
   if (output.kind === 'err') issues.push(...output.issues);
@@ -154,7 +155,7 @@ export interface DefineAgentSpec {
    * for an agent that should run on a model that can follow a JSON schema
    * natively (its typed `output` is still checked by parse and repair, on
    * every model). The router uses
-   * the first entry to pick a compatible provider from the tenant's
+   * the first entry to pick a compatible provider from the workspace's
    * `ProviderRegistry`.
    */
   readonly capabilities: Agent['capabilities'];
@@ -203,7 +204,7 @@ export interface DefineAgentSpec {
   readonly parameters?: readonly PromptParameter[];
   /**
    * Preferred model provider by id. Soft hint — the router prefers
-   * this provider when it satisfies `capabilities.needs` + tenant
+   * this provider when it satisfies `capabilities.needs` + workspace
    * policy, falling back to normal capability-based selection when
    * the preferred provider is unregistered or filtered out. Enables
    * A/B'ing agents across providers without churning registrations:
@@ -234,9 +235,21 @@ export interface DefineAgentSpec {
    * the model as the call's result, so it can correct the call, up to
    * `maxRetries` times per turn, for the kinds in `retryOn`. Default:
    * one retry, for `invalid-arguments` and `unknown-tool` (nothing ran).
-   * A tenant's `tool-errors` policy can lower it. See `ToolErrorsSpec`.
+   * A workspace's `tool-errors` policy can lower it. See `ToolErrorsSpec`.
    */
   readonly toolErrors?: ToolErrorsSpec;
+  /**
+   * Whether calls to read-only tools (`mutating: false`, no changing
+   * effect) that a model step asks for one after another run at the same
+   * time, up to 8 at once. A call to a read-only tool that pauses or
+   * declares connections runs on its own, since it may wait. Default: on.
+   * `false`: every call runs on its own, in the order the model asked for
+   * them. Either way, a step's results reach the conversation and the
+   * model in that order, and once a call needs a review, the step's calls
+   * that haven't started run one at a time. It doesn't change what the
+   * model may ask for.
+   */
+  readonly parallelToolCalls?: boolean;
   /**
    * Per-conversation behavior — how much history to load, when to
    * gate on HITL, when to auto-close. Every field optional; defaults
@@ -247,10 +260,13 @@ export interface DefineAgentSpec {
   readonly conversationPolicy?: ConversationPolicy;
   /**
    * Turn budget caps. `maxSteps` limits model+tool call loop
-   * iterations per turn; `maxCostUsd` caps model spend per turn;
-   * `maxWallMs` bounds turn wall-clock time. Exceeding any cap
-   * ends the turn with a `budget-exceeded` failure. Sensible dev
-   * defaults: `{maxSteps: 6, maxCostUsd: 0.1, maxWallMs: 30_000}`.
+   * iterations per turn (default 8, and at most
+   * `AGENT_TURN_LOOP_MAX_ITERATIONS`, 32: a higher value acts as 32);
+   * `maxCostUsd` caps model spend per turn (no cap by default);
+   * `maxWallMs` bounds turn wall-clock time (default 120_000, 2 min).
+   * Running out of steps or cost ends the turn with a
+   * `budget-exceeded` failure; running out of time aborts it
+   * (`agent-turn-aborted`, reason `timeout`).
    */
   readonly budget?: TurnBudget;
   /** Free-form tags for catalog filtering. Not interpreted by the runtime. */
@@ -610,6 +626,11 @@ function validateToolErrors(toolErrors: DefineAgentSpec['toolErrors']): Issue[] 
     : checked.issues.map((i) => ({ path: `/toolErrors${i.path}`, message: i.message }));
 }
 
+function validateParallelToolCalls(value: unknown): Issue[] {
+  if (value === undefined || typeof value === 'boolean') return [];
+  return [{ path: '/parallelToolCalls', message: 'parallelToolCalls must be true or false' }];
+}
+
 /** The agent's tool ids, when its `tools` is a list of refs (else nothing to check keys against). */
 function toolIdsOf(tools: unknown): ReadonlySet<string> | undefined {
   if (!Array.isArray(tools)) return undefined;
@@ -637,16 +658,7 @@ function validateConversationPolicy(
       message: 'historyLimit must be a positive integer',
     });
   }
-  if (
-    policy.autoCloseAfterInactiveSeconds !== undefined &&
-    (!Number.isInteger(policy.autoCloseAfterInactiveSeconds) ||
-      policy.autoCloseAfterInactiveSeconds <= 0)
-  ) {
-    out.push({
-      path: '/conversationPolicy/autoCloseAfterInactiveSeconds',
-      message: 'autoCloseAfterInactiveSeconds must be a positive integer',
-    });
-  }
+  out.push(...validateAutoClose(policy));
   if (
     policy.hitlAfterTurns !== undefined &&
     (!Number.isInteger(policy.hitlAfterTurns) || policy.hitlAfterTurns <= 0)
@@ -766,6 +778,23 @@ function validateSeparateApprover(value: unknown, toolIds?: ReadonlySet<string>)
     }
   }
   return out;
+}
+
+/**
+ * `autoCloseAfterInactiveSeconds`: refused, whatever its value. It was
+ * accepted and never acted on: a conversation closes only when someone
+ * closes it.
+ */
+function validateAutoClose(policy: ConversationPolicy): Issue[] {
+  const { autoCloseAfterInactiveSeconds } = policy as { autoCloseAfterInactiveSeconds?: unknown };
+  if (autoCloseAfterInactiveSeconds === undefined) return [];
+  return [
+    {
+      path: '/conversationPolicy/autoCloseAfterInactiveSeconds',
+      message:
+        "autoCloseAfterInactiveSeconds isn't supported: a conversation never closes by itself. It closes when someone closes it: Close in the console, kindgi conversations close, or POST /v1/conversations/{id}/close. Leave it out.",
+    },
+  ];
 }
 
 /**
@@ -893,5 +922,6 @@ function buildAgent(spec: DefineAgentSpec, output: AgentOutputSpec | undefined):
         ...(spec.toolErrors.retryOn !== undefined && { retryOn: [...spec.toolErrors.retryOn] }),
       },
     }),
+    ...(spec.parallelToolCalls !== undefined && { parallelToolCalls: spec.parallelToolCalls }),
   };
 }

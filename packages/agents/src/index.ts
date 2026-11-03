@@ -24,7 +24,9 @@ export {
   BLOCK_KINDS,
   MODEL_SETTINGS_SCHEMA,
   TUNABLE_MARKER,
+  modelNamedTwice,
   modelSettingsIssues,
+  modelSettingsTunableKeys,
   settingsSchemaIssues,
   tunableKeys,
   validateBlock,
@@ -54,8 +56,10 @@ export type { GateDecision, GateDecisionValue } from './handlers/gate-decision.j
 export type { EffectiveHitlPolicy } from './hitl-policy.js';
 export { agentStepOutput, invokeAgent, resumeAgentTurn } from './invoke.js';
 export { parseFailureMessage, turnFailureMessage } from './handlers/errors.js';
-export { isComputeOnlyTool, isReadOnlyTool } from './handlers/replay.js';
+export { connectionSetRefusal, isComputeOnlyTool, isReadOnlyTool } from './handlers/replay.js';
 export { SESSION_GATE_RECORD } from './handlers/setup.js';
+export { computeConnectWaitToken } from './handlers/tool-hitl.js';
+export type { ConnectWaitResult } from './handlers/tool-hitl.js';
 export type {
   ReplayApproval,
   ReplayBinding,
@@ -82,13 +86,20 @@ export type {
   OutputSchemaViolationError,
   RateLimitExceededError,
   ResumeAgentTurnInput,
+  RunJournalUnavailableError,
   RunSnapshotError,
   SemanticUnavailableError,
   ApprovalsPendingLimitError,
+  ConnectionNotChosenError,
   ToolInvocationError,
   TurnMemoryBinding,
   TurnMemoryCharge,
   TurnMemoryLimitReachedError,
+  TurnConnections,
+  ConnectionCallCode,
+  FileBinding,
+  FileBindings,
+  FileHold,
   UnresolvedToolError,
 } from './invoke.js';
 export {
@@ -99,7 +110,10 @@ export {
   resolveGuardrails,
 } from './guardrails-gate.js';
 export type {
+  HitlCancelledError,
+  HitlRejectedError,
   HitlRequiredError,
+  HitlWithdrawnError,
   GuardrailViolationError,
   GuardrailsBindings,
   SessionGateResult,
@@ -109,6 +123,7 @@ export { persistProvenance } from './provenance-emit.js';
 export type { ProvenanceBindings } from './provenance-emit.js';
 export type {
   AgentMessageEvent,
+  CallThinking,
   GuardrailErrorEvent,
   GuardrailViolatedEvent,
   ModelCallCompletedEvent,
@@ -125,6 +140,7 @@ export type {
 } from './streaming.js';
 export { AUTO_INJECTED_VARS, renderInstructions } from './prompt.js';
 export { TemplateRenderBudgetError } from './render-budget.js';
+export { EVENT_DATA_RULE, formatEventForPrompt, messageIsEvent } from './event-data.js';
 export { TemplateRenderError } from './template-renderer.js';
 export type {
   TemplateRenderErrorInit,

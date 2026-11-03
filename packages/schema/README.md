@@ -34,19 +34,19 @@ Turn the JSON Schemas that live in `@kindgi/specs/*.schema.json` into runtime-us
 Under `HOSTED_BOUNDS`, whose patterns run on RE2, every check a schema makes of the data runs in time linear in the data (`uniqueItems`: in its size times its depth):
 
 - `pattern`, `patternProperties` and `propertyNames` run on RE2, through `compileTenantPattern`. A schema with a pattern RE2 can't run (a lookahead, a backreference) doesn't compile, and the error names the pattern and why.
-- Formats are ajv-formats' `fast` ones. `regex` accepts a pattern whose syntax `compileTenantPattern` accepts, checked without building RE2's program (`tenantPatternSyntaxProblem`). A pattern RE2 refuses only when it builds the program still passes here: one too large (a repeat over 1,000) or with an escape the check doesn't name (`\cA`, `\p{Letter}`). `url` is ajv-formats' own, written without its backtracking. `fast` is looser in places: `date` accepts `2026-02-30`.
+- Formats are ajv-formats' `fast` ones. `regex` accepts a pattern whose syntax `compileTenantPattern` accepts, checked without building RE2's program (`tenantPatternSyntaxProblem`). A pattern RE2 refuses only when it builds the program still passes here: one too large (a repeat over 1,000) or with an escape the check doesn't name (`\cA`, `\p{Letter}`). `url` is ajv-formats' own, written without its backtracking. `fast` is looser in places: `date` accepts `2026-02-30`. Its format bounds (`formatMinimum`, `formatMaximum`, `formatExclusiveMinimum`, `formatExclusiveMaximum`) are there, and compare `date`, `time`, `date-time`, `iso-time` and `iso-date-time` as under `SELF_HOSTED_BOUNDS`.
 - `uniqueItems` looks for a repeat by a key for each item, not pair by pair. The verdict and the error are Ajv's, down to the pair of items it names. One difference: an object with its own `valueOf` or `toString` key is compared by its keys, where Ajv's compare throws.
 
 Under `SELF_HOSTED_BOUNDS`, patterns run on V8, formats are ajv-formats' `full` ones, and `uniqueItems` is Ajv's own.
 
 ### Compile time
 
-Compiling a large schema holds the event loop, so each tenant's compiles share a budget: `schemaCompileBudgetMs` of compiling in any 60 seconds (2 seconds under `HOSTED_BOUNDS`, none under `SELF_HOSTED_BOUNDS`). A compile is a tenant's when it runs inside `runAsTenant` from `@kindgi/bounds`, and which compiles count is the scope's:
+Compiling a large schema holds the event loop, so each workspace's compiles share a budget: `schemaCompileBudgetMs` of compiling in any 60 seconds (2 seconds under `HOSTED_BOUNDS`, none under `SELF_HOSTED_BOUNDS`). A compile is a workspace's when it runs inside `runAsTenant` from `@kindgi/bounds`, and which compiles count is the scope's:
 
-- By default, only a schema compiled again: one the tenant compiled before in this process, dropped from the cache since. A tenant's first compile of a schema is free, for its first 4,096 schemas; past them, every compile counts.
+- By default, only a schema compiled again: one the workspace compiled before in this process, dropped from the cache since. A workspace's first compile of a schema is free, for its first 4,096 schemas; past them, every compile counts.
 - With `{ compiles: 'all' }`, which a request that publishes schemas uses, every compile counts, the first ones too.
 
-Once a tenant has spent its budget, a compile that counts throws `SchemaCompileBudgetError` (its `budgetMs`, and `retryAfterMs` until enough of its compiles leave the window), from `compileInlineSchema` as from `compileJsonSchema`: it isn't the schema's fault, so it isn't returned as a compile error, and it isn't kept. Validators already kept still serve. A compile isn't stopped part way, so a tenant's minute can run over by one compile. Outside a scope, nothing is refused.
+Once a workspace has spent its budget, a compile that counts throws `SchemaCompileBudgetError` (its `budgetMs`, and `retryAfterMs` until enough of its compiles leave the window), from `compileInlineSchema` as from `compileJsonSchema`: it isn't the schema's fault, so it isn't returned as a compile error, and it isn't kept. Validators already kept still serve. A compile isn't stopped part way, so a workspace's minute can run over by one compile. Outside a scope, nothing is refused.
 
 `createSpecRegistry` and `loadSpecRegistry` compile Kindgi's own schemas, in `@kindgi/specs`, and run their patterns on V8; the formats and `uniqueItems` follow the bounds as above.
 

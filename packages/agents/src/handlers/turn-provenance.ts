@@ -9,10 +9,12 @@
  * is the same.
  */
 
+import type { MessageFile } from '@kindgi/capabilities';
 import type { ProvenanceBuilder } from '@kindgi/provenance';
 import type { Timestamp } from '@kindgi/types';
 
 import { REMEMBER_TOOL_ID } from '../remember.js';
+import type { CallThinking } from '../streaming.js';
 import type {
   ConversationMessage,
   RecalledMemory,
@@ -147,7 +149,27 @@ export interface ModelCallFacts {
   readonly callId: string;
   readonly provider: { readonly id: string; readonly model: string };
   readonly finishReason: string;
+  readonly thinking?: CallThinking;
   readonly at: Timestamp;
+  /**
+   * The stored files the call planned to read in (`callFiles`): at most
+   * what it read in, since a provider's lower limit, or a file found gone
+   * or changed, can leave one out.
+   */
+  readonly files: readonly FileRead[];
+}
+
+/**
+ * A stored file a model call planned to read in: its artifact id, and the
+ * sha256 the runtime's record of it holds.
+ */
+export type FileRead = Pick<MessageFile, 'artifactId' | 'sha256'>;
+
+/** The files a call planned to read, as its step's output keeps them: none when there are none. */
+export function filesReadOf(files: readonly FileRead[]): { readonly files?: readonly FileRead[] } {
+  return files.length === 0
+    ? {}
+    : { files: files.map(({ artifactId, sha256 }) => ({ artifactId, sha256 })) };
 }
 
 /**
@@ -173,6 +195,8 @@ export function addModelCallNode(
       providerId: call.provider.id,
       model: call.provider.model,
       finishReason: call.finishReason,
+      ...filesReadOf(call.files),
+      ...(call.thinking !== undefined && { thinking: { ...call.thinking } }),
     },
   });
   provenance.addEdge({ from: id, to: `input:${inputSequence}`, kind: 'caused-by' });
@@ -285,6 +309,28 @@ export function addStepToolNodes(
     }
     ctx.toolResultIds ??= [];
     ctx.toolResultIds.push(invocationId);
+  }
+}
+
+/**
+ * A guardrail's check at a point inside the loop (`Guardrail.at`), as its
+ * `dispatch-tools` step keeps it: the node, and the node it was
+ * `influenced-by` (the call it judged, or the model call).
+ */
+export interface PointCheckNode {
+  readonly id: string;
+  readonly timestamp: Timestamp;
+  readonly attributes: Readonly<Record<string, unknown>>;
+  readonly to: string;
+}
+
+/** A step's guardrail checks at the loop's points (`pointCheckNodes`), after its tool nodes. */
+export function addPointCheckNodes(ctx: TurnContext, nodes: readonly PointCheckNode[]): void {
+  const provenance = ctx.provenance;
+  if (provenance === undefined) return;
+  for (const { id, timestamp, attributes, to } of nodes) {
+    provenance.addNode({ id, kind: 'guardrail-check', timestamp, attributes: { ...attributes } });
+    provenance.addEdge({ from: id, to, kind: 'influenced-by' });
   }
 }
 

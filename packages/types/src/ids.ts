@@ -16,7 +16,7 @@
  * Naming convention:
  *   - `<Entity>Id`     — a single identifier for that entity kind.
  *   - Most entity kinds in the `@kindgi/specs/*.schema.json` files have an ID
- *     here (eval suites, for one, use plain strings); some IDs (e.g.
+ *     here (test sets, for one, use plain strings); some IDs (e.g.
  *     `ConversationId`, `TriggerId`) name entities that have no schema.
  *
  * If you add a new entity kind to Kindgi, add its ID here. Consumers rely on
@@ -45,13 +45,13 @@ export type Unbranded<T> = T extends string & { readonly __brand: string }
       ? { readonly [K in keyof T]: Unbranded<T[K]> }
       : T;
 
-/** Tenant — the sovereignty boundary. Cross-tenant access is denied by policy. */
+/** Workspace — the sovereignty boundary. Cross-tenant access is denied by policy. */
 export type TenantId = Brand<string, 'TenantId'>;
 
-/** User within a tenant. */
+/** User within a workspace. */
 export type UserId = Brand<string, 'UserId'>;
 
-/** Organization scope within a tenant — optional structural subdivision (a firm's litigation department, a hospital's cardiology). Small tenants ignore this; large tenants use it. */
+/** Organization scope within a workspace — optional structural subdivision (a firm's litigation department, a hospital's cardiology). Small workspaces ignore this; large workspaces use it. */
 export type OrgId = Brand<string, 'OrgId'>;
 
 /** Team scope — a people-group. A named collection of users who work together; users can belong to many teams. Same team works on many projects; same project can have many teams collaborating. Distinct from Org (structural) — Team is about working groups. */
@@ -115,11 +115,11 @@ export type ToolId = Brand<string, 'ToolId'>;
  * (kebab-case, dot-namespaced) — e.g. `acme.no-fabricated-quotes`,
  * `demo.response-not-empty`. `<guardrail-name>` describes the
  * property being asserted (usually a positive rule the agent turn
- * must satisfy). Enforced by `defineGuardrail` at author time.
+ * must satisfy). Enforced by `validateGuardrail` at author time.
  */
 export type GuardrailId = Brand<string, 'GuardrailId'>;
 
-/** A tenant policy document. */
+/** A workspace policy document. */
 export type PolicyId = Brand<string, 'PolicyId'>;
 
 /** A pack manifest (installable vertical application). */
@@ -149,14 +149,14 @@ export type ApprovalId = Brand<string, 'ApprovalId'>;
 /** A reviewer registered with HITL — carries a role class (standard/senior/admin). */
 export type ReviewerId = Brand<string, 'ReviewerId'>;
 
-/** A supervisor definition — the actor that observes runs and proposes fixes. */
+/** A supervisor definition — the actor that observes runs and suggests fixes. */
 export type SupervisorId = Brand<string, 'SupervisorId'>;
 
 /** A recorded supervisor observation of a single agent run. */
 export type ObservationId = Brand<string, 'ObservationId'>;
 
-/** A supervisor's proposed fix to an agent artifact (prompt / retrieval / tool-config). */
-export type FixProposalId = Brand<string, 'FixProposalId'>;
+/** A suggested change to an agent artifact (prompt / retrieval / tool-config). */
+export type SuggestedChangeId = Brand<string, 'SuggestedChangeId'>;
 
 /** A signed audit bundle exported from HITL. Wraps approvals + evidence + provenance refs. */
 export type AuditBundleId = Brand<string, 'AuditBundleId'>;
@@ -191,7 +191,7 @@ export type WebhookEventId = Brand<string, 'WebhookEventId'>;
 /** One event's delivery to one outbound endpoint, across all its attempts. */
 export type WebhookDeliveryId = Brand<string, 'WebhookDeliveryId'>;
 
-/** An installed pack instance for a tenant. Reserved: no package in this repository issues one. */
+/** An installed pack instance for a workspace. Reserved: no package in this repository issues one. */
 export type InstallationId = Brand<string, 'InstallationId'>;
 
 /** A signing key — identifies a key pair in a caller-provided key store (see `SigningKeyBinding` in `@kindgi/crypto`). Keys themselves are opaque `Uint8Array` values; this ID is how consumers reference them at runtime without owning the store. */

@@ -2,11 +2,11 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import {
+  type ThinkingLevel as GeminiThinkingConfigLevel,
   type GenerateContentConfig,
   type GenerateContentParameters,
   type GenerateContentResponse,
   GoogleGenAI,
-  type ThinkingLevel,
 } from '@google/genai';
 import type {
   AdapterConfigCheckInput,
@@ -16,14 +16,18 @@ import type {
   AdapterFactoryInput,
   ModelCallInput,
   ModelCallResult,
+  ModelCallWarning,
+  ModelInfo,
   ModelProvider,
   ProviderMetadata,
 } from '@kindgi/capabilities';
-import { adapterConfigError, samplingFor } from '@kindgi/capabilities';
+import { adapterConfigError, fileParts, samplingFor, thinkingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
+import { createClientsByKey } from '@kindgi/capabilities/clients-by-key';
 import { headerValueProblem } from '@kindgi/types';
 
 import { type GeminiModelInfo, computeCostUsd, toFrameworkUsage } from './cost.js';
+import { typedFailure } from './errors.js';
 import { fromGeminiResponse, toGeminiFunctions, toGeminiRequest } from './translate.js';
 
 /** The adapter id servers register `geminiAdapterFactory` under. */
@@ -65,6 +69,29 @@ export interface GeminiProviderOptions {
   readonly apiKey?: () => string | Promise<string>;
   /** An injected client, used as is (tests). `vertex`, `credentials` and `apiKey` are then unused. */
   readonly client?: GeminiClient;
+}
+
+/** What a call sends about thinking, and what it says about it. */
+interface GeminiThinking {
+  /** Gemini's `thinkingConfig.thinkingLevel`, upper-cased. Absent: none is sent. */
+  readonly thinkingLevel?: string;
+  /** The call's record of it (`ModelCallResult.thinking`). */
+  readonly result?: NonNullable<ModelCallResult['thinking']>;
+  readonly warnings: readonly ModelCallWarning[];
+}
+
+/**
+ * The level a call sends (Gemini 3's `thinkingLevel`): the call's level,
+ * or the model's `thinking.default` when it asks none, rounded to one the
+ * model takes (`thinkingFor`). `lowest` sends the model's
+ * `thinking.lowest`. A model with no `thinking` gets none. Gemini 2.5
+ * takes a token budget instead, so it isn't sent one.
+ */
+function thinkingLevelFor(input: ModelCallInput, model: ModelInfo): GeminiThinking {
+  const { level, warnings } = thinkingFor(model, input);
+  if (level === undefined || model.thinking === undefined) return { warnings };
+  const thinkingLevel = (level === 'lowest' ? model.thinking.lowest : level).toUpperCase();
+  return { thinkingLevel, result: { level, sent: { thinkingLevel } }, warnings };
 }
 
 const CLOUD_PLATFORM_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
@@ -116,9 +143,12 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
     metadata.models.map((m) => [m.name, m] as const),
   );
 
-  // One client per credential: reused while the resolved key stays the
-  // same, rebuilt when it rotates. `''` stands for ADC.
-  let cached: { readonly key: string; readonly client: GeminiClient } | undefined;
+  // One client per credential, reused while it resolves to that one: calls
+  // whose keys take turns (a run in each of two projects with keys of their
+  // own) each reuse their own; a rotated key builds a new one. On Vertex AI
+  // a client holds its own auth client and the token it fetched, so a client
+  // built again fetches a token again. `''` stands for ADC.
+  const clients = createClientsByKey<GeminiClient>();
   // Counts each call's HTTP attempts, through the `fetch` the client sends with.
   const attempts = createAttemptCounter();
   async function resolveClient(): Promise<GeminiClient> {
@@ -138,44 +168,46 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
           `${GEMINI_ADAPTER_ID}: provider "${metadata.id}": its API key has ${problem}, which a header can't carry: store the secret without it`,
         );
       }
-      if (cached?.key === key) return cached.client;
-      const client = new GoogleGenAI({
-        apiKey: key,
-        // Given, so GOOGLE_GENAI_USE_VERTEXAI / _ENTERPRISE in the server's environment can't
-        // move a Developer API provider to Vertex AI (the server's project and credentials).
-        vertexai: false,
-        httpOptions: {
-          // Given, so GOOGLE_GEMINI_BASE_URL in the server's environment can't move the call.
-          baseUrl: GEMINI_DEVELOPER_BASE_URL,
-          fetch: attempts.fetch,
-          retryOptions: { attempts: RETRY_ATTEMPTS },
-        },
-      });
-      cached = { key, client };
-      return client;
+      return clients.get(
+        key,
+        () =>
+          new GoogleGenAI({
+            apiKey: key,
+            // Given, so GOOGLE_GENAI_USE_VERTEXAI / _ENTERPRISE in the server's environment can't
+            // move a Developer API provider to Vertex AI (the server's project and credentials).
+            vertexai: false,
+            httpOptions: {
+              // Given, so GOOGLE_GEMINI_BASE_URL in the server's environment can't move the call.
+              baseUrl: GEMINI_DEVELOPER_BASE_URL,
+              fetch: attempts.fetch,
+              retryOptions: { attempts: RETRY_ATTEMPTS },
+            },
+          }),
+      );
     }
     const vertex = options.vertex as NonNullable<GeminiProviderOptions['vertex']>;
     const key = options.credentials !== undefined ? await options.credentials() : '';
-    if (cached?.key === key) return cached.client;
-    const client = new GoogleGenAI({
-      vertexai: true,
-      project: vertex.project,
-      location: vertex.location,
-      httpOptions: {
-        // Given, so GOOGLE_VERTEX_BASE_URL in the server's environment can't move the call.
-        baseUrl: vertexBaseUrl(vertex.location),
-        fetch: attempts.fetch,
-        retryOptions: { attempts: RETRY_ATTEMPTS },
-      },
-      ...(key !== '' && {
-        googleAuthOptions: {
-          credentials: parseServiceAccountKey(key),
-          scopes: [CLOUD_PLATFORM_SCOPE],
-        },
-      }),
-    });
-    cached = { key, client };
-    return client;
+    return clients.get(
+      key,
+      () =>
+        new GoogleGenAI({
+          vertexai: true,
+          project: vertex.project,
+          location: vertex.location,
+          httpOptions: {
+            // Given, so GOOGLE_VERTEX_BASE_URL in the server's environment can't move the call.
+            baseUrl: vertexBaseUrl(vertex.location),
+            fetch: attempts.fetch,
+            retryOptions: { attempts: RETRY_ATTEMPTS },
+          },
+          ...(key !== '' && {
+            googleAuthOptions: {
+              credentials: parseServiceAccountKey(key),
+              scopes: [CLOUD_PLATFORM_SCOPE],
+            },
+          }),
+        }),
+    );
   }
 
   return {
@@ -189,9 +221,18 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
         );
       }
       const startedAt = Date.now();
-      const { systemInstruction, contents } = toGeminiRequest(input.messages);
+      // Images and PDFs go to a model that declares `vision`; text files to any.
+      const vision = model.features.includes('vision');
+      const files = await fileParts(input.messages, {
+        readFile: input.readFile,
+        images: vision,
+        documents: vision,
+        contextWindow: model.contextWindow,
+      });
+      const { systemInstruction, contents } = toGeminiRequest(input.messages, files);
       const maxOutputTokens = input.maxOutputTokens ?? model.maxOutputTokens;
       const sampling = samplingFor(model, input);
+      const thinking = thinkingLevelFor(input, model);
       const config: GenerateContentConfig = {
         ...(systemInstruction !== undefined && { systemInstruction }),
         ...(input.tools !== undefined &&
@@ -203,11 +244,10 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
           responseJsonSchema: input.structuredOutput.schema,
         }),
         ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
-        ...(input.thinking === 'lowest' &&
-          model.thinking !== undefined && {
-            // Gemini's thinking levels: `low`, `minimal` (3.8 Flash refuses `minimal`).
-            thinkingConfig: { thinkingLevel: model.thinking.lowest.toUpperCase() as ThinkingLevel },
-          }),
+        ...(thinking.thinkingLevel !== undefined && {
+          // Gemini's thinking levels: `minimal`, `low`, `medium`, `high` (3.8 Flash refuses `minimal`).
+          thinkingConfig: { thinkingLevel: thinking.thinkingLevel as GeminiThinkingConfigLevel },
+        }),
         ...(maxOutputTokens !== undefined && { maxOutputTokens }),
         ...(input.abortSignal !== undefined && { abortSignal: input.abortSignal }),
         // A header on this request only, when the caller sets it (the
@@ -219,16 +259,21 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
 
       const client = await resolveClient();
       const counted = await attempts.count(() =>
-        client.models.generateContent({
-          model: input.model,
-          contents: [...contents],
-          config,
-        }),
+        client.models
+          .generateContent({
+            model: input.model,
+            contents: [...contents],
+            config,
+          })
+          .catch((error: unknown) => {
+            throw typedFailure(error);
+          }),
       );
       const response = counted.value;
 
       const { message, finishReason } = fromGeminiResponse(response);
       const usage = toFrameworkUsage(response.usageMetadata);
+      const warnings = [...sampling.warnings, ...thinking.warnings];
       return {
         message,
         finishReason,
@@ -241,7 +286,8 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
         // An injected client sends with its own fetch: nothing was counted.
         ...(counted.attempts > 0 && { attempts: counted.attempts }),
         ...(response.usageMetadata !== undefined && { rawUsage: { ...response.usageMetadata } }),
-        ...(sampling.warnings.length > 0 && { warnings: sampling.warnings }),
+        ...(thinking.result !== undefined && { thinking: thinking.result }),
+        ...(warnings.length > 0 && { warnings }),
       };
     },
   };
@@ -307,6 +353,12 @@ export function parseServiceAccountKey(key: string): Record<string, string> {
  *
  * On the Gemini Developer API (`api: "developer"`):
  *   - `secret_ref` (required) — a Gemini API key from Google AI Studio.
+ *
+ * How much a model thinks is the call's level (an agent's model
+ * settings), or the model's `metadata.models[].thinking.default` when it
+ * asks none. `adapter_config.thinkingLevels`, which set it before, is no
+ * longer read: a registration with it is refused, and a stored one builds
+ * without it (`movedConfigKeys`).
  */
 export const geminiAdapterFactory: AdapterFactory = (input) => {
   const metadata = input.metadata as GeminiProviderOptions['metadata'];
@@ -318,7 +370,10 @@ export const geminiAdapterFactory: AdapterFactory = (input) => {
       serverCredentialsProblem(input, hasSecretRef),
   );
   if (apiOf(input) === 'developer') {
-    return createGeminiProvider({ metadata, apiKey: input.resolveApiKey as () => Promise<string> });
+    return createGeminiProvider({
+      metadata,
+      apiKey: input.resolveApiKey as () => Promise<string>,
+    });
   }
   return createGeminiProvider({
     metadata,
@@ -345,12 +400,15 @@ export function geminiCheckConfig(input: AdapterConfigCheckInput): readonly Adap
   return [...vertexTargetProblems(input), ...(server !== undefined ? [server] : [])];
 }
 
-/** The entry a runtime registers: the factory, and its static check. */
+/** The entry a runtime registers: the factory, its static check, and the keys it takes. */
 export const geminiAdapterEntry: AdapterFactoryEntry = {
   adapterId: GEMINI_ADAPTER_ID,
   capabilityKind: 'llm-inference',
   factory: geminiAdapterFactory,
   checkConfig: geminiCheckConfig,
+  configKeys: ['api', 'project'],
+  // How much a model thinks moved to the model's metadata in 0.3.0.
+  movedConfigKeys: { thinkingLevels: 'metadata.models[].thinking.default' },
 };
 
 /** What the checks read of a registration. */

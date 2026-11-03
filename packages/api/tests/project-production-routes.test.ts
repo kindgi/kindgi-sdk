@@ -306,7 +306,7 @@ describe('the limit on projects in production', () => {
       next: NEXT,
     });
     expect(error.message).toBe(
-      `This tenant's limit is 2 projects in production, and it has 2. To put another in production: ${NEXT}, or take one out of production first.`,
+      `This workspace's limit is 2 projects in production, and it has 2. To put another in production: ${NEXT}, or take one out of production first.`,
     );
     expect(await inProduction(trio, c)).toBe(false);
   });
@@ -318,7 +318,7 @@ describe('the limit on projects in production', () => {
     const error = await refusal(await put(app, b, { production: true }));
     expect(error.details).not.toHaveProperty('next');
     expect(error.message).toBe(
-      "This tenant's limit is 1 project in production, and it has 1. To put another in production, take one out first, or ask whoever runs this Kindgi to raise the limit.",
+      "This workspace's limit is 1 project in production, and it has 1. To put another in production, take one out first, or ask whoever runs this Kindgi to raise the limit.",
     );
   });
 

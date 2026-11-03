@@ -168,15 +168,15 @@ div.sl-openapi-operation-method-badge {
   background-color: var(--sl-color-bg-inline-code);
 }
 
-/* Cards, link cards and the next/previous links: the card on the page, a
-   rule border, square, the line on hover. */
-:is(.sl-link-card, .card, .pagination-links a) {
+/* Cards and link cards: the card on the page, a rule border, square, the
+   line on hover. */
+:is(.sl-link-card, .card) {
   border-radius: var(--kg-radius);
   background-color: var(--kg-card);
   border-color: var(--kg-rule);
   box-shadow: none;
 }
-:is(.sl-link-card, .pagination-links a):hover {
+.sl-link-card:hover {
   border-color: var(--kg-line);
 }
 /* Card icons are decoration, not a status: ink in a line box, in every card
@@ -188,16 +188,9 @@ div.sl-openapi-operation-method-badge {
 .card .icon {
   color: var(--kg-text);
 }
-.pagination-links a {
-  color: var(--kg-link);
-}
-.pagination-links a .link-title {
-  color: var(--kg-text);
-}
-
 /* A primary button is an action: plum, a light shade change on hover. */
 .sl-link-button.primary {
-  border-radius: var(--kg-radius);
+  border-radius: var(--kg-radius-button);
   background-color: var(--kg-action);
   border-color: var(--kg-action);
   color: var(--kg-on-action);
@@ -208,7 +201,7 @@ div.sl-openapi-operation-method-badge {
   color: var(--kg-on-action);
 }
 .sl-link-button:not(.primary) {
-  border-radius: var(--kg-radius);
+  border-radius: var(--kg-radius-button);
 }
 
 /* Form fields: the search button and the selects, a line edge, 3px. */
@@ -222,6 +215,17 @@ div.sl-openapi-operation-method-badge {
 starlight-theme-select select {
   border: 1px solid var(--kg-line);
   border-radius: var(--kg-radius-field);
+}
+/* The header's two menus, the version and the theme: one height. */
+:is(.kindgi-version, starlight-theme-select) select {
+  block-size: 2rem;
+  padding-block: 0;
+}
+/* In the phone menu's footer too, one line: Starlight stretches each item to
+   the row, where the version menu centres itself and the theme menu keeps to
+   the top. */
+.mobile-preferences {
+  align-items: center;
 }
 
 /* Tables: secondary-text headers, rule lines. */

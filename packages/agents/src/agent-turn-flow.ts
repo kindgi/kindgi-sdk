@@ -35,10 +35,12 @@ export const AGENT_TURN_FLOW_ID = 'agent.turn';
 export const AGENT_TURN_FLOW_VERSION = '1.1.0';
 
 /**
- * Safety cap for iterations. Per-agent `maxSteps` is enforced by the
- * `budget-check` body node — this constant only bounds catastrophic
- * runaway (model always requests a tool call, no budget-check, no
- * agent config). Set high enough that no real agent will hit it.
+ * The most iterations the turn's loop runs, one model call each.
+ * Per-agent `maxSteps` is enforced by the `budget-check` body node,
+ * held to this: a turn whose model still wants a tool on the last
+ * iteration fails there with `budget-exceeded` (kind `steps`), and a
+ * typed answer that doesn't fit gets no repair the loop couldn't run.
+ * Part of the flow's shape: changing it bumps `AGENT_TURN_FLOW_VERSION`.
  */
 export const AGENT_TURN_LOOP_MAX_ITERATIONS = 32;
 

@@ -95,7 +95,9 @@ version by hand: `pnpm run version-packages` runs
 `scripts/sync-python-version.mjs --release` after `changeset version`,
 which writes the new version to each `pyproject.toml`, re-locks each
 `uv.lock` (it needs uv), and turns `sdks/python/CHANGELOG.md`'s
-**Unreleased** heading into the version, as PyPI spells it. A branch
+**Unreleased** heading into the version, as PyPI spells it; a release's
+section lists its release candidates' entries too, as the npm packages'
+changelogs do. A branch
 whose Python projects lag main runs the script without `--release`: that
 moves the versions and stamps nothing. CI fails when they differ
 (`pnpm run check:python-version`), and so do both publish jobs. A
@@ -108,10 +110,20 @@ spells it (Maven orders it the same way; `VersionOrderTest` in
 `scripts/sync-jvm-version.mjs --release`, which sets the root pom's own
 version and each module's parent version (no other `<version>`), the
 Scala module's `version.sbt` once it exists, and turns
-`sdks/java/CHANGELOG.md`'s **Unreleased** heading into the version. A
+`sdks/java/CHANGELOG.md`'s **Unreleased** heading into the version, with
+its release candidates' entries in a release's section too. A
 branch whose poms lag main runs the script without `--release`: that
 moves the versions and stamps nothing. CI fails when they differ
 (`pnpm run check:jvm-version`).
+
+A skill links its release line's docs (`docs.kindgi.com/v<major>.<minor>/`),
+and so does what a package or SDK ships from its `src/`. When a release
+changes the minor, `pnpm run version-packages` runs
+`scripts/sync-docs-line.mjs`, which moves every link on a release line in
+those files to the new one, and nothing else. A branch whose version moves
+when it merges a release branch runs it too. CI fails when a link isn't on
+the release line (`pnpm run check:refs`), and a link on no release line, or
+on a patch version's, is moved by hand.
 
 1. Every user-visible change adds a changeset: `pnpm changeset`. Before
    1.0, and while release candidates are out, it's a `patch`: one
@@ -159,10 +171,17 @@ workflow's `publish-maven` job, in the `maven-publish` environment
    not at all. A dry run has the Portal validate the deployment and then
    drops it; nothing is published. A version Central already has is
    skipped.
-4. Before npm publishes, its job waits until Central serves every JVM
-   artifact at the CLI's version (`central-bundle.mjs on-central`), so npm
-   never gets a CLI whose kindgi-pack doesn't resolve. A release that
-   skipped Maven stops there.
+4. Central serves a version some time after the Portal publishes it. A job
+   of its own, between the Maven job and npm's, waits until Central serves
+   every JVM artifact at the CLI's version (`central-bundle.mjs
+   on-central`), for up to two hours, so npm never gets a CLI whose
+   kindgi-pack doesn't resolve. It has no environment: npm's approval comes
+   up only once Central serves, and a slower Central fails that job before
+   it does, so rerunning the failed jobs asks for npm's approval only once.
+   A request to Central that errors fails that job at once, the same way.
+   If the job reaches its 135-minute limit instead, GitHub cancels it:
+   rerun that job alone (`gh run rerun <run-id> --job <job-id>`), which
+   reruns the jobs after it too. A release that skipped Maven stops there.
 
 The environment holds the Portal user token (`MAVEN_CENTRAL_USERNAME`,
 `MAVEN_CENTRAL_PASSWORD`), the signing key (`MAVEN_GPG_PRIVATE_KEY`,

@@ -12,7 +12,7 @@
  * here for simplicity.
  *
  * `create` enforces the `Project.isDefault = true` uniqueness
- * guardrail at write time: creating a second Default in the same
+ * guardrail at write time: creating a second default in the same
  * tenant resolves to `project-default-already-exists`. A project's
  * slug is unique within its org, and a project without an org's among
  * the tenant's projects without one (`slug-conflict`).
@@ -23,12 +23,14 @@ import type { Filter, OrgId, Page, ProjectId, TeamId, TenantId, UserId } from '@
 import type {
   ProjectBinding,
   ProjectCreateOutcome,
+  ProjectDeleteOutcome,
   ProjectListFilter,
   ProjectMembershipAddInput,
   ProjectMembershipAddOutcome,
   ProjectMembershipBinding,
   ProjectMembershipUpdateRoleOutcome,
   ProjectProductionOutcome,
+  ProjectRepoConnectionOutcome,
   ProjectUpdateOutcome,
 } from '../project-binding.js';
 import type {
@@ -60,17 +62,27 @@ function grantKey(teamId: TeamId, projectId: ProjectId): string {
 }
 
 /**
- * - `orgExists`: whether an org is the tenant's (live). Given, a project or
+ * - `orgExists`: whether an org is the workspace's (live). Given, a project or
  *   team created in or moved to another org is `org-not-found`, as the
  *   durable bindings answer; absent, any `orgId` is taken as it is.
- * - `productionLimit`: the tenant's limit on projects in production
+ * - `productionLimit`: the workspace's limit on projects in production
  *   (`TenantLimits.projectsInProduction`), read where it's kept;
  *   `undefined` for none. Read synchronously, so `setProduction` reads,
  *   counts and changes in one step, as a database's lock makes it.
+ * - `environmentOrderOf`: the id of the environment order a project is a
+ *   member of, or `undefined` for none. Given, `delete` and an `orgId` move
+ *   refuse a project that is in an order (`project-in-environment-order`), as
+ *   the durable binding does under its per-workspace lock; absent, no project is
+ *   in an order. Compose this to the environment-order binding's `orderOf`
+ *   wherever both share a store so the guard is never silently unset.
  */
 export interface InMemoryHierarchyOptions {
   readonly orgExists?: (tenantId: TenantId, orgId: OrgId) => boolean | Promise<boolean>;
   readonly productionLimit?: (tenantId: TenantId) => number | undefined;
+  readonly environmentOrderOf?: (
+    tenantId: TenantId,
+    projectId: ProjectId,
+  ) => string | undefined | Promise<string | undefined>;
 }
 
 /**
@@ -93,6 +105,20 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
     const p = projectRows.get(projectId);
     if (p === undefined || p.tenantId !== tenantId) return undefined;
     return p;
+  }
+
+  // Cascade — a deleted project's direct memberships + team grants drop with it.
+  function cascadeProjectDelete(projectId: ProjectId): void {
+    for (const key of membershipRows.keys()) {
+      if (key.startsWith(`${projectId}::`)) membershipRows.delete(key);
+    }
+    for (let i = grantOrder.length - 1; i >= 0; i -= 1) {
+      const key = grantOrder[i];
+      if (key?.endsWith(`::${projectId}`)) {
+        grantRows.delete(key);
+        grantOrder.splice(i, 1);
+      }
+    }
   }
 
   /** `limit-reached` when the tenant's projects in production are at its limit or past it. */
@@ -142,7 +168,7 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
   const projects: ProjectBinding = {
     async create(tenantId, spec: ProjectSpec): Promise<ProjectCreateOutcome> {
       const isDefault = spec.isDefault === true;
-      // The Default guardrail first: a caller asking for the Default
+      // The isDefault guardrail first: a caller asking for the default
       // wants to hear that one exists, whatever its slug.
       if (isDefault && tenantAlreadyHasDefault(tenantId)) {
         return { kind: 'project-default-already-exists' };
@@ -207,6 +233,16 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
       if (patch.orgId !== undefined) {
         nextOrgId = patch.orgId === null ? undefined : patch.orgId;
       }
+      // A move to another parent is refused while the project is in an
+      // environment order; a rename, slug or description change is not. The
+      // parent changes exactly when `nextOrgId` differs from the current org,
+      // and the order guard takes precedence over `org-not-found`.
+      if (patch.orgId !== undefined && nextOrgId !== row.orgId) {
+        const orderId = await options.environmentOrderOf?.(tenantId, projectId);
+        if (orderId !== undefined) {
+          return { kind: 'project-in-environment-order', orderId };
+        }
+      }
       if (
         patch.orgId !== undefined &&
         patch.orgId !== null &&
@@ -224,6 +260,7 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         return { kind: 'slug-conflict', slug: nextSlug };
       }
       const nextDescription = patch.description ?? row.description;
+      const sortsEndUsers = patch.sortEndUserCorrections ?? row.sortEndUserCorrections === true;
       const next: Project = {
         id: row.id,
         tenantId: row.tenantId,
@@ -235,6 +272,8 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         ...(nextOrgId !== undefined ? { orgId: nextOrgId } : {}),
         ...(nextDescription !== undefined ? { description: nextDescription } : {}),
         ...(row.productionSince !== undefined ? { productionSince: row.productionSince } : {}),
+        ...(sortsEndUsers && { sortEndUserCorrections: true }),
+        ...(row.repoConnectionId !== undefined ? { repoConnectionId: row.repoConnectionId } : {}),
       };
       projectRows.set(projectId, next);
       return { kind: 'ok' };
@@ -258,24 +297,39 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
       return { kind: 'ok', productionSince: next.productionSince ?? null, changed: true };
     },
 
-    async delete(tenantId, projectId): Promise<void> {
+    async setRepoConnection(
+      tenantId,
+      projectId,
+      connectionId,
+    ): Promise<ProjectRepoConnectionOutcome> {
       const row = findProjectInTenant(tenantId, projectId);
-      if (row === undefined) return;
+      if (row === undefined) return { kind: 'project-not-found' };
+      if ((row.repoConnectionId ?? null) === connectionId) {
+        return { kind: 'ok', repoConnectionId: connectionId, changed: false };
+      }
+      const { repoConnectionId: _was, ...rest } = row;
+      const now = nowTimestamp();
+      projectRows.set(projectId, {
+        ...rest,
+        ...(connectionId !== null && { repoConnectionId: connectionId }),
+        updatedAt: now,
+      });
+      return { kind: 'ok', repoConnectionId: connectionId, changed: true };
+    },
+
+    async delete(tenantId, projectId): Promise<ProjectDeleteOutcome> {
+      const row = findProjectInTenant(tenantId, projectId);
+      // An id that names no project is `ok` — deleting is idempotent.
+      if (row === undefined) return { kind: 'ok' };
+      const orderId = await options.environmentOrderOf?.(tenantId, projectId);
+      if (orderId !== undefined) {
+        return { kind: 'project-in-environment-order', orderId };
+      }
+      // No await between the order answer and the delete — one step, as the
+      // durable binding's per-tenant lock makes it.
       projectRows.delete(projectId);
-      // Cascade — direct memberships + team grants drop with the project.
-      for (const key of membershipRows.keys()) {
-        if (key.startsWith(`${projectId}::`)) {
-          membershipRows.delete(key);
-        }
-      }
-      for (let i = grantOrder.length - 1; i >= 0; i -= 1) {
-        const key = grantOrder[i];
-        if (key === undefined) continue;
-        if (key.endsWith(`::${projectId}`)) {
-          grantRows.delete(key);
-          grantOrder.splice(i, 1);
-        }
-      }
+      cascadeProjectDelete(projectId);
+      return { kind: 'ok' };
     },
   };
 

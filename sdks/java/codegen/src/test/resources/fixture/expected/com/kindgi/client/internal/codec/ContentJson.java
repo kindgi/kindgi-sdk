@@ -5,7 +5,8 @@
 package com.kindgi.client.internal.codec;
 
 import com.fasterxml.jackson.annotation.JsonAnyGetter;
-import com.fasterxml.jackson.annotation.JsonAnySetter;
+import com.fasterxml.jackson.annotation.JsonAutoDetect;
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
@@ -38,8 +39,17 @@ final class ContentJson {
     interface ContentMixIn {
     }
 
+    @JsonAutoDetect(
+            fieldVisibility = JsonAutoDetect.Visibility.NONE,
+            getterVisibility = JsonAutoDetect.Visibility.NONE,
+            isGetterVisibility = JsonAutoDetect.Visibility.NONE
+    )
     abstract static class ContentUnrecognizedMixIn {
-        ContentUnrecognizedMixIn(@JsonAnySetter Map<String, Object> properties) {
+        @JsonCreator(
+                mode = JsonCreator.Mode.DELEGATING
+        )
+        static Content.Unrecognized read(Map<String, Object> properties) {
+            return null;
         }
 
         @JsonAnyGetter

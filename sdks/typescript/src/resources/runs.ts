@@ -6,7 +6,16 @@ import type { AgentId, FlowId, RunId, TenantId, Timestamp } from '@kindgi/types'
 import type { ScopeRef } from '../scope-wire.js';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
-import type { LiveScope, RunFailureGroups, RunProgress, ScopeSegment } from '../generated/api.js';
+import type {
+  AgentPinScope,
+  PinScope,
+  RunFailureGroups,
+  RunProgress,
+  RunWaitingApproval,
+  RunWaitingFor,
+  RunWaitingToken,
+  ScopeSegment,
+} from '../generated/api.js';
 import { type RunProgressEvent, followRun } from '../run-follow.js';
 import { scopeToQuery } from '../scope-wire.js';
 import { type Transport, seconds } from '../transport.js';
@@ -164,15 +173,19 @@ export interface RunsClient {
   get(runId: RunId): Promise<Run>;
 
   /**
-   * Resume a suspended run at a waitpoint. Used to complete HITL
-   * approvals, external callbacks, or event-triggered inbox waits.
+   * Answer a run's wait for another system, as that system would through
+   * the link its tool handed on. `waitpointId` is a wait's `tokenId` from
+   * `get(runId)`'s `waitingFor.tokens` (a `pause:` id); `value` is the
+   * tool's output, checked against its schema (absent: `{}`). Needs
+   * write access and `execute` on the run's agent or flow. Any other
+   * waitpoint is refused with `run-resume-not-supported`: a run waiting
+   * for an approval continues through `approvals.decide`.
    *
    * @wire `POST /v1/runs/{runId}/resume` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1runs~1{runId}~1resume/post`.
    *
-   * Returns the updated run row, so callers see the transition from
-   * `suspended` back to `running` (or onward) without a follow-up
-   * `get`.
+   * Returns the run as `get` does, so callers see it resume without a
+   * follow-up `get`.
    */
   resume(input: ResumeRunInput): Promise<Run>;
 
@@ -188,7 +201,7 @@ export interface RunsClient {
   cancel(runId: RunId, options?: { readonly idempotencyKey?: string }): Promise<Run>;
 
   /**
-   * Cursor-paginated list of runs for the tenant.
+   * Cursor-paginated list of runs for the workspace.
    *
    * @wire `GET /v1/runs` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1runs/get`.
@@ -216,7 +229,7 @@ export interface RunsClient {
   failures(query: RunFailuresQuery): Promise<RunFailureGroups>;
 }
 
-export type { RunFailureGroups };
+export type { RunFailureGroups, RunWaitingApproval, RunWaitingFor, RunWaitingToken };
 
 export interface RunFailuresQuery {
   readonly projectId: string;
@@ -263,10 +276,10 @@ export interface ListRunsFilter {
   readonly topLevel?: boolean;
   /** Only this agent's turns, at any version (turns from before 0.1.3 don't name their agent). */
   readonly agentId?: AgentId | string;
-  /** Replay runs (an eval run re-running a past run): `exclude` (the default) leaves them out, `include` lists them too, `only` lists just them. */
+  /** Replay runs (a test run re-running a past run): `exclude` (the default) leaves them out, `include` lists them too, `only` lists just them. */
   readonly replays?: 'exclude' | 'include' | 'only';
-  /** Only the replay runs of this eval run (implies replays are included). */
-  readonly evalRunId?: string;
+  /** Only the replay runs of this test run (implies replays are included). */
+  readonly testRunId?: string;
   /** Only the runs this trigger started. */
   readonly triggerId?: string;
   /** Only runs in this status, or in any of these (e.g. `['failed', 'cancelled']`). */
@@ -300,13 +313,13 @@ export type StartRunInput =
   | {
       readonly agent: AgentId | string;
       /**
-       * Omit to use the live version for this project and segment path
+       * Omit to use the pinned version for this project and segment path
        * (or, in a conversation, the version its earlier turns used).
        */
       readonly agentVersion?: string;
-      /** Project the run belongs to. Omit to use the tenant's default project. */
+      /** Project the run belongs to. Omit to use the workspace's default project. */
       readonly projectId?: string;
-      /** Where the run happens, coarse to fine (e.g. company, then role); picks the live version. */
+      /** Where the run happens, coarse to fine (e.g. company, then role); picks the pinned version. */
       readonly segments?: readonly ScopeSegment[];
       readonly input: unknown;
       readonly options?: StartRunOptions;
@@ -321,10 +334,14 @@ export type StartRunInput =
     }
   | {
       readonly flow: FlowId | string;
+      /**
+       * Semver; omit → the version pinned for the run's project (the
+       * project, its org, then the workspace), else the newest it reaches.
+       */
       readonly flowVersion?: string;
       /** Project the run belongs to. Optional; when omitted, the API's run handler chooses. */
       readonly projectId?: string;
-      /** Where the run happens; picks the live version of each agent step. */
+      /** Where the run happens; picks the pinned version of each agent step. */
       readonly segments?: readonly ScopeSegment[];
       readonly input: unknown;
       readonly options?: StartRunOptions;
@@ -368,12 +385,12 @@ export interface RunAgent {
    * How the version was chosen: named on the run (`explicit`), held by the
    * flow version a flow's agent step runs in (`flow-pin`: the node's
    * `config.version`, else the flow version's pin), the conversation's
-   * version (`conversation`), a live version (`live`), or the latest
+   * version (`conversation`), a pinned version (`pinned`), or the latest
    * (`latest`). Absent on turns from before 0.1.4.
    */
-  readonly via?: 'explicit' | 'flow-pin' | 'conversation' | 'live' | 'latest';
-  /** With `via: 'live'`: the scope whose live version ran. */
-  readonly liveScope?: LiveScope;
+  readonly via?: 'explicit' | 'flow-pin' | 'conversation' | 'pinned' | 'latest';
+  /** With `via: 'pinned'`: the scope whose pinned version ran. */
+  readonly pinnedScope?: AgentPinScope;
 }
 
 /** Why a failed run failed. Matches `@kindgi/api/openapi.json#RunFailure`. */
@@ -405,7 +422,7 @@ export interface RunFailure {
  */
 export interface RunTrigger {
   readonly triggerId: string;
-  readonly kind: 'schedule' | 'event' | 'webhook';
+  readonly kind: 'schedule' | 'event' | 'webhook' | 'mail';
   readonly fireId: string;
   /** A schedule's fire: the occurrence the run is for. */
   readonly scheduledFor?: Timestamp;
@@ -423,6 +440,14 @@ export interface Run {
   readonly projectId?: string;
   readonly flowId: string;
   readonly flowVersion: string;
+  /**
+   * How the flow version was chosen: named by the start (`explicit`), the
+   * version pinned for the run's project (`pinned`, with the pin's scope
+   * in `flowPinnedScope`), or the newest the project reaches (`latest`).
+   * Absent when the runtime didn't record it.
+   */
+  readonly flowVersionVia?: 'explicit' | 'pinned' | 'latest';
+  readonly flowPinnedScope?: PinScope;
   readonly status: RunStatus;
   readonly dryRun: boolean;
   readonly createdAt: Timestamp;
@@ -456,6 +481,13 @@ export interface Run {
    * message and journal payloads): a person's words were erased.
    */
   readonly contentErasedAt?: string;
+  /**
+   * Set on a suspended run by `get` (not `list`): what it waits for. Its
+   * approvals still to be decided, its waits for another system's answer
+   * (`tokens`, answered with `resume`) and the rest. Absent from an older
+   * runtime, or when the run's journal can't be read.
+   */
+  readonly waitingFor?: RunWaitingFor;
   /**
    * The W3C trace id of the request that started the run (yours, when you
    * sent a `traceparent`). Absent for a run no request started, and from
@@ -632,7 +664,7 @@ export function makeRunsClient(transport: Transport): RunsClient {
           ...(filter?.topLevel !== undefined && { topLevel: String(filter.topLevel) }),
           ...(filter?.agentId !== undefined && { agentId: filter.agentId as string }),
           ...(filter?.replays !== undefined && { replays: filter.replays }),
-          ...(filter?.evalRunId !== undefined && { evalRunId: filter.evalRunId }),
+          ...(filter?.testRunId !== undefined && { testRunId: filter.testRunId }),
           ...(filter?.triggerId !== undefined && { triggerId: filter.triggerId }),
           ...(filter?.status !== undefined && {
             status: typeof filter.status === 'string' ? [filter.status] : [...filter.status],

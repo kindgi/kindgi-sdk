@@ -321,6 +321,62 @@ describe('the bundled presets', () => {
     // gemini-3.1-pro-preview hasn't been checked with typed output.
     expect(typed('gemini-api', {})).toEqual(['gemini-3.8-flash', 'gemini-3.5-flash-lite']);
   });
+
+  test("each thinking model lists the levels its vendor's pages give (2026-10-28); one they don't settle lists none, so it takes the ones every thinking model takes", async () => {
+    const presets = await loadProviderPresets();
+    const levels = (name: string) =>
+      Object.fromEntries(
+        (presets[name]?.metadata.models ?? [])
+          .filter((m) => m.thinking !== undefined)
+          .map((m) => [m.name, m.thinking?.levels]),
+      );
+    const five = ['low', 'medium', 'high', 'xhigh', 'max'];
+    // Anthropic's effort page: each "supports all five effort levels".
+    expect(levels('anthropic')).toEqual({
+      'claude-opus-5-5': five,
+      'claude-sonnet-5-5': five,
+      'claude-haiku-5-5': five,
+    });
+    // OpenAI's model pages; Azure's reasoning page, for the Responses API the preset speaks (`max` needs it).
+    expect(levels('openai')).toEqual({
+      'gpt-6.1-sol': five,
+      'gpt-6-astra': five,
+      'gpt-6-luna': five,
+    });
+    expect(levels('azure-openai')).toEqual({ 'gpt-6.1-sol': five, 'gpt-6-luna': five });
+    // The AI SDK sends xhigh to Bedrock as max, so xhigh rounds up to max in the open; no page settles Bedrock's GPT levels.
+    expect(levels('bedrock')).toEqual({
+      'us.anthropic.claude-sonnet-5-5': ['low', 'medium', 'high', 'max'],
+      'us.openai.gpt-6.1-sol': undefined,
+      'us.openai.gpt-6-luna': undefined,
+    });
+    // Gemini's thinking page; Vertex's pages don't say.
+    expect(levels('gemini-api')).toEqual({
+      'gemini-3.8-flash': ['low', 'medium', 'high'],
+      'gemini-3.5-flash-lite': ['minimal', 'low', 'medium', 'high'],
+    });
+    expect(levels('gemini')).toEqual({
+      'gemini-3.8-flash': undefined,
+      'gemini-3.5-flash-lite': undefined,
+    });
+  });
+
+  test("each bedrock model's least thinking is a level Bedrock is sent", async () => {
+    const presets = await loadProviderPresets();
+    // The AI SDK sends nothing for `none` on Bedrock, and says nothing, so a judge asking
+    // gpt-6-luna for `lowest` would think at the model's default: its least is `low` instead.
+    expect(
+      Object.fromEntries(
+        (presets.bedrock?.metadata.models ?? [])
+          .filter((m) => m.thinking !== undefined)
+          .map((m) => [m.name, m.thinking?.lowest]),
+      ),
+    ).toEqual({
+      'us.anthropic.claude-sonnet-5-5': 'between_tools',
+      'us.openai.gpt-6.1-sol': 'low',
+      'us.openai.gpt-6-luna': 'low',
+    });
+  });
 });
 
 describe('kindgi providers register --preset', () => {
@@ -335,6 +391,73 @@ describe('kindgi providers register --preset', () => {
       '✓ Registered anthropic: claude-haiku-4-5 — key ANTHROPIC_API_KEY (env local)',
     );
     expect(registered).toHaveLength(1);
+  });
+
+  test("a runtime before 0.3.0 refuses the models' thinking levels: they register again without them, and it says so", async () => {
+    await writeFile(join(packDir, '.env'), 'ANTHROPIC_API_KEY=sk-ant-test\n');
+    type Body = { metadata: { id: string; models: { thinking?: Record<string, unknown> }[] } };
+    const register = vi.fn(async (input: Body) => {
+      registered.push(input);
+      // 0.2.0's check: a model's `thinking` is `mode` and `lowest`, nothing else.
+      if (
+        input.metadata.models.some((m) =>
+          Object.keys(m.thinking ?? {}).some((k) => k !== 'mode' && k !== 'lowest'),
+        )
+      ) {
+        throw {
+          code: 'invalid-request',
+          serverCode: 'invalid-provider',
+          message: `provider "anthropic" model "claude-haiku-5-5" thinking must be { mode: 'adaptive' | 'always', lowest: <the vendor's setting> }`,
+          issues: [],
+          fields: { reason: 'invalid-thinking' },
+        };
+      }
+      return { providerId: input.metadata.id };
+    });
+    const out = await runCli({
+      ...inputs([
+        'providers',
+        'register',
+        '--preset=anthropic',
+        '--models=claude-haiku-5-5,claude-haiku-4-5',
+      ]),
+      clientFactory: () => ({ providers: { register } }) as never,
+    });
+    expect(out.exitCode).toBe(0);
+    expect(JSON.parse(out.stdout)).toEqual({ providerId: 'anthropic' });
+    expect(register).toHaveBeenCalledTimes(2);
+    expect((registered[1] as Body).metadata.models.map((m) => m.thinking)).toEqual([
+      { mode: 'adaptive', lowest: 'disabled' },
+      undefined,
+    ]);
+    expect(out.stderr).toContain(
+      "  This runtime doesn't accept thinking levels, so claude-haiku-5-5 registered without them. Upgrade it to 0.3.0 or later to use them.\n",
+    );
+  });
+
+  test.each([
+    `thinking default "max" isn't a level this model takes: it takes lowest, low, medium, high`,
+    "thinking must be { mode: 'adaptive' | 'always', lowest: <the vendor's setting>, levels?: <the levels it takes besides lowest, least first>, default?: <a level it takes> }",
+  ])("a 0.3.0 runtime's refusal of the thinking stands, with no retry: %s", async (refusal) => {
+    await writeFile(join(packDir, '.env'), 'ANTHROPIC_API_KEY=sk-ant-test\n');
+    const message = `provider "anthropic" model "claude-haiku-5-5" ${refusal}`;
+    const register = vi.fn(async () => {
+      throw {
+        code: 'invalid-request',
+        serverCode: 'invalid-provider',
+        message,
+        issues: [],
+        fields: { reason: 'invalid-thinking' },
+      };
+    });
+    const out = await runCli({
+      ...inputs(['providers', 'register', '--preset=anthropic', '--models=claude-haiku-5-5']),
+      clientFactory: () => ({ providers: { register } }) as never,
+    });
+    expect(out.exitCode).not.toBe(0);
+    expect(register).toHaveBeenCalledTimes(1);
+    expect(out.stderr).toContain(message);
+    expect(out.stderr).not.toContain('accept thinking levels');
   });
 
   test('a missing key stops it, saying how to set one — in the pack’s own kindgi', async () => {

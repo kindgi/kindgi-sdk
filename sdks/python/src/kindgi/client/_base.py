@@ -15,7 +15,8 @@
     is still running on the server, and the idempotency key doesn't hold
     while it runs, so a repeat could run it again (a run started twice).
 - A 2xx answer is validated into the operation's model; anything else
-  raises a typed `KindgiApiError`.
+  raises a typed `KindgiApiError`. Its enums and tagged unions are read open,
+  so a newer runtime's value parses; a request body is sent closed (`_open`).
 - A stream (`text/event-stream`) reconnects with `Last-Event-Id` after a
   drop (backoff 0.5 s → 30 s, up to 10 attempts) and ends when the server
   closes it.
@@ -39,6 +40,7 @@ from pydantic import ValidationError as PydanticError
 
 from .._version import __version__
 from ._errors import KindgiApiError, NetworkError, from_wire
+from ._open import SEND
 from ._sse import SseParser
 
 __all__ = ["AsyncClientBase", "Operation", "SyncClientBase", "_body", "_segments"]
@@ -63,7 +65,7 @@ class Operation:
     id: str
     method: str
     path: str
-    response_kind: Literal["json", "sse", "binary", "empty"]
+    response_kind: Literal["json", "sse", "binary", "byte-stream", "empty"]
     idempotency_key: bool
 
 
@@ -84,15 +86,20 @@ def _segments(path: Sequence[BaseModel | Mapping[str, Any]] | None) -> list[str]
 
 
 def _body(model: Any, body: Any, fields: Mapping[str, Any]) -> Any:
-    """The wire JSON of a request body given as a model, a mapping, or keyword fields."""
+    """The wire JSON of a request body given as a model, a mapping, or keyword fields.
+
+    Validated again as sent (`_open.SEND`): a value a response enum doesn't know, or a
+    union's unrecognized member (one read from a newer runtime), is refused here, as a
+    closed `Literal` refuses it, at any depth.
+    """
     if body is not None and fields:
         raise TypeError("pass the body, or its fields as keywords — not both")
     value = body if body is not None else dict(fields)
-    if isinstance(value, BaseModel):
-        return value.model_dump(mode="json", by_alias=True, exclude_unset=True)
-    adapter = _adapter(model)
+    adapter = _adapter(type(value) if isinstance(value, BaseModel) else model)
+    read = value if isinstance(value, BaseModel) else adapter.validate_python(value)
+    wire = adapter.dump_python(read, mode="json", by_alias=True, exclude_unset=True)
     return adapter.dump_python(
-        adapter.validate_python(value), mode="json", by_alias=True, exclude_unset=True
+        adapter.validate_python(wire, context=SEND), mode="json", by_alias=True, exclude_unset=True
     )
 
 
@@ -437,6 +444,31 @@ class SyncClientBase(_Common):
             elif received == 0:
                 time.sleep(FOLLOW_PAUSE)
 
+    def _stream_bytes(
+        self,
+        op: Operation,
+        *,
+        path: Mapping[str, Any],
+        query: Mapping[str, Any],
+        headers: Mapping[str, Any],
+        timeout: float | None = None,
+    ) -> Iterator[bytes]:
+        """A body handed on as it arrives (`x-kindgi-streamed`), never retried:
+        each try is its own export on the server. Stopping early closes the
+        response."""
+        url, params, sent, _ = self._prepare(op, path, query, headers)
+        sent["Accept"] = "*/*"
+        try:
+            with self._http.stream(
+                op.method, url, params=params, headers=sent, timeout=timeout or self.timeout
+            ) as answer:
+                if not answer.is_success:
+                    answer.read()
+                    self._answer(op, answer, None)
+                yield from answer.iter_bytes()
+        except (httpx.TransportError, httpx.StreamError) as cause:
+            raise NetworkError(f"{op.id}: the stream dropped: {cause}") from cause
+
 
 class AsyncClientBase(_Common):
     def __init__(
@@ -593,3 +625,29 @@ class AsyncClientBase(_Common):
                 await asyncio.sleep(_stream_backoff(op, attempt, retry))
             elif received == 0:
                 await asyncio.sleep(FOLLOW_PAUSE)
+
+    async def _stream_bytes(
+        self,
+        op: Operation,
+        *,
+        path: Mapping[str, Any],
+        query: Mapping[str, Any],
+        headers: Mapping[str, Any],
+        timeout: float | None = None,
+    ) -> AsyncIterator[bytes]:
+        """A body handed on as it arrives (`x-kindgi-streamed`), never retried:
+        each try is its own export on the server. Stopping early (`aclose()`)
+        closes the response."""
+        url, params, sent, _ = self._prepare(op, path, query, headers)
+        sent["Accept"] = "*/*"
+        try:
+            async with self._http.stream(
+                op.method, url, params=params, headers=sent, timeout=timeout or self.timeout
+            ) as answer:
+                if not answer.is_success:
+                    await answer.aread()
+                    self._answer(op, answer, None)
+                async for chunk in answer.aiter_bytes():
+                    yield chunk
+        except (httpx.TransportError, httpx.StreamError) as cause:
+            raise NetworkError(f"{op.id}: the stream dropped: {cause}") from cause

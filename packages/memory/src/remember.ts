@@ -17,6 +17,32 @@ export interface RememberedContent {
   readonly key?: string;
 }
 
+/** The longest text a remembered fact holds, in characters: the agent's, or a reviewer's edit of it. */
+export const MAX_REMEMBERED_TEXT = 2000;
+
+/**
+ * Why `text` can't be a remembered fact's text, or `undefined` when it
+ * can: a string with more than spaces in it, of at most
+ * `MAX_REMEMBERED_TEXT` characters. The `remember` tool checks the
+ * agent's text with it, and an approval checks a reviewer's edit.
+ */
+export function rememberedTextProblem(text: unknown): string | undefined {
+  if (typeof text !== 'string') return 'must be a string';
+  if (text.trim().length === 0) return 'must not be empty';
+  // Characters as a JSON Schema `maxLength` counts them (code points).
+  if ([...text].length > MAX_REMEMBERED_TEXT) {
+    return `must be at most ${MAX_REMEMBERED_TEXT} characters`;
+  }
+  return undefined;
+}
+
+/**
+ * The kind of the approval a remembered fact waits on (`subjectKind`), on
+ * the wire: a person approves it, with its text or an edit of it, or
+ * rejects it.
+ */
+export const FACT_APPROVAL_SUBJECT = 'fact';
+
 /** Why a remembered fact waits for a person before any read sees it. */
 export type RememberReviewReason =
   /** The declared scope reaches beyond one person (`same-project`, `tenant`). */

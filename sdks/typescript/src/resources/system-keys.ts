@@ -18,11 +18,13 @@ export type RevokedSystemKey = RevokeSystemKeyResult;
 export type SystemKeyIdentity = SystemWhoami;
 
 /**
- * The operator's system keys (`kgi_sy_…`), on a runtime serving many
- * tenants. A system key acts in no tenant, with the least system scope its
- * service needs. Only the full system capability (`kindgi:system`) mints,
- * lists or revokes them; any other caller gets 403
- * (`system-principal-required`, `system-scope-missing`).
+ * The operator's system keys (`kgi_sy_…`). A system key acts in no tenant,
+ * with the least system scope its service needs. Only the full system
+ * capability (`kindgi:system`) mints, lists or revokes them; any other
+ * caller gets 403 (`system-principal-required`, `system-scope-missing`).
+ * On a runtime serving one tenant, only the deployment's own token does,
+ * and a key holds `system:license` alone, for the license renewal: a mint
+ * asking for any other scope gets 400 (`bad-input`).
  */
 export interface SystemKeysClient {
   /**

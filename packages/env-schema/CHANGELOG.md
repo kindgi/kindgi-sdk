@@ -1,5 +1,325 @@
 # @kindgi/env-schema
 
+## 0.4.0
+
+### Patch Changes
+
+- b25b82f: **An agent can be shown stored files: photos, PDFs and text files, from its run's input and from its tools' results.**
+  - **A file as a value.** `FileValue` (`@kindgi/types`: `{type: 'kindgi.file', artifactId, …}`) is a stored file inside plain JSON: a run's input `files`, a tool result's top-level `files`, or a conversation message's `files`. `isFileValue` checks its shape: each field's type, a whole size, a lowercase hex sha256, a page count from 1 and a known `notShown` reason. Only `artifactId` is trusted: the runtime shows a file by its own checked record of it.
+  - **The turn's files binding.** `InvokeAgentBindings.files` (`FileBindings`) gives a turn the `FileBinding` of its run (`forRun`), once the run has its id: the runtime's rule for which files the turn's model may be shown (`admit`) and how a call reads their bytes (`read`). Without one, a tool result's files stay plain JSON, and an earlier message's files are each a line saying there's no file store.
+  - **Where files come from.**
+    - **The run's input.** `InvokeAgentInput.files` are the turn's own: the user message keeps the ones the rule admits, so a later turn is shown them too.
+    - **A tool's result.** The first 10 file values in its top-level `files` that the rule admits become the tool message's files, and the rest of the result is its text. One the rule refuses, one past the tenth, and anything that isn't a file value stay in the result as plain JSON.
+    - **The conversation's history.** Each earlier message's files are asked of the rule again. One it refuses now is a line saying the file is no longer stored.
+  - **A file the model couldn't read.** `refused` joins the reasons a file isn't shown (`FILE_NOT_SHOWN_REASONS`, and `FileValue.notShown` in the API and the clients): the model reads that it couldn't read the file when it was attached.
+    - **The retry.** A call that carried images or PDFs and that the provider refused as an invalid request (the adapter's `ModelProviderError` of kind `invalid-request`) is sent once more, in the same step, with that line in each one's place. The files the first call left out for its limits stay out, so the second call is the first without the files it carried. When it answers, the turn goes on without them, the files binding marks them (`FileBinding.refuse`), and the turn's result has a `file-refused` warning naming them. When it fails too, nothing is marked and the turn fails with the first call's error. A turn retries once at most, and not when it has spent its cost budget. The second call is recorded as its own call and counts against the turn's cost, not its steps.
+    - **Events.** A step with a retry has two `model.call.started` events; the refused call has no `model.call.completed`.
+    - **Everything else keeps the files:** a 429, a 5xx, no response, auth, a context too long, a content filter, an error with no kind, or an aborted turn.
+    - **`FileBinding.shown`** is told the images and PDFs each answered call carried; the runtime's choice of what a refusal marks reads it. A binding that fails at either is a `file-record-failed` warning, and the turn goes on.
+  - **Images and PDFs go to an agent that needs `vision`.** For any other agent, each is a line naming it. That's decided for each call: the conversation and the journal keep the plain reference, so a later version of the agent that needs `vision` is shown the file. Text files go to any agent.
+  - **Outside data.** The rule an agent's system message gains for event data now covers files: any file under a line saying it comes from outside is data, not instructions. A turn gets it when its first messages carry files. A tool whose results may carry files should set `resultIsOutsideData`, so the rule is there from the turn's start.
+  - **What's made of a file, sent in its place.** A runtime may make an image of a photo for a model, or read a document's text, and send that in the file's place.
+    - **For each call.** `FileBinding.admit` takes an optional call (`{ seesFiles }`). With it, each file carries its form for that one model call: `rendition` (an image, `FileRendition`) or `extracted` (its text, `FileExtract`). A turn asks for them before each model call, in the call's own copy only, so the journal and the conversation keep the plain reference, and a later call finds what's been made since. Without a call, `admit` is as before.
+    - **Reading one.** `ModelCallInput.readFile` and `FileBinding.read` take the form to read (`FileForm`); without it, the file itself.
+    - **Sending one.** `fileParts` sends a rendition as an image after the line naming the file, and a text in a `<file>` block naming the file, marked as read as text (and as cut, when it was cut at `FILE_LIMITS.textChars`), to any agent. Each form is held to the limits of what it is (a rendition to an image's, a text to a text file's), and counts its own bytes against the call's.
+    - **`reading`** joins the reasons a file isn't shown: what's sent in its place isn't made yet.
+  - **A turn's memory charge** counts the bytes each call reads of its files (a form in a file's place, else the file), three times: the bytes, their base64 and the request body. `filesForCall` gives the files a call reads, decided as `fileParts` decides them, without reading any. `isReadable` says whether a call reads a file when it fits.
+  - **Room for a call's files.** A binding with `FileBinding.hold` gives each model call room for the files it reads, in the runtime's memory for files, before it reads any; the call releases it (`FileHold`) once it answers or fails. With no room in time, the call is sent with a `limit` line for each of them, so it reads none, and a later call shows them again.
+    - **Two server settings** size that memory (runtime 0.4.0 on): `KINDGI_FILE_MEMORY_MIB`, 512 by default or a quarter of the server's memory when that's less, at least 35, the room one call's files take at their limit; and `KINDGI_FILE_CACHE_MIB`, the share of it that keeps files' bytes for later calls, half of it by default, 0 for none. A value out of range stops the boot, naming the variable.
+  - **Provenance.** A model call's node names the files it planned to read, by artifact id and sha256: at most what it read, since a provider's lower limit or a file found gone or changed can leave one out.
+  - **The API.** `ConversationMessage` gains an optional `files` (`FileValue[]`), and `GET /v1/conversations/{conversationId}/messages` returns it. The TypeScript client's `ConversationMessage` gains it too.
+- 36853d4: **`kindgi deploy` and `KINDGI_PACK_ROUTING` say a call goes to the newest deployment in the run's project.** With a pack service for each deployment, the deploy banner said each tool call from a run already in flight goes to "the newest deployment that shipped the version it names", and the setting's description said the same of `per-deployment`. That reads as the tenant's newest. A call goes to the newest deployment in the run's project that shipped what it names, and both now say so. The description also says that runtime 0.1.8 still picks the tenant's newest.
+- f2adcc2: **An operator can set a pack's env name to a cloud secret.** On a runtime that runs a pack service for each deployment, a name a pack reads from its env can be set, at a tenant's scope and under one env, to a numbered version of a secret the operator's cloud holds, `projects/<project>/secrets/<secret>/versions/<number>`, instead of to a value. The runtime keeps that path and never reads the value: the pack service is given the name, and its cloud reads the value as the pack service's own account. A version is a number, never `latest` or an alias, and a secret whose id starts with `kp-` is refused (`400 cloud-secret-invalid`): those are the pack services' own copies.
+  
+  Only the operator sets one, with a system key holding the new scope `system:env-refs`: `PUT`, `GET` and `DELETE` on `/v1/system/tenants/{tenantId}/env[/{name}]`, or `kindgi env set NAME --cloud-secret <path> --tenant=<id> --scope=… --env=…`, `kindgi env unset NAME --cloud-secret …` and `kindgi env list --cloud-secret …`. A tenant's own key is refused, on `PUT /v1/env/{name}` with a `cloudSecret` too (`403 cloud-secret-system-only`). A runtime serving one tenant with a pack service per deployment mints `system:env-refs` keys from its own token, for that tenant alone. The runtime keeps them only with the new setting `KINDGI_ENV_CLOUD_SECRETS=on`, which needs `KINDGI_PACK_ROUTING=per-deployment`. Off, the default, it keeps none, and the routes answer `501 cloud-secrets-unsupported`. Each change is an `env-set` or `env-deleted` audit row naming the system key, marked `cloudSecret`, never with the path. `createInMemoryEnvCloudSecretBinding` is a store for dev and tests, and `parseCloudSecretVersion` checks a path.
+  
+  The tenant sees which names are set this way, never the path: `GET /v1/env/cloud-secrets` lists them, the pack-env check names each as `kind: "cloud-secret"`, and `kindgi env list --scope` prints it as `NAME (cloud secret)`. The orchestrator's pack-env answer gives each by its path, in `cloudSecrets`, and setting, changing or removing one moves the pack env revision. A name set to a cloud secret and also as a value or a secret is `pack-env-ambiguous`, and its `names` entry carries `cloudSecretScope`. An orchestrator whose host can't give a pack service a cloud secret records `pack-env-cloud-secret-unsupported`. The TypeScript client's `systemEnv` has `setCloudSecret`, `deleteCloudSecret` and `listCloudSecrets`, and `env.listCloudSecrets` is the tenant's list.
+- 05a1568: **The settings for files kept in S3 are in the schema, for runtime 0.4.0.** `KINDGI_S3_REGION`, `KINDGI_S3_ENDPOINT`, `KINDGI_S3_PATH_STYLE` and `KINDGI_S3_CREDENTIALS_PATH` say how the server reaches its S3 buckets: AWS S3 as the server's AWS identity, or an S3-compatible store (MinIO, R2) at its own address, with its own key file. `KINDGI_ARTIFACTS`, `KINDGI_ERASURE_LEDGER_EXPORT` and `KINDGI_TENANT_PURGE_RECORD` say they take an `s3:<bucket>[/<prefix>]` bucket from runtime 0.4.0. Earlier runtimes ignore the four `KINDGI_S3_*` settings and refuse an `s3:` value at start.
+- ae02280: **An erasure waits for a test run still going with a case from the person's runs, then cancels it.** Before, such a test run could still write that case's results after the erasure, with the person's words in them. The erasure shows `waiting-on-run`, with `waitingOn` naming the test run, until the deadline it keeps for a run in a flow that serves other people (`KINDGI_ERASURE_SHARED_WAIT_MS`, 7 days by default). Then it cancels the test run and goes on. `kindgi memory erasures resume <erasure-id> --force` (`force: true` over the API) stops the wait sooner. A test run with none of the person's cases isn't waited for. The wire shape is unchanged: the descriptions of `waiting-on-run`, `waitingOn` and `force` now name the test run.
+- 7f272e3: **`KINDGI_ORCHESTRATOR_RUNTIME_AUTH`**, for a runtime behind Cloud Run IAM. Set to `google-id-token`, each of the pack orchestrator's calls also carries its own Google ID token for the runtime's URL (its `run.app` URL, or a custom audience the service sets), in `X-Serverless-Authorization`, beside the system key. Its account needs `roles/run.invoker` on the runtime. Unset, the system key alone. Any other value stops the orchestrator, naming the setting.
+- a6410b8: `KINDGI_PACK_CALL_TIMEOUT_MS`'s description says the pack service aborts the handler's signal when the deadline passes. A handler that doesn't stop runs on.
+- 038fbfb: **The pack orchestrator's settings.** `@kindgi/env-schema` describes what `kindgi-runtime packs orchestrate` reads: `KINDGI_ORCHESTRATOR_RUNTIME_URL`, `KINDGI_ORCHESTRATOR_SYSTEM_KEY`, `KINDGI_ORCHESTRATOR_PROJECT`, `KINDGI_ORCHESTRATOR_REGION`, `KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT`, and `KINDGI_ORCHESTRATOR_PACK_SERVICE` (JSON: how each pack service runs). They're grouped in the environment variables reference.
+  
+  **Why a deployment has no pack service yet, in the orchestrator's list.** Each entry of `GET /v1/system/deployments?endpoint=missing` carries the last `problem` recorded for it (`code` and `since`), and has none until one is recorded. `since` is when that code was first recorded, since recording the same code again keeps it, so an orchestrator can space its tries. `SystemDeploymentMissing` is the entry's type, and the clients read the field as optional.
+  
+  **`pack-env-name-too-long`** is a new problem code, both on a deployment waiting for its pack service (`problem`) and on a ready one (`packEnvProblem`). It means a name set as a secret is too long for the secret it's kept in, which is named after the pack service. `kindgi deploy` and `kindgi deployments get` say to shorten the name in the pack. As with the other codes, treat one you don't know as a reason not yet named.
+- 9a8a294: **A tool can store the files it fetches, such as a mail's attachments, and read the files it's given; an agent is shown the ones it stores.**
+  - **Storing.** A tool that declares `storesFiles: true` gets `ctx.files.store` with each call that has an `idempotencyKey`, as an agent's tool calls do. `ctx.files.store({ name, contentType, bytes })` stores a file as one the call's run owns: the runtime checks the bytes, and only they decide the type. It answers `{ file }`, a file value the tool returns in its result's top-level `files`, or `{ notStored }`: `type`, `size`, `limit` past `MAX_STORED_FILES_PER_CALL` (10) files a call, or `storage` when the tenant's storage is full. A pack's store of a file over `MAX_STORED_FILE_BYTES` (10 MB, the most any type allows) answers `size` without sending its bytes. The same bytes again in the same call, a re-run of it included, answer the first file.
+  - **Reading.** A tool that declares `readsFiles: true` gets `ctx.files.read(artifactId)` with each call: the bytes of a file its run may be shown, by the `artifactId` of a file value, such as one in its input. It answers `{ bytes }`, the file as it was stored, or `{ notRead }`: `rule` (the run may not be shown a file of that id), `gone` (deleted, or its bytes are missing), `changed` (its bytes aren't the ones that were checked) or `size` (over its type's limit). `FILE_NOT_READ_REASONS` lists them.
+  - **Either way.** A store or a read the runtime refuses, or can't be reached for, rejects, and the call fails as any throw fails it. Only a tool with a handler can store or read files: `defineTool` and the pack indexer refuse `storesFiles` and `readsFiles` on a tool with a declarative `spec` or an MCP transport.
+  - **`storage`** joins the reasons a file isn't shown (`FileNotShownReason`): a tool's store found the tenant's storage full.
+  - **In a pack.** Pack protocol 2.10.0: a call of a tool that declares `storesFiles` or `readsFiles` carries `ctx.toolFiles` (`{ url, token }`). The runner keeps it from the handler and gives the handler `files` instead: a store posts the file's bytes to the link, and a read gets them from under it, each with the token as the bearer. The handler never sees the link or the token, and a thrown error that quotes the token shows it redacted. A call from an older runtime carries no tool files, and the tool gets no `files`. The tool manifest schema is 1.4.0 and the pack index schema 1.8.0, each with `storesFiles` and `readsFiles`.
+  - **In-process.** `FileBinding` gains `store(call, file)`, keyed by the call's `idempotencyKey`, and `readSource(artifactId)`; an agent's tool call gets `ctx.files` from them, with what its tool declares.
+  - **The API.** `POST /v1/tool-files` takes a pack service's store: the call's token as the bearer, no API key; the body is the file's bytes, with `Content-Type` and a percent-encoded `Kindgi-File-Name`. It answers `{ file }` or `{ notStored }`. `GET /v1/tool-files/{artifactId}` takes a read, with the same bearer: it answers the file's bytes as `application/octet-stream`, or `{ notRead }` as JSON. Either answers `404 tool-file-token-not-found` for a missing or wrong token alike, or for a call whose tool doesn't declare what it asks; `409 tool-file-token-closed` once the call has answered, its time has passed or its run has ended; and `503 tool-files-busy`, with `Retry-After`, when the runtime has no room for the bytes then: a store holds twice the file's size in its memory for files (`KINDGI_FILE_MEMORY_MIB`, whose description now says so), and a read its size. A runtime supplies both as `createApp`'s `toolFiles` binding. The OpenAPI document gives the read's 200 both bodies. The wire `Tool` gains optional `storesFiles` and `readsFiles`, in the TypeScript client too.
+  - **Conformance.** The `files` feature, with the fixture tools `conformance.store` and `conformance.read`, checks that a pack service posts a store to the call's tool files link, gets a read from under it, and gives the handler only what the runtime answered.
+- 58ce994: **A runtime serving one tenant can run a pack service per deployment.** With per-deployment routing on, `/v1/system/keys` there also mints keys holding `system:deployments` or `system:pack-env`. Such a key reaches only the routes a pack service orchestrator calls: the deployments list, each deployment's endpoint, its problem and its pack env, and the round routes below. Every other system route stays closed to it, and the system access record keeps each request it makes. A runtime serving one tenant without per-deployment routing is unchanged: its system keys hold `system:license` alone.
+  
+  **One orchestrator pass at a time.** `POST /v1/system/deployments/round` claims the round for `holdSeconds` (30 to 3600). While another live claim holds it, it answers `409 orchestrator-round-held`. `POST /v1/system/deployments/round/end` ends a claim, and answers `409 orchestrator-round-not-held` once the claim has lapsed and another holds it. A runtime that keeps no rounds answers `501 orchestrator-round-unsupported`. The TypeScript client's `systemDeployments` has `claimRound` and `endRound`, and the Python client's `system_deployments` both too.
+  
+  **`KINDGI_PACK_ENDPOINT_KMS_KEY`** names the key each deployment's endpoint token is sealed under, a Cloud KMS key or a Key Vault key, so per-deployment routing no longer needs the `postgres` secrets backend. `parsePackEndpointKmsKey` reads it. `KINDGI_PACK_ROUTING` and `KINDGI_PACK_ENDPOINT_HOSTS` now say what per-deployment routing needs at either tenancy.
+
+## 0.3.1
+
+No changes in this release.
+
+## 0.3.1-rc.1
+
+No changes in this release.
+
+## 0.3.1-rc.0
+
+No changes in this release.
+
+## 0.3.0
+
+### Patch Changes
+
+- af11ccc: `KINDGI_SEED_USER_ID`'s description says the id is a UUID, as the tenant id's already does, and that the runtime reads it in lower case.
+
+## 0.3.0-rc.0
+
+### Patch Changes
+
+- af11ccc: `KINDGI_SEED_USER_ID`'s description says the id is a UUID, as the tenant id's already does, and that the runtime reads it in lower case.
+
+## 0.2.0
+
+### Patch Changes
+
+- 68e0d57: **A deployment can show links of its own in the console.** `GET /v1/auth/sign-in-options` gains an optional `links: [{ label, url }]`: the deployment's own links, such as its help desk, status page or data processing terms, for the console to show on every page, the sign-in page too. They come in the order the operator gave, with each label trimmed and each URL as a browser reads it. The answer has no `links` when there are none, and older servers leave it out too.
+  - `createApp`'s new `consoleLinks` sets them. It throws on more than 8 links, on a label that isn't 1 to 40 characters once trimmed, has a control or format character (as a site's display name, `hasHiddenCharacters`) or is another link's once trimmed, and on a URL that isn't an absolute https URL with no username or password.
+  - **Only lookups with an email count toward the sign-in options' rate limit.** A read without an email is answered with the deployment's configuration, the same for everyone, so it isn't counted. The console reads it on every page load for the links, and those reads no longer spend the sign-in page's budget for a client address.
+  - `@kindgi/env-schema` adds `KINDGI_CONSOLE_LINKS`, a JSON object of label to URL, for a runtime to read them from.
+  - The TypeScript and Python clients' sign-in options gain `links`. The OpenAPI document names the item `ConsoleLink`.
+- 68e0d57: **Two server settings that have the runtime check its database server's certificate against a CA you give** (runtime 0.2.0 on):
+  - **`KINDGI_DATABASE_SERVER_CA_PATH`:** a PEM file of the CA certificates the database server's certificate must chain to. Set, every connection uses TLS whatever the URL's `sslmode` says, and the certificate must chain to one of these CAs and be in date. Its name is checked too only with `sslmode=verify-full`. For a database reached by an address its certificate doesn't name, such as Cloud SQL by private IP with its per-instance CA.
+  - **`KINDGI_DATABASE_SERVER_CA`:** the same certificates inline, for platforms that give settings as environment variables. One or the other, not both.
+- 87a5290: Four descriptions now say what the server does. `KINDGI_ERASURE_SHARED_WAIT_MS` is at least 3600000 (an hour), or the server refuses to start. `KINDGI_SESSION_TTL_MS` and `KINDGI_SESSION_IDLE_TIMEOUT_MS` say the server refuses to start below their minimum, and when either is set where nobody can open a browser session (sign-in with identity providers off and console token sign-in off). `KINDGI_SESSION_TTL_MS` below an hour needs `KINDGI_SESSION_IDLE_TIMEOUT_MS` set no longer than it, since the idle default is an hour. `KINDGI_PACK_SERVICE_TOKEN` suggests `openssl rand -hex 32`, as its error message already does, and so do the self-host and rotate-keys guides.
+- 68e0d57: `KINDGI_OPENFGA_API_URL`'s description says what a runtime without it does, instead of saying production must set it. No roles are checked: every key and every sign-in works in every project, and only the tenant admin (the API token or an `admin` key) changes tenant settings. That suits one tenant whose people trust each other. `KINDGI_TENANCY=multi` refuses to start without it.
+
+## 0.2.0-rc.1
+
+No changes in this release.
+
+## 0.2.0-rc.0
+
+### Patch Changes
+
+- 68e0d57: **A deployment can show links of its own in the console.** `GET /v1/auth/sign-in-options` gains an optional `links: [{ label, url }]`: the deployment's own links, such as its help desk, status page or data processing terms, for the console to show on every page, the sign-in page too. They come in the order the operator gave, with each label trimmed and each URL as a browser reads it. The answer has no `links` when there are none, and older servers leave it out too.
+  - `createApp`'s new `consoleLinks` sets them. It throws on more than 8 links, on a label that isn't 1 to 40 characters once trimmed, has a control or format character (as a site's display name, `hasHiddenCharacters`) or is another link's once trimmed, and on a URL that isn't an absolute https URL with no username or password.
+  - **Only lookups with an email count toward the sign-in options' rate limit.** A read without an email is answered with the deployment's configuration, the same for everyone, so it isn't counted. The console reads it on every page load for the links, and those reads no longer spend the sign-in page's budget for a client address.
+  - `@kindgi/env-schema` adds `KINDGI_CONSOLE_LINKS`, a JSON object of label to URL, for a runtime to read them from.
+  - The TypeScript and Python clients' sign-in options gain `links`. The OpenAPI document names the item `ConsoleLink`.
+- 68e0d57: **Two server settings that have the runtime check its database server's certificate against a CA you give** (runtime 0.2.0 on):
+  - **`KINDGI_DATABASE_SERVER_CA_PATH`:** a PEM file of the CA certificates the database server's certificate must chain to. Set, every connection uses TLS whatever the URL's `sslmode` says, and the certificate must chain to one of these CAs and be in date. Its name is checked too only with `sslmode=verify-full`. For a database reached by an address its certificate doesn't name, such as Cloud SQL by private IP with its per-instance CA.
+  - **`KINDGI_DATABASE_SERVER_CA`:** the same certificates inline, for platforms that give settings as environment variables. One or the other, not both.
+- 87a5290: Four descriptions now say what the server does. `KINDGI_ERASURE_SHARED_WAIT_MS` is at least 3600000 (an hour), or the server refuses to start. `KINDGI_SESSION_TTL_MS` and `KINDGI_SESSION_IDLE_TIMEOUT_MS` say the server refuses to start below their minimum, and when either is set where nobody can open a browser session (sign-in with identity providers off and console token sign-in off). `KINDGI_SESSION_TTL_MS` below an hour needs `KINDGI_SESSION_IDLE_TIMEOUT_MS` set no longer than it, since the idle default is an hour. `KINDGI_PACK_SERVICE_TOKEN` suggests `openssl rand -hex 32`, as its error message already does, and so do the self-host and rotate-keys guides.
+- 68e0d57: `KINDGI_OPENFGA_API_URL`'s description says what a runtime without it does, instead of saying production must set it. No roles are checked: every key and every sign-in works in every project, and only the tenant admin (the API token or an `admin` key) changes tenant settings. That suits one tenant whose people trust each other. `KINDGI_TENANCY=multi` refuses to start without it.
+
+## 0.1.10
+
+### Patch Changes
+
+- 6b3f48c: **`KINDGI_DB_POOL_WAIT_TIMEOUT_MS`** (runtime 0.1.9 on): how long a query waits for one of the server's pooled database connections while every one is taken, 10000 ms by default; 0 turns it off. Past it the query fails before it runs: a GET or HEAD answers 503 `database-busy` with `Retry-After: 5` (under `/auth/`, a browser signing in is sent back to the sign-in page instead), any other request 500. The admin commands wait as long as it takes. The statement and lock timeouts' descriptions now say the same of the GETs and HEADs they end.
+- e03762c: **Three server settings for the timeouts on the runtime's own database connections** (runtime 0.1.9 on). Each is in milliseconds, and 0 turns it off. Anything but a whole number up to 2147483647 stops the boot, naming the variable.
+  - **`KINDGI_DB_STATEMENT_TIMEOUT_MS`:** how long one statement may run (`statement_timeout`), 60000 by default. The migrations at boot, an index built `CONCURRENTLY` and the admin commands run with none.
+  - **`KINDGI_DB_LOCK_TIMEOUT_MS`:** how long a statement may wait for a lock (`lock_timeout`), 30000 by default. It must be shorter than the statement timeout when both are on.
+  - **`KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS`:** how long a transaction may sit idle between statements (`idle_in_transaction_session_timeout`), 30000 by default.
+- fde2432: **`KINDGI_ERASURE_LEDGER_EXPORT`** (runtime 0.1.10 on): each copy also names every tenant marked purged, by id and when it was created, and a new one is written when that changes too. After a restore, `kindgi-runtime tenants repurge` reads the newest copy here by default and purges those tenants again, even one whose purge record is gone.
+- 43eafb2: A deployment without a secrets store (`KINDGI_SECRETS_BACKEND=none`) can say it takes no identity provider of a tenant's own: a provider's client secret and keys are references into a store. The binding's `register` and `update` may answer `{ kind: 'needs-secrets-store' }`, and `POST /v1/auth/providers` and `PATCH /v1/auth/providers/{providerId}` then answer `409 identity-providers-need-secrets-store`: "This deployment has no secrets store (KINDGI_SECRETS_BACKEND), and an identity provider's client secret and keys are references into one: identity providers can't be added or changed here until it has one." Removing a provider still works. The clients read the new code as a conflict, by its status. `KINDGI_SECRETS_BACKEND`'s description in the environment schema says so.
+- 05b762e: **New system route `POST /v1/system/tenants/{tenantId}/purge`:** purges a closed tenant for good, once its 30-day export window has passed, as `kindgi-runtime tenants purge` does: every row of it, its artifacts' bytes and its authorization store, then its purge record, then the mark. `confirm` is the tenant's slug. It takes `system:tenants:purge`, which no other scope includes, or `kindgi:system`. Until now that scope could be put on a key and reached nothing.
+  
+  - **It answers when done:** `complete`, what it deleted per table (`deleted`, `objectsDeleted`, `authzStoreDeleted`), and what's left (`left`, `objectsLeft`, `leftBecause`). With `complete: false`, or a call that ended before its answer, run it again. On a tenant already purged it deletes what was written after its mark (`alreadyPurged: true`). Every call is on the operator's access record.
+  - **Refused, with nothing changed:** `400 tenant-slug-mismatch`; `409 tenant-not-closing`, `tenant-export-window-open`, `purge-record-unset` and `purge-setting-missing`. A runtime that doesn't purge answers `501 tenant-purge-unsupported`.
+  - **A failed delete of its OpenFGA store** is `502 authz-store-delete-failed`, and its message says what that left. Run it again.
+  - **`SystemTenantsBinding.purge`** is optional. `withSystemTenantContext` takes `admitPurged`, so the purge's route reaches a tenant already purged; every other system route still answers `404 tenant-not-found` for one.
+  - **New runtime setting `KINDGI_TENANT_PURGE_RECORD`** (`local:<absolute dir>` or `gcs:<bucket>[/<prefix>]`): where the server writes purge records. The route refuses every purge while it's unset.
+  - **Clients:** `client.systemTenants.purge(tenantId, confirm, { idempotencyKey, timeoutMs })` in TypeScript (`TenantPurge`), and `client.system_tenants.purge(tenant_id, confirm=…, idempotency_key=…, timeout=…)` in Python.
+- 9b6da8a: **Usage reads: a tenant reads its own usage, aggregated, and the operator reads usage across tenants.**
+  
+  - **What's counted:** usage records (`USAGE_KINDS`): runs started and ended, each with its class; approvals requested and decided; model calls, inference and embedding; and a project put in production or taken out. A read answers groups: each group's count, the sum of its quantities (milliseconds for `run.ended`, tokens for model calls, and 1 for every other record, so a group of those has a quantity equal to its count) and its first and last times. It never answers a record's content. Model-call cost stays on `/v1/cost`.
+  - **The query,** the same on both routes:
+    - `from` and `to`: times with a zone, `to` not included, at most 92 days apart. A longer span is read in parts;
+    - `groupBy`, comma-separated;
+    - the filters `kind`, `class` and `state`, each comma-separated. A list naming an unknown value, or one value twice, is `400 bad-input`;
+    - `limit`: groups a page, from 1 to 10000 (default 1000);
+    - `cursor`: the last page's `nextCursor`. A cursor the route didn't give is `400 bad-input`.
+  - **The answer** is `{ data, watermark, nextCursor? }`. Every record at or before `watermark` is in it, so a reader re-reads a window until its watermark is past the window's end. Every page of one read carries the same watermark. A group's `kind`, `class` and `state` are plain strings: a runtime may count more later, and a reader shows a value it doesn't know as it is.
+  - **`GET /v1/usage`:** the caller's tenant's usage. `groupBy` takes `project`, `agent`, `kind`, `class`, `state` and `day` (the UTC date); the default is `project,kind`. `projectId` reads one project.
+    - **Which projects:** a tenant admin, or a deployment without authorization, reads every project and the tenant's records with no project. Anyone else, an admin's API key limited to a project included, reads only the projects they may `read`, and no record without a project.
+    - **A project the caller can't read** is absent from the answer, never an error, so the answer doesn't say it exists.
+    - **When the projects a caller may read can't be listed,** one asked for with `projectId` is still read. A read across projects is refused (`403`), never over-counted.
+  - **`GET /v1/system/usage`** takes the new system capability `system:usage:read` (`kindgi:system` includes it). `groupBy` also takes `tenant`; the default is `tenant,kind`. `tenantId` reads one tenant.
+    - A test tenant's usage, and that of a tenant whose setup is pending, is never in the answer, even when `tenantId` names one.
+    - The access record marks a read across every tenant, or names the one read.
+  - **Mounting:** `createApp` takes `usage`, a `UsageBinding` (`acrossTenants`, `ofTenant`). Without it, neither route is mounted (`404`). `@kindgi/api` exports the binding's types and the lists the query takes (`USAGE_STATES`, `USAGE_GROUP_KEYS`, `TENANT_USAGE_GROUP_KEYS`, `USAGE_WINDOW_MAX_DAYS`).
+  - **The TypeScript client** adds `client.usage.read` (`TenantUsageClient`) and `client.systemUsage.read` (`SystemUsageClient`); lists are sent comma-separated. `@kindgi/sdk` exports `TenantUsageClient`, `UsageQuery`, `UsagePage`, `UsageGroup` and `UsageGroupKey`. `UsageClient` is still `client.cost.usage`'s.
+  - **The Python client** adds `client.usage.read` and `client.system_usage.read`.
+  - **The CLI adds `kindgi usage`:**
+    - **The window:** a calendar month in UTC (`--month=YYYY-MM`, the current one by default), or `--from` and `--to` together;
+    - **The query:** `--project`, `--group-by`, `--kind`, `--class` and `--state` (comma-separated), `--limit` and `--cursor`;
+    - **The output:** the page as JSON. `--table` prints a row per group, with `(none)` for no project or agent, and on stderr the watermark and the next page's `--cursor`.
+
+## 0.1.10-rc.1
+
+No changes in this release.
+
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- 6b3f48c: **`KINDGI_DB_POOL_WAIT_TIMEOUT_MS`** (runtime 0.1.9 on): how long a query waits for one of the server's pooled database connections while every one is taken, 10000 ms by default; 0 turns it off. Past it the query fails before it runs: a GET or HEAD answers 503 `database-busy` with `Retry-After: 5` (under `/auth/`, a browser signing in is sent back to the sign-in page instead), any other request 500. The admin commands wait as long as it takes. The statement and lock timeouts' descriptions now say the same of the GETs and HEADs they end.
+- e03762c: **Three server settings for the timeouts on the runtime's own database connections** (runtime 0.1.9 on). Each is in milliseconds, and 0 turns it off. Anything but a whole number up to 2147483647 stops the boot, naming the variable.
+  - **`KINDGI_DB_STATEMENT_TIMEOUT_MS`:** how long one statement may run (`statement_timeout`), 60000 by default. The migrations at boot, an index built `CONCURRENTLY` and the admin commands run with none.
+  - **`KINDGI_DB_LOCK_TIMEOUT_MS`:** how long a statement may wait for a lock (`lock_timeout`), 30000 by default. It must be shorter than the statement timeout when both are on.
+  - **`KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS`:** how long a transaction may sit idle between statements (`idle_in_transaction_session_timeout`), 30000 by default.
+- fde2432: **`KINDGI_ERASURE_LEDGER_EXPORT`** (runtime 0.1.10 on): each copy also names every tenant marked purged, by id and when it was created, and a new one is written when that changes too. After a restore, `kindgi-runtime tenants repurge` reads the newest copy here by default and purges those tenants again, even one whose purge record is gone.
+- 43eafb2: A deployment without a secrets store (`KINDGI_SECRETS_BACKEND=none`) can say it takes no identity provider of a tenant's own: a provider's client secret and keys are references into a store. The binding's `register` and `update` may answer `{ kind: 'needs-secrets-store' }`, and `POST /v1/auth/providers` and `PATCH /v1/auth/providers/{providerId}` then answer `409 identity-providers-need-secrets-store`: "This deployment has no secrets store (KINDGI_SECRETS_BACKEND), and an identity provider's client secret and keys are references into one: identity providers can't be added or changed here until it has one." Removing a provider still works. The clients read the new code as a conflict, by its status. `KINDGI_SECRETS_BACKEND`'s description in the environment schema says so.
+- 05b762e: **New system route `POST /v1/system/tenants/{tenantId}/purge`:** purges a closed tenant for good, once its 30-day export window has passed, as `kindgi-runtime tenants purge` does: every row of it, its artifacts' bytes and its authorization store, then its purge record, then the mark. `confirm` is the tenant's slug. It takes `system:tenants:purge`, which no other scope includes, or `kindgi:system`. Until now that scope could be put on a key and reached nothing.
+  
+  - **It answers when done:** `complete`, what it deleted per table (`deleted`, `objectsDeleted`, `authzStoreDeleted`), and what's left (`left`, `objectsLeft`, `leftBecause`). With `complete: false`, or a call that ended before its answer, run it again. On a tenant already purged it deletes what was written after its mark (`alreadyPurged: true`). Every call is on the operator's access record.
+  - **Refused, with nothing changed:** `400 tenant-slug-mismatch`; `409 tenant-not-closing`, `tenant-export-window-open`, `purge-record-unset` and `purge-setting-missing`. A runtime that doesn't purge answers `501 tenant-purge-unsupported`.
+  - **A failed delete of its OpenFGA store** is `502 authz-store-delete-failed`, and its message says what that left. Run it again.
+  - **`SystemTenantsBinding.purge`** is optional. `withSystemTenantContext` takes `admitPurged`, so the purge's route reaches a tenant already purged; every other system route still answers `404 tenant-not-found` for one.
+  - **New runtime setting `KINDGI_TENANT_PURGE_RECORD`** (`local:<absolute dir>` or `gcs:<bucket>[/<prefix>]`): where the server writes purge records. The route refuses every purge while it's unset.
+  - **Clients:** `client.systemTenants.purge(tenantId, confirm, { idempotencyKey, timeoutMs })` in TypeScript (`TenantPurge`), and `client.system_tenants.purge(tenant_id, confirm=…, idempotency_key=…, timeout=…)` in Python.
+- 9b6da8a: **Usage reads: a tenant reads its own usage, aggregated, and the operator reads usage across tenants.**
+  
+  - **What's counted:** usage records (`USAGE_KINDS`): runs started and ended, each with its class; approvals requested and decided; model calls, inference and embedding; and a project put in production or taken out. A read answers groups: each group's count, the sum of its quantities (milliseconds for `run.ended`, tokens for model calls, and 1 for every other record, so a group of those has a quantity equal to its count) and its first and last times. It never answers a record's content. Model-call cost stays on `/v1/cost`.
+  - **The query,** the same on both routes:
+    - `from` and `to`: times with a zone, `to` not included, at most 92 days apart. A longer span is read in parts;
+    - `groupBy`, comma-separated;
+    - the filters `kind`, `class` and `state`, each comma-separated. A list naming an unknown value, or one value twice, is `400 bad-input`;
+    - `limit`: groups a page, from 1 to 10000 (default 1000);
+    - `cursor`: the last page's `nextCursor`. A cursor the route didn't give is `400 bad-input`.
+  - **The answer** is `{ data, watermark, nextCursor? }`. Every record at or before `watermark` is in it, so a reader re-reads a window until its watermark is past the window's end. Every page of one read carries the same watermark. A group's `kind`, `class` and `state` are plain strings: a runtime may count more later, and a reader shows a value it doesn't know as it is.
+  - **`GET /v1/usage`:** the caller's tenant's usage. `groupBy` takes `project`, `agent`, `kind`, `class`, `state` and `day` (the UTC date); the default is `project,kind`. `projectId` reads one project.
+    - **Which projects:** a tenant admin, or a deployment without authorization, reads every project and the tenant's records with no project. Anyone else, an admin's API key limited to a project included, reads only the projects they may `read`, and no record without a project.
+    - **A project the caller can't read** is absent from the answer, never an error, so the answer doesn't say it exists.
+    - **When the projects a caller may read can't be listed,** one asked for with `projectId` is still read. A read across projects is refused (`403`), never over-counted.
+  - **`GET /v1/system/usage`** takes the new system capability `system:usage:read` (`kindgi:system` includes it). `groupBy` also takes `tenant`; the default is `tenant,kind`. `tenantId` reads one tenant.
+    - A test tenant's usage, and that of a tenant whose setup is pending, is never in the answer, even when `tenantId` names one.
+    - The access record marks a read across every tenant, or names the one read.
+  - **Mounting:** `createApp` takes `usage`, a `UsageBinding` (`acrossTenants`, `ofTenant`). Without it, neither route is mounted (`404`). `@kindgi/api` exports the binding's types and the lists the query takes (`USAGE_STATES`, `USAGE_GROUP_KEYS`, `TENANT_USAGE_GROUP_KEYS`, `USAGE_WINDOW_MAX_DAYS`).
+  - **The TypeScript client** adds `client.usage.read` (`TenantUsageClient`) and `client.systemUsage.read` (`SystemUsageClient`); lists are sent comma-separated. `@kindgi/sdk` exports `TenantUsageClient`, `UsageQuery`, `UsagePage`, `UsageGroup` and `UsageGroupKey`. `UsageClient` is still `client.cost.usage`'s.
+  - **The Python client** adds `client.usage.read` and `client.system_usage.read`.
+  - **The CLI adds `kindgi usage`:**
+    - **The window:** a calendar month in UTC (`--month=YYYY-MM`, the current one by default), or `--from` and `--to` together;
+    - **The query:** `--project`, `--group-by`, `--kind`, `--class` and `--state` (comma-separated), `--limit` and `--cursor`;
+    - **The output:** the page as JSON. `--table` prints a row per group, with `(none)` for no project or agent, and on stderr the watermark and the next page's `--cursor`.
+
+## 0.1.9
+
+### Patch Changes
+
+- 1ac8e67: **A deployment can publish the IP addresses its calls to other sites come from, and `kindgi egress` prints them,** for a site that admits only known addresses. Publishing them changes nothing about where calls go or come from.
+  - **Settings:** `KINDGI_EGRESS_SERVER_ADDRESSES` (the server's own calls, such as to MCP servers and model providers, and its webhook deliveries) and `KINDGI_EGRESS_DEPLOYMENT_ADDRESSES` (calls made by deployed code), each a comma-separated list of IPv4 or IPv6 addresses. Unset: nothing is published.
+  - **`GET /v1/tenant`** gains an optional `egress: { server, deployments }`, the same for every tenant on the deployment, which any key of the tenant reads. It's absent when the deployment publishes none, and from a runtime before it. For runtimes: `createApp`'s optional `egress` (`EgressAddresses`), whose entries must be IP addresses.
+  - **`kindgi egress`** prints a CALLS / ADDRESS table, and says every tenant on the deployment shares the addresses, so a site keeps its own credentials too. `--json` prints both lists. With none published it says so, and exits 0.
+  - The TypeScript and Python clients' `Tenant` gains the optional `egress`.
+- 7be42d0: **New runtime setting `KINDGI_AUTH_INVITE_EMAIL_DAILY_CAP`:** the deployment's backstop on invitation emails, at most this many in 24 hours from all its tenants together. Default 500, a whole number from 1 to 100000. Each tenant's own limit stays: 100 in 24 hours, or 10 while `KINDGI_PRODUCTION_GATE` is `on` and the tenant isn't allowed production. At a limit the person is still added, without the email (`inviteEmail.reason` is `capped`), and sending it again answers `429 invite-capped`. It needs the emailed sign-in link's sender: set without `KINDGI_AUTH_EMAIL_SMTP_URL` (or `…_PATH`), the runtime refuses to start. `AUTH_INVITE_EMAIL_DAILY_CAP_VAR` names it.
+  
+  The API's texts for an invitation not emailed (`capped`) and for `429 invite-capped` name the deployment's backstop beside the tenant's limit (`openapi.json` descriptions only).
+- d563887: **A runtime that keeps its values under one env refuses a value it would never read.** A runtime that serves one env, `prod` say, reads every value under it, so a secret set under `production` was stored and never read. Such a runtime can now refuse those values: `createApp({ envName, refuseOtherEnvs: true })` (`KINDGI_REFUSE_OTHER_ENVS=true` on the server, with `KINDGI_ENV`). Off by default; a runtime that leaves it off takes any env, as before.
+  - **What it refuses, with `409 env-not-served`:**
+    - a secret set or rotated, or an env value put, under another env (`POST /v1/secrets`, `POST /v1/secrets/{name}/rotate`, `PUT /v1/env/{name}`), and a deployment's secret sync under another env (`POST /v1/deployments/{deploymentId}/secrets`), before anything is written;
+    - a model provider, MCP endpoint or webhook endpoint created or changed with its secret named under another env.
+  - **The error** names the env the runtime serves and what to do (`details: { envName, servedEnv }`).
+  - **What it still takes:**
+    - reads and deletes under any env, so a value stored before can be found and removed;
+    - a secret that a registration made before names under its own env, at the scope it's read at, so a value in use can still be rotated: a provider's or a webhook endpoint's at the tenant's scope, an MCP endpoint's at the scope recorded for it.
+  - **whoami says what's served:** `GET /v1/identity/whoami` answers `servedEnv: { envName, refusesOtherEnvs }` when the runtime serves an env. The field is optional, and absent on a runtime that serves none.
+  - **The CLI follows it.** On a runtime that refuses other envs:
+    - `--env` defaults to the served env for `kindgi secrets`, `kindgi env` with `--scope`, `kindgi env pull` and `kindgi providers register --preset`;
+    - `kindgi env set --scope`, `kindgi providers register --preset` and `kindgi deploy --sync-secrets` (before the build) are refused before anything is sent when they name another env;
+    - `kindgi secrets set|rotate` under another env is sent, since only the runtime knows whether a registration still reads the secret there, and its refusal is shown;
+    - elsewhere every default stays as it was.
+  - **The MCP servers skill** says where a `--env=local` secret goes when the CLI is signed in to a hosted runtime.
+- 1dc38b4: **`KINDGI_RUN_RETENTION_MAX_DAYS` is declared:** the longest a server keeps a finished run, in whole days. Unset, there's no limit.
+- c44d803: **A second factor at sign-in, and a workspace setting that requires one, on a runtime that keeps them.** An authenticator app's codes (TOTP), with 10 recovery codes for when the app is lost. Covers the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub); signing in through the workspace's own identity provider is exempt, since it owns the second factor there. API keys aren't covered.
+  
+  - **The API.** A `secondFactor` binding (`SecondFactorBinding`) mounts:
+    - `/v1/identity/me/second-factor`: `GET` yours (`setUp`, `since`, `recoveryCodesLeft`, `usable`, and whether the workspace `required` one); `POST` starts setting one up (the key and its `otpauth://` URI, shown once; replacing one takes a code from it), then `POST …/confirm {code}` sets it up and answers the 10 recovery codes, once; `POST …/recovery-codes` gives 10 new ones; `POST …/remove` takes it off, refused while the workspace requires one. From a session only (`400 auth-not-session-token` with an API key). A key or codes in an answer are never replayed for an `Idempotency-Key`.
+    - `GET /v1/identity/users/{userId}/second-factor` and `POST …/second-factor/remove` (tenant admins): a person's, and removing it for a lost phone. Their sessions stay. An admin's own isn't removed there (`403 permission-denied`): it's taken off at `/me`, with a code from it.
+    - `GET` / `PATCH /v1/auth/settings` `{ secondFactor: { required } }` (tenant admins), with how many people's keys are still on the previous sign-in secret (`onPreviousSecret`) or on neither (`unusable`). Once required, a session made without a second factor ends at its next request. Turning it on from a session made without one is `409 second-factor-enroll-first`.
+    - Token sign-in is refused in a workspace that requires one: `403 second-factor-required`.
+    - The sign-in history (`GET /v1/audit/sign-ins`) has three new kinds: `second-factor-set-up`, `second-factor-removed` (with `byUserId` when an admin removed it) and `recovery-codes-replaced`. It never has a key or a code.
+    - New error codes: `second-factor-required`, `second-factor-invalid` (403), `second-factor-locked` (429, with `Retry-After`), `second-factor-unusable` (403), `second-factor-enroll-first`, `second-factor-not-set-up`, `second-factor-not-started` (409).
+  - **A session says how its person gave a second factor.** `SessionCreateInput.secondFactor` and `Session.secondFactor` (optional): `{ method, at }`, where `method` is `totp`, `recovery-code`, `identity-provider`, or `site` (a site signed them in, and owns their second factor). A session store keeps it and returns it from `get` and `resolveToken`; `POST /v1/auth/refresh` gives the new session the same one.
+  - **The TypeScript client.** `identity.me.secondFactor` (`get`, `start`, `confirm`, `newRecoveryCodes`, `remove`), `users.secondFactor(id)` and `users.removeSecondFactor(id)`, and `auth.settings` (`get`, `update`). A wrong code is an `auth` error whose `serverCode` is `second-factor-invalid`; too many is `rate-limited` (`second-factor-locked`), with `retryAfterSeconds`.
+  - **The CLI.** `kindgi people second-factor <user-id>`, `kindgi people reset-second-factor <user-id>`, and `kindgi sign-in settings [--require-second-factor=on|off]`. `kindgi exports create` also writes `user-second-factors` (each person's status, never a key) and `sign-in-settings`.
+  - **Runtime settings** (`@kindgi/env-schema`): `KINDGI_AUTH_PREVIOUS_SECRET_PATH` / `KINDGI_AUTH_PREVIOUS_SECRET`, optional: while the sign-in secret rotates, the one before it, so second-factor keys sealed under it still open.
+- ec3dbf9: **Sign-in options can link the deployment's terms and privacy policy.** `GET /v1/auth/sign-in-options` gains an optional `legal: { termsUrl?, privacyUrl? }` for a sign-in page to link. It has only the ones the operator set, each an absolute https URL with no username or password, as a browser reads it, and the answer has no `legal` at all when neither is set. Older servers leave it out too.
+  - `createApp`'s new `signInLegal` sets them. It throws on anything but an absolute https URL with no username or password.
+  - `@kindgi/env-schema` adds `KINDGI_AUTH_TERMS_URL` and `KINDGI_AUTH_PRIVACY_URL`, for a runtime to read them from.
+  - The TypeScript and Python clients' sign-in options gain `legal`.
+- 409b9bf: A person a site signs in holds only the grants their site's sign-in writes. A deployment's bindings refuse any other grant naming such a person with `site-person-grants-managed`, and the API answers it as `403` on these routes:
+  - adding a project or team member, or changing their role (`AddProjectMemberError`, `AddTeamMemberError` and `MembershipWriteError` gain the code);
+  - granting tenant admin (`PersonGrantErrorCode`);
+  - registering a reviewer (`ReviewerRegisterOutcome` gains a `refused` outcome);
+  - removing such a person's project or team membership, or unregistering them as a reviewer (`ReviewerUnregisterOutcome` gains an optional `refused`). Their site would give it back at their next sign-in, so the answer points at the real levers: remove the person, change their role on the site, or pause the site.
+  - minting an API key for such a person (`TokenMintRefusal` gains the code). Their access is only the sessions their site's sign-in gives, which end when the site is paused or unregistered; a key would outlive both.
+  
+  `@kindgi/env-schema` gains `KINDGI_SITE_SIGN_IN`: `true` lets sites sign their people in. The runtime needs authorization enforced and `KINDGI_PUBLIC_URL` for it; it's off by default.
+
+## 0.1.9-rc.1
+
+No changes in this release.
+
+## 0.1.9-rc.0
+
+### Patch Changes
+
+- 1ac8e67: **A deployment can publish the IP addresses its calls to other sites come from, and `kindgi egress` prints them,** for a site that admits only known addresses. Publishing them changes nothing about where calls go or come from.
+  - **Settings:** `KINDGI_EGRESS_SERVER_ADDRESSES` (the server's own calls, such as to MCP servers and model providers, and its webhook deliveries) and `KINDGI_EGRESS_DEPLOYMENT_ADDRESSES` (calls made by deployed code), each a comma-separated list of IPv4 or IPv6 addresses. Unset: nothing is published.
+  - **`GET /v1/tenant`** gains an optional `egress: { server, deployments }`, the same for every tenant on the deployment, which any key of the tenant reads. It's absent when the deployment publishes none, and from a runtime before it. For runtimes: `createApp`'s optional `egress` (`EgressAddresses`), whose entries must be IP addresses.
+  - **`kindgi egress`** prints a CALLS / ADDRESS table, and says every tenant on the deployment shares the addresses, so a site keeps its own credentials too. `--json` prints both lists. With none published it says so, and exits 0.
+  - The TypeScript and Python clients' `Tenant` gains the optional `egress`.
+- 7be42d0: **New runtime setting `KINDGI_AUTH_INVITE_EMAIL_DAILY_CAP`:** the deployment's backstop on invitation emails, at most this many in 24 hours from all its tenants together. Default 500, a whole number from 1 to 100000. Each tenant's own limit stays: 100 in 24 hours, or 10 while `KINDGI_PRODUCTION_GATE` is `on` and the tenant isn't allowed production. At a limit the person is still added, without the email (`inviteEmail.reason` is `capped`), and sending it again answers `429 invite-capped`. It needs the emailed sign-in link's sender: set without `KINDGI_AUTH_EMAIL_SMTP_URL` (or `…_PATH`), the runtime refuses to start. `AUTH_INVITE_EMAIL_DAILY_CAP_VAR` names it.
+  
+  The API's texts for an invitation not emailed (`capped`) and for `429 invite-capped` name the deployment's backstop beside the tenant's limit (`openapi.json` descriptions only).
+- d563887: **A runtime that keeps its values under one env refuses a value it would never read.** A runtime that serves one env, `prod` say, reads every value under it, so a secret set under `production` was stored and never read. Such a runtime can now refuse those values: `createApp({ envName, refuseOtherEnvs: true })` (`KINDGI_REFUSE_OTHER_ENVS=true` on the server, with `KINDGI_ENV`). Off by default; a runtime that leaves it off takes any env, as before.
+  - **What it refuses, with `409 env-not-served`:**
+    - a secret set or rotated, or an env value put, under another env (`POST /v1/secrets`, `POST /v1/secrets/{name}/rotate`, `PUT /v1/env/{name}`), and a deployment's secret sync under another env (`POST /v1/deployments/{deploymentId}/secrets`), before anything is written;
+    - a model provider, MCP endpoint or webhook endpoint created or changed with its secret named under another env.
+  - **The error** names the env the runtime serves and what to do (`details: { envName, servedEnv }`).
+  - **What it still takes:**
+    - reads and deletes under any env, so a value stored before can be found and removed;
+    - a secret that a registration made before names under its own env, at the scope it's read at, so a value in use can still be rotated: a provider's or a webhook endpoint's at the tenant's scope, an MCP endpoint's at the scope recorded for it.
+  - **whoami says what's served:** `GET /v1/identity/whoami` answers `servedEnv: { envName, refusesOtherEnvs }` when the runtime serves an env. The field is optional, and absent on a runtime that serves none.
+  - **The CLI follows it.** On a runtime that refuses other envs:
+    - `--env` defaults to the served env for `kindgi secrets`, `kindgi env` with `--scope`, `kindgi env pull` and `kindgi providers register --preset`;
+    - `kindgi env set --scope`, `kindgi providers register --preset` and `kindgi deploy --sync-secrets` (before the build) are refused before anything is sent when they name another env;
+    - `kindgi secrets set|rotate` under another env is sent, since only the runtime knows whether a registration still reads the secret there, and its refusal is shown;
+    - elsewhere every default stays as it was.
+  - **The MCP servers skill** says where a `--env=local` secret goes when the CLI is signed in to a hosted runtime.
+- 1dc38b4: **`KINDGI_RUN_RETENTION_MAX_DAYS` is declared:** the longest a server keeps a finished run, in whole days. Unset, there's no limit.
+- c44d803: **A second factor at sign-in, and a workspace setting that requires one, on a runtime that keeps them.** An authenticator app's codes (TOTP), with 10 recovery codes for when the app is lost. Covers the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub); signing in through the workspace's own identity provider is exempt, since it owns the second factor there. API keys aren't covered.
+  
+  - **The API.** A `secondFactor` binding (`SecondFactorBinding`) mounts:
+    - `/v1/identity/me/second-factor`: `GET` yours (`setUp`, `since`, `recoveryCodesLeft`, `usable`, and whether the workspace `required` one); `POST` starts setting one up (the key and its `otpauth://` URI, shown once; replacing one takes a code from it), then `POST …/confirm {code}` sets it up and answers the 10 recovery codes, once; `POST …/recovery-codes` gives 10 new ones; `POST …/remove` takes it off, refused while the workspace requires one. From a session only (`400 auth-not-session-token` with an API key). A key or codes in an answer are never replayed for an `Idempotency-Key`.
+    - `GET /v1/identity/users/{userId}/second-factor` and `POST …/second-factor/remove` (tenant admins): a person's, and removing it for a lost phone. Their sessions stay. An admin's own isn't removed there (`403 permission-denied`): it's taken off at `/me`, with a code from it.
+    - `GET` / `PATCH /v1/auth/settings` `{ secondFactor: { required } }` (tenant admins), with how many people's keys are still on the previous sign-in secret (`onPreviousSecret`) or on neither (`unusable`). Once required, a session made without a second factor ends at its next request. Turning it on from a session made without one is `409 second-factor-enroll-first`.
+    - Token sign-in is refused in a workspace that requires one: `403 second-factor-required`.
+    - The sign-in history (`GET /v1/audit/sign-ins`) has three new kinds: `second-factor-set-up`, `second-factor-removed` (with `byUserId` when an admin removed it) and `recovery-codes-replaced`. It never has a key or a code.
+    - New error codes: `second-factor-required`, `second-factor-invalid` (403), `second-factor-locked` (429, with `Retry-After`), `second-factor-unusable` (403), `second-factor-enroll-first`, `second-factor-not-set-up`, `second-factor-not-started` (409).
+  - **A session says how its person gave a second factor.** `SessionCreateInput.secondFactor` and `Session.secondFactor` (optional): `{ method, at }`, where `method` is `totp`, `recovery-code`, `identity-provider`, or `site` (a site signed them in, and owns their second factor). A session store keeps it and returns it from `get` and `resolveToken`; `POST /v1/auth/refresh` gives the new session the same one.
+  - **The TypeScript client.** `identity.me.secondFactor` (`get`, `start`, `confirm`, `newRecoveryCodes`, `remove`), `users.secondFactor(id)` and `users.removeSecondFactor(id)`, and `auth.settings` (`get`, `update`). A wrong code is an `auth` error whose `serverCode` is `second-factor-invalid`; too many is `rate-limited` (`second-factor-locked`), with `retryAfterSeconds`.
+  - **The CLI.** `kindgi people second-factor <user-id>`, `kindgi people reset-second-factor <user-id>`, and `kindgi sign-in settings [--require-second-factor=on|off]`. `kindgi exports create` also writes `user-second-factors` (each person's status, never a key) and `sign-in-settings`.
+  - **Runtime settings** (`@kindgi/env-schema`): `KINDGI_AUTH_PREVIOUS_SECRET_PATH` / `KINDGI_AUTH_PREVIOUS_SECRET`, optional: while the sign-in secret rotates, the one before it, so second-factor keys sealed under it still open.
+- ec3dbf9: **Sign-in options can link the deployment's terms and privacy policy.** `GET /v1/auth/sign-in-options` gains an optional `legal: { termsUrl?, privacyUrl? }` for a sign-in page to link. It has only the ones the operator set, each an absolute https URL with no username or password, as a browser reads it, and the answer has no `legal` at all when neither is set. Older servers leave it out too.
+  - `createApp`'s new `signInLegal` sets them. It throws on anything but an absolute https URL with no username or password.
+  - `@kindgi/env-schema` adds `KINDGI_AUTH_TERMS_URL` and `KINDGI_AUTH_PRIVACY_URL`, for a runtime to read them from.
+  - The TypeScript and Python clients' sign-in options gain `legal`.
+- 409b9bf: A person a site signs in holds only the grants their site's sign-in writes. A deployment's bindings refuse any other grant naming such a person with `site-person-grants-managed`, and the API answers it as `403` on these routes:
+  - adding a project or team member, or changing their role (`AddProjectMemberError`, `AddTeamMemberError` and `MembershipWriteError` gain the code);
+  - granting tenant admin (`PersonGrantErrorCode`);
+  - registering a reviewer (`ReviewerRegisterOutcome` gains a `refused` outcome);
+  - removing such a person's project or team membership, or unregistering them as a reviewer (`ReviewerUnregisterOutcome` gains an optional `refused`). Their site would give it back at their next sign-in, so the answer points at the real levers: remove the person, change their role on the site, or pause the site.
+  - minting an API key for such a person (`TokenMintRefusal` gains the code). Their access is only the sessions their site's sign-in gives, which end when the site is paused or unregistered; a key would outlive both.
+  
+  `@kindgi/env-schema` gains `KINDGI_SITE_SIGN_IN`: `true` lets sites sign their people in. The runtime needs authorization enforced and `KINDGI_PUBLIC_URL` for it; it's off by default.
+
 ## 0.1.8
 
 ### Patch Changes

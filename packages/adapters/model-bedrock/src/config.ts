@@ -26,7 +26,11 @@ export interface BedrockConfig {
   readonly auth: BedrockAuth;
 }
 
-const KEYS = ['auth', 'baseURL'] as const;
+/**
+ * The `adapter_config` keys it takes (`AdapterFactoryEntry.configKeys`): any other is refused
+ * at registration, and a stored one builds without being read. `region` is the metadata's.
+ */
+export const BEDROCK_CONFIG_KEYS: readonly string[] = ['auth', 'baseURL'];
 /** An AWS region name: `us-east-2`, `us-gov-west-1`, `eusc-de-east-1`. */
 const REGION = /^[a-z]{2,4}(?:-[a-z]+)+-\d{1,2}$/;
 /**
@@ -82,15 +86,6 @@ export function readBedrockConfig(
   | { readonly kind: 'err'; readonly problems: readonly AdapterConfigProblem[] } {
   const config = input.config ?? {};
   const problems: AdapterConfigProblem[] = [];
-
-  for (const key of Object.keys(config)) {
-    if (!(KEYS as readonly string[]).includes(key)) {
-      problems.push({
-        path: at(key),
-        message: `adapter_config.${key} isn't an Amazon Bedrock setting: it takes auth and baseURL (the region is metadata.region).`,
-      });
-    }
-  }
 
   const region = input.metadata.region;
   const regionOk = typeof region === 'string' && REGION.test(region);

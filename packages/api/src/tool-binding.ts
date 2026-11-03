@@ -4,7 +4,7 @@
 import type { TupleEnqueueHook } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
 import type { CodeArtifactRef, ToolManifest } from '@kindgi/tools';
-import type { Cursor, ProjectId, Semver, TenantId, ToolId } from '@kindgi/types';
+import type { Cursor, PinScope, ProjectId, Semver, TenantId, ToolId } from '@kindgi/types';
 
 import type { RecordedSecretScope } from './secret-scope.js';
 
@@ -100,6 +100,9 @@ export interface ToolRegistryBinding {
    * unregister — reinstate instead of republishing the same bytes.
    * A version of a tool whose versions live in another project is
    * `project-mismatch` (tools never move between projects; `409 tool-project-mismatch`).
+   * A version of another kind than the tool's active versions (an MCP
+   * endpoint's tool, or one published here) is `kind-mismatch`
+   * (`409 tool-kind-mismatch`), checked before `already-registered`.
    */
   publish(input: ToolPublishInput): Promise<ToolPublishOutcome>;
   /**
@@ -107,13 +110,16 @@ export interface ToolRegistryBinding {
    * NO active versions, the tool has no latest version — it enters the
    * derived "retired" state (GET returns 410 gone).
    * Publish of a new version reactivates. Version is REQUIRED
-   * (there are no bare-tool-id semantics).
+   * (there are no bare-tool-id semantics). A pinned version stays
+   * (`pinned`, `409 tool-version-pinned`).
    */
   unregister(input: ToolUnregisterInput): Promise<ToolUnregisterOutcome>;
   /**
    * Un-tombstone a specific `(toolId, version)`. Recomputes the tool's
    * latest version across active versions. Restores the manifest
-   * bytes verbatim (semver hygiene). Idempotent.
+   * bytes verbatim (semver hygiene). Idempotent. A version of another
+   * kind than the tool's active versions is `kind-mismatch`, as on
+   * `publish`, and stays unregistered.
    */
   reinstateVersion(input: ToolReinstateVersionInput): Promise<ToolReinstateVersionOutcome>;
   /**
@@ -198,7 +204,7 @@ export interface ToolListVersionsInput {
    * `false` (default) → return only active versions. `true` → return
    * active + tombstoned rows; tombstoned entries carry `unregisteredAt`
    * on the wire, active entries do not. Aligns with the soft-tombstone
-   * pattern used by agents / flows / eval suites / policies.
+   * pattern used by agents / flows / test sets / policies.
    */
   readonly includeTombstoned?: boolean;
 }
@@ -220,7 +226,7 @@ export interface ToolPublishInput {
    * Project the tool is registered into. REQUIRED. Callers
    * that don't naturally know a projectId (deployment
    * route, boot-time dev-echo seed, MCP bridge) resolve the tenant's
-   * Default via `projectBinding.getDefault(tenantId)` at THEIR layer.
+   * default via `projectBinding.getDefault(tenantId)` at THEIR layer.
    */
   readonly projectId: ProjectId;
   readonly tool: ToolManifest;
@@ -267,9 +273,19 @@ export interface ToolPage {
 export type ToolRecord = ToolManifest & {
   /**
    * The tool's project, when the store records it: tools never move
-   * between projects, so every version reads the same one.
+   * between projects, so every version reads the same one. In a tenant
+   * with environment orders, a version may be made in another project of
+   * that project's order (`madeInProjectId`).
    */
   readonly projectId?: ProjectId;
+  /**
+   * The project this version was published in, when the store records it.
+   * The same as `projectId`, except in a tenant with environment orders:
+   * there, this version's secret scopes (`secretScopes`) were decided in
+   * this project, and a call from another project of the order reads the
+   * scopes a deploy into that project recorded.
+   */
+  readonly madeInProjectId?: ProjectId;
   /** Where each secret this version names is read (`ToolPublishInput.secretScopes`), when recorded. */
   readonly secretScopes?: Readonly<Record<string, RecordedSecretScope | null>>;
 };
@@ -317,10 +333,38 @@ export type ToolPublishOutcome =
       readonly version: Semver;
       /** The project the tool belongs to. */
       readonly projectId: ProjectId;
-    };
+    }
+  | ToolKindMismatch;
+
+/**
+ * A tool's active versions are all one kind: an MCP endpoint's tool
+ * (registered by the runtime from the endpoint's listing, and served from
+ * the endpoint), or a tool published here. A version of the other kind
+ * would leave the id served as neither, so it's refused and nothing is
+ * written (the route answers `409 tool-kind-mismatch`). Only active
+ * versions count: once the other kind's are unregistered, the id takes
+ * either. A binding that never holds MCP endpoints' tools never answers it.
+ */
+export interface ToolKindMismatch {
+  readonly kind: 'kind-mismatch';
+  readonly toolId: ToolId;
+  readonly version: Semver;
+  /**
+   * The endpoint whose tool the id is, when its active versions are an
+   * MCP endpoint's; absent when they're tools published here.
+   */
+  readonly endpointId?: string;
+}
 
 export type ToolUnregisterOutcome = {
   readonly unregistered: boolean;
+  /**
+   * Set when the version wasn't unregistered because it's pinned: the
+   * scopes that pin it. A pin is a standing choice, so the operator moves
+   * or removes those pins first. The route answers `409 tool-version-pinned`.
+   * Absent: a registry that doesn't know pins, as before.
+   */
+  readonly pinned?: readonly PinScope[];
 };
 
 export type ToolReinstateVersionOutcome =
@@ -334,7 +378,8 @@ export type ToolReinstateVersionOutcome =
       readonly kind: 'not-found';
       readonly toolId: ToolId;
       readonly version: Semver;
-    };
+    }
+  | ToolKindMismatch;
 
 export type ToolResolveOutcome =
   | {

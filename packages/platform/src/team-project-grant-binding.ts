@@ -53,7 +53,7 @@ export interface TeamProjectGrantBinding {
   ): Promise<TeamProjectGrant | undefined>;
   /** Remove a team-project grant. No-op when absent. */
   remove(tenantId: TenantId, teamId: TeamId, projectId: ProjectId): Promise<void>;
-  /** Cursor-paginated grants filtered by tenant. */
+  /** Cursor-paginated grants filtered by workspace. */
   list(tenantId: TenantId, filter: Filter): Promise<Page<TeamProjectGrant>>;
   /** Cursor-paginated grants for a specific team. */
   listForTeam(tenantId: TenantId, teamId: TeamId, filter: Filter): Promise<Page<TeamProjectGrant>>;

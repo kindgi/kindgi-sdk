@@ -106,7 +106,7 @@ describe('POST /v1/teams/{teamId}/memberships names a person of the tenant', () 
     expect(await add(id)).toEqual({
       status: 404,
       code: 'identity-user-not-found',
-      message: `User "${id}" is not a member of this tenant`,
+      message: `User "${id}" is not a member of this workspace`,
     });
     expect(await members()).toEqual([]);
   });

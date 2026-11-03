@@ -42,6 +42,20 @@ async function createOrg(b: OrgBinding, tenantId: TenantId, spec: OrgSpec): Prom
 export function runOrgBindingConformance(
   makeBinding: () => OrgBinding,
   label = 'OrgBinding',
+  options: {
+    /**
+     * The binding refuses to delete an org that is the parent of an
+     * environment order (`org-has-environment-order`). `makeGuardedBinding`
+     * returns a binding and helpers that put an org in an order and clear it,
+     * sharing the binding's store — the in-memory adapter a map, the durable
+     * one `project_stages` rows — so the one guard suite runs on both.
+     */
+    readonly makeGuardedBinding?: () => {
+      readonly binding: OrgBinding;
+      readonly putInEnvironmentOrder: (tenantId: TenantId, orgId: OrgId) => Promise<string>;
+      readonly clearEnvironmentOrder: (tenantId: TenantId, orgId: OrgId) => Promise<void>;
+    };
+  } = {},
 ): void {
   describe(`${label} — CRUD happy paths`, () => {
     it('creates + gets an Org', async () => {
@@ -67,7 +81,7 @@ export function runOrgBindingConformance(
     it('deletes an Org', async () => {
       const b = makeBinding();
       const id = await createOrg(b, T1, { name: 'Acme', slug: 'acme' });
-      await b.delete(T1, id);
+      expect(await b.delete(T1, id)).toEqual({ kind: 'ok' });
       const got = await b.get(T1, id);
       expect(got).toBeUndefined();
     });
@@ -80,7 +94,7 @@ export function runOrgBindingConformance(
       const page = await b.list(T1, {});
       expect(page.items.map((o) => o.id)).toEqual([kept]);
       expect(await b.update(T1, id, { name: 'Acme 2' })).toEqual({ kind: 'org-not-found' });
-      await b.delete(T1, id);
+      expect(await b.delete(T1, id)).toEqual({ kind: 'ok' });
       expect(await b.get(T1, kept)).toBeDefined();
     });
 
@@ -199,7 +213,7 @@ export function runOrgBindingConformance(
 
     it('delete on unknown orgId is a no-op', async () => {
       const b = makeBinding();
-      await expect(b.delete(T1, unknown)).resolves.toBeUndefined();
+      await expect(b.delete(T1, unknown)).resolves.toEqual({ kind: 'ok' });
     });
   });
 
@@ -237,4 +251,36 @@ export function runOrgBindingConformance(
       expect(await b.update(T1, id, { name: 'Acme Corp', slug: 'acme' })).toEqual({ kind: 'ok' });
     });
   });
+
+  const makeGuarded = options.makeGuardedBinding;
+  if (makeGuarded !== undefined) {
+    describe(`${label} — environment-order guard`, () => {
+      it('refuses to delete an org that is the parent of an environment order; the org stays', async () => {
+        const { binding, putInEnvironmentOrder } = makeGuarded();
+        const id = await createOrg(binding, T1, { name: 'Acme', slug: 'acme' });
+        const orderId = await putInEnvironmentOrder(T1, id);
+        expect(await binding.delete(T1, id)).toEqual({
+          kind: 'org-has-environment-order',
+          orderId,
+        });
+        expect((await binding.get(T1, id))?.id).toBe(id);
+      });
+
+      it('deletes the org once its environment order is cleared', async () => {
+        const { binding, putInEnvironmentOrder, clearEnvironmentOrder } = makeGuarded();
+        const id = await createOrg(binding, T1, { name: 'Acme', slug: 'acme' });
+        await putInEnvironmentOrder(T1, id);
+        await clearEnvironmentOrder(T1, id);
+        expect(await binding.delete(T1, id)).toEqual({ kind: 'ok' });
+        expect(await binding.get(T1, id)).toBeUndefined();
+      });
+
+      it('deletes an org that is the parent of no environment order', async () => {
+        const { binding } = makeGuarded();
+        const id = await createOrg(binding, T1, { name: 'Acme', slug: 'acme' });
+        expect(await binding.delete(T1, id)).toEqual({ kind: 'ok' });
+        expect(await binding.get(T1, id)).toBeUndefined();
+      });
+    });
+  }
 }

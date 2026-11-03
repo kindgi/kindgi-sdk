@@ -8,7 +8,18 @@
  * exercising the full runCli path.
  */
 
-import type { DeployedVersionRecord, DeploymentRecord, PostDeploymentResult } from './runners.js';
+import {
+  packEnvHeldText,
+  packServiceProblemText,
+  packServiceRetiredText,
+} from './pack-service-text.js';
+import { type PromotionStop, promotionHint } from './promotion-path.js';
+import type {
+  DeployedVersionRecord,
+  DeploymentEndpointRecord,
+  DeploymentRecord,
+  PostDeploymentResult,
+} from './runners.js';
 
 /**
  * Human-friendly hint text keyed by server wire-error code. Each hint
@@ -17,18 +28,18 @@ import type { DeployedVersionRecord, DeploymentRecord, PostDeploymentResult } fr
  */
 const WIRE_ERROR_HINTS: Readonly<Record<string, string>> = {
   'signature-invalid':
-    'Check that --tenant matches the tenant your token authenticates as. ' +
+    'Check that --tenant matches the workspace your token authenticates as. ' +
     "The server re-canonicalises the envelope using the token's tenantId; " +
     'a mismatch fails signature verification.',
   'signer-not-trusted':
-    "The runtime doesn't trust the signing key {signerKeyId}: it isn't on this tenant's " +
+    "The runtime doesn't trust the signing key {signerKeyId}: it isn't on this workspace's " +
     'trust list, or it was revoked. Trust it (with a token that has signing-keys:write), ' +
     'then deploy again. A revoked key stays revoked: make a new one with ' +
     '`kindgi key create <newId>`.',
   'image-unverifiable':
     'The server could not pull the image or the extracted /app/index.json ' +
     'sha256 did not match the signed indexHash. Verify the build server ' +
-    'pushed to the same registry the deployment tenant can pull from, and ' +
+    'pushed to the same registry the deployment workspace can pull from, and ' +
     'that the imageRef in the envelope is digest-pinned.',
   'deployment-validation-failed':
     'One or more primitives in the pack failed server-side validation. ' +
@@ -42,6 +53,69 @@ const WIRE_ERROR_HINTS: Readonly<Record<string, string>> = {
     'guardrail in the pack travels in it with its schemas and instructions: make the largest ' +
     'schemas smaller, or split the pack into two.',
 };
+
+/** `image-unverifiable`'s hint by its `details.cause`, when the server names one. */
+const IMAGE_CAUSE_HINTS: Readonly<Record<string, string>> = {
+  'image-registry-unreachable':
+    "The server couldn't reach the image's registry. Check that the registry is up " +
+    'and that the runtime can reach it, then deploy again.',
+  'image-registry-unauthorized':
+    "The image's registry refused the runtime's credentials. Give the runtime pull " +
+    "access to the image's repository, then deploy again.",
+  'image-unreadable':
+    "A layer of the image isn't an archive the server can read: not a tar, or compressed " +
+    'twice. Build the image again with `kindgi build`, push it, and deploy the new digest.',
+  'image-limit-exceeded':
+    "The image is past one of the server's bounds on reading an image; the message names " +
+    'it. The same image is refused again. An image `kindgi build` made keeps ' +
+    '/app/index.json in its top layer, the only layer read: build with it, or make the ' +
+    'image smaller.',
+};
+
+/** `image-limit-exceeded`'s hint by its `details.limit`, where the cause's doesn't fit. */
+const IMAGE_LIMIT_HINTS: Readonly<Record<string, string>> = {
+  file:
+    "The pack's index, /app/index.json, is past the size the server reads. Every tool, " +
+    'agent, flow and guardrail in the pack is in it with its schemas: make the largest ' +
+    'schemas smaller, or split the pack into two.',
+};
+
+/**
+ * `rate-limit-exceeded`'s hint by its `details.limit`, for a wait longer
+ * than the command waits out.
+ */
+const RATE_LIMIT_HINTS: Readonly<Record<string, string>> = {
+  'tenant-unpack-hour':
+    "This workspace's image reads unpacked as much as the server allows in an hour. " +
+    'Deploy again after the wait the message names; an image `kindgi build` made unpacks ' +
+    'only its small top layer.',
+};
+
+/** A table's own entry: a key like `constructor` isn't one. */
+const own = (table: Readonly<Record<string, string>>, key: string | undefined) =>
+  key !== undefined && Object.hasOwn(table, key) ? table[key] : undefined;
+
+/**
+ * The hint for a refusal: by its code, for `image-unverifiable` by its
+ * cause, or for `rate-limit-exceeded` by its limit.
+ */
+function hintFor(error: {
+  readonly code: string;
+  readonly cause?: string;
+  readonly limit?: string;
+}): string | undefined {
+  if (error.code === 'rate-limit-exceeded') {
+    const byLimit = own(RATE_LIMIT_HINTS, error.limit);
+    if (byLimit !== undefined) return byLimit;
+  }
+  if (error.code === 'image-unverifiable') {
+    const byLimit =
+      error.cause === 'image-limit-exceeded' ? own(IMAGE_LIMIT_HINTS, error.limit) : undefined;
+    const byCause = byLimit ?? own(IMAGE_CAUSE_HINTS, error.cause);
+    if (byCause !== undefined) return byCause;
+  }
+  return own(WIRE_ERROR_HINTS, error.code);
+}
 
 /**
  * The command a hint names, on a line of its own so it copies whole.
@@ -81,12 +155,17 @@ export function renderResponse(
     readonly signerKeyId: string;
     readonly envelopePath: string;
     readonly idempotencyKey: string;
+    /** On a `409 environment-takes-promotions`: each environment on the way there, when they could be read. */
+    readonly promotionPath?: readonly PromotionStop[] | undefined;
+    /** The deploy goes on to wait for the pack service (`--hosted`), and says its state there. */
+    readonly waitsForPackService: boolean;
   },
 ): RenderedResponse {
   if (result.kind === 'created' || result.kind === 'replayed') {
     const banner: string[] = [];
     banner.push('  Registering deployment');
-    const statusLabel = result.kind === 'created' ? '201 Created' : '200 OK (idempotent replay)';
+    const statusLabel =
+      result.kind === 'created' ? '201 Created' : '200 OK (this image was deployed before)';
     banner.push(`    ✓ POST /v1/deployments  →  ${statusLabel}`);
     banner.push(`      deploymentId:    ${result.record.deploymentId}`);
     banner.push(`      artifactVersion: ${result.record.artifactVersion}`);
@@ -94,26 +173,32 @@ export function renderResponse(
     banner.push(`      activatedAt:     ${result.record.activatedAt}`);
     banner.push('');
     banner.push(...versionBlock(result.record.contents));
-    if (result.idempotentReplay === true) {
+    // Answered from the server's record of an earlier request with this key:
+    // this request deployed nothing, whatever the record it answers says.
+    const keyReplay = result.idempotentReplay === true;
+    if (keyReplay) {
       banner.push(
-        `  Note: answered from the server's record of an earlier request with this Idempotency-Key (${ctx.idempotencyKey}); nothing ran again.`,
+        `  Nothing new was deployed: the server answered from its record of an earlier request with this Idempotency-Key (${ctx.idempotencyKey}).`,
+      );
+      banner.push(
+        `  If the pack changed since ${ctx.envelopePath} was built, build it again first.`,
       );
     }
     if (result.kind === 'replayed') {
       banner.push(
-        '  Note: same imageDigest previously landed. Server returned the existing record.',
+        `  Note: this image (${result.record.imageDigest.slice(0, 20)}…) was deployed before, so the server answered with that deployment.`,
       );
       banner.push(
-        `  Runs already in flight continue on their pinned image (${result.record.imageDigest.slice(0, 20)}…).`,
+        ...replayPackServiceLines(result.record, { keyReplay, waits: ctx.waitsForPackService }),
       );
-    } else {
+    } else if (!keyReplay) {
       banner.push('  Deploy complete.');
       banner.push(
         `  Runs started from now use image ${result.record.imageDigest.slice(0, 20)}… ` +
           `(artifactVersion ${result.record.artifactVersion}).`,
       );
-      banner.push('  Runs already in flight continue on their pinned image.');
     }
+    if (!keyReplay) banner.push(inFlightLine(result.record));
     banner.push('');
     const summary: Record<string, unknown> = {
       envName: ctx.envName,
@@ -122,6 +207,7 @@ export function renderResponse(
       idempotencyKey: ctx.idempotencyKey,
       status: result.status,
       outcome: result.kind === 'created' ? 'created' : 'replayed',
+      ...(keyReplay && { idempotentReplay: true }),
       deployment: result.record,
     };
     return { banner, summary, exitCode: 0 };
@@ -133,18 +219,8 @@ export function renderResponse(
     banner.push(`    ✗ POST /v1/deployments  →  HTTP ${result.status}`);
     banner.push(`      code:    ${result.error.code}`);
     banner.push(`      message: ${result.error.message}`);
-    const fill = (text: string): string =>
-      text.replaceAll('{signerKeyId}', ctx.signerKeyId).replaceAll('{endpoint}', ctx.endpoint);
-    const hint = WIRE_ERROR_HINTS[result.error.code];
-    if (hint !== undefined) {
-      banner.push('');
-      banner.push('  Hint:');
-      for (const line of wrapForBanner(fill(hint), 74, '    ')) {
-        banner.push(line);
-      }
-      const command = WIRE_ERROR_COMMANDS[result.error.code];
-      if (command !== undefined) banner.push(`      ${fill(command)}`);
-    }
+    if (result.error.cause !== undefined) banner.push(`      cause:   ${result.error.cause}`);
+    banner.push(...hintLines(result.error, ctx));
     if (result.error.details !== undefined && result.error.details.length > 0) {
       banner.push('');
       banner.push('  Details:');
@@ -189,6 +265,35 @@ export function renderResponse(
 }
 
 /**
+ * The hint for a refusal (by its code, or for `image-unverifiable` by its
+ * cause), then the commands it names, each on a line of its own; none for a
+ * refusal without one.
+ */
+function hintLines(
+  error: { readonly code: string; readonly cause?: string; readonly limit?: string },
+  ctx: {
+    readonly signerKeyId: string;
+    readonly endpoint: string;
+    readonly promotionPath?: readonly PromotionStop[] | undefined;
+  },
+): string[] {
+  const fill = (text: string): string =>
+    text.replaceAll('{signerKeyId}', ctx.signerKeyId).replaceAll('{endpoint}', ctx.endpoint);
+  let text: string;
+  let commands: readonly string[];
+  if (error.code === 'environment-takes-promotions') {
+    ({ text, commands } = promotionHint(ctx.promotionPath));
+  } else {
+    const hint = hintFor(error);
+    if (hint === undefined) return [];
+    const command = WIRE_ERROR_COMMANDS[error.code];
+    text = fill(hint);
+    commands = command === undefined ? [] : [fill(command)];
+  }
+  return ['', '  Hint:', ...wrapForBanner(text, 74, '    '), ...commands.map((c) => `      ${c}`)];
+}
+
+/**
  * One line per agent or flow registered under another version than its
  * definition names, saying which version runs, why, and how to make the
  * code match so the two don't drift apart:
@@ -224,6 +329,64 @@ function whyRenumbered(kind: 'agent' | 'flow', e: DeployedVersionRecord): string
     return `${e.authoredVersion} was published before pins; ${e.version} pins its ${blocks}`;
   }
   return `${e.authoredVersion} is taken by a different definition`;
+}
+
+/**
+ * Where a run already in flight sends its tool calls now. A record with a
+ * pack service of its own (`endpoint`) is on a runtime that routes per
+ * deployment: each call goes to the newest deployment in the run's project
+ * that shipped the version it names, so a deploy that bumps a tool's version
+ * leaves the older one serving the runs that name it. Without one, the
+ * runtime has a single pack service, which runs one build whatever version a
+ * call names (or the deployment ships no pack code, so the line names the
+ * case it's about).
+ */
+function inFlightLine(record: DeploymentRecord): string {
+  return record.endpoint !== undefined
+    ? "  Runs already in flight keep their tool versions: each tool call goes to the newest deployment in the run's project that shipped the version it names."
+    : "  With one pack service, runs already in flight call that service's current build, as new runs do: a call naming a tool version that build doesn't have fails with tool-version-mismatch.";
+}
+
+/**
+ * On a runtime that routes per deployment, a same-image deploy's answer asks
+ * for the deployment's pack service when it has none (as after an upgrade):
+ * its line, unless the answer is a key replay, which deployed nothing, or the
+ * deploy waits for the pack service (`--hosted`) and says its state there.
+ */
+function replayPackServiceLines(
+  record: DeploymentRecord,
+  said: { readonly keyReplay: boolean; readonly waits: boolean },
+): string[] {
+  if (record.endpoint === undefined || said.keyReplay || said.waits) return [];
+  return [packServiceLine(record.endpoint, record.deploymentId)];
+}
+
+/**
+ * A same-image deploy's line for the deployment's pack service, in
+ * `kindgi deployments get`'s words: asked for (pending, or cleared and
+ * waiting for one again), ready (or ready on the values it was last given),
+ * or taken down. A pending one's tools answer once it's made.
+ */
+function packServiceLine(endpoint: DeploymentEndpointRecord, deploymentId: string): string {
+  const get = `\`kindgi deployments get ${deploymentId}\``;
+  if (endpoint.status === 'ready') {
+    const held = endpoint.packEnvProblem;
+    if (held === undefined) return `  Its pack service is ready (since ${endpoint.since}).`;
+    const why = packEnvHeldText(held.code);
+    return `  Its pack service is ready (since ${endpoint.since}), on the values it was last given: ${why !== undefined ? `${why} (${held.code})` : held.code}. ${get} says how to fix it.`;
+  }
+  if (endpoint.status === 'cleared' && endpoint.waiting !== true) {
+    const r = endpoint.retired;
+    return `  Its pack service was taken down (cleared since ${endpoint.since}${r !== undefined ? `: ${packServiceRetiredText(r)} (${r})` : ''}).`;
+  }
+  const state =
+    endpoint.status === 'cleared'
+      ? `asked for again (cleared since ${endpoint.since}, waiting for one again`
+      : `asked for (pending since ${endpoint.since}`;
+  const problem = endpoint.problem;
+  const why =
+    problem === undefined ? '' : `: ${packServiceProblemText(problem.code)} (${problem.code})`;
+  return `  Its pack service is ${state}${why}): its tools answer once it's made. ${get} says when it's ready.`;
 }
 
 /** `versionLines` for a deployment's agents then flows, followed by a blank line; none when there are none. */

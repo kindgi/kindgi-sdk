@@ -66,10 +66,12 @@ All `@kindgi/*` packages share one version.
 | [`@kindgi/audit-events-inmemory`](./packages/audit-events-inmemory) | Reference in-memory `AuditEventBinding` adapter for dev + tests. |
 | [`@kindgi/authz`](./packages/authz) | Kindgi™ authorization shape. |
 | [`@kindgi/blob-binding`](./packages/blob-binding) | Kindgi™ blob storage binding contract. |
-| [`@kindgi/bounds`](./packages/bounds) | The limits a Kindgi server puts on what a tenant sends it: pattern length and engine (V8, or linear-time RE2 when hosted), schema size and depth, template limits, and the size and idle time of bodies read from tenant-named endpoints. |
+| [`@kindgi/bounds`](./packages/bounds) | The limits a Kindgi server puts on what a workspace sends it: pattern length and engine (V8, or linear-time RE2 when hosted), schema size and depth, template limits, and the size and idle time of bodies read from workspace-named endpoints. |
 | [`@kindgi/capabilities`](./packages/capabilities) | Capability declarations + provider router for Kindgi™. |
 | [`@kindgi/cli`](./packages/cli) | Command-line interface for Kindgi™. |
 | [`@kindgi/compliance`](./packages/compliance) | Kindgi™ compliance evidence contract. |
+| [`@kindgi/connections`](./packages/connections) | Kindgi™ connections: the app entries a Kindgi server reads to connect people's and a company's accounts at other apps (how to sign in, each permission in plain words, whose account it is, how access is withdrawn), defineApp to check one, the Google, GitHub, Microsoft and LinkedIn entries, and tools that act with their connections (sending and reading mail as a person; listing and labelling a repository's issues; posting on LinkedIn as a person). |
+| [`@kindgi/connections-inmemory`](./packages/connections-inmemory) | An in-memory ConnectionBinding and ConnectionResolver with a fake app, for development and tests only; refuses to start in production. |
 | [`@kindgi/crypto`](./packages/crypto) | Kindgi™ cryptographic primitives. |
 | [`@kindgi/dev-echo-provider`](./packages/dev-echo-provider) | Deterministic dev-only ModelProvider — no LLM key, no network, no cost. |
 | [`@kindgi/dotenv-file`](./packages/dotenv-file) | Dotenv files the way applications read them (dotenv grammar, verified against the version Next.js bundles), expanded (${VAR}), layered (.env < .env.local) and edited losslessly. |
@@ -83,7 +85,7 @@ All `@kindgi/*` packages share one version.
 | [`@kindgi/log`](./packages/log) | Kindgi™ structured logging: levels per subsystem (with dotted inheritance), JSON and pretty formats, redaction of secret keys and token shapes, and W3C trace-context helpers. |
 | [`@kindgi/memory`](./packages/memory) | Kindgi™ memory type surface. |
 | [`@kindgi/pack-conformance`](./packages/pack-conformance) | Conformance suite for pack services: a black-box HTTP and process test of pack protocol v2 and the pack index, run against any language's pack service and indexer over the same fixture pack. |
-| [`@kindgi/platform`](./packages/platform) | Multi-tenant hierarchy primitives — the Tenant → Org → Team → Project + User type surface, the `Scope` discriminated access-boundary, binding interfaces for orgs, teams, projects, memberships, team-project grants and the tenant hierarchy, and reference in-memory adapters. |
+| [`@kindgi/platform`](./packages/platform) | Multi-tenant hierarchy primitives — the Workspace → Org → Team → Project + User type surface, the `Scope` discriminated access-boundary, binding interfaces for orgs, teams, projects, memberships, team-project grants and the workspace hierarchy, and reference in-memory adapters. |
 | [`@kindgi/policy-contract`](./packages/policy-contract) | Kindgi™ policy-contract type surface. |
 | [`@kindgi/provenance`](./packages/provenance) | Kindgi™ provenance type surface + pure DAG primitives. |
 | [`@kindgi/runtime`](./packages/runtime) | Kindgi™ runtime wire-vocabulary + binding interfaces. |
@@ -91,7 +93,7 @@ All `@kindgi/*` packages share one version.
 | [`@kindgi/schema`](./packages/schema) | JSON Schema utilities for Kindgi. |
 | [`@kindgi/sdk`](./packages/sdk) | @kindgi/sdk — the authoring SDK for Kindgi™. |
 | [`@kindgi/secrets-dotenv`](./packages/secrets-dotenv) | Dev-mode `SecretBinding` over the project's own env files (`.env`, then `.env.local`, or `dev.envFiles`) — the same files, parsed the same way, as the app beside the pack — and Kindgi's own `.kindgi/secrets.env`, read last and written, plus the one definition of which env files belong to a pack environment. |
-| [`@kindgi/specs`](./packages/specs) | Canonical JSON Schemas (Draft 2020-12) for every Kindgi artifact kind — flow, agent, tool, capability, guardrail, policy, event, run event, memory, provenance, pack, compliance evidence, audit bundle, eval suite, discoverable entity. |
+| [`@kindgi/specs`](./packages/specs) | Canonical JSON Schemas (Draft 2020-12) for every Kindgi artifact kind — flow, agent, tool, capability, guardrail, policy, event, run event, memory, provenance, pack, compliance evidence, audit bundle, test set, discoverable entity. |
 | [`@kindgi/testing`](./packages/testing) | Test helpers for Kindgi apps and packages. |
 | [`@kindgi/tools`](./packages/tools) | Tool authoring shape + registry + invocation for Kindgi. |
 | [`@kindgi/types`](./packages/types) | Foundational TypeScript types shared across Kindgi. |

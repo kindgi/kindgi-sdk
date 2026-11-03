@@ -238,7 +238,7 @@ function trailAfter(answer: ModelMessage): ModelMessage[] {
 
 /** The blocks an answer goes back as, on the next call to the model that answered. */
 function sentBack(answer: ModelMessage) {
-  return toAnthropicMessages(trailAfter(answer), MODEL).messages[1]?.content;
+  return toAnthropicMessages(trailAfter(answer), [], MODEL).messages[1]?.content;
 }
 
 const toolUseSent = (id: string) => ({
@@ -258,7 +258,7 @@ describe('thinking through a tool loop', () => {
     expect(answer.content).toBe('Let me look.');
     expect(answer.toolCalls?.[0]?.signature).toMatch(/^anth1\./);
 
-    const sent = toAnthropicMessages(trailAfter(answer), MODEL).messages;
+    const sent = toAnthropicMessages(trailAfter(answer), [], MODEL).messages;
     expect(sent).toEqual([
       { role: 'user', content: [{ type: 'text', text: 'Where is order A-1?' }] },
       {
@@ -393,7 +393,7 @@ describe('thinking through a tool loop', () => {
       ],
     ] as const)('%s', (_, message, model) => {
       // Called directly: `sentBack`'s default would stand in for a missing model.
-      const sent = toAnthropicMessages(trailAfter(message as ModelMessage), model).messages[1]
+      const sent = toAnthropicMessages(trailAfter(message as ModelMessage), [], model).messages[1]
         ?.content;
       expect(sent).toEqual([
         { type: 'text', text: (message as ModelMessage).content },

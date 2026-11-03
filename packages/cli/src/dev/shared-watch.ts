@@ -20,7 +20,7 @@
  */
 
 import { realpathSync } from 'node:fs';
-import { resolve, sep } from 'node:path';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
 /** A directory's change events, as `node:fs/promises`'s `watch` gives them. */
 export type WatchEvents = (
@@ -58,6 +58,54 @@ interface SharedWatch {
 
 /** Whether a pack's watchers share one watch unless told otherwise: on macOS (FSEvents). */
 export const SHARE_WATCH_BY_DEFAULT = process.platform === 'darwin';
+
+/**
+ * Whether a pack's own `fs.watch` 'error' (its watch not shared) is Linux's
+ * folder removed while the watch read it. Node's recursive watch there
+ * watches each folder itself, and reads a folder's entries when it's told
+ * of a change in it: a folder removed between the two is ENOENT from
+ * `scandir`, and the watch goes on. The removal still comes as a change, so
+ * this one isn't a failed watch.
+ */
+export function folderGoneWhileRead(error: unknown): boolean {
+  const { code, syscall } = (error ?? {}) as NodeJS.ErrnoException;
+  return code === 'ENOENT' && syscall === 'scandir';
+}
+
+/**
+ * Whether an 'error' on a pack's own `fs.watch` of `root` (its watch not
+ * shared) may have left a change to its code unreported, so a build is due.
+ * `skipped` says whether a folder (relative to `root`, `/`-separated, `''`
+ * for `root`) is one no build reads, with everything under it.
+ *
+ * On Linux, Node's recursive watch watches each folder and file itself. Told
+ * of a change in a folder, it reads the folder's entries, and reports and
+ * watches each new one. An error there doesn't end the watch:
+ * - a folder removed while read (`folderGoneWhileRead`) hides nothing: its
+ *   removal comes as a change;
+ * - a folder it can't read (`scandir`) hides that folder's new entries;
+ * - an entry it can't watch (`ENOSPC` at the system's limit on watches,
+ *   `EACCES`) hides its own changes and those under it, and the folder's
+ *   other new entries until the folder changes again.
+ * So an error in a folder no build reads, such as a build's own output
+ * (`target/`, `.kindgi/`, a `.venv`), hides no change to the code. Building
+ * on it, a build that writes new names there would set off the next one. An
+ * error that names no path under `root` may hide any change.
+ */
+export function mayHideChange(
+  error: unknown,
+  root: string,
+  skipped: (folder: string) => boolean,
+): boolean {
+  if (folderGoneWhileRead(error)) return false;
+  const { path, syscall } = (error ?? {}) as NodeJS.ErrnoException;
+  if (typeof path !== 'string') return true;
+  const rel = relative(root, path);
+  if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return true;
+  // The folder it read, or the one holding the entry it couldn't watch.
+  const folder = syscall === 'scandir' ? rel : dirname(rel);
+  return !skipped(folder === '.' ? '' : folder.split(sep).join('/'));
+}
 
 const registries = new WeakMap<WatchEvents, DirectoryWatches>();
 
