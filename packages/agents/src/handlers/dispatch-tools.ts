@@ -66,6 +66,7 @@ import {
   unrunCallResult,
   withNoteMark,
 } from './guardrail-retry.js';
+import { toolArguments } from './named-accounts.js';
 import {
   type StepPoints,
   type StepPointsOutput,
@@ -1579,7 +1580,14 @@ async function dispatchOne(
 > {
   const { ctx, kctx } = step;
   const toolCtx = toolContextFor(ctx, tool, call, kctx, replayEnv, abortSignal);
-  const called = await callOrWait(tool, call, toolCtx, kctx, connect);
+  const called = await callOrWait(
+    tool,
+    call,
+    toolArguments(ctx, call, tool),
+    toolCtx,
+    kctx,
+    connect,
+  );
   if (called.kind === 'not-connected') return called;
   const { result, connections } = called;
   // Another system's answer, or a result the tool says is outside data.
@@ -1793,10 +1801,14 @@ const TOOL_PAUSE_RECORD_PREFIX = 'tool-pause:';
  * step the answer resumes reads the pause back and runs nothing, so a
  * connection that lapsed while it waited doesn't lose the answer. A call
  * its connections stop runs nothing (`not-connected`).
+ *
+ * The tool runs with `args`: the call's input, without the `accounts` its
+ * turn offered it (`toolArguments`).
  */
 async function callOrWait(
   tool: Tool,
   call: ModelToolCall,
+  args: Readonly<Record<string, unknown>>,
   toolCtx: ToolContext,
   kctx: NodeContext,
   connect: Connect | undefined,
@@ -1813,7 +1825,7 @@ async function callOrWait(
   if (tool.pauses !== true) {
     const ready = await connectedContext(toolCtx, connect);
     if (ready.kind === 'failed') return { kind: 'not-connected', failure: ready.failure };
-    const result = await invokeTool(tool, call.arguments, ready.toolCtx);
+    const result = await invokeTool(tool, args, ready.toolCtx);
     return {
       kind: 'called',
       result,
@@ -1836,7 +1848,7 @@ async function callOrWait(
         return undefined;
       }
       if (ready.connections !== undefined) answered.connections = ready.connections;
-      const outcome = await invokeToolOrPause(tool, call.arguments, ready.toolCtx);
+      const outcome = await invokeToolOrPause(tool, args, ready.toolCtx);
       if (outcome.kind === 'pause') return outcome.pause;
       answered.result = outcome;
       return undefined;

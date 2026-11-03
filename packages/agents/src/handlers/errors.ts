@@ -85,8 +85,11 @@ export interface ConnectionNotChosenError {
   readonly message: string;
   /** The tool's name for the connection. */
   readonly connection: string;
-  /** The names of the connections to choose from, sorted. */
-  readonly choices: readonly string[];
+  /**
+   * The names of the company's connections to choose from, sorted. A
+   * person's aren't listed: the message counts them.
+   */
+  readonly choices?: readonly string[];
 }
 
 /**

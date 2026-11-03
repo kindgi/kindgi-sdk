@@ -118,9 +118,11 @@ export interface MailTriggerMailbox {
   readonly app: 'google' | 'microsoft';
   readonly as: 'company' | 'person';
   /**
-   * The company connection the polls and the runs read the mailbox with.
-   * Only with `as: 'company'`. Absent: none was named and the project had
-   * none, or the trigger is from before connections had names.
+   * The connection the polls and the runs read the mailbox with: with
+   * `as: 'company'`, one of the project's company connections of the app;
+   * with `as: 'person'`, the owner's own. Absent: none was named and there
+   * was none to store, or the trigger is from before connections had
+   * names. A new owner of a person's mailbox clears it.
    */
   readonly connectionId?: string;
 }

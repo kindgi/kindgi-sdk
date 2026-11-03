@@ -7,6 +7,7 @@ import {
   candidatesListed,
   listCandidateRows,
   namedBy,
+  ownCandidatesListed,
   resolveConnectionRef,
 } from '../connection-ref.js';
 import type { CommandContext } from '../context.js';
@@ -75,7 +76,8 @@ function mailboxCell(t: MailTrigger, names: ReadonlyMap<string, string>): string
 
 /**
  * The names of the connections the triggers' mailboxes name, read from each
- * project's candidates at the mailbox's app. One it can't read stays unnamed.
+ * project's candidates at the mailbox's app; on a person's mailbox, your own,
+ * so another person's stays unnamed. One it can't read stays unnamed.
  */
 async function connectionNames(
   client: KindgiClient,
@@ -84,16 +86,42 @@ async function connectionNames(
 ): Promise<void> {
   const read = new Set<string>();
   for (const t of triggers) {
-    const key = `${t.projectId} ${t.mailbox.app}`;
+    const key = `${t.projectId} ${t.mailbox.app} ${t.mailbox.as}`;
     if (t.mailbox.connectionId === undefined || read.has(key)) continue;
     read.add(key);
-    const rows = await listCandidateRows(client, t.projectId, t.mailbox.app).catch(() => []);
+    const owner = t.mailbox.as === 'person' ? 'me' : undefined;
+    const rows = await listCandidateRows(client, t.projectId, t.mailbox.app, owner).catch(() => []);
     for (const r of rows) names.set(r.connectionId, r.name);
   }
 }
 
+/**
+ * The apps' names (`Google`), read once when a person's mailbox has no
+ * account to show. Unread, the cell says the app's entry id.
+ */
+async function appNames(
+  client: KindgiClient,
+  triggers: readonly MailTrigger[],
+  apps: Map<string, string>,
+): Promise<void> {
+  if (!triggers.some((t) => t.mailbox.as === 'person' && t.account === undefined)) return;
+  const entries = await client.connectionEntries.list().catch(() => ({ data: [] }));
+  for (const e of entries.data) apps.set(e.id, e.name);
+}
+
+/**
+ * The account cell: the mailbox's account at its last poll. A person's
+ * mailbox with none to show says whose it is: `this person's Google account`.
+ */
+function accountCell(t: MailTrigger, apps: ReadonlyMap<string, string>): string {
+  if (t.account !== undefined) return t.account.label;
+  if (t.mailbox.as !== 'person') return '';
+  return `this person's ${apps.get(t.mailbox.app) ?? t.mailbox.app} account`;
+}
+
 const triggersTable = (
   names: ReadonlyMap<string, string>,
+  apps: ReadonlyMap<string, string>,
 ): TableSpec<MailTriggerPage, MailTrigger> => ({
   rows: (p) => p.data,
   columns: [
@@ -101,7 +129,7 @@ const triggersTable = (
     { header: 'VERSION', get: (t) => (t.version !== undefined ? String(t.version) : '') },
     { header: 'RUNS', get: runs },
     { header: 'MAILBOX', get: (t) => mailboxCell(t, names) },
-    { header: 'ACCOUNT', get: (t) => t.account?.label ?? '' },
+    { header: 'ACCOUNT', get: (t) => accountCell(t, apps) },
     {
       header: 'STATUS',
       get: (t) => (t.statusReason !== undefined ? `${t.status} (${t.statusReason})` : t.status),
@@ -162,34 +190,35 @@ function mailFlags(on: 'register' | 'update'): Record<string, ParseArgsOption> {
     },
     connection: {
       type: 'string',
-      description: `With --as=company: the company connection it reads the mailbox with, by id or name, one of the project's at the mailbox's app. Needed when the project has several there; with one, that one is stored.${again}`,
+      description: `With --as=company: the company connection it reads the mailbox with, by id or name, one of the project's at the mailbox's app. Needed when the project has several there; with one, that one is stored. With --as=person: your own connection it reads your mailbox with, by id or name. With none, your main one is stored, else your only one.${again}`,
     },
   };
 }
 
-/** The wire's words for `connectionId` on a person's mailbox, with the flag's name. */
-const PERSON_CONNECTION =
-  "A person's mailbox is read with its owner's own connection; --connection is for the company's (--as=company)";
-
-/** `--connection` as a connection id: a name is one of the project's company connections at `app`. */
-async function companyConnection(
+/**
+ * `--connection` as a connection id: a name is one of the project's company
+ * connections at the mailbox's app, or on a person's mailbox, one of your own.
+ */
+async function mailboxConnection(
   ctx: CommandContext,
   ref: string,
-  app: string,
+  mailbox: Mailbox,
   projectId: () => Promise<string>,
 ): Promise<string> {
+  const own = mailbox.as === 'person';
   const { id } = await resolveConnectionRef(ref, {
-    rows: async () => listCandidateRows(ctx.client(), await projectId(), app),
-    app,
+    rows: async () =>
+      listCandidateRows(ctx.client(), await projectId(), mailbox.app, own ? 'me' : undefined),
+    app: mailbox.app,
     appNarrows: false,
-    listed: candidatesListed,
+    listed: own ? ownCandidatesListed : candidatesListed,
   });
   return id;
 }
 
 /**
  * The mailbox with `--connection`'s id, once a name is looked up among the
- * project's company connections. A person's mailbox stops here, before any call.
+ * project's company connections, or on a person's mailbox, your own.
  */
 function withConnection(
   ctx: CommandContext,
@@ -197,10 +226,9 @@ function withConnection(
 ): (projectId: () => Promise<string>) => Promise<Mailbox> {
   const connection = givenFlag(ctx, 'connection');
   if (connection === undefined) return async () => mailbox;
-  if (mailbox.as !== 'company') throw new UsageError(PERSON_CONNECTION);
   return async (projectId) => ({
     ...mailbox,
-    connectionId: await companyConnection(ctx, connection, mailbox.app, projectId),
+    connectionId: await mailboxConnection(ctx, connection, mailbox, projectId),
   });
 }
 
@@ -225,7 +253,8 @@ function commandNaming(ctx: CommandContext, label: string, connection: string): 
 
 /**
  * A `connection-not-chosen`'s next step: the project's company connections
- * by name, each with the command again naming it (by id when two share a name).
+ * by name, each with the command again naming it (by id when two share a
+ * name). A person's mailbox lists none: its owner's connections are theirs.
  */
 function chooseOne(ctx: CommandContext, label: string, err: unknown): string {
   const wire = extractKindgiError(err);
@@ -235,7 +264,9 @@ function chooseOne(ctx: CommandContext, label: string, err: unknown): string {
     (c): c is { readonly connectionId: string; readonly name: string } =>
       typeof c?.connectionId === 'string' && typeof c?.name === 'string',
   );
-  if (choices.length === 0) return '';
+  if (choices.length === 0) {
+    return 'Name one with --connection=<connection>, or its owner makes one their main: kindgi connections update <connection> --main\n';
+  }
   const shared = (name: string): boolean => choices.filter((c) => c.name === name).length > 1;
   const again = choices.map(
     (c) => `  ${commandNaming(ctx, label, shared(c.name) ? c.connectionId : c.name)}`,
@@ -323,6 +354,7 @@ const list: LeafCommand = {
   },
   run: (ctx) => {
     const names = new Map<string, string>();
+    const apps = new Map<string, string>();
     return runSdk(
       ctx,
       'mail-triggers list',
@@ -338,10 +370,13 @@ const list: LeafCommand = {
           ...(status !== undefined && { status }),
           ...(projectId !== undefined && { projectId }),
         });
-        if (ctx.globals.format === 'table') await connectionNames(client, listed.data, names);
+        if (ctx.globals.format === 'table') {
+          await connectionNames(client, listed.data, names);
+          await appNames(client, listed.data, apps);
+        }
         return listed;
       },
-      triggersTable(names),
+      triggersTable(names, apps),
     );
   },
 };

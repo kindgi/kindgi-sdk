@@ -234,6 +234,20 @@ describe('one approval, and its audit bundle: its approver and the tenant admin'
     });
   });
 
+  test("one with a person's connection says whose, and names no account", async () => {
+    const theirs = {
+      ...approval('appr-person', OWNER),
+      connection: { app: 'acme', appName: 'Acme', as: 'person' },
+    } as Approval;
+    const answer = await harness({ pages: [[theirs]] }).call(OWNER, 'GET', '/v1/approvals');
+    expect(answer.status).toBe(200);
+    expect((answer.json.data as { connection?: unknown }[])[0]?.connection).toEqual({
+      app: 'acme',
+      appName: 'Acme',
+      as: 'person',
+    });
+  });
+
   test('its audit bundle: not found for another reviewer; past that check for its approver', async () => {
     const h = harness();
     const other = await h.call(OTHER, 'POST', '/v1/approvals/appr-owner/audit-bundle', {});

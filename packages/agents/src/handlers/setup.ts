@@ -13,6 +13,7 @@ import type { TurnContext } from './context.js';
 import { approvalsPendingLimitOf, throwAgentTurnFailure } from './errors.js';
 import { bindRunFiles } from './files.js';
 import { SESSION_GATE_SUBJECT, readGateDecision, withdrawnGateFailure } from './gate-decision.js';
+import { offerAccounts } from './offer-accounts.js';
 import { followReplaySessionGate } from './replay.js';
 import { requestedBy } from './requested-by.js';
 import { writeRunSnapshot } from './run-snapshot.js';
@@ -287,6 +288,8 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
     }
 
     const environment = await resolveTurnEnvironment(ctx);
+    // The sets the turn's calls may name a connection from.
+    await offerAccounts(ctx, kctx.runId as unknown as string);
 
     // Provenance builder was created earlier (before the session-HITL
     // gate) so wait/resume nodes could bracket the park boundary. Kept

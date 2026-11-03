@@ -46,8 +46,9 @@ import { sameJson } from '../canonical-json.js';
  * An in-memory `TriggerRegistryBinding` for app and route tests: the
  * admin surface over stored triggers, with fire history and `run-now`.
  * It computes no occurrences (`nextFireAt` stays `null`) and starts no
- * runs; `fireNow` and `fireWebhook` record a `pending` fire, and
- * `recordFire` lets a test add fires as a scheduler would. A webhook
+ * runs; `fireNow` and `fireWebhook` record a `pending` fire,
+ * `recordFire` lets a test add fires as a scheduler would, and
+ * `recordPoll` a mail trigger's look as a poll would. A webhook
  * delivery's event and the access-audit refusals are kept for the test
  * to read (`webhookEvents`, `webhookAudit`). Versions as a runtime makes
  * them: register makes version 1, an update that changes the definition
@@ -57,6 +58,17 @@ import { sameJson } from '../canonical-json.js';
 export interface InMemoryTriggerRegistry extends TriggerRegistryBinding {
   /** Add a fire to a trigger's history, as a scheduler would. */
   recordFire(fire: Omit<TriggerFire, 'fireId'> & { readonly fireId?: string }): TriggerFire;
+  /**
+   * Record a mail trigger's look as a poll would: the account it read
+   * (`account`), and when (`lastPolledAt`, default now). Throws for an id
+   * that isn't a live mail trigger.
+   */
+  recordPoll(input: {
+    readonly tenantId: TenantId;
+    readonly triggerId: TriggerId;
+    readonly account: NonNullable<MailTriggerRecord['account']>;
+    readonly at?: string;
+  }): void;
   /** Each started webhook fire's event, by fire id. */
   readonly webhookEvents: ReadonlyMap<string, unknown>;
   /** The access-audit records `recordWebhookRefusal` wrote (`audit: true`, not suppressed). */
@@ -392,8 +404,14 @@ export function createInMemoryTriggerRegistry(
     ) {
       const row = live(input.tenantId, input.triggerId);
       if (row === undefined || row.kind === 'event') return notFound(input.triggerId);
-      const next = { ...row, owner: input.owner, updatedAt: now() };
+      const next = { ...reowned(row, input.owner), updatedAt: now() };
       return { kind: 'ok', value: save(changed(row, next, 'owner', input.by)) };
+    },
+
+    recordPoll(input) {
+      const row = live(input.tenantId, input.triggerId);
+      if (row?.kind !== 'mail') throw new Error(`No live mail trigger ${input.triggerId}`);
+      save({ ...row, account: input.account, lastPolledAt: input.at ?? now() });
     },
 
     recordFire(fire) {
@@ -423,6 +441,28 @@ export function createInMemoryTriggerRegistry(
   }
 
   return registry;
+}
+
+/**
+ * `row` with `owner`. A person's mailbox taken over loses its stored
+ * connection and its account's label, both the previous owner's, until
+ * the next poll stores the new owner's. The owner it already has changes
+ * nothing.
+ */
+function reowned(
+  row: Exclude<TriggerRecord, { readonly kind: 'event' }>,
+  owner: TriggerOwner,
+): TriggerRecord {
+  if (row.kind !== 'mail' || row.config.mailbox.as !== 'person' || sameJson(row.owner, owner)) {
+    return { ...row, owner };
+  }
+  const { connectionId: _previous, ...mailbox } = row.config.mailbox;
+  return {
+    ...row,
+    owner,
+    config: { ...row.config, mailbox },
+    ...(row.account !== undefined && { account: { id: row.account.id } }),
+  };
 }
 
 /** Each kind's definition fields: every one, so a field added to a definition is kept. */

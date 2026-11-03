@@ -16102,7 +16102,7 @@ export const MailTriggerMailboxSchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The company connection it reads the mailbox with: only with `as: company`, since a person's mailbox is read with its owner's own connection. Named, it must be one of the project's candidates of the app (`GET /v1/connection-choices/candidates`); a person's own live connection of the app is `400 bad-input`, and any other `404 connection-not-found`. Not named, the project's only one is stored, so another connection added later doesn't change what the trigger reads; with several, it's `409 connection-not-chosen`, and with none, nothing is stored. Another `connectionId`, or one named where there was none, is another mailbox. The company's mailbox it reads now, sent again with none, is the same mailbox: it keeps the one it reads with, or stores the only one. Absent from a trigger that names none.",
+        "The connection it reads the mailbox with. With `as: company`, it must be one of the project's candidates of the app (`GET /v1/connection-choices/candidates`); a person's own live connection of the app is `400 bad-input`, and any other `404 connection-not-found`. Not named, the project's only one is stored, so another connection added later doesn't change what the trigger reads; with several, it's `409 connection-not-chosen`, and with none, nothing is stored. With `as: person`, it must be the owner's own live connection of the app, and any other is `404 connection-not-found`. Not named, their main is stored, else their only one; with several and no main, it's `409 connection-not-chosen`, which counts them; with none, nothing is stored. A new owner clears it, and the next poll stores theirs. Another `connectionId`, or one named where there was none, is another mailbox. The mailbox it reads now, sent again with none, is the same mailbox: it keeps the one it reads with, or stores the one the rules above give. Absent from a trigger that names none.",
     },
   },
 };
@@ -16179,7 +16179,7 @@ export const MailTriggerRecordSchema: JsonSchema = {
     statusReason: {
       type: 'string',
       description:
-        "Why it isn't polling as it should: `connection-missing` (the mailbox's connection is gone or lapsed; polls go on, and work again once it's back), `connection-not-chosen` (it names no company connection and the project has several of the app, which the reason names; it doesn't poll until its `config.mailbox.connectionId` names one), `owner-refused` (its owner was removed or may no longer run the target; polls go on and read nothing until that changes or an admin takes it over), or why the runtime paused it.",
+        "Why it isn't polling as it should: `connection-missing` (the mailbox's connection is gone or lapsed; polls go on, and work again once it's back), `connection-not-chosen` (it names no connection, and the project has several company connections of the app, which the reason names, or its owner has several and no main; it doesn't poll until its `config.mailbox.connectionId` names one), `owner-refused` (its owner was removed or may no longer run the target; polls go on and read nothing until that changes or an admin takes it over), or why the runtime paused it.",
     },
     version: {
       type: 'integer',
@@ -16192,7 +16192,7 @@ export const MailTriggerRecordSchema: JsonSchema = {
       additionalProperties: false,
       required: ['id', 'label'],
       description:
-        "The mailbox's account at its last poll: the connection's account id and its label (the address). Absent before its first poll.",
+        "The mailbox's account at its last poll: the connection's account id and its label (the address). Absent before its first poll, and after a take-over of a person's mailbox until the next poll. On a person's mailbox (`config.mailbox.as: person`), only the trigger's owner and a tenant admin read it; anyone else reads the trigger without it.",
       properties: { id: { type: 'string' }, label: { type: 'string' } },
     },
     lastPolledAt: {
@@ -16989,6 +16989,11 @@ export const ConnectionSchema: JsonSchema = {
       description:
         "The name people know it by: the one asked for at the connect, else the account's label. Absent on a connection made before connections had names; show `account.label` then.",
     },
+    main: {
+      type: 'boolean',
+      description:
+        "Only ever `true`: the person's main connection through its registration in its env, the one their agents use when no choice names another. A person's first connection has none; their second connection makes the first their main. The company's has none.",
+    },
     permissions: {
       type: 'array',
       items: { type: 'string' },
@@ -17046,6 +17051,18 @@ export const ConnectionPageSchema: JsonSchema = {
   },
 };
 
+/**
+ * A choice's person: the one whose own connection it names. A component of
+ * its own, so generated clients name it `ConnectionChoicePerson`.
+ */
+export const ConnectionChoicePersonSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['userId'],
+  description: 'The person whose own connection a choice names.',
+  properties: { userId: { type: 'string', minLength: 1 } },
+};
+
 export const ConnectionChoiceSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -17060,7 +17077,7 @@ export const ConnectionChoiceSchema: JsonSchema = {
     'createdBy',
   ],
   description:
-    'Which company connection an agent or a flow uses for an app in a project, in one env: `agentId` or `flowId`, one of them. A choice is never changed: changing it removes it and makes a new one at the next version.',
+    "Which connection an agent or a flow uses for an app in a project, in one env: `agentId` or `flowId`, one of them. The company's, or a person's own (`person`), for their runs. With `toolId`, it's that tool's, which comes before the agent's or flow's. A choice is never changed: changing it removes it and makes a new one at the next version.",
   properties: {
     choiceId: { type: 'string', format: 'uuid' },
     projectId: { type: 'string', format: 'uuid' },
@@ -17068,16 +17085,38 @@ export const ConnectionChoiceSchema: JsonSchema = {
     agentId: { type: 'string' },
     flowId: { type: 'string' },
     app: { type: 'string', description: "The app's entry id (`google`): the connection's." },
+    toolId: {
+      type: 'string',
+      description:
+        "The tool it's for, with `need`. Absent: the agent's or flow's choice, for every tool's need of the app.",
+    },
+    need: {
+      type: 'string',
+      description: "The tool's name for the connection (`calendar`), with `toolId`.",
+    },
     connectionId: {
       type: 'string',
       format: 'uuid',
       description:
-        "The chosen connection. A choice of a connection that's since been disconnected stays until it's set again or removed.",
+        "The chosen connection, and a set's default. A choice of a connection that's since been disconnected stays until it's set again or removed.",
+    },
+    connectionIds: {
+      type: 'array',
+      items: { type: 'string', format: 'uuid' },
+      minItems: 2,
+      maxItems: 10,
+      description:
+        "A set: the connections a call of the tool may name one of (by its name), `connectionId` among them. A call that names none uses `connectionId`. Only a tool's choice, for a tool that changes nothing. Absent for one connection.",
+    },
+    person: {
+      $ref: '#/components/schemas/ConnectionChoicePerson',
+      description:
+        "Whose choice it is, for a person's connection: theirs alone to make, change or remove. Absent: the company's.",
     },
     version: {
       type: 'integer',
       minimum: 1,
-      description: 'From 1, per project, env, agent or flow, and app.',
+      description: 'From 1, per project, env, agent or flow, app, tool and need, and person.',
     },
     createdAt: { type: 'string', format: 'date-time' },
     createdBy: { type: 'string' },
@@ -17106,16 +17145,41 @@ export const SetConnectionChoiceBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['projectId', 'connectionId'],
-  description: 'Name what the choice is for: `agentId` or `flowId`, one of them.',
+  description:
+    "Name what the choice is for: `agentId` or `flowId`, one of them, and `toolId` for a tool's own. A company choice is a project admin's; a person's (`person`) is theirs alone.",
   properties: {
     projectId: { type: 'string', format: 'uuid' },
     agentId: { type: 'string', minLength: 1, description: "One of the project's agents." },
     flowId: { type: 'string', minLength: 1, description: "One of the project's flows." },
+    toolId: {
+      type: 'string',
+      minLength: 1,
+      description: "One of the agent's or flow's tools that uses the connection's app.",
+    },
+    need: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "The tool's name for the connection. It may be left out when the tool uses the app once.",
+    },
     connectionId: {
       type: 'string',
       format: 'uuid',
       description:
-        "One of the project's candidates (`GET /v1/connection-choices/candidates`). The choice is for its app.",
+        "One of the candidates (`GET /v1/connection-choices/candidates`, with `owner=me` for a person's own). The choice is for its app. With `connectionIds`, the set's default.",
+    },
+    connectionIds: {
+      type: 'array',
+      items: { type: 'string', format: 'uuid' },
+      minItems: 2,
+      maxItems: 10,
+      uniqueItems: true,
+      description:
+        "A set, for a tool's choice: 2 to 10 different candidates, `connectionId` among them, each named. Only for a tool that changes nothing, doesn't declare `sensitive-data-egress` and has no `accounts` input of its own (`GET /v1/connection-choices/needs`).",
+    },
+    person: {
+      $ref: '#/components/schemas/ConnectionChoicePerson',
+      description: 'A choice of your own connection, for your own runs: you.',
     },
   },
 };
@@ -17134,7 +17198,7 @@ export const ConnectionCandidateSchema: JsonSchema = {
   additionalProperties: false,
   required: ['connectionId', 'name'],
   description:
-    "A company connection a choice in the project may name. Its `state` is `working` or `needs-reconnecting`: one that needs reconnecting may be chosen, and works again once it's reconnected. A project admin reads all of it; a project member, only `connectionId` and `name`.",
+    "A connection a choice in the project may name: the company's, or with `owner=me`, your own. Its `state` is `working` or `needs-reconnecting`: one that needs reconnecting may be chosen, and works again once it's reconnected. A project admin reads all of a company one; a project member, only `connectionId` and `name`. You read all of your own.",
   properties: {
     connectionId: { type: 'string', format: 'uuid' },
     name: {
@@ -17148,6 +17212,10 @@ export const ConnectionCandidateSchema: JsonSchema = {
       description: "Its account's label: an email address, a login.",
     },
     state: { $ref: '#/components/schemas/ConnectionState' },
+    main: {
+      type: 'boolean',
+      description: 'Only ever `true`, with `owner=me`: your main connection of the app.',
+    },
   },
 };
 
@@ -17159,6 +17227,58 @@ export const ConnectionCandidatePageSchema: JsonSchema = {
     data: { type: 'array', items: { $ref: '#/components/schemas/ConnectionCandidate' } },
     nextCursor: { type: 'string' },
     hasMore: { type: 'boolean' },
+  },
+};
+
+/**
+ * Whether a choice for a tool's connection may be a set. A component of its
+ * own, so generated clients name it `ConnectionChoiceNeedSet`.
+ */
+export const ConnectionChoiceNeedSetSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['allowed'],
+  description: "Whether a choice for the tool's connection may be a set, and if not, why not.",
+  properties: {
+    allowed: { type: 'boolean' },
+    reason: {
+      type: 'string',
+      enum: ['changes', 'sensitive-data-egress', 'accounts-input'],
+      description:
+        'Why not, with `allowed: false`: the tool changes things, may send what it reads elsewhere, or has its own `accounts` input.',
+    },
+  },
+};
+
+export const ConnectionChoiceNeedSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['toolId', 'need', 'app', 'as', 'set'],
+  description: "One of a tool's connections, and whether a choice for it may be a set.",
+  properties: {
+    toolId: { type: 'string' },
+    need: { type: 'string', description: "The tool's name for the connection." },
+    app: { type: 'string', description: "The app's entry id." },
+    as: {
+      type: 'string',
+      enum: ['company', 'person'],
+      description: "Whose connection: the company's, or the run's person's.",
+    },
+    set: { $ref: '#/components/schemas/ConnectionChoiceNeedSet' },
+  },
+};
+
+export const ConnectionChoiceNeedsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/ConnectionChoiceNeed' } },
+    unread: {
+      type: 'array',
+      items: { type: 'string' },
+      description: "The tools whose version couldn't be read, refused or gone.",
+    },
   },
 };
 
@@ -17289,8 +17409,15 @@ export const CreateConnectRequestBodySchema: JsonSchema = {
 export const UpdateConnectionBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['label'],
+  minProperties: 1,
+  maxProperties: 1,
+  description: 'One change: `label` renames it, `main: true` makes it your main.',
   properties: {
+    main: {
+      type: 'boolean',
+      description:
+        "`true`: your main connection of its app through its registration and env, in place of the one that was. Only the person whose connection it is makes it their main, and the company's has none. `false` is refused: a main moves only by making another connection main. A mail trigger's stored connection doesn't move.",
+    },
     label: {
       type: 'string',
       minLength: 1,
@@ -17356,6 +17483,22 @@ export const FinishConnectBodySchema: JsonSchema = {
   },
 };
 
+/**
+ * What a person's new connection did to their main one. A component of its
+ * own, so generated clients name it `ConnectFinishMain`.
+ */
+export const ConnectFinishMainSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['state'],
+  description:
+    '`set`: the one they had, `connectionId`, is now their main, and this one is added. `kept`: their main, `connectionId`, stays. `missing`: they have several and none is their main, so their agents use none until they make one main, or a choice names one.',
+  properties: {
+    state: { type: 'string', enum: ['set', 'kept', 'missing'] },
+    connectionId: { type: 'string', format: 'uuid', description: 'With `set` and `kept`.' },
+  },
+};
+
 export const ConnectFinishSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -17375,7 +17518,7 @@ export const ConnectFinishSchema: JsonSchema = {
     reconnected: {
       type: 'boolean',
       description:
-        "Present when `kind` is `connected`. `true`: the finish landed on a connection that was already there, the one `reconnects` named or the company's connection of the same account, and that connection keeps its name. `false`: it made a new one.",
+        "Present when `kind` is `connected`. `true`: the finish landed on a connection that was already there, the one `reconnects` named or the owner's connection of the same account, the company's or the person's, and that connection keeps its name. `false`: it made a new one.",
     },
     labelTaken: {
       type: 'string',
@@ -17386,6 +17529,11 @@ export const ConnectFinishSchema: JsonSchema = {
       type: 'boolean',
       description:
         'On a server with approvals, for a member who connected: whether they have a reviewer seat, which approving a send from their own account needs.',
+    },
+    main: {
+      $ref: '#/components/schemas/ConnectFinishMain',
+      description:
+        'Present when `kind` is `connected`, `reconnected` is `false`, and the person already had a connection through the registration in the env.',
     },
   },
 };
@@ -17444,15 +17592,21 @@ export const ApprovalApproverSchema: JsonSchema = {
 export const ApprovalConnectionSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['app', 'appName', 'account'],
+  required: ['app', 'appName'],
   description:
-    "The connection the call would use: the person's own, or else the company's connection the call was gated on, which it then runs with or doesn't run (`connection-changed`).",
+    "The connection the call would use: the person's own, or else the company's connection the call was gated on, which it then runs with or doesn't run (`connection-changed`). A person's account isn't named: show \"this person's <appName> account\".",
   properties: {
     app: { type: 'string', description: "The app's entry id." },
     appName: { type: 'string' },
+    as: {
+      type: 'string',
+      enum: ['company', 'person'],
+      description: "Whose connection: the company's, or the person's. Absent from older approvals.",
+    },
     account: {
       type: 'string',
-      description: "The account's label at the app: an email address, a login.",
+      description:
+        "The company's account label at the app: an email address, a login. Absent for a person's; older approvals have it for theirs too.",
     },
     name: {
       type: 'string',
@@ -18560,17 +18714,22 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateConnectionBody', UpdateConnectionBodySchema],
   ['ConnectionPage', ConnectionPageSchema],
   ['ConnectionChoice', ConnectionChoiceSchema],
+  ['ConnectionChoicePerson', ConnectionChoicePersonSchema],
   ['ConnectionChoicePage', ConnectionChoicePageSchema],
   ['SetConnectionChoiceBody', SetConnectionChoiceBodySchema],
   ['ConnectionChoiceDeleteResult', ConnectionChoiceDeleteResultSchema],
   ['ConnectionCandidate', ConnectionCandidateSchema],
   ['ConnectionCandidatePage', ConnectionCandidatePageSchema],
+  ['ConnectionChoiceNeed', ConnectionChoiceNeedSchema],
+  ['ConnectionChoiceNeedSet', ConnectionChoiceNeedSetSchema],
+  ['ConnectionChoiceNeeds', ConnectionChoiceNeedsSchema],
   ['ConnectRequest', ConnectRequestSchema],
   ['CreateConnectRequestBody', CreateConnectRequestBodySchema],
   ['ConnectRequestInstallation', ConnectRequestInstallationSchema],
   ['StartConnectBody', StartConnectBodySchema],
   ['FinishConnectBody', FinishConnectBodySchema],
   ['ConnectFinish', ConnectFinishSchema],
+  ['ConnectFinishMain', ConnectFinishMainSchema],
   ['ConnectStart', ConnectStartSchema],
   ['WaitingForConnection', WaitingForConnectionSchema],
   ['ApprovalApprover', ApprovalApproverSchema],

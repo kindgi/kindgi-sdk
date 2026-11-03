@@ -1329,6 +1329,9 @@ OPERATIONS: dict[str, Operation] = {
     "connections.disconnect": Operation(
         "connections.disconnect", "DELETE", "/v1/connections/{connectionId}", "json", True
     ),
+    "connections.choices": Operation(
+        "connections.choices", "GET", "/v1/connections/{connectionId}/choices", "json", False
+    ),
     "connectionChoices.list": Operation(
         "connectionChoices.list", "GET", "/v1/connection-choices", "json", False
     ),
@@ -1340,6 +1343,9 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "connectionChoices.candidates": Operation(
         "connectionChoices.candidates", "GET", "/v1/connection-choices/candidates", "json", False
+    ),
+    "connectionChoices.needs": Operation(
+        "connectionChoices.needs", "GET", "/v1/connection-choices/needs", "json", False
     ),
     "projects.sites.list": Operation(
         "projects.sites.list", "GET", "/v1/projects/{projectId}/sites", "json", False
@@ -11481,7 +11487,7 @@ class ConnectionsResource:
     ) -> _models.ConnectRequest:
         """Start a connect. `POST /v1/connections`
 
-        Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. A person keeps one connection per registration and environment, and their connect reconnects it when they have one. The company keeps one per account: its connect lands on the company's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).
+        Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. The company and each person keep one connection per account, registration and environment: a connect lands on its owner's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).
         """
         return self._client._request(
             _OPERATIONS["connections.connect"],
@@ -11542,9 +11548,9 @@ class ConnectionsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.Connection:
-        """Rename a connection. `PATCH /v1/connections/{connectionId}`
+        """Rename a connection, or make it your main. `PATCH /v1/connections/{connectionId}`
 
-        Changes its `label`, the name people know it by. Whoever may disconnect it: its owner or a tenant admin. Anyone else gets the `404` of a connection that doesn't exist.
+        One change. `label` renames it, the name people know it by: whoever may disconnect it, its owner or a tenant admin. `main: true` makes it its owner's main connection of its app through its registration and env, in place of the one that was, audited as `connection-main-set`: its owner alone, and only a person's. Making the main main again answers it as it is. A main never moves a mail trigger's stored connection. Anyone else gets the `404` of a connection that doesn't exist.
         """
         return self._client._request(
             _OPERATIONS["connections.update"],
@@ -11577,6 +11583,28 @@ class ConnectionsResource:
             timeout=timeout,
         )
 
+    def choices(
+        self,
+        connection_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionChoicePage:
+        """List a connection's choices. `GET /v1/connections/{connectionId}/choices`
+
+        The live choices that name the connection, in every project of this server's environment: as `connectionId`, or in a set. Whoever the connection reaches: its owner or a tenant admin. Anyone else gets the `404` of a connection that doesn't exist.
+        """
+        return self._client._request(
+            _OPERATIONS["connections.choices"],
+            path={"connectionId": connection_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ConnectionChoicePage,
+            timeout=timeout,
+        )
+
 
 class ConnectionChoicesResource:
     """`client.connection_choices` — the `connectionChoices` operations."""
@@ -11592,6 +11620,8 @@ class ConnectionChoicesResource:
         agent_id: str | UUID | None = None,
         flow_id: str | UUID | None = None,
         app: str | None = None,
+        tool_id: str | UUID | None = None,
+        owner: Literal["me"] | None = None,
         include_removed: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
@@ -11599,7 +11629,7 @@ class ConnectionChoicesResource:
     ) -> _models.ConnectionChoicePage:
         """List connection choices. `GET /v1/connection-choices`
 
-        The project's live choices in this server's environment: which company connection each agent or flow uses for an app. The project's members may read them (`read` on the project). Removed choices, a choice's history, are listed only with `includeRemoved=true`. A choice of a connection that's since been disconnected stays listed until it's set again or removed.
+        The project's live choices in this server's environment: which connection each agent or flow, or one of its tools, uses for an app. The project's members may read them (`read` on the project): the company's, and their own. A tenant admin reads every person's too; with `owner=me`, anyone reads their own alone. Removed choices, a choice's history, are listed only with `includeRemoved=true`. A choice of a connection that's since been disconnected stays listed until it's set again or removed.
         """
         return self._client._request(
             _OPERATIONS["connectionChoices.list"],
@@ -11609,6 +11639,8 @@ class ConnectionChoicesResource:
                 "agentId": agent_id,
                 "flowId": flow_id,
                 "app": app,
+                "toolId": tool_id,
+                "owner": owner,
                 "includeRemoved": include_removed,
                 "limit": limit,
                 "cursor": cursor,
@@ -11629,7 +11661,7 @@ class ConnectionChoicesResource:
     ) -> _models.ConnectionChoice:
         """Choose a connection. `PUT /v1/connection-choices`
 
-        Chooses which company connection an agent or a flow uses, in the project and this server's environment, for the connection's app. The project's admins only (`admin` on the project). The connection must be one of the project's candidates (`GET /v1/connection-choices/candidates`). Choosing the connection already chosen answers that choice as it is. Choosing another removes that choice and makes a new one at the next `version`, in one step.
+        Chooses which connection an agent or a flow uses, in the project and this server's environment, for the connection's app; with `toolId`, which one that tool uses, ahead of the agent's or flow's. A tool's choice may be a set (`connectionIds`): a call of a tool that changes nothing names one of them, by name, else uses `connectionId`. A company choice is the project's admins' (`admin` on the project). A person's (`person`) is that person's alone, for their own runs, and needs only what running the agent or flow does. The connection must be a candidate (`GET /v1/connection-choices/candidates`, with `owner=me` for your own). Choosing the connection already chosen answers that choice as it is. Choosing another removes that choice and makes a new one at the next `version`, in one step.
         """
         return self._client._request(
             _OPERATIONS["connectionChoices.set"],
@@ -11651,7 +11683,7 @@ class ConnectionChoicesResource:
     ) -> _models.ConnectionChoiceDeleteResult:
         """Remove a connection choice. `DELETE /v1/connection-choices/{choiceId}`
 
-        Removes a live choice. It's kept, with `removedAt` and `removedBy`: `GET /v1/connection-choices?includeRemoved=true` lists it. The admins of its project only (`admin` on the project).
+        Removes a live choice. It's kept, with `removedAt` and `removedBy`: `GET /v1/connection-choices?includeRemoved=true` lists it. A company choice: the admins of its project only (`admin` on the project). A person's: that person alone; to anyone else it's not found.
         """
         return self._client._request(
             _OPERATIONS["connectionChoices.remove"],
@@ -11668,20 +11700,50 @@ class ConnectionChoicesResource:
         *,
         project_id: str | UUID,
         app: str | None = None,
+        owner: Literal["me"] | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.ConnectionCandidatePage:
         """List connection candidates. `GET /v1/connection-choices/candidates`
 
-        The company connections a choice in the project may name: live ones, working or needing a reconnect, in this server's environment, on a live registration that allows the project. The project's admins read each in full; its members read `connectionId` and `name` only (`read` on the project).
+        The connections a choice in the project may name: live ones, working or needing a reconnect, in this server's environment, on a live registration that allows the project. The company's: the project's admins read each in full, and its members read `connectionId` and `name` only (`read` on the project). With `owner=me`, the caller's own instead, in full, with `main`.
         """
         return self._client._request(
             _OPERATIONS["connectionChoices.candidates"],
             path={},
-            query={"projectId": project_id, "app": app, "limit": limit, "cursor": cursor},
+            query={
+                "projectId": project_id,
+                "app": app,
+                "owner": owner,
+                "limit": limit,
+                "cursor": cursor,
+            },
             headers={},
             response=_models.ConnectionCandidatePage,
+            timeout=timeout,
+        )
+
+    def needs(
+        self,
+        /,
+        *,
+        project_id: str | UUID,
+        agent_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
+        app: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionChoiceNeeds:
+        """List what a choice may be for. `GET /v1/connection-choices/needs`
+
+        Each of an agent's or flow's tools' connections, at the version it resolves now: the tool, its name for the connection (`need`), the app and whose (`as`), and whether a choice for it may be a set (`set.allowed`, else `set.reason`: `changes`, `sensitive-data-egress` or `accounts-input`). A tool whose version couldn't be read is listed in `unread`. The project's members (`read` on the project).
+        """
+        return self._client._request(
+            _OPERATIONS["connectionChoices.needs"],
+            path={},
+            query={"projectId": project_id, "agentId": agent_id, "flowId": flow_id, "app": app},
+            headers={},
+            response=_models.ConnectionChoiceNeeds,
             timeout=timeout,
         )
 
@@ -21777,7 +21839,7 @@ class AsyncConnectionsResource:
     ) -> _models.ConnectRequest:
         """Start a connect. `POST /v1/connections`
 
-        Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. A person keeps one connection per registration and environment, and their connect reconnects it when they have one. The company keeps one per account: its connect lands on the company's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).
+        Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. The company and each person keep one connection per account, registration and environment: a connect lands on its owner's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).
         """
         return await self._client._request(
             _OPERATIONS["connections.connect"],
@@ -21838,9 +21900,9 @@ class AsyncConnectionsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.Connection:
-        """Rename a connection. `PATCH /v1/connections/{connectionId}`
+        """Rename a connection, or make it your main. `PATCH /v1/connections/{connectionId}`
 
-        Changes its `label`, the name people know it by. Whoever may disconnect it: its owner or a tenant admin. Anyone else gets the `404` of a connection that doesn't exist.
+        One change. `label` renames it, the name people know it by: whoever may disconnect it, its owner or a tenant admin. `main: true` makes it its owner's main connection of its app through its registration and env, in place of the one that was, audited as `connection-main-set`: its owner alone, and only a person's. Making the main main again answers it as it is. A main never moves a mail trigger's stored connection. Anyone else gets the `404` of a connection that doesn't exist.
         """
         return await self._client._request(
             _OPERATIONS["connections.update"],
@@ -21873,6 +21935,28 @@ class AsyncConnectionsResource:
             timeout=timeout,
         )
 
+    async def choices(
+        self,
+        connection_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionChoicePage:
+        """List a connection's choices. `GET /v1/connections/{connectionId}/choices`
+
+        The live choices that name the connection, in every project of this server's environment: as `connectionId`, or in a set. Whoever the connection reaches: its owner or a tenant admin. Anyone else gets the `404` of a connection that doesn't exist.
+        """
+        return await self._client._request(
+            _OPERATIONS["connections.choices"],
+            path={"connectionId": connection_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ConnectionChoicePage,
+            timeout=timeout,
+        )
+
 
 class AsyncConnectionChoicesResource:
     """`client.connection_choices` — the `connectionChoices` operations."""
@@ -21888,6 +21972,8 @@ class AsyncConnectionChoicesResource:
         agent_id: str | UUID | None = None,
         flow_id: str | UUID | None = None,
         app: str | None = None,
+        tool_id: str | UUID | None = None,
+        owner: Literal["me"] | None = None,
         include_removed: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
@@ -21895,7 +21981,7 @@ class AsyncConnectionChoicesResource:
     ) -> _models.ConnectionChoicePage:
         """List connection choices. `GET /v1/connection-choices`
 
-        The project's live choices in this server's environment: which company connection each agent or flow uses for an app. The project's members may read them (`read` on the project). Removed choices, a choice's history, are listed only with `includeRemoved=true`. A choice of a connection that's since been disconnected stays listed until it's set again or removed.
+        The project's live choices in this server's environment: which connection each agent or flow, or one of its tools, uses for an app. The project's members may read them (`read` on the project): the company's, and their own. A tenant admin reads every person's too; with `owner=me`, anyone reads their own alone. Removed choices, a choice's history, are listed only with `includeRemoved=true`. A choice of a connection that's since been disconnected stays listed until it's set again or removed.
         """
         return await self._client._request(
             _OPERATIONS["connectionChoices.list"],
@@ -21905,6 +21991,8 @@ class AsyncConnectionChoicesResource:
                 "agentId": agent_id,
                 "flowId": flow_id,
                 "app": app,
+                "toolId": tool_id,
+                "owner": owner,
                 "includeRemoved": include_removed,
                 "limit": limit,
                 "cursor": cursor,
@@ -21925,7 +22013,7 @@ class AsyncConnectionChoicesResource:
     ) -> _models.ConnectionChoice:
         """Choose a connection. `PUT /v1/connection-choices`
 
-        Chooses which company connection an agent or a flow uses, in the project and this server's environment, for the connection's app. The project's admins only (`admin` on the project). The connection must be one of the project's candidates (`GET /v1/connection-choices/candidates`). Choosing the connection already chosen answers that choice as it is. Choosing another removes that choice and makes a new one at the next `version`, in one step.
+        Chooses which connection an agent or a flow uses, in the project and this server's environment, for the connection's app; with `toolId`, which one that tool uses, ahead of the agent's or flow's. A tool's choice may be a set (`connectionIds`): a call of a tool that changes nothing names one of them, by name, else uses `connectionId`. A company choice is the project's admins' (`admin` on the project). A person's (`person`) is that person's alone, for their own runs, and needs only what running the agent or flow does. The connection must be a candidate (`GET /v1/connection-choices/candidates`, with `owner=me` for your own). Choosing the connection already chosen answers that choice as it is. Choosing another removes that choice and makes a new one at the next `version`, in one step.
         """
         return await self._client._request(
             _OPERATIONS["connectionChoices.set"],
@@ -21947,7 +22035,7 @@ class AsyncConnectionChoicesResource:
     ) -> _models.ConnectionChoiceDeleteResult:
         """Remove a connection choice. `DELETE /v1/connection-choices/{choiceId}`
 
-        Removes a live choice. It's kept, with `removedAt` and `removedBy`: `GET /v1/connection-choices?includeRemoved=true` lists it. The admins of its project only (`admin` on the project).
+        Removes a live choice. It's kept, with `removedAt` and `removedBy`: `GET /v1/connection-choices?includeRemoved=true` lists it. A company choice: the admins of its project only (`admin` on the project). A person's: that person alone; to anyone else it's not found.
         """
         return await self._client._request(
             _OPERATIONS["connectionChoices.remove"],
@@ -21964,20 +22052,50 @@ class AsyncConnectionChoicesResource:
         *,
         project_id: str | UUID,
         app: str | None = None,
+        owner: Literal["me"] | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.ConnectionCandidatePage:
         """List connection candidates. `GET /v1/connection-choices/candidates`
 
-        The company connections a choice in the project may name: live ones, working or needing a reconnect, in this server's environment, on a live registration that allows the project. The project's admins read each in full; its members read `connectionId` and `name` only (`read` on the project).
+        The connections a choice in the project may name: live ones, working or needing a reconnect, in this server's environment, on a live registration that allows the project. The company's: the project's admins read each in full, and its members read `connectionId` and `name` only (`read` on the project). With `owner=me`, the caller's own instead, in full, with `main`.
         """
         return await self._client._request(
             _OPERATIONS["connectionChoices.candidates"],
             path={},
-            query={"projectId": project_id, "app": app, "limit": limit, "cursor": cursor},
+            query={
+                "projectId": project_id,
+                "app": app,
+                "owner": owner,
+                "limit": limit,
+                "cursor": cursor,
+            },
             headers={},
             response=_models.ConnectionCandidatePage,
+            timeout=timeout,
+        )
+
+    async def needs(
+        self,
+        /,
+        *,
+        project_id: str | UUID,
+        agent_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
+        app: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionChoiceNeeds:
+        """List what a choice may be for. `GET /v1/connection-choices/needs`
+
+        Each of an agent's or flow's tools' connections, at the version it resolves now: the tool, its name for the connection (`need`), the app and whose (`as`), and whether a choice for it may be a set (`set.allowed`, else `set.reason`: `changes`, `sensitive-data-egress` or `accounts-input`). A tool whose version couldn't be read is listed in `unread`. The project's members (`read` on the project).
+        """
+        return await self._client._request(
+            _OPERATIONS["connectionChoices.needs"],
+            path={},
+            query={"projectId": project_id, "agentId": agent_id, "flowId": flow_id, "app": app},
+            headers={},
+            response=_models.ConnectionChoiceNeeds,
             timeout=timeout,
         )
 
