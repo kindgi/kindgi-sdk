@@ -7,7 +7,8 @@ import { defineApp } from './define.js';
  * Microsoft, for a member's own work, school or personal account, or the
  * company's (a tenant admin signs in as it): mail sent as them through
  * Outlook, their mail read, their Outlook calendars listed and their
- * events read, and events on their main calendar added and changed. Each
+ * events read, those others share with them too, and events on their main
+ * calendar added and changed. Each
  * workspace registers its own app in Microsoft Entra (the setup guide says
  * how).
  *
@@ -63,6 +64,11 @@ export const microsoft = defineApp({
       grants: 'Calendars.ReadWrite',
       says: 'Read, add and change events on your calendar',
       changes: true,
+    },
+    'calendars.read': {
+      grants: 'Calendars.Read',
+      says: 'See the events on your calendars, with their details, those others share with you too',
+      changes: false,
     },
   },
   account: {
