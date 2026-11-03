@@ -141,7 +141,7 @@ export async function toJSONSchema(
 }
 
 /**
- * Synchronous variant — for defineTool / defineGuardrail sites that must
+ * Synchronous variant — for defineTool / validateGuardrail sites that must
  * stay sync. Requires the caller to have already resolved the converter
  * (via `loadZodConverter()`) at package init. When Zod is not installed
  * but a Zod schema is passed, returns `err` with `peer-dep-missing`
@@ -257,7 +257,7 @@ export async function loadZodConverter(): Promise<ZodConverter | undefined> {
 
 /**
  * Synchronous variant of `loadZodConverter`. Uses Node's `createRequire`
- * so sync authoring surfaces (`defineTool`, `defineGuardrail`) can stay
+ * so sync surfaces (`defineTool`, `validateGuardrail`) can stay
  * sync even on their first Zod-authored call. Falls back cleanly when
  * `zod` isn't installed: returns `undefined` and callers surface the
  * missing peer dep as a typed error at the boundary.

@@ -24,31 +24,35 @@ import type { KernelBinding } from '@kindgi/runtime';
 
 import type { BlobStorageBinding } from '@kindgi/blob-binding';
 import type { MemoryQueryBinding } from '@kindgi/memory';
-import type { PolicyRegistryBinding } from '@kindgi/policy-contract';
+import { type PolicyRegistryBinding, RETENTION_DOMAINS } from '@kindgi/policy-contract';
 import type { AdapterRegistryBinding } from './adapter-binding.js';
 import type { AgentRegistryBinding } from './agent-binding.js';
-import type { BlockRegistryBinding } from './block-binding.js';
+import type { AgentPinBindings } from './agent-pin-binding.js';
+import type { BlockRegistryBinding, BlockUseBinding } from './block-binding.js';
+import type { BlockVersionPullRequestBinding } from './block-version-pr-binding.js';
 import type { CapabilityRegistryBinding } from './capability-binding.js';
+import type { ConnectionBinding } from './connection-binding.js';
+import type { CorrectionRegistryBinding } from './correction-binding.js';
 import type { CostBinding } from './cost-binding.js';
 import type { CursorSealer } from './cursor-seal.js';
 import type { DeploymentBinding } from './deployment-binding.js';
-import type { EnvBinding } from './env-binding.js';
+import type { DeploymentValuesDeps } from './deployment-values.js';
+import type { EnvBinding, EnvCloudSecretBinding } from './env-binding.js';
+import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 import type { WireErrorBody } from './errors.js';
-import type { EvalCaseStoreBinding } from './eval-case-binding.js';
-import type { EvalRunBinding } from './eval-run-binding.js';
-import type { EvalSuiteRegistryBinding } from './eval-suite-binding.js';
 import type { EventBusBinding } from './event-bus-binding.js';
+import type { ExpertQueueBinding } from './expert-queue-binding.js';
 import type { FlowRegistryBinding } from './flow-binding.js';
+import type { FrozenCaseStoreBinding } from './frozen-case-binding.js';
 import type { GuardrailRegistryBinding } from './guardrail-binding.js';
 import type { RunHandlerBinding } from './handler-binding.js';
 import type { HitlBinding } from './hitl-binding.js';
 import type { IdentityDirectoryBinding } from './identity-directory-binding.js';
 import type { IdentityProviderBinding } from './identity-provider-binding.js';
 import type { ImageRegistryBinding } from './image-registry-binding.js';
-import type { ImprovementPassBinding } from './improvement-pass-binding.js';
-import type { JudgingQueueBinding } from './judging-queue-binding.js';
-import type { JudgmentRegistryBinding } from './judgment-binding.js';
-import type { AgentReleaseBindings } from './live-version-binding.js';
+import type { ImproveRunBinding } from './improve-run-binding.js';
+import type { ItemProjectsBinding } from './item-projects-binding.js';
+import { itemRightsOf, itemServingOf } from './item-rights.js';
 import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-endpoint-binding.js';
 import type { MemoryBinding } from './memory-binding.js';
 import type { MemoryErasureBinding } from './memory-erasure-binding.js';
@@ -77,7 +81,7 @@ import {
   requestBodyLimit,
 } from './middleware/request-body.js';
 import { requestIdMiddleware } from './middleware/request-id.js';
-import { requestLogMiddleware } from './middleware/request-log.js';
+import { loggablePath, requestLogMiddleware } from './middleware/request-log.js';
 import { sealedCursors } from './middleware/sealed-cursors.js';
 import { sigv4Middleware } from './middleware/sigv4.js';
 import {
@@ -97,6 +101,8 @@ import type { MyAccessBinding } from './my-access-binding.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
 import type { PersonCapabilitiesBinding } from './person-capabilities-binding.js';
 import type { PersonGrantsBinding } from './person-grants-binding.js';
+import { candidatesPinProjects } from './pin-test-runs.js';
+import type { PinnedVersionBinding } from './pinned-version-binding.js';
 import type { ProjectAccessBinding } from './project-access-binding.js';
 import type { ProvenanceBinding } from './provenance-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
@@ -108,14 +114,15 @@ import {
 } from './public-run-token.js';
 import { type RateLimitStore, nearestForwardedClient } from './rate-limit-store.js';
 import type { ReferenceScopeBinding } from './reference-scope.js';
-import type { RetentionBinding } from './retention-binding.js';
+import type { RetentionBinding, RetentionLimits } from './retention-binding.js';
 import type { ReviewerBinding, ReviewerRegistryBinding } from './reviewer-binding.js';
 import {
   type RotationStatusStore,
   createInMemoryRotationStatusStore,
 } from './rotation-status-store.js';
 import { adaptersRouter } from './routes/adapters.js';
-import { agentsRouter } from './routes/agents.js';
+import { agentTestSetRouter } from './routes/agent-test-set.js';
+import { agentOwnProject, agentsRouter } from './routes/agents.js';
 import { approvalsRouter } from './routes/approvals.js';
 import {
   DEFAULT_ARTIFACT_MAX_BYTES,
@@ -124,28 +131,34 @@ import {
 } from './routes/artifacts.js';
 import { auditRouter } from './routes/audit.js';
 import { authRouter, logoutHandler } from './routes/auth.js';
-import { blocksRouter } from './routes/blocks.js';
+import { type BlockRunsInDeps, blocksRouter } from './routes/blocks.js';
 import { capabilitiesRouter } from './routes/capabilities.js';
 import { complianceRouter } from './routes/compliance.js';
+import {
+  connectionAppsRouter,
+  connectionChoicesRouter,
+  connectionEntriesRouter,
+  connectionNoticesRouter,
+  connectionsRouter,
+} from './routes/connections.js';
 import { conversationsRouter } from './routes/conversations.js';
+import { correctedTestSetsRouter } from './routes/corrected-test-sets.js';
+import { correctionsRouter, correctorGroupsRouter } from './routes/corrections.js';
 import { costRouter } from './routes/cost.js';
-import { deploymentsRouter } from './routes/deployments.js';
+import { type DeploymentsRouterBindings, deploymentsRouter } from './routes/deployments.js';
 import { envRouter } from './routes/env.js';
+import { environmentOrdersRouter } from './routes/environment-orders.js';
 import { environmentsRouter } from './routes/environments.js';
-import { evalRunsRouters } from './routes/eval-runs.js';
-import { evalSuitesRouter } from './routes/eval-suites.js';
 import { eventTriggersRouter } from './routes/event-triggers.js';
+import { expertQueueRouter } from './routes/expert-queue.js';
 import { exportSigningKeysRouter } from './routes/export-signing-keys.js';
 import { flowsRouter } from './routes/flows.js';
-import { gatePoliciesRouter } from './routes/gate-policies.js';
 import { guardrailsRouter } from './routes/guardrails.js';
 import { hooksRouter } from './routes/hooks.js';
 import { identityRouter } from './routes/identity.js';
-import { improvementPassesRouter, mountImproveRoute } from './routes/improvement-passes.js';
-import { judgedSuitesRouter } from './routes/judged-suites.js';
-import { judgingRouter } from './routes/judging.js';
-import { judgeClassesRouter, judgmentsRouter } from './routes/judgments.js';
+import { improveRunsRouter } from './routes/improve-runs.js';
 import { type LicenseStatusBinding, licenseRouter } from './routes/license.js';
+import { mailTriggersRouter } from './routes/mail-triggers.js';
 import { mcpRouter } from './routes/mcp.js';
 import { memoryErasuresRouter } from './routes/memory-erasures.js';
 import { memoryRouter } from './routes/memory.js';
@@ -153,30 +166,43 @@ import { observationsRouter } from './routes/observations.js';
 import { orgsRouter } from './routes/orgs.js';
 import { policiesRouter } from './routes/policies.js';
 import { projectAccessRouter } from './routes/project-access.js';
+import { projectPinnedVersionsRouter } from './routes/project-pinned-versions.js';
 import {
   type ProductionGateOptions,
   projectProductionRouter,
 } from './routes/project-production.js';
+import { projectRepoConnectionRouter } from './routes/project-repo-connection.js';
 import { projectsRouter } from './routes/projects.js';
-import { proposalsRouter } from './routes/proposals.js';
 import { provenanceRouter } from './routes/provenance.js';
 import { providersRouter } from './routes/providers.js';
 import { publicRunTokensRouter } from './routes/public-run-tokens.js';
+import { releaseGatesRouter } from './routes/release-gates.js';
 import { retentionRouter } from './routes/retention.js';
 import { reviewersRouter } from './routes/reviewers.js';
 import { type RunsRouterOptions, runsRouter } from './routes/runs.js';
+import { type RuntimeInfoInput, runtimeRouter } from './routes/runtime.js';
 import { s3Router } from './routes/s3.js';
 import { schedulesRouter } from './routes/schedules.js';
+import { authSettingsRouter, secondFactorIdentityRouter } from './routes/second-factor.js';
 import { secretsRouter } from './routes/secrets.js';
 import { serviceAccountsRouter } from './routes/service-accounts.js';
-import { type SignInOptionsRateLimit, signInOptionsRouter } from './routes/sign-in-options.js';
+import {
+  type ConsoleLink,
+  type SignInLegalLinks,
+  type SignInOptionsRateLimit,
+  checkConsoleLinks,
+  checkSignInLegal,
+  signInOptionsRouter,
+} from './routes/sign-in-options.js';
 import { signingKeysRouter } from './routes/signing-keys.js';
 import { siteEnrollRouter, siteSignInRouter } from './routes/site-auth.js';
 import { sitesRouter } from './routes/sites.js';
+import { suggestedChangesRouter } from './routes/suggested-changes.js';
 import {
   type SystemDeploymentsOptions,
   systemDeploymentsRouter,
 } from './routes/system-deployments.js';
+import { systemEnvRouter } from './routes/system-env.js';
 import { type SystemKeysBinding, systemKeysRouter } from './routes/system-keys.js';
 import {
   type SystemTenantSettingsBinding,
@@ -187,26 +213,42 @@ import {
   systemTenantsRouter,
   systemWhoamiRouter,
 } from './routes/system-tenants.js';
+import { systemUsageRouter } from './routes/system-usage.js';
 import { projectTeamGrantsRouter, teamProjectGrantsRouter } from './routes/team-grants.js';
 import { teamsRouter } from './routes/teams.js';
 import { type EgressAddresses, tenantRouter } from './routes/tenant.js';
+import { testRunsRouters } from './routes/test-runs.js';
+import { testSetsRouter } from './routes/test-sets.js';
 import { tokenSignInRouter } from './routes/token-sign-in.js';
 import { tokensRouter } from './routes/tokens.js';
+import { toolFilesRouter } from './routes/tool-files.js';
 import { toolsRouter } from './routes/tools.js';
+import type { TriggerOwnerNotices } from './routes/trigger-owners.js';
+import { usageRouter } from './routes/usage.js';
+import { waitTokensRouter } from './routes/wait-tokens.js';
 import { webhookEndpointsRouter } from './routes/webhook-endpoints.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import type { S3CredentialBinding } from './s3-credential-binding.js';
+import type { SecondFactorBinding } from './second-factor-binding.js';
 import { type SecretBinding, observeSecretWrites } from './secrets-binding.js';
+import { type ServedEnvRule, secretReferencesOf } from './served-env.js';
 import type { ServiceAccountBinding } from './service-account-binding.js';
 import type { SessionStoreBinding } from './session-store-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from './signing-key-binding.js';
 import type { SiteBinding } from './site-binding.js';
+import { createSuggestedChangeService } from './suggested-change-service.js';
 import type { SupervisorBinding } from './supervisor-binding.js';
+import { oneTenantSystemScopes } from './system.js';
 import type { TenantHostAccess } from './tenant-host-access.js';
+import type { TestRunBinding } from './test-run-binding.js';
+import type { TestSetFreezeBinding, TestSetRegistryBinding } from './test-set-binding.js';
 import type { TokenAdmin } from './token-admin.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
+import type { ToolFilesBinding } from './tool-files-binding.js';
 import { TRIGGER_KINDS, type TriggerKind, type TriggerRegistryBinding } from './trigger-binding.js';
 import type { AppEnv } from './types.js';
+import type { UsageBinding } from './usage.js';
+import type { WaitTokenBinding } from './wait-token-binding.js';
 import type { WebhookEndpointBinding } from './webhook-endpoint-binding.js';
 
 /**
@@ -379,7 +421,9 @@ export interface CreateAppInput {
    * Optional. When present, mounts the API-key routes: `POST /v1/tokens`
    * (mint), `GET /v1/tokens` (list), `GET /v1/tokens/:tokenId` and
    * `POST /v1/tokens/:tokenId/revoke`. Omit if the deployment manages
-   * keys out-of-band (e.g. via a separate admin console).
+   * keys out-of-band (e.g. via a separate admin console). Each request on
+   * a session token sign-in opened reads its key here, so token sign-in
+   * (`session.tokenSignIn`) needs it.
    */
   readonly tokenAdmin?: TokenAdmin;
   /**
@@ -433,6 +477,27 @@ export interface CreateAppInput {
    * supplies an implementation.
    */
   readonly hitlBinding?: HitlBinding;
+  /**
+   * Runs paused until another system answers (a pack tool that declares
+   * `pauses`): the token's link (`POST /v1/wait-tokens/{token}/complete`,
+   * no bearer), `POST /v1/runs/{runId}/resume` with a `pause:` waitpoint
+   * id, and a suspended run's `waitingFor.tokens`. Absent: the link
+   * answers `404 wait-token-not-found`, and the resume route `422
+   * run-resume-not-supported`. The Kindgi runtime supplies one. The link
+   * limits requests per client, telling clients apart and counting where
+   * `webhookReceiver` says (its defaults when it's absent).
+   */
+  readonly waitTokens?: WaitTokenBinding;
+  /**
+   * Files a pack tool that declares `storesFiles` stores for its call
+   * (`POST /v1/tool-files`), and one that declares `readsFiles` reads
+   * (`GET /v1/tool-files/{artifactId}`), with the call's token as the
+   * bearer (no API key). Absent: both answer `404 tool-file-token-not-found`.
+   * The Kindgi runtime supplies one. The route limits requests per client,
+   * telling clients apart and counting where `webhookReceiver` says (its
+   * defaults when it's absent).
+   */
+  readonly toolFiles?: ToolFilesBinding;
   /**
    * Optional. When present, mounts the reviewer roster sub-resource
    * at `/v1/approvals/reviewers` — list / get / register / unregister.
@@ -535,25 +600,19 @@ export interface CreateAppInput {
    */
   readonly memoryErasures?: MemoryErasureBinding;
   /**
-   * Optional. When present, mounts the supervisor proposals surface
-   * (`/v1/proposals` list/get/draft, plus lifecycle actions
-   * dry-run / submit-review / apply / rollback / withdraw). Every
-   * route requires an `X-Supervisor-Id` request header — the API
-   * package doesn't own the supervisor registry, so the binding
-   * receives that scope explicitly.
-   *
-   * The binding wraps the supervisor runtime primitives +
-   * the deployment's `AgentRegistry` + `HITL` wiring + eval dataset
-   * registry. See `supervisor-binding.ts` for the full contract.
+   * Optional. The store of suggested changes, and observation readback.
+   * With `agentRegistry`, `blockRegistry`, `testRunBinding` and
+   * `agentPins` too, it mounts `/v1/suggested-changes` and
+   * `/v1/improve-runs`; with `enableObservations`, `GET /v1/observations`.
+   * See `supervisor-binding.ts` for the contract.
    */
   readonly supervisor?: SupervisorBinding;
   /**
-   * Optional. Improvement passes (`POST /v1/proposals/improve`,
-   * `/v1/improvement-passes`): the runtime's search for better settings
-   * values, written as an improvement proposal. Without it, both answer
-   * `501 improve-unsupported`. Mounted with `/v1/proposals`.
+   * Optional. Improve runs (`/v1/improve-runs`): the runtime's search, on a
+   * project's corrections, for better wording or settings values, written as a
+   * suggested change. Without it, both answer `501 improve-unsupported`.
    */
-  readonly improvementPasses?: ImprovementPassBinding;
+  readonly improveRuns?: ImproveRunBinding;
   /**
    * Optional. The key the deployment signs its exports with: an
    * approval's audit bundle (`POST /v1/approvals/:approvalId/audit-bundle`),
@@ -580,6 +639,13 @@ export interface CreateAppInput {
    */
   readonly license?: LicenseStatusBinding;
   /**
+   * Optional. Which runtime this is: its release and whether it runs in
+   * development mode, as `GET /v1/runtime` answers any caller of a tenant,
+   * with `tenancy` (`single` when unset). Without it the route isn't
+   * mounted (404), as on a runtime that doesn't report it.
+   */
+  readonly runtime?: RuntimeInfoInput;
+  /**
    * Optional. How many tenants the runtime serves (default `single`). With
    * `multi`, a tenant's key is never minted holding `kindgi:system`: the
    * operator acts through system keys, which act in no tenant.
@@ -588,23 +654,30 @@ export interface CreateAppInput {
   /**
    * Optional. The operator's system keys (`kgi_sy_…`), outside every
    * tenant: `/v1/system/keys`, for the full system capability only.
-   * Without it the routes aren't mounted (404).
+   * Without it the routes aren't mounted (404). Serving one tenant, they
+   * mint keys holding `system:license` alone, for the license renewal, and
+   * the deployment's own token reaches them through its resolution's
+   * `systemKeysOperator`.
    */
   readonly systemKeys?: SystemKeysBinding;
   /**
    * Optional. Each deployment's own pack service (per-deployment routing):
-   * `GET /v1/system/deployments` for whatever runs those services, and,
-   * under each tenant, its deployments' endpoint, problem and pack
-   * suspension. Only a system principal reaches them, so on a runtime
-   * serving one tenant nothing does (its server refuses per-deployment
-   * routing there). Mounted only with `systemTenantDirectory` too;
-   * without them the routes aren't mounted (404).
+   * `GET /v1/system/deployments` and its round for whatever runs those
+   * services, and, under each tenant, its deployments' endpoint, problem,
+   * pack env and pack suspension. Only a system principal reaches them.
+   * Serving one tenant, that's a system key holding the orchestrator's
+   * scopes, which the deployment's own token mints then; the pack
+   * suspension takes `system:suspend`, which it never mints, and the fence
+   * lets no key reach it. The access record (`systemAccessAudit`) is
+   * required. Mounted only with `systemTenantDirectory` too; without them
+   * the routes aren't mounted (404).
    */
   readonly systemDeployments?: SystemDeploymentsOptions;
   /**
    * The record of every request a system principal makes (its key,
    * scope, route and target tenant). Required with `tenancy: 'multi'`;
-   * optional otherwise, where there is no system principal.
+   * optional otherwise, where the system keys are its only system
+   * principals.
    */
   readonly systemAccessAudit?: SystemAccessAuditBinding;
   /**
@@ -637,7 +710,7 @@ export interface CreateAppInput {
   /**
    * Whether a project is suspended (`PUT
    * /v1/system/tenants/{tenantId}/projects/{projectId}/suspended`): a
-   * deploy into it, an eval run started in it and an improvement pass for
+   * deploy into it, a test run started in it and an Improve run for
    * one of its agents are refused `409 project-suspended`, and a webhook
    * delivery to one of its triggers is skipped. Absent: no check.
    */
@@ -645,6 +718,15 @@ export interface CreateAppInput {
     tenantId: import('@kindgi/types').TenantId,
     projectId: import('@kindgi/types').ProjectId,
   ) => Promise<boolean>;
+  /**
+   * Under `kindgi dev`, where a pin writes the version into the pack's
+   * files: which of them the pin would write over that git hasn't
+   * committed, or that the pack isn't in git. `POST
+   * /v1/agents/{agentId}/pinned/check` answers it as a warning
+   * (`uncommittedFiles`, `notInGit`). Absent: no warning, as on a
+   * deployment.
+   */
+  readonly pinFiles?: import('./agent-pin-binding.js').PinFilesWarnings;
   /**
    * Each tenant's image repository (`PUT /v1/system/tenants/{id}/image-prefix`),
    * which `POST /v1/deployments` checks before any registry read. With
@@ -664,6 +746,13 @@ export interface CreateAppInput {
    * tenant without a limit isn't limited. Without this option, nothing is.
    */
   readonly tenantLimits?: TenantLimitsOptions;
+  /**
+   * Optional. Usage, aggregated: a tenant's own on `GET /v1/usage` (the
+   * projects the caller may read), and the operator's across tenants on
+   * `GET /v1/system/usage` (`system:usage:read`). Without it neither route
+   * is mounted (404).
+   */
+  readonly usage?: UsageBinding;
   /**
    * Optional. Issue and accept public run tokens (`kgi_pt_…`):
    * short-lived, read-only tokens a browser uses to follow specific runs
@@ -809,10 +898,19 @@ export interface CreateAppInput {
   /**
    * The trigger kinds whose admin surface mounts with `triggerRegistry`:
    * `cron` → `/v1/schedules`, `event` → `/v1/event-triggers`, `webhook` →
-   * `/v1/webhooks`. Absent: all three. A runtime that fires only some kinds
-   * lists those, so nobody registers a trigger that would never fire.
+   * `/v1/webhooks`, `mail` → `/v1/mail-triggers`. Absent: all four. A
+   * runtime that fires only some kinds lists those, so nobody registers a
+   * trigger that would never fire.
    */
   readonly triggerKinds?: readonly TriggerKind[];
+  /**
+   * Optional. Tells a person when a project admin changes, pauses,
+   * resumes, fires, deletes or takes over a schedule, webhook or mail
+   * trigger they own (the runtime emails them). Called once the change is made,
+   * never awaited; a failure is logged. Absent: the change is only
+   * audited (`trigger-changed-for-owner`).
+   */
+  readonly triggerOwnerNotices?: TriggerOwnerNotices;
   /**
    * Optional. When present, mounts the outbound webhook surface at
    * `/v1/webhook-endpoints/*`: endpoints the platform sends signed
@@ -821,6 +919,18 @@ export interface CreateAppInput {
    * `WebhookEndpointBinding`.
    */
   readonly webhookEndpoints?: WebhookEndpointBinding;
+  /**
+   * Optional. When present, mounts connections: tools acting with a
+   * member's own account at another app, or the company's.
+   * `/v1/connection-entries` (the apps this server knows),
+   * `/v1/connection-apps/*` (the tenant's registrations, an admin's),
+   * `/v1/connections/*` (connections and connect requests), and, outside
+   * the bearer chain, `/v1/connection-notices/*` (removals the app
+   * reports, rate-limited as `webhookReceiver` says). Needs `envName`: a
+   * connection is made under the env this runtime serves. See
+   * `ConnectionBinding`.
+   */
+  readonly connections?: ConnectionBinding;
   /**
    * Optional. When present, mounts the tenant policies catalog surface
    * (`/v1/policies` list/get/publish, `/v1/policies/:policyId/versions/*`).
@@ -834,16 +944,31 @@ export interface CreateAppInput {
    */
   readonly policyRegistry?: PolicyRegistryBinding;
   /**
-   * Optional. When present, mounts the evaluation-suite catalog surface
-   * (`/v1/eval-suites` list/get/publish, `/v1/eval-suites/:suiteId/versions/*`).
+   * The most a retention policy may keep a domain's tombstoned rows, per
+   * domain, in whole seconds (`RetentionLimits`): publishing or
+   * reinstating a policy that keeps a limited domain's rows longer, or
+   * holds them, is `400 retention-over-limit`. What the runtime's sweep
+   * does with the limit is the runtime's (it caps the domain, and applies
+   * the limit where no policy covers it). Absent: no limit, any grace.
+   */
+  readonly retentionLimits?: RetentionLimits;
+  /**
+   * Optional. When present, mounts the evaluation-test set catalog surface
+   * (`/v1/test-sets` list/get/publish, `/v1/test-sets/:testSetId/versions/*`).
    * Full versioned CRUD — mirrors `policies` 1:1. Registry-only:
-   * eval-run execution + per-kind grader dispatch (eval-judge adapter
+   * test-run execution + per-kind grader dispatch (eval-judge adapter
    * for `accuracy` / `pairwise` / `regression`, HITL bridge for
    * `human-review`, sandbox handler for `custom`) is out of scope
-   * here (see `evalRunBinding`). `evalKind` is enumerated + extensible
+   * here (see `testRunBinding`). `evalKind` is enumerated + extensible
    * — new kinds require a spec + validator update in tandem.
    */
-  readonly evalSuiteRegistry?: EvalSuiteRegistryBinding;
+  readonly testSetRegistry?: TestSetRegistryBinding;
+  /**
+   * Freezes a project's test set for a suggested change's check
+   * (`/v1/suggested-changes`). Absent: making or checking a suggested
+   * change answers `501 suggested-change-check-unsupported`.
+   */
+  readonly testSetFreeze?: TestSetFreezeBinding;
   /**
    * Data blocks (`/v1/blocks`): versioned prompts and settings that agent
    * versions pin. Mounted when supplied. Authorized through each block's
@@ -851,45 +976,72 @@ export interface CreateAppInput {
    */
   readonly blockRegistry?: BlockRegistryBinding;
   /**
-   * Optional. When present alongside `evalSuiteRegistry`, mounts the
-   * evaluation-run data-plane surface: `POST /v1/eval-suites/:suiteId/runs`
-   * (start), `GET /v1/eval-runs` (list, cursor-paginated),
-   * `GET /v1/eval-runs/:runId` (get), `POST /v1/eval-runs/:runId/cancel`,
-   * `GET /v1/eval-runs/:runId/events` (SSE). Caller-plugged binding —
-   * the API package doesn't own eval-run persistence. The reference
-   * `createInProcessEvalRunBinding` (`packages/api/src/eval-run-dispatcher.ts`)
-   * implements the pattern end-to-end for the `accuracy` kind; a suite
+   * Which agent versions use a block (a deployment's agent registry
+   * answers it): `POST /v1/blocks` checks a new settings version of a
+   * block an agent version uses as its model settings as model settings.
+   * Absent: it isn't checked so.
+   */
+  readonly blockUse?: BlockUseBinding;
+  /**
+   * The pull requests opened to bring block versions back into a pack's
+   * files: `GET /v1/blocks/:blockId/runs-in` reads them for each row's
+   * `inYourFiles`. Absent: a row says only what the newest deployment of
+   * its agent's pack in the project lists.
+   */
+  readonly blockVersionPullRequests?: BlockVersionPullRequestBinding;
+  /**
+   * Optional. When present alongside `testSetRegistry`, mounts the
+   * evaluation-run data-plane surface: `POST /v1/test-sets/:testSetId/runs`
+   * (start), `GET /v1/test-runs` (list, cursor-paginated),
+   * `GET /v1/test-runs/:testRunId` (get), `POST /v1/test-runs/:testRunId/cancel`,
+   * `GET /v1/test-runs/:testRunId/events` (SSE). Caller-plugged binding —
+   * the API package doesn't own test-run persistence. The reference
+   * `createInProcessTestRunBinding` (`packages/api/src/test-run-dispatcher.ts`)
+   * implements the pattern end-to-end for the `accuracy` kind; a test set
    * of a kind with no registered dispatcher answers
    * `422 dispatcher-not-registered`.
    */
-  readonly evalRunBinding?: EvalRunBinding;
+  readonly testRunBinding?: TestRunBinding;
   /**
-   * Optional. Mounts judgments, yes or no with an optional reason about
-   * one item of a run's output (`/v1/judgments`), and the judge classes
-   * they're recorded under, each with a weight (`/v1/judge-classes`).
+   * Optional. Mounts corrections, whether a run's decisions, answer and
+   * items were right and where each stands (`/v1/corrections`), and the
+   * corrector groups they're recorded under, each with a weight
+   * (`/v1/corrector-groups`).
    * Caller-plugged: the API package doesn't own their storage.
    */
-  readonly judgmentRegistry?: JudgmentRegistryBinding;
+  readonly correctionRegistry?: CorrectionRegistryBinding;
   /**
-   * Optional. A project's judging rules and the queue they fill, under
-   * `/v1/projects/:projectId/judging-rules` and `…/judging-queue`: which
-   * runs need a person's judgment. Without it, those routes aren't
+   * Optional. A project's queue rules and the queue they fill, under
+   * `/v1/projects/:projectId/queue-rules` and `…/expert-queue`: which
+   * runs need a person's correction. Without it, those routes aren't
    * mounted.
    */
-  readonly judgingQueue?: JudgingQueueBinding;
+  readonly expertQueue?: ExpertQueueBinding;
   /**
-   * Optional. With `evalSuiteRegistry` and `judgmentRegistry`, mounts test
-   * sets built from judgments: `POST /v1/eval-suites/:suiteId/versions/from-judgments`
-   * and `GET /v1/eval-suites/:suiteId/versions/:version/cases`.
+   * Optional. With `testSetRegistry`, mounts the cases of test sets built
+   * from corrections before an agent's corrections were its test set:
+   * `GET /v1/test-sets/:testSetId/versions/:version/cases`.
    */
-  readonly evalCaseStore?: EvalCaseStoreBinding;
+  readonly frozenCaseStore?: FrozenCaseStoreBinding;
   /**
-   * Optional. Live versions of agents per scope, and their promotions
-   * (`/v1/agents/{id}/live`, `/live-versions`, `/promotions`,
-   * `/live/rollback`, `/live/unpin`). Absent → a run takes the latest
-   * version, as before.
+   * Optional. Pinned versions of agents per scope, each project's Latest
+   * (`latest`), and their pin changes (`/v1/agents/{id}/pinned`,
+   * `/pinned-versions`, `/pinned/pin`, `/pinned/unpin`, `/pin-history`),
+   * and with `projectBinding`, a project's pinned versions
+   * (`/v1/projects/{id}/pinned-versions`). Absent → a run that names no
+   * version takes the highest.
    */
-  readonly agentReleases?: AgentReleaseBindings;
+  readonly agentPins?: AgentPinBindings;
+  /**
+   * Optional. Pinned versions of flows and tools per scope
+   * (`/v1/flows/{id}/pinned`, `/pinned-versions`, `/pinned/pin`,
+   * `/pinned/unpin`, `/pin-history`, and the same under `/v1/tools/{id}`).
+   * A run that names no flow version takes the one pinned for its project,
+   * and a published agent or flow version locks each tool at the version
+   * pinned where it's made. Absent → the routes aren't mounted, a run takes
+   * the newest flow version and a lock the newest tool version, as before.
+   */
+  readonly pinnedVersions?: PinnedVersionBinding;
   /**
    * Optional. Push-based pub/sub binding used by SSE endpoints to
    * deliver run events without polling. When present, `GET
@@ -959,6 +1111,16 @@ export interface CreateAppInput {
    */
   readonly identityProviderChanges?: 'tenant' | 'operator';
   /**
+   * Optional. A person's second factor and the tenant's setting that
+   * requires one at sign-in: mounts `/v1/identity/me/second-factor*` (the
+   * person's own, from a session), `/v1/identity/users/:userId/second-factor*`
+   * (tenant admins) and `/v1/auth/settings` (tenant admins). With it, token
+   * sign-in is refused in a tenant that requires one (`403
+   * second-factor-required`). Holding sessions to the setting is the
+   * session store's (`resolveToken`).
+   */
+  readonly secondFactor?: SecondFactorBinding;
+  /**
    * The deployment's public base URL (e.g. `https://kindgi.acme.example`):
    * what a webhook trigger's `receiveUrl` is made from. Never taken from a
    * request's `Host`, which the caller writes. Absent: webhook trigger
@@ -977,11 +1139,12 @@ export interface CreateAppInput {
     readonly envName: import('@kindgi/types').EnvName;
     /**
      * Who the client is (for the per-client refusal limit and the audit
-     * record); `undefined` when clients can't be told apart, which turns
-     * the per-client limit off.
+     * record, and the wait token link's per-client limit); `undefined`
+     * when clients can't be told apart, which turns the per-client limits
+     * off.
      */
     readonly clientAddress?: (request: Request) => string | undefined;
-    /** Where the counts live; default this process's memory. */
+    /** Where the counts live, the wait token link's too; default this process's memory. */
     readonly rateLimitStore?: RateLimitStore;
   };
   /**
@@ -1007,7 +1170,8 @@ export interface CreateAppInput {
   };
   /**
    * The rate limit on `GET /v1/auth/sign-in-options` (unauthenticated):
-   * requests per client per window, and how to tell clients apart.
+   * lookups with an email per client per window, and how to tell clients
+   * apart. A read without an email (the same for everyone) isn't counted.
    * Default: 30 a minute, per nearest (rightmost) `X-Forwarded-For` hop.
    */
   readonly signInOptionsRateLimit?: SignInOptionsRateLimit;
@@ -1020,6 +1184,24 @@ export interface CreateAppInput {
     /** Whether the link is offered for an email's domain. Absent: every domain. */
     readonly allowedFor?: (emailDomain: string) => Promise<boolean>;
   };
+  /**
+   * The deployment's terms and privacy policy, which a sign-in page links
+   * (sign-in options' `legal`): each an absolute https URL with no username
+   * or password, each on its own; anything else, and createApp throws. The
+   * answer carries each as a browser reads it. Absent, or neither set: the
+   * answer has no `legal`.
+   */
+  readonly signInLegal?: SignInLegalLinks;
+  /**
+   * The deployment's own links (its help desk, status page, data
+   * processing terms), which the console shows on every page, the sign-in
+   * page too (sign-in options' `links`), in this order. At most 8; each
+   * label 1 to 40 characters once trimmed, with no control, format or
+   * invisible character, and no other link's once trimmed; each URL an absolute
+   * https URL with no username or password. Anything else, and createApp
+   * throws. Absent or empty: the answer has no `links`.
+   */
+  readonly consoleLinks?: readonly ConsoleLink[];
   /**
    * Optional. Signed-deployment ledger — the audit anchor for every
    * `POST /v1/deployments` landing. Caller-plugged per the pattern
@@ -1134,6 +1316,24 @@ export interface CreateAppInput {
    */
   readonly envBinding?: EnvBinding;
   /**
+   * Optional. The env names the operator set to a cloud secret
+   * (`projects/<project>/secrets/<secret>/versions/<number>`), which a
+   * pack service is given by that name for its cloud to read. A system key
+   * with `system:env-refs` sets them (`/v1/system/tenants/{tenantId}/env`);
+   * a tenant lists their names (`GET /v1/env/cloud-secrets`), and the
+   * pack-env checks count each as set. Absent: those routes answer `501
+   * cloud-secrets-unsupported`, and nothing is set by reference.
+   */
+  readonly envCloudSecrets?: EnvCloudSecretBinding;
+  /**
+   * What a deployment's values check reads that only the runtime knows
+   * (`deployment-values.ts`): where a model provider's key is for a run in
+   * a project, and the pack service's own env. The check reads env values
+   * through `envBinding` and the providers through `providerRegistry`.
+   * Each one absent isn't checked.
+   */
+  readonly deploymentValues?: Pick<DeploymentValuesDeps, 'modelKeyLookup' | 'packEnv'>;
+  /**
    * Optional. Sensitive per-env values. Same mount rule as
    * `envBinding` — either binding present is enough to mount
    * `/v1/tenant/config`. Writes to `/v1/tenant/config` with
@@ -1148,6 +1348,25 @@ export interface CreateAppInput {
    */
   readonly secretsBinding?: SecretBinding;
   /**
+   * Optional. The order a tenant runs a project through on its way to live
+   * — its "environments". When present, mounts `/v1/environment-orders`,
+   * and a later environment of an order refuses deploys, API publishes and
+   * derived agent versions (`409 environment-takes-promotions`,
+   * `environment-entry.ts`): it takes builds by promotion only.
+   * The host application supplies it; `@kindgi/api` never constructs one.
+   */
+  readonly environmentOrders?: EnvironmentOrderBinding;
+  /**
+   * Optional. Which projects serve each agent, flow, test set, tool,
+   * guardrail and block. An item more than one project serves is governed
+   * by rights on those projects (`item-rights.ts`), not by the project it
+   * was first published in. Without `authz` there are no rights to ask,
+   * but it still decides which version `?projectId=` answers on a single
+   * read. Absent: every item has one project, and every check is the
+   * item's own. The host application supplies it.
+   */
+  readonly itemProjects?: ItemProjectsBinding;
+  /**
    * The env this deployment serves (`KINDGI_ENV`): where the secrets a
    * tool's code declares are looked for when the tool is published, to
    * record where they're read (`secret-scope.ts`). Absent: the webhook
@@ -1155,6 +1374,16 @@ export interface CreateAppInput {
    * registrant administers, without a lookup.
    */
   readonly envName?: import('@kindgi/types').EnvName;
+  /**
+   * This runtime is the only reader of its stores and keeps every value
+   * under the env it serves (`envName`). A secret or
+   * env value set under another env, and a provider, MCP endpoint or webhook
+   * endpoint that names its secret under another, answers `409
+   * env-not-served` (`served-env.ts`). whoami's `servedEnv` says so, for
+   * clients to default to it. Needs `envName` (or the webhook receiver's).
+   * Absent or false: any env, as before.
+   */
+  readonly refuseOtherEnvs?: boolean;
   /**
    * Optional. Backs the async-rotation wire (`POST /v1/secrets/:name/rotate`
    * → 202 Accepted; poll via `GET /v1/secrets/:name/rotations/:rotationId`;
@@ -1229,8 +1458,11 @@ export interface SessionConfig {
   /**
    * Whether a person may sign in to the console with an API token
    * (`POST /v1/auth/token-sign-in`): a person's full key is exchanged once
-   * for a browser session in `cookie`. Needs `cookie` and a session store.
-   * Absent or `false`: the route answers 403 `token-sign-in-off`.
+   * for a browser session in `cookie`. Needs `cookie`, a session store and
+   * `tokenAdmin`: each request on such a session reads its key, so the
+   * session ends when the key is revoked. Absent or `false`, or without
+   * those: the route answers 403 `token-sign-in-off`, and
+   * `GET /v1/auth/sign-in-options` says it's off.
    */
   readonly tokenSignIn?: boolean;
 }
@@ -1278,6 +1510,25 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     throw new Error(
       "createApp: a runtime serving many tenants needs systemAccessAudit, the record of every request the operator's system keys make",
     );
+  }
+  // Serving one tenant, the orchestrator's key records endpoints: on record too.
+  if (input.systemDeployments !== undefined && input.systemAccessAudit === undefined) {
+    throw new Error(
+      "createApp: systemDeployments needs systemAccessAudit, the record of every request the orchestrator's system key makes",
+    );
+  }
+  // A limit that isn't one would refuse every policy, or none.
+  for (const [domain, limit] of Object.entries(input.retentionLimits ?? {})) {
+    if (domain === '*' || !(RETENTION_DOMAINS as readonly string[]).includes(domain)) {
+      throw new Error(
+        `createApp: retentionLimits names "${domain}", which isn't a retention domain (one of ${RETENTION_DOMAINS.filter((d) => d !== '*').join(', ')})`,
+      );
+    }
+    if (!Number.isSafeInteger(limit?.seconds) || (limit?.seconds ?? 0) < 1) {
+      throw new Error(
+        `createApp: retentionLimits.${domain}.seconds must be a whole number of seconds, 1 or more (got ${String(limit?.seconds)})`,
+      );
+    }
   }
   // Every secret route and reader goes through one binding, whose writes
   // the webhook receiver hears: it keeps a trigger's signing key for a few
@@ -1374,6 +1625,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
 
   // ---------- authenticated `/v1/*` routes ----------
   const v1 = new Hono<AppEnv>();
+  // Whether each deployment's pack service is run by an orchestrator through `/v1/system/*`.
+  const deploymentsMounted =
+    input.systemDeployments !== undefined && input.systemTenantDirectory !== undefined;
   const sessionCfg = input.session;
   const inactivityTimeoutMs = sessionCfg?.inactivityTimeout;
   v1.use(
@@ -1389,6 +1643,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.personCapabilities !== undefined && {
         personCapabilities: input.personCapabilities,
       }),
+      ...(input.tokenAdmin !== undefined && { apiKeys: input.tokenAdmin }),
       ...(inactivityTimeoutMs !== undefined && { inactivityTimeoutMs }),
       ...(sessionCfg?.touchThrottle !== undefined && {
         touchThrottleMs: sessionCfg.touchThrottle,
@@ -1412,6 +1667,25 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   v1.use('*', tenantScopeMiddleware());
   const authorizer: Authorizer | undefined =
     input.authz !== undefined ? createAuthorizer(input.authz.authzCheckBinding) : undefined;
+  // Rights on an item more than one project serves (`item-rights.ts`).
+  const itemRights = itemRightsOf(authorizer, input.itemProjects, input.environmentOrders);
+  // With no authorizer, which projects serve an item still decides what
+  // `?projectId=` answers on its single read.
+  const itemServing =
+    input.itemProjects !== undefined ? itemServingOf(input.itemProjects) : undefined;
+  // Which projects a tenant or org pin's test runs check: those that serve
+  // the agent, and where the agent registry takes Improve's candidates
+  // with no binding to say (kindgi dev), the project it places the agent
+  // in (`candidatesPinProjects`). Rights and `?projectId=` reads keep
+  // `input.itemProjects`.
+  const pinProjects = input.itemProjects ?? candidatesPinProjects(input.agentRegistry);
+  // What a pin's test runs need besides test runs and projects (`AgentPinGateDeps`):
+  // the agent pin route, a promotion's pins and a card's pin all start them.
+  const pinTestRunDeps = {
+    ...(input.testSetFreeze !== undefined && { testSets: input.testSetFreeze }),
+    ...(input.correctionRegistry !== undefined && { corrections: input.correctionRegistry }),
+    ...(pinProjects !== undefined && { itemProjects: pinProjects }),
+  };
   // A system principal acts in no tenant: it reaches /v1/system/* (and the
   // deployment's license), nothing else, and each of its requests is recorded.
   v1.use(
@@ -1420,6 +1694,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.systemAccessAudit !== undefined && { audit: input.systemAccessAudit }),
       ...(authorizer !== undefined && { authorizer }),
       ...(input.tenancy !== undefined && { tenancy: input.tenancy }),
+      servesDeployments: deploymentsMounted,
     }),
   );
   // A closing or suspended tenant reads, exports and deletes; nothing else.
@@ -1458,7 +1733,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       {
         ...(input.eventBus !== undefined && { eventBus: input.eventBus }),
         ...(input.hitlBinding !== undefined && { hitl: input.hitlBinding }),
+        ...(input.connections !== undefined && { connections: input.connections }),
+        ...(input.waitTokens !== undefined && { waitTokens: input.waitTokens }),
         ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+        ...(itemRights !== undefined && { itemRights }),
         ...(input.agentRegistry !== undefined &&
           input.flowRegistry !== undefined && {
             targetExists: async (tenantId, target) =>
@@ -1489,6 +1767,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       authorizer,
       input.referenceScope,
       input.agentRegistry,
+      itemRights,
     ),
   );
   if (publicRunTokenLimits !== undefined) {
@@ -1543,7 +1822,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   }
   if (input.enableObservations === true && input.supervisor !== undefined) {
-    v1.route('/observations', observationsRouter(input.supervisor, authorizer));
+    v1.route('/observations', observationsRouter(input.supervisor, authorizer, itemRights));
   }
   if (input.agentRegistry !== undefined) {
     v1.route(
@@ -1553,10 +1832,13 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         authorizer,
         input.toolRegistry,
         input.blockRegistry,
-        input.agentReleases,
+        input.agentPins,
         {
-          ...(input.evalRunBinding !== undefined && { evalRuns: input.evalRunBinding }),
+          ...(input.testRunBinding !== undefined && { testRuns: input.testRunBinding }),
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+          ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
+          ...(input.pinFiles !== undefined && { pinFiles: input.pinFiles }),
+          ...pinTestRunDeps,
         },
         {
           ...(input.memory?.semanticSearch !== undefined && {
@@ -1570,11 +1852,29 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           }),
         },
         input.referenceScope,
+        input.environmentOrders,
+        itemRights,
+        itemServing,
+        input.pinnedVersions,
+        input.identityDirectory,
       ),
     );
   }
-  if (input.agentReleases?.gatePolicies !== undefined) {
-    v1.route('/gate-policies', gatePoliciesRouter(input.agentReleases.gatePolicies, authorizer));
+  if (input.agentPins?.releaseGates !== undefined) {
+    v1.route('/release-gates', releaseGatesRouter(input.agentPins.releaseGates, authorizer));
+  }
+  // A project's pinned versions need its project (the 404, and the org the
+  // binding reads), so the route mounts only with the project binding too.
+  if (input.agentPins !== undefined && input.projectBinding !== undefined) {
+    v1.route(
+      '/projects',
+      projectPinnedVersionsRouter({
+        agentPinned: input.agentPins.pinned,
+        projects: input.projectBinding,
+        ...(authorizer !== undefined && { authorizer }),
+        ...(itemRights !== undefined && { itemRights }),
+      }),
+    );
   }
   if (input.flowRegistry !== undefined) {
     v1.route(
@@ -1586,10 +1886,15 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ? {
               tools: input.toolRegistry,
               agents: input.agentRegistry,
-              ...(input.agentReleases !== undefined && { live: input.agentReleases.live }),
+              ...(input.agentPins !== undefined && { agentPins: input.agentPins }),
+              ...(input.pinnedVersions !== undefined && { pinned: input.pinnedVersions }),
             }
           : undefined,
         input.referenceScope,
+        input.environmentOrders,
+        itemRights,
+        itemServing,
+        input.pinnedVersions,
       ),
     );
   }
@@ -1614,6 +1919,26 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   // The env this deployment serves: where a tool's declared secrets are read.
   const servedEnv = input.envName ?? input.webhookReceiver?.envName;
+  if (input.refuseOtherEnvs === true && servedEnv === undefined) {
+    throw new Error(
+      'createApp: `refuseOtherEnvs` needs `envName`, the env this runtime serves (KINDGI_ENV)',
+    );
+  }
+  const servedEnvRule: ServedEnvRule | undefined =
+    input.refuseOtherEnvs === true && servedEnv !== undefined
+      ? {
+          envName: servedEnv,
+          references: secretReferencesOf({
+            ...(input.providerRegistry !== undefined && { providers: input.providerRegistry }),
+            ...(input.mcpEndpointRegistry !== undefined && {
+              mcpEndpoints: input.mcpEndpointRegistry,
+            }),
+            ...(input.webhookEndpoints !== undefined && {
+              webhookEndpoints: input.webhookEndpoints,
+            }),
+          }),
+        }
+      : undefined;
   if (input.toolRegistry !== undefined) {
     v1.route(
       '/tools',
@@ -1622,6 +1947,13 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(input.secretsBinding !== undefined && { secrets: input.secretsBinding }),
         ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
         ...(servedEnv !== undefined && { envName: servedEnv }),
+        ...(input.environmentOrders !== undefined && {
+          environmentOrders: input.environmentOrders,
+        }),
+        ...(itemRights !== undefined && { itemRights }),
+        ...(itemServing !== undefined && { itemServing }),
+        ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+        ...(input.pinnedVersions !== undefined && { pinnedVersions: input.pinnedVersions }),
       }),
     );
   }
@@ -1634,6 +1966,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.onGuardrailWrite,
         input.checkGuardrailConfig,
         input.referenceScope,
+        input.environmentOrders,
+        itemRights,
       ),
     );
   }
@@ -1653,53 +1987,101 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       }),
     );
   }
+  let deployCards: DeploymentsRouterBindings['deployCards'];
   if (
     input.supervisor !== undefined &&
     input.agentRegistry !== undefined &&
     input.blockRegistry !== undefined &&
-    input.evalRunBinding !== undefined &&
-    input.agentReleases !== undefined
+    input.testRunBinding !== undefined &&
+    input.agentPins !== undefined
   ) {
     const improveDeps = {
-      ...(input.improvementPasses !== undefined && { passes: input.improvementPasses }),
+      ...(input.improveRuns !== undefined && { improveRuns: input.improveRuns }),
+      agents: input.agentRegistry,
+      ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
+      ...(input.correctionRegistry !== undefined && { correctorGroups: input.correctionRegistry }),
+    };
+    const cardDeps = {
       agents: input.agentRegistry,
       blocks: input.blockRegistry,
-      releases: input.agentReleases,
+      testRuns: input.testRunBinding,
+      agentPins: input.agentPins,
+      ...(input.testSetFreeze !== undefined && { testSets: input.testSetFreeze }),
+      ...(input.correctionRegistry !== undefined && { corrections: input.correctionRegistry }),
+      ...(pinProjects !== undefined && { itemProjects: pinProjects }),
+      ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
       ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
-      ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
+      ...(input.projectSuspended !== undefined && {
+        projectSuspended: input.projectSuspended,
+      }),
+      ...(input.environmentOrders !== undefined && { orders: input.environmentOrders }),
+      // A drafter's pin needs a separate approver when the tenant has
+      // a second person who could approve it — one who can read the
+      // approval's resource, so the count matches who the decide route lets in.
+      ...(input.reviewerRegistry !== undefined && { reviewers: input.reviewerRegistry }),
+      ...(input.authz !== undefined && { authz: input.authz.authzCheckBinding }),
     };
     v1.route(
-      '/proposals',
-      proposalsRouter(
+      '/suggested-changes',
+      suggestedChangesRouter(
         input.supervisor,
         {
-          agents: input.agentRegistry,
-          blocks: input.blockRegistry,
-          evalRuns: input.evalRunBinding,
-          releases: input.agentReleases,
-          ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
-          ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+          ...cardDeps,
+          ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
         },
         authorizer,
-        (r) => mountImproveRoute(r, improveDeps, authorizer),
+        itemRights,
       ),
     );
-    v1.route('/improvement-passes', improvementPassesRouter(input.improvementPasses, authorizer));
+    // The cards a deploy makes, for the deployments router below.
+    const cards = createSuggestedChangeService({ ...cardDeps, store: input.supervisor });
+    deployCards = (cardsInput) => cards.fromDeploy(cardsInput);
+    v1.route('/improve-runs', improveRunsRouter(improveDeps, authorizer, itemRights));
   }
   v1.route('/export-signing-keys', exportSigningKeysRouter(exportSigning));
   if (input.license !== undefined) {
     v1.route('/license', licenseRouter(input.license, authorizer));
   }
+  if (input.runtime !== undefined) {
+    v1.route('/runtime', runtimeRouter(input.runtime, input.tenancy));
+  }
   if (input.systemKeys !== undefined) {
-    v1.route('/system/keys', systemKeysRouter(input.systemKeys, authorizer));
+    v1.route(
+      '/system/keys',
+      systemKeysRouter(input.systemKeys, authorizer, {
+        // Serving one tenant, a system key is the license renewal's, or,
+        // with a pack service per deployment, its orchestrator's.
+        ...(input.tenancy !== 'multi' && { mintable: oneTenantSystemScopes(deploymentsMounted) }),
+      }),
+    );
   }
   if (input.systemDeployments !== undefined && input.systemTenantDirectory !== undefined) {
+    // Each deployment's pack service gets the env its pack declares, from
+    // the env store at the deployment's scopes (`pack-env.ts`).
+    const packEnv =
+      input.deploymentRegistry !== undefined &&
+      input.envBinding !== undefined &&
+      servedEnv !== undefined
+        ? {
+            deployments: input.deploymentRegistry,
+            stores: {
+              env: input.envBinding,
+              ...(secretsBinding !== undefined && { secrets: secretsBinding }),
+              ...(input.envCloudSecrets !== undefined && { cloudSecrets: input.envCloudSecrets }),
+              ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+            },
+            envName: servedEnv,
+            ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+            ...(input.logger !== undefined && { log: input.logger }),
+          }
+        : undefined;
     v1.route(
       '/system',
       systemDeploymentsRouter({
         ...input.systemDeployments,
         directory: input.systemTenantDirectory,
         ...(authorizer !== undefined && { authorizer }),
+        ...(packEnv !== undefined && { packEnv }),
       }),
     );
   }
@@ -1710,6 +2092,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         tenants: input.systemTenants,
         directory: input.systemTenantDirectory,
         ...(authorizer !== undefined && { authorizer }),
+        ...(tenantHierarchyBinding.renameTenant !== undefined && {
+          renameTenant: tenantHierarchyBinding.renameTenant.bind(tenantHierarchyBinding),
+        }),
       }),
     );
   }
@@ -1721,6 +2106,37 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       systemTenantSettingsRouter({
         settings: input.systemTenantSettings,
         directory: input.systemTenantDirectory,
+        ...(authorizer !== undefined && { authorizer }),
+      }),
+    );
+  }
+  if (input.systemTenantDirectory !== undefined) {
+    // The operator's cloud secrets. Mounted with no store too, so a runtime
+    // that keeps none (hosted, for one) answers `501`, not `404`.
+    v1.route(
+      '/system/tenants',
+      systemEnvRouter({
+        cloudSecrets: input.envCloudSecrets,
+        directory: input.systemTenantDirectory,
+        ...(authorizer !== undefined && { authorizer }),
+        ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+        ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
+      }),
+    );
+  }
+  if (input.usage !== undefined) {
+    v1.route(
+      '/system/usage',
+      systemUsageRouter({
+        usage: input.usage,
+        ...(authorizer !== undefined && { authorizer }),
+      }),
+    );
+    v1.route(
+      '/usage',
+      usageRouter({
+        usage: input.usage,
+        ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
         ...(authorizer !== undefined && { authorizer }),
       }),
     );
@@ -1775,7 +2191,11 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.onProviderWrite,
         input.adapterFactories,
         authorizer,
-        { secretUsers },
+        {
+          secretUsers,
+          ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
+          ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+        },
       ),
     );
   }
@@ -1787,6 +2207,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         providerKeys,
         ...(input.secretsBinding !== undefined && { secrets: input.secretsBinding }),
         ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+        ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
       }),
     );
   }
@@ -1804,8 +2225,22 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.personGrants !== undefined && { personGrants: input.personGrants }),
       ...(input.myAccess !== undefined && { myAccess: input.myAccess }),
       ...(input.envBinding !== undefined && { tenantConfig: input.envBinding }),
+      ...(input.license !== undefined && { license: input.license }),
+      ...(servedEnv !== undefined && {
+        servedEnv: { envName: servedEnv, refusesOtherEnvs: servedEnvRule !== undefined },
+      }),
     }),
   );
+  if (input.secondFactor !== undefined) {
+    const secondFactor = {
+      binding: input.secondFactor,
+      ...(authorizer !== undefined && { authorizer }),
+      ...(input.identityDirectory !== undefined && { directory: input.identityDirectory }),
+      ...(input.sessionStore !== undefined && { sessionStore: input.sessionStore }),
+    };
+    v1.route('/identity', secondFactorIdentityRouter(secondFactor));
+    v1.route('/auth/settings', authSettingsRouter(secondFactor));
+  }
   if (input.cost !== undefined) {
     v1.route('/cost', costRouter(input.cost, authorizer, input.projectBinding));
   }
@@ -1815,11 +2250,18 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       adaptersRouter(input.adapterRegistry, input.adapterFactories, authorizer),
     );
   }
-  // Trigger admin surfaces. Three sibling routers over the same
+  // Trigger admin surfaces. Four sibling routers over the same
   // `TriggerRegistryBinding` — each pins its own kind. The inbound
   // webhook receiver is outside the bearer chain (`/v1/hooks`, below).
   if (input.triggerRegistry !== undefined) {
     const kinds = new Set<TriggerKind>(input.triggerKinds ?? TRIGGER_KINDS);
+    // Where a trigger's `toolsAllowedUnattended` is checked against what
+    // its target calls (`routes/trigger-tools.ts`).
+    const targetTools = {
+      ...(input.agentRegistry !== undefined && { agents: input.agentRegistry }),
+      ...(input.flowRegistry !== undefined && { flows: input.flowRegistry }),
+      ...(input.agentPins !== undefined && { agentPins: input.agentPins }),
+    };
     if (kinds.has('cron')) {
       v1.route(
         '/schedules',
@@ -1834,11 +2276,18 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             }),
           },
           input.referenceScope,
+          input.auditEvents,
+          itemRights,
+          targetTools,
+          input.triggerOwnerNotices,
         ),
       );
     }
     if (kinds.has('event')) {
-      v1.route('/event-triggers', eventTriggersRouter(input.triggerRegistry, authorizer));
+      v1.route(
+        '/event-triggers',
+        eventTriggersRouter(input.triggerRegistry, authorizer, itemRights),
+      );
     }
     if (kinds.has('webhook')) {
       v1.route(
@@ -1856,8 +2305,41 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             }),
           },
           providerKeys,
+          ...(itemRights !== undefined && { itemRights }),
           ...(receiveUrl !== undefined && { receiveUrl }),
+          targetTools,
           ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+          ...(input.triggerOwnerNotices !== undefined && {
+            ownerNotices: input.triggerOwnerNotices,
+          }),
+        }),
+      );
+    }
+    if (kinds.has('mail')) {
+      v1.route(
+        '/mail-triggers',
+        mailTriggersRouter(input.triggerRegistry, {
+          ...(authorizer !== undefined && { authorizer }),
+          ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+          names: {
+            ...(input.identityDirectory !== undefined && { directory: input.identityDirectory }),
+            ...(input.serviceAccountBinding !== undefined && {
+              serviceAccounts: input.serviceAccountBinding,
+            }),
+          },
+          ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+          ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+          ...(itemRights !== undefined && { itemRights }),
+          targetTools,
+          ...(input.triggerOwnerNotices !== undefined && {
+            ownerNotices: input.triggerOwnerNotices,
+          }),
+          // The company connection a company mailbox reads with, checked
+          // against the project's candidates, as connection choices are.
+          ...(input.connections !== undefined &&
+            servedEnv !== undefined && {
+              connections: { binding: input.connections, envName: servedEnv },
+            }),
         }),
       );
     }
@@ -1865,57 +2347,133 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.webhookEndpoints !== undefined) {
     v1.route(
       '/webhook-endpoints',
-      webhookEndpointsRouter(input.webhookEndpoints, authorizer, { providerKeys }),
+      webhookEndpointsRouter(input.webhookEndpoints, authorizer, {
+        providerKeys,
+        ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
+      }),
+    );
+  }
+  if (input.connections !== undefined) {
+    if (servedEnv === undefined) {
+      throw new Error(
+        'createApp: `connections` needs `envName`, the env this runtime serves (KINDGI_ENV): a connection is made under it',
+      );
+    }
+    v1.route('/connection-entries', connectionEntriesRouter(input.connections));
+    v1.route(
+      '/connection-apps',
+      connectionAppsRouter(input.connections, authorizer, {
+        providerKeys,
+        ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
+      }),
+    );
+    v1.route(
+      '/connections',
+      connectionsRouter(input.connections, authorizer, {
+        envName: servedEnv,
+        ...(input.reviewerBinding !== undefined &&
+          input.hitlBinding !== undefined && { reviewers: input.reviewerBinding }),
+      }),
+    );
+    v1.route(
+      '/connection-choices',
+      connectionChoicesRouter(input.connections, authorizer, { envName: servedEnv }),
     );
   }
   if (input.policyRegistry !== undefined) {
-    v1.route('/policies', policiesRouter(input.policyRegistry, authorizer));
+    v1.route(
+      '/policies',
+      policiesRouter(input.policyRegistry, authorizer, {
+        ...(input.retentionLimits !== undefined && { retentionLimits: input.retentionLimits }),
+      }),
+    );
   }
-  if (input.evalSuiteRegistry !== undefined) {
-    v1.route('/eval-suites', evalSuitesRouter(input.evalSuiteRegistry, authorizer));
+  if (input.testSetRegistry !== undefined) {
+    v1.route(
+      '/test-sets',
+      testSetsRouter(input.testSetRegistry, authorizer, itemRights, itemServing),
+    );
   }
   if (input.blockRegistry !== undefined) {
-    v1.route('/blocks', blocksRouter(input.blockRegistry, authorizer));
-  }
-  if (input.judgmentRegistry !== undefined) {
+    const agentRegistry = input.agentRegistry;
+    // Where a block runs reads what runs where (the pins and Latest) and,
+    // with no item-projects binding, each agent's own project; whether the
+    // pack's files have it, each project's deployments and the pull
+    // requests opened.
+    const runsIn: BlockRunsInDeps | undefined =
+      input.agentPins !== undefined && agentRegistry !== undefined
+        ? {
+            agentPins: input.agentPins,
+            ownProject: (tenantId, agentId) => agentOwnProject(agentRegistry, tenantId, agentId),
+            ...(input.deploymentRegistry !== undefined && {
+              deployments: input.deploymentRegistry,
+            }),
+            ...(input.blockVersionPullRequests !== undefined && {
+              pullRequests: input.blockVersionPullRequests,
+            }),
+          }
+        : undefined;
     v1.route(
-      '/judgments',
-      judgmentsRouter(
-        input.judgmentRegistry,
+      '/blocks',
+      blocksRouter(
+        input.blockRegistry,
+        authorizer,
+        input.environmentOrders,
+        itemRights,
+        itemServing,
+        input.blockUse,
+        input.auditEvents,
+        runsIn,
+      ),
+    );
+  }
+  if (input.correctionRegistry !== undefined) {
+    v1.route(
+      '/corrections',
+      correctionsRouter(
+        input.correctionRegistry,
         runBinding,
         authorizer,
         input.conversationBinding,
         input.flowRegistry,
         input.reviewerBinding,
+        input.agentRegistry,
+        itemRights,
+        input.auditEvents,
+        input.projectBinding,
       ),
     );
-    v1.route('/judge-classes', judgeClassesRouter(input.judgmentRegistry, authorizer));
+    v1.route('/corrector-groups', correctorGroupsRouter(input.correctionRegistry, authorizer));
+    // An agent's test set: its corrections are its cases (`test-case-binding.ts`).
+    v1.route(
+      '/agents',
+      agentTestSetRouter({
+        corrections: input.correctionRegistry,
+        runs: runBinding,
+        ...(authorizer !== undefined && { authorizer }),
+        ...(itemRights !== undefined && { itemRights }),
+        ...(input.agentRegistry !== undefined && { agents: input.agentRegistry }),
+        ...(input.conversationBinding !== undefined && {
+          conversations: input.conversationBinding,
+        }),
+        ...(input.flowRegistry !== undefined && { flows: input.flowRegistry }),
+        ...(input.testSetRegistry !== undefined && { testSets: input.testSetRegistry }),
+      }),
+    );
   }
-  if (input.judgingQueue !== undefined) {
+  if (input.expertQueue !== undefined) {
     v1.route(
       '/projects',
-      judgingRouter(input.judgingQueue, {
+      expertQueueRouter(input.expertQueue, {
         ...(authorizer !== undefined && { authorizer }),
-        ...(input.judgmentRegistry !== undefined && { judgments: input.judgmentRegistry }),
+        ...(input.correctionRegistry !== undefined && { corrections: input.correctionRegistry }),
         ...(input.reviewerBinding !== undefined && { reviewers: input.reviewerBinding }),
         ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
       }),
     );
   }
-  if (
-    input.evalSuiteRegistry !== undefined &&
-    input.judgmentRegistry !== undefined &&
-    input.evalCaseStore !== undefined
-  ) {
-    v1.route(
-      '/eval-suites',
-      judgedSuitesRouter(
-        input.evalSuiteRegistry,
-        input.judgmentRegistry,
-        input.evalCaseStore,
-        authorizer,
-      ),
-    );
+  if (input.testSetRegistry !== undefined && input.frozenCaseStore !== undefined) {
+    v1.route('/test-sets', correctedTestSetsRouter(input.frozenCaseStore, authorizer, itemRights));
   }
   // ---------- platform hierarchy ----------
   // Mounts are independent: `/v1/orgs`, `/v1/teams`, `/v1/projects`,
@@ -1945,6 +2503,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         tenantHierarchyBinding,
         authorizer,
         input.identityDirectory,
+        input.serviceAccountBinding,
       ),
     );
   }
@@ -1956,6 +2515,14 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         tenantHierarchy: tenantHierarchyBinding,
         ...(authorizer !== undefined && { authorizer }),
         ...(input.production !== undefined && { production: input.production }),
+      }),
+    );
+    v1.route(
+      '/projects',
+      projectRepoConnectionRouter({
+        projects: input.projectBinding,
+        ...(input.connections !== undefined && { connections: input.connections }),
+        ...(authorizer !== undefined && { authorizer }),
       }),
     );
   }
@@ -1997,6 +2564,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(authorizer !== undefined && { authorizer }),
       ...(input.production?.next !== undefined && { productionNext: input.production.next }),
       ...(input.egress !== undefined && { egress: input.egress }),
+      // Its entries live where the runtime's tools read them.
+      ...(servedEnv !== undefined && { envName: servedEnv }),
     }),
   );
   // ---------- env + secrets ----------
@@ -2006,7 +2575,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // store — an in-memory reference is used when the caller doesn't
   // plug in a durable one.
   if (input.envBinding !== undefined) {
-    v1.route('/env', envRouter(input.envBinding, authorizer, input.auditEvents));
+    v1.route(
+      '/env',
+      envRouter(
+        input.envBinding,
+        authorizer,
+        input.auditEvents,
+        servedEnvRule,
+        input.envCloudSecrets,
+      ),
+    );
   }
   // Audit query surface. Admin-only PEP applied inside the router
   // (self-contained; no plumbing here).
@@ -2021,6 +2599,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         rotationStatusStore: input.rotationStatusStore ?? createInMemoryRotationStatusStore(),
         ...(authorizer !== undefined && { authorizer }),
         ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+        ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
       }),
     );
   }
@@ -2030,6 +2609,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       environmentsRouter({
         ...(input.envBinding !== undefined && { envBinding: input.envBinding }),
         ...(secretsBinding !== undefined && { secretsBinding }),
+        ...(authorizer !== undefined && { authorizer }),
+      }),
+    );
+  }
+  if (input.environmentOrders !== undefined) {
+    v1.route(
+      '/environment-orders',
+      environmentOrdersRouter({
+        binding: input.environmentOrders,
+        ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
         ...(authorizer !== undefined && { authorizer }),
       }),
     );
@@ -2072,7 +2661,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           imageRegistry: input.imageRegistry,
           // A runtime routing pack calls per deployment sends each check call
           // by its id: a pack check must carry its pack's id.
-          ...(input.systemDeployments !== undefined && { requirePrefixedPackChecks: true }),
+          ...(input.systemDeployments !== undefined && {
+            requirePrefixedPackChecks: true,
+            perDeploymentPacks: true,
+          }),
           ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
           ...(input.toolRegistry !== undefined && { toolRegistry: input.toolRegistry }),
           ...(input.blockRegistry !== undefined && { blockRegistry: input.blockRegistry }),
@@ -2081,37 +2673,85 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           }),
           ...(input.agentRegistry !== undefined && { agentRegistry: input.agentRegistry }),
           ...(input.flowRegistry !== undefined && { flowRegistry: input.flowRegistry }),
-          ...(input.agentReleases !== undefined && { liveVersions: input.agentReleases.live }),
+          ...(input.pinnedVersions !== undefined && { pinnedVersions: input.pinnedVersions }),
+          // A promotion asked to pin its carried agents pins each in the
+          // target through the same gate the agent pin route uses.
+          ...(input.agentPins !== undefined && {
+            agentPins: input.agentPins,
+            agentPinGateDeps: {
+              ...(input.testRunBinding !== undefined && { testRuns: input.testRunBinding }),
+              ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+              ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+              ...(input.projectSuspended !== undefined && {
+                projectSuspended: input.projectSuspended,
+              }),
+              ...pinTestRunDeps,
+            },
+          }),
+          // A deploy is checked against what runs: the agent versions that
+          // pin each block, each agent's projects, people's names, and the
+          // pull requests opened for block versions.
+          ...(input.blockUse !== undefined && {
+            deployCheck: {
+              blockUse: input.blockUse,
+              ...(input.itemProjects !== undefined && { itemProjects: input.itemProjects }),
+              ...(input.identityDirectory !== undefined && {
+                identityDirectory: input.identityDirectory,
+              }),
+              ...(input.blockVersionPullRequests !== undefined && {
+                pullRequests: input.blockVersionPullRequests,
+              }),
+            },
+          }),
+          ...(itemRights !== undefined && { itemRights }),
+          ...(deployCards !== undefined && { deployCards }),
           // The deployments router's agents publish loop resolves the
-          // Default project through this binding. Optional at wiring so
+          // default project through this binding. Optional at wiring so
           // app compositions without a project binding still boot; the loop
           // fails fast at runtime if agents are in the deployment index
           // but the binding is absent.
           ...(input.projectBinding !== undefined && { projectBinding: input.projectBinding }),
           ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+          ...(input.environmentOrders !== undefined && {
+            environmentOrders: input.environmentOrders,
+          }),
           // POST /v1/deployments/:deploymentId/secrets needs the
           // secretsBinding. Absent binding → the route answers 500 with an
           // operator-actionable message.
           ...(secretsBinding !== undefined && { secretsBinding }),
           ...(servedEnv !== undefined && { envName: servedEnv }),
+          // A runtime running a pack service per deployment gives each the
+          // env its pack declares, from the env store.
+          ...(input.systemDeployments !== undefined && { packEnvServed: true }),
+          ...(input.envBinding !== undefined && { envBinding: input.envBinding }),
+          ...(input.envCloudSecrets !== undefined && { cloudSecrets: input.envCloudSecrets }),
+          ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
           // A deploy registers tools and guardrails: the same cache hooks
           // `POST /v1/tools` / `POST /v1/guardrails` call.
           ...(input.onToolWrite !== undefined && { onToolWrite: input.onToolWrite }),
           ...(input.onGuardrailWrite !== undefined && { onGuardrailWrite: input.onGuardrailWrite }),
+          // A deployment's values check (a promotion's, and its values read)
+          // reads env values and model keys as a run does.
+          values: {
+            ...(input.envBinding !== undefined && { env: input.envBinding }),
+            ...(input.providerRegistry !== undefined && { providers: input.providerRegistry }),
+            ...input.deploymentValues,
+          },
+          ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
         },
         authorizer,
       ),
     );
   }
-  if (input.evalRunBinding !== undefined) {
-    // Mount the start route under `/v1/eval-suites/:suiteId/runs` and
-    // the readback surface under `/v1/eval-runs/*`. Both share one
-    // binding — the start-route registration happens even without an
-    // `evalSuiteRegistry` binding: the dispatcher itself surfaces
-    // `suite-not-found` when the caller-plugged binding can't resolve
-    // the suite id, so the API layer stays consumer-neutral.
-    const evalRuns = evalRunsRouters(
-      input.evalRunBinding,
+  if (input.testRunBinding !== undefined) {
+    // Mount the start route under `/v1/test-sets/:testSetId/runs` and
+    // the readback surface under `/v1/test-runs/*`. Both share one
+    // binding — the start-route registration happens even without a
+    // `testSetRegistry` binding: the dispatcher itself surfaces
+    // `test-set-not-found` when the caller-plugged binding can't resolve
+    // the test set id, so the API layer stays consumer-neutral.
+    const testRuns = testRunsRouters(
+      input.testRunBinding,
       input.flowRegistry !== undefined
         ? {
             flows: input.flowRegistry,
@@ -2125,9 +2765,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       authorizer,
       input.referenceScope,
       input.projectSuspended,
+      itemRights,
+      input.testSetFreeze,
+      input.correctionRegistry,
     );
-    v1.route('/eval-suites', evalRuns.start);
-    v1.route('/eval-runs', evalRuns.readback);
+    v1.route('/test-sets', testRuns.start);
+    v1.route('/test-runs', testRuns.readback);
   }
   // ---------- auth routes ----------
   // The session store + identity-provider catalog: the auth router mounts
@@ -2152,7 +2795,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // console and `kindgi doctor` get a definite answer even when there is no
   // way in at all: the case an operator most needs to hear about.
   const cookieSessions = input.sessionStore !== undefined && input.session?.cookie !== undefined;
-  const tokenSignIn = cookieSessions && input.session?.tokenSignIn === true;
+  const tokenSignIn =
+    cookieSessions && input.session?.tokenSignIn === true && input.tokenAdmin !== undefined;
   const sessionCookie = sessionCookieOf(input.session?.cookie);
   // A browser refuses `__Host-` / `__Secure-` cookies that aren't `Secure`.
   if (!sessionCookie.secure && /^__(Host|Secure)-/.test(sessionCookie.name)) {
@@ -2160,6 +2804,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       `createApp: session.cookie.secure is false, so its name can't start with __Host- or __Secure- (got ${sessionCookie.name}); leave name unset for ${'`kindgi_session`'}.`,
     );
   }
+  checkSignInLegal(input.signInLegal);
+  checkConsoleLinks(input.consoleLinks);
   app.route(
     '/v1/auth/sign-in-options',
     signInOptionsRouter({
@@ -2170,6 +2816,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         rateLimit: input.signInOptionsRateLimit,
       }),
       ...(input.signInEmailLink !== undefined && { emailLink: input.signInEmailLink }),
+      ...(input.signInLegal !== undefined && { legal: input.signInLegal }),
+      ...(input.consoleLinks !== undefined && { links: input.consoleLinks }),
     }),
   );
   // The inbound webhook receiver: outside the bearer chain (mounted ahead
@@ -2208,6 +2856,54 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       }),
     );
   }
+  // Removals an app reports: outside the bearer chain (mounted ahead of
+  // `/v1`), checked by the app's own signature.
+  if (input.connections !== undefined) {
+    app.route(
+      '/v1/connection-notices',
+      connectionNoticesRouter(input.connections, {
+        ...(input.webhookReceiver?.clientAddress !== undefined && {
+          clientAddress: input.webhookReceiver.clientAddress,
+        }),
+        ...(input.webhookReceiver?.rateLimitStore !== undefined && {
+          rateLimitStore: input.webhookReceiver.rateLimitStore,
+        }),
+      }),
+    );
+  }
+  // Another system answers a paused run through its wait token's link:
+  // outside the bearer chain (mounted ahead of `/v1`), since that system
+  // has no Kindgi key; the token in the path is the credential. Always
+  // mounted, so a link to a runtime that pauses no run is a clear 404.
+  app.route(
+    '/v1/wait-tokens',
+    waitTokensRouter({
+      ...(input.waitTokens !== undefined && { binding: input.waitTokens }),
+      runHandler: input.runHandler,
+      ...(input.webhookReceiver?.clientAddress !== undefined && {
+        clientAddress: input.webhookReceiver.clientAddress,
+      }),
+      ...(input.webhookReceiver?.rateLimitStore !== undefined && {
+        rateLimitStore: input.webhookReceiver.rateLimitStore,
+      }),
+    }),
+  );
+  // A pack service stores and reads files for a tool's call: outside the
+  // bearer chain (mounted ahead of `/v1`), since its bearer is the call's
+  // token, not an API key. Always mounted, so a runtime that stores no
+  // files answers a clear 404.
+  app.route(
+    '/v1/tool-files',
+    toolFilesRouter({
+      ...(input.toolFiles !== undefined && { binding: input.toolFiles }),
+      ...(input.webhookReceiver?.clientAddress !== undefined && {
+        clientAddress: input.webhookReceiver.clientAddress,
+      }),
+      ...(input.webhookReceiver?.rateLimitStore !== undefined && {
+        rateLimitStore: input.webhookReceiver.rateLimitStore,
+      }),
+    }),
+  );
   // A site enrolls its key, and signs its people in: outside the bearer
   // chain (mounted ahead of `/v1`), since nobody is signed in yet.
   if (input.sites !== undefined) {
@@ -2226,7 +2922,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     }
     const siteAuth = {
       binding: input.sites.binding,
-      // Default: the nearest X-Forwarded-For hop (the proxy in front wrote
+      // default: the nearest X-Forwarded-For hop (the proxy in front wrote
       // it), as the sign-in options limit tells clients apart.
       clientAddress:
         input.sites.clientAddress ?? ((request: Request) => nearestForwardedClient(request)),
@@ -2242,14 +2938,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   }
   // A person signs in to the console with an API token: inside the bearer
   // chain (the token arrives in `Authorization`). Always mounted: without
-  // browser sessions, or unless the deployment allows it, it refuses with
+  // browser sessions, unless the deployment allows it, or without its API
+  // keys (each request on such a session reads its key), it refuses with
   // 403 token-sign-in-off.
   v1.route(
     '/auth/token-sign-in',
     tokenSignInRouter(
       input.sessionStore !== undefined &&
         input.session?.cookie !== undefined &&
-        input.session.tokenSignIn === true
+        input.session.tokenSignIn === true &&
+        input.tokenAdmin !== undefined
         ? {
             enabled: true,
             sessionStore: input.sessionStore,
@@ -2257,8 +2955,14 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             cookieName: sessionCookieOf(input.session.cookie).name,
             cookieSecure: sessionCookieOf(input.session.cookie).secure,
             ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+            ...(input.secondFactor !== undefined && {
+              secondFactorRequired: input.secondFactor.required.bind(input.secondFactor),
+            }),
           }
-        : { enabled: false },
+        : {
+            enabled: false,
+            ...(cookieSessions && input.session?.tokenSignIn === true && { withoutApiKeys: true }),
+          },
       authorizer,
     ),
   );
@@ -2298,7 +3002,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     const body: WireErrorBody = {
       error: {
         code: 'route-not-found',
-        message: `No route registered for ${c.req.method} ${c.req.path}. If this endpoint is expected, verify the deployment wired the required binding.`,
+        message: `No route registered for ${c.req.method} ${loggablePath(c.req.path)}. If this endpoint is expected, verify the deployment wired the required binding.`,
         requestId,
       },
     };
@@ -2309,8 +3013,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
 }
 
 /**
- * Whose memory a turn would run with, for the runs router's participant rule:
- * a conversation's stored participant and project, and a target's own project.
+ * What the runs router checks a turn against: a conversation's agent,
+ * participant, project and opener (`turnRefusal`, `participantRefusal`),
+ * whether it's closed (`closedRefusal`), and a target's own project.
  */
 function participantLookups(
   input: Pick<CreateAppInput, 'conversationBinding' | 'agentRegistry' | 'flowRegistry'>,
@@ -2325,17 +3030,17 @@ function participantLookups(
         if (got.error.code === 'conversation-not-found') return null;
         // Any other failure isn't "no conversation": the turn would then run
         // as the stored participant unchecked. A 500, and no turn.
-        throw new Error(
-          "Couldn't read the conversation's participant, so the turn wasn't started",
-          {
-            cause: got.error,
-          },
-        );
+        throw new Error("Couldn't read the conversation, so the turn wasn't started", {
+          cause: got.error,
+        });
       }
-      const { participantId, projectId } = got.value;
+      const { agentId, participantId, projectId, openedBy, closedAt } = got.value;
       return {
+        agentId: agentId as unknown as string,
         ...(participantId !== undefined && { participantId }),
         ...(projectId !== undefined && { projectId: projectId as unknown as string }),
+        ...(openedBy !== undefined && { openedBy }),
+        ...(closedAt !== undefined && { closedAt: closedAt as unknown as string }),
       };
     },
     targetProject: async (tenantId, target) => {

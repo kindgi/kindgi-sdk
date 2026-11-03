@@ -6,15 +6,20 @@ import { Hono } from 'hono';
 
 import {
   OBJECT_ACTIONS,
-  OBJECT_TYPES,
-  type ObjectType,
+  PROJECT_SCOPED_TYPES,
   type ProjectRole,
   REVIEWER_ROLE_RANK,
   type ReviewerRole,
 } from '@kindgi/authz';
-import type { Cursor, SessionId, TenantId, UserId } from '@kindgi/types';
+import type { Cursor, EnvName, SessionId, TenantId, UserId } from '@kindgi/types';
 
-import { callerPrincipal, callerRef, isTenantAdmin, principalToWire } from '../caller.js';
+import {
+  callerPrincipal,
+  callerRef,
+  isTenantAdmin,
+  isTenantAdminForDisplay,
+  principalToWire,
+} from '../caller.js';
 import type { EnvBinding } from '../env-binding.js';
 import { retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 import type {
@@ -35,8 +40,9 @@ import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
 import type { SessionStoreBinding } from '../session-store-binding.js';
 import type { AppEnv } from '../types.js';
+import { type LicenseStatusBinding, licenseOperatorOnlyFor } from './license.js';
 import { clampLimit } from './pagination.js';
-import { resolveTenantConfigEnvName } from './tenant.js';
+import { DEFAULT_TENANT_CONFIG_ENV_NAME } from './tenant.js';
 
 /**
  * Identity routes — the canonical caller-identity surface.
@@ -105,6 +111,20 @@ export interface IdentityRouterOptions {
    * (`console.readOnlyNotice`).
    */
   readonly tenantConfig?: EnvBinding;
+  /**
+   * Optional. The deployment's license (`GET /v1/license`): `GET
+   * /me/permissions` says whether that route refuses the caller whatever
+   * its role (`licenseOperatorOnly`), so a console doesn't ask. Without
+   * it, the field is left out.
+   */
+  readonly license?: LicenseStatusBinding;
+  /**
+   * Optional. The env this runtime serves (`KINDGI_ENV`), and whether it
+   * refuses values under any other (`refuseOtherEnvs`). whoami answers it
+   * as `servedEnv`, for a client to default to it. Absent: whoami leaves
+   * the field out.
+   */
+  readonly servedEnv?: { readonly envName: EnvName; readonly refusesOtherEnvs: boolean };
 }
 
 export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv> {
@@ -116,6 +136,8 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     personGrants,
     myAccess,
     tenantConfig,
+    license,
+    servedEnv,
   } = options;
   const r = new Hono<AppEnv>();
 
@@ -136,12 +158,14 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     body.scopes = scopes;
     // Whether the caller is a tenant admin, as the admin routes decide it:
     // what a console shows admin pages by (scopes are what a credential may
-    // do; admin is a role, from the authorizer when there is one). whoami
-    // is how a console starts, so an authorization store that can't answer
-    // leaves the field out (a console then reads `scopes`) instead of
-    // failing the whole answer.
+    // do; admin is a role, from the authorizer when there is one). A
+    // console reads it on every poll, so it's asked without recording a
+    // decision; the admin routes record theirs. whoami is how a console
+    // starts, so an authorization store that can't answer leaves the field
+    // out (a console then reads `scopes`) instead of failing the whole
+    // answer.
     try {
-      body.tenantAdmin = await isTenantAdmin(c, authorizer);
+      body.tenantAdmin = await isTenantAdminForDisplay(c, authorizer);
     } catch (cause) {
       c.get('log').warn(
         `whoami: couldn't tell whether the caller is a tenant admin, so tenantAdmin is left out: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -166,10 +190,16 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
       const session = await sessionStore.get({ tenantId, sessionId });
       if (session !== null) body.expiresAt = session.expiresAt;
     }
+    if (servedEnv !== undefined) {
+      body.servedEnv = {
+        envName: servedEnv.envName,
+        refusesOtherEnvs: servedEnv.refusesOtherEnvs,
+      };
+    }
     return c.json(body);
   });
 
-  mountMyPermissions(r, { myAccess, reviewerBinding, authorizer, tenantConfig });
+  mountMyPermissions(r, { myAccess, reviewerBinding, authorizer, tenantConfig, license });
 
   if (directory === undefined) {
     // Deployments without a directory binding get whoami and
@@ -183,7 +213,7 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
   // Anyone else adds a person to a project by their email or id.
   r.get('/users', async (c) => {
     if (!(await isTenantAdmin(c, authorizer))) {
-      return denied(c, "Only a tenant admin lists the tenant's people");
+      return denied(c, "Only a tenant admin lists the workspace's people");
     }
     const tenantId = c.get('tenantId') as TenantId;
     const limit = clampLimit(c.req.query('limit'));
@@ -260,7 +290,7 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
           toWireError(
             {
               code: 'identity-user-email-taken',
-              message: 'Another person of this tenant has that email',
+              message: 'Another person of this workspace has that email',
               userId: outcome.userId as unknown as string,
             },
             requestId,
@@ -293,7 +323,7 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
         toWireError(
           {
             code: 'identity-user-not-found',
-            message: `No user with id "${userId as unknown as string}" under this tenant`,
+            message: `No user with id "${userId as unknown as string}" under this workspace`,
             userId: userId as unknown as string,
           },
           requestId,
@@ -346,7 +376,7 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
           toWireError(
             {
               code: 'identity-user-not-found',
-              message: `No user with id "${userId as unknown as string}" under this tenant`,
+              message: `No user with id "${userId as unknown as string}" under this workspace`,
               userId: userId as unknown as string,
             },
             requestId,
@@ -407,7 +437,7 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
           toWireError(
             {
               code: 'identity-user-not-found',
-              message: `No user with id "${userId as unknown as string}" under this tenant`,
+              message: `No user with id "${userId as unknown as string}" under this workspace`,
               userId: userId as unknown as string,
             },
             requestId,
@@ -560,11 +590,6 @@ function mountPersonGrants(
 /** Project roles from the highest: `capabilities` is answered in this order. */
 const PROJECT_ROLES_BY_RANK: readonly ProjectRole[] = ['owner', 'admin', 'editor', 'viewer'];
 
-/** What a project role reaches: the project and the objects in it, in `OBJECT_TYPES` order. */
-const PROJECT_SCOPED_TYPES: readonly ObjectType[] = OBJECT_TYPES.filter(
-  (t) => t !== 'tenant' && t !== 'org' && t !== 'team' && t !== 'user',
-);
-
 /** Reviewer roles from the lowest rank. */
 const REVIEWER_ROLES_BY_RANK: readonly ReviewerRole[] = (
   Object.keys(REVIEWER_ROLE_RANK) as ReviewerRole[]
@@ -585,9 +610,10 @@ function mountMyPermissions(
     readonly reviewerBinding: ReviewerBinding | undefined;
     readonly authorizer: Authorizer | undefined;
     readonly tenantConfig: EnvBinding | undefined;
+    readonly license: LicenseStatusBinding | undefined;
   },
 ): void {
-  const { myAccess, reviewerBinding, authorizer, tenantConfig } = options;
+  const { myAccess, reviewerBinding, authorizer, tenantConfig, license } = options;
   r.get('/me/permissions', async (c) => {
     if (myAccess === undefined) {
       c.status(statusFor('permissions-unsupported') as never);
@@ -608,7 +634,8 @@ function mountMyPermissions(
     let access: MyAccess | undefined;
     let reviewer: Record<string, unknown> | undefined;
     try {
-      tenantAdmin = await isTenantAdmin(c, authorizer);
+      // What the caller holds, shown: no decision recorded, as `myAccess` records none.
+      tenantAdmin = await isTenantAdminForDisplay(c, authorizer);
       access = principal === undefined ? undefined : await myAccess.read({ tenantId, principal });
       reviewer = await reviewerFacts(c, reviewerBinding);
     } catch (cause) {
@@ -653,6 +680,7 @@ function mountMyPermissions(
     const tokenId = c.get('tokenId') as string | undefined;
     const tokenRole = c.get('tokenRole');
     const readOnlyNotice = await consoleReadOnlyNotice(c, tenantConfig);
+    const licenseOperatorOnly = await callerLicenseOperatorOnly(c, license);
 
     return c.json({
       tenantId,
@@ -674,6 +702,7 @@ function mountMyPermissions(
       teams: teams.sort(byName((t) => t.teamId)),
       capabilities: normalizeCapabilities(access?.capabilities ?? {}),
       ...(readOnlyNotice !== undefined && { readOnlyNotice }),
+      ...(licenseOperatorOnly !== undefined && { licenseOperatorOnly }),
     });
   });
 }
@@ -699,7 +728,8 @@ async function consoleReadOnlyNotice(
   try {
     const entry = await tenantConfig.get({
       scope: { kind: 'tenant', tenantId: c.get('tenantId') as TenantId },
-      envName: resolveTenantConfigEnvName(),
+      // A tenant setting: under `default`, whatever env the runtime serves.
+      envName: DEFAULT_TENANT_CONFIG_ENV_NAME,
       name: READ_ONLY_NOTICE_KEY,
     });
     const text = entry?.value.replace(/\s+/g, ' ').trim() ?? '';
@@ -712,6 +742,27 @@ async function consoleReadOnlyNotice(
   } catch (cause) {
     c.get('log').warn(
       `me/permissions: the console's read-only line couldn't be read, so it's left out: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+    return undefined;
+  }
+}
+
+/**
+ * Whether `GET /v1/license` refuses the caller whatever its role
+ * (`licenseOperatorOnlyFor`, the route's own checks). `undefined` without
+ * a license, or when the deployment's tenants can't be read: a console then
+ * asks the route, as before, and the permissions still answer.
+ */
+async function callerLicenseOperatorOnly(
+  c: Context<AppEnv>,
+  license: LicenseStatusBinding | undefined,
+): Promise<boolean | undefined> {
+  if (license === undefined) return undefined;
+  try {
+    return await licenseOperatorOnlyFor(c, license);
+  } catch (cause) {
+    c.get('log').warn(
+      `me/permissions: the tenants the deployment serves couldn't be read, so licenseOperatorOnly is left out: ${cause instanceof Error ? cause.message : String(cause)}`,
     );
     return undefined;
   }
@@ -792,7 +843,7 @@ function notFound(c: Context<AppEnv>, userId: string) {
     toWireError(
       {
         code: 'identity-user-not-found',
-        message: `No user with id "${userId}" under this tenant`,
+        message: `No user with id "${userId}" under this workspace`,
         userId,
       },
       c.get('requestId'),
@@ -864,7 +915,8 @@ function serializePersonGrants(g: PersonGrants): Record<string, unknown> {
   };
 }
 
-function serializeUser(u: UserRecord): Record<string, unknown> {
+/** A person on the wire (`UserRecord`): also a site's person a restore lets back in (sites.ts). */
+export function serializeUser(u: UserRecord): Record<string, unknown> {
   return {
     userId: u.userId as unknown as string,
     tenantId: u.tenantId as unknown as string,

@@ -13,13 +13,12 @@ import com.kindgi.client.models.ValidationException;
 /**
  * The query and header parameters of &#123;&#64;code settings.put&#125;.
  *
- * @param supervisorId Required.
+ * @param requestId Required.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public record SettingsPutParams(
-        @JsonProperty("X-Supervisor-Id") String supervisorId) implements Model {
+public record SettingsPutParams(@JsonProperty("X-Request-Id") String requestId) implements Model {
     public SettingsPutParams {
-        supervisorId = Checks.required(supervisorId, "SettingsPutParams.X-Supervisor-Id");
+        requestId = Checks.required(requestId, "SettingsPutParams.X-Request-Id");
     }
 
     @Override
@@ -48,20 +47,20 @@ public record SettingsPutParams(
      * Builds a {@link SettingsPutParams}; {@link #build()} checks it against the API's constraints.
      */
     public static final class Builder {
-        private String supervisorId;
+        private String requestId;
 
         private Builder() {
         }
 
         private Builder(SettingsPutParams source) {
-            this.supervisorId = source.supervisorId;
+            this.requestId = source.requestId;
         }
 
         /**
          * Required.
          */
-        public Builder supervisorId(String supervisorId) {
-            this.supervisorId = supervisorId;
+        public Builder requestId(String requestId) {
+            this.requestId = requestId;
             return this;
         }
 
@@ -72,7 +71,7 @@ public record SettingsPutParams(
          * @throws ValidationException when it breaks the API's constraints (every problem is listed)
          */
         public SettingsPutParams build() {
-            SettingsPutParams built = new SettingsPutParams(supervisorId);
+            SettingsPutParams built = new SettingsPutParams(requestId);
             built.validate();
             return built;
         }

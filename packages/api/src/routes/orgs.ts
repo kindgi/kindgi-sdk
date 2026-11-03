@@ -10,8 +10,13 @@ import type { Cursor, OrgId, TenantId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { isReadMethod } from '../read-method.js';
 import type { AppEnv } from '../types.js';
-import { orgDeleteSlugConflictError, slugConflictError } from './hierarchy-errors.js';
+import {
+  orgDeleteSlugConflictError,
+  orgHasEnvironmentOrderError,
+  slugConflictError,
+} from './hierarchy-errors.js';
 import { clampLimit } from './pagination.js';
 
 /**
@@ -59,9 +64,9 @@ export function orgsRouter(
     });
     r.use('/:orgId', async (c, next) => {
       const method = c.req.method;
-      if (method !== 'PATCH' && method !== 'DELETE' && method !== 'GET') return next();
+      if (method !== 'PATCH' && method !== 'DELETE' && !isReadMethod(method)) return next();
       const orgId = c.req.param('orgId');
-      const action = method === 'GET' ? 'read' : method === 'DELETE' ? 'admin' : 'admin';
+      const action = isReadMethod(method) ? 'read' : method === 'DELETE' ? 'admin' : 'admin';
       const mw = authorizer.authorize(action, () => ref('org', orgId));
       return mw(c, next);
     });
@@ -141,10 +146,12 @@ export function orgsRouter(
     if (authorizer !== undefined) {
       const principal = c.get('principal') as Principal | undefined;
       const creatorUserId =
-        principal?.actor.kind === 'user'
-          ? (principal.actor.id as UserId)
-          : ('00000000-0000-0000-0000-000000000000' as UserId);
-      const result = await tenantHierarchy.createOrg({ tenantId, creatorUserId, spec });
+        principal?.actor.kind === 'user' ? (principal.actor.id as UserId) : undefined;
+      const result = await tenantHierarchy.createOrg({
+        tenantId,
+        ...(creatorUserId !== undefined && { creatorUserId }),
+        spec,
+      });
       if (result.kind === 'err') {
         const error =
           result.error.code === 'slug-conflict'
@@ -266,8 +273,13 @@ export function orgsRouter(
     const tenantId = c.get('tenantId') as TenantId;
     const orgId = c.req.param('orgId') as OrgId;
     const outcome = await binding.delete(tenantId, orgId);
-    if (outcome?.kind === 'slug-conflict') {
+    if (outcome.kind === 'slug-conflict') {
       const error = orgDeleteSlugConflictError(outcome.slugs);
+      c.status(statusFor(error.code) as never);
+      return c.json(toWireError(error, requestId));
+    }
+    if (outcome.kind === 'org-has-environment-order') {
+      const error = orgHasEnvironmentOrderError(outcome.orderId);
       c.status(statusFor(error.code) as never);
       return c.json(toWireError(error, requestId));
     }

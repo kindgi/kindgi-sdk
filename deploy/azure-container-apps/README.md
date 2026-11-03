@@ -1,12 +1,14 @@
 # Kindgi on Azure Container Apps (Terraform)
 
-> **Draft (runtime 0.1.6).** These steps ran end to end on a live subscription (2026-10-08), with a runtime built from source: a pack deployed and run, a key rotation, and the teardown. Until runtime 0.1.6 is released, step 2's image isn't on Quay yet.
+> **Draft (runtime 0.1.6).** These steps ran end to end on a live subscription (2026-10-08), with a runtime built from source: a pack deployed and run, a key rotation, and the teardown.
 
 A Terraform root module that runs Kindgi in one Azure resource group you already have:
 - the runtime (the API, agent and flow execution) as a container app;
 - your pack's code as a second container app, reachable only inside the environment;
 - Kindgi's own PostgreSQL Flexible Server (16, pgvector), on a private network;
 - everything they stand on: two user-assigned managed identities, a Container Registry, Key Vault (the key that wraps the runtime's secrets, and the secrets both services read), Log Analytics, and the network.
+
+**One tenant:** the runtime serves the tenant it seeds (`seed_tenant_id`), and the plan refuses `KINDGI_TENANCY` or `KINDGI_PACK_ROUTING` other than `single` in `server_env` (or in `server_secret_env` at all). Serving many tenants needs a container app for each deployment's pack service, run by an orchestrator of your own, which this module doesn't make.
 
 **Two network shapes:**
 
@@ -33,7 +35,7 @@ In both shapes the pack service's ingress is **environment-internal**: only apps
   done
   ```
 - **A second resource group, made by Azure:** a Container Apps environment on a VNet keeps its infrastructure in a platform-managed resource group next to yours. The module names it `<your group>-<name_prefix>-infra`; Azure creates it with the environment and deletes it with the environment. If your policies forbid new resource groups, exempt this one.
-- **Pull access to the runtime image** `quay.io/kindgi/runtime` (`kindgi auth registry`).
+- **Pull access to the runtime image** `registry.kindgi.com/kindgi/runtime`, with your license key as the password: `docker login registry.kindgi.com --username kindgi` asks for the key.
 - **A license key** from Kindgi (`KINDGI_LICENSE_KEY`; a non-production key for a pilot).
 - **Check your Azure Policy assignments** (`az policy assignment list -g <rg> --disable-scope-strict-search`): allowed locations, required tags, or a rule forbidding public network access change the recipe.
 
@@ -70,14 +72,17 @@ terraform apply -var-file=dev.tfvars \
 
 ## 2. Images into the registry
 
-Copy the runtime's **whole multi-platform index** by digest: a `docker pull` / `push` from an arm64 machine copies only arm64, and Container Apps needs amd64.
+Copy the runtime's **whole multi-platform index** by digest: a `docker pull` / `push` from an arm64 machine copies only arm64, and Container Apps needs amd64. The copy goes through the machine you run it on and takes both platforms, so on a slow uplink it can take most of an hour.
 
 ```sh
 ACR=$(terraform output -raw image_registry)
-az acr login -n "${ACR%%.*}"
-docker buildx imagetools create --tag $ACR/runtime:<version> quay.io/kindgi/runtime:<version>@sha256:<release digest>
+az acr login -n "${ACR%%.*}" --expose-token --only-show-errors --query accessToken -o tsv \
+  | docker login "$ACR" --username 00000000-0000-0000-0000-000000000000 --password-stdin
+docker buildx imagetools create --tag $ACR/runtime:<version> registry.kindgi.com/kindgi/runtime:<version>@sha256:<release digest>
 kindgi build --local --push --env dev      # the pack image, signed; registry: <ACR>/<repo> in kindgi.config
 ```
+
+The registry's token goes from az straight to `docker login`'s stdin. A plain `az acr login` runs `docker login --password <token>`, which puts the token on a command line other processes on the machine can read. `00000000-0000-0000-0000-000000000000` is the username az's token goes with.
 
 The mirrored runtime keeps the release's digest. Set `server_image` and `pack_image` to the two digests (`…@sha256:…`).
 
@@ -158,6 +163,8 @@ KMS probe OK (azure-key-vault): azure-key-vault 7.5 (wrap/unwrap round trip, RSA
   "  Pack service: https://<name_prefix>-pack.internal.<environment domain> — <pack id> (artifact …), protocol 2, 4 tools, 1 check"]}
 ```
 
+`pack_min_instances` (default 1) keeps one pack service replica running, around the clock ([Azure Container Apps pricing](https://azure.microsoft.com/pricing/details/container-apps/)), so the first tool call after a quiet spell doesn't wait for one to start. Keep it when response time matters; 0 lets the pack service scale to zero, which suits a dev deployment.
+
 `logs show` streams the running replica. For a replica that stopped (a boot that failed), query Log Analytics:
 
 ```sh
@@ -224,17 +231,48 @@ server_secret_env = {
   - Console sessions are then accepted from that origin only, so open the console there.
   - The plan refuses `KINDGI_AUTH_SECRET` without it, because the server wouldn't start.
 - **Pin each secret to a version**, as above, rather than `latest`: a new version then reaches the server only when you change `version` here, not whenever Container Apps picks it up.
-- **Continue with Google, Microsoft or GitHub, verified domains, and Turnstile** go the same way:
-  - in `server_env`: each provider's client id, `KINDGI_AUTH_VERIFIED_DOMAINS` (`acme.com:<tenant id>`) and the Turnstile site key;
-  - in `server_secret_env`: each `…_CLIENT_SECRET` and `KINDGI_AUTH_TURNSTILE_SECRET`.
-  - The `…_PATH` forms read a file, which this module doesn't mount, so use the value forms.
+
+**With Continue with Google.** It needs the sign-in secret and `public_url`, as for the emailed link, and an OAuth client of type **Web application** in the Google Cloud console. Its authorized redirect URI is `public_url` followed by `/auth/kindgi/social/callback/google`:
+
+```
+https://kindgi-server.<environment domain>/auth/kindgi/social/callback/google
+```
+
+```sh
+# In the shell from step 3. The Google client's secret: paste it; it never goes in a file.
+read -rs GOOGLE_SECRET && printf '%s' "$GOOGLE_SECRET" | put google-client-secret && unset GOOGLE_SECRET
+```
+
+```hcl
+public_url = "https://kindgi-server.<environment domain>"
+server_env = {
+  KINDGI_AUTH_GOOGLE_CLIENT_ID = "<client id>" # ends in .apps.googleusercontent.com
+}
+server_secret_env = {
+  KINDGI_AUTH_SECRET               = { secret = "auth-secret", version = "<the version put printed>" }
+  KINDGI_AUTH_GOOGLE_CLIENT_SECRET = { secret = "google-client-secret", version = "<the version put printed>" }
+}
+```
+
+- **Microsoft and GitHub, verified domains, and Turnstile** go the same way:
+  - in `server_env`: `KINDGI_AUTH_MICROSOFT_CLIENT_ID` or `KINDGI_AUTH_GITHUB_CLIENT_ID`, `KINDGI_AUTH_VERIFIED_DOMAINS` (`acme.com:<tenant id>`) and the Turnstile site key;
+  - in `server_secret_env`: `KINDGI_AUTH_MICROSOFT_CLIENT_SECRET` or `KINDGI_AUTH_GITHUB_CLIENT_SECRET`, and `KINDGI_AUTH_TURNSTILE_SECRET`;
+  - each provider's redirect URI ends in its name: `…/auth/kindgi/social/callback/microsoft` or `…/github`.
+- Several ways in share the two maps: with the emailed link too, they hold both sets of settings.
+- The `…_PATH` forms read a file, which this module doesn't mount, so use the value forms.
+
+## Upgrading
+
+- **A deployment of this module** (either network shape, from runtime 0.1.8 or later) can be upgraded to 0.2.0 or later with `./upgrade.sh` (log in to `registry.kindgi.com` first: `docker login registry.kindgi.com --username kindgi` asks for your license key; see [Pull the runtime image](https://docs.kindgi.com/deploy/self-hosted/pull-the-runtime-image/)), with `az` signed in to the deployment's subscription: it reads the current version, copies the new image from `registry.kindgi.com` into the module's registry and runs the upgrade checks against the database, as Container Apps jobs in the module's environment that reach it the way the server does (the VNet, the server's identity, the database URL from Key Vault), stopping if one fails. It checks that the database server keeps at least 7 days of backups and has a restore point in the past, shows the plan, checks it, and applies exactly that plan only when you type `yes`. Just before it applies, it takes an on-demand backup on a server tier that takes one (all but Burstable, the module's default) and records the restore point: the UTC time the way back restores the server to. If the new revision doesn't come up it prints the way back rather than rolling back on its own. Outside the deployment, it logs docker in to the module's registry (`az acr login`) and tags the image `runtime:<version>` there, it creates a job for each check (`<name_prefix>-upgchk-<HHMMSS>-pk`, `-ss` and `-mhc`), printing each name as it makes it, and deletes each when the run ends, however it ends (a run killed outright can't: delete a leftover with `az containerapp job delete -n <name> -g <resource group> --yes`), and it writes the new image into your var-file's `server_image` (and `pack_image`), keeping the previous file next to it. It keeps the plan it applies there too, as `<var-file>.upgrade-<UTC time>.tfplan`: `terraform show` reads it, and since it holds what your var files and state hold, only you can read it. Give it one `--var-file` for each file the deployment's variables are in, in the order you give them to `terraform`. A file Terraform doesn't load on its own needs its own, such as a pack's env kept beside the var-file: from the directory it runs in, Terraform loads only `terraform.tfvars` and `*.auto.tfvars` (and their `.json`). It lists every file Terraform reads them from, and the `TF_VAR_` names set in the environment, and it stops if one of them, other than the var-file it writes, sets `server_image` (or `pack_image`, with `--pack-dir`): a later `terraform apply` without that `--var-file` would put the old image back. Before it asks for `yes` it checks the plan itself (`terraform show -json`): it stops if the plan creates, deletes or replaces anything, or changes anything but the new image and the in-place changes the releases crossed name in their steps to confirm by hand. So a var file left off the command, whose variables the plan would empty, stops it there, before anything is applied. To see all of that before it happens, add `--dry-run`: it runs the same reads and read-only checks, lists every change a real run would make, in order, with the names it would use, and shows Terraform's plan for the new image. The plan takes no state lock, but reading the variables through `terraform console` briefly does, so a dry run stops, without harm, while an apply holds it. It changes nothing (not your docker config, the var-file, the state or the subscription) and never asks for `yes`. Only a real run runs the runtime's own checks, since they run as jobs in your subscription, and with `--pack-dir` the dry run's plan shows `pack_image` unchanged, since the new pack's digest exists only after the build. Use the `upgrade.sh` as of the `@kindgi/sdk@<version>` tag of the release you're upgrading to: it knows the steps up to its own release and refuses a later `--to`. With an earlier `--to` it still plans its own module, whose changes past the target's release it lists and allows, and it says so. It first came with the `@kindgi/sdk@0.4.0` tag: to keep the module at an earlier release, upgrade by hand. A server-only release, such as 0.2.0.1, is a server fix for 0.2.0 with no SDK release of its own, so it has no `@kindgi/sdk@` tag of its own. From 0.2.0, or an earlier 0.2.0.N, it has no steps to confirm by hand. See `./upgrade.sh --help`. The notes below apply whichever way you upgrade.
+- **The way back it prints** restores the database server to the restore point, into a new server, and never points the old runtime at the migrated one. In order: export the erasure ledger from the server serving now; stop the server's container app (az has no command for it, so through Container Apps' REST API, with `az rest`, and go on once its `runningStatus` is `Stopped`), since a new version of a secret restarts the active revisions that read it; restore the server to the restore point, in the module's database subnet and private DNS zone; allow pgvector on it (`azure.extensions`), give it a new admin password and add a new version of `database-url` that names it, tagged `kindgi-restored-server` with its name; copy the var-file back, set `database_url_version` to that new version, so the server reads the restored server's URL and not whatever Key Vault's refresh has picked up, and apply a saved plan (`back.tfplan`) that changes the images and that reference only (Terraform plans the server's secrets as one set, so it shows them all removed and added again, their contents hidden); check that the only active revision is the new one, with the old image, then start the app and check that revision serves; then replay the erasures and run the old image's `check stored-secrets`. It prints each command with your names filled in, but for that last check, which it describes: run it by hand, as a job like the upgrade checks, with the server's secrets settings as well as the database URL. It runs none of them. The restored server isn't in Terraform's state, and the module's own server is still the migrated one, so `upgrade.sh` refuses to start while `database_url_version` is set, or while the version of `database-url` the way back added (by its tag) is the newest.
+- **By hand**, for any deployment: staging first, with `az` set to the deployment's subscription (`az account set --subscription <subscription_id>`). Copy the new image by digest into the module's registry (step 2), run the new version's checks as a Container Apps job in the module's environment, as the server's identity, with `KINDGI_DATABASE_URL` from the `database-url` secret, check that the database server keeps at least 7 days of backups and note the UTC time just before you apply (your restore point), set `server_image` (and `pack_image`), `(umask 077 && terraform plan -var-file=<env>.tfvars -out=upgrade.tfplan)` (the plan holds your variables' values, secret ones too), read it, `terraform apply upgrade.tfplan`, delete the plan, and check the new revision serves. To go back, take the steps above.
 
 ## Operating it
 
 - **Signed exports** (approval audit bundles, run provenance, compliance evidence) are off by default (`export_signing = "none"`). `"kms"`: the module makes an EC P-256 key in the vault (`<name_prefix>-exports`) and the server signs with it there, with Key Vault Crypto User on that key alone; exports are `ecdsa-p256-sha256`, since Key Vault has no Ed25519. `"secret"`: a key you put in the vault as `export-signing-key` (step 3).
 - **Client addresses:** the server trusts one proxy, the Container Apps ingress, which appends the caller to `X-Forwarded-For` (`trusted_proxies = "1"`, `KINDGI_TRUSTED_PROXIES`), so rate limits and audit records see the caller. With Front Door or Application Gateway in front, set `"2"`.
 - **One server replica** until several are verified. Migrations run at boot over a direct connection (port 5432, not the built-in PgBouncer on 6432).
-- **Upgrades roll forward:** migrations only go forward. Before a new runtime version boots on the database, make sure a restorable backup exists (automatic backups with point-in-time restore are on), and roll back by restoring it.
+- **Upgrades:** with `./upgrade.sh`, or by hand, as [Upgrading](#upgrading) above says. By hand: copy the new image by digest (step 2), check the database's point-in-time restore, set `server_image`, plan to a file under `umask 077`, read the plan, apply it, and check the new revision: https://docs.kindgi.com/deploy/self-hosted/azure-container-apps/#upgrade has each command. Migrations only go forward: the way back (same page) restores the database into a new server, points `database-url` at it, and applies the old image.
 - **Rotating a secret:** add a version (`put` again). Every secret but the two pinned keys is referenced without a version, so a replica that starts after Container Apps picks up the new version gets it ([Microsoft: Key Vault secret URI and secret rotation](https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets#key-vault-secret-uri-and-secret-rotation)). Never rotate the AAD key or the erasure ledger's key this way.
 - **Rotating the key:** with `key_rotation_days` (default 90) Key Vault adds a key version on schedule. New secrets use it; old ones keep unwrapping with theirs.
 - **Hardening:** the vault and registry are reached over their public endpoints, guarded by Entra RBAC. To close those, add private endpoints (the registry needs the Premium tier) and network rules.
@@ -256,7 +294,40 @@ $(terraform output -raw license_enroll_command)   # fill in --for first
   - It has an identity of its own, `<name_prefix>-license-renewer`. That identity reads `license-key` and `license-renewer`, and holds a custom role, `<name_prefix>-license-key-writer-…`, that can only set `license-key`, never delete it or read other secrets.
   - The server gets no access to the renewer key.
   - Its runs: `az containerapp job execution list -n <name_prefix>-license-renew -g <rg> -o table`.
-  - **Two alerts come with it:** a failed run, and a key within 7 days of expiring (the run's own line, `⚠ It expires in N days`). They go to the action groups in `alert_action_groups`; with none, they fire in Azure Monitor only.
+  - **Two alerts come with it:** a failed run, and a key within 7 days of expiring (the run's own line, `⚠ It expires in N days`). With `license_usage_key_secret` (below), a third: a run that sent no counts (its line `counts: not sent (<why>)`). A production key's renewals never carry counts, so they never raise it. They go to the action groups in `alert_action_groups`; with none, they fire in Azure Monitor only.
+- **Counts of the deployment's use,** for a non-production key (the docs' Renew the license key page says what they are, under "What renewing sends"): mint a system key holding `system:license` alone with the deployment's own token, put it in the vault, then set `license_usage_key_secret` to its secret's name and apply. The job then reads that secret too, and renews with `--runtime` (the server) and `--runtime-token` (that secret), as `license_renew_command` does. Terraform never holds the key, and the server gets no access to it.
+
+  ```sh
+  # Off in this shell: az's log file, if it's on, records each request's body.
+  export AZURE_LOGGING_ENABLE_LOG_FILE=no
+  V=$(terraform output -raw key_vault_name)
+  put() { az keyvault secret set --vault-name "$V" -n "$1" --file /dev/stdin --query id -o tsv; }
+
+  # The deployment's own token, read from the vault into this shell only.
+  KINDGI_API_TOKEN=$(az keyvault secret show --vault-name "$V" -n api-token --query value -o tsv)
+  KEY=$(curl -sS -X POST "$(terraform output -raw server_url)/v1/system/keys" \
+    -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
+    -H 'Content-Type: application/json' \
+    -H "Idempotency-Key: $(uuidgen)" \
+    -d '{"scopes": ["system:license"], "label": "license renewal"}' \
+    | jq -r '.token // error(.error.message)') && [ -n "$KEY" ] \
+    && printf '%s' "$KEY" | put license-usage-key
+  unset KEY KINDGI_API_TOKEN
+  ```
+
+  Then `license_usage_key_secret = "license-usage-key"`. The key is never printed, and the token reaches `curl` as a header file, never in the list of processes. A refused mint prints its error instead, and nothing goes in the vault. To list the keys or revoke one, see "A key for the counts" on that page. A server serving one tenant that refuses the mint with `system-principal-required` is older than runtime 0.1.10, which has these keys: until you upgrade it, the job renews without counts.
+
+  **Check the first run.** A renewal that can't send its counts still renews, with `counts: not sent (<why>)` in its log. The alert `<name_prefix>-license-counts-not-sent` raises it within a day. To know now, start a run after the apply, wait for it to finish, and read its counts line. The log reaches Log Analytics a few minutes after the run ends, so an empty answer right after it means ask again a little later:
+
+  ```sh
+  az containerapp job start -n <name_prefix>-license-renew -g <rg>
+  az containerapp job execution list -n <name_prefix>-license-renew -g <rg> -o table   # until it shows Succeeded
+  WS=$(az monitor log-analytics workspace list -g <rg> --query "[0].customerId" -o tsv)
+  az monitor log-analytics query -w "$WS" --analytics-query \
+    "ContainerAppConsoleLogs_CL | where column_ifexists('ContainerJobName_s', '') == '<name_prefix>-license-renew' | where Log_s has 'counts:' | order by TimeGenerated desc | take 5"
+  ```
+
+  `counts: sent (…)` is what you want. With `server_ip_allowlist` set, this check matters most: the job calls the server's URL, and the module doesn't check whether the list lets it in.
 - **When a new key is used:** the server reads `license-key` without a version, so it gets the new key as for any rotated secret (see "Rotating a secret" above, and [Microsoft: Key Vault secret URI and secret rotation](https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets#key-vault-secret-uri-and-secret-rotation)). Until then it runs on the key it started with. A running server never stops over its key.
 - **Stopping:** unset `license_renewal_schedule`, or stop the renewer on access.kindgi.com.
 

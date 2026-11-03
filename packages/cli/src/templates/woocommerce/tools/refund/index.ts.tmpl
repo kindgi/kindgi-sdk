@@ -1,5 +1,6 @@
 // {{PACK_ID}}.woo.refund — a refund of up to 100 (in the order's currency) on
-// an order, with no one to approve it.
+// an order, with no one to approve it when a person asks for it. In a run a
+// webhook or a schedule started, it waits for a person's yes.
 //
 // Kindgi's approval rules key on the tool, not on its arguments, so "refunds
 // over 100 need a person" is two tools: this one, which the agent's policy
@@ -39,7 +40,7 @@ export const RefundOutput = z.object({
 
 const defined = defineTool({
   id: '{{PACK_ID}}.woo.refund' as ToolId,
-  description: `Refund up to ${REFUND_LIMIT} on an order, counting what it has been refunded already. Runs without approval. For more, use {{PACK_ID}}.woo.refund-large, which waits for a person.`,
+  description: `Refund up to ${REFUND_LIMIT} on an order, counting what it has been refunded already. Runs without approval when a person starts the turn; in a run a webhook or schedule started, it waits for a person. For more, use {{PACK_ID}}.woo.refund-large, which waits for a person.`,
   version: '{{PACK_VERSION}}',
   input: RefundInput,
   output: RefundOutput,
@@ -48,6 +49,10 @@ const defined = defineTool({
     { kind: 'external-side-effect', notes: 'Refunds money to the customer.' },
   ],
   mutating: true,
+  // In a run no person started (a webhook, a schedule or a service account's
+  // key started it), every call waits for a person's yes, whatever the
+  // agent's approval policy says.
+  needsApprovalWhenUnattended: true,
   needsSpec: REFUND_NEEDS,
   // The limit is checked after `createRefund` has looked for this call's own
   // refund: a call run again after its refund went out returns that refund,

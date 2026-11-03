@@ -1,6 +1,6 @@
 # @kindgi/bounds
 
-The limits a Kindgi server puts on what a tenant sends it, so that one
+The limits a Kindgi server puts on what a workspace sends it, so that one
 tenant's input can't stall the server for the others:
 
 - **patterns:** their length, the engine they run on (V8's, or RE2's,
@@ -8,9 +8,9 @@ tenant's input can't stall the server for the others:
   how many citations a `must-cite` guardrail may ask for;
 - **schemas:** their size and nesting depth before they're compiled, how
   many compiled ones are kept and how much JSON they add up to, and how
-  long a tenant's schemas may spend compiling in any 60 seconds;
+  long a workspace's schemas may spend compiling in any 60 seconds;
 - **templates:** liquidjs's parse, render-time and memory limits;
-- **bodies** read from endpoints a tenant names: their size, decompressed,
+- **bodies** read from endpoints a workspace names: their size, decompressed,
   and the idle time between chunks (per event for `text/event-stream`);
 - **request bodies** the API reads: their size and JSON nesting depth.
 
@@ -31,7 +31,7 @@ Tests run with other bounds through `@kindgi/bounds/testing`'s
 
 ## Whose work it is
 
-A budget kept per tenant (`schemaCompileBudgetMs`) charges the tenant
+A budget kept per workspace (`schemaCompileBudgetMs`) charges the workspace
 whose work is running. The server runs each request and each run inside
 `runAsTenant(tenantId, fn)`; `currentTenant()` reads it. The scope follows
 `fn`'s own awaits and callbacks (an `AsyncLocalStorage` context), never
@@ -41,9 +41,9 @@ nothing is charged.
 Which compiles count is the scope's `compiles`:
 
 - `recompiles`, the default: a schema compiled again after the cache
-  dropped it. The first compile of a schema the tenant published doesn't
-  count, so a restarted server compiles each tenant's schemas freely.
-  Once a tenant has compiled 4,096 different schemas in the process, every
+  dropped it. The first compile of a schema the workspace published doesn't
+  count, so a restarted server compiles each workspace's schemas freely.
+  Once a workspace has compiled 4,096 different schemas in the process, every
   compile counts.
 - `all`: every compile, the first included. A request that publishes,
   deploys or registers schemas runs this way, since that's where new
@@ -56,9 +56,15 @@ await runAsTenant(tenantId, () => handle(request));
 await runAsTenant(tenantId, () => publish(request), { compiles: 'all' });
 ```
 
+Work that runs on another thread, such as a template rendered in a worker,
+is charged with `TenantTimeBudget.admit(tenantId)`. It checks the budget
+when the work is asked for, refusing a workspace past it, and returns a
+`TenantWork` whose `start()` and `end()` charge the time between them.
+Time the work spends waiting for a thread isn't charged.
+
 ## Patterns
 
-`compileTenantPattern(source, flags)` compiles a pattern a tenant wrote, a
+`compileTenantPattern(source, flags)` compiles a pattern a workspace wrote, a
 JavaScript regular expression's source and flags, under the process's
 bounds. It answers `{ kind: 'ok', pattern }`, whose `test(input)` and
 `count(input, atMost)` give the answers of the `RegExp` it was written as

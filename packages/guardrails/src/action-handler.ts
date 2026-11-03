@@ -103,16 +103,17 @@ export const noopHandler: ActionHandler = {
 };
 
 /**
- * `retry` — records the retry intent. Actual retry scheduling happens
- * in the caller. Handler validates the guardrail's action.retry policy
- * is well-formed.
+ * `retry` — records the retry intent. The caller asks for the new
+ * answers (an agent turn's loop does). Handler validates the guardrail's
+ * action.retry policy, when given, is well-formed; left out, the
+ * caller's default attempts apply.
  */
 export const retryHandler: ActionHandler = {
   action: 'retry',
   name: 'Retry (caller-scheduled)',
   async apply(ctx): Promise<ActionResult> {
     const retry = ctx.guardrail.action.retry;
-    if (retry === undefined || retry.maxAttempts <= 0) {
+    if (retry !== undefined && retry.maxAttempts <= 0) {
       return {
         kind: 'err',
         error: {

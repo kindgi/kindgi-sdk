@@ -14,7 +14,7 @@ prices. Sonnet 5.5 is its default. You provide the key.
 
 ## Before you start
 
-- **A pack** with `kindgi dev` running, from Kindgi 0.1's CLI.
+- **A pack** with `kindgi dev` running, from Kindgi 0.2's CLI.
 - **An Anthropic API key.**
 - **An agent,** to try it. This guide uses `acme.order-desk`.
 
@@ -23,14 +23,14 @@ prices. Sonnet 5.5 is its default. You provide the key.
 The preset reads the key from a secret. In the pack, store it:
 
 ```sh
-kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
+pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
 ```
 
 - `ANTHROPIC_API_KEY` is the secret's name, the one the preset reads.
 - `--env=local` is the environment the secret belongs to. Under
   `kindgi dev`, `local` is the pack's env files, `.kindgi/secrets.env` among
   them.
-- `--scope=tenant` is where the secret lives: the tenant, rather than one org
+- `--scope=tenant` is where the secret lives: the workspace, rather than one org
   (`org:<orgId>`) or project (`project:<projectId>`).
 
 It prompts for the key without echoing it and writes it to Kindgi's own
@@ -47,7 +47,7 @@ Register the preset's models with the runtime. `--preset=anthropic` names
 the preset:
 
 ```sh
-kindgi providers register --preset=anthropic
+pnpm exec kindgi providers register --preset=anthropic
 ```
 
 ```text
@@ -83,7 +83,7 @@ The provider answers from the next turn on, and nothing restarts. Start a
 turn. `--agent` is the agent, and `--input` its input:
 
 ```sh
-kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
+pnpm exec kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
 ```
 
 ```json
@@ -120,8 +120,30 @@ require the model, as
 offer only some models, register only those, with `--models`.
 
 The Claude 5.5 models take no `temperature`, and they think before they
-answer. [Temperature and thinking](../#temperature-and-thinking) says what
-that means for an agent.
+answer. Each takes the thinking levels `low`, `medium`, `high`, `xhigh` and
+`max`, sent as Anthropic's effort. [Temperature and thinking](../#temperature-and-thinking)
+says what that means for an agent.
+
+When Claude thinks before it calls a tool, Kindgi sends that thinking back
+with the tool's result, as Anthropic asks, so the model goes on from its own
+reasoning. Anthropic needs it back unchanged, so Kindgi keeps the thinking
+text as Anthropic's API returned it, in the tool call's `signature`: encoded
+(`anth1.` and base64), not encrypted. Only `redacted_thinking` comes
+encrypted. It's kept in two places, and whoever can read either one can read
+the thinking:
+
+- **The conversation:** the agent's tool-call message, at
+  `content.toolCalls[].signature` in `GET /v1/conversations/<id>/messages`.
+- **The turn's run:** the run's `output` (the same message, in `appended`),
+  and the outputs of the turn's steps in the run's journal and event stream:
+  `GET /v1/runs/<run-id>`, `…/journal` and `…/stream`.
+
+In a project, that's its viewers and every role above them, and the API keys
+that reach it
+([Who has access to a project](../../../deploy/authorization/#who-has-access-to-a-project)).
+Exports that include the conversation's messages or the run carry it too. An
+[erasure](../../agents/erase-a-persons-data/) clears it from the conversation
+and from the runs the erasure reaches.
 
 Anthropic lists each model's status, and any retirement date, on its
 [model deprecations](https://platform.claude.com/docs/en/about-claude/model-deprecations)
@@ -161,8 +183,8 @@ Register the preset again with an updated CLI. A registration can't be
 edited, so unregister it first:
 
 ```sh
-kindgi providers unregister anthropic
-kindgi providers register --preset=anthropic
+pnpm exec kindgi providers unregister anthropic
+pnpm exec kindgi providers register --preset=anthropic
 ```
 
 `unregister` prints its answer as JSON. `register` prints the same

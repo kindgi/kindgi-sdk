@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { AgentId, Cursor, RunId, SupervisorId, Timestamp } from '@kindgi/types';
+import type { AgentId, Cursor, SupervisorId, Timestamp } from '@kindgi/types';
 
-import { KindgiApiError, notYetWired } from '../errors.js';
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
 import type { Observation, ObservationStatus } from '../types.js';
@@ -11,29 +10,16 @@ import type { Observation, ObservationStatus } from '../types.js';
 /**
  * Observations resource — records of supervisor evaluations of runs.
  *
- * Only `query` has an API route (`GET /v1/observations`). Observations
- * are recorded server-side; there is no route to record one
- * (`recordRun`) or to aggregate them (`patterns`).
+ * The runtime records observations itself, so the API's one route here
+ * reads them (`GET /v1/observations`).
  */
 export interface ObservationsClient {
-  /**
-   * @deprecated No `POST /v1/observations` route — observations are
-   *   recorded server-side. Throws `KindgiApiError` with
-   *   `code: 'not-yet-wired'`.
-   */
-  recordRun(runId: RunId): Promise<void>;
-
   /**
    * Query observations across supervisors + agents.
    *
    * @wire `GET /v1/observations` — see `@kindgi/api/openapi.json#/paths/~1v1~1observations/get`.
    */
   query(filter?: ObservationFilter): Promise<ListPage<Observation>>;
-
-  /**
-   * @unwired No `/v1/observations/patterns` route.
-   */
-  patterns(input: PatternsInput): Promise<never>;
 }
 
 export interface ObservationFilter {
@@ -48,25 +34,8 @@ export interface ObservationFilter {
   readonly until?: Timestamp;
 }
 
-export interface PatternsInput {
-  readonly supervisorId: SupervisorId;
-  readonly since?: Timestamp;
-  readonly until?: Timestamp;
-  readonly agent?: AgentId;
-  readonly limit?: number;
-}
-
 export function makeObservationsClient(transport: Transport): ObservationsClient {
   return {
-    async recordRun(_runId) {
-      throw new KindgiApiError(
-        notYetWired(
-          'observations.recordRun',
-          'no POST /v1/observations route on the API — supervisor runtime records observations server-internally',
-        ),
-      );
-    },
-
     async query(filter) {
       const page = await transport.request<WirePage<Observation>>({
         method: 'GET',
@@ -88,15 +57,6 @@ export function makeObservationsClient(transport: Transport): ObservationsClient
         },
       });
       return listPage(page);
-    },
-
-    async patterns(_input) {
-      throw new KindgiApiError(
-        notYetWired(
-          'observations.patterns',
-          'no /v1/observations/patterns route on the API — aggregation surface unrouted',
-        ),
-      );
     },
   };
 }

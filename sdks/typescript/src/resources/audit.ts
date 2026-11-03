@@ -63,7 +63,10 @@ export interface SignInEvent {
     | 'sign-in-link-sent'
     | 'sign-in-link-capped'
     | 'sessions-revoked'
-    | 'sessions-ended';
+    | 'sessions-ended'
+    | 'second-factor-set-up'
+    | 'second-factor-removed'
+    | 'recovery-codes-replaced';
   readonly outcome: string;
   /** The person: who signed in or out, or whom a link was for. Absent on a refusal. */
   readonly userId?: string;
@@ -105,7 +108,7 @@ export interface AuthzAuditClient {
 
 export interface AuditResourceClient {
   readonly authz: AuthzAuditClient;
-  /** The tenant's sign-in history. */
+  /** The workspace's sign-in history. */
   readonly signIns: SignInAuditClient;
 }
 

@@ -13,7 +13,7 @@ Keep vectors consistent with the model that produced them. The registry is keyed
   - `dimensions()` — vector length; must match every `embed()` result.
   - `describe()` — `{ name, version, model }`. `model` is the stable storage key; never rename it across versions.
 - **`createEmbeddingProviderRegistry(seed?)`** — builds an in-memory registry, preserving registration order. A duplicate model in `seed` throws synchronously.
-- **`EmbeddingProviderRegistry`** — the registry interface (process-wide, not tenant-scoped):
+- **`EmbeddingProviderRegistry`** — the registry interface (process-wide, not workspace-scoped):
   - `register(provider)` — `Result<void, DuplicateEmbeddingProviderError>`; rejects a model that is already registered.
   - `resolve(model?)` — the provider for `model`; with no argument, the sole registered provider.
   - `getByModel(model)`, `has(model)`, `list()`, `size()`.
@@ -63,7 +63,7 @@ console.log(vector.length === resolved.value.dimensions()); // true
 
 - **No bundled provider.** Semantic embedding is opt-in; register an adapter at boot. The Kindgi runtime offers a self-hosted local-model provider.
 - **No replacement or re-dimensioning in place.** To change a model's dimensions, register it under a new `model` and migrate existing vectors separately.
-- **No per-tenant model policy.** The registry is process-global; which model a tenant may use is a separate concern.
+- **No per-workspace model policy.** The registry is process-global; which model a workspace may use is a separate concern.
 - **No vector storage or similarity search.** Storing and querying vectors belongs to the consuming layer, such as [`@kindgi/memory`](../memory/).
 
 ## Related

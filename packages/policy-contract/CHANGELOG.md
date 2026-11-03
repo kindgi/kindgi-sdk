@@ -1,5 +1,165 @@
 # @kindgi/policy-contract
 
+## 0.4.0
+
+### Patch Changes
+
+- **A retired block, policy or release gate can be found.** `GET /v1/blocks`, `GET /v1/policies` and `GET /v1/release-gates` take `?includeRetired=true`, as the lists of agents, flows, tools and test sets do. With it, a retired item (every version unregistered) is listed too, as its highest version with that version's `unregisteredAt`, so a version can be reinstated. Without it, each list answers as before: items with an active version only.
+  - CLI: `kindgi blocks list` and `kindgi release-gates list` take `--include-retired`, as the agents, flows, tools and test-sets lists do.
+  - Clients: `client.blocks.list`, `client.policies.list` and `client.releaseGates.list` take `includeRetired`. `client.policies.list` returns `PolicyVersionRow` items, which are `Policy` plus the optional `unregisteredAt`.
+  - Bindings: `BlockListInput`, `PolicyListInput` and `ReleaseGateListInput` gain an optional `includeRetired`. `PolicyPage.data` is `PolicyVersionRow[]`.
+  - Schema: `Policy` gains an optional `unregisteredAt`. `GET /v1/policies/{policyId}` answers the latest active version, which never carries it.
+  - A runtime that doesn't honour the parameter ignores it, and lists as before.
+  - `kindgi exports create` asks the three lists for retired items too, as it does for the others, so an export includes a retired block, policy or release gate.
+- d92355b: **A judgment is now a correction, in the API, the clients, the CLI and the docs.** This is a breaking rename, and no old name is kept.
+  
+  - **Routes.** `/v1/judgments` is `/v1/corrections`, and `/v1/judgments/{judgmentId}/unregister` is `/v1/corrections/{correctionId}/remove`. The retention domain `judgment` is `correction`, as in `POST /v1/retention/sweep/correction`.
+  - **Fields.**
+    - `judgmentId` is `correctionId`, and `judgmentIds` is `correctionIds`.
+    - A proposal's `evidence.judgmentIds` is `evidence.fixes`.
+    - These counts are renamed: `judgmentCount` to `correctionCount`, `minJudgments` to `minCorrections`, `runsWithJudgments` to `runsWithCorrections`, and `anyJudgment` to `anyCorrection`.
+    - A response's `judgments` is `corrections`.
+    - A comparison summary's `corrections.judgments` is `corrections.results`.
+    - A comparison case's `judgedItems`, on its `baseline` and each `candidate`, is `correctedItems`, and a `changes.new` entry's `judged` is `corrected`.
+    - A suite built from corrections has `source: 'corrections'`.
+    - The improve schedule's `threshold.judges` and `threshold.judgments` are `threshold.correctors` and `threshold.corrections`.
+  - **Schemas and types.**
+    - `Judgment` is `Correction`, and `JudgmentWithCopies` is `CorrectionWithCopies`.
+    - The `{ calls, notCalled }` value that was called `Correction` is now `ExpectedDecisions`, and its grading result is `ExpectedDecisionsResult`.
+    - `Judged*` names are `Corrected*`, and `UnregisterJudgmentResult` is `RemoveCorrectionResult`.
+  - **TypeScript client.** `client.judgments` is `client.corrections`, and `unregister` is `remove`.
+  - **CLI.** `kindgi judgments add|list|show|unregister` is `kindgi corrections add|list|show|remove`.
+- d6c9279: **Judge classes are now corrector groups, the judging queue is the expert queue, and judging rules are queue rules.** This is a breaking rename, and no old name is kept.
+  
+  - **Routes.** `/v1/judge-classes` is `/v1/corrector-groups`, with `{correctorGroupId}` in its paths. `/v1/projects/{projectId}/judging-queue` is `/v1/projects/{projectId}/expert-queue`, and `/v1/projects/{projectId}/judging-rules` is `/v1/projects/{projectId}/queue-rules`; their sub-paths are the same. The retention domain `judge_class` is `corrector_group`.
+  - **Fields and values.**
+    - `judgeClassId` is `correctorGroupId`, and `judgeClassIds` is `correctorGroupIds`.
+    - A correction, a corrected item and a test case's item say `expert` where they said `restricted`.
+    - `classWeights` is `groupWeights`, and its value `restricted-only` is `experts-only`.
+    - A release gate's `onlyRestrictedClasses` is `onlyExpertGroups`, and its check is named `groupWeights.expertsOnly`.
+    - The expert queue's state `judged` is `corrected`, as is a rule result's `judged` count. Progress `byClass` is `byGroup`, and `wantedClassIds` is `wantedGroupIds`.
+  - **Errors.** Codes starting `judge-class-` start `corrector-group-`, `judging-rule-` codes start `queue-rule-`, and other `judging-` codes start `expert-queue-`.
+  - **Schemas and types.** `JudgeClass*` names are `CorrectorGroup*`, `JudgingRule*` names are `QueueRule*`, and the judging queue's `Judging*` names are `ExpertQueue*`.
+  - **TypeScript client.** `client.judgeClasses` is `client.correctorGroups`, `client.projects.judgingQueue` is `client.projects.expertQueue`, and `client.projects.judgingRules` is `client.projects.queueRules`.
+  - **CLI.** `kindgi judge-classes` is `kindgi corrector-groups`, `kindgi judging-queue` is `kindgi expert-queue`, and `kindgi judging-rules` is `kindgi queue-rules`. `--class` is `--group`, `--clear-class` is `--clear-group`, and `--class-weights` is `--group-weights`.
+  - **Docs.** The guides under `guides/evals/` are now under `guides/improve/`, with no redirects, so old links to them don't resolve. Four of them also have new names:
+    - `judge-a-runs-output` is `correct-a-runs-output`.
+    - `propose-a-change` is `suggest-a-change`.
+    - `judging-reference` is `expert-queue-reference`: the judging reference page is now the expert queue reference, at `guides/improve/expert-queue-reference/`.
+    - `live-versions-reference` is `pinned-versions-reference`.
+- d576ff4: **Eval suites are now test sets.** This is a breaking rename, and no old name is kept.
+  
+  - **Routes.** `/v1/eval-suites` is `/v1/test-sets`, with `{testSetId}` in its paths; the sub-paths are the same, including `runs`.
+  - **Fields and values.**
+    - `suiteId` is `testSetId` everywhere it names a test set, including on eval runs, and `suiteVersion` is `testSetVersion`.
+    - A test set's and an eval run's kind `judged` is `corrections`.
+    - A release gate's `comparison.suite` is `comparison.testSet`, and its check is named `comparison.testSet`. A comparison's summary says `testSet` where it said `suite`.
+    - The retention domain `eval_suite` is `test_set`, and so is the authorization resource type.
+    - A `reference-out-of-scope` issue names a test set with the kind `test-set` where it said `suite`.
+  - **Errors.** Codes starting `eval-suite-` start `test-set-`.
+  - **Schemas and types.** `EvalSuite*` names are `TestSet*`. `EvalKind` is `TestSetKind` (and `EVAL_KINDS` is `TEST_SET_KINDS`), and `CorrectedEvalCase`, `CorrectedEvalCaseCollectionPage` and `CorrectedEvalCaseCorrection` are `CorrectedTestCase`, `CorrectedTestCaseCollectionPage` and `CorrectedTestCaseCorrection`.
+  - **TypeScript client.** `client.evalSuites` is `client.testSets`.
+  - **Specs.** `@kindgi/specs/eval-suite.schema.json` is `@kindgi/specs/test-set.schema.json`, its `$id` is `https://kindgi.com/schemas/v1/test-set.schema.json` and its title "Test set", and its reference page is `reference/schemas/test-set/`. Its `kind` takes `corrections`, as the API does.
+  - **CLI.** `kindgi eval-suites` is `kindgi test-sets`, `--suite` is `--test-set`, and `--suite-version` is `--test-set-version`. `kindgi exports create` writes them as `test-sets` and `test-set-versions`.
+- Updated dependencies [b25b82f]
+- Updated dependencies [d92355b]
+- Updated dependencies [d6c9279]
+- Updated dependencies [f2adcc2]
+- Updated dependencies [9b015f7]
+- Updated dependencies [9a8a294]
+- Updated dependencies [1bd877d]
+- Updated dependencies [dff9515]
+- Updated dependencies [d576ff4]
+  - @kindgi/types@0.4.0
+
+## 0.3.1
+
+### Patch Changes
+
+- @kindgi/types@0.3.1
+
+## 0.3.1-rc.1
+
+### Patch Changes
+
+- @kindgi/types@0.3.1-rc.1
+
+## 0.3.1-rc.0
+
+### Patch Changes
+
+- @kindgi/types@0.3.1-rc.0
+
+## 0.3.0
+
+### Patch Changes
+
+- Updated dependencies [8dd91b0]
+  - @kindgi/types@0.3.0
+
+## 0.3.0-rc.0
+
+### Patch Changes
+
+- Updated dependencies [8dd91b0]
+  - @kindgi/types@0.3.0-rc.0
+
+## 0.2.0
+
+### Patch Changes
+
+- @kindgi/types@0.2.0
+
+## 0.2.0-rc.1
+
+### Patch Changes
+
+- @kindgi/types@0.2.0-rc.1
+
+## 0.2.0-rc.0
+
+### Patch Changes
+
+- @kindgi/types@0.2.0-rc.0
+
+## 0.1.10
+
+### Patch Changes
+
+- @kindgi/types@0.1.10
+
+## 0.1.10-rc.1
+
+### Patch Changes
+
+- @kindgi/types@0.1.10-rc.1
+
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- @kindgi/types@0.1.10-rc.0
+
+## 0.1.9
+
+### Patch Changes
+
+- 66bb5eb: `GET /v1/policies/{policyId}/versions/{version}` answers for a retired (unregistered) version too, with its `unregisteredAt`, as the agent, flow, block and gate-policy version routes already do. It used to answer `404 policy-not-found`, so a link to a retired version from the versions list led nowhere. `PolicyRegistryBinding.getVersion` now returns a `PolicyVersionRow`: the contract already said a tombstoned version is returned, and its `unregisteredAt` is now part of the type. An active version carries no `unregisteredAt`. A version the retention sweep has purged is still `404`. The TypeScript client's `policies.getVersion` (the client now exports `PolicyVersionRow`) and the Python client's `policies.versions.get` return a `PolicyVersionRow`.
+- @kindgi/types@0.1.9
+
+## 0.1.9-rc.1
+
+### Patch Changes
+
+- @kindgi/types@0.1.9-rc.1
+
+## 0.1.9-rc.0
+
+### Patch Changes
+
+- 66bb5eb: `GET /v1/policies/{policyId}/versions/{version}` answers for a retired (unregistered) version too, with its `unregisteredAt`, as the agent, flow, block and gate-policy version routes already do. It used to answer `404 policy-not-found`, so a link to a retired version from the versions list led nowhere. `PolicyRegistryBinding.getVersion` now returns a `PolicyVersionRow`: the contract already said a tombstoned version is returned, and its `unregisteredAt` is now part of the type. An active version carries no `unregisteredAt`. A version the retention sweep has purged is still `404`. The TypeScript client's `policies.getVersion` (the client now exports `PolicyVersionRow`) and the Python client's `policies.versions.get` return a `PolicyVersionRow`.
+- @kindgi/types@0.1.9-rc.0
+
 ## 0.1.8
 
 ### Patch Changes

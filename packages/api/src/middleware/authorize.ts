@@ -9,8 +9,11 @@
 //
 //   authorize(action, resourceGetter)  → Hono middleware, 403s on deny
 //   can(c, action, resource)           → boolean, for conditional logic
+//   canFor(c, who, action, resource)   → boolean, for someone the request names
 //   check(c, action, resource)         → full Decision, for advanced cases
 //   filterByCan(c, action, items, fn)  → the items the principal may act on
+//   probe(c, action, resource)         → `can`'s answer, recorded nowhere,
+//                                        for a hint the caller is shown
 //
 // Use `authorize` on any mutating route. Use `can` inside handlers when
 // the decision affects response shape (e.g. filter results, include
@@ -23,6 +26,7 @@ import {
   type Action,
   type AuthzCheckBinding,
   type AuthzCheckContext,
+  CHECK_ONLY_ACTIONS,
   type Decision,
   OBJECT_ACTIONS,
   type ObjectType,
@@ -47,6 +51,42 @@ export interface Authorizer {
   readonly can: (c: Context<AppEnv>, action: Action, resource: ResourceRef) => Promise<boolean>;
   readonly check: (c: Context<AppEnv>, action: Action, resource: ResourceRef) => Promise<Decision>;
   /**
+   * Whether `principal`, not the caller, may take `action` on `resource`:
+   * for someone a request names, such as a trigger's owner. The store
+   * decides alone (the caller's API key limits only the caller), with the
+   * request's id as the correlation id, as the caller's own checks carry.
+   * A store that fails throws: there is no answer to fall back to.
+   */
+  readonly canFor: (
+    c: Context<AppEnv>,
+    principal: Principal,
+    action: Action,
+    resource: ResourceRef,
+  ) => Promise<boolean>;
+  /**
+   * Whether the caller may `action` on `resource`, decided as `can`
+   * decides it (the API key's own limits first, then the binding), but
+   * recorded nowhere: the binding's `probe`, else its `check`, which
+   * records as before. Only for what a response shows the caller about
+   * its own access (whoami's `tenantAdmin`, a list's `can`), through
+   * `canForDisplay` (caller.ts). Never to decide what a request may do or
+   * read: `can`, `authorize` and `filterByCan` decide that, and record.
+   */
+  readonly probe?: (c: Context<AppEnv>, action: Action, resource: ResourceRef) => Promise<boolean>;
+  /**
+   * `check`, for an item more than one project serves (`item-rights.ts`).
+   * A caller whose API key is limited to a project reaches the item when
+   * that project is one of `projects`, the item's projects. `check` asks
+   * the store instead (`inProject`), which sees only the item's parent:
+   * the project it was first published in.
+   */
+  readonly checkServedBy?: (
+    c: Context<AppEnv>,
+    action: Action,
+    resource: ResourceRef,
+    projects: readonly string[],
+  ) => Promise<Decision>;
+  /**
    * List-filtering helper — takes items + a ref-extractor and returns
    * only those items where the principal has `action` on the derived
    * resource. Preserves input order. Empty in → empty out.
@@ -60,7 +100,19 @@ export interface Authorizer {
     action: Action,
     items: readonly T[],
     refFn: (item: T) => ResourceRef,
+    /** Per item, its projects when more than one serves it (`checkServedBy`). */
+    servedByFn?: (item: T) => readonly string[] | undefined,
   ) => Promise<T[]>;
+  /**
+   * Every decision for `resources`, in their order, in one batch to the
+   * store, as `filterByCan` asks them: for a caller that needs each
+   * answer, as a refusal naming the first one refused does.
+   */
+  readonly checkMany?: (
+    c: Context<AppEnv>,
+    action: Action,
+    resources: readonly ResourceRef[],
+  ) => Promise<readonly Decision[]>;
   /**
    * The ids of every object of `type` the caller may `action`
    * (`AuthzCheckBinding.listObjects`), within its API key's limits as
@@ -119,26 +171,47 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
   /**
    * A refusal this layer decides without asking the binding: a check the
    * model can't answer (`undefinedRelation`), or what the caller's API key
-   * rules out (`keyCeilingDeny`, `inKeyProject`). Each is recorded through
-   * the binding (`recordDecision`), as it records its own decisions, so the
-   * audit holds every refusal whichever check made it.
+   * rules out (`keyCeilingDeny`, `inKeyProject`). Decided only: `ownRefusal`
+   * records it, `probe` doesn't.
+   */
+  async function refusalOf(
+    c: Context<AppEnv>,
+    principal: Principal,
+    action: Action,
+    resource: ResourceRef,
+    servedBy?: readonly string[],
+  ): Promise<Decision | undefined> {
+    const keyProject = c.get('tokenProjectId');
+    const inKey =
+      servedBy === undefined
+        ? await inKeyProject(c, principal, resource)
+        : keyProject === undefined || servedBy.includes(keyProject);
+    return (
+      undefinedRelation(c, action, resource) ??
+      keyCeilingDeny(c, action, resource) ??
+      (inKey
+        ? undefined
+        : keyDecision(
+            action,
+            resource,
+            `${limitedOne(c)} is limited to project ${c.get('tokenProjectId')}`,
+          ))
+    );
+  }
+
+  /**
+   * `refusalOf`, recorded through the binding (`recordDecision`), as it
+   * records its own decisions, so the audit holds every refusal whichever
+   * check made it.
    */
   async function ownRefusal(
     c: Context<AppEnv>,
     principal: Principal,
     action: Action,
     resource: ResourceRef,
+    servedBy?: readonly string[],
   ): Promise<Decision | undefined> {
-    const refused =
-      undefinedRelation(c, action, resource) ??
-      keyCeilingDeny(c, action, resource) ??
-      ((await inKeyProject(c, principal, resource))
-        ? undefined
-        : keyDecision(
-            action,
-            resource,
-            `${limitedOne(c)} is limited to project ${c.get('tokenProjectId')}`,
-          ));
+    const refused = await refusalOf(c, principal, action, resource, servedBy);
     if (refused !== undefined) recordFor(c, principal, action, resource, refused);
     return refused;
   }
@@ -173,6 +246,7 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
     c: Context<AppEnv>,
     action: Action,
     resource: ResourceRef,
+    servedBy?: readonly string[],
   ): Promise<Decision> {
     const principal = c.get('principal') as Principal | undefined;
     if (principal === undefined) {
@@ -188,13 +262,50 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
         },
       };
     }
-    const refused = await ownRefusal(c, principal, action, resource);
+    const refused = await ownRefusal(c, principal, action, resource, servedBy);
     if (refused !== undefined) return refused;
     return binding.check(principal, action, resource, contextOf(c));
   }
 
+  /**
+   * Each resource's decision, in order. What the model can't answer, or
+   * the key itself rules out, never reaches the store; each is recorded,
+   * as the store records its own. The rest go to the store in one batch.
+   */
+  async function decideMany(
+    c: Context<AppEnv>,
+    action: Action,
+    resources: readonly ResourceRef[],
+    servedBy?: readonly (readonly string[] | undefined)[],
+  ): Promise<readonly Decision[]> {
+    if (resources.length === 0) return [];
+    const principal = c.get('principal') as Principal | undefined;
+    if (principal === undefined) {
+      return Promise.all(resources.map((r) => checkInternal(c, action, r)));
+    }
+    const refused = await Promise.all(
+      resources.map((r, i) => ownRefusal(c, principal, action, r, servedBy?.[i])),
+    );
+    const open = resources.filter((_, i) => refused[i] === undefined);
+    const decided =
+      open.length === 0 ? [] : await binding.checkBatch(principal, action, open, contextOf(c));
+    let next = 0;
+    return resources.map((r, i) => {
+      const own = refused[i];
+      if (own !== undefined) return own;
+      return (
+        decided[next++] ?? {
+          allowed: false,
+          reason: 'the store returned no decision',
+          evidence: { action, relation: '', resource: `${r.type}:${r.id}`, actorSubject: '' },
+        }
+      );
+    });
+  }
+
   return {
-    check: checkInternal,
+    check: (c, action, resource) => checkInternal(c, action, resource),
+    checkServedBy: checkInternal,
     record(c, action, resource, decision) {
       const principal = c.get('principal') as Principal | undefined;
       if (principal !== undefined) recordFor(c, principal, action, resource, decision);
@@ -202,6 +313,20 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
     async can(c, action, resource) {
       const d = await checkInternal(c, action, resource);
       return d.allowed;
+    },
+    async canFor(c, principal, action, resource) {
+      const d = await binding.check(principal, action, resource, contextOf(c));
+      return d.allowed;
+    },
+    async probe(c, action, resource) {
+      const principal = c.get('principal') as Principal | undefined;
+      if (principal === undefined) return false;
+      if ((await refusalOf(c, principal, action, resource)) !== undefined) return false;
+      const decision =
+        binding.probe !== undefined
+          ? await binding.probe(principal, action, resource, contextOf(c))
+          : await binding.check(principal, action, resource, contextOf(c));
+      return decision.allowed;
     },
     authorize(action, getResource) {
       return async (c, next) => {
@@ -230,25 +355,17 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
         return next();
       };
     },
-    async filterByCan(c, action, items, refFn) {
+    async filterByCan(c, action, items, refFn, servedByFn) {
       if (items.length === 0) return [];
-      const principal = c.get('principal') as Principal | undefined;
-      if (principal === undefined) return [];
-      // What the model can't answer, or the key itself rules out, never
-      // reaches the store; each is recorded, as the store records its own.
-      const refused = await Promise.all(
-        items.map((item) => ownRefusal(c, principal, action, refFn(item))),
+      const decisions = await decideMany(
+        c,
+        action,
+        items.map(refFn),
+        servedByFn === undefined ? undefined : items.map(servedByFn),
       );
-      const open = items.filter((_, i) => refused[i] === undefined);
-      if (open.length === 0) return [];
-      const refs = open.map(refFn);
-      const decisions = await binding.checkBatch(principal, action, refs, contextOf(c));
-      const out: (typeof items)[number][] = [];
-      for (let i = 0; i < open.length; i++) {
-        if (decisions[i]?.allowed) out.push(open[i] as (typeof items)[number]);
-      }
-      return out;
+      return items.filter((_, i) => decisions[i]?.allowed === true);
     },
+    checkMany: (c, action, resources) => decideMany(c, action, resources),
     async listObjects(c, action, type) {
       if (binding.listObjects === undefined) return undefined;
       const principal = c.get('principal') as Principal | undefined;
@@ -273,8 +390,8 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
 
 /**
  * A check must name a relation the authorization model defines for the
- * resource's type (`OBJECT_ACTIONS`, kept equal to the runtime's model by
- * its tests). Any other pair is a bug in the route: the PDP rejects it
+ * resource's type (`OBJECT_ACTIONS`, with `CHECK_ONLY_ACTIONS`, kept equal
+ * to the runtime's model by its tests). Any other pair is a bug in the route: the PDP rejects it
  * for everyone, the seed admin included, and only with authorization on,
  * so it's refused here, naming the pair, and logged at `error` through the
  * request's logger (subsystem `authz`).
@@ -284,8 +401,11 @@ function undefinedRelation(
   action: Action,
   resource: ResourceRef,
 ): Decision | undefined {
-  const defined = OBJECT_ACTIONS[resource.type as ObjectType] as readonly Action[] | undefined;
+  const type = resource.type as ObjectType;
+  const defined = OBJECT_ACTIONS[type] as readonly Action[] | undefined;
   if (defined?.includes(action) === true) return undefined;
+  // Defined by the model, but not reported (`CHECK_ONLY_ACTIONS`).
+  if (CHECK_ONLY_ACTIONS[type]?.includes(action) === true) return undefined;
   const reason = `the authorization model has no \`${action}\` on \`${resource.type}\` (a check that can never pass: a bug in the route)`;
   c.get('log')
     .child({ subsystem: 'authz' })
@@ -356,7 +476,7 @@ function keyCeilingDeny(
     return keyDecision(
       action,
       resource,
-      `a member ${c.get('sessionId') !== undefined ? 'session' : 'API key'} takes no admin action on the tenant`,
+      `a member ${c.get('sessionId') !== undefined ? 'session' : 'API key'} takes no admin action on the workspace`,
     );
   }
   const keyProject = c.get('tokenProjectId');

@@ -12,6 +12,17 @@ const QUIET_PATHS: ReadonlySet<string> = new Set(['/health', '/ready', '/v1/open
 
 const WRITES: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
+/** A wait token's link: its path segment is the credential. */
+const WAIT_TOKEN_PATH = /^\/v1\/wait-tokens\/[^/]+/;
+
+/**
+ * A request's raw path, as an access line may write it: a wait token's
+ * link with the token cut (`/v1/wait-tokens/:token/…`).
+ */
+export function loggablePath(path: string): string {
+  return path.replace(WAIT_TOKEN_PATH, '/v1/wait-tokens/:token');
+}
+
 /**
  * The access line's level, so `info` stays readable with a console open
  * (it polls every few seconds): a write, and every 4xx, at `info`; every
@@ -44,7 +55,9 @@ export function accessLevel(c: Context<AppEnv>): LogLevel {
  *     routes log through it, and authentication adds `tenantId`.
  *   - **Access line:** `METHOD route status ms`, with the route's
  *     pattern (`/v1/runs/:runId`, never the raw path, so ids don't
- *     multiply lines), at the level `accessLevel` gives.
+ *     multiply lines), at the level `accessLevel` gives. A request no
+ *     route matched writes its raw path, with a wait token's cut
+ *     (`loggablePath`): the token is a credential.
  *
  * Mounted right after the request-id middleware.
  */
@@ -71,7 +84,7 @@ export function requestLogMiddleware(logger: Logger): MiddlewareHandler<AppEnv> 
       if (log.isLevelEnabled(level)) {
         // The responding route's pattern; a request no route matched ends on a wildcard.
         const pattern = routePath(c, -1);
-        const route = pattern.endsWith('*') ? c.req.path : pattern;
+        const route = pattern.endsWith('*') ? loggablePath(c.req.path) : pattern;
         const durationMs = Date.now() - started;
         const stream = (c.res.headers.get('content-type') ?? '').startsWith('text/event-stream');
         log[stream ? 'debug' : level](

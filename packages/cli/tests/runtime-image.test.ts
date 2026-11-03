@@ -9,7 +9,7 @@ describe('the runtime image kindgi dev runs', () => {
   test('is pinned by digest, so an older local pull of the same tag is never used', () => {
     expect(DEFAULT_RUNTIME_IMAGE).toMatch(
       // A release, or a release candidate (`0.1.4-rc.0`).
-      /^quay\.io\/kindgi\/runtime:\d+\.\d+\.\d+(?:-rc\.\d+)?@sha256:[0-9a-f]{64}$/,
+      /^registry\.kindgi\.com\/kindgi\/runtime:\d+\.\d+\.\d+(?:-rc\.\d+)?@sha256:[0-9a-f]{64}$/,
     );
   });
 });

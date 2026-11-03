@@ -85,7 +85,7 @@ export interface InvalidCursorError {
 
 /**
  * An evidence write (`recordFromRun`, `ComplianceProvider.emit`) named a
- * `projectId` that doesn't exist inside the tenant. Distinct from
+ * `projectId` that doesn't exist inside the workspace. Distinct from
  * `PersistenceError` so the API layer can map the caller-shape bug to a
  * 404 wire response rather than 500.
  */

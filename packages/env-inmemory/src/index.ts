@@ -12,6 +12,8 @@
  * on `Scope` in `@kindgi/platform` is `project → org → tenant`.
  */
 
+import { randomUUID } from 'node:crypto';
+
 import type {
   EnvBinding,
   EnvDeleteInput,
@@ -34,6 +36,11 @@ import type { Logger } from '@kindgi/log';
 import type { Scope } from '@kindgi/platform';
 import { scopeKey } from '@kindgi/platform';
 import type { EnvName, ProjectId, Result, TenantId } from '@kindgi/types';
+
+export {
+  type InMemoryEnvCloudSecretBindingOptions,
+  createInMemoryEnvCloudSecretBinding,
+} from './cloud-secrets.js';
 
 /**
  * Options for the in-memory env binding.
@@ -60,7 +67,7 @@ export interface InMemoryEnvBindingOptions {
    *
    * `tenantId` + `projectId` must be provided alongside — emission is
    * enabled only when all three are set, and every emitted record is
-   * attributed to this tenant + project.
+   * attributed to this workspace + project.
    */
   readonly auditEvents?: AuditEventBinding;
   readonly tenantId?: TenantId;
@@ -253,6 +260,7 @@ export function createInMemoryEnvBinding(options: InMemoryEnvBindingOptions = {}
         createdAt,
         updatedAt,
         ...(input.tags !== undefined && { tags: input.tags }),
+        recordId: rowId(existing),
       };
       byName.set(input.name, record);
       if (canEmit) {
@@ -303,4 +311,9 @@ function matchesTagFilter(rec: EnvRecord, filter: Readonly<Record<string, string
     if (tags[k] !== v) return false;
   }
   return true;
+}
+
+/** A row's id: the one it has, or a new one for a new row, as a removed value set again is. */
+function rowId(existing: EnvRecord | undefined): string {
+  return existing?.recordId ?? randomUUID();
 }

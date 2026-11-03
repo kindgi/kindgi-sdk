@@ -22,7 +22,10 @@ afterEach(async () => {
   await rm(cwd, { recursive: true, force: true });
 });
 
-async function prepare(argv: readonly string[]) {
+async function prepare(
+  argv: readonly string[],
+  events: readonly unknown[] = [{ kind: 'ready', message: 'warm' }],
+) {
   const calls: unknown[] = [];
   const out = await runCli({
     argv: ['adapters', 'prepare', ...argv, '--url=https://x', '--token=t'],
@@ -36,7 +39,7 @@ async function prepare(argv: readonly string[]) {
             const { signal: _signal, ...sent } = input;
             calls.push(sent);
             return (async function* () {
-              yield { kind: 'ready', message: 'warm' };
+              yield* events;
             })();
           },
         },
@@ -83,5 +86,23 @@ describe('kindgi adapters prepare', () => {
     expect(out.exitCode).not.toBe(0);
     expect(out.stderr).toContain('absent.json');
     expect(calls).toEqual([]);
+  });
+
+  test('--quiet: nothing for a prepare that is ready; the failure alone, or a stream that never said, is still said', async () => {
+    const progress = { kind: 'progress', message: 'loading', ratio: 0.5 };
+    const ready = await prepare(['acme-onnx', '--quiet'], [progress, { kind: 'ready' }]);
+    expect(ready.out.exitCode, ready.out.stderr).toBe(0);
+    expect([ready.out.stdout, ready.out.stderr]).toEqual(['', '']);
+
+    const failed = await prepare(
+      ['acme-onnx', '--quiet'],
+      [progress, { kind: 'error', message: 'no GPU' }],
+    );
+    expect(failed.out.exitCode).toBe(1);
+    expect(failed.out.stderr).toBe('\n  Failed: no GPU\n\n');
+
+    const unsaid = await prepare(['acme-onnx', '--quiet'], [progress]);
+    expect(unsaid.out.exitCode, unsaid.out.stderr).toBe(0);
+    expect(unsaid.out.stderr).toBe('\n  Ready: stream ended without terminal event\n\n');
   });
 });

@@ -45,6 +45,13 @@ export interface WriteAuditInput {
   readonly writeMode?: 'create-new' | 'add-version';
   readonly rotationId?: string;
   readonly revokedValuesPurged?: true;
+  /** A hard revoke left a recoverable copy in the secret manager, until this ISO 8601 time. */
+  readonly recoverableUntil?: string;
+  /**
+   * An env name set to, or removed from, a cloud secret. Never its path: a
+   * tenant may read this row, and only the operator reads the path.
+   */
+  readonly cloudSecret?: true;
 }
 
 /**

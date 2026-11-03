@@ -22,7 +22,7 @@ export function slugConflictError(resource: HierarchyResource, slug: string) {
     message:
       resource === 'project'
         ? `Another project in its org has the slug "${slug}" (for a project without an org: another project without one)`
-        : `Another ${resource} in the tenant has the slug "${slug}"`,
+        : `Another ${resource} in the workspace has the slug "${slug}"`,
     resource,
     slug,
   } as const;
@@ -51,11 +51,40 @@ export function orgNotFoundError(orgId: string) {
   return { code: 'org-not-found', message: `No org with id "${orgId}"`, orgId } as const;
 }
 
-/** `409 project-default-already-exists`: the tenant has a Default project. */
+/** `409 project-default-already-exists`: the tenant has a default project. */
 export function projectDefaultAlreadyExistsError() {
   return {
     code: 'project-default-already-exists',
-    message: 'The tenant already has a Default project',
+    message: 'The workspace already has a default project',
+  } as const;
+}
+
+/**
+ * `409 project-in-environment-order`: the project is a member of an
+ * environment order, so it can't be deleted or moved to another parent.
+ * Clear it from the order first. The answer names the order (`details.orderId`).
+ */
+export function projectInEnvironmentOrderError(orderId: string) {
+  return {
+    code: 'project-in-environment-order',
+    message:
+      'The project is a member of an environment order; clear it from the order before deleting or moving it.',
+    orderId,
+  } as const;
+}
+
+/**
+ * `409 org-has-environment-order`: the org is the parent of an environment
+ * order, so deleting it would orphan the order. A tenant admin clears the
+ * order first (`PUT /v1/environment-orders/orgs/{orgId}` with `[]`). The
+ * answer names the order (`details.orderId`).
+ */
+export function orgHasEnvironmentOrderError(orderId: string) {
+  return {
+    code: 'org-has-environment-order',
+    message:
+      'The org is the parent of an environment order; clear the order before deleting the org.',
+    orderId,
   } as const;
 }
 

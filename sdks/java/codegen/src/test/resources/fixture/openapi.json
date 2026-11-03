@@ -463,7 +463,7 @@
             }
           },
           {
-            "name": "X-Supervisor-Id",
+            "name": "X-Request-Id",
             "in": "header",
             "required": true,
             "schema": {
@@ -657,6 +657,18 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Node"
+            }
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WidgetState"
+            }
+          },
+          "stateByRegion": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/WidgetState"
             }
           }
         }
@@ -884,6 +896,16 @@
                 "type": "null"
               }
             ]
+          },
+          "state": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/WidgetState"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -989,6 +1011,22 @@
         "properties": {
           "id": {
             "type": "string"
+          }
+        }
+      },
+      "Meter": {
+        "type": "object",
+        "description": "An open record whose other properties are numbers, beside a property that can be left out or `null`.",
+        "additionalProperties": {
+          "type": "integer"
+        },
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "unit": {
+            "type": ["string", "null"]
           }
         }
       },

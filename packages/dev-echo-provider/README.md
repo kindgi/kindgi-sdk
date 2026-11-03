@@ -37,7 +37,7 @@ import { createDevEchoProvider } from '@kindgi/dev-echo-provider';
 import { createProviderRegistry } from '@kindgi/capabilities';
 
 const provider = createDevEchoProvider();
-// Registry is tenant-scoped — register the provider for each tenant
+// Registry is workspace-scoped — register the provider for each workspace
 // that should have it available.
 const { registry } = createProviderRegistry([
   { tenantId, provider },

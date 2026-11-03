@@ -9,25 +9,39 @@ When you finish this page, your runtime checks every request against who
 may read, write or administer each project, with OpenFGA running next to
 it.
 
-A self-hosted runtime checks one thing on each request by default: the API
-token. Whoever holds it can do anything in its tenant. **Authorization** adds a
-second check, per resource, kept in [OpenFGA](https://openfga.dev): who may
-read, write or administer each project and what's in it.
+By default, a self-hosted runtime lets in whoever holds a key or a sign-in,
+and each may work in every project. Workspace settings are the tenant admin's
+([Without authorization](../people-and-keys/#without-authorization)).
+**Authorization** adds a check per resource, kept in
+[OpenFGA](https://openfga.dev): who may read, write or administer each
+project and what's in it.
+
+:::note[On Kindgi Cloud]
+Authorization is always on, and Kindgi runs OpenFGA. Skip
+[Before you start](#before-you-start) and
+[Run OpenFGA next to the runtime](#run-openfga-next-to-the-runtime), and the
+runtime's `KINDGI_*` settings: they're Kindgi's.
+:::
 
 ## What it gives, and what it doesn't
 
-Authorization is for several people and teams sharing one deployment:
+Authorization is for people and teams who share one deployment but need
+different access:
 
-- **People and service accounts, each with their own keys.** A tenant admin
-  adds people, who [sign in to the console](../sign-in/) and make their own
-  API keys, and service accounts for pipelines and apps
-  ([People, API keys and service accounts](../people-and-keys/)). The
-  runtime's seed user (`KINDGI_SEED_USER_ID`) is the first tenant admin.
+- **Roles for people and service accounts.** People
+  [sign in to the console](../self-hosted/sign-in/) and make their own API
+  keys either way, and service accounts act for pipelines and apps
+  ([People, API keys and service accounts](../people-and-keys/)). With
+  authorization, a tenant admin gives each a role, and can make others
+  tenant admins. The runtime's seed user (`KINDGI_SEED_USER_ID`) is the
+  first.
 - **Every request is checked** against what its caller may do: tenant admin,
   tenant member, a role on a project, or a reviewer role. Lists hold only
   what the caller may read.
-- **Every decision is recorded,** allowed or denied, with who asked, what for
-  and why ([The access audit](#the-access-audit)).
+- **Every decision on what a request may do or read is recorded,** allowed
+  or denied, with who asked, what for and why
+  ([The access audit](#the-access-audit)). What the console reads to show
+  you your own access isn't (runtime 0.6.0 or later).
 - **Registering an approval reviewer takes a tenant admin.** A tenant admin
   reads approvals at every tier without registering, through a session or an
   `admin` key not limited to a project, in the projects they may read.
@@ -35,13 +49,15 @@ Authorization is for several people and teams sharing one deployment:
 - **A team can have a role on a project** through the API
   ([Team grants](#team-grants)). The console doesn't offer it.
 
-**Turn it on** when more than one person or system uses a deployment.
-**Leave it off** if one operator is all you need: you'd run OpenFGA for
-little else. `kindgi dev` runs without it.
+**Turn it on** when people need different access, such as a viewer or a
+project of their own, or when more than one person needs to be a tenant
+admin. A runtime serving many tenants needs it. **Leave it off** when
+everyone who signs in may work in every project, such as one operator or a
+small team that trusts each other. `kindgi dev` runs without it.
 
 ## Before you start
 
-- **A runtime set up as in [Self-host Kindgi](../self-host/),** with its
+- **A runtime set up as in [Self-host Kindgi](../self-hosted/self-host/),** with its
   `kindgi` Docker network and its `kindgi-db` Postgres container.
   `DB_PASSWORD` is that Postgres's password.
 - **Runtime 0.1.4.1 or later.** On a managed Postgres whose database user
@@ -56,7 +72,7 @@ OpenFGA security advisories affect that version
 ([OpenFGA: security advisories](https://github.com/openfga/openfga/security/advisories)).
 OpenFGA keeps its data in Postgres:
 give it its own database on the runtime's server. These commands continue
-[Self-host Kindgi](../self-host/) (the `kindgi` network and the `kindgi-db`
+[Self-host Kindgi](../self-hosted/self-host/) (the `kindgi` network and the `kindgi-db`
 container):
 
 ```sh
@@ -86,12 +102,18 @@ migration done
   runs it in the background, and `--restart unless-stopped` has Docker
   start it again after a restart.
 
+These commands reach Postgres over the `kindgi` network, which doesn't
+leave the machine, so the URI turns TLS off (`sslmode=disable`). When
+OpenFGA reaches its database over another network, have it check the
+server's certificate
+([OpenFGA's connection to the database](../self-hosted/database-tls/#openfgas-connection-to-the-database)).
+
 Keep OpenFGA on the private network, with no published port: the runtime
 calls it without credentials unless OpenFGA requires a key
 ([Require a key for OpenFGA](#require-a-key-for-openfga), which needs runtime
 0.1.8 or later).
 The playground is off: it's for trying OpenFGA on your own machine. Back up its `openfga` database with the
-runtime's ([Back up Postgres](../back-up-and-restore/#back-up-postgres)).
+runtime's ([Back up Postgres](../self-hosted/back-up-and-restore/#back-up-postgres)).
 
 ### An OpenFGA you already run
 
@@ -119,7 +141,7 @@ connections are set with `OPENFGA_DATASTORE_MIN_IDLE_CONNS` instead
 ### Point the runtime at it
 
 Set OpenFGA's address in `kindgi.env`, and
-[restart](../restart-and-check-health/#restart-the-runtime) the runtime:
+[restart](../self-hosted/restart-and-check-health/#restart-the-runtime) the runtime:
 
 ```sh
 KINDGI_OPENFGA_API_URL=http://kindgi-openfga:8080
@@ -134,30 +156,30 @@ log says so:
 ```
 
 After an upgrade, a start that brings the store up to the new version's model
-logs one line for it ([Operate](../operate/#from-013-to-014) has the line).
+logs one line for it ([Operate](../self-hosted/operate/#from-013-to-014) has the line).
 
 :::caution[Keep the seed user]
-With authorization on, keep the seed user the same. Set `KINDGI_SEED_USER_ID`,
-or keep `KINDGI_API_TOKEN` unchanged: the runtime then keeps the token's user
-across restarts. Each boot makes its seed user a tenant admin. But what was
-granted to an earlier one stays with that user, such as a project role and
-the keys minted for them. A runtime started with a new token and no
-`KINDGI_SEED_USER_ID` says so when it starts:
+With authorization on, keep the seed user the same. Set `KINDGI_SEED_USER_ID`
+to a UUID, or keep `KINDGI_API_TOKEN` unchanged: the runtime then keeps the
+token's user across restarts. Each boot makes its seed user a tenant admin.
+But what was granted to an earlier one stays with that user, such as a
+project role and the keys minted for them. A runtime started with a new
+token and no `KINDGI_SEED_USER_ID` says so when it starts:
 `⚠ KINDGI_API_TOKEN changed, so it acts as a new user`.
 :::
 
 **When OpenFGA is unreachable,** requests that need a check answer `500
 internal-server-error` with `Unhandled server error` and the request id
-(runtime 0.1.8.1 or later; earlier ones answer with the cause itself). The
+(runtime 0.1.9 or later; earlier ones answer with the cause itself). The
 runtime's `unhandled error` log line for that request id has the cause,
-`FGA Error: connect ECONNREFUSED …` ([Logs](../logs/)). They work again
+`FGA Error: connect ECONNREFUSED …` ([Logs](../self-hosted/logs/)). They work again
 once it's back.
 
 **When the database fails one tenant's permission changes:** the runtime
 sends permission changes to OpenFGA from a queue in Postgres, about twice a
 second: a grant, a revoke, a new project or a new agent. When it can't read
 or update one tenant's part of that queue, it logs an error
-([Logs](../logs/)). Here, with the database out of reach:
+([Logs](../self-hosted/logs/)). Here, with the database out of reach:
 
 ```json
 {"time":"2026-10-12T06:21:01.457Z","level":"error","severity":"ERROR","subsystem":"authz.outbox","message":"drain: a tenant failed","tenantId":"0b6a3f2e-6c1d-4a8e-9f4b-2d7c5e1a9b30","error":"Tenant-scoped query failed: connection refused (connect ECONNREFUSED …)"}
@@ -206,7 +228,7 @@ KINDGI_OPENFGA_PRESHARED_KEY=<the same key>
 
 The key is printable ASCII, without spaces or commas: it travels in a header,
 and OpenFGA's list of keys is comma-separated. After a
-[restart](../restart-and-check-health/#restart-the-runtime), the startup lines say what the
+[restart](../self-hosted/restart-and-check-health/#restart-the-runtime), the startup lines say what the
 runtime's calls carry, never the key:
 
 ```text
@@ -229,7 +251,7 @@ restart each in turn:
 3. Drop the old key from OpenFGA's list. Restart OpenFGA.
 
 On Cloud Run, OpenFGA's IAM adds a second check:
-[OpenFGA behind Cloud Run IAM](../cloud-run/#openfga-behind-cloud-run-iam).
+[OpenFGA behind Cloud Run IAM](../self-hosted/cloud-run/#openfga-behind-cloud-run-iam).
 
 ## A denied request
 
@@ -253,16 +275,16 @@ checks every call.
 - **A project's viewer** reads its pages and takes no action in them. A
   line under the console's header says so on each of the project's pages:
   "You can view this project; changes need an editor." When a tenant admin
-  set the tenant's own line, `console.readOnlyNotice`, it shows instead,
+  set the workspace's own line, `console.readOnlyNotice`, it shows instead,
   such as "Ask Ana Ruiz for edit access."
 - **An editor** may also "run agents and flows, work on agent versions,
-  publish data blocks, judge runs, compare versions on test sets", in the
-  console's words. An agent's page offers them **Register new version** and
-  **Start run**, which a viewer's doesn't.
-- **A project admin** may also "promote versions, register agents and
-  tools, build test sets, rescore comparisons, set judge classes", and
+  publish prompts and settings, correct runs, sort corrections, add and
+  retire test cases", in the console's words. An agent's page offers them
+  **Start a run**, which a viewer's doesn't.
+- **A project admin** may also "pin versions, register agents and tools,
+  rescore test runs, set corrector groups, remove others' corrections", and
   changes who works in the project ([Members](#in-the-console-members)).
-- **The tenant's sections** show to those they're for:
+- **The workspace's sections** show to those they're for:
   - People, Service accounts, Policies, Webhooks, Sign-in, Access audit and
     the like, to tenant admins;
   - the Inbox and Approvals, to reviewers;
@@ -270,16 +292,16 @@ checks every call.
 
 ![A project's Agents page as Gus Moreno, a viewer of Support: under the header, "You can view this project; changes need an editor."; the agents list (Support agent, acme.support, version 1.0.0) with no buttons.](../../../assets/access/viewer-project.png)
 
-**My access**, in the tenant's sections, is what you may do and how you
+**My access**, in the workspace's sections, is what you may do and how you
 have it. It starts with a sentence, such as "You're an editor in 1
-project." Then it has your tenant role ("Tenant: member. Its people, keys
+project." Then it has your tenant role ("Workspace: member. Its people, keys
 and settings are its admins'."), and your reviewer role if you have one.
 Last is a table of your projects: your role, how you have it, and what it
 lets you do and doesn't. You can have a role directly, through a team, as an
 admin of the org, or as a tenant admin. **The detail** holds your ids and
 what each role allows on each kind of object.
 
-![My access as Eda Brooks: "You're an editor in 1 project." and "Tenant: member. Its people, keys and settings are its admins'."; a table with Support, Editor, directly, and what it lets her do: "run agents and flows, work on agent versions, publish data blocks, judge runs, compare versions on test sets; not promote versions, register agents and tools, build test sets, rescore comparisons, set judge classes"; and The detail, closed.](../../../assets/access/my-access.png)
+![My access as Eda Brooks: "You're an editor in 1 project." and "Tenant: member. Its people, keys and settings are its admins'."; a table with Support, Editor, directly, and what it lets her do: "run agents and flows, work on agent versions, publish prompts and settings, correct runs, sort corrections, add and retire test cases; not pin versions, register agents and tools, rescore test runs, set corrector groups, remove others' corrections"; and The detail, closed.](../../../assets/access/my-access.png)
 
 ## Project memberships
 
@@ -293,7 +315,7 @@ Adding, changing or removing a membership changes OpenFGA too:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/projects/<project-id>/memberships" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
   -d '{"userId":"<user-id>","role":"editor"}'
 ```
 
@@ -304,13 +326,19 @@ curl -X POST "$KINDGI_API_URL/v1/projects/<project-id>/memberships" \
   API key.
 
 You can name the person by `email` instead of `userId`. It matches one of
-the tenant's people, whatever its case
+the workspace's people, whatever its case
 ([Add a person](../people-and-keys/#add-a-person)).
 `PATCH …/memberships/<user-id>` with `{"role":"viewer"}` changes the role, and
 `DELETE …/memberships/<user-id>` removes the member. In the clients, the
 calls are `projects.memberships.add`, `updateRole` and `remove`, with
 `update_role` in Python. Changing members takes `admin` on the project: a
 tenant admin, or the project's own admins.
+
+A project's admins also decide which of its triggers run as the project:
+`--run-as=project` on a schedule, webhook trigger or mail trigger runs it
+as the project's own service account, which has the `editor` role on the
+project ([A project's own account](../people-and-keys/#a-projects-own-account)).
+Without an authorization store, a tenant-admin key does that.
 
 Adding someone who's a member already keeps their role. The same role answers
 `201` with the existing membership; another one is `409 membership-exists`,
@@ -326,21 +354,22 @@ In the console, a project's admins do this on its **Members** page: see
 
 ## Teams
 
-A team is a group of the tenant's people, each in it as a `member` or an
+A team is a group of the workspace's people, each in it as a `member` or an
 `admin`. A tenant admin makes one with `POST /v1/teams`, giving a `name`, a
 `slug` and an optional `description`, and holds its `admin` role. Its
 admins, and tenant admins, add and take out its people
 (`…/teams/<team-id>/memberships`), change their roles, and rename it
-(`PATCH /v1/teams/<team-id>`). A team's role on a project reaches everyone
-in it ([Team grants](#team-grants)).
+(`PATCH /v1/teams/<team-id>`). Only a tenant admin moves it into or out of
+an org (`orgId` on that `PATCH`), since the org's admins run it. A team's
+role on a project reaches everyone in it ([Team grants](#team-grants)).
 
 ### In the console: Teams
 
-**Teams**, in the tenant's sections, shows to tenant admins and anyone in a
+**Teams**, in the workspace's sections, shows to tenant admins and anyone in a
 team, with the teams each may see. A tenant admin makes one with **New
 team**: "A group of people, run by its admins: they decide who is in it.
 You add the first people on its page." It takes a name, a slug ("Lowercase
-letters, digits and hyphens; unique in the tenant.") and what the team is.
+letters, digits and hyphens; unique in the workspace.") and what the team is.
 
 ![The Teams page as a tenant admin: "1 team.", Support crew (support-crew, "First-line support"), a New team button, and under the list "The console doesn't give a team a role on a project yet: the API does (team grants)."](../../../assets/teams/teams.png)
 
@@ -348,7 +377,7 @@ A team's page, for its admins and tenant admins, says how many are in it
 and how many run it, such as "4 people, 2 run it.", and lists them with
 their role and since when. There they rename it, and the slug stays. They
 change someone's role, take someone out, which asks first, and add someone
-from the tenant's people. Finding a person reads the tenant's people, so
+from the workspace's people. Finding a person reads the workspace's people, so
 adding someone takes a tenant admin.
 
 ![Support crew's page as a tenant admin: "4 people, 2 run it." and "The console doesn't give a team a role on a project yet: the API does (team grants)."; Add someone to Support crew (a person, a role, Add); and the list: the seed user and Ana Ruiz (admins), Ben Okafor and Ada Lovelace (members), each with a role to change and Take out; a Rename button.](../../../assets/teams/team.png)
@@ -368,7 +397,7 @@ team never owns a project: `owner` is a person's role.
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/projects/<project-id>/team-grants" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
   -d '{"teamId":"<team-id>","role":"editor"}'
 ```
 
@@ -452,6 +481,12 @@ of the project:
 - **A direct role with `joinedAt`** is a membership: change or remove it with
   `…/memberships/<user-id>`. One without `joinedAt` has no membership behind
   it, such as the creator of a project an older runtime made.
+- **A project made with a service account's key has no creator** (runtime
+  0.3.0 or later). It lists only who was given access to it, and the
+  workspace's admins (and its org's, if it's in one). One an older runtime made
+  lists `00000000-0000-0000-0000-000000000000` as its owner, an id no person
+  has: `kindgi-runtime tenants repair --all` (or `--tenant <id>`) takes it
+  away.
 - **A team's role** is changed on its grant (`…/team-grants/<team-id>`).
 
 Reading it takes `write` on the project: its editors and admins. Emails show
@@ -475,9 +510,9 @@ project's admins.
 
 A project admin changes who works there:
 
-- **Add someone** by their email in the tenant, with one of the four roles.
-  An email that isn't one of the tenant's people isn't added: "No one with
-  that email in this tenant: a tenant admin adds them on People first."
+- **Add someone** by their email in the workspace, with one of the four roles.
+  An email that isn't one of the workspace's people isn't added: "No one with
+  that email in this workspace: a tenant admin adds them on People first."
 - **Change** a person's role of their own. When another way in gives them
   more, it says so under it, such as "editor through another way in". A
   role through a team, an org or tenant admin is changed where it comes
@@ -494,14 +529,14 @@ more.
 
 ## The access audit
 
-Each decision the authorization model makes, allowed or denied, is kept. So
-is a refusal the API answers from its own checks. `GET /v1/audit/authz`
-lists them, oldest first, for a tenant admin. `order=desc` lists the newest
-first, and its cursor goes on in that order: `order: 'desc'` in TypeScript,
-`order="desc"` in Python. They're kept for good, unless the runtime purges
-audit events. With `KINDGI_COMPLIANCE_CLASSIFIER=shipped`, it purges allowed
-ones after 90 days and denied ones after 365
-([Audit events](../retention/#audit-events)).
+Each decision the authorization model makes on what a request may do or
+read, allowed or denied, is kept. So is a refusal the API answers from its
+own checks. `GET /v1/audit/authz` lists them, oldest first, for a tenant
+admin. `order=desc` lists the newest first, and its cursor goes on in that
+order: `order: 'desc'` in TypeScript, `order="desc"` in Python. They're kept
+for good, unless the runtime purges audit events. With
+`KINDGI_COMPLIANCE_CLASSIFIER=shipped`, it purges allowed ones after 90 days
+and denied ones after 365 ([Audit events](../retention/#audit-events)).
 
 ```json
 {
@@ -530,13 +565,15 @@ refused:
 - minting a key with capabilities you don't hold;
 - on the approvals routes, a caller who isn't a reviewer, unless it's a
   tenant admin reading them;
-- a caller who may not judge as a restricted judge class
-  (`judge-class-not-allowed`);
+- a caller who may not correct as an expert group
+  (`corrector-group-not-allowed`);
 - the operator's identity-provider lock (`identity-providers-operator-managed`);
 - reading the deployment's license (`GET /v1/license`) or its use
   (`GET /v1/license/usage`) without its own token or a system key holding
-  `system:license`, unless you're an admin of the one tenant it serves
-  reading the license (`license-operator-only`);
+  `system:license`, unless you're an admin of its one tenant reading the
+  license, where it's set up to serve one tenant (without
+  `KINDGI_TENANCY=multi`) and its database holds only that one
+  (`license-operator-only`);
 - console token sign-in's refusals (`token-sign-in-not-allowed`,
   `token-sign-in-off`);
 - a stdio MCP endpoint where the deployment runs no commands
@@ -545,8 +582,16 @@ refused:
 Never kept, since they don't refuse the caller: `signer-not-trusted`,
 `csrf-origin-mismatch` and `role-exceeds-principal`, a limit on the key
 being minted. Nor is a refusal of a request with no principal behind it: a
-public run token used outside its two progress routes, or judging without a
-user or a service token. A `401`, for an unknown caller, never is.
+public run token used outside its two progress routes, or correcting a run
+without a user or a service token. A `401`, for an unknown caller, never is.
+
+On runtime 0.6.0 or later, what a caller is shown about its own access isn't
+kept either, allowed or not: whoami's `tenantAdmin`
+(`GET /v1/identity/whoami`), `GET /v1/identity/me/permissions`, and an
+expert queue item's `can` (whether you may dismiss or reopen it). A console
+reads them often, to choose which pages and buttons to show, and none of
+them lets the caller do anything. Each request it then makes is checked, and
+kept, as above.
 
 ### In the console
 
@@ -564,6 +609,6 @@ and the check it asked OpenFGA, which is the evidence.
 
 - [People, API keys and service accounts](../people-and-keys/): add the
   people and accounts that authorization checks.
-- [Turn on sign-in](../sign-in/): how people sign in to the console.
-- [Back up and restore the runtime's database](../back-up-and-restore/):
+- [Turn on sign-in](../self-hosted/sign-in/): how people sign in to the console.
+- [Back up and restore the runtime's database](../self-hosted/back-up-and-restore/):
   back up OpenFGA's database with the runtime's.

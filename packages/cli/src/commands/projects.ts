@@ -3,7 +3,7 @@
 
 /**
  * `kindgi projects`: find the project ids the `--project=<id>` flags take
- * (blocks, eval suites and runs, judge classes, agents derive), make and
+ * (blocks, test sets and runs, corrector groups), make and
  * rename projects, and put a project in production. Mirrors the clients'
  * `projects.list`, `projects.getDefault`, `projects.get`,
  * `projects.create`, `projects.update` and `projects.setProduction`.
@@ -15,6 +15,7 @@ import { renderJson } from '../output.js';
 import { SLUG, slugOf } from '../slug.js';
 import {
   commandResultFromThrown,
+  givenFlag,
   integerFlag,
   requiredPositional,
   runSdk,
@@ -25,7 +26,7 @@ import type { Command, CommandResult, LeafCommand } from './types.js';
 const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
-  description: "List the tenant's projects.",
+  description: "List the workspace's projects.",
   usage: 'kindgi projects list [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     limit: { type: 'string', description: 'The most projects to return.' },
@@ -48,7 +49,7 @@ const list: LeafCommand = {
 const getDefault: LeafCommand = {
   kind: 'leaf',
   name: 'get-default',
-  description: "The tenant's Default project, the one used when none is named.",
+  description: "The workspace's default project, the one used when none is named.",
   usage: 'kindgi projects get-default',
   run: (ctx) =>
     runSdk(ctx, 'projects get-default', async () => await ctx.client().projects.getDefault()),
@@ -65,19 +66,6 @@ const get: LeafCommand = {
       return await ctx.client().projects.get(id);
     }),
 };
-
-/**
- * A flag's value, trimmed, or `undefined` when it isn't given. Given empty
- * (`--org=$ORG` with `ORG` unset) is a usage error, never the same as not
- * given: a project in no org, or a slug nobody chose, would be made.
- */
-function givenFlag(ctx: CommandContext, name: string): string | undefined {
-  const raw = ctx.options[name];
-  if (raw === undefined) return undefined;
-  const value = typeof raw === 'string' ? raw.trim() : '';
-  if (value === '') throw new UsageError(`--${name} takes a value`);
-  return value;
-}
 
 /**
  * The project, as `projects get` prints it. The change went through before

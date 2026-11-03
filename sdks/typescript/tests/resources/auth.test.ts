@@ -108,3 +108,28 @@ describe('auth — wire round-trips', () => {
     expect(urls[1]?.search).toBe('');
   });
 });
+
+describe("auth.settings — the workspace's sign-in settings", () => {
+  it('reads them, and requires a second factor', async () => {
+    const off = { secondFactor: { required: false, onPreviousSecret: 0, unusable: 0 } };
+    const on = { secondFactor: { required: true, onPreviousSecret: 0, unusable: 0 } };
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify(off) },
+      { status: 200, body: JSON.stringify(on) },
+    ]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    expect(await client.auth.settings.get()).toEqual(off);
+    expect(
+      await client.auth.settings.update(
+        { secondFactor: { required: true } },
+        { idempotencyKey: 'idem-s' },
+      ),
+    ).toEqual(on);
+    expect(stub.calls.map((c) => `${c.method} ${new URL(c.url).pathname}`)).toEqual([
+      'GET /v1/auth/settings',
+      'PATCH /v1/auth/settings',
+    ]);
+    expect(JSON.parse(stub.calls[1]?.body ?? 'null')).toEqual({ secondFactor: { required: true } });
+    expect(stub.calls[1]?.headers['idempotency-key']).toBe('idem-s');
+  });
+});

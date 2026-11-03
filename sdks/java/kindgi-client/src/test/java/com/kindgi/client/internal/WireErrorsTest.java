@@ -77,7 +77,16 @@ class WireErrorsTest {
         .isInstanceOfSatisfying(GuardrailViolationException.class, g -> {
           assertThat(g.violations()).hasSize(1);
           assertThat(g.evaluationErrors()).isEmpty();
+          assertThat(g.attempts()).isNull();
         });
+    assertThat(
+            WireErrors.fromWire(
+                wire(Map.of("code", "guardrail-violation", "message", "m", "details", Map.of("violations", List.of(), "attempts", 2))), 422, null))
+        .isInstanceOfSatisfying(GuardrailViolationException.class, g -> assertThat(g.attempts()).isEqualTo(2));
+    assertThat(
+            WireErrors.fromWire(
+                wire(Map.of("code", "guardrail-violation", "message", "m", "details", Map.of("attempts", 1.5))), 422, null))
+        .isInstanceOfSatisfying(GuardrailViolationException.class, g -> assertThat(g.attempts()).isNull());
   }
 
   @Test

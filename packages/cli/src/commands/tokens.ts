@@ -86,7 +86,7 @@ const create: LeafCommand = {
   kind: 'leaf',
   name: 'create',
   description:
-    'Create an API key, for you or (a tenant admin) for someone else. Its secret is printed once, here: store it now, nothing shows it again. A `member` key takes no admin action on the tenant; a key limited to a project acts only there.',
+    'Create an API key, for you or (a tenant admin) for someone else. Its secret is printed once, here: store it now, nothing shows it again. A `member` key takes no admin action on the workspace; a key limited to a project acts only there.',
   usage:
     'kindgi tokens create [--for=user:<id>|sa:<id>] [--role=member|admin] [--project=<project-id>] [--expires=30d|<iso-date>] [--label=<text>] [--capability=<cap>]…',
   optionSpec: {
@@ -129,9 +129,17 @@ const create: LeafCommand = {
         ...(label !== undefined && { label }),
         ...(capabilities.length > 0 && { capabilities }),
       });
+      const id = String(created.meta.id);
+      // Shown this once: under --quiet, alone on stdout, as `connections connect`'s link is.
+      if (ctx.globals.format === 'quiet') {
+        return {
+          stdout: `${created.secret}\n`,
+          stderr: `⚠ The secret of key ${id} is shown once: store it now.\n`,
+        };
+      }
       return {
         ...renderJson(created, ctx.globals.format),
-        stderr: `⚠ The secret of key ${String(created.meta.id)} is shown once, above: store it now.\n`,
+        stderr: `⚠ The secret of key ${id} is shown once, above: store it now.\n`,
       };
     }),
 };

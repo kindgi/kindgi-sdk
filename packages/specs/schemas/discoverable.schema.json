@@ -3,7 +3,7 @@
   "$id": "https://kindgi.com/schemas/v1/discoverable.schema.json",
   "$comment": "schema-version: 1.1.0",
   "title": "Discoverable entity",
-  "description": "Marks an entity (chat, conversation, document, artifact, memo, playbook, tool) as searchable via the cross-history retrieval API. The framework handles embedding via a configured provider; retrieval is always policy-scoped (owner / team / project / org / tenant). Deletion cascades to embeddings + retrieval caches.",
+  "description": "Marks an entity (chat, conversation, document, artifact, memo, playbook, tool) as searchable via the cross-history retrieval API. The framework handles embedding via a configured provider; retrieval is always policy-scoped (owner / team / project / org / workspace). Deletion cascades to embeddings + retrieval caches.",
   "type": "object",
   "required": ["entityId", "entityKind", "scope"],
   "additionalProperties": false,
@@ -59,7 +59,7 @@
       "properties": {
         "model": {
           "type": "string",
-          "description": "Embedding model id, as a registered embedding provider reports it (`describe().model`). Router picks based on tenant policy if absent."
+          "description": "Embedding model id, as a registered embedding provider reports it (`describe().model`). Router picks based on workspace policy if absent."
         },
         "chunker": {
           "type": "string",
@@ -111,7 +111,7 @@
         "visibility": {
           "type": "string",
           "enum": ["owner-only", "team", "project", "org", "public"],
-          "description": "Who can retrieve this entity via search. 'owner-only' = declaring user only. 'team' = members of a specified team (added in schema-version 1.1.0). 'project' = anyone with policy access to the project. 'org' = anyone in the org with the appropriate role. 'public' = anyone in the tenant. Policy engine enforces at retrieval time regardless of this hint."
+          "description": "Who can retrieve this entity via search. 'owner-only' = declaring user only. 'team' = members of a specified team (added in schema-version 1.1.0). 'project' = anyone with policy access to the project. 'org' = anyone in the org with the appropriate role. 'public' = anyone in the workspace. Policy engine enforces at retrieval time regardless of this hint."
         },
         "userId": {
           "type": "string",

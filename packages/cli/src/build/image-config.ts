@@ -25,6 +25,12 @@ export interface ResolvedImage {
   readonly steps: readonly (BuildStep & { readonly extension: string })[];
   /** The extensions' names, in order. */
   readonly extensions: readonly string[];
+  /** Which installed dependencies the image carries (`'all'` unless the config says `'loaded'`). */
+  readonly dependencies: 'loaded' | 'all';
+  /** `image.keep`: kept with `'loaded'`; one that isn't installed fails the build. Sorted. */
+  readonly keep: readonly string[];
+  /** The extensions' keeps: kept with `'loaded'` when installed. Sorted. */
+  readonly keepIfInstalled: readonly string[];
 }
 
 export type ImageConfigOutcome =
@@ -33,6 +39,8 @@ export type ImageConfigOutcome =
 
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const BIN = /^[A-Za-z0-9@._/-]+$/;
+/** A name Node resolves under `node_modules`: `name`, `@scope/name`, or a folder such as `.prisma/client`. */
+const KEEP_NAME = /^(@[A-Za-z0-9._~-]+\/)?[A-Za-z0-9._~-]+(\/[A-Za-z0-9._~-]+)?$/;
 
 /** `image` from the loaded config (absent: nothing beyond the install). */
 export function readImageConfig(config: Readonly<Record<string, unknown>>): ImageConfigOutcome {
@@ -40,19 +48,40 @@ export function readImageConfig(config: Readonly<Record<string, unknown>>): Imag
   if (image === undefined) {
     return {
       kind: 'ok',
-      image: { systemPackages: [], buildEnv: {}, contextFiles: [], steps: [], extensions: [] },
+      image: {
+        systemPackages: [],
+        buildEnv: {},
+        contextFiles: [],
+        steps: [],
+        extensions: [],
+        dependencies: 'all',
+        keep: [],
+        keepIfInstalled: [],
+      },
     };
   }
   if (image === null || typeof image !== 'object' || Array.isArray(image)) {
-    return invalid('`image` in kindgi.config must be an object: { systemPackages?, extensions?, buildEnv? }.');
+    return invalid(
+      '`image` in kindgi.config must be an object: { systemPackages?, extensions?, buildEnv?, dependencies?, keep? }.',
+    );
   }
-  const { systemPackages, extensions, buildEnv, ...rest } = image as Record<string, unknown>;
+  const { systemPackages, extensions, buildEnv, dependencies, keep, ...rest } = image as Record<
+    string,
+    unknown
+  >;
   const unknown = Object.keys(rest);
   if (unknown.length > 0) {
     return invalid(
-      `\`image\` in kindgi.config has ${unknown.map((k) => `\`${k}\``).join(', ')}: it takes systemPackages, extensions and buildEnv.`,
+      `\`image\` in kindgi.config has ${unknown.map((k) => `\`${k}\``).join(', ')}: it takes systemPackages, extensions, buildEnv, dependencies and keep.`,
     );
   }
+  if (dependencies !== undefined && dependencies !== 'loaded' && dependencies !== 'all') {
+    return invalid(
+      `\`image.dependencies\` is 'loaded' (only what the pack's code loads) or 'all' (every production dependency). Got ${JSON.stringify(dependencies)}.`,
+    );
+  }
+  const ownKeep = checkKeep(keep, 'image.keep');
+  if (ownKeep.kind === 'invalid') return ownKeep;
   if (extensions !== undefined && !Array.isArray(extensions)) {
     return invalid('`image.extensions` must be a list of build extensions (`@kindgi/sdk/build`).');
   }
@@ -66,6 +95,7 @@ export function readImageConfig(config: Readonly<Record<string, unknown>>): Imag
   const files = new Set<string>();
   const steps: (BuildStep & { extension: string })[] = [];
   const names: string[] = [];
+  const extensionKeep = new Set<string>();
 
   for (const [i, raw] of (extensions ?? []).entries()) {
     const checked = checkExtension(raw, `image.extensions[${i}]`);
@@ -75,6 +105,7 @@ export function readImageConfig(config: Readonly<Record<string, unknown>>): Imag
     packages.push(...(extension.systemPackages ?? []));
     for (const file of extension.contextFiles ?? []) files.add(file);
     for (const step of extension.postInstall ?? []) steps.push({ ...step, extension: extension.name });
+    for (const name of extension.keep ?? []) extensionKeep.add(name);
     Object.assign(env, extension.buildEnv ?? {});
   }
   const ownEnv = checkEnv(buildEnv, 'image.buildEnv');
@@ -91,6 +122,9 @@ export function readImageConfig(config: Readonly<Record<string, unknown>>): Imag
       contextFiles: [...files].sort(),
       steps,
       extensions: names,
+      dependencies: dependencies ?? 'all',
+      keep: ownKeep.keep,
+      keepIfInstalled: [...extensionKeep].filter((n) => !ownKeep.keep.includes(n)).sort(),
     },
   };
 }
@@ -136,7 +170,26 @@ function checkExtension(
   }
   const env = checkEnv(ext.buildEnv, `${label} buildEnv`);
   if (env.kind === 'invalid') return env;
+  const keep = checkKeep(ext.keep, `${label} keep`);
+  if (keep.kind === 'invalid') return keep;
   return { kind: 'ok', extension: ext as unknown as BuildExtension };
+}
+
+/** `keep`: names Node resolves under `node_modules`, deduplicated and sorted. */
+function checkKeep(
+  raw: unknown,
+  where: string,
+): { readonly kind: 'ok'; readonly keep: readonly string[] } | { readonly kind: 'invalid'; readonly message: string } {
+  if (raw === undefined) return { kind: 'ok', keep: [] };
+  if (!Array.isArray(raw)) return invalid(`\`${where}\` must be a list of package names.`);
+  for (const name of raw) {
+    if (typeof name !== 'string' || !KEEP_NAME.test(name) || name.split('/').some((p) => p === '.' || p === '..')) {
+      return invalid(
+        `\`${where}\`: ${JSON.stringify(name)} isn't a package name (\`name\`, \`@scope/name\`, or a folder such as \`.prisma/client\`).`,
+      );
+    }
+  }
+  return { kind: 'ok', keep: [...new Set(raw as string[])].sort() };
 }
 
 function checkEnv(

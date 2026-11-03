@@ -11,14 +11,14 @@
  * by one piece.
  */
 
-/** The window a budget kept per tenant counts over, in milliseconds. */
+/** The window a budget kept per workspace counts over, in milliseconds. */
 export const BUDGET_WINDOW_MS = 60_000;
 
 /** Which budget refused: what the API's refusal names in `details.limit`. */
 export type TenantBudgetLimit = 'schema-compile-time' | 'template-render-time';
 
 /**
- * A tenant's work refused: it spent its budget of `budgetMs` (`limit`) in
+ * A workspace's work refused: it spent its budget of `budgetMs` (`limit`) in
  * the last 60 seconds, and is under it again after `retryAfterMs`. Every
  * budget's refusal is one of these, so what answers for one (the API, an
  * agent's turn, a run's step) answers for them all.
@@ -73,8 +73,26 @@ interface Ledger {
 }
 
 /**
- * The time each tenant spent on one kind of work in the last 60 seconds,
- * against `budgetMs`; `refuse` makes the error for a tenant past it. An
+ * A piece of a workspace's work that runs somewhere else and ends later (a
+ * render in a child process), charged for the time from its `start` to
+ * its `end`.
+ */
+export interface TenantWork {
+  /** The work started: its time counts from now. A second call changes nothing. */
+  start(): void;
+  /**
+   * The work ended: charges the time since `start`, a failed piece's too.
+   * Work that never started is charged nothing. A second call changes nothing.
+   */
+  end(): void;
+}
+
+/** Work no budget counts. */
+const UNCOUNTED: TenantWork = Object.freeze({ start: () => undefined, end: () => undefined });
+
+/**
+ * The time each workspace spent on one kind of work in the last 60 seconds,
+ * against `budgetMs`; `refuse` makes the error for a workspace past it. An
  * infinite budget keeps no count. Charging a piece costs the same however
  * many pieces the window holds.
  */
@@ -93,7 +111,7 @@ export class TenantTimeBudget {
 
   /**
    * Runs `work` as `tenant`'s, and returns what it returns: refused with
-   * `refuse`'s error, before it starts, once the tenant has spent its
+   * `refuse`'s error, before it starts, once the workspace has spent its
    * budget. Its time is charged, a failed piece's too.
    */
   charge<T>(tenant: string, work: () => T): T {
@@ -107,6 +125,34 @@ export class TenantTimeBudget {
     } finally {
       this.spend(tenant, now, this.clock.monotonic() - started);
     }
+  }
+
+  /**
+   * For work that runs somewhere else and ends later (a render in a worker
+   * thread): refused as `charge` refuses, now, before it's handed over,
+   * once the workspace has spent its budget. The work returned is charged for
+   * the time from its `start()` to its `end()`, as work that started then,
+   * so time it spends waiting to start isn't counted.
+   */
+  admit(tenant: string): TenantWork {
+    if (this.budgetMs === Number.POSITIVE_INFINITY) return UNCOUNTED;
+    const now = this.clock.now();
+    this.sweep(now);
+    this.check(tenant, now);
+    let started: { readonly at: number; readonly monotonic: number } | undefined;
+    let ended = false;
+    return {
+      start: () => {
+        if (started !== undefined || ended) return;
+        started = { at: this.clock.now(), monotonic: this.clock.monotonic() };
+      },
+      end: () => {
+        if (ended) return;
+        ended = true;
+        if (started === undefined) return;
+        this.spend(tenant, started.at, this.clock.monotonic() - started.monotonic);
+      },
+    };
   }
 
   /** Once a window: drops the work that left it, and the tenants with none left. */

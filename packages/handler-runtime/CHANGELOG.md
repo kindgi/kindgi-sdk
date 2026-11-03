@@ -1,5 +1,483 @@
 # @kindgi/handler-runtime
 
+## 0.4.0
+
+### Patch Changes
+
+- 265fffb: **`blockFileText(text, kind, write)`** writes a block's new version into its file's text without touching disk, and answers the new text (`BlockFileText`). `writePackBlock` now writes through it, and a runtime uses it to commit a pinned block version to the pack's repository. The file keeps its other fields, their order and its indentation. A prompt whose file names `content.templateFile` keeps that field, and its new template comes back apart, for the caller to write into that file. It's refused (`invalid`) for content that doesn't fit the kind, or text that isn't this block's file, and (`not-newer`) for a version that isn't past the file's.
+- 2afc071: **Under `kindgi dev`, the pin check warns about files git hasn't committed.** A pin there writes the version into the pack's files, and git can't bring back what a file held unless it's committed. `POST /v1/agents/{agentId}/pinned/check` now answers two optional fields under `kindgi dev`. `uncommittedFiles` lists the files the pin would write over that git hasn't committed, relative to the pack's folder: changed, staged, untracked or ignored, or in a nested repository such as a submodule. `notInGit: true` says the pack isn't in a git repository. Both are warnings, and the pin still goes. They're absent when there's nothing to say, when the pin writes nothing, when the gate fails, when git can't say (no git, or no answer in time), and on every other runtime.
+  
+  - **`CreateAppInput.pinFiles`**, a `PinFilesWarnings`, answers them. `PinFilesWarning` and `PinFilesWarnings` are exported from `@kindgi/api`. Without it, as on a deployed runtime, the check answers as before.
+  - **The pack service's `POST /v1/blocks/uncommitted`** takes `{ ids }`, the blocks a pin would write. It answers `{ uncommittedFiles }`, `{ notInGit: true }` or `{}`, read from each block's file and its template files. It's there when the supervisor is given the new `blockFilesState` option, as `kindgi dev` gives it, and answers `404` otherwise. `packBlockFiles`, the files some blocks are read from, and the `PackFilesState` type are exported from `@kindgi/handler-runtime`.
+  - **`kindgi agents pin` and `kindgi suggested-changes pin`** ask the pin check first and say its warning on stderr, under `--quiet` too: "git hasn't committed these files, so the pin writes over changes git can't bring back: <files>. The pin keeps them as they were right before it: pin the version before to go back." When the pack isn't in git, the line says so instead. `kindgi agents pin --check` says the same lines. The check is best effort: when it fails or has no warning, nothing more is said and the pin goes as before. stdout, `--json` too, is the pin's answer as before.
+  - `kindgi dev` reads the files with `git status` and `git ls-files` in the pack's folder. The read changes nothing, uses no shell, leaves out git's repository variables, and has a short timeout.
+- a2f785f: **Improve runs under `kindgi dev`.** Where the agent registry is read-only but takes Improve's candidates (`RegistryReadOnly.takesCandidates`), `POST /v1/improve-runs` and `POST /v1/improve-runs/check` go through: the run counts in its project, and its suggested change is for the whole workspace (the `tenant` scope). Pinning that change (`POST /v1/suggested-changes/{suggestedChangeId}/pin`) pins it for the whole workspace, through the project its version was made in. Its test runs check the project the registry places the agent in, where no `itemProjects` binding says which projects serve it, so a pin there marks what its check fixed, as on a deployed runtime; rights and `?projectId=` reads still have no binding. A suggested change made by hand (`POST /v1/suggested-changes`) goes the same way: it's for the whole workspace, and it's checked in the project the version it's built on was made in. So does a check again. One built on a version that no longer runs is rebuilt on what runs now, as on a deployed runtime. An add as Latest is refused there with the new optional `takesCandidates.latestReason` (without it, with the registry's `reason`), before any `suggested-change-not-for-a-project`.
+  
+  A suggested change now keeps what its block held as it was drafted, and on a rebuild what it held then (`ProposedChange`'s optional `change.before`). `GET /v1/suggested-changes/{suggestedChangeId}` reads `changes[].before` from it, and from `fromVersion` for one kept without it, as before.
+  
+  `PackBlockWrite` gains an optional `expected`: what the block's file must hold for the write to go. A file edited since, even at the same version, is refused with the new reason `changed`, naming the file, and the pack service's `POST /v1/blocks` answers `409` for it. `definitionKey`, `tookEffect` and `candidatesPinProjects` are exported from `@kindgi/api`.
+  
+  The `returns-helper` template's README walks the loop on `kindgi dev` end to end: correct a run, then fix it in the pack, or run Improve, pin its suggested change and approve the pin yourself, which writes it into the pack's files, and see the correction become Fixed. The `kindgi-fix-corrections` skill says the same for an agent helping a person.
+- 9a8a294: **A tool can store the files it fetches, such as a mail's attachments, and read the files it's given; an agent is shown the ones it stores.**
+  - **Storing.** A tool that declares `storesFiles: true` gets `ctx.files.store` with each call that has an `idempotencyKey`, as an agent's tool calls do. `ctx.files.store({ name, contentType, bytes })` stores a file as one the call's run owns: the runtime checks the bytes, and only they decide the type. It answers `{ file }`, a file value the tool returns in its result's top-level `files`, or `{ notStored }`: `type`, `size`, `limit` past `MAX_STORED_FILES_PER_CALL` (10) files a call, or `storage` when the tenant's storage is full. A pack's store of a file over `MAX_STORED_FILE_BYTES` (10 MB, the most any type allows) answers `size` without sending its bytes. The same bytes again in the same call, a re-run of it included, answer the first file.
+  - **Reading.** A tool that declares `readsFiles: true` gets `ctx.files.read(artifactId)` with each call: the bytes of a file its run may be shown, by the `artifactId` of a file value, such as one in its input. It answers `{ bytes }`, the file as it was stored, or `{ notRead }`: `rule` (the run may not be shown a file of that id), `gone` (deleted, or its bytes are missing), `changed` (its bytes aren't the ones that were checked) or `size` (over its type's limit). `FILE_NOT_READ_REASONS` lists them.
+  - **Either way.** A store or a read the runtime refuses, or can't be reached for, rejects, and the call fails as any throw fails it. Only a tool with a handler can store or read files: `defineTool` and the pack indexer refuse `storesFiles` and `readsFiles` on a tool with a declarative `spec` or an MCP transport.
+  - **`storage`** joins the reasons a file isn't shown (`FileNotShownReason`): a tool's store found the tenant's storage full.
+  - **In a pack.** Pack protocol 2.10.0: a call of a tool that declares `storesFiles` or `readsFiles` carries `ctx.toolFiles` (`{ url, token }`). The runner keeps it from the handler and gives the handler `files` instead: a store posts the file's bytes to the link, and a read gets them from under it, each with the token as the bearer. The handler never sees the link or the token, and a thrown error that quotes the token shows it redacted. A call from an older runtime carries no tool files, and the tool gets no `files`. The tool manifest schema is 1.4.0 and the pack index schema 1.8.0, each with `storesFiles` and `readsFiles`.
+  - **In-process.** `FileBinding` gains `store(call, file)`, keyed by the call's `idempotencyKey`, and `readSource(artifactId)`; an agent's tool call gets `ctx.files` from them, with what its tool declares.
+  - **The API.** `POST /v1/tool-files` takes a pack service's store: the call's token as the bearer, no API key; the body is the file's bytes, with `Content-Type` and a percent-encoded `Kindgi-File-Name`. It answers `{ file }` or `{ notStored }`. `GET /v1/tool-files/{artifactId}` takes a read, with the same bearer: it answers the file's bytes as `application/octet-stream`, or `{ notRead }` as JSON. Either answers `404 tool-file-token-not-found` for a missing or wrong token alike, or for a call whose tool doesn't declare what it asks; `409 tool-file-token-closed` once the call has answered, its time has passed or its run has ended; and `503 tool-files-busy`, with `Retry-After`, when the runtime has no room for the bytes then: a store holds twice the file's size in its memory for files (`KINDGI_FILE_MEMORY_MIB`, whose description now says so), and a read its size. A runtime supplies both as `createApp`'s `toolFiles` binding. The OpenAPI document gives the read's 200 both bodies. The wire `Tool` gains optional `storesFiles` and `readsFiles`, in the TypeScript client too.
+  - **Conformance.** The `files` feature, with the fixture tools `conformance.store` and `conformance.read`, checks that a pack service posts a store to the call's tool files link, gets a read from under it, and gives the handler only what the runtime answered.
+- c8e2e0e: **`kindgi blocks pull` and `kindgi suggested-changes pull` never write over a block file that holds edits.** Before either writes, it compares each block's file, and its template file, with the version the file says it is, as the runtime has it (`GET /v1/blocks/{blockId}/versions/{version}`). A file that holds other content is refused, and so is a file at a version the runtime doesn't have, since whether it holds edits can't be told. Each such file is named, and nothing is written. A settings file that gives no `schema` still holds its version when the runtime stored that version with the schema carried from the block's latest one, as a deploy compares it. `suggested-changes pull` checks a file older than the version the suggested change is built on the same way.
+  
+  `@kindgi/handler-runtime` exports `holdsContent(kind, fileContent, versionContent)`, the compare both use; `writePackBlock`'s `expected` uses it too.
+- 7ed5a00: **Under `kindgi dev`, a pin is undone by pinning the version before.** A `PackBlockWrite` that names `expected` may now take a block back to an older version, when its file holds what `expected` says. That's how a pin of the version before writes the files back. `blockFileText` goes back the same way with `expected`, but doesn't check `expected` against the text: its caller does. Without `expected`, a write's version must still be past the file's. A write at the file's own version is refused `not-newer` either way.
+  
+  The `returns-helper` template's README and the `kindgi-fix-corrections` skill now say to go back with a pin, whose test run reopens what that version fails. They also say to give a block a new version whenever it's edited by hand. The skill adds that after a block is edited by hand and given a new version since a pin, a pin of the version before writes nothing, so git is the way back then.
+- Updated dependencies [b25b82f]
+- Updated dependencies [d92355b]
+- Updated dependencies [d6c9279]
+- Updated dependencies [36853d4]
+- Updated dependencies [f2adcc2]
+- Updated dependencies [05a1568]
+- Updated dependencies [ae02280]
+- Updated dependencies [d10dcc3]
+- Updated dependencies [9b015f7]
+- Updated dependencies [7f272e3]
+- Updated dependencies [a6410b8]
+- Updated dependencies [038fbfb]
+- Updated dependencies [9a8a294]
+- Updated dependencies [58ce994]
+- Updated dependencies [1bd877d]
+- Updated dependencies [dff9515]
+- Updated dependencies [d576ff4]
+  - @kindgi/types@0.4.0
+  - @kindgi/tools@0.4.0
+  - @kindgi/env-schema@0.4.0
+  - @kindgi/flow@0.4.0
+  - @kindgi/sandbox@0.4.0
+  - @kindgi/schema@0.4.0
+  - @kindgi/log@0.4.0
+
+## 0.3.1
+
+### Patch Changes
+
+- 4beb42c: **A pack's `llm-judge` guardrail is judged.** The pack index carries a guardrail's `judgeCapabilities` (`pack-index.schema.json`), so the runtime routes an `llm-judge` guardrail's judge model by them. Before, the index left them out, and the runtime refused the guardrail on every turn it applied to: with action `halt` the turn failed, and with any other action the turn went on unjudged. `kindgi build` and `kindgi dev` now refuse an `llm-judge` guardrail with no `judgeCapabilities`, naming it. A runtime that registered the guardrail from an earlier deploy, without them, refuses the next deploy of it as a changed definition (`guardrail-already-registered`): unregister it (`kindgi guardrails unregister <id>`) and deploy again. Under `kindgi dev`, the runtime reads the guardrail from the pack's index, so the judge needs runtime 0.3.1 or later there. The guardrails skills say how to declare one in each language, and the conformance fixture pack has one (`conformance.judged`).
+- @kindgi/flow@0.3.1
+  - @kindgi/schema@0.3.1
+  - @kindgi/tools@0.3.1
+  - @kindgi/env-schema@0.3.1
+  - @kindgi/log@0.3.1
+  - @kindgi/sandbox@0.3.1
+  - @kindgi/types@0.3.1
+
+## 0.3.1-rc.1
+
+### Patch Changes
+
+- @kindgi/env-schema@0.3.1-rc.1
+  - @kindgi/flow@0.3.1-rc.1
+  - @kindgi/log@0.3.1-rc.1
+  - @kindgi/sandbox@0.3.1-rc.1
+  - @kindgi/schema@0.3.1-rc.1
+  - @kindgi/tools@0.3.1-rc.1
+  - @kindgi/types@0.3.1-rc.1
+
+## 0.3.1-rc.0
+
+### Patch Changes
+
+- 4beb42c: **A pack's `llm-judge` guardrail is judged.** The pack index carries a guardrail's `judgeCapabilities` (`pack-index.schema.json`), so the runtime routes an `llm-judge` guardrail's judge model by them. Before, the index left them out, and the runtime refused the guardrail on every turn it applied to: with action `halt` the turn failed, and with any other action the turn went on unjudged. `kindgi build` and `kindgi dev` now refuse an `llm-judge` guardrail with no `judgeCapabilities`, naming it. A runtime that registered the guardrail from an earlier deploy, without them, refuses the next deploy of it as a changed definition (`guardrail-already-registered`): unregister it (`kindgi guardrails unregister <id>`) and deploy again. Under `kindgi dev`, the runtime reads the guardrail from the pack's index, so the judge needs runtime 0.3.1 or later there. The guardrails skills say how to declare one in each language, and the conformance fixture pack has one (`conformance.judged`).
+- @kindgi/flow@0.3.1-rc.0
+  - @kindgi/schema@0.3.1-rc.0
+  - @kindgi/tools@0.3.1-rc.0
+  - @kindgi/env-schema@0.3.1-rc.0
+  - @kindgi/log@0.3.1-rc.0
+  - @kindgi/sandbox@0.3.1-rc.0
+  - @kindgi/types@0.3.1-rc.0
+
+## 0.3.0
+
+### Patch Changes
+
+- 8dd91b0: **A model step's calls to read-only tools that come one after another run at the same time, up to 8 at once.** A turn used to run a step's tool calls one after another. Now each batch of up to 8 consecutive calls to tools that declare `mutating: false` (and no changing effect) starts together, and a call to any other tool runs on its own, in the order the model asked. A call that may wait, for another system's answer (a tool that pauses) or for the person who started the run to connect an app (a tool that declares connections), runs on its own too. The results reach the conversation and the model in that order, and the `tool.started` and `tool.completed` events keep it too; each call's `durationMs` is its own. Each batch is planned just before it starts, so a call's access is checked when it's about to run, not when the step began. Once a call needs a review (a tool gate, or a call that waits for a person's approval in an unattended run), the step's calls that haven't started run one at a time, as before, and each is checked again when it runs. When one call of a batch throws, the others are stopped through the step's abort signal and the turn fails after they've settled. A replay answers recorded calls from the record and runs the live ones together the same way. Tool retries (`toolErrors`) count failures in the model's order.
+  
+  A new optional agent field, **`parallelToolCalls`** (default on), turns it off: `false` runs every call on its own, as before. It is in `agent.schema.json` (1.7.0) and `pack-index.schema.json` (1.7.0), `AgentSpec` and `defineAgent` (which refuses a value that isn't `true` or `false`), the indexed pack agent, `POST /v1/agents`, `GET /v1/agents/...` and a deployment's agents (`agent.parallelToolCalls must be true or false` at `/parallelToolCalls`), and the Python SDK's `Agent(parallel_tool_calls=...)`. The `mutating` field's description, in `tool.schema.json`, `ToolSpec` and the API's `ToolSpec` schema, now says it decides what runs together. The authoring skills for tools and agents (TypeScript, Python, Java and Scala) say so too.
+- 8dd91b0: **A guardrail says where in the agent's turn it runs: `at`.** `'before-tool'` judges a call the model asked for, before it runs and before any approval is asked; `'after-tool'` a call's result, before the model sees it; `'model-step'` each model reply that asks for tool calls, before any of them runs; and `'final-answer'`, the default, the answer that would be stored. `sees: 'conversation'` gives the check the conversation's earlier turns too (`trace.earlier`), and `scope.tools` limits a guardrail at a tool point to the tools it names (a trailing `*` matches every id with that prefix). A check says where it can run with `defineCheck({ points })`; one that names none runs at the final answer only, as every check does today. A guardrail at a point its check doesn't run at is refused by `validateGuardrail`, the pack indexer, the deploy route, and the register route when it names a built-in check (`422 guardrail-config-invalid`, the problem at `/at`). Registering one that names a pack check isn't refused: at that point in a turn, the guardrail fails as a check that couldn't run (`check-point-unsupported`). A pack check whose index lists no points runs at the final answer only. `validateGuardrail` and `validateGuardrailSpec` also refuse one that asks a point for what it can't do, so registering answers `400 validation-failed` and deploying `deployment-validation-failed`: `'escalate'` and `'compensate'` stay at the final answer, where they're recorded as today, and `scope.tools` is for the tool points. `scope.tools` names one or more tools, with a `*` only at the end. The pack indexer refuses an `at` or `sees` it doesn't know, a malformed `scope.tools` or `points`, a point the pack's check doesn't run at, and what a point can't do, with the deploy's paths and words (`guardrail <id>: /action/on-violation: "escalate" is recorded at the final answer only, not at "before-tool"`), so a pack that builds doesn't fail its deploy for them; a built-in check at a point it doesn't run at is refused at deploy. The built-in checks: `must-cite` and `required-substring` run at the final answer; `never-call-tool`, `max-tool-calls` and `tool-order` before a tool call too, judging that call against the turn's earlier calls; `output-matches` and `forbidden-substring` on each reply and each call's result too. The pack index carries `at`, `sees` and the pack check's `checkPoints`.
+- 8dd91b0: **The agent loop runs a guardrail where its `at` says: before a tool call, after it, or on each model reply that asks for tool calls.** Until now every guardrail judged the final answer. `halt`, `retry` and the recorded actions now work at the loop's points too:
+  - **`at: 'before-tool'`** judges a call after its access check and before any approval is asked. A `halt` fails the turn with `guardrail-violation`. A `retry` refuses the call: it doesn't run, and the model gets the guardrail's reason as its result, so it can go on without the call or make another.
+  - **`at: 'after-tool'`** judges what a call returned, or the error it failed with, before the model sees it. A `retry` withholds it: the reason is stored as the call's result in its place, so neither the model nor a later turn's history sees the result. A replay's recorded result is judged as a live one is.
+  - **Read-only calls that run together.** A call that a `before-tool` guardrail judges starts a batch of read-only calls and never joins one, so its check sees every call before it in the step that ran, as when calls ran one after another. A call it refuses runs nothing, and the calls after it in its batch run. Results are judged at `after-tool` one by one, in the order the model asked; a `halt` there stops the calls still running and stores no result after it.
+  - **`at: 'model-step'`** judges a reply that asks for calls, before any of them runs. A `retry` sends the reply back: none of its calls runs, nothing of it is stored, and the model writes a new reply.
+  - **Attempts are counted across the turn, one for each reply.** A `retry` guardrail's `retry.maxAttempts` counts the model's replies it acted on: a reply it sent back, or one with a call it refused or a result it withheld. Two calls of one reply that it refuses are one attempt. When they run out, or the turn has no steps left, the turn fails as at the final answer, with `attempts`, the replies there were. A tool's own result can't count as one, whatever its text.
+  - **A check that can't run** at its point (a point its check doesn't run at, or its time ran out) acts as a failed one: a `halt` fails the turn, a `retry` refuses or withholds with a reason that names why. A check that isn't registered counts as one that runs at the final answer only, so it fails as `check-point-unsupported`, saying no check by that name is registered. So a broken check never lets a call through unchecked.
+  - **A dry run** skips the model call, so its reply asks for no tools and no guardrail runs at a loop point in it. Were one to, it would act as in any run.
+  - **`budget.maxLatencyMs` is enforced at these three points**, with a default by kind when it's left out: 10 s for `zero-llm`, 60 s for `llm-judge`, 30 s for any other. The loop stops waiting for a check past its time and cancels it, and the check fails as `check-timed-out`. The pack index now carries a guardrail's `budget`, so a pack's guardrail runs with its own. The final answer keeps no limit, and `maxCostUsd` isn't enforced anywhere yet; the docs say so.
+  - **The record says where.** A failure's `guardrail-violation` names the point and, at a tool point, the call (`point`, `callId`), and so do `guardrail.violated` and `guardrail.error` events, the outcome rows (`point`, `callId`, `nodeId` `dispatch-tools@<iteration>`, or `dispatch-tools@<iteration>:<point>:<callId>` at a tool point) and the provenance's `guardrail-check` nodes. Failures with any other action join the turn's `violations`.
+  - **A resumed turn decides nothing twice.** Each check's outcome at a point is recorded with the step, so a turn resumed after an approval, or a step run again, reuses it: no judge is asked or billed again, and no event is sent again.
+  - **A reply whose calls share an id, or have none, fails the turn** with `model-invocation-failed`, before any of its calls is judged or runs, and the message names the call and the id. A step records what it decided for a call by its id, so a second call with the first one's id would get its verdicts.
+  - **New error codes:** `check-timed-out` (with `limitMs`) and `check-point-unsupported` (with `checkId` and `point`).
+  - **The final answer** runs only the guardrails at the final answer. Its trace keeps every call the model asked for, as today; at the loop's points, the trace's `toolCalls` and `toolResults` hold only the calls that ran.
+- Updated dependencies [8dd91b0]
+- Updated dependencies [af11ccc]
+- Updated dependencies [8dd91b0]
+  - @kindgi/tools@0.3.0
+  - @kindgi/env-schema@0.3.0
+  - @kindgi/types@0.3.0
+  - @kindgi/flow@0.3.0
+  - @kindgi/schema@0.3.0
+  - @kindgi/sandbox@0.3.0
+  - @kindgi/log@0.3.0
+
+## 0.3.0-rc.0
+
+### Patch Changes
+
+- 8dd91b0: **A model step's calls to read-only tools that come one after another run at the same time, up to 8 at once.** A turn used to run a step's tool calls one after another. Now each batch of up to 8 consecutive calls to tools that declare `mutating: false` (and no changing effect) starts together, and a call to any other tool runs on its own, in the order the model asked. A call that may wait, for another system's answer (a tool that pauses) or for the person who started the run to connect an app (a tool that declares connections), runs on its own too. The results reach the conversation and the model in that order, and the `tool.started` and `tool.completed` events keep it too; each call's `durationMs` is its own. Each batch is planned just before it starts, so a call's access is checked when it's about to run, not when the step began. Once a call needs a review (a tool gate, or a call that waits for a person's approval in an unattended run), the step's calls that haven't started run one at a time, as before, and each is checked again when it runs. When one call of a batch throws, the others are stopped through the step's abort signal and the turn fails after they've settled. A replay answers recorded calls from the record and runs the live ones together the same way. Tool retries (`toolErrors`) count failures in the model's order.
+  
+  A new optional agent field, **`parallelToolCalls`** (default on), turns it off: `false` runs every call on its own, as before. It is in `agent.schema.json` (1.7.0) and `pack-index.schema.json` (1.7.0), `AgentSpec` and `defineAgent` (which refuses a value that isn't `true` or `false`), the indexed pack agent, `POST /v1/agents`, `GET /v1/agents/...` and a deployment's agents (`agent.parallelToolCalls must be true or false` at `/parallelToolCalls`), and the Python SDK's `Agent(parallel_tool_calls=...)`. The `mutating` field's description, in `tool.schema.json`, `ToolSpec` and the API's `ToolSpec` schema, now says it decides what runs together. The authoring skills for tools and agents (TypeScript, Python, Java and Scala) say so too.
+- 8dd91b0: **A guardrail says where in the agent's turn it runs: `at`.** `'before-tool'` judges a call the model asked for, before it runs and before any approval is asked; `'after-tool'` a call's result, before the model sees it; `'model-step'` each model reply that asks for tool calls, before any of them runs; and `'final-answer'`, the default, the answer that would be stored. `sees: 'conversation'` gives the check the conversation's earlier turns too (`trace.earlier`), and `scope.tools` limits a guardrail at a tool point to the tools it names (a trailing `*` matches every id with that prefix). A check says where it can run with `defineCheck({ points })`; one that names none runs at the final answer only, as every check does today. A guardrail at a point its check doesn't run at is refused by `validateGuardrail`, the pack indexer, the deploy route, and the register route when it names a built-in check (`422 guardrail-config-invalid`, the problem at `/at`). Registering one that names a pack check isn't refused: at that point in a turn, the guardrail fails as a check that couldn't run (`check-point-unsupported`). A pack check whose index lists no points runs at the final answer only. `validateGuardrail` and `validateGuardrailSpec` also refuse one that asks a point for what it can't do, so registering answers `400 validation-failed` and deploying `deployment-validation-failed`: `'escalate'` and `'compensate'` stay at the final answer, where they're recorded as today, and `scope.tools` is for the tool points. `scope.tools` names one or more tools, with a `*` only at the end. The pack indexer refuses an `at` or `sees` it doesn't know, a malformed `scope.tools` or `points`, a point the pack's check doesn't run at, and what a point can't do, with the deploy's paths and words (`guardrail <id>: /action/on-violation: "escalate" is recorded at the final answer only, not at "before-tool"`), so a pack that builds doesn't fail its deploy for them; a built-in check at a point it doesn't run at is refused at deploy. The built-in checks: `must-cite` and `required-substring` run at the final answer; `never-call-tool`, `max-tool-calls` and `tool-order` before a tool call too, judging that call against the turn's earlier calls; `output-matches` and `forbidden-substring` on each reply and each call's result too. The pack index carries `at`, `sees` and the pack check's `checkPoints`.
+- 8dd91b0: **The agent loop runs a guardrail where its `at` says: before a tool call, after it, or on each model reply that asks for tool calls.** Until now every guardrail judged the final answer. `halt`, `retry` and the recorded actions now work at the loop's points too:
+  - **`at: 'before-tool'`** judges a call after its access check and before any approval is asked. A `halt` fails the turn with `guardrail-violation`. A `retry` refuses the call: it doesn't run, and the model gets the guardrail's reason as its result, so it can go on without the call or make another.
+  - **`at: 'after-tool'`** judges what a call returned, or the error it failed with, before the model sees it. A `retry` withholds it: the reason is stored as the call's result in its place, so neither the model nor a later turn's history sees the result. A replay's recorded result is judged as a live one is.
+  - **Read-only calls that run together.** A call that a `before-tool` guardrail judges starts a batch of read-only calls and never joins one, so its check sees every call before it in the step that ran, as when calls ran one after another. A call it refuses runs nothing, and the calls after it in its batch run. Results are judged at `after-tool` one by one, in the order the model asked; a `halt` there stops the calls still running and stores no result after it.
+  - **`at: 'model-step'`** judges a reply that asks for calls, before any of them runs. A `retry` sends the reply back: none of its calls runs, nothing of it is stored, and the model writes a new reply.
+  - **Attempts are counted across the turn, one for each reply.** A `retry` guardrail's `retry.maxAttempts` counts the model's replies it acted on: a reply it sent back, or one with a call it refused or a result it withheld. Two calls of one reply that it refuses are one attempt. When they run out, or the turn has no steps left, the turn fails as at the final answer, with `attempts`, the replies there were. A tool's own result can't count as one, whatever its text.
+  - **A check that can't run** at its point (a point its check doesn't run at, or its time ran out) acts as a failed one: a `halt` fails the turn, a `retry` refuses or withholds with a reason that names why. A check that isn't registered counts as one that runs at the final answer only, so it fails as `check-point-unsupported`, saying no check by that name is registered. So a broken check never lets a call through unchecked.
+  - **A dry run** skips the model call, so its reply asks for no tools and no guardrail runs at a loop point in it. Were one to, it would act as in any run.
+  - **`budget.maxLatencyMs` is enforced at these three points**, with a default by kind when it's left out: 10 s for `zero-llm`, 60 s for `llm-judge`, 30 s for any other. The loop stops waiting for a check past its time and cancels it, and the check fails as `check-timed-out`. The pack index now carries a guardrail's `budget`, so a pack's guardrail runs with its own. The final answer keeps no limit, and `maxCostUsd` isn't enforced anywhere yet; the docs say so.
+  - **The record says where.** A failure's `guardrail-violation` names the point and, at a tool point, the call (`point`, `callId`), and so do `guardrail.violated` and `guardrail.error` events, the outcome rows (`point`, `callId`, `nodeId` `dispatch-tools@<iteration>`, or `dispatch-tools@<iteration>:<point>:<callId>` at a tool point) and the provenance's `guardrail-check` nodes. Failures with any other action join the turn's `violations`.
+  - **A resumed turn decides nothing twice.** Each check's outcome at a point is recorded with the step, so a turn resumed after an approval, or a step run again, reuses it: no judge is asked or billed again, and no event is sent again.
+  - **A reply whose calls share an id, or have none, fails the turn** with `model-invocation-failed`, before any of its calls is judged or runs, and the message names the call and the id. A step records what it decided for a call by its id, so a second call with the first one's id would get its verdicts.
+  - **New error codes:** `check-timed-out` (with `limitMs`) and `check-point-unsupported` (with `checkId` and `point`).
+  - **The final answer** runs only the guardrails at the final answer. Its trace keeps every call the model asked for, as today; at the loop's points, the trace's `toolCalls` and `toolResults` hold only the calls that ran.
+- Updated dependencies [8dd91b0]
+- Updated dependencies [af11ccc]
+- Updated dependencies [8dd91b0]
+  - @kindgi/tools@0.3.0-rc.0
+  - @kindgi/env-schema@0.3.0-rc.0
+  - @kindgi/types@0.3.0-rc.0
+  - @kindgi/flow@0.3.0-rc.0
+  - @kindgi/schema@0.3.0-rc.0
+  - @kindgi/sandbox@0.3.0-rc.0
+  - @kindgi/log@0.3.0-rc.0
+
+## 0.2.0
+
+### Patch Changes
+
+- bf30268: **A pack can bring its data blocks: one JSON file per block in its `blocks/` folder, which `kindgi deploy` publishes with the pack.** Each file holds a block in the shape `kindgi blocks publish @file` takes (`id`, `version`, `kind`, `description`, `content`). A prompt block's template can have a file of its own, named by `content.templateFile` in place of `content.template`: a path from the block's file that stays inside the blocks folder, read into the block when the pack is indexed. The pack config's `discovery.blocks` pattern (`blocks/**/*.json` by default; `[tool.kindgi.discovery]` in a Python pack's `pyproject.toml`) moves the folder. The TypeScript, Python and Java/Scala indexers read the blocks alike, and the pack index gains an optional `blocks` list (pack index schema 1.5.0), absent when a pack has none. `kindgi build` checks each block (its template is Liquid, its values fit its schema) and refuses a pack whose blocks don't hold up, or whose block files look like secrets, naming each file; it refuses a pack whose own indexer is from before blocks (the `kindgi` Python package or `com.kindgi:kindgi-pack`) too, naming the release to upgrade to. `kindgi dev` shows the same problems, reads the folder again as you edit it, and counts the blocks; its runtime reads blocks from the pack's files only (see the next change). The pack conformance suite's fixture pack has two data blocks (`FIXTURE.md`), and the suite checks that an implementation's index lists them, the prompt's template read from its file.
+  
+  `POST /v1/deployments` publishes the pack's blocks into the deploy's project before anything else, as `POST /v1/blocks` publishes a version, and unregisters the ones it published when the deploy fails. A version the runtime holds with the same content is kept. One it holds with other content is refused with `409 block-already-registered`: a version never changes, so give the block a new version. One it holds unregistered is refused the same way, naming each such block with `kindgi blocks reinstate <id> --block-version=<version>`. A deploy never reinstates one itself, as the runtime doesn't record who unregistered it: a person, or a deploy that failed after publishing it. A block whose versions live in another project is refused with `409 block-project-mismatch`. A block that doesn't hold up, or a new version that doesn't follow the block's latest, is `400 deployment-validation-failed`, whose issues' `primitive` takes a new value, `block`; so does the Python client's `DeploymentValidationDetails`. A runtime with no block registry refuses a pack with blocks the same way. An agent pins the pack's own version of each block the pack brings, never a newer one published on the runtime, and the deploy is refused when the agent's range doesn't take the pack's version, naming both; a block the pack doesn't bring pins the newest published version in range, as before.
+  
+  A runtime that does this says so: its `/v1/openapi.json` lists `deploy-publishes-pack-blocks` in `info["x-kindgi-capabilities"]`, a new open list of names (`DEPLOY_PUBLISHES_PACK_BLOCKS` in `@kindgi/handler-runtime`). `kindgi deploy` reads it only for a pack with blocks, and when the runtime doesn't list it, refuses before it builds or sends the deploy, naming the CLI's release: an earlier runtime would leave the blocks out, and pin the agents' blocks to the versions it already holds.
+- 08dedca: **Pack protocol 2.9.0: a pack tool's connections.** A call's context can carry `connections`, the accounts at other apps the tool declares (`needsSpec.connections`, tool manifest 1.3.0), each with a short-lived token. The pack service hands them to the handler as `ctx.connections`, not enumerable, like `ctx.secrets`, and never logs them. A handler that throws `ConnectionRejectedError` (`@kindgi/tools`, from any copy of it), or an error whose `cause` is one, answers the new error code `connection-rejected` with `connection`, the connection's name, so the runtime can renew that token once and run the call again. `pack-protocol.schema.json` (schema-version 2.9.0) gains both, with an example. A tool that declares no connections gets none.
+- bf30268: **A read-only agent registry can take Improve's candidates.** `RegistryReadOnly` gains an optional `takesCandidates` (`{ undoReason, scopeReason }`). With it, an improvement pass starts, a proposal is evaluated (the version it makes is kept for that), and a promotion request and its check go through to the releases binding. Publishing, deriving, unregistering and reinstating stay refused with the registry's reason. Rolling a scope back, unpinning it and rolling a proposal back are refused with `409 registry-read-only` and `undoReason`, and a pass, a draft or an evaluation for a scope narrower than the tenant with `scopeReason`. Under `kindgi dev`, a runtime that serves the pack's files sets it: making a proposal live writes it into the pack's files, and an undo is done there, with git. The promotion's reference says what such a runtime does: only the whole tenant is made live, and a pack whose files changed since the version was made answers `409 promotion-superseded`, naming the file. `resolveBlockPins` is exported, for such a runtime's pins at load.
+  
+  **`kindgi dev`'s pack service writes a block made live into the pack.** The pack service supervisor gains an optional `writeBlock`, behind `POST /v1/blocks` on its front, token-gated like `/v1/invoke`; without it, the route answers 404. `writePackBlock` (`@kindgi/handler-runtime`) writes a block's new version and content into its own file, found by id among the pack's blocks, and a prompt's template into its template file. It refuses a block that isn't in the pack, content that doesn't fit the block's kind, and a version not past the file's. `kindgi dev` gives the supervisor one, and its log names the file written.
+- b6e20ca: **A tool's error says why it failed.** A tool whose fetch failed used to report only `fetch failed`. The reason was in the error's cause, which no run showed. Now the message names each cause, Node's way:
+  
+  ```text
+  Handler for tool "acme.list-orders" threw: TypeError: fetch failed; caused by ConnectTimeoutError [UND_ERR_CONNECT_TIMEOUT]: Connect Timeout Error (attempted address: shop.acme.example:443, timeout: 10000ms)
+  ```
+  
+  - **Where:** a pack tool's handler, a check's `evaluate`, a pack file that fails to import, and a tool run in the server's own process. Every place a failure shows carries the message: the run's record, its events, the console, the model's retry and the CLI.
+  - **Three causes at most,** each on one line and cut at 500 characters, never inside a word. A cause the message already says is left out.
+  - **A refused connection names its addresses:** `AggregateError [ECONNREFUSED]: connect ECONNREFUSED ::1:4000, connect ECONNREFUSED 127.0.0.1:4000`.
+  - **An error without a cause reads as it did.**
+  - **The message is masked, its causes and the error's own words alike.** A Kindgi token becomes `[redacted]` whole, a `Bearer` value is redacted, a URL's password becomes `***`, and a URL's secret query or fragment value becomes `[redacted]`. `?token=`, `#access_token=`, `X-Amz-Signature=`, a SAS `sig=` and `?key=` are covered. Log lines keep their form, a token's last four included.
+  - **A pack tool's own secrets and connection tokens are taken out first,** at any depth of the error, before the message is masked or cut. So the mask, the cut and the one-line step can't leave part of one, a connection string's host included.
+  - **`@kindgi/log`** exports `describeCauses(err)`, which gives the `; caused by …` text, and `scrubText(text, { fullMask: true })`, which is the mask for an error a run shows.
+- 68e0d57: **A pack tool can pause its run until another system answers (pack protocol 2.8.0).**
+  
+  - **Declaring it:** a tool declares `pauses: true`. Its handler gets `ctx.waitToken`, `{ id, url }`: it hands the `url` to the system that will answer, then returns `ctx.pause({ timeoutMs, name })`. That system `POST`s its answer to the link as JSON, with no `Authorization` header: the link is the credential. The answer, valid against the tool's output schema, becomes the call's result. The handler may also answer at once, as any tool does.
+  - **Re-runs:** the token's id is the same every time one attempt of the call runs; a retry of its step gets a new token, and waits afresh. A re-run after a crash gets a new link to the same wait, and either link completes it. Hand on the new one only if the old one never went out, and dedupe on `idempotencyKey`.
+  - **How long:** `timeoutMs` is from 1 ms to 24 days (`MAX_PAUSE_TIMEOUT_MS`), and 24 hours when not given (`DEFAULT_PAUSE_TIMEOUT_MS`). A pause never waits forever. `name` says what the run waits for, in 1 to 200 characters.
+  - **Refusals:**
+    - a tool with a declarative `spec` or an MCP transport can't declare `pauses`: `defineTool` answers `invalid-tool-definition`, and the indexer `manifest-validation-failed`;
+    - a pause outside those bounds is `handler-shape-invalid`;
+    - the new error `pause-not-available`: a call from a runtime that sends no wait token, or a pause from a tool that doesn't declare `pauses`. Reading `ctx.waitToken` throws then, so the tool fails before it hands anything on. Pausing needs a runtime that speaks pack protocol 2.8.0.
+  - **The protocol:** a tool's index entry carries `pauses: true` (pack index 1.6.0, tool manifest 1.2.0), and the call's context then carries `waitToken`. The pack service answers `{ v: 2, kind: 'pause', timeoutMs, name }`, each field only when the tool gave it. A tool that doesn't declare `pauses` never sees the token.
+  - **`@kindgi/handler-runtime`:** `runHandlerOrPause` returns a pause as a third outcome. `runHandler` keeps its two, and reports a pause as `pause-not-available`.
+  - **`@kindgi/tools`, for a runtime that calls tools:**
+    - `invokeToolOrPause` returns `{ kind: 'pause', pause: { tokenId, timeoutMs, name } }` when the tool's handler returns `pauseOutcome(...)`. `invokeTool` reports a pause as `tool-pause-unsupported`, and so does `invokeToolOrPause` for a tool that doesn't declare `pauses`;
+    - a runtime that won't run a pausing call again throws `ToolRerunsExhaustedError` from the handler, and the call fails with `wait-token-reruns-exhausted`;
+    - `wait-token-timed-out` is the error for an answer that didn't come in time;
+    - `ToolContext.attempt` counts the runs of the call's step;
+    - `toolOutputIssues(tool, output)` checks an answer that comes from outside the call, such as another system's answer to a paused call, against the tool's output schema, as a call's output is checked: `{ path, message }` per finding, or `undefined` when it fits;
+    - `PAUSE_TOKEN_PREFIX` (`pause:`) starts the waitpoint id of every pause. The runtime mints these ids, never a handler.
+  - **`@kindgi/handler`:** `NodeContext.attempt` counts the runs of a step, and `WAITPOINT_TIMEOUT_REASON` is the reason a wait that timed out resumes with.
+  - **`@kindgi/api`:** a tool's wire manifest (`Tool`) carries `pauses`.
+  - **Conformance:** the fixture pack gains `conformance.pause`, and targets gain a `pause` feature they may not support yet.
+- b6e20ca: **A tool can say its results are text from outside: `resultIsOutsideData`.** A tool manifest's new optional `resultIsOutsideData: true` says the tool's results are text nobody checked, such as a mail someone sent. An agent then reads each result of it as data, not instructions:
+  - in an `<event>` block;
+  - in that turn, and again in every later turn's history;
+  - with the framework's line about outside data in the system message from the turn's start.
+  
+  It changes what the model is told, not what the tool may do. The pack index carries it, and `GET /v1/tools` shows it. `outlookMessagesList` sets it, so it moves to version 1.1.0: a project that has 1.0.0 gets the flag when it takes 1.1.0.
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [68e0d57]
+- Updated dependencies [68e0d57]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [87a5290]
+- Updated dependencies [68e0d57]
+- Updated dependencies [d70c2a5]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [68e0d57]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+  - @kindgi/tools@0.2.0
+  - @kindgi/env-schema@0.2.0
+  - @kindgi/schema@0.2.0
+  - @kindgi/log@0.2.0
+  - @kindgi/flow@0.2.0
+  - @kindgi/sandbox@0.2.0
+  - @kindgi/types@0.2.0
+
+## 0.2.0-rc.1
+
+### Patch Changes
+
+- b6e20ca: **A tool's error says why it failed.** A tool whose fetch failed used to report only `fetch failed`. The reason was in the error's cause, which no run showed. Now the message names each cause, Node's way:
+  
+  ```text
+  Handler for tool "acme.list-orders" threw: TypeError: fetch failed; caused by ConnectTimeoutError [UND_ERR_CONNECT_TIMEOUT]: Connect Timeout Error (attempted address: shop.acme.example:443, timeout: 10000ms)
+  ```
+  
+  - **Where:** a pack tool's handler, a check's `evaluate`, a pack file that fails to import, and a tool run in the server's own process. Every place a failure shows carries the message: the run's record, its events, the console, the model's retry and the CLI.
+  - **Three causes at most,** each on one line and cut at 500 characters, never inside a word. A cause the message already says is left out.
+  - **A refused connection names its addresses:** `AggregateError [ECONNREFUSED]: connect ECONNREFUSED ::1:4000, connect ECONNREFUSED 127.0.0.1:4000`.
+  - **An error without a cause reads as it did.**
+  - **The message is masked, its causes and the error's own words alike.** A Kindgi token becomes `[redacted]` whole, a `Bearer` value is redacted, a URL's password becomes `***`, and a URL's secret query or fragment value becomes `[redacted]`. `?token=`, `#access_token=`, `X-Amz-Signature=`, a SAS `sig=` and `?key=` are covered. Log lines keep their form, a token's last four included.
+  - **A pack tool's own secrets and connection tokens are taken out first,** at any depth of the error, before the message is masked or cut. So the mask, the cut and the one-line step can't leave part of one, a connection string's host included.
+  - **`@kindgi/log`** exports `describeCauses(err)`, which gives the `; caused by …` text, and `scrubText(text, { fullMask: true })`, which is the mask for an error a run shows.
+- b6e20ca: **A tool can say its results are text from outside: `resultIsOutsideData`.** A tool manifest's new optional `resultIsOutsideData: true` says the tool's results are text nobody checked, such as a mail someone sent. An agent then reads each result of it as data, not instructions:
+  - in an `<event>` block;
+  - in that turn, and again in every later turn's history;
+  - with the framework's line about outside data in the system message from the turn's start.
+  
+  It changes what the model is told, not what the tool may do. The pack index carries it, and `GET /v1/tools` shows it. `outlookMessagesList` sets it, so it moves to version 1.1.0: a project that has 1.0.0 gets the flag when it takes 1.1.0.
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+  - @kindgi/tools@0.2.0-rc.1
+  - @kindgi/log@0.2.0-rc.1
+  - @kindgi/flow@0.2.0-rc.1
+  - @kindgi/schema@0.2.0-rc.1
+  - @kindgi/env-schema@0.2.0-rc.1
+  - @kindgi/sandbox@0.2.0-rc.1
+  - @kindgi/types@0.2.0-rc.1
+
+## 0.2.0-rc.0
+
+### Patch Changes
+
+- bf30268: **A pack can bring its data blocks: one JSON file per block in its `blocks/` folder, which `kindgi deploy` publishes with the pack.** Each file holds a block in the shape `kindgi blocks publish @file` takes (`id`, `version`, `kind`, `description`, `content`). A prompt block's template can have a file of its own, named by `content.templateFile` in place of `content.template`: a path from the block's file that stays inside the blocks folder, read into the block when the pack is indexed. The pack config's `discovery.blocks` pattern (`blocks/**/*.json` by default; `[tool.kindgi.discovery]` in a Python pack's `pyproject.toml`) moves the folder. The TypeScript, Python and Java/Scala indexers read the blocks alike, and the pack index gains an optional `blocks` list (pack index schema 1.5.0), absent when a pack has none. `kindgi build` checks each block (its template is Liquid, its values fit its schema) and refuses a pack whose blocks don't hold up, or whose block files look like secrets, naming each file; it refuses a pack whose own indexer is from before blocks (the `kindgi` Python package or `com.kindgi:kindgi-pack`) too, naming the release to upgrade to. `kindgi dev` shows the same problems, reads the folder again as you edit it, and counts the blocks; its runtime reads blocks from the pack's files only (see the next change). The pack conformance suite's fixture pack has two data blocks (`FIXTURE.md`), and the suite checks that an implementation's index lists them, the prompt's template read from its file.
+  
+  `POST /v1/deployments` publishes the pack's blocks into the deploy's project before anything else, as `POST /v1/blocks` publishes a version, and unregisters the ones it published when the deploy fails. A version the runtime holds with the same content is kept. One it holds with other content is refused with `409 block-already-registered`: a version never changes, so give the block a new version. One it holds unregistered is refused the same way, naming each such block with `kindgi blocks reinstate <id> --block-version=<version>`. A deploy never reinstates one itself, as the runtime doesn't record who unregistered it: a person, or a deploy that failed after publishing it. A block whose versions live in another project is refused with `409 block-project-mismatch`. A block that doesn't hold up, or a new version that doesn't follow the block's latest, is `400 deployment-validation-failed`, whose issues' `primitive` takes a new value, `block`; so does the Python client's `DeploymentValidationDetails`. A runtime with no block registry refuses a pack with blocks the same way. An agent pins the pack's own version of each block the pack brings, never a newer one published on the runtime, and the deploy is refused when the agent's range doesn't take the pack's version, naming both; a block the pack doesn't bring pins the newest published version in range, as before.
+  
+  A runtime that does this says so: its `/v1/openapi.json` lists `deploy-publishes-pack-blocks` in `info["x-kindgi-capabilities"]`, a new open list of names (`DEPLOY_PUBLISHES_PACK_BLOCKS` in `@kindgi/handler-runtime`). `kindgi deploy` reads it only for a pack with blocks, and when the runtime doesn't list it, refuses before it builds or sends the deploy, naming the CLI's release: an earlier runtime would leave the blocks out, and pin the agents' blocks to the versions it already holds.
+- 08dedca: **Pack protocol 2.9.0: a pack tool's connections.** A call's context can carry `connections`, the accounts at other apps the tool declares (`needsSpec.connections`, tool manifest 1.3.0), each with a short-lived token. The pack service hands them to the handler as `ctx.connections`, not enumerable, like `ctx.secrets`, and never logs them. A handler that throws `ConnectionRejectedError` (`@kindgi/tools`, from any copy of it), or an error whose `cause` is one, answers the new error code `connection-rejected` with `connection`, the connection's name, so the runtime can renew that token once and run the call again. `pack-protocol.schema.json` (schema-version 2.9.0) gains both, with an example. A tool that declares no connections gets none.
+- bf30268: **A read-only agent registry can take Improve's candidates.** `RegistryReadOnly` gains an optional `takesCandidates` (`{ undoReason, scopeReason }`). With it, an improvement pass starts, a proposal is evaluated (the version it makes is kept for that), and a promotion request and its check go through to the releases binding. Publishing, deriving, unregistering and reinstating stay refused with the registry's reason. Rolling a scope back, unpinning it and rolling a proposal back are refused with `409 registry-read-only` and `undoReason`, and a pass, a draft or an evaluation for a scope narrower than the tenant with `scopeReason`. Under `kindgi dev`, a runtime that serves the pack's files sets it: making a proposal live writes it into the pack's files, and an undo is done there, with git. The promotion's reference says what such a runtime does: only the whole tenant is made live, and a pack whose files changed since the version was made answers `409 promotion-superseded`, naming the file. `resolveBlockPins` is exported, for such a runtime's pins at load.
+  
+  **`kindgi dev`'s pack service writes a block made live into the pack.** The pack service supervisor gains an optional `writeBlock`, behind `POST /v1/blocks` on its front, token-gated like `/v1/invoke`; without it, the route answers 404. `writePackBlock` (`@kindgi/handler-runtime`) writes a block's new version and content into its own file, found by id among the pack's blocks, and a prompt's template into its template file. It refuses a block that isn't in the pack, content that doesn't fit the block's kind, and a version not past the file's. `kindgi dev` gives the supervisor one, and its log names the file written.
+- 68e0d57: **A pack tool can pause its run until another system answers (pack protocol 2.8.0).**
+  
+  - **Declaring it:** a tool declares `pauses: true`. Its handler gets `ctx.waitToken`, `{ id, url }`: it hands the `url` to the system that will answer, then returns `ctx.pause({ timeoutMs, name })`. That system `POST`s its answer to the link as JSON, with no `Authorization` header: the link is the credential. The answer, valid against the tool's output schema, becomes the call's result. The handler may also answer at once, as any tool does.
+  - **Re-runs:** the token's id is the same every time one attempt of the call runs; a retry of its step gets a new token, and waits afresh. A re-run after a crash gets a new link to the same wait, and either link completes it. Hand on the new one only if the old one never went out, and dedupe on `idempotencyKey`.
+  - **How long:** `timeoutMs` is from 1 ms to 24 days (`MAX_PAUSE_TIMEOUT_MS`), and 24 hours when not given (`DEFAULT_PAUSE_TIMEOUT_MS`). A pause never waits forever. `name` says what the run waits for, in 1 to 200 characters.
+  - **Refusals:**
+    - a tool with a declarative `spec` or an MCP transport can't declare `pauses`: `defineTool` answers `invalid-tool-definition`, and the indexer `manifest-validation-failed`;
+    - a pause outside those bounds is `handler-shape-invalid`;
+    - the new error `pause-not-available`: a call from a runtime that sends no wait token, or a pause from a tool that doesn't declare `pauses`. Reading `ctx.waitToken` throws then, so the tool fails before it hands anything on. Pausing needs a runtime that speaks pack protocol 2.8.0.
+  - **The protocol:** a tool's index entry carries `pauses: true` (pack index 1.6.0, tool manifest 1.2.0), and the call's context then carries `waitToken`. The pack service answers `{ v: 2, kind: 'pause', timeoutMs, name }`, each field only when the tool gave it. A tool that doesn't declare `pauses` never sees the token.
+  - **`@kindgi/handler-runtime`:** `runHandlerOrPause` returns a pause as a third outcome. `runHandler` keeps its two, and reports a pause as `pause-not-available`.
+  - **`@kindgi/tools`, for a runtime that calls tools:**
+    - `invokeToolOrPause` returns `{ kind: 'pause', pause: { tokenId, timeoutMs, name } }` when the tool's handler returns `pauseOutcome(...)`. `invokeTool` reports a pause as `tool-pause-unsupported`, and so does `invokeToolOrPause` for a tool that doesn't declare `pauses`;
+    - a runtime that won't run a pausing call again throws `ToolRerunsExhaustedError` from the handler, and the call fails with `wait-token-reruns-exhausted`;
+    - `wait-token-timed-out` is the error for an answer that didn't come in time;
+    - `ToolContext.attempt` counts the runs of the call's step;
+    - `toolOutputIssues(tool, output)` checks an answer that comes from outside the call, such as another system's answer to a paused call, against the tool's output schema, as a call's output is checked: `{ path, message }` per finding, or `undefined` when it fits;
+    - `PAUSE_TOKEN_PREFIX` (`pause:`) starts the waitpoint id of every pause. The runtime mints these ids, never a handler.
+  - **`@kindgi/handler`:** `NodeContext.attempt` counts the runs of a step, and `WAITPOINT_TIMEOUT_REASON` is the reason a wait that timed out resumes with.
+  - **`@kindgi/api`:** a tool's wire manifest (`Tool`) carries `pauses`.
+  - **Conformance:** the fixture pack gains `conformance.pause`, and targets gain a `pause` feature they may not support yet.
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [68e0d57]
+- Updated dependencies [68e0d57]
+- Updated dependencies [87a5290]
+- Updated dependencies [68e0d57]
+- Updated dependencies [d70c2a5]
+- Updated dependencies [68e0d57]
+  - @kindgi/tools@0.2.0-rc.0
+  - @kindgi/env-schema@0.2.0-rc.0
+  - @kindgi/schema@0.2.0-rc.0
+  - @kindgi/flow@0.2.0-rc.0
+  - @kindgi/log@0.2.0-rc.0
+  - @kindgi/sandbox@0.2.0-rc.0
+  - @kindgi/types@0.2.0-rc.0
+
+## 0.1.10
+
+### Patch Changes
+
+- 2e60ae2: A TypeScript pack's image can carry only what the pack loads: `image: { dependencies: 'loaded' }` in `kindgi.config` keeps the packages the pack's bundles import by name, with their own dependencies, and what `image.keep` names, instead of every production dependency of the app (`'all'`, still the default).
+  
+  - Each package is resolved as Node resolves it, over the layout the package manager made (pnpm's links, npm's and Yarn's hoisting), and kept whole.
+  - Most misses fail the build, naming the package. An import that isn't installed fails the image's closure step, by name. Every package the bundles import is loaded on the trimmed install before indexing, which runs there too. A `require(x)` / `import(x)` with a computed name in the pack's own code fails `kindgi build`, by file and line, until `image.keep` names what it loads.
+  - The build prints what it kept of what's installed, and which of the pack's own dependencies its tools don't import.
+  - What no check can see reaches a run: a package loaded by a name in a string (a plugin named in a config), through a `createRequire` alias or `module.require`, or a dependency's own undeclared one. That call fails, saying what to add to `image.keep`.
+  - `prisma()` keeps Prisma 6's generated `.prisma/client` when it's there.
+  - A Python pack's `[tool.kindgi.image] dependencies = "loaded"` (or `keep`) is refused for now: its image keeps every dependency in the lockfile.
+- Updated dependencies [6b3f48c]
+- Updated dependencies [e03762c]
+- Updated dependencies [fde2432]
+- Updated dependencies [43eafb2]
+- Updated dependencies [05b762e]
+- Updated dependencies [9b6da8a]
+  - @kindgi/env-schema@0.1.10
+  - @kindgi/flow@0.1.10
+  - @kindgi/schema@0.1.10
+  - @kindgi/log@0.1.10
+  - @kindgi/sandbox@0.1.10
+  - @kindgi/types@0.1.10
+
+## 0.1.10-rc.1
+
+### Patch Changes
+
+- @kindgi/env-schema@0.1.10-rc.1
+  - @kindgi/flow@0.1.10-rc.1
+  - @kindgi/log@0.1.10-rc.1
+  - @kindgi/sandbox@0.1.10-rc.1
+  - @kindgi/schema@0.1.10-rc.1
+  - @kindgi/types@0.1.10-rc.1
+
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- 2e60ae2: A TypeScript pack's image can carry only what the pack loads: `image: { dependencies: 'loaded' }` in `kindgi.config` keeps the packages the pack's bundles import by name, with their own dependencies, and what `image.keep` names, instead of every production dependency of the app (`'all'`, still the default).
+  
+  - Each package is resolved as Node resolves it, over the layout the package manager made (pnpm's links, npm's and Yarn's hoisting), and kept whole.
+  - Most misses fail the build, naming the package. An import that isn't installed fails the image's closure step, by name. Every package the bundles import is loaded on the trimmed install before indexing, which runs there too. A `require(x)` / `import(x)` with a computed name in the pack's own code fails `kindgi build`, by file and line, until `image.keep` names what it loads.
+  - The build prints what it kept of what's installed, and which of the pack's own dependencies its tools don't import.
+  - What no check can see reaches a run: a package loaded by a name in a string (a plugin named in a config), through a `createRequire` alias or `module.require`, or a dependency's own undeclared one. That call fails, saying what to add to `image.keep`.
+  - `prisma()` keeps Prisma 6's generated `.prisma/client` when it's there.
+  - A Python pack's `[tool.kindgi.image] dependencies = "loaded"` (or `keep`) is refused for now: its image keeps every dependency in the lockfile.
+- Updated dependencies [6b3f48c]
+- Updated dependencies [e03762c]
+- Updated dependencies [fde2432]
+- Updated dependencies [43eafb2]
+- Updated dependencies [05b762e]
+- Updated dependencies [9b6da8a]
+  - @kindgi/env-schema@0.1.10-rc.0
+  - @kindgi/flow@0.1.10-rc.0
+  - @kindgi/schema@0.1.10-rc.0
+  - @kindgi/log@0.1.10-rc.0
+  - @kindgi/sandbox@0.1.10-rc.0
+  - @kindgi/types@0.1.10-rc.0
+
+## 0.1.9
+
+### Patch Changes
+
+- 6d3ccdd: **A pack service run per deployment can be given the env its pack declares, from the env store.** On a server that runs a pack service per deployment (it wires `systemDeployments`), the names the pack declares in its index (`env`) are looked up in the env store, at the deployment's project, then the project's org, then the tenant (most specific wins), at the env the server serves. A tenant-wide deployment is read at the tenant's Default project.
+  - **Plain values only.** A name set only as a secret can't be given into the pack service's environment yet (`pack-env-secret-not-yet`): a tool reads it per call (`ctx.secrets`). A name set both as a secret and as a plain value is `pack-env-ambiguous`, naming both scopes. A required name set nowhere is `pack-env-missing`. While any of these stands, no value is given, and a running service keeps the values it has.
+  - **`GET /v1/deployments/{deploymentId}/pack-env`** shows a tenant where each declared name is set (`project`, `org` or `tenant`) and why it can't be given, if it can't. Never a value. A server whose pack services take their env from how they're run answers `501 pack-env-not-served`. The TypeScript client has `deployments.packEnv`; the Python client, `deployments.pack_env`.
+  - **For whatever runs the pack services, on a system key of its own (`system:pack-env`):**
+    - `GET /v1/system/pack-env` lists the deployments whose service runs on values that changed;
+    - `GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env` gives the values and a `revision`, with each value given out on the audit record (`env-resolved`);
+    - `PUT …/pack-env` records the revision the service runs, or that it was held back and why (compare-and-set: `409 pack-env-conflict`). `pack-env-update-failed` holds a revision whose values were given and didn't start: it's listed again for an hour after it was first held, so it's tried again;
+    - `PUT …/endpoint` takes `packEnvRevision`, the one a new service was made with.
+  
+    `system:deployments` reads no value. The TypeScript client has `systemDeployments.listPackEnvChanged`, `getPackEnv` and `recordPackEnv`.
+  - **A deployment records its pack's declaration** (`packEnv`, optional), and a deploy whose image index carries a malformed `env` is refused (`image-unverifiable`). A ready endpoint can carry `packEnvProblem` (`{ code, since }`) while its service runs on the values it was last given: one of the three codes above, or `pack-env-update-failed` when the newest values didn't start. `@kindgi/api` exports `packEnvCheck`, `PACK_ENV_PROBLEM_CODES`, `PACK_ENV_HELD_CODES` and `PACK_ENV_RETRY_MS`; `@kindgi/handler-runtime` exports its env declaration check at `@kindgi/handler-runtime/pack-env`.
+  - **An env or secret record can carry `recordId`,** the store's own id for its row, never on the wire. The revision carries it, so a removed value set again is a new revision even when its row starts again at 1 in the same millisecond. `@kindgi/env-inmemory` sets it; a store without one has only the update time.
+- cf339d3: **A tool can ask for a person's yes on every call no person is there to see: `needsApprovalWhenUnattended`.** A tool manifest's new optional `needsApprovalWhenUnattended: true` declares it. In a run no person started:
+  - **An agent's call of the tool waits for a reviewer,** as `always_ask` does. Neither the agent's `conversationPolicy.hitl` nor the tenant's approval rules can lift it.
+  - **A flow's tool step that calls it fails,** with `needs-a-person: …` naming the tool, since a tool step can't wait. Call such a tool from an agent step.
+  - In a run a person started, the agent's own gates decide, as for any tool. A tool that doesn't declare it is unchanged.
+  
+  **A run says how it started: `startedBy`** on `GET /v1/runs` and `GET /v1/runs/{runId}`, and on `KernelRunRecord`. It's `person` (signed in, or with their own API key), `key` (a service account's key), or `schedule`, `webhook` or `event` (a trigger). Only `person` counts as attended (`runIsAttended`, `@kindgi/runtime`). It's set from the caller, never from the request body, and never changes: an approval doesn't make a run its approver's. A run that a run starts started the way its run did. A run from before a runtime recorded it has none, and counts as unattended.
+  - **A key acts as its person.** For automation, use a service account's key: its runs count as unattended. A request with a service account's key is `key` whoever else it names. A tenant's first admin key, the one `POST /v1/system/tenants` answers with when it names no `firstAdmin`, is a service account's too: for the work you start, add yourself as a person and use a key of your own.
+  - **The wire `Tool`** carries `needsApprovalWhenUnattended`, so `kindgi tools get` and the console show it. The pack indexer carries it into the pack's index.
+  - **The `woocommerce` template declares it** on `woo.refund`, `woo.refund-large`, `woo.set-price` and `woo.publish-product`. A staff member's refund in the store chat runs as the store agent says; one an order webhook's run asks for waits for a person.
+  - **The authoring skills** (`kindgi-authoring-tools` and the Java, Python and Scala ones) say when to declare it.
+- Updated dependencies [22b619b]
+- Updated dependencies [1ac8e67]
+- Updated dependencies [7be42d0]
+- Updated dependencies [3b90568]
+- Updated dependencies [d563887]
+- Updated dependencies [1dc38b4]
+- Updated dependencies [c44d803]
+- Updated dependencies [ec3dbf9]
+- Updated dependencies [409b9bf]
+  - @kindgi/flow@0.1.9
+  - @kindgi/env-schema@0.1.9
+  - @kindgi/log@0.1.9
+  - @kindgi/schema@0.1.9
+  - @kindgi/sandbox@0.1.9
+  - @kindgi/types@0.1.9
+
+## 0.1.9-rc.1
+
+### Patch Changes
+
+- @kindgi/env-schema@0.1.9-rc.1
+  - @kindgi/flow@0.1.9-rc.1
+  - @kindgi/log@0.1.9-rc.1
+  - @kindgi/sandbox@0.1.9-rc.1
+  - @kindgi/schema@0.1.9-rc.1
+  - @kindgi/types@0.1.9-rc.1
+
+## 0.1.9-rc.0
+
+### Patch Changes
+
+- 6d3ccdd: **A pack service run per deployment can be given the env its pack declares, from the env store.** On a server that runs a pack service per deployment (it wires `systemDeployments`), the names the pack declares in its index (`env`) are looked up in the env store, at the deployment's project, then the project's org, then the tenant (most specific wins), at the env the server serves. A tenant-wide deployment is read at the tenant's Default project.
+  - **Plain values only.** A name set only as a secret can't be given into the pack service's environment yet (`pack-env-secret-not-yet`): a tool reads it per call (`ctx.secrets`). A name set both as a secret and as a plain value is `pack-env-ambiguous`, naming both scopes. A required name set nowhere is `pack-env-missing`. While any of these stands, no value is given, and a running service keeps the values it has.
+  - **`GET /v1/deployments/{deploymentId}/pack-env`** shows a tenant where each declared name is set (`project`, `org` or `tenant`) and why it can't be given, if it can't. Never a value. A server whose pack services take their env from how they're run answers `501 pack-env-not-served`. The TypeScript client has `deployments.packEnv`; the Python client, `deployments.pack_env`.
+  - **For whatever runs the pack services, on a system key of its own (`system:pack-env`):**
+    - `GET /v1/system/pack-env` lists the deployments whose service runs on values that changed;
+    - `GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env` gives the values and a `revision`, with each value given out on the audit record (`env-resolved`);
+    - `PUT …/pack-env` records the revision the service runs, or that it was held back and why (compare-and-set: `409 pack-env-conflict`). `pack-env-update-failed` holds a revision whose values were given and didn't start: it's listed again for an hour after it was first held, so it's tried again;
+    - `PUT …/endpoint` takes `packEnvRevision`, the one a new service was made with.
+  
+    `system:deployments` reads no value. The TypeScript client has `systemDeployments.listPackEnvChanged`, `getPackEnv` and `recordPackEnv`.
+  - **A deployment records its pack's declaration** (`packEnv`, optional), and a deploy whose image index carries a malformed `env` is refused (`image-unverifiable`). A ready endpoint can carry `packEnvProblem` (`{ code, since }`) while its service runs on the values it was last given: one of the three codes above, or `pack-env-update-failed` when the newest values didn't start. `@kindgi/api` exports `packEnvCheck`, `PACK_ENV_PROBLEM_CODES`, `PACK_ENV_HELD_CODES` and `PACK_ENV_RETRY_MS`; `@kindgi/handler-runtime` exports its env declaration check at `@kindgi/handler-runtime/pack-env`.
+  - **An env or secret record can carry `recordId`,** the store's own id for its row, never on the wire. The revision carries it, so a removed value set again is a new revision even when its row starts again at 1 in the same millisecond. `@kindgi/env-inmemory` sets it; a store without one has only the update time.
+- cf339d3: **A tool can ask for a person's yes on every call no person is there to see: `needsApprovalWhenUnattended`.** A tool manifest's new optional `needsApprovalWhenUnattended: true` declares it. In a run no person started:
+  - **An agent's call of the tool waits for a reviewer,** as `always_ask` does. Neither the agent's `conversationPolicy.hitl` nor the tenant's approval rules can lift it.
+  - **A flow's tool step that calls it fails,** with `needs-a-person: …` naming the tool, since a tool step can't wait. Call such a tool from an agent step.
+  - In a run a person started, the agent's own gates decide, as for any tool. A tool that doesn't declare it is unchanged.
+  
+  **A run says how it started: `startedBy`** on `GET /v1/runs` and `GET /v1/runs/{runId}`, and on `KernelRunRecord`. It's `person` (signed in, or with their own API key), `key` (a service account's key), or `schedule`, `webhook` or `event` (a trigger). Only `person` counts as attended (`runIsAttended`, `@kindgi/runtime`). It's set from the caller, never from the request body, and never changes: an approval doesn't make a run its approver's. A run that a run starts started the way its run did. A run from before a runtime recorded it has none, and counts as unattended.
+  - **A key acts as its person.** For automation, use a service account's key: its runs count as unattended. A request with a service account's key is `key` whoever else it names. A tenant's first admin key, the one `POST /v1/system/tenants` answers with when it names no `firstAdmin`, is a service account's too: for the work you start, add yourself as a person and use a key of your own.
+  - **The wire `Tool`** carries `needsApprovalWhenUnattended`, so `kindgi tools get` and the console show it. The pack indexer carries it into the pack's index.
+  - **The `woocommerce` template declares it** on `woo.refund`, `woo.refund-large`, `woo.set-price` and `woo.publish-product`. A staff member's refund in the store chat runs as the store agent says; one an order webhook's run asks for waits for a person.
+  - **The authoring skills** (`kindgi-authoring-tools` and the Java, Python and Scala ones) say when to declare it.
+- Updated dependencies [22b619b]
+- Updated dependencies [1ac8e67]
+- Updated dependencies [7be42d0]
+- Updated dependencies [3b90568]
+- Updated dependencies [d563887]
+- Updated dependencies [1dc38b4]
+- Updated dependencies [c44d803]
+- Updated dependencies [ec3dbf9]
+- Updated dependencies [409b9bf]
+  - @kindgi/flow@0.1.9-rc.0
+  - @kindgi/env-schema@0.1.9-rc.0
+  - @kindgi/log@0.1.9-rc.0
+  - @kindgi/schema@0.1.9-rc.0
+  - @kindgi/sandbox@0.1.9-rc.0
+  - @kindgi/types@0.1.9-rc.0
+
 ## 0.1.8
 
 ### Patch Changes

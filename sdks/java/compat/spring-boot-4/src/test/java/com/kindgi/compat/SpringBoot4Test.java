@@ -5,8 +5,8 @@ package com.kindgi.compat;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.kindgi.client.models.LiveScope;
-import com.kindgi.client.models.LiveScopeTenant;
+import com.kindgi.client.models.AgentPinScope;
+import com.kindgi.client.models.PinScopeTenant;
 import com.kindgi.client.models.PromptRef;
 import com.kindgi.client.models.PatchScheduleBody;
 import com.kindgi.client.models.StartRunBody;
@@ -42,7 +42,17 @@ class SpringBoot4Test {
     assertThat(bootMapper.writeValueAsString(PatchScheduleBody.builder().label(null).build())).isEqualTo("{\"label\":null}");
     assertThat(bootMapper.readValue("{\"prompt\":\"acme.tone\",\"version\":\"^1.0.0\"}", PromptRef.class))
         .isEqualTo(new PromptRef("acme.tone", "^1.0.0"));
-    assertThat(bootMapper.readValue("{\"kind\":\"tenant\"}", LiveScope.class)).isInstanceOf(LiveScopeTenant.class);
+    assertThat(bootMapper.readValue("{\"kind\":\"tenant\"}", AgentPinScope.class)).isInstanceOf(PinScopeTenant.class);
     System.out.println("[compat] Boot " + org.springframework.boot.SpringBootVersion.getVersion() + ": " + Compat.versions());
+  }
+
+  /** A newer runtime's variant keeps every property, also one spelled like the record's own map. */
+  @Test
+  void bootsMapperKeepsAVariantItDoesntKnow() throws Exception {
+    AgentPinScope read = bootMapper.readValue("{\"kind\":\"galaxy\",\"arm\":3,\"properties\":{\"x\":1}}", AgentPinScope.class);
+    assertThat(read).isInstanceOf(AgentPinScope.Unrecognized.class);
+    assertThat(((AgentPinScope.Unrecognized) read).properties()).isEqualTo(Map.of("arm", 3, "properties", Map.of("x", 1)));
+    assertThat(bootMapper.readTree(bootMapper.writeValueAsString(read)))
+        .isEqualTo(bootMapper.readTree("{\"kind\":\"galaxy\",\"arm\":3,\"properties\":{\"x\":1}}"));
   }
 }

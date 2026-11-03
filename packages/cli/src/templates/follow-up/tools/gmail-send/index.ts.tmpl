@@ -1,0 +1,14 @@
+// {{PACK_ID}}.gmail.send — sends a plain-text mail from the Gmail account
+// of the person the run is for. The tool comes from @kindgi/connections,
+// and this pack names its id: a tool id is filed under the first project
+// that publishes it, so each pack gives the tool its own.
+//
+// It needs that person's Google connection, with permission to send
+// (`needsSpec.connections.mail`): their first send asks them to connect
+// Google, and the run goes on once they have. In a run no person started,
+// each send waits for that person's yes; the follow-up agent asks before
+// every send anyway.
+
+import { gmailSend } from '@kindgi/connections/google/tools';
+
+export default gmailSend({ id: '{{PACK_ID}}.gmail.send' });

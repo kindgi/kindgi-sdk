@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: packages/cli/src/templates/**
 
 /**
  * Template file names as `kindgi init` writes them, and the names the
@@ -15,7 +16,16 @@ import { describe, expect, test } from 'vitest';
 import { collectTemplateFiles, javaPackageOf, templateTarget } from '../src/init/template-files.js';
 
 const TEMPLATES = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'templates');
-const TEMPLATE_NAMES = ['drupal', 'java', 'minimal', 'python', 'sample', 'woocommerce'];
+const TEMPLATE_NAMES = [
+  'drupal',
+  'follow-up',
+  'java',
+  'minimal',
+  'python',
+  'returns-helper',
+  'sample',
+  'woocommerce',
+];
 
 describe('templateTarget', () => {
   test('strips .tmpl and restores the dot of a stored dotfile', () => {

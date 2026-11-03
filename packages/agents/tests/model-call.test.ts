@@ -20,7 +20,11 @@ import { buildModelCallHandler } from '../src/handlers/model-call.js';
 import type { InvokeAgentBindings } from '../src/handlers/public-types.js';
 import type { ConversationId } from '../src/types.js';
 
-const MODEL = { name: 'claude-haiku-4-5' } as ModelInfo;
+const MODEL = {
+  name: 'claude-haiku-4-5',
+  features: [],
+  contextWindow: 200_000,
+} as unknown as ModelInfo;
 
 function contextFailingWith(cause: unknown): TurnContext {
   const agent = defineAgent({

@@ -129,3 +129,57 @@ describe("identity — a person's grants", () => {
     ).rejects.toMatchObject({ error: { code: 'conflict', reason: 'last-tenant-admin' } });
   });
 });
+
+describe('identity — your second factor', () => {
+  it('me.secondFactor: each call on its own route, with its body', async () => {
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify({ setUp: false, started: false, required: true }) },
+      { status: 200, body: JSON.stringify({ key: 'K', uri: 'otpauth://totp/x?secret=K' }) },
+      { status: 200, body: JSON.stringify({ key: 'K2', uri: 'otpauth://totp/x?secret=K2' }) },
+      { status: 200, body: JSON.stringify({ recoveryCodes: ['a'] }) },
+      { status: 200, body: JSON.stringify({ recoveryCodes: ['b'] }) },
+      { status: 200, body: JSON.stringify({ removed: true }) },
+    ]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    const sf = client.identity.me.secondFactor;
+    expect((await sf.get()).required).toBe(true);
+    expect((await sf.start()).key).toBe('K');
+    await sf.start({ code: '123456' });
+    expect((await sf.confirm('654321')).recoveryCodes).toEqual(['a']);
+    await sf.newRecoveryCodes({ recoveryCode: 'aaaaa-bbbbb' });
+    expect(await sf.remove({ code: '111111' })).toEqual({ removed: true });
+    expect(stub.calls.map((c) => `${c.method} ${new URL(c.url).pathname} ${c.body ?? ''}`)).toEqual(
+      [
+        'GET /v1/identity/me/second-factor ',
+        'POST /v1/identity/me/second-factor {}',
+        'POST /v1/identity/me/second-factor {"code":"123456"}',
+        'POST /v1/identity/me/second-factor/confirm {"code":"654321"}',
+        'POST /v1/identity/me/second-factor/recovery-codes {"recoveryCode":"aaaaa-bbbbb"}',
+        'POST /v1/identity/me/second-factor/remove {"code":"111111"}',
+      ],
+    );
+  });
+
+  it('a wrong code is an auth error that names it; too many is rate-limited', async () => {
+    const wrong = createClient({
+      apiUrl: API,
+      auth: AUTH,
+      fetch: errorFetch(403, { code: 'second-factor-invalid', message: 'not right' }).fetch,
+    });
+    await expect(wrong.identity.me.secondFactor.confirm('000000')).rejects.toMatchObject({
+      error: { code: 'auth', serverCode: 'second-factor-invalid' },
+    });
+    const locked = createClient({
+      apiUrl: API,
+      auth: AUTH,
+      fetch: errorFetch(429, {
+        code: 'second-factor-locked',
+        message: 'wait',
+        retryAfterSeconds: 60,
+      }).fetch,
+    });
+    await expect(locked.identity.me.secondFactor.remove({ code: '000000' })).rejects.toMatchObject({
+      error: { code: 'rate-limited', serverCode: 'second-factor-locked', retryAfterSeconds: 60 },
+    });
+  });
+});

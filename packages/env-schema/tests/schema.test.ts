@@ -15,6 +15,7 @@
 
 import { describe, expect, test } from 'vitest';
 
+import * as envSchema from '../src/index.js';
 import {
   AUTH_INVITE_EMAIL_DAILY_CAP_VAR,
   type EnvTarget,
@@ -346,6 +347,46 @@ describe('envVarsForTarget — the compliance classifier (T250)', () => {
   });
 });
 
+describe('envVarsForTarget — S3 targets', () => {
+  const S3_VARS = [
+    'KINDGI_S3_REGION',
+    'KINDGI_S3_ENDPOINT',
+    'KINDGI_S3_PATH_STYLE',
+    'KINDGI_S3_CREDENTIALS_PATH',
+  ];
+
+  test("how the server reaches its S3 buckets is the server's, optional, in core", () => {
+    const server = new Map(envVarsForTarget({ component: 'server' }).map((v) => [v.name, v]));
+    for (const name of S3_VARS) {
+      expect(server.get(name)).toMatchObject({ required: false, group: 'core' });
+      expect(server.get(name)?.description).toMatch(/^Used from runtime 0\.4\.0; /);
+    }
+    expect(server.get('KINDGI_S3_REGION')?.description).toContain(
+      'required with any of them, and with any other `KINDGI_S3_*` setting',
+    );
+    expect(server.get('KINDGI_S3_PATH_STYLE')?.allowedValues).toEqual(['true', 'false']);
+    expect(server.get('KINDGI_S3_CREDENTIALS_PATH')?.description).toContain(
+      'with `KINDGI_S3_ENDPOINT` only',
+    );
+    const packService = envVarsForTarget({ component: 'pack-service' }).map((v) => v.name);
+    for (const name of S3_VARS) expect(packService).not.toContain(name);
+  });
+
+  test('each setting that puts files somewhere takes an `s3:` bucket, from runtime 0.4.0', () => {
+    const server = new Map(envVarsForTarget({ component: 'server' }).map((v) => [v.name, v]));
+    for (const name of [
+      'KINDGI_ARTIFACTS',
+      'KINDGI_ERASURE_LEDGER_EXPORT',
+      'KINDGI_TENANT_PURGE_RECORD',
+    ]) {
+      expect(server.get(name)?.description).toContain(
+        'or, from runtime 0.4.0, `s3:<bucket>[/<prefix>]`',
+      );
+      expect(server.get('KINDGI_S3_REGION')?.description).toContain(`\`${name}\``);
+    }
+  });
+});
+
 describe('envVarsForTarget — logging', () => {
   test('the server has the three KINDGI_LOG_* variables, optional, in the logging group', () => {
     const vars = envVarsForTarget({ component: 'server' }).filter((v) => v.group === 'logging');
@@ -371,6 +412,29 @@ describe('envVarsForTarget — the pack service', () => {
   test("component=pack-service is the pack service's vars and none of the server's", () => {
     const names = envVarsForTarget({ component: 'pack-service' }).map((v) => v.name);
     expect(names.sort()).toEqual([...PACK_SERVICE_VARS].sort());
+  });
+
+  const PACK_ORCHESTRATOR_VARS = [
+    'KINDGI_ORCHESTRATOR_RUNTIME_URL',
+    'KINDGI_ORCHESTRATOR_SYSTEM_KEY',
+    'KINDGI_ORCHESTRATOR_RUNTIME_AUTH',
+    'KINDGI_ORCHESTRATOR_PROJECT',
+    'KINDGI_ORCHESTRATOR_REGION',
+    'KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT',
+    'KINDGI_ORCHESTRATOR_PACK_SERVICE',
+  ];
+
+  test("component=pack-orchestrator is the orchestrator's vars, and no other process reads them", () => {
+    const names = envVarsForTarget({ component: 'pack-orchestrator' }).map((v) => v.name);
+    expect(names.sort()).toEqual([...PACK_ORCHESTRATOR_VARS].sort());
+    for (const target of [
+      {},
+      { component: 'server' as const },
+      { component: 'pack-service' as const },
+    ]) {
+      const others = envVarsForTarget(target).map((v) => v.name);
+      for (const name of PACK_ORCHESTRATOR_VARS) expect(others).not.toContain(name);
+    }
   });
 
   test('a server target without a pack transport offers the URL only', () => {
@@ -490,6 +554,22 @@ describe('validateEnvForTarget', () => {
     const server = new Map(envVarsForTarget({}).map((v) => [v.name, v]));
     expect(server.has('KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH')).toBe(true);
     expect(server.has('KINDGI_PUBLIC_TOKEN_SIGNING_KEY')).toBe(true);
+    expect(server.get('KINDGI_DATABASE_SERVER_CA_PATH')?.required).toBe(false);
+    expect(server.get('KINDGI_DATABASE_SERVER_CA')?.required).toBe(false);
+    expect(server.get('KINDGI_DATABASE_SERVER_CA')?.example).toBe('');
+  });
+
+  test("the database timeouts are the server's, none required, each example its default", () => {
+    const server = new Map(envVarsForTarget({}).map((v) => [v.name, v]));
+    for (const [name, example] of [
+      ['KINDGI_DB_STATEMENT_TIMEOUT_MS', '60000'],
+      ['KINDGI_DB_LOCK_TIMEOUT_MS', '30000'],
+      ['KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS', '30000'],
+      ['KINDGI_DB_POOL_WAIT_TIMEOUT_MS', '10000'],
+    ] as const) {
+      expect(server.get(name)?.required, name).toBe(false);
+      expect(server.get(name)?.example, name).toBe(example);
+    }
   });
 
   test('KINDGI_LICENSE_KEY is a server variable the schema leaves optional (the server requires it outside development mode)', () => {
@@ -583,6 +663,16 @@ describe('KINDGI_ENV_SCHEMA — integrity', () => {
     const names = KINDGI_ENV_SCHEMA.map((v) => v.name);
     const set = new Set(names);
     expect(set.size).toBe(names.length);
+  });
+
+  test("every exported name (`*_VAR`) is a variable in the schema, so a reader and the docs can't drift", () => {
+    const names = new Set(KINDGI_ENV_SCHEMA.map((v) => v.name));
+    const exported = Object.entries(envSchema as Record<string, unknown>).filter(
+      (entry): entry is [string, string] =>
+        entry[0].endsWith('_VAR') && typeof entry[1] === 'string',
+    );
+    expect(exported.length).toBeGreaterThan(40);
+    expect(exported.filter(([, name]) => !names.has(name))).toEqual([]);
   });
 
   test('every var has a non-empty name + description', () => {

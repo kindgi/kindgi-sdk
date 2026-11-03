@@ -237,3 +237,50 @@ describe('GET /v1/audit/sign-ins?userId=: the events about the person', () => {
     expect((await ids(a, 'u-cy')).map((e) => e.id)).toEqual(['h1']);
   });
 });
+
+describe('GET /v1/audit/sign-ins: second factors', () => {
+  const about = (id: string, second: number, kind: string, actor: string, person: string) => ({
+    ...event(id, second, kind, actor, { personId: person }),
+    subject: `user:${person}`,
+  });
+
+  async function appWithSecondFactors() {
+    const auditEvents = createInMemoryAuditEventBinding();
+    await auditEvents.append([
+      about('f1', 1, 'second-factor-set-up', 'user:u-ann', 'u-ann'),
+      about('f2', 2, 'recovery-codes-replaced', 'user:u-ann', 'u-ann'),
+      // An admin removed Bo's (a lost phone).
+      about('f3', 3, 'second-factor-removed', 'user:u-admin', 'u-bo'),
+      // A workspace setting, not a person's sign-in.
+      event('f4', 4, 'sign-in-settings-changed', 'user:u-admin', { secondFactorRequired: true }),
+    ]);
+    return createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler: {} as RunHandlerBinding,
+      auditEvents,
+    });
+  }
+
+  test('set up, recovery codes replaced and removed are sign-in history; an admin who removed one is named', async () => {
+    const page = (await (await get(await appWithSecondFactors())).json()) as Page;
+    expect(page.data.map((e) => [e.id, e.kind, e.userId, e.byUserId])).toEqual([
+      ['f1', 'second-factor-set-up', 'u-ann', undefined],
+      ['f2', 'recovery-codes-replaced', 'u-ann', undefined],
+      ['f3', 'second-factor-removed', 'u-bo', 'u-admin'],
+    ]);
+  });
+
+  test('?kind= takes each of them', async () => {
+    const a = await appWithSecondFactors();
+    for (const [kind, id] of [
+      ['second-factor-set-up', 'f1'],
+      ['recovery-codes-replaced', 'f2'],
+      ['second-factor-removed', 'f3'],
+    ] as const) {
+      const res = await get(a, `?kind=${kind}`);
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as Page).data.map((e) => e.id)).toEqual([id]);
+    }
+  });
+});

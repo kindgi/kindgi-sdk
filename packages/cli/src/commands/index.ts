@@ -9,47 +9,60 @@ import { authCommand } from './auth.js';
 import { blocksCommand } from './blocks.js';
 import { buildCommand } from './build.js';
 import { capabilitiesCommand } from './capabilities.js';
+import { connectionAppsCommand } from './connection-apps.js';
+import { connectionChoicesCommand } from './connection-choices.js';
+import { connectionsCommand } from './connections.js';
 import { consoleCommand } from './console.js';
 import { conversationsCommand } from './conversations.js';
+import { correctionsCommand } from './corrections.js';
+import { correctorGroupsCommand } from './corrector-groups.js';
 import { deployCommand } from './deploy.js';
+import { deploymentsCommand } from './deployments.js';
 import { devCommand } from './dev.js';
 import { doctorCommand } from './doctor.js';
 import { egressCommand } from './egress.js';
 import { envCommand } from './env.js';
-import { evalRunsCommand } from './eval-runs.js';
-import { evalSuitesCommand } from './eval-suites.js';
+import { environmentsCommand } from './environments.js';
+import { expertQueueCommand } from './expert-queue.js';
 import { exportsCommand } from './exports.js';
 import { feedbackCommand } from './feedback.js';
 import { flowsCommand } from './flows.js';
-import { gatePoliciesCommand } from './gate-policies.js';
 import { guardrailsCommand } from './guardrails.js';
 import { healthCommand } from './health.js';
+import { improveCommand } from './improve-runs.js';
 import { initCommand } from './init.js';
-import { judgeClassesCommand } from './judge-classes.js';
-import { judgmentsCommand } from './judgments.js';
 import { keyCommand } from './key.js';
 import { licenseCommand } from './license.js';
+import { mailTriggersCommand } from './mail-triggers.js';
 import { mcpCommand, mcpLaunchCommand } from './mcp.js';
 import { memoryCommand } from './memory.js';
 import { observationsCommand } from './observations.js';
 import { peopleCommand } from './people.js';
 import { projectsCommand } from './projects.js';
-import { proposalsCommand } from './proposals.js';
+import { promoteCommand } from './promote.js';
 import { provenanceCommand } from './provenance.js';
 import { providersCommand } from './providers.js';
+import { queueRulesCommand } from './queue-rules.js';
+import { releaseGatesCommand } from './release-gates.js';
 import { reviewersCommand } from './reviewers.js';
 import { runsCommand } from './runs.js';
 import { schedulesCommand } from './schedules.js';
 import { secretsCommand } from './secrets.js';
 import { serviceAccountsCommand } from './service-accounts.js';
+import { signInCommand } from './sign-in.js';
 import { sitesCommand } from './sites.js';
 import { skillsCommand } from './skills.js';
 import { ssoCommand } from './sso.js';
+import { suggestedChangesCommand } from './suggested-changes.js';
+import { tenantCommand } from './tenant.js';
+import { testRunsCommand } from './test-runs.js';
+import { testSetsCommand } from './test-sets.js';
 import { testCommand } from './test.js';
 import { tokensCommand } from './tokens.js';
 import { toolsCommand } from './tools.js';
 import type { Command } from './types.js';
 import { upgradeCommand } from './upgrade.js';
+import { usageCommand } from './usage.js';
 import { versionCommand } from './version.js';
 import { webhooksCommand } from './webhooks.js';
 
@@ -61,41 +74,54 @@ export const ROOT_COMMANDS: readonly Command[] = [
   consoleCommand,
   buildCommand,
   deployCommand,
+  deploymentsCommand,
+  promoteCommand,
   testCommand,
   envCommand,
+  environmentsCommand,
   secretsCommand,
+  connectionsCommand,
+  connectionAppsCommand,
+  connectionChoicesCommand,
   ssoCommand,
+  signInCommand,
   sitesCommand,
   keyCommand,
   licenseCommand,
   mcpCommand,
   mcpLaunchCommand,
   projectsCommand,
+  tenantCommand,
   runsCommand,
   agentsCommand,
   conversationsCommand,
   toolsCommand,
   guardrailsCommand,
   memoryCommand,
-  proposalsCommand,
+  improveCommand,
+  suggestedChangesCommand,
   provenanceCommand,
   exportsCommand,
   artifactsCommand,
   flowsCommand,
   schedulesCommand,
   webhooksCommand,
+  mailTriggersCommand,
   approvalsCommand,
   reviewersCommand,
   observationsCommand,
-  judgmentsCommand,
-  judgeClassesCommand,
-  evalRunsCommand,
-  evalSuitesCommand,
+  correctionsCommand,
+  correctorGroupsCommand,
+  queueRulesCommand,
+  expertQueueCommand,
+  testRunsCommand,
+  testSetsCommand,
   blocksCommand,
-  gatePoliciesCommand,
+  releaseGatesCommand,
   tokensCommand,
   serviceAccountsCommand,
   peopleCommand,
+  usageCommand,
   capabilitiesCommand,
   providersCommand,
   adaptersCommand,

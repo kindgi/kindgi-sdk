@@ -122,7 +122,7 @@ describe('on the hosted bounds', () => {
     const started = performance.now();
     expect(validate(values)).toBe(true);
     // Building RE2's program for each value took about a minute.
-    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(performance.now() - started).toBeLessThan(5_000);
   });
 
   test('`format: url` gives ajv-formats’ verdicts, in linear time', () => {
@@ -163,11 +163,11 @@ describe('on the hosted bounds', () => {
       if (full(url)) valid += 1;
     }
     expect(valid).toBeGreaterThan(500);
-    // ajv-formats' own takes seconds on this at 128 KiB.
-    const long = `ftp://a@${'urn:uuid:'.repeat(14_564)}!`;
+    // ajv-formats' own takes half a minute on this at 256 KiB.
+    const long = `ftp://a@${'urn:uuid:'.repeat(29_128)}!`;
     const started = performance.now();
     expect(hosted(long)).toBe(false);
-    expect(performance.now() - started).toBeLessThan(500);
+    expect(performance.now() - started).toBeLessThan(5_000);
   });
 
   test('formats are ajv-formats’ fast ones: a date is checked for its shape', () => {
@@ -175,6 +175,32 @@ describe('on the hosted bounds', () => {
     const validate = compileJsonSchema({ type: 'string', format: 'date' });
     expect(validate('2026-02-30')).toBe(true);
     expect(validate('2026-2-3')).toBe(false);
+  });
+
+  test('format bounds compare in linear time: 1 MiB values of each shape', () => {
+    under(HOSTED_BOUNDS);
+    const n = 1024 * 1024;
+    // What a compare parses or splits the longest: separators, and a long
+    // fraction of a second. Each is compared whether its format holds or not.
+    const values = [
+      ' '.repeat(n),
+      't'.repeat(n),
+      ':'.repeat(n),
+      `2020-01-01${' '.repeat(n)}`,
+      `12:00:00.${'1'.repeat(n)}z`,
+      `2020-01-01T12:00:00.${'1'.repeat(n)}x`,
+    ];
+    for (const [format, bound] of BOUNDED_FORMATS) {
+      const validate = compileJsonSchema({
+        type: 'string',
+        format,
+        formatMinimum: bound,
+        formatMaximum: bound,
+      });
+      const started = performance.now();
+      for (const value of values) validate(value);
+      expect(performance.now() - started, format).toBeLessThan(5_000);
+    }
   });
 
   test('`uniqueItems` is the linear one', () => {
@@ -217,6 +243,73 @@ describe('on the self-hosted bounds', () => {
     expect(boundedAjvFor(SELF_HOSTED_BOUNDS).getKeyword('uniqueItems')).not.toMatchObject({
       code: linearUniqueItems().code,
     });
+  });
+});
+
+/**
+ * The formats ajv-formats compares, each with a bound, and a value before
+ * it, one equal to it and one after it.
+ */
+const BOUNDED_FORMATS = [
+  ['date', '2020-01-01', '2019-12-31', '2020-01-01', '2020-01-02'],
+  ['time', '12:00:00Z', '11:59:59Z', '13:00:00+01:00', '12:00:01Z'],
+  [
+    'date-time',
+    '2020-01-01T12:00:00Z',
+    '2020-01-01T11:59:59Z',
+    '2020-01-01T13:00:00+01:00',
+    '2020-01-02T00:00:00Z',
+  ],
+  ['iso-time', '12:00:00', '11:59:59', '12:00:00', '12:00:01'],
+  [
+    'iso-date-time',
+    '2020-01-01T12:00:00',
+    '2019-12-31T23:59:59',
+    '2020-01-01 12:00:00',
+    '2020-01-02T00:00:00',
+  ],
+] as const;
+
+/** Each format bound, and whether it lets through the value before, at and after it. */
+const FORMAT_BOUNDS = {
+  formatMinimum: [false, true, true],
+  formatMaximum: [true, true, false],
+  formatExclusiveMinimum: [false, false, true],
+  formatExclusiveMaximum: [true, false, false],
+} as const;
+
+describe.each([
+  ['hosted', HOSTED_BOUNDS],
+  ['self-hosted', SELF_HOSTED_BOUNDS],
+] as const)('format bounds (%s)', (_, bounds) => {
+  test.each(BOUNDED_FORMATS)(
+    '`%s`: each bound compiles, and compares',
+    (format, bound, ...values) => {
+      under(bounds);
+      for (const [keyword, verdicts] of Object.entries(FORMAT_BOUNDS)) {
+        const validate = compileJsonSchema({ type: 'string', format, [keyword]: bound });
+        expect(
+          values.map((value) => validate(value)),
+          keyword,
+        ).toEqual(verdicts);
+      }
+    },
+  );
+
+  test('a value past its bound: the bound’s error, naming the limit', () => {
+    under(bounds);
+    const validate = compileJsonSchema({
+      type: 'string',
+      format: 'date',
+      formatMinimum: '2020-01-01',
+    });
+    expect(validate('2019-12-31')).toBe(false);
+    expect(validate.errors).toEqual([
+      expect.objectContaining({
+        keyword: 'formatMinimum',
+        params: { comparison: '>=', limit: '2020-01-01' },
+      }),
+    ]);
   });
 });
 

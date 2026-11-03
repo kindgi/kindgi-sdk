@@ -57,6 +57,21 @@ gates skip it. Left unset, a tool counts as one that writes: a dry run skips it
 and approval gates apply. Leave it unset for a tool that writes, sends or
 charges.
 
+`needsApprovalWhenUnattended(true)` makes each call wait for a person's approval
+in a run no person started (a webhook, a schedule, an event, or a service
+account's key). A flow's tool step that calls it is refused there, since a
+step can't wait. A webhook trigger or a schedule whose
+`toolsAllowedUnattended` names the tool (a project admin's to set) lifts
+that, in its own runs only. A run a person starts is unaffected. Left unset,
+nothing changes.
+
+`resultIsOutsideData(true)` says the tool's results are text from outside that
+nobody checked, such as a mail someone sent or a page a search found. An agent
+reads each result of the tool as data, not instructions, in that turn and in
+every later turn's history. It changes what the model is told, not what the
+tool may do: pair it with approvals for anything an agent could do with what it
+read. Left unset, it counts as `false`.
+
 ## The pack
 
 A pack is a directory with a `kindgi.config.json`, usually the root of your
@@ -135,7 +150,13 @@ The service's validator answers as the TypeScript service's Ajv does, issue
 for issue: a differential test runs every value of its corpus through both
 (see [Build from source](#build-from-source)). It takes the JSON Schema
 keywords tool schemas use, and the indexer refuses a schema with any other
-keyword (`if`, `prefixItems`, a remote `$ref`, …).
+keyword (`if`, `prefixItems`, a remote `$ref`, …). It also refuses what the
+runtime's strict compile refuses: a keyword with no `type` it applies to
+(`minLength` with no `"type": "string"`), a `type` its context can't be, a
+`required` property nothing defines, an empty `enum`, references that only
+lead back to themselves, and a `pattern` the runtime's JavaScript `RegExp`
+refuses. A pattern only JavaScript reads, such as `[^]`, is refused too: the
+service checks data against it with Java's `Pattern`.
 
 A JVM language's own types (Scala's `Option`, `Seq`, a case class's defaults)
 come from its layer: it implements `com.kindgi.pack.spi.SchemaTypeAdapter` and

@@ -12,9 +12,12 @@ description: >
   from authoring skills (which help you build packs) and from
   getting-started (which onboards new packs); this skill turns your
   diagnostic output into durable input for framework improvement.
+  Also load to send entries to Kindgi (only after the person says yes
+  to the preview), to check what became of sent ones at the start of a
+  session, or to take one back.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.3"
+version: "0.5.0"
 sdk_version: "0.0.0"
 pack_languages: [node, python, java, scala]
 ---
@@ -102,111 +105,17 @@ The entry lands as a new `## <title>` section appended to
 `FEEDBACK.md`, stamped with a fresh `id: YYYY-MM-DD.N`. The file is
 created with a header if it doesn't yet exist.
 
-## Entry shape (what the CLI produces)
+## Your case: read this file
 
-```md
-## preferredProvider silently dropped by wire schema
-
-- **id:** 2026-09-25.3
-- **hash:** feedback-a3f2c1d0
-- **kind:** bug
-- **severity:** high
-- **date:** 2026-09-25T14:32:07.104Z
-- **sdk:** 0.1.2 · **cli:** 0.1.2 · **by:** claude-code
-
-### Summary
-One-line: what the report is about.
-
-### Observed
-What happened, with file:line pointers when possible.
-
-### Expected
-What should have happened.
-
-### Reproducer
-Exact commands, spec files, output.
-
-### Suggested fix
-Optional; leave blank if you don't have one.
-
----
-```
-
-## Editing FEEDBACK.md directly
-
-Entries are referenced locally by their `id` (e.g. `2026-09-25.3`)
-or by their title; across packs (or between peers) they are referenced
-by their `hash` (e.g. `feedback-a3f2c1d0`). When the pack author says
-something like:
-
-- **"Remove 2026-09-25.3"** / **"Remove the preferredProvider
-  entry"** → find the section whose `id` matches (or whose `##
-  <title>` matches), delete from the header down through the next
-  `---` separator (inclusive). Do NOT renumber other entries — ids
-  are historical identifiers, gaps are expected.
-- **"Mark 2026-09-25.3 fixed"** / **"That preferredProvider one
-  landed in commit abc123"** → find the section, insert a line
-  right after the header:
-  ```md
-  > **Fixed:** landed in commit abc123 (2026-09-25). <optional context>
-  ```
-- **"Note that 2026-09-25.5 is a duplicate of feedback-a3f2c1d0"** /
-  **"Merge these — same hash"** → find the section, insert:
-  ```md
-  > **Duplicate of:** feedback-a3f2c1d0 (<optional context>)
-  ```
-  Prefer the `hash` when the duplicate lives in another pack (peer /
-  framework side); prefer the `id` when it's a local duplicate.
-- **Restructuring / re-ordering** → use the Edit tool to move the
-  section; keep the header + `- **id:** …` + `- **hash:** …` lines
-  intact so both identifiers stay stable.
-
-Do NOT try to re-file the same item through `kindgi feedback write`
-— that would create a new entry with a new id (though the hash
-would match, which is exactly the p2p-dedup signal). Always edit
-directly for maintenance operations within one pack.
-
-## Fields to fill precisely
-
-- **`kind`** — honest classification.
-  - `bug` — the framework did the wrong thing (crashed, silently
-    dropped a field, contradicted its own docs).
-  - `friction` — the framework did the "right" thing but the UX cost
-    more time than the task warranted.
-  - `question` — you don't understand something and the docs don't
-    answer it.
-  - `design` — you observed something that works as designed but the
-    design might be wrong.
-
-- **`severity`** — honest impact.
-  - `blocker` — nothing useful can happen until this is fixed.
-  - `high` — a common workflow is broken; users will hit this.
-  - `medium` — real friction, but there's a documented workaround.
-  - `low` — cosmetic, tiny annoyance, or affects one obscure path.
-
-- **`authored_by`** — `claude-code` when the diagnostic came entirely
-  from an AI coding assistant; `human` when the pack author wrote
-  it; `mixed` when it's a combination.
-
-## Common mistakes
-
-1. **File-path-only entries** ("bug in router.ts").
-   Without a reproducer + expected behavior, the maintainer has to
-   reverse-engineer your session. File:line is necessary but not
-   sufficient.
-2. **Skipping "Suggested fix" when you have one.** If you diagnosed
-   the root cause, name it. "Add `preferredProvider` to `AgentSchema`
-   in `packages/api/src/openapi/schemas.ts:667`" is worth a dozen
-   back-and-forth clarifications.
-3. **Bundling multiple bugs into one entry.** Run `kindgi feedback
-   write` once per bug. Each gets its own number, its own fix
-   status, its own removal path.
-4. **Sensitive state in reproducers.** Reproducer sections sometimes
-   contain API keys, tenant IDs, secrets — review before committing.
-5. **Filing "the way I'd design it" as a bug.** Design disagreements
-   are `--kind=design`, not `--kind=bug`. Both are welcome; the
-   classification helps prioritization.
+| Your case | Read |
+|---|---|
+| Filling `kind`, `severity` and `authored_by`, and what an entry looks like | [fields-and-entry-shape.md](fields-and-entry-shape.md) |
+| Sending entries to Kindgi: never without the person's yes to the preview | [sending.md](sending.md) |
+| What became of sent reports, at the start of a session, or taking one back | [hearing-back.md](hearing-back.md) |
+| Removing, marking fixed, marking a duplicate or re-ordering entries in `FEEDBACK.md` | [editing-feedback-file.md](editing-feedback-file.md) |
+| Before you file: what makes a report hard to act on | [common-mistakes.md](common-mistakes.md) |
 
 ## References
 
 - `FEEDBACK.md` at the pack root — the running list itself.
+- `kindgi feedback submit --help`, `status --help` and `withdraw --help`.

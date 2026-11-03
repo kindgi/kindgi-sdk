@@ -49,16 +49,24 @@ export interface RetentionScheduledItem {
   readonly unregisteredAt: string;
   readonly purgeAt: string;
   readonly pastGrace: boolean;
-  readonly policyId: string;
-  readonly policyVersion: string;
+  /** The retention policy that covers the domain. Absent when none does and the server's limit decides (`limitApplied`). */
+  readonly policyId?: string;
+  readonly policyVersion?: string;
+  /** How long the row is kept, in seconds (`-1`: a hold, never purged). */
   readonly graceSeconds: number;
+  /**
+   * The server's retention limit for the domain (`RetentionLimits`) set
+   * `graceSeconds`: no policy covers the domain, or its policy keeps rows
+   * longer than the limit, or holds them.
+   */
+  readonly limitApplied?: true;
 }
 
 export interface RetentionScheduledPage {
   readonly data: readonly RetentionScheduledItem[];
   /** Domains a retention policy exists for but no adapter is wired in this deployment. */
   readonly domainsMissingAdapter: readonly RetentionDomain[];
-  /** Domains that have an adapter but no matching policy — tombstones sit forever. */
+  /** Domains that have an adapter but no matching policy and no limit (`RetentionLimits`) — tombstones sit forever. */
   readonly unpolicedDomains: readonly RetentionDomain[];
   /** Domains more than one retention policy covers (see `RetentionPolicyConflict`). */
   readonly conflicts?: readonly RetentionPolicyConflict[];
@@ -87,6 +95,19 @@ export interface RetentionPolicyConflict {
   readonly appliedPolicyId: string;
 }
 
+/**
+ * The most a retention policy may keep a domain's tombstoned rows, per
+ * domain, in whole seconds (at least 1): `createApp`'s `retentionLimits`.
+ * A policy for a limited domain that keeps rows longer, or holds them
+ * (`graceSeconds: -1`), is refused when it's published or reinstated
+ * (`400 retention-over-limit`). A `*` policy isn't: the runtime caps each
+ * limited domain at its limit when it sweeps, and applies the limit to a
+ * limited domain no policy covers. A domain with no limit takes any grace.
+ */
+export type RetentionLimits = Readonly<
+  Partial<Record<Exclude<RetentionDomain, '*'>, { readonly seconds: number }>>
+>;
+
 export interface RetentionSweepInput {
   readonly tenantId: TenantId;
   readonly domain?: RetentionDomain;
@@ -100,6 +121,8 @@ export interface RetentionSweepResult {
     readonly purged: number;
     readonly remaining: number;
     readonly policyId?: string;
+    /** The server's retention limit set the grace (see `RetentionScheduledItem.limitApplied`). */
+    readonly limitApplied?: true;
     readonly missingAdapter?: true;
   }[];
   readonly totalPurged: number;

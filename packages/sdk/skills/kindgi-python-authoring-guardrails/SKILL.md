@@ -1,20 +1,22 @@
 ---
 name: kindgi-python-authoring-guardrails
 description: >
-  Covers writing guardrails (safety checks on an agent's turn) for a
-  Kindgi pack in Python (the `kindgi` package): the `@guardrail`
-  decorator over a `(config, trace)` check, `RunTrace` and
-  `CheckResult`, config models, actions (halt / retry / escalate /
-  log-only / compensate), severity and scope, unit tests, and wiring a
-  guardrail onto an agent. Load this whenever you are authoring or
-  editing code inside a Python pack's guardrails/ directory (a pack
-  whose config is `[tool.kindgi]` in pyproject.toml), defining a check,
-  or wiring a guardrail onto an agent. Python agents are covered by
+  Covers writing guardrails (safety checks on an agent's turn) for a Kindgi
+  pack in Python (the `kindgi` package): the `@guardrail` decorator over a
+  `(config, trace)` check, `RunTrace` and `CheckResult`, config models,
+  actions, severity and scope, unit tests, and wiring a guardrail onto an
+  agent. halt fails the turn and retry sends the answer back to the model
+  for a new one (escalate / compensate are only recorded in 0.1), and a
+  check sees only the current turn: its user message and tool results, not
+  earlier turns'. Load this whenever you are authoring or editing code
+  inside a Python pack's guardrails/ directory (a pack whose config is
+  `[tool.kindgi]` in pyproject.toml), defining a check, or wiring a
+  guardrail onto an agent. Python agents are covered by
   kindgi-python-authoring-agents, Python tools by
   kindgi-python-authoring-tools.
 type: core
 library: "kindgi (Python)"
-version: "0.1.4"
+version: "0.1.8"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -38,8 +40,51 @@ level in a file under `guardrails/` declares both. For an agent turn,
 the runtime evaluates every guardrail the agent lists once, on the final
 answer, before it is stored.
 
+`@guardrail(...)` has no field for the other points a guardrail can run at (`at`, and a check's `points`), so a Python guardrail runs at the final answer only; the points are documented at https://docs.kindgi.com/v0.4/guides/guardrails/configure-a-guardrail/#where-in-the-turn-it-runs.
+
 Ask what the rule should catch before writing one; the sample
 `response-not-empty` guardrail is a demonstration, not a template.
+
+## What a guardrail can do in 0.1
+
+Read this before you plan a guardrail. Three limits decide what can be
+built:
+
+- **`halt` and `retry` act.** A failed `halt` guardrail fails the turn with
+  `guardrail-violation`, and the answer is not stored. A failed `retry`
+  guardrail sends the answer back to the model, with the check's reason in a
+  user message, for a new one; the failed answer isn't stored. When it has
+  failed `retry.maxAttempts` answers (the first one included; 2 when left
+  out), the turn fails with `guardrail-violation` and
+  `details.attempts`. Each new answer is a model call that the agent's
+  `budget.maxSteps` counts. The `halt` and `retry` guardrails judge each
+  answer, a judge's calls included, which `budget.maxCostUsd` doesn't count;
+  the others judge only the answer that's sent. A new answer can call tools
+  again, side-effecting ones included, with approvals as usual. `escalate`
+  and `compensate` are recorded on the turn's violations, as `log-only` is,
+  and the turn completes: nothing escalates or calls a compensating tool. So
+  "block the reply and make the agent try again" is a `retry` guardrail.
+- **A check sees one turn.** The trace holds the current turn only: its
+  user message (`trace.user_input`), its tool calls and their results
+  (`trace.tool_calls`, `trace.tool_results`) and its answer
+  (`trace.output`). Earlier turns' messages, tool results and answers
+  aren't in it. A check that every figure in the answer comes from a tool
+  result or the user's message therefore blocks an answer that repeats a
+  figure seen only in an earlier turn.
+- **A check's in-memory state doesn't last.** The check runs in the pack
+  service's process, so anything it keeps at module level (say, a dict
+  keyed by `trace.conversation_id`) is lost when that process is replaced:
+  under `kindgi dev`, on every reload after a save and on a restart; in a
+  deployment, whenever an instance stops. With more than one instance,
+  each keeps its own copy, and one conversation's turns can land on
+  different instances. Don't keep a conversation's history this way.
+
+What works today for a check on figures: tell the agent, in its
+instructions, to call its tools again in every answer that quotes a
+figure, so the figure is in that turn's tool results. It depends on the
+model following the instruction, and it doesn't cover figures the user
+typed in an earlier turn: `trace.user_input` is only the current turn's
+message, so an answer that repeats them is still blocked.
 
 ## A guardrail
 
@@ -100,24 +145,28 @@ def no_fabricated_quotes(config: Config, trace: RunTrace) -> CheckResult:
 - **`id`** — `<pack-id>.<guardrail-name>`, kebab-case. Name the rule as
   a positive assertion: `no-fabricated-quotes`, `response-not-empty`.
 - **`on_violation`** — the action: `"halt"`, `"retry"`, `"escalate"`,
-  `"log-only"`, `"compensate"`. For one that needs settings pass the
-  whole object with `action=` instead (exactly one of the two):
+  `"log-only"`, `"compensate"`. For one that needs settings pass the whole
+  object with `action=` instead (exactly one of the two):
   `action={"on-violation": "retry", "retry": {"maxAttempts": 2}}`,
-  `{"on-violation": "escalate", "escalateTo": …}`,
-  `{"on-violation": "compensate", "compensateWith": "<tool id>"}`.
-  In an agent turn a failed `halt` guardrail fails the turn
-  (`guardrail-violation`) and the answer is not stored; any other action
-  reports the failure in the turn result's `violations` and the turn
-  completes. In 0.1 the runtime acts only on `halt`: `retry`, `escalate`
-  and `compensate` are recorded on the violation, with no second attempt,
-  escalation or compensating call.
+  `{"on-violation": "escalate", "escalateTo": …}`, `{"on-violation":
+  "compensate", "compensateWith": "<tool id>"}`. In an agent turn a failed
+  `halt` guardrail fails the turn (`guardrail-violation`) and the answer is
+  not stored; a failed `retry` one sends the answer back for a new one
+  (above); any other action reports the failure in the turn result's
+  `violations` and the turn completes. `escalate` and `compensate` are
+  recorded on the violation, with no escalation or compensating call in 0.1.
 - **`severity`** — `"info"`, `"warn"`, `"error"` (default), `"critical"`.
   Independent of the action: dashboards group by severity, execution
   follows the action.
 - **`scope`** — when it applies: `{"when": "always" | "ci-only" |
   "runtime-only"}`, narrowed by `agents`, `flows`, `tenants` lists.
 - **`kind`** — `"zero-llm"` (default): a check over the trace — what a
-  pack writes.
+  pack writes. `"llm-judge"`: a model judges the turn against the rubric
+  in `config` (`{"rubric": "...", "responseFormat": "pass-fail"}`), and
+  the check is never called. It costs model calls and needs
+  **`judge_capabilities`**, what the judge model is routed by
+  (`{"needs": [{"feature": "structured-output"}]}`); the decorator
+  refuses an llm-judge guardrail without it.
 - **`config`** — the values the check runs with (above); **`config_type`**
   — the config's type when the check's first parameter isn't annotated
   with it.
@@ -170,8 +219,9 @@ references guardrails not in the registry: <id>`).
 2. **Snake_case keys in `config=`.** It is keyed like the wire — the
    model's aliases (`{"minLookups": 2}`), not the field names.
 3. **Both `on_violation=` and `action=`, or neither** — `DefinitionError`.
-4. **Expecting another attempt.** `halt` stops the turn, and in 0.1
-   `retry` doesn't run the turn again: it's only recorded.
+4. **Expecting `halt` to try again.** `halt` stops the turn; `retry` asks
+   the model for a new answer, and fails the turn once its `maxAttempts`
+   answers have failed.
 5. **Calling a model from the check.** Not available; keep checks pure.
 6. **Raising for a broken rule.** Return `CheckResult(passed=False,
    reason=…)`; an exception is an evaluation error, not a violation.

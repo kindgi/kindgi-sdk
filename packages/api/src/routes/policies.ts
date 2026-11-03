@@ -14,11 +14,15 @@ import {
   type PolicyScopeChanged,
   type PolicyScopeTaken,
   isAppliedPolicyKind,
+  retentionSpecDoc,
   validatePolicySpec,
+  validateRetentionSpec,
 } from '@kindgi/policy-contract';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import type { RetentionLimits } from '../retention-binding.js';
 import type { AppEnv } from '../types.js';
+import { includeRetiredOf } from './include-retired.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { tenantResourceAccess } from './tenant-access.js';
@@ -37,7 +41,11 @@ import { tenantResourceAccess } from './tenant-access.js';
  * kinds' specs are their runtime consumer's to validate. A kind that
  * holds a scope (`policyScope`: a retention policy, its domain) gets one
  * policy per scope; the binding enforces it (`409 policy-scope-taken`,
- * `409 policy-scope-changed`).
+ * `409 policy-scope-changed`). A retention policy that keeps a limited
+ * domain's rows longer than the server's limit (`retentionLimits`), or
+ * holds them, is refused when it's published or reinstated
+ * (`400 retention-over-limit`); a `*` policy isn't, as the runtime caps
+ * each limited domain when it sweeps.
  *
  * Enforcement is out of scope. This is the *registry* surface only.
  * Runtime consumers (e.g. `@kindgi/capabilities` `route` for
@@ -47,7 +55,10 @@ import { tenantResourceAccess } from './tenant-access.js';
 export function policiesRouter(
   binding: PolicyRegistryBinding,
   authorizer?: Authorizer,
+  options: { readonly retentionLimits?: RetentionLimits } = {},
 ): Hono<AppEnv> {
+  const { retentionLimits = {} } = options;
+  const limited = Object.keys(retentionLimits).length > 0;
   const r = new Hono<AppEnv>();
   r.use('*', tenantResourceAccess(authorizer));
 
@@ -80,9 +91,10 @@ export function policiesRouter(
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
       ...(kindRaw !== undefined && kindRaw.length > 0 && { policyKind: kindRaw as PolicyKind }),
       ...(nameRaw !== undefined && nameRaw.length > 0 && { nameFilter: nameRaw }),
+      ...includeRetiredOf(c),
     });
     return c.json({
-      data: page.data.map(serializePolicy),
+      data: page.data.map(serializePolicyVersionRow),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -255,6 +267,12 @@ export function policiesRouter(
       );
     }
 
+    const overLimit = overRetentionLimit(validation.value, retentionLimits);
+    if (overLimit !== undefined) {
+      c.status(statusFor('retention-over-limit') as never);
+      return c.json(toWireError(overLimit, requestId));
+    }
+
     const outcome = await binding.publish({ tenantId, policy: validation.value });
     if (outcome.kind === 'already-registered') {
       c.status(statusFor('policy-already-registered') as never);
@@ -309,6 +327,24 @@ export function policiesRouter(
     const tenantId = c.get('tenantId') as TenantId;
     const policyId = c.req.param('policyId');
     const version = c.req.param('version');
+    // A version over the limit stays retired: reinstating it would put it
+    // back in force. Its spec doesn't change, so reading it first is safe.
+    const stored = limited ? await storedVersion(binding, tenantId, policyId, version) : null;
+    const overLimit = stored === null ? undefined : overRetentionLimit(stored, retentionLimits);
+    if (overLimit !== undefined) {
+      c.status(statusFor('retention-over-limit') as never);
+      return c.json(
+        toWireError(
+          {
+            ...overLimit,
+            message: `Version ${version} of policy "${policyId}" stays retired: ${overLimit.message} Publish a version within it instead.`,
+            policyId,
+            version,
+          },
+          requestId,
+        ),
+      );
+    }
     const outcome = await binding.reinstateVersion({ tenantId, policyId, version });
     if (outcome.kind === 'not-found') {
       c.status(statusFor('policy-not-found') as never);
@@ -339,6 +375,78 @@ export function policiesRouter(
 }
 
 /**
+ * A version as stored, a retired one included (`listVersions` with
+ * `includeTombstoned`, to its last page): a store's `getVersion` may
+ * answer only active versions.
+ */
+async function storedVersion(
+  binding: PolicyRegistryBinding,
+  tenantId: TenantId,
+  policyId: string,
+  version: string,
+): Promise<Policy | null> {
+  let cursor: Cursor | undefined;
+  do {
+    const page = await binding.listVersions({
+      tenantId,
+      policyId,
+      limit: 100,
+      includeTombstoned: true,
+      ...(cursor !== undefined && { cursor }),
+    });
+    const found = page.data.find((row) => row.version === version);
+    if (found !== undefined) return found;
+    cursor = page.nextCursor;
+  } while (cursor !== undefined);
+  return null;
+}
+
+/**
+ * The 400 for a retention policy that keeps its domain's rows longer than
+ * the server's limit for that domain, or holds them (`-1`). Anything else
+ * passes: another kind, a `*` policy, a domain with no limit, a grace
+ * within it, and a spec that isn't a retention spec (publishing refuses
+ * it on its own; a sweep skips one stored before that).
+ */
+function overRetentionLimit(
+  policy: { readonly kind: PolicyKind; readonly spec: unknown },
+  limits: RetentionLimits,
+): ({ code: 'retention-over-limit'; message: string } & Record<string, unknown>) | undefined {
+  if (policy.kind !== 'retention') return undefined;
+  const checked = validateRetentionSpec(retentionSpecDoc(policy.spec));
+  if (checked.kind !== 'ok' || checked.value.domain === '*') return undefined;
+  const { domain, graceSeconds } = checked.value;
+  const limit = limits[domain];
+  if (limit === undefined || (graceSeconds !== -1 && graceSeconds <= limit.seconds)) {
+    return undefined;
+  }
+  const words = inWords(graceSeconds);
+  const kept =
+    graceSeconds === -1
+      ? '-1 (a hold)'
+      : `${graceSeconds}${words === undefined ? '' : ` (${words})`}`;
+  return {
+    code: 'retention-over-limit',
+    message: `\`graceSeconds\` ${kept} is over the retention limit for \`${domain}\` rows, ${inWords(limit.seconds) ?? `${limit.seconds} seconds`}.`,
+    domain,
+    graceSeconds,
+    limitSeconds: limit.seconds,
+  };
+}
+
+/** A whole number of days or hours, in words (`90 days`, `1 hour`); `undefined` for anything else. */
+function inWords(seconds: number): string | undefined {
+  const [count, unit] =
+    seconds > 0 && seconds % 86_400 === 0
+      ? [seconds / 86_400, 'day']
+      : seconds > 0 && seconds % 3_600 === 0
+        ? [seconds / 3_600, 'hour']
+        : [undefined, undefined];
+  if (count === undefined) return undefined;
+  return `${count} ${unit}${count === 1 ? '' : 's'}`;
+}
+
+/**
  * The 409 for a policy whose scope (`policyScope`) another policy holds,
  * or that a version would move: for `retention`, a second policy for a
  * domain, which a tenant can't have.
@@ -354,8 +462,8 @@ function scopeError(
     const message = !retention
       ? `Policy "${heldBy}" already holds "${scope}" for ${policyKind} policies.`
       : action === 'publish'
-        ? `Retention domain "${scope}" is already covered by policy "${heldBy}": a tenant has one retention policy per domain, and one for "*". Publish a new version of "${heldBy}" instead, or unregister it first.`
-        : `Retention domain "${scope}" is now covered by policy "${heldBy}", so reinstating "${policyId}" ${version} would make two: a tenant has one retention policy per domain, and one for "*". Unregister "${heldBy}" first.`;
+        ? `Retention domain "${scope}" is already covered by policy "${heldBy}": a workspace has one retention policy per domain, and one for "*". Publish a new version of "${heldBy}" instead, or unregister it first.`
+        : `Retention domain "${scope}" is now covered by policy "${heldBy}", so reinstating "${policyId}" ${version} would make two: a workspace has one retention policy per domain, and one for "*". Unregister "${heldBy}" first.`;
     return {
       code: 'policy-scope-taken',
       message,

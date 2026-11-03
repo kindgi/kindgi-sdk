@@ -191,5 +191,75 @@ describe('a budget kept per tenant', () => {
       },
     );
     for (let i = 0; i < 3; i += 1) expect(budget.charge('tenant-a', () => i)).toBe(i);
+    const work = budget.admit('tenant-a');
+    work.start();
+    work.end();
+  });
+});
+
+describe('work that runs elsewhere (admit)', () => {
+  test('charged from its start to its end, as work that started then: the wait before it is not', () => {
+    const { budget, clock } = budgetOf(1_000);
+    const work = budget.admit('tenant-a');
+    // Queued 5 s behind other work, then 1 s on its own.
+    clock.later(5_000);
+    work.start();
+    clock.later(1_000);
+    work.end();
+    const error = refusal(() => budget.admit('tenant-a'));
+    expect(error.budgetMs).toBe(1_000);
+    // It started 1 s ago, not 6: the tenant is under again once it leaves the window.
+    expect(error.retryAfterMs).toBe(BUDGET_WINDOW_MS - 1_000);
+  });
+
+  test('refused when admitted, once the tenant has spent its budget, before anything starts', () => {
+    const { budget, work } = budgetOf(1_000);
+    work('tenant-a', 1_000);
+    expect(refusal(() => budget.admit('tenant-a')).retryAfterMs).toBe(BUDGET_WINDOW_MS - 1_000);
+    expect(budget.admit('tenant-b')).toBeDefined();
+  });
+
+  test('admitted work and work charged here share one budget', () => {
+    const { budget, clock, work } = budgetOf(1_000);
+    const elsewhere = budget.admit('tenant-a');
+    elsewhere.start();
+    clock.later(600);
+    elsewhere.end();
+    expect(work('tenant-a', 400)).toBe(400);
+    refusal(() => work('tenant-a', 1));
+  });
+
+  test('work that never started is charged nothing; a second start or end changes nothing', () => {
+    const { budget, clock } = budgetOf(1_000);
+    const dropped = budget.admit('tenant-a');
+    clock.later(5_000);
+    dropped.end();
+    dropped.start();
+    clock.later(5_000);
+    dropped.end();
+    const twice = budget.admit('tenant-a');
+    twice.start();
+    clock.later(600);
+    twice.start();
+    twice.end();
+    clock.later(600);
+    twice.end();
+    // Only 600 ms charged: still under the budget.
+    expect(budget.admit('tenant-a')).toBeDefined();
+  });
+
+  test('ends out of the order they started: each is charged as work that started when it did', () => {
+    const { budget, clock } = budgetOf(1_000);
+    const first = budget.admit('tenant-a');
+    const second = budget.admit('tenant-a');
+    first.start();
+    clock.later(100);
+    second.start();
+    clock.later(500);
+    second.end();
+    clock.later(400);
+    first.end();
+    // 1,000 + 500 ms charged; under again once the first (started 1 s ago) leaves.
+    expect(refusal(() => budget.admit('tenant-a')).retryAfterMs).toBe(BUDGET_WINDOW_MS - 1_000);
   });
 });

@@ -9,10 +9,12 @@
  * `@kindgi/env-schema`'s.
  */
 
-import { chmod, mkdir, writeFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { LOCAL_ENV_NAME, readPackEnv } from '@kindgi/secrets-dotenv';
+
+import { writePrivateFile } from '../private-file.js';
 
 /** Where the pack directory is mounted in the runtime container. */
 export const RUNTIME_PACK_DIR = '/pack';
@@ -152,7 +154,8 @@ export async function shellReferencesOf(input: {
 /**
  * Write the env file `docker run --env-file` reads: `NAME=value` lines,
  * taken literally (no quotes, no expansion), mode 0600, since it holds
- * the API token. A value with a line break can't be written.
+ * the API token: a new file that replaces the old one (`writePrivateFile`).
+ * A value with a line break can't be written.
  */
 export async function writeRuntimeEnv(
   path: string,
@@ -165,11 +168,8 @@ export async function writeRuntimeEnv(
     return `${name}=${value}`;
   });
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(
+  await writePrivateFile(
     path,
     `# Written by kindgi dev for the Kindgi runtime container. Holds the dev token: keep it private.\n${lines.join('\n')}\n`,
-    { mode: 0o600 },
   );
-  // An existing file keeps its mode through writeFile: set it.
-  await chmod(path, 0o600);
 }

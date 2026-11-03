@@ -17,6 +17,7 @@ import {
   listPartsResultXml,
   parseCompleteMultipartUploadXml,
 } from '../xml.js';
+import { objectReadHeaders } from './stored-bytes.js';
 
 /**
  * AWS S3-compat wire surface (core). Mounted at `/s3` OUTSIDE
@@ -42,6 +43,12 @@ import {
  *
  * Hono answers a HEAD with the GET route at its path and drops the body,
  * so each HEAD is the GET handler's, which checks `c.req.method`.
+ *
+ * An object read answers the headers `objectReadHeaders` gives its type
+ * (`stored-bytes.ts`), so a browser opening a presigned link never runs
+ * what it holds as a page of this origin. No request parameter changes
+ * them: `response-content-type`, `response-content-disposition` and the
+ * other response overrides aren't read.
  *
  * Multipart upload shares those paths, selected by query parameters:
  *
@@ -441,7 +448,7 @@ function extractKey(path: string, bucket: string): string | null {
 
 function objectResponseHeaders(meta: BlobMeta): Record<string, string> {
   return {
-    'Content-Type': meta.contentType,
+    ...objectReadHeaders(meta),
     'Content-Length': String(meta.size),
     ETag: `"${meta.hash}"`,
     'Last-Modified': new Date(meta.createdAt as unknown as string).toUTCString(),

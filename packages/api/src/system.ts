@@ -12,6 +12,12 @@ import type { TenantId } from '@kindgi/types';
  * A system principal reaches `/v1/system/*` and the routes in
  * `SYSTEM_PRINCIPAL_ALLOWED_ROUTES`, nothing else: every other route
  * answers `403 system-key-on-tenant-route` before its code runs.
+ *
+ * On a runtime serving one tenant, the deployment's own token is the
+ * system principal on `/v1/system/keys` alone, where it mints, lists and
+ * revokes the system keys (`TokenResolution.systemKeysOperator`), and a
+ * system key holds `system:license` alone: it reads the deployment's
+ * license, nothing else.
  */
 export interface SystemPrincipal {
   /** The system key's id, or `boot` for the deployment's own token. */
@@ -31,12 +37,16 @@ export const FULL_SYSTEM_CAPABILITY = 'kindgi:system';
 
 /**
  * The scopes a system key can hold, each the least one service needs.
- * `kindgi:system` holds them all. None of them reads customer content
- * (runs, conversations, secrets, memory, files); `system:tenants:contacts`
- * reads account contacts only.
+ * `kindgi:system` holds them all, but for one read. None of them reads
+ * customer content (runs, conversations, memory, files);
+ * `system:tenants:contacts` reads account contacts only, and
+ * `system:pack-env` reads the env values a deployment's pack declares. Its
+ * secrets' values are given only when asked (`?secrets=values`), each
+ * audited, and only to a key holding `system:pack-env` itself, never to
+ * one holding `kindgi:system`.
  */
 export const SYSTEM_SCOPES = [
-  /** Create, list, read and close tenants. */
+  /** Create, list, read, rename and close tenants. */
   'system:tenants',
   /**
    * Create tenants only, each with a first admin, production blocked, no
@@ -57,6 +67,20 @@ export const SYSTEM_SCOPES = [
   'system:suspend',
   /** The packs' deployments and their endpoints. */
   'system:deployments',
+  /**
+   * The plain env values each deployment's pack declares, to give its pack
+   * service, and what its service runs on. On a key of its own: the
+   * deployments key can't read a value.
+   */
+  'system:pack-env',
+  /**
+   * Setting an env name to a cloud secret, which the pack service's cloud
+   * reads as the pack account: what every pack service may read. On a key
+   * of its own: the orchestrator's key reads values and sets none.
+   */
+  'system:env-refs',
+  /** Usage across tenants: counts and sums only. */
+  'system:usage:read',
   /** The deployment's license: reading it, for its renewal. */
   'system:license',
 ] as const;
@@ -72,6 +96,74 @@ export function isSystemScope(value: string): value is SystemScope {
 /** Whether a capability is the system's: `kindgi:system` or any `system:*`. */
 export function isSystemCapability(value: string): boolean {
   return value === FULL_SYSTEM_CAPABILITY || value.startsWith('system:');
+}
+
+/**
+ * The one system scope a system key holds on a runtime serving one tenant:
+ * its license, for the renewal job that sends the deployment's use.
+ */
+export const ONE_TENANT_SYSTEM_SCOPES: readonly SystemScope[] = ['system:license'];
+
+/**
+ * The system scopes a key can hold besides, on a runtime serving one
+ * tenant that runs a pack service per deployment (`systemDeployments`):
+ * its orchestrator's, and the operator's that sets an env name to a cloud
+ * secret (`system:env-refs`), which only a pack service is given. A key
+ * holding them reaches the routes `isOneTenantDeploymentRoute` names under
+ * `/v1/system/*`, nothing else there.
+ */
+export const ONE_TENANT_DEPLOYMENT_SCOPES: readonly SystemScope[] = [
+  'system:deployments',
+  'system:pack-env',
+  'system:env-refs',
+];
+
+/** The system scopes a key can hold serving one tenant: the license's, and `ONE_TENANT_DEPLOYMENT_SCOPES` when it `servesDeployments`. */
+export function oneTenantSystemScopes(servesDeployments: boolean): readonly SystemScope[] {
+  return servesDeployments
+    ? [...ONE_TENANT_SYSTEM_SCOPES, ...ONE_TENANT_DEPLOYMENT_SCOPES]
+    : ONE_TENANT_SYSTEM_SCOPES;
+}
+
+/** The orchestrator's and cloud secrets' routes under `/v1/system/*`, as a runtime serving one tenant mounts them. */
+const ONE_TENANT_DEPLOYMENT_ROUTES: readonly {
+  readonly methods: readonly string[];
+  readonly path: RegExp;
+}[] = [
+  { methods: ['GET'], path: /^\/v1\/system\/deployments$/ },
+  { methods: ['POST'], path: /^\/v1\/system\/deployments\/round(?:\/end)?$/ },
+  { methods: ['GET'], path: /^\/v1\/system\/pack-env$/ },
+  {
+    methods: ['PUT', 'DELETE'],
+    path: /^\/v1\/system\/tenants\/[^/]+\/deployments\/[^/]+\/endpoint$/,
+  },
+  {
+    methods: ['PUT'],
+    path: /^\/v1\/system\/tenants\/[^/]+\/deployments\/[^/]+\/endpoint\/problem$/,
+  },
+  { methods: ['GET', 'PUT'], path: /^\/v1\/system\/tenants\/[^/]+\/deployments\/[^/]+\/pack-env$/ },
+  { methods: ['GET'], path: /^\/v1\/system\/tenants\/[^/]+\/env$/ },
+  { methods: ['PUT', 'DELETE'], path: /^\/v1\/system\/tenants\/[^/]+\/env\/[^/]+$/ },
+];
+
+/**
+ * Whether `method` and `path` are one of the routes a pack service's
+ * orchestrator calls under `/v1/system/*`: the deployments to serve and
+ * retire, each one's endpoint, its problem and its pack env, and the
+ * orchestrator's round; or the operator's, setting env names to a cloud
+ * secret. Serving one tenant, a system key reaches these alone there, and
+ * each still checks its own scope.
+ */
+export function isOneTenantDeploymentRoute(method: string, path: string): boolean {
+  return ONE_TENANT_DEPLOYMENT_ROUTES.some((r) => r.methods.includes(method) && r.path.test(path));
+}
+
+/**
+ * Whether `path` is `/v1/system/keys` or under it: where, serving one
+ * tenant, the deployment's own token is the system principal.
+ */
+export function isSystemKeysPath(path: string): boolean {
+  return path === '/v1/system/keys' || path.startsWith('/v1/system/keys/');
 }
 
 /** Whether `capabilities` hold `scope`, directly or through `kindgi:system`. */

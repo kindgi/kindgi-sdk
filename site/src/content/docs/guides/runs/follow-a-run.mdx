@@ -11,6 +11,10 @@ A run's events are its journal as it's written: the run starting, each step
 starting and ending, waits, and the run's end. Follow them to show progress,
 or to react when the run ends without polling.
 
+Ask your coding agent: "I want my app to show a run's progress as it
+happens." For reference, the code looks like this. It starts a run in the
+background, then prints each event until the run ends:
+
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
@@ -158,7 +162,9 @@ object FollowRun {
 
 The stream starts from the run's first event, whenever you open it, so you
 don't miss what happened before. It ends after `run.completed`, `run.failed` or
-`run.cancelled`; the last event's `payload.output` is the run's output.
+`run.cancelled`; the last event's `payload.output` is the run's output. A
+step [left for the run's next resume](../../flows/retry-a-step/#a-step-whose-read-failed)
+doesn't end it: the run is still running.
 
 ## The events
 
@@ -171,7 +177,7 @@ journal), a `timestamp`, the step's `nodeId` for step events, and a `payload`:
 | `run.step-started` | A step started. | `input` |
 | `run.step-completed` | A step ended. | `output` |
 | `run.step-failed` | A step failed. | `message` |
-| `run.step-retry-scheduled` | A step failed and will be [retried](../../flows/retry-a-step/). | `attempt`, `nextDelayMs`, `previousError` |
+| `run.step-retry-scheduled` | A step failed and will be [retried](../../flows/retry-a-step/), or, with `left: true`, was [left for the run's next resume](../../flows/retry-a-step/#a-step-whose-read-failed). | `attempt`, `nextDelayMs`, `previousError`, `left` |
 | `run.iteration-started`, `run.iteration-completed` | A pass of a [loop](../../flows/loop/). | `iteration`, … |
 | `run.wait-suspended`, `run.wait-resumed` | The run stopped to wait, and went on ([approvals](../../flows/wait-for-an-approval/)). | |
 | `run.completed` | The run completed. | `output` |
@@ -203,9 +209,36 @@ the server's limit, and ends only with the run. `runs.followProgress`
 
 ## From the CLI
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs stream <run-id>
+pnpm exec kindgi runs stream <run-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs stream <run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs stream <run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs stream <run-id>
+```
+
+</TabItem>
+</Tabs>
 
 It prints one event per line, as JSON:
 

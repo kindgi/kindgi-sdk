@@ -1,5 +1,545 @@
 # @kindgi/env-inmemory
 
+## 0.4.0
+
+### Patch Changes
+
+- f2adcc2: **An operator can set a pack's env name to a cloud secret.** On a runtime that runs a pack service for each deployment, a name a pack reads from its env can be set, at a tenant's scope and under one env, to a numbered version of a secret the operator's cloud holds, `projects/<project>/secrets/<secret>/versions/<number>`, instead of to a value. The runtime keeps that path and never reads the value: the pack service is given the name, and its cloud reads the value as the pack service's own account. A version is a number, never `latest` or an alias, and a secret whose id starts with `kp-` is refused (`400 cloud-secret-invalid`): those are the pack services' own copies.
+  
+  Only the operator sets one, with a system key holding the new scope `system:env-refs`: `PUT`, `GET` and `DELETE` on `/v1/system/tenants/{tenantId}/env[/{name}]`, or `kindgi env set NAME --cloud-secret <path> --tenant=<id> --scope=… --env=…`, `kindgi env unset NAME --cloud-secret …` and `kindgi env list --cloud-secret …`. A tenant's own key is refused, on `PUT /v1/env/{name}` with a `cloudSecret` too (`403 cloud-secret-system-only`). A runtime serving one tenant with a pack service per deployment mints `system:env-refs` keys from its own token, for that tenant alone. The runtime keeps them only with the new setting `KINDGI_ENV_CLOUD_SECRETS=on`, which needs `KINDGI_PACK_ROUTING=per-deployment`. Off, the default, it keeps none, and the routes answer `501 cloud-secrets-unsupported`. Each change is an `env-set` or `env-deleted` audit row naming the system key, marked `cloudSecret`, never with the path. `createInMemoryEnvCloudSecretBinding` is a store for dev and tests, and `parseCloudSecretVersion` checks a path.
+  
+  The tenant sees which names are set this way, never the path: `GET /v1/env/cloud-secrets` lists them, the pack-env check names each as `kind: "cloud-secret"`, and `kindgi env list --scope` prints it as `NAME (cloud secret)`. The orchestrator's pack-env answer gives each by its path, in `cloudSecrets`, and setting, changing or removing one moves the pack env revision. A name set to a cloud secret and also as a value or a secret is `pack-env-ambiguous`, and its `names` entry carries `cloudSecretScope`. An orchestrator whose host can't give a pack service a cloud secret records `pack-env-cloud-secret-unsupported`. The TypeScript client's `systemEnv` has `setCloudSecret`, `deleteCloudSecret` and `listCloudSecrets`, and `env.listCloudSecrets` is the tenant's list.
+- Updated dependencies [b25b82f]
+- Updated dependencies [af2f8db]
+- Updated dependencies [1e4dd72]
+- Updated dependencies [265fffb]
+- Updated dependencies [24c1f9d]
+- Updated dependencies
+- Updated dependencies [d92355b]
+- Updated dependencies [b9135f8]
+- Updated dependencies [d6c9279]
+- Updated dependencies [6380c49]
+- Updated dependencies [d508659]
+- Updated dependencies [265fffb]
+- Updated dependencies [2afc071]
+- Updated dependencies [f2adcc2]
+- Updated dependencies [ae02280]
+- Updated dependencies [e98d120]
+- Updated dependencies [9106401]
+- Updated dependencies [c9740c7]
+- Updated dependencies [3a1502d]
+- Updated dependencies [7bdd73e]
+- Updated dependencies [a2f785f]
+- Updated dependencies [d10dcc3]
+- Updated dependencies [9b015f7]
+- Updated dependencies [334f7f9]
+- Updated dependencies [038fbfb]
+- Updated dependencies [9a8a294]
+- Updated dependencies [5d28854]
+- Updated dependencies [58ce994]
+- Updated dependencies [6ab40e9]
+- Updated dependencies [e9f223b]
+- Updated dependencies [1bd877d]
+- Updated dependencies [265fffb]
+- Updated dependencies [12830e8]
+- Updated dependencies [59a1243]
+- Updated dependencies [bd3817f]
+- Updated dependencies [d779ec5]
+- Updated dependencies [156abe4]
+- Updated dependencies [b4e208f]
+- Updated dependencies [dff9515]
+- Updated dependencies [fbb40b7]
+- Updated dependencies [00c0b51]
+- Updated dependencies [023f556]
+- Updated dependencies [9346681]
+- Updated dependencies [1131ec3]
+- Updated dependencies [9faeb00]
+- Updated dependencies [d576ff4]
+- Updated dependencies [fdbd8cc]
+  - @kindgi/types@0.4.0
+  - @kindgi/api@0.4.0
+  - @kindgi/compliance@0.4.0
+  - @kindgi/platform@0.4.0
+  - @kindgi/audit-events@0.4.0
+  - @kindgi/log@0.4.0
+
+## 0.3.1
+
+### Patch Changes
+
+- Updated dependencies [4beb42c]
+- Updated dependencies [4beb42c]
+- Updated dependencies [4beb42c]
+  - @kindgi/api@0.3.1
+  - @kindgi/compliance@0.3.1
+  - @kindgi/audit-events@0.3.1
+  - @kindgi/log@0.3.1
+  - @kindgi/platform@0.3.1
+  - @kindgi/types@0.3.1
+
+## 0.3.1-rc.1
+
+### Patch Changes
+
+- @kindgi/api@0.3.1-rc.1
+  - @kindgi/audit-events@0.3.1-rc.1
+  - @kindgi/compliance@0.3.1-rc.1
+  - @kindgi/log@0.3.1-rc.1
+  - @kindgi/platform@0.3.1-rc.1
+  - @kindgi/types@0.3.1-rc.1
+
+## 0.3.1-rc.0
+
+### Patch Changes
+
+- Updated dependencies [4beb42c]
+- Updated dependencies [4beb42c]
+- Updated dependencies [4beb42c]
+  - @kindgi/api@0.3.1-rc.0
+  - @kindgi/compliance@0.3.1-rc.0
+  - @kindgi/audit-events@0.3.1-rc.0
+  - @kindgi/log@0.3.1-rc.0
+  - @kindgi/platform@0.3.1-rc.0
+  - @kindgi/types@0.3.1-rc.0
+
+## 0.3.0
+
+### Patch Changes
+
+- Updated dependencies [8dd91b0]
+- Updated dependencies [77de8bd]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [1a36b1f]
+- Updated dependencies [06ae9b6]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [ea16d4e]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [5022734]
+- Updated dependencies [29b60dd]
+- Updated dependencies [e8baad5]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [03a715d]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+  - @kindgi/api@0.3.0
+  - @kindgi/platform@0.3.0
+  - @kindgi/compliance@0.3.0
+  - @kindgi/types@0.3.0
+  - @kindgi/audit-events@0.3.0
+  - @kindgi/log@0.3.0
+
+## 0.3.0-rc.0
+
+### Patch Changes
+
+- Updated dependencies [8dd91b0]
+- Updated dependencies [77de8bd]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [1a36b1f]
+- Updated dependencies [06ae9b6]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [ea16d4e]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [5022734]
+- Updated dependencies [29b60dd]
+- Updated dependencies [e8baad5]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [03a715d]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+  - @kindgi/api@0.3.0-rc.0
+  - @kindgi/platform@0.3.0-rc.0
+  - @kindgi/compliance@0.3.0-rc.0
+  - @kindgi/types@0.3.0-rc.0
+  - @kindgi/audit-events@0.3.0-rc.0
+  - @kindgi/log@0.3.0-rc.0
+
+## 0.2.0
+
+### Patch Changes
+
+- Updated dependencies [bf30268]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [68e0d57]
+- Updated dependencies [19b0a86]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [6fc48e9]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [68e0d57]
+- Updated dependencies [354c801]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [8564e06]
+- Updated dependencies [bf30268]
+- Updated dependencies [a458bf4]
+- Updated dependencies [af37c1a]
+- Updated dependencies [af2f5db]
+- Updated dependencies [68e0d57]
+- Updated dependencies [98104be]
+- Updated dependencies [e019e64]
+- Updated dependencies [68e0d57]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [68e0d57]
+- Updated dependencies [68e0d57]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [119ac78]
+- Updated dependencies [b6e20ca]
+  - @kindgi/api@0.2.0
+  - @kindgi/compliance@0.2.0
+  - @kindgi/log@0.2.0
+  - @kindgi/audit-events@0.2.0
+  - @kindgi/platform@0.2.0
+  - @kindgi/types@0.2.0
+
+## 0.2.0-rc.1
+
+### Patch Changes
+
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+  - @kindgi/api@0.2.0-rc.1
+  - @kindgi/compliance@0.2.0-rc.1
+  - @kindgi/log@0.2.0-rc.1
+  - @kindgi/audit-events@0.2.0-rc.1
+  - @kindgi/platform@0.2.0-rc.1
+  - @kindgi/types@0.2.0-rc.1
+
+## 0.2.0-rc.0
+
+### Patch Changes
+
+- Updated dependencies [bf30268]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [68e0d57]
+- Updated dependencies [19b0a86]
+- Updated dependencies [6fc48e9]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [68e0d57]
+- Updated dependencies [354c801]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [8564e06]
+- Updated dependencies [bf30268]
+- Updated dependencies [a458bf4]
+- Updated dependencies [af37c1a]
+- Updated dependencies [af2f5db]
+- Updated dependencies [68e0d57]
+- Updated dependencies [98104be]
+- Updated dependencies [e019e64]
+- Updated dependencies [68e0d57]
+- Updated dependencies [68e0d57]
+- Updated dependencies [68e0d57]
+- Updated dependencies [08dedca]
+- Updated dependencies [119ac78]
+  - @kindgi/api@0.2.0-rc.0
+  - @kindgi/compliance@0.2.0-rc.0
+  - @kindgi/audit-events@0.2.0-rc.0
+  - @kindgi/log@0.2.0-rc.0
+  - @kindgi/platform@0.2.0-rc.0
+  - @kindgi/types@0.2.0-rc.0
+
+## 0.1.10
+
+### Patch Changes
+
+- Updated dependencies [2d2ee60]
+- Updated dependencies [997470e]
+- Updated dependencies [b9a68d5]
+- Updated dependencies [6c5006c]
+- Updated dependencies [43eafb2]
+- Updated dependencies [019a6fd]
+- Updated dependencies [d6f844d]
+- Updated dependencies [8111046]
+- Updated dependencies [01964ed]
+- Updated dependencies [05b762e]
+- Updated dependencies [25a7309]
+- Updated dependencies [c90dd53]
+- Updated dependencies [9b6da8a]
+  - @kindgi/api@0.1.10
+  - @kindgi/platform@0.1.10
+  - @kindgi/compliance@0.1.10
+  - @kindgi/audit-events@0.1.10
+  - @kindgi/log@0.1.10
+  - @kindgi/types@0.1.10
+
+## 0.1.10-rc.1
+
+### Patch Changes
+
+- @kindgi/api@0.1.10-rc.1
+  - @kindgi/audit-events@0.1.10-rc.1
+  - @kindgi/compliance@0.1.10-rc.1
+  - @kindgi/log@0.1.10-rc.1
+  - @kindgi/platform@0.1.10-rc.1
+  - @kindgi/types@0.1.10-rc.1
+
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- Updated dependencies [2d2ee60]
+- Updated dependencies [997470e]
+- Updated dependencies [b9a68d5]
+- Updated dependencies [6c5006c]
+- Updated dependencies [43eafb2]
+- Updated dependencies [019a6fd]
+- Updated dependencies [d6f844d]
+- Updated dependencies [8111046]
+- Updated dependencies [01964ed]
+- Updated dependencies [05b762e]
+- Updated dependencies [25a7309]
+- Updated dependencies [c90dd53]
+- Updated dependencies [9b6da8a]
+  - @kindgi/api@0.1.10-rc.0
+  - @kindgi/platform@0.1.10-rc.0
+  - @kindgi/compliance@0.1.10-rc.0
+  - @kindgi/audit-events@0.1.10-rc.0
+  - @kindgi/log@0.1.10-rc.0
+  - @kindgi/types@0.1.10-rc.0
+
+## 0.1.9
+
+### Patch Changes
+
+- 5d68d0d: **An audit record that can't be written, and a check the authorization model can't answer, are logged through your logger instead of the console.**
+  - `emitResolveEvent` and `emitLifecycleEvent` (`@kindgi/compliance`) take an optional `log`, a `@kindgi/log` `Logger`. An append that fails or throws still never fails the caller's operation. It's logged there at `warn`, with the record's `tenantId` and `kind`, and the error's `code` or the error it threw. Without a `log` it isn't logged anywhere; before, it went to `console.warn`.
+  - `createApp` passes the request's logger, under the subsystem `audit`, for a secret or env write's record and for a secret read refused for its scope. `resolveAtScope` takes that `log` as an optional fourth argument. An app without a `logger` won't see that a record was dropped, and the `logger` option's docs say so.
+  - A check the authorization model has no relation for, which is a bug in a route, is logged at `error` through the request's logger, under the subsystem `authz`, with its `action` and `resource`. Before, it went to `console.error`.
+  - `createInMemoryEnvBinding` takes an optional `log` and passes it on with every audit record it writes.
+- 53b09f7: **`GET /v1/environments` lists the tenant's env names,** for a tenant admin: each name that holds an env value or a secret, at any scope, once, in byte order, paged by `cursor` and `limit`.
+  - An env store and a secrets store each say their own names through a new optional `listEnvNames({ tenantId, limit, after })` (`EnvBinding`, `SecretBinding`). A runtime whose store doesn't answers `501 environments-unsupported`, which names the store, rather than a list missing its names.
+  - The in-memory env store gives the names its tenant's values are under. The dotenv secrets store gives `local` and each `.env.<name>` file that holds a name.
+  - The TypeScript and Python clients list them with `client.environments.list()`.
+- 6d3ccdd: **A pack service run per deployment can be given the env its pack declares, from the env store.** On a server that runs a pack service per deployment (it wires `systemDeployments`), the names the pack declares in its index (`env`) are looked up in the env store, at the deployment's project, then the project's org, then the tenant (most specific wins), at the env the server serves. A tenant-wide deployment is read at the tenant's Default project.
+  - **Plain values only.** A name set only as a secret can't be given into the pack service's environment yet (`pack-env-secret-not-yet`): a tool reads it per call (`ctx.secrets`). A name set both as a secret and as a plain value is `pack-env-ambiguous`, naming both scopes. A required name set nowhere is `pack-env-missing`. While any of these stands, no value is given, and a running service keeps the values it has.
+  - **`GET /v1/deployments/{deploymentId}/pack-env`** shows a tenant where each declared name is set (`project`, `org` or `tenant`) and why it can't be given, if it can't. Never a value. A server whose pack services take their env from how they're run answers `501 pack-env-not-served`. The TypeScript client has `deployments.packEnv`; the Python client, `deployments.pack_env`.
+  - **For whatever runs the pack services, on a system key of its own (`system:pack-env`):**
+    - `GET /v1/system/pack-env` lists the deployments whose service runs on values that changed;
+    - `GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env` gives the values and a `revision`, with each value given out on the audit record (`env-resolved`);
+    - `PUT …/pack-env` records the revision the service runs, or that it was held back and why (compare-and-set: `409 pack-env-conflict`). `pack-env-update-failed` holds a revision whose values were given and didn't start: it's listed again for an hour after it was first held, so it's tried again;
+    - `PUT …/endpoint` takes `packEnvRevision`, the one a new service was made with.
+  
+    `system:deployments` reads no value. The TypeScript client has `systemDeployments.listPackEnvChanged`, `getPackEnv` and `recordPackEnv`.
+  - **A deployment records its pack's declaration** (`packEnv`, optional), and a deploy whose image index carries a malformed `env` is refused (`image-unverifiable`). A ready endpoint can carry `packEnvProblem` (`{ code, since }`) while its service runs on the values it was last given: one of the three codes above, or `pack-env-update-failed` when the newest values didn't start. `@kindgi/api` exports `packEnvCheck`, `PACK_ENV_PROBLEM_CODES`, `PACK_ENV_HELD_CODES` and `PACK_ENV_RETRY_MS`; `@kindgi/handler-runtime` exports its env declaration check at `@kindgi/handler-runtime/pack-env`.
+  - **An env or secret record can carry `recordId`,** the store's own id for its row, never on the wire. The revision carries it, so a removed value set again is a new revision even when its row starts again at 1 in the same millisecond. `@kindgi/env-inmemory` sets it; a store without one has only the update time.
+- Updated dependencies [83ad88a]
+- Updated dependencies [6ed7bc6]
+- Updated dependencies [5d68d0d]
+- Updated dependencies [d563887]
+- Updated dependencies [499082a]
+- Updated dependencies [17bc390]
+- Updated dependencies [66e5ec7]
+- Updated dependencies [22b619b]
+- Updated dependencies [4101430]
+- Updated dependencies [d0ee5c5]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [e5b38a8]
+- Updated dependencies [c56f757]
+- Updated dependencies [1ac8e67]
+- Updated dependencies [404c4c9]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [53b09f7]
+- Updated dependencies [d563887]
+- Updated dependencies [8f52412]
+- Updated dependencies [f56c6ae]
+- Updated dependencies [c46503d]
+- Updated dependencies [7be0273]
+- Updated dependencies [e35d94f]
+- Updated dependencies [010fd72]
+- Updated dependencies [7be42d0]
+- Updated dependencies [3b90568]
+- Updated dependencies [f605c7e]
+- Updated dependencies [d563887]
+- Updated dependencies [f82bb04]
+- Updated dependencies [d563887]
+- Updated dependencies [6d3ccdd]
+- Updated dependencies [3c8afcf]
+- Updated dependencies [c8d3c1e]
+- Updated dependencies [66bb5eb]
+- Updated dependencies [d563887]
+- Updated dependencies [c1a61c7]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [5b5bd3b]
+- Updated dependencies [c44d803]
+- Updated dependencies [bd3bcd7]
+- Updated dependencies [3be3ba0]
+- Updated dependencies [ec3dbf9]
+- Updated dependencies [409b9bf]
+- Updated dependencies [10ec595]
+- Updated dependencies [16bbb17]
+- Updated dependencies [d563887]
+- Updated dependencies [2a05fac]
+- Updated dependencies [cf339d3]
+- Updated dependencies [3502389]
+- Updated dependencies [dd34dcf]
+  - @kindgi/api@0.1.9
+  - @kindgi/compliance@0.1.9
+  - @kindgi/log@0.1.9
+  - @kindgi/platform@0.1.9
+  - @kindgi/audit-events@0.1.9
+  - @kindgi/types@0.1.9
+
+## 0.1.9-rc.1
+
+### Patch Changes
+
+- @kindgi/api@0.1.9-rc.1
+  - @kindgi/audit-events@0.1.9-rc.1
+  - @kindgi/compliance@0.1.9-rc.1
+  - @kindgi/log@0.1.9-rc.1
+  - @kindgi/platform@0.1.9-rc.1
+  - @kindgi/types@0.1.9-rc.1
+
+## 0.1.9-rc.0
+
+### Patch Changes
+
+- 5d68d0d: **An audit record that can't be written, and a check the authorization model can't answer, are logged through your logger instead of the console.**
+  - `emitResolveEvent` and `emitLifecycleEvent` (`@kindgi/compliance`) take an optional `log`, a `@kindgi/log` `Logger`. An append that fails or throws still never fails the caller's operation. It's logged there at `warn`, with the record's `tenantId` and `kind`, and the error's `code` or the error it threw. Without a `log` it isn't logged anywhere; before, it went to `console.warn`.
+  - `createApp` passes the request's logger, under the subsystem `audit`, for a secret or env write's record and for a secret read refused for its scope. `resolveAtScope` takes that `log` as an optional fourth argument. An app without a `logger` won't see that a record was dropped, and the `logger` option's docs say so.
+  - A check the authorization model has no relation for, which is a bug in a route, is logged at `error` through the request's logger, under the subsystem `authz`, with its `action` and `resource`. Before, it went to `console.error`.
+  - `createInMemoryEnvBinding` takes an optional `log` and passes it on with every audit record it writes.
+- 53b09f7: **`GET /v1/environments` lists the tenant's env names,** for a tenant admin: each name that holds an env value or a secret, at any scope, once, in byte order, paged by `cursor` and `limit`.
+  - An env store and a secrets store each say their own names through a new optional `listEnvNames({ tenantId, limit, after })` (`EnvBinding`, `SecretBinding`). A runtime whose store doesn't answers `501 environments-unsupported`, which names the store, rather than a list missing its names.
+  - The in-memory env store gives the names its tenant's values are under. The dotenv secrets store gives `local` and each `.env.<name>` file that holds a name.
+  - The TypeScript and Python clients list them with `client.environments.list()`.
+- 6d3ccdd: **A pack service run per deployment can be given the env its pack declares, from the env store.** On a server that runs a pack service per deployment (it wires `systemDeployments`), the names the pack declares in its index (`env`) are looked up in the env store, at the deployment's project, then the project's org, then the tenant (most specific wins), at the env the server serves. A tenant-wide deployment is read at the tenant's Default project.
+  - **Plain values only.** A name set only as a secret can't be given into the pack service's environment yet (`pack-env-secret-not-yet`): a tool reads it per call (`ctx.secrets`). A name set both as a secret and as a plain value is `pack-env-ambiguous`, naming both scopes. A required name set nowhere is `pack-env-missing`. While any of these stands, no value is given, and a running service keeps the values it has.
+  - **`GET /v1/deployments/{deploymentId}/pack-env`** shows a tenant where each declared name is set (`project`, `org` or `tenant`) and why it can't be given, if it can't. Never a value. A server whose pack services take their env from how they're run answers `501 pack-env-not-served`. The TypeScript client has `deployments.packEnv`; the Python client, `deployments.pack_env`.
+  - **For whatever runs the pack services, on a system key of its own (`system:pack-env`):**
+    - `GET /v1/system/pack-env` lists the deployments whose service runs on values that changed;
+    - `GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env` gives the values and a `revision`, with each value given out on the audit record (`env-resolved`);
+    - `PUT …/pack-env` records the revision the service runs, or that it was held back and why (compare-and-set: `409 pack-env-conflict`). `pack-env-update-failed` holds a revision whose values were given and didn't start: it's listed again for an hour after it was first held, so it's tried again;
+    - `PUT …/endpoint` takes `packEnvRevision`, the one a new service was made with.
+  
+    `system:deployments` reads no value. The TypeScript client has `systemDeployments.listPackEnvChanged`, `getPackEnv` and `recordPackEnv`.
+  - **A deployment records its pack's declaration** (`packEnv`, optional), and a deploy whose image index carries a malformed `env` is refused (`image-unverifiable`). A ready endpoint can carry `packEnvProblem` (`{ code, since }`) while its service runs on the values it was last given: one of the three codes above, or `pack-env-update-failed` when the newest values didn't start. `@kindgi/api` exports `packEnvCheck`, `PACK_ENV_PROBLEM_CODES`, `PACK_ENV_HELD_CODES` and `PACK_ENV_RETRY_MS`; `@kindgi/handler-runtime` exports its env declaration check at `@kindgi/handler-runtime/pack-env`.
+  - **An env or secret record can carry `recordId`,** the store's own id for its row, never on the wire. The revision carries it, so a removed value set again is a new revision even when its row starts again at 1 in the same millisecond. `@kindgi/env-inmemory` sets it; a store without one has only the update time.
+- Updated dependencies [83ad88a]
+- Updated dependencies [6ed7bc6]
+- Updated dependencies [5d68d0d]
+- Updated dependencies [d563887]
+- Updated dependencies [499082a]
+- Updated dependencies [17bc390]
+- Updated dependencies [66e5ec7]
+- Updated dependencies [22b619b]
+- Updated dependencies [4101430]
+- Updated dependencies [d0ee5c5]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [e5b38a8]
+- Updated dependencies [c56f757]
+- Updated dependencies [1ac8e67]
+- Updated dependencies [404c4c9]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [53b09f7]
+- Updated dependencies [d563887]
+- Updated dependencies [8f52412]
+- Updated dependencies [f56c6ae]
+- Updated dependencies [c46503d]
+- Updated dependencies [7be0273]
+- Updated dependencies [e35d94f]
+- Updated dependencies [010fd72]
+- Updated dependencies [7be42d0]
+- Updated dependencies [3b90568]
+- Updated dependencies [f605c7e]
+- Updated dependencies [d563887]
+- Updated dependencies [f82bb04]
+- Updated dependencies [d563887]
+- Updated dependencies [6d3ccdd]
+- Updated dependencies [3c8afcf]
+- Updated dependencies [c8d3c1e]
+- Updated dependencies [66bb5eb]
+- Updated dependencies [d563887]
+- Updated dependencies [c1a61c7]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [5b5bd3b]
+- Updated dependencies [c44d803]
+- Updated dependencies [bd3bcd7]
+- Updated dependencies [3be3ba0]
+- Updated dependencies [ec3dbf9]
+- Updated dependencies [409b9bf]
+- Updated dependencies [10ec595]
+- Updated dependencies [16bbb17]
+- Updated dependencies [d563887]
+- Updated dependencies [2a05fac]
+- Updated dependencies [cf339d3]
+- Updated dependencies [3502389]
+- Updated dependencies [dd34dcf]
+  - @kindgi/api@0.1.9-rc.0
+  - @kindgi/compliance@0.1.9-rc.0
+  - @kindgi/log@0.1.9-rc.0
+  - @kindgi/platform@0.1.9-rc.0
+  - @kindgi/audit-events@0.1.9-rc.0
+  - @kindgi/types@0.1.9-rc.0
+
 ## 0.1.8
 
 ### Patch Changes

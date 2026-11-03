@@ -5,8 +5,9 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import type { AuthzCheckBinding, Decision } from '@kindgi/authz';
 import { makeInMemoryTeamBinding } from '@kindgi/platform';
-import type { TenantId } from '@kindgi/types';
+import type { TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -23,12 +24,15 @@ import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
 
 const TOKEN_A = 'teams-token-tenant-a';
 const TOKEN_B = 'teams-token-tenant-b';
+/** A signed-in user in tenant A, for the authorization tests. */
+const USER_A = 'teams-token-user-a';
 const tenantA = randomUUID() as TenantId;
 const tenantB = randomUUID() as TenantId;
 
 const resolveToken: TokenResolver = async (token) => {
   if (token === TOKEN_A) return { tenantId: tenantA };
   if (token === TOKEN_B) return { tenantId: tenantB };
+  if (token === USER_A) return { tenantId: tenantA, userId: 'user-a' as UserId };
   return null;
 };
 
@@ -47,7 +51,7 @@ const runHandler: RunHandlerBinding = {
   }),
 };
 
-function makeApp() {
+function makeApp(authz?: AuthzCheckBinding) {
   const pair = makeInMemoryTeamBinding();
   const app = createApp({
     ...createStubAppBindings(),
@@ -55,6 +59,9 @@ function makeApp() {
     runHandler,
     teamBinding: pair.teams,
     teamMembershipBinding: pair.memberships,
+    ...(authz !== undefined && {
+      authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding: authz },
+    }),
   });
   return { app, pair };
 }
@@ -129,6 +136,71 @@ describe('API — teams CRUD', () => {
     const body = (await get.json()) as { description: string; orgId?: string };
     expect(body.description).toBe('new');
     expect(body.orgId).toBeUndefined();
+  });
+
+  test('a PATCH naming orgId also takes admin on the tenant: the team admin is a 403 that changes nothing', async () => {
+    const granted = new Set<string>();
+    const authz = {
+      check: async (
+        _principal: unknown,
+        action: string,
+        resource: { type: string; id: string },
+      ) => {
+        const allowed = granted.has(`${action} ${resource.type}:${resource.id}`);
+        return { allowed, reason: 'test', failing: allowed ? undefined : 'actor' } as Decision;
+      },
+    } as unknown as AuthzCheckBinding;
+    const { app, pair } = makeApp(authz);
+    const made = await pair.teams.create(tenantA, {
+      name: 'moved',
+      slug: 'moved',
+      orgId: 'org-a',
+    } as never);
+    if (made.kind !== 'ok') throw new Error(made.kind);
+    const id = made.teamId as unknown as string;
+    // Its admin: admin on the team, not on the tenant.
+    granted.add(`read team:${id}`).add(`admin team:${id}`);
+    const patch = (body: unknown) =>
+      app.request(`/v1/teams/${id}`, {
+        method: 'PATCH',
+        headers: { authorization: `Bearer ${USER_A}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const read = async () => {
+      const res = await app.request(`/v1/teams/${id}`, {
+        headers: { authorization: `Bearer ${USER_A}` },
+      });
+      expect(res.status).toBe(200);
+      return (await res.json()) as { name: string; orgId?: string };
+    };
+
+    // Into another org, out of any, its own org again, and beside a rename.
+    for (const body of [
+      { orgId: 'org-b' },
+      { orgId: null },
+      { orgId: 'org-a' },
+      { name: 'renamed', orgId: 'org-b' },
+    ]) {
+      const refused = await patch(body);
+      expect(refused.status).toBe(403);
+      expect(await refused.json()).toMatchObject({
+        error: {
+          code: 'permission-denied',
+          details: { action: 'admin', resource: `tenant:${tenantA as unknown as string}` },
+        },
+      });
+    }
+    expect(await read()).toMatchObject({ name: 'moved', orgId: 'org-a' });
+
+    // A PATCH without `orgId` takes admin on the team, as before.
+    expect((await patch({ name: 'renamed' })).status).toBe(204);
+    expect(await read()).toMatchObject({ name: 'renamed', orgId: 'org-a' });
+
+    granted.add(`admin tenant:${tenantA as unknown as string}`);
+    expect((await patch({ orgId: 'org-b' })).status).toBe(204);
+    expect(await read()).toMatchObject({ orgId: 'org-b' });
+    expect((await patch({ orgId: null })).status).toBe(204);
+    expect((await read()).orgId).toBeUndefined();
   });
 
   test('patch unknown → 404 team-not-found', async () => {

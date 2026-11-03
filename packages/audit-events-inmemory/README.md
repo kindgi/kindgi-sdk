@@ -23,15 +23,15 @@ development; production deployments plug a durable adapter.
 
 - **append** — validates every event has a non-empty `id` (returns
   `invalid-event` otherwise). Idempotent: a duplicate `id` within a
-  tenant is a silent no-op.
-- **query** — tenant-scoped; filters on `id`, `kind`, `kinds`, `actor`,
+  workspace is a silent no-op.
+- **query** — workspace-scoped; filters on `id`, `kind`, `kinds`, `actor`,
   `onBehalfOf`, `runId`, `agentId`, `flowId`, `correlationId`,
   `outcome`, `payloadDoc` (string equality on `payload.doc` fields), and
   the inclusive `from` / `to` timestamp range. Results are ordered by
   `(timestamp, id)` ascending. `limit` defaults to 50 and is clamped to
   `[1, 500]`. `nextCursor` is base64url JSON `{ timestamp, id }` of the
   last returned event; an undecodable cursor returns `invalid-cursor`.
-- **purge** — deletes events of one `kind` in one tenant with
+- **purge** — deletes events of one `kind` in one workspace with
   `timestamp < olderThan`; returns the deleted count.
 - **describe** — `{ name: '@kindgi/audit-events-inmemory', version }`.
 
@@ -60,4 +60,4 @@ const page = await audit.query({ tenantId, filter: { kind: 'authz-decision' }, l
   and is lost on exit.
 - **Retention policy.** `purge` is the primitive; scheduling it is the
   caller's job.
-- **Scale.** Queries scan and sort the tenant's events on every call.
+- **Scale.** Queries scan and sort the workspace's events on every call.

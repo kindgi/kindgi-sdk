@@ -6,6 +6,7 @@ import type { Context } from 'hono';
 import { type Action, ref } from '@kindgi/authz';
 import type { TenantId, TriggerId } from '@kindgi/types';
 
+import { type ItemRights, filterOwned, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { TriggerRegistryBinding } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
@@ -19,6 +20,12 @@ import { deniedBy } from './denied.js';
  * `write` plus `execute` to register it or change what it runs, since it
  * starts runs of the flow as its registrant would. With no authorizer,
  * nothing is checked.
+ *
+ * A flow more than one project serves runs from an event trigger in its
+ * first project, where a run that names none is filed. So that project
+ * decides what the trigger's flow did alone: `read` on it to see the
+ * trigger, and its `execute` (`runIn`) to register it or change what it
+ * runs. `write` stays the flow's.
  */
 export interface TriggerAccess {
   /** Registering a trigger for `flowId`: the refusal, if any. */
@@ -43,14 +50,24 @@ export function triggerAccess(
   binding: TriggerRegistryBinding,
   kind: 'event',
   authorizer: Authorizer | undefined,
+  /** Rights on a flow more than one project serves. Absent: one project each. */
+  itemRights?: ItemRights,
 ): TriggerAccess {
   const onFlow = async (
     c: Context<AppEnv>,
     flowId: string,
     actions: readonly Action[],
   ): Promise<Response | undefined> => {
+    const served =
+      authorizer === undefined ? undefined : await itemRights?.multi(c, 'flow', flowId);
+    const first = served?.[0] as unknown as string | undefined;
     for (const action of actions) {
-      const refused = await deniedBy(authorizer, c, action, ref('flow', flowId));
+      const refused =
+        itemRights === undefined || first === undefined || action === 'write'
+          ? await deniedBy(authorizer, c, action, ref('flow', flowId))
+          : action === 'execute'
+            ? await runIn(c, itemRights, { kind: 'flow', id: flowId }, first)
+            : await deniedBy(authorizer, c, action, ref('project', first));
       if (refused !== undefined) return refused;
     }
     return undefined;
@@ -67,7 +84,11 @@ export function triggerAccess(
     },
     async visible(c, rows) {
       if (authorizer === undefined) return rows;
-      return authorizer.filterByCan(c, 'read', rows, (row) => ref('flow', row.flowId));
+      return filterOwned(c, authorizer, itemRights, 'flow', rows, {
+        idOf: (row) => row.flowId,
+        projectOf: (_row, projects) => projects[0] as unknown as string | undefined,
+        todayRef: (row) => ref('flow', row.flowId),
+      });
     },
   };
 }

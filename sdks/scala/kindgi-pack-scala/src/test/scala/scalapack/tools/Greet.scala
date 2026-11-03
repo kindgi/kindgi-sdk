@@ -13,5 +13,6 @@ object Greet {
   val tool: Tool[Input, Output] = Tool[Input, Output]("acme.greet")
     .description("Formats a greeting for the named recipient.")
     .readOnly
+    .needsApprovalWhenUnattended(false)
     .handler((in, _) => Output(s"${in.greeting}, ${in.title.fold("")(_ + " ")}${in.name}!"))
 }

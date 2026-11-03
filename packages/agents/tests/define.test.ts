@@ -260,6 +260,63 @@ describe('defineAgent — hitl.onTimeout', () => {
   });
 });
 
+describe('defineAgent — autoCloseAfterInactiveSeconds', () => {
+  const REFUSED = {
+    path: '/conversationPolicy/autoCloseAfterInactiveSeconds',
+    message:
+      "autoCloseAfterInactiveSeconds isn't supported: a conversation never closes by itself. It closes when someone closes it: Close in the console, kindgi conversations close, or POST /v1/conversations/{id}/close. Leave it out.",
+  };
+  const withPolicy = (conversationPolicy: unknown) =>
+    defineAgent({
+      ...baseSpec,
+      conversationPolicy,
+    } as unknown as Parameters<typeof defineAgent>[0]);
+
+  test('a policy without it is accepted as it was', () => {
+    const r = withPolicy({ historyLimit: 5, hitlAfterTurns: 3 });
+    expect(r.kind).toBe('ok');
+    if (r.kind === 'ok') {
+      expect(r.value.conversationPolicy).toEqual({ historyLimit: 5, hitlAfterTurns: 3 });
+    }
+  });
+
+  test.each([600, 1, 0, -5, 1.5, '600', null])(
+    'any value (%j) is refused, saying how a conversation closes',
+    (value) => {
+      const r = withPolicy({ historyLimit: 5, autoCloseAfterInactiveSeconds: value });
+      expect(r.kind).toBe('err');
+      if (r.kind === 'err') expect(r.error.issues).toEqual([REFUSED]);
+    },
+  );
+});
+
+describe('defineAgent — parallelToolCalls', () => {
+  const withParallel = (parallelToolCalls: unknown) =>
+    defineAgent({ ...baseSpec, parallelToolCalls } as unknown as Parameters<typeof defineAgent>[0]);
+
+  test.each([true, false])('%s is kept on the agent', (value) => {
+    const r = withParallel(value);
+    expect(r.kind).toBe('ok');
+    if (r.kind === 'ok') expect(r.value.parallelToolCalls).toBe(value);
+  });
+
+  test('left out, the agent has none: its read-only calls run together', () => {
+    const r = defineAgent(baseSpec);
+    expect(r.kind).toBe('ok');
+    if (r.kind === 'ok') expect(r.value).not.toHaveProperty('parallelToolCalls');
+  });
+
+  test.each(['false', 0, null, {}])('any other value (%j) is refused', (value) => {
+    const r = withParallel(value);
+    expect(r.kind).toBe('err');
+    if (r.kind === 'err') {
+      expect(r.error.issues).toEqual([
+        { path: '/parallelToolCalls', message: 'parallelToolCalls must be true or false' },
+      ]);
+    }
+  });
+});
+
 describe('defineAgent — hitl.separateApprover', () => {
   const withFourEyes = (separateApprover: unknown) =>
     defineAgent({

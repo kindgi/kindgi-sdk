@@ -77,7 +77,7 @@ public final class Operations {
         Map.entry("settings.put", SETTINGS_PUT));
 
     /**
-     * The API's operations that have no client method ({@code HEAD}).
+     * The API's operations that have no client method: a {@code HEAD}, an outside sender's path, or a streamed body.
      */
     public static final Set<String> WITHOUT_METHOD = Set.of("widgets.head");
 

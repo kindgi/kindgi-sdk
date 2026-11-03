@@ -67,6 +67,27 @@ describe('emitLifecycleEvent', () => {
     });
   });
 
+  test('a hard revoke that left a recoverable copy carries until when', async () => {
+    const { binding, events } = capture();
+    await emitLifecycleEvent({
+      evidenceKind: 'secret-hard-revoked',
+      bindingKind: 'secret',
+      scope: { kind: 'project', tenantId, projectId },
+      envName: 'production' as EnvName,
+      name: 'stripe-key',
+      outcome: 'succeeded',
+      hard: true,
+      recoverableUntil: '2026-11-22T21:00:00.000Z',
+      auditEvents: binding,
+      tenantId,
+      projectId,
+    });
+    expect((events[0]?.payload as { doc: Record<string, unknown> }).doc).toMatchObject({
+      hard: true,
+      recoverableUntil: '2026-11-22T21:00:00.000Z',
+    });
+  });
+
   test('a tenant-scoped value has no project; without an actor, the binding default stays', async () => {
     const { binding, events } = capture();
     await emitLifecycleEvent({

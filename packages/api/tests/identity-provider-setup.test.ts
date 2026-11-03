@@ -29,7 +29,8 @@ import type {
 
 const tenantId = randomUUID() as TenantId;
 const BEARER = 'providers-setup-bearer';
-const resolveToken: TokenResolver = async (t) => (t === BEARER ? { tenantId, scopes: [] } : null);
+const resolveToken: TokenResolver = async (t) =>
+  t === BEARER ? { tenantId, scopes: ['tenant-admin'] } : null;
 
 const noSessions: SessionStoreBinding = {
   create: async () => {

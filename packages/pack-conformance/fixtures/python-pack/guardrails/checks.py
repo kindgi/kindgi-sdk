@@ -29,3 +29,4 @@ def min_length(config: MinLength, trace: RunTrace) -> CheckResult:
 @guardrail(id="conformance.check-throws", check_id="conformance.checks.throws", on_violation="log-only")
 def check_throws(config: dict[str, Any], trace: RunTrace) -> bool:
     raise RuntimeError("check boom")
+

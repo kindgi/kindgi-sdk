@@ -146,8 +146,8 @@ export function frozenTenantRefusal(
   }
   const message =
     state === 'closing'
-      ? 'This workspace is closing: it can be read and exported until it is deleted, and nothing in it changes.'
-      : 'This workspace is suspended: it can be read and exported, and nothing in it changes until it is restored.';
+      ? 'This workspace is closing: it can be read and exported until it is deleted, and nothing in it changes but deletes, revocations and erasures.'
+      : 'This workspace is suspended: it can be read and exported, and nothing in it changes but deletes, revocations and erasures until it is restored.';
   return s3
     ? s3Answer(c, 'AllAccessDisabled', message, 403)
     : answer(c, `tenant-${state}`, message, { state });

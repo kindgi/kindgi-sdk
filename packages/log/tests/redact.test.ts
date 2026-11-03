@@ -137,3 +137,92 @@ describe('the logger applies both rules everywhere, at every level', () => {
     expect(lines[0]).not.toContain('zzz');
   });
 });
+
+describe('rule 3: the full mask, for an error a run shows', () => {
+  const full = (text: string): string => scrubText(text, { fullMask: true });
+
+  test('a Kindgi token becomes [redacted] whole; the default keeps its form', () => {
+    const text = 'retry with kgi_bt_canary0123456789abcdWXYZ now';
+    expect(full(text)).toBe('retry with [redacted] now');
+    expect(scrubText(text)).toBe('retry with kgi_bt_…WXYZ now');
+    expect(full('kgi_lk_short')).toBe('[redacted]');
+  });
+
+  test("Bearer and a URL's password read as in rule 2", () => {
+    expect(full('Authorization: Bearer abc.def.ghi, next')).toBe(
+      'Authorization: Bearer [redacted], next',
+    );
+    expect(full('Bearer kgi_bt_canary0123456789abcdWXYZ')).toBe('Bearer [redacted]');
+    expect(full('connect postgres://kindgi:hunter2@db.internal:5432/kindgi failed')).toBe(
+      'connect postgres://kindgi:***@db.internal:5432/kindgi failed',
+    );
+  });
+
+  test("a URL's query value whose name looks secret becomes [redacted], its name kept", () => {
+    for (const [text, expected] of [
+      [
+        'GET https://shop.acme.example/orders?token=abc123&page=2',
+        'GET https://shop.acme.example/orders?token=[redacted]&page=2',
+      ],
+      ['?access_token=ya29.a0Af&x=1', '?access_token=[redacted]&x=1'],
+      [
+        '/wc/v3/orders?consumer_key=ck_1&consumer_secret=cs_2',
+        '/wc/v3/orders?consumer_key=ck_1&consumer_secret=[redacted]',
+      ],
+      ['?api_key=k-1 rejected', '?api_key=[redacted] rejected'],
+      ['?client_secret=s1', '?client_secret=[redacted]'],
+      [
+        'https://maps.acme.example/geo?key=AIzaSyA-0123&q=x',
+        'https://maps.acme.example/geo?key=[redacted]&q=x',
+      ],
+      [
+        'https://acme.blob.core.windows.net/c/b?sv=2022-11-02&sig=abc%2Bdef%3D',
+        'https://acme.blob.core.windows.net/c/b?sv=2022-11-02&sig=[redacted]',
+      ],
+    ] as const) {
+      expect(full(text), text).toBe(expected);
+    }
+  });
+
+  test("a presigned S3 URL's signature, credential and session token are masked", () => {
+    const url =
+      'https://acme.s3.amazonaws.com/a.csv?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIA0123%2F20261025%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261025T000000Z&X-Amz-Expires=900&X-Amz-Security-Token=IQoJ&X-Amz-SignedHeaders=host&X-Amz-Signature=0f1e2d3c';
+    expect(full(url)).toBe(
+      'https://acme.s3.amazonaws.com/a.csv?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=[redacted]&X-Amz-Date=20261025T000000Z&X-Amz-Expires=900&X-Amz-Security-Token=[redacted]&X-Amz-SignedHeaders=host&X-Amz-Signature=[redacted]',
+    );
+    expect(full('https://storage.googleapis.com/b/o?X-Goog-Signature=ab12')).toBe(
+      'https://storage.googleapis.com/b/o?X-Goog-Signature=[redacted]',
+    );
+  });
+
+  test("a fragment's secret value is masked too (an OAuth redirect)", () => {
+    expect(full('https://app.acme.example/cb#access_token=ya29.x&token_type=bearer&state=s1')).toBe(
+      'https://app.acme.example/cb#access_token=[redacted]&token_type=bearer&state=s1',
+    );
+  });
+
+  test('an id named like a key stays: only the exact name key is one', () => {
+    for (const text of [
+      '?sort_key=a1&page=2',
+      '?idempotency_key=7f3a',
+      '?public_key=pk_1',
+      '?cache_key=c1',
+      '?page=2&q=coffee',
+      '?token=',
+    ]) {
+      expect(full(text), text).toBe(text);
+    }
+  });
+
+  test("log lines don't get it: the default leaves query values as they are", () => {
+    const text = 'GET /orders?token=abc123&page=2';
+    expect(scrubText(text)).toBe(text);
+  });
+
+  test('a second scrub changes nothing, in either form', () => {
+    const text =
+      'request to https://shop.acme.example/orders?token=abc&sig=s#access_token=t failed: Bearer b1 rejected; kgi_bt_canary0123456789abcdWXYZ; postgres://u:p@h/db';
+    expect(full(full(text))).toBe(full(text));
+    expect(scrubText(scrubText(text))).toBe(scrubText(text));
+  });
+});

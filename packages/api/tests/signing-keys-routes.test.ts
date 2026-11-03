@@ -26,9 +26,11 @@ const READER = 'token-read-only';
 const OTHER_TENANT = 'token-tenant-b';
 
 const resolveToken: TokenResolver = async (t) => {
-  if (t === ADMIN) return { tenantId: tenantA, capabilities: ['signing-keys:write'] };
-  if (t === READER) return { tenantId: tenantA, capabilities: [] };
-  if (t === OTHER_TENANT) return { tenantId: tenantB, capabilities: ['signing-keys:write'] };
+  if (t === ADMIN)
+    return { tenantId: tenantA, scopes: ['tenant-admin'], capabilities: ['signing-keys:write'] };
+  if (t === READER) return { tenantId: tenantA, scopes: ['tenant-admin'], capabilities: [] };
+  if (t === OTHER_TENANT)
+    return { tenantId: tenantB, scopes: ['tenant-admin'], capabilities: ['signing-keys:write'] };
   return null;
 };
 

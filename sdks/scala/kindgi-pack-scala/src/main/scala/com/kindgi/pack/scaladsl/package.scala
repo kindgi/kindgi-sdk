@@ -33,6 +33,9 @@ package object scaladsl {
   type Agent = com.kindgi.pack.Agent
   type Flow = com.kindgi.pack.Flow
   type ToolContext = com.kindgi.pack.ToolContext
+  type ToolConnection = com.kindgi.pack.ToolConnection
+  type ConnectionAccount = com.kindgi.pack.ConnectionAccount
+  type ConnectionRejectedException = com.kindgi.pack.ConnectionRejectedException
   type RunTrace = com.kindgi.pack.RunTrace
   type CheckResult = com.kindgi.pack.CheckResult
   type Cancellation = com.kindgi.pack.Cancellation

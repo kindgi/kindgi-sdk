@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createClient } from '../../src/index.js';
-import { jsonFetch } from '../support/recording-fetch.js';
+import { jsonFetch, noContentFetch } from '../support/recording-fetch.js';
 
 const AUTH = { kind: 'apiToken' as const, token: 't' };
 const API = 'https://api.example.com';
@@ -32,6 +32,38 @@ describe('systemDeployments — wire round-trip', () => {
     expect(`${stub.calls[0]!.method} ${stub.calls[0]!.url}`).toBe(
       `GET ${API}/v1/system/deployments?endpoint=retire&cursor=c1&limit=10`,
     );
+  });
+
+  it('list ready: each entry with whether its service is kept warm', async () => {
+    const page = { data: [{ ...ENTRY, warm: true }], hasMore: false };
+    const stub = jsonFetch(page);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    const listed = await client.systemDeployments.list('ready');
+    expect(listed.data[0]?.warm).toBe(true);
+    expect(`${stub.calls[0]!.method} ${stub.calls[0]!.url}`).toBe(
+      `GET ${API}/v1/system/deployments?endpoint=ready`,
+    );
+  });
+
+  it('claimRound: POST …/round with the claimant and the hold', async () => {
+    const round = { claimant: 'pass-1', heldUntil: '2026-10-31T00:10:00.000Z' };
+    const stub = jsonFetch(round);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    expect(
+      await client.systemDeployments.claimRound({ claimant: 'pass-1', holdSeconds: 600 }),
+    ).toEqual(round);
+    const call = stub.calls[0]!;
+    expect(`${call.method} ${call.url}`).toBe(`POST ${API}/v1/system/deployments/round`);
+    expect(JSON.parse(call.body ?? '{}')).toEqual({ claimant: 'pass-1', holdSeconds: 600 });
+  });
+
+  it('endRound: POST …/round/end with the claimant, answered 204', async () => {
+    const stub = noContentFetch();
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    expect(await client.systemDeployments.endRound('pass-1')).toBeUndefined();
+    const call = stub.calls[0]!;
+    expect(`${call.method} ${call.url}`).toBe(`POST ${API}/v1/system/deployments/round/end`);
+    expect(JSON.parse(call.body ?? '{}')).toEqual({ claimant: 'pass-1' });
   });
 
   it('setEndpoint: PUT …/endpoint with the spec, the ids path-encoded', async () => {
@@ -94,5 +126,80 @@ describe('systemDeployments — wire round-trip', () => {
       `PUT ${API}/v1/system/tenants/${TENANT}/deployments/dep-1/suspended`,
     );
     expect(JSON.parse(call.body ?? '{}')).toEqual(spec);
+  });
+
+  it('listPackEnvChanged: GET /v1/system/pack-env with the page', async () => {
+    const page = { data: [ENTRY], nextCursor: 'c2', hasMore: true };
+    const stub = jsonFetch(page);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    expect(await client.systemDeployments.listPackEnvChanged({ cursor: 'c1', limit: 5 })).toEqual(
+      page,
+    );
+    expect(`${stub.calls[0]!.method} ${stub.calls[0]!.url}`).toBe(
+      `GET ${API}/v1/system/pack-env?cursor=c1&limit=5`,
+    );
+  });
+
+  it('getPackEnv: GET …/pack-env, the ids path-encoded', async () => {
+    const values = {
+      revision: `pe1-${'0'.repeat(64)}`,
+      names: [
+        {
+          name: 'API_BASE',
+          required: true,
+          kind: 'env',
+          scope: { kind: 'project', id: 'p-1' },
+          missing: false,
+        },
+      ],
+      env: { API_BASE: 'https://api.acme.test' },
+    };
+    const stub = jsonFetch(values);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    expect(await client.systemDeployments.getPackEnv(TENANT, 'dep/1')).toEqual(values);
+    expect(`${stub.calls[0]!.method} ${stub.calls[0]!.url}`).toBe(
+      `GET ${API}/v1/system/tenants/${TENANT}/deployments/dep%2F1/pack-env`,
+    );
+  });
+
+  it("getPackEnv with secrets: 'values': asks for them, and gives them as sent", async () => {
+    const values = {
+      revision: `pe1-${'0'.repeat(64)}`,
+      names: [
+        {
+          name: 'ACME_API_KEY',
+          required: true,
+          kind: 'secret',
+          scope: { kind: 'project', id: 'p-1' },
+          missing: false,
+        },
+      ],
+      env: {},
+      secrets: { ACME_API_KEY: { value: 'sk-acme', revision: `ps1-${'1'.repeat(64)}` } },
+    };
+    const stub = jsonFetch(values);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    const got = await client.systemDeployments.getPackEnv(TENANT, 'dep-1', { secrets: 'values' });
+    expect(got).toEqual(values);
+    expect(`${stub.calls[0]!.method} ${stub.calls[0]!.url}`).toBe(
+      `GET ${API}/v1/system/tenants/${TENANT}/deployments/dep-1/pack-env?secrets=values`,
+    );
+  });
+
+  it('recordPackEnv: PUT …/pack-env with the revisions', async () => {
+    const stub = jsonFetch(READY);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    const spec = { revision: 'pe1-b', held: 'pack-env-missing' as const, appliedRevision: 'pe1-a' };
+    expect(
+      await client.systemDeployments.recordPackEnv(TENANT, 'dep-1', spec, {
+        idempotencyKey: 'p-1',
+      }),
+    ).toEqual(READY);
+    const call = stub.calls[0]!;
+    expect(`${call.method} ${call.url}`).toBe(
+      `PUT ${API}/v1/system/tenants/${TENANT}/deployments/dep-1/pack-env`,
+    );
+    expect(JSON.parse(call.body ?? '{}')).toEqual(spec);
+    expect(call.headers['idempotency-key']).toBe('p-1');
   });
 });

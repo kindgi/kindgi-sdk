@@ -1,5 +1,7 @@
 // {{PACK_ID}}.woo.set-price — change a product's regular price. A store
 // change, so the agent's approval policy has a person approve every call.
+// The tool also declares it waits in a run no person started, so even an
+// agent whose policy says `never_ask` can't run it there unasked.
 import { defineTool } from '@kindgi/sdk/define';
 import type { ToolId } from '@kindgi/sdk/types';
 import { z } from 'zod';
@@ -17,6 +19,10 @@ const defined = defineTool({
   output: z.object({ productId: z.number().int(), name: z.string(), regularPrice: z.string() }),
   effects: [{ kind: 'writes', resource: 'external:woocommerce' }],
   mutating: true,
+  // In a run no person started (a webhook, a schedule or a service account's
+  // key started it), every call waits for a person's yes, whatever the
+  // agent's approval policy says.
+  needsApprovalWhenUnattended: true,
   needsSpec: WOO_NEEDS,
   handler: async ({ productId, regularPrice }, ctx) => {
     const product = await woo<{ readonly id: number; readonly name: string; readonly regular_price: string }>(

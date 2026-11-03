@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 
 import type { Context } from 'hono';
 
-import { ref } from '@kindgi/authz';
+import { type Action, type ResourceRef, ref } from '@kindgi/authz';
 
 import type { Authorizer } from './middleware/authorize.js';
 import type { TokenPrincipal } from './token-admin.js';
@@ -37,11 +37,61 @@ export async function isTenantAdmin(
     const tenantId = c.get('tenantId') as unknown as string;
     return authorizer.can(c, 'admin', ref('tenant', tenantId));
   }
+  return scopedTenantAdmin(c);
+}
+
+/**
+ * `isTenantAdmin`'s answer, for showing it (whoami's `tenantAdmin`,
+ * `/me/permissions`' `tenant.admin`), with no decision recorded: a
+ * console reads it on every poll. Never gate on it; a route decides with
+ * `isTenantAdmin`, which records.
+ */
+export async function isTenantAdminForDisplay(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+): Promise<boolean> {
+  if (authorizer !== undefined) {
+    const tenantId = c.get('tenantId') as unknown as string;
+    return canForDisplay(c, authorizer, 'admin', ref('tenant', tenantId));
+  }
+  return scopedTenantAdmin(c);
+}
+
+/**
+ * `authorizer.can`'s answer, for a hint a response shows the caller about
+ * its own access (a list's `can`), with no decision recorded
+ * (`Authorizer.probe`). An authorizer without `probe` asks `can`, which
+ * records. Never gate on it.
+ */
+export async function canForDisplay(
+  c: Context<AppEnv>,
+  authorizer: Authorizer,
+  action: Action,
+  resource: ResourceRef,
+): Promise<boolean> {
+  return authorizer.probe !== undefined
+    ? authorizer.probe(c, action, resource)
+    : authorizer.can(c, action, resource);
+}
+
+/** A tenant admin with authorization off: a full key's `tenant-admin` scope. */
+function scopedTenantAdmin(c: Context<AppEnv>): boolean {
   return (
     (c.get('scopes') ?? []).includes('tenant-admin') &&
     c.get('tokenRole') !== 'member' &&
     c.get('tokenProjectId') === undefined
   );
+}
+
+/**
+ * Whether two user ids name the same person. A reviewer's id is read from
+ * a uuid column, in lower case; the caller's, and an id an approval keeps
+ * (who asked, who it's addressed to), keep the case they were given in. A
+ * seed user id could be in upper case before 0.3.0. So the two are compared
+ * with this, never with `===`.
+ */
+export function sameUserId(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase();
 }
 
 /** A principal on the wire: `{kind: 'user' | 'service-account', id}`. */

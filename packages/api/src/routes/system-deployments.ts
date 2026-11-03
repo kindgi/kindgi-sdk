@@ -4,11 +4,15 @@
 import type { Context } from 'hono';
 import { Hono } from 'hono';
 
-import type { TenantId } from '@kindgi/types';
+import type { AuditEventBinding } from '@kindgi/audit-events';
+import type { Logger } from '@kindgi/log';
+import type { EnvName, ProjectId, TenantId } from '@kindgi/types';
 
 import {
   DEPLOYMENT_ENDPOINT_PROBLEM_CODES,
+  type DeploymentBinding,
   type DeploymentEndpoint,
+  type DeploymentEndpointProblem,
   type DeploymentEndpointProblemCode,
   type SystemDeploymentRetireReason,
   endpointToWire,
@@ -17,10 +21,23 @@ import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import {
   type SystemTenantDirectory,
+  ownSystemScope,
   requireSystemScope,
   systemReadAcrossTenants,
   withSystemTenantContext,
 } from '../middleware/system.js';
+import {
+  PACK_ENV_HELD_CODES,
+  PACK_ENV_RETRY_MS,
+  type PackEnvDeclaration,
+  type PackEnvDeps,
+  type PackEnvHeldCode,
+  type PackEnvPlatformHold,
+  type PackEnvSecretsAsk,
+  isPackEnvPlatformHold,
+  packEnvCheck,
+  packEnvValues,
+} from '../pack-env.js';
 import { hostNamesPackService, packServiceName } from '../pack-service-name.js';
 import type { SystemScope } from '../system.js';
 import type { AppEnv } from '../types.js';
@@ -34,7 +51,10 @@ export interface SystemDeploymentEntry {
   readonly deploymentId: string;
   /** The pack it deploys (the image index's `packId`). */
   readonly packId: string;
-  /** The project the deploy was scoped to; absent for a tenant-wide one. */
+  /**
+   * The deployment's project: the one it named, else the tenant's default;
+   * absent only when the tenant has none.
+   */
   readonly projectId?: string;
   /** Digest-pinned, as registered: the service is created from exactly this. */
   readonly imageRef: string;
@@ -42,6 +62,32 @@ export interface SystemDeploymentEntry {
   readonly artifactVersion: string;
   /** ISO-8601. */
   readonly activatedAt: string;
+}
+
+/** A deployment whose pack service should run: one that needs a service, or one whose service is ready. */
+export interface SystemDeploymentToServe extends SystemDeploymentEntry {
+  /**
+   * Keep an instance of its service running: in its project, calls route to
+   * it for something that's always on there. That's a tool version reached
+   * from a version a pin holds (an agent's, a flow's or a tool's) or from
+   * the Latest of each agent no pin covers there, or a pack check a
+   * registered guardrail runs there. Otherwise its service can scale to
+   * zero. Absent from a binding that doesn't say: not warm.
+   */
+  readonly warm?: boolean;
+}
+
+/**
+ * A deployment that needs a pack service: whether to start it `warm`, and
+ * why it has none yet, if a problem was recorded.
+ */
+export interface SystemDeploymentMissing extends SystemDeploymentToServe {
+  /**
+   * The last problem recorded for it (`PUT …/endpoint/problem`), with when
+   * that code was first recorded, so the orchestrator can space its tries.
+   * Absent when none is.
+   */
+  readonly problem?: DeploymentEndpointProblem;
 }
 
 export interface SystemDeploymentToRetire extends SystemDeploymentEntry {
@@ -80,6 +126,12 @@ export interface SetPackEndpointInput {
   readonly auth: PackEndpointAuth;
   /** The pack service's token. Stored wrapped; never returned, logged or recorded. */
   readonly token: string;
+  /**
+   * The revision of the pack env values the service was made with, from
+   * `GET …/pack-env`, when its pack declares an environment. Kept as the one
+   * it runs (`SystemPackEnvServed.appliedRevision`).
+   */
+  readonly packEnvRevision?: string;
 }
 
 /** The checks the binding runs: what the server needs the pack service, or the tenant's record, for. */
@@ -102,6 +154,29 @@ export interface DeploymentRef {
   readonly deploymentId: string;
 }
 
+export interface PackEnvRecordInput extends DeploymentRef {
+  readonly revision: string;
+  readonly held?: PackEnvHeldCode;
+  /** The revision the caller found the service running; absent: none. */
+  readonly appliedRevision?: string;
+}
+
+/** A deployment with a `ready` pack service, whose pack declares an environment. */
+export interface SystemPackEnvServed extends SystemDeploymentEntry {
+  readonly packEnv: PackEnvDeclaration;
+  /** The revision its service runs: given with its endpoint, or recorded since. */
+  readonly appliedRevision?: string;
+  /**
+   * The newest revision held back, why, and since when (ISO-8601). Its
+   * service still runs `appliedRevision`.
+   */
+  readonly held?: {
+    readonly revision: string;
+    readonly code: PackEnvHeldCode;
+    readonly since: string;
+  };
+}
+
 /**
  * Where the runtime keeps each deployment's pack service: its endpoint
  * (URL, auth, wrapped token), its status and problem, and whether it's
@@ -110,15 +185,32 @@ export interface DeploymentRef {
  */
 export interface SystemDeploymentsBinding {
   /**
-   * Across tenants, oldest `activatedAt` first: deployments that need a
-   * pack service. Each is routed (the newest deployment with routes for some
-   * tool version or pack check), has no endpoint or a cleared one, and
-   * nothing about it is closing or suspended.
+   * Across tenants, oldest `activatedAt` first: deployments that need a pack
+   * service. Each serves something a call can still ask for, and no newer
+   * deployment into its project serves it: a tool, agent or flow version
+   * that's registered or held (a flow or agent version a run can reach pins
+   * it, or an unfinished run uses it), a tool deployed without a version, or
+   * a pack check a registered guardrail runs in its project (from runtime
+   * 0.4.0; before, each was the newest into its project with routes for some
+   * tool version or pack check, and one whose endpoint an earlier runtime
+   * made or last set still needs that too). Each has no endpoint or a
+   * cleared one, and nothing about it is closing or suspended. Each says
+   * whether its new service should start `warm`.
    */
   listNeedingEndpoint(input: {
     readonly cursor?: string;
     readonly limit: number;
-  }): Promise<SystemDeploymentPage<SystemDeploymentEntry>>;
+  }): Promise<SystemDeploymentPage<SystemDeploymentMissing>>;
+  /**
+   * Across tenants, oldest `activatedAt` first: deployments whose endpoint
+   * is `ready` and whose pack service stays (no `listToRetire` reason
+   * applies), each with `warm`, so the services kept warm are the ones
+   * calls are always routed to.
+   */
+  listReady(input: {
+    readonly cursor?: string;
+    readonly limit: number;
+  }): Promise<SystemDeploymentPage<SystemDeploymentToServe>>;
   /**
    * Across tenants, oldest `activatedAt` first: deployments with an
    * endpoint whose pack service should go, each with its `reason`.
@@ -164,6 +256,75 @@ export interface SystemDeploymentsBinding {
     | { readonly kind: 'ok'; readonly suspended: boolean; readonly since: string }
     | { readonly kind: 'not-found' }
   >;
+  /**
+   * Across tenants, oldest `activatedAt` first: deployments with a `ready`
+   * pack service whose pack declares an environment, each with what its
+   * service runs. Nothing about them is closing or suspended. A binding
+   * without it doesn't keep what a pack service runs, and the pack env
+   * routes answer `501 pack-env-unsupported`.
+   */
+  listServingPackEnv?(input: {
+    readonly cursor?: string;
+    readonly limit: number;
+  }): Promise<SystemDeploymentPage<SystemPackEnvServed>>;
+  /**
+   * Records what a `ready` deployment's pack service runs: `revision`, once
+   * its service was given those values; or, with `held`, the revision it
+   * wasn't given, or didn't start, and why (its endpoint's
+   * `packEnvProblem`). Recording a revision without `held` clears the
+   * problem. The same body twice records it once, and the same code for the
+   * same revision keeps the time it was first recorded. Any other endpoint
+   * is `not-ready`.
+   *
+   * Compare-and-set: `appliedRevision` is the revision the caller found its
+   * service running (absent: none). Another one recorded since is
+   * `conflict`, and nothing is written, so a late round never records over
+   * a newer one.
+   */
+  recordPackEnv?(
+    input: PackEnvRecordInput,
+  ): Promise<
+    | { readonly kind: 'ok'; readonly endpoint: DeploymentEndpoint }
+    | { readonly kind: 'not-found' }
+    | { readonly kind: 'not-ready'; readonly endpoint: DeploymentEndpoint }
+    | { readonly kind: 'conflict'; readonly appliedRevision?: string }
+  >;
+  /**
+   * Claims the orchestrator's round for `claimant` until `holdUntil`, when
+   * no live claim holds it (`held` when another does): one orchestrator
+   * pass runs at a time, whatever starts them, though scheduled runs can
+   * overlap. A claim isn't renewed: a pass ends within its hold, or its
+   * claim lapses and the next pass takes the round over. A binding without
+   * it answers `501 orchestrator-round-unsupported`.
+   */
+  claimRound?(input: {
+    readonly claimant: string;
+    readonly now: Date;
+    readonly holdUntil: Date;
+  }): Promise<{ readonly kind: 'ok' } | { readonly kind: 'held' }>;
+  /** Ends `claimant`'s round: `not-held` when its claim lapsed and another holds the round. */
+  endRound?(input: {
+    readonly claimant: string;
+    readonly now: Date;
+  }): Promise<{ readonly kind: 'ok' } | { readonly kind: 'not-held' }>;
+}
+
+/**
+ * What the pack env routes read: the deployments, the stores a pack's
+ * declared names are looked for in (`pack-env.ts`), and the env the server
+ * serves.
+ */
+export interface SystemPackEnvOptions {
+  readonly deployments: Pick<DeploymentBinding, 'get'>;
+  readonly stores: PackEnvDeps;
+  readonly envName: EnvName;
+  /**
+   * Where each value given out is audited: `env-resolved` for a plain value,
+   * `secret-resolved` (caller `pack-env`) for a secret's. Absent: no secret
+   * value is given (`501 pack-env-secrets-unaudited`).
+   */
+  readonly auditEvents?: AuditEventBinding;
+  readonly log?: Logger;
 }
 
 export interface SystemDeploymentsOptions {
@@ -182,7 +343,13 @@ const MAX_ID_LENGTH = 128;
 const MIN_TOKEN_LENGTH = 16;
 const MAX_TOKEN_LENGTH = 512;
 const MAX_REASON_LENGTH = 500;
+const MAX_REVISION_LENGTH = 128;
+const MAX_CLAIMANT_LENGTH = 128;
+/** A round's hold, in seconds: long enough for one pass, short enough that a dead one lets go. */
+const MIN_HOLD_SECONDS = 30;
+const MAX_HOLD_SECONDS = 3600;
 const DEPLOYMENTS: SystemScope = 'system:deployments';
+const PACK_ENV: SystemScope = 'system:pack-env';
 const SUSPEND: SystemScope = 'system:suspend';
 
 type WireError = { readonly code: string; readonly message: string } & Readonly<
@@ -193,28 +360,34 @@ type WireError = { readonly code: string; readonly message: string } & Readonly<
  * `/v1/system/deployments` and `/v1/system/tenants/{tenantId}/deployments/…`:
  * how whatever runs a pack service per deployment (an orchestrator) learns
  * which deployments need one or should lose theirs, and records where each
- * runs. Mounted only on a runtime serving many tenants, under
+ * runs, one pass at a time (`/v1/system/deployments/round`). Under
  * `system:deployments`, except the pack suspend route, which takes
  * `system:suspend`, so the orchestrator's key can't suspend or restore a
- * pack. No tenant input ever names a pack's URL.
+ * pack, and the pack env routes (`/v1/system/pack-env` and
+ * `…/deployments/{id}/pack-env`), which take `system:pack-env`, so the
+ * deployments key can't read a value. A secret's value is given only to a
+ * key holding `system:pack-env` itself, never `kindgi:system`, and only
+ * when it's asked for. No tenant input ever names a pack's URL.
  */
 export function systemDeploymentsRouter(
   options: SystemDeploymentsOptions & {
     /** The tenants a system route can name, and their states (`systemTenantDirectory`). */
     readonly directory: SystemTenantDirectory;
     readonly authorizer?: Authorizer;
+    /** Absent: the pack env routes answer `501 pack-env-unsupported`. */
+    readonly packEnv?: SystemPackEnvOptions;
   },
 ): Hono<AppEnv> {
-  const { binding, directory: tenants, authorizer } = options;
+  const { binding, directory: tenants, authorizer, packEnv } = options;
   const r = new Hono<AppEnv>();
 
-  // ---------- GET /deployments?endpoint=missing|retire ----------
+  // ---------- GET /deployments?endpoint=missing|ready|retire ----------
   r.get('/deployments', async (c) => {
     const denied = systemReadAcrossTenants(c, DEPLOYMENTS, authorizer);
     if (denied !== undefined) return denied;
     const want = c.req.query('endpoint');
-    if (want !== 'missing' && want !== 'retire') {
-      return fail(c, badInput('`endpoint` must be `missing` or `retire`').error);
+    if (want !== 'missing' && want !== 'ready' && want !== 'retire') {
+      return fail(c, badInput('`endpoint` must be `missing`, `ready` or `retire`').error);
     }
     const limit = parseLimit(c.req.query('limit'));
     if (limit.kind === 'err') return fail(c, limit.error);
@@ -223,21 +396,62 @@ export function systemDeploymentsRouter(
       ...(cursor !== undefined && cursor !== '' && { cursor }),
       limit: limit.value,
     };
-    const result =
-      want === 'missing'
-        ? await binding.listNeedingEndpoint(page)
-        : await binding.listToRetire(page);
+    const result = await listDeployments(binding, want, page);
     if (result.kind === 'cursor-unreadable') {
       return fail(c, badInput('`cursor` is not one this route gave: start again without it').error);
     }
     return c.json({
-      data: result.data.map((entry) => ({
-        ...entryToWire(entry),
-        ...('reason' in entry && { reason: entry.reason }),
-      })),
+      data: result.data.map(listedToWire),
       ...(result.nextCursor !== undefined && { nextCursor: result.nextCursor }),
       hasMore: result.nextCursor !== undefined,
     });
+  });
+
+  // ---------- POST /deployments/round ----------
+  // One orchestrator pass at a time: the pass claims the round first, and
+  // a claim another holds is a 409, so the pass stops.
+  r.post('/deployments/round', async (c) => {
+    const denied = systemReadAcrossTenants(c, DEPLOYMENTS, authorizer);
+    if (denied !== undefined) return denied;
+    if (binding.claimRound === undefined) return roundUnsupported(c);
+    const body = await readJsonBody(c);
+    if (body.kind === 'err') return fail(c, body.error);
+    const parsed = parseClaimBody(body.value);
+    if (parsed.kind === 'err') return fail(c, parsed.error);
+    const now = new Date();
+    const holdUntil = new Date(now.getTime() + parsed.value.holdSeconds * 1000);
+    const claimed = await binding.claimRound({
+      claimant: parsed.value.claimant,
+      now,
+      holdUntil,
+    });
+    if (claimed.kind === 'held') {
+      return fail(c, {
+        code: 'orchestrator-round-held',
+        message:
+          'Another orchestrator pass holds the round: this one stops, and the next one claims it once that pass ends or its hold runs out.',
+      });
+    }
+    return c.json({ claimant: parsed.value.claimant, heldUntil: holdUntil.toISOString() });
+  });
+
+  // ---------- POST /deployments/round/end ----------
+  r.post('/deployments/round/end', async (c) => {
+    const denied = systemReadAcrossTenants(c, DEPLOYMENTS, authorizer);
+    if (denied !== undefined) return denied;
+    if (binding.endRound === undefined) return roundUnsupported(c);
+    const body = await readJsonBody(c);
+    if (body.kind === 'err') return fail(c, body.error);
+    const claimant = parseClaimant(body.value);
+    if (claimant.kind === 'err') return fail(c, claimant.error);
+    const ended = await binding.endRound({ claimant: claimant.value, now: new Date() });
+    if (ended.kind === 'not-held') {
+      return fail(c, {
+        code: 'orchestrator-round-not-held',
+        message: `"${claimant.value}" doesn't hold the round: its hold ran out, and another pass may hold it now.`,
+      });
+    }
+    return c.body(null, 204);
   });
 
   const onDeployment = '/tenants/:tenantId/deployments/:deploymentId';
@@ -266,9 +480,8 @@ export function systemDeploymentsRouter(
         }
         const outcome = await binding.setEndpoint({
           ...target,
+          ...parsed.value,
           url: checked.value.origin,
-          auth: parsed.value.auth,
-          token: parsed.value.token,
         });
         switch (outcome.kind) {
           case 'ok':
@@ -352,6 +565,115 @@ export function systemDeploymentsRouter(
     },
   );
 
+  // ---------- GET /pack-env ----------
+  // The deployments whose pack service runs on values that have changed
+  // since (and weren't held back at this revision, but for one that didn't
+  // start, tried again for an hour, and one held for a cause the platform
+  // fixes, every time, with its hold): ids, and the revision each runs, for
+  // the compare-and-set.
+  r.get('/pack-env', async (c) => {
+    const denied = systemReadAcrossTenants(c, PACK_ENV, authorizer);
+    if (denied !== undefined) return denied;
+    if (packEnv === undefined || binding.listServingPackEnv === undefined) {
+      return packEnvUnsupported(c);
+    }
+    const limit = parseLimit(c.req.query('limit'));
+    if (limit.kind === 'err') return fail(c, limit.error);
+    const cursor = c.req.query('cursor');
+    const result = await binding.listServingPackEnv({
+      ...(cursor !== undefined && cursor !== '' && { cursor }),
+      limit: limit.value,
+    });
+    if (result.kind === 'cursor-unreadable') {
+      return fail(c, badInput('`cursor` is not one this route gave: start again without it').error);
+    }
+    return c.json({
+      data: (await changedPackEnv(packEnv, result.data)).map(({ entry, platformHold }) => ({
+        ...entryToWire(entry),
+        ...(entry.appliedRevision !== undefined && { appliedRevision: entry.appliedRevision }),
+        ...(platformHold !== undefined && { held: platformHold }),
+      })),
+      ...(result.nextCursor !== undefined && { nextCursor: result.nextCursor }),
+      hasMore: result.nextCursor !== undefined,
+    });
+  });
+
+  // ---------- GET …/pack-env ----------
+  // The values, for the deployment's pack service only: none while there's a
+  // problem, and none for a retired deployment. Its secrets' values only
+  // when asked (`?secrets=values`), by a key holding `system:pack-env`
+  // itself, and each audited before any is answered. Its cloud secrets'
+  // paths (`cloudSecrets`) always: a path is a name, which the pack
+  // service's cloud reads as its own account.
+  r.get(`${onDeployment}/pack-env`, requireSystemScope(PACK_ENV, authorizer), async (c) => {
+    const ref = deploymentRef(c);
+    if (ref.kind === 'err') return fail(c, ref.error);
+    const secrets = secretsAsk(c, authorizer);
+    if (secrets instanceof Response) return secrets;
+    if (packEnv === undefined || binding.recordPackEnv === undefined) {
+      return packEnvUnsupported(c);
+    }
+    if (secrets !== undefined && packEnv.auditEvents === undefined) return secretsUnaudited(c);
+    return withSystemTenantContext(
+      c,
+      tenants,
+      ref.value.tenantId,
+      { scope: PACK_ENV, refuse: ['closing', 'suspended'], ...(authorizer && { authorizer }) },
+      (tenant) =>
+        packEnvAnswer(
+          c,
+          packEnv,
+          { tenantId: tenant.id, deploymentId: ref.value.deploymentId },
+          secrets,
+        ),
+    );
+  });
+
+  // ---------- PUT …/pack-env ----------
+  r.put(`${onDeployment}/pack-env`, requireSystemScope(PACK_ENV, authorizer), async (c) => {
+    const ref = deploymentRef(c);
+    if (ref.kind === 'err') return fail(c, ref.error);
+    const record = binding.recordPackEnv;
+    if (packEnv === undefined || record === undefined) return packEnvUnsupported(c);
+    const body = await readJsonBody(c);
+    if (body.kind === 'err') return fail(c, body.error);
+    const parsed = parsePackEnvBody(body.value);
+    if (parsed.kind === 'err') return fail(c, parsed.error);
+    return withSystemTenantContext(
+      c,
+      tenants,
+      ref.value.tenantId,
+      { scope: PACK_ENV, refuse: ['closing'], ...(authorizer && { authorizer }) },
+      async (tenant) => {
+        const recorded = await record.call(binding, {
+          tenantId: tenant.id,
+          deploymentId: ref.value.deploymentId,
+          ...parsed.value,
+        });
+        switch (recorded.kind) {
+          case 'ok':
+            return c.json(endpointToWire(recorded.endpoint));
+          case 'not-found':
+            return deploymentNotFound(c, ref.value.deploymentId);
+          case 'conflict':
+            return fail(c, {
+              code: 'pack-env-conflict',
+              message: `Deployment ${ref.value.deploymentId}'s pack service was recorded as running another revision since: read it again.`,
+              ...(recorded.appliedRevision !== undefined && {
+                appliedRevision: recorded.appliedRevision,
+              }),
+            });
+          case 'not-ready':
+            return fail(c, {
+              code: 'endpoint-not-ready',
+              message: `Deployment ${ref.value.deploymentId}'s endpoint is ${recorded.endpoint.status}: what a pack service runs is recorded for a ready one (a new one's goes with its endpoint, \`packEnvRevision\`).`,
+              status: recorded.endpoint.status,
+            });
+        }
+      },
+    );
+  });
+
   // ---------- PUT …/suspended (the pack) ----------
   r.put(`${onDeployment}/suspended`, requireSystemScope(SUSPEND, authorizer), async (c) => {
     const ref = deploymentRef(c);
@@ -431,6 +753,34 @@ function checkEndpoint(
   return url;
 }
 
+/** The list `endpoint=` names. */
+function listDeployments(
+  binding: SystemDeploymentsBinding,
+  want: 'missing' | 'ready' | 'retire',
+  page: { readonly cursor?: string; readonly limit: number },
+): Promise<
+  SystemDeploymentPage<SystemDeploymentMissing | SystemDeploymentToServe | SystemDeploymentToRetire>
+> {
+  if (want === 'missing') return binding.listNeedingEndpoint(page);
+  if (want === 'ready') return binding.listReady(page);
+  return binding.listToRetire(page);
+}
+
+/**
+ * A listed entry: `warm` from the `missing` and `ready` lists, when given;
+ * `problem` from `missing`, when one was recorded; `reason` from `retire`.
+ */
+function listedToWire(
+  entry: SystemDeploymentMissing | SystemDeploymentToServe | SystemDeploymentToRetire,
+) {
+  return {
+    ...entryToWire(entry),
+    ...('warm' in entry && entry.warm !== undefined && { warm: entry.warm }),
+    ...('problem' in entry && entry.problem !== undefined && { problem: entry.problem }),
+    ...('reason' in entry && { reason: entry.reason }),
+  };
+}
+
 function entryToWire(entry: SystemDeploymentEntry) {
   return {
     tenantId: entry.tenantId as unknown as string,
@@ -467,11 +817,131 @@ function parseLimit(raw: string | undefined): Parsed<number> {
   return { kind: 'ok', value: n };
 }
 
+/** A listed entry, and its hold when it's held at this revision for a cause the platform fixes. */
+interface PackEnvChange {
+  readonly entry: SystemPackEnvServed;
+  readonly platformHold?: { readonly code: PackEnvPlatformHold; readonly since: string };
+}
+
+/**
+ * The entries whose pack service runs on values that changed since, and
+ * weren't held back at this revision, or were held at it for a cause the
+ * platform fixes.
+ */
+async function changedPackEnv(
+  packEnv: SystemPackEnvOptions,
+  served: readonly SystemPackEnvServed[],
+): Promise<PackEnvChange[]> {
+  const changed: PackEnvChange[] = [];
+  const now = Date.now();
+  for (const entry of served) {
+    const { revision } = await packEnvCheck(packEnv.stores, {
+      tenantId: entry.tenantId,
+      ...(entry.projectId !== undefined && { projectId: entry.projectId as ProjectId }),
+      envName: packEnv.envName,
+      declaration: entry.packEnv,
+    });
+    if (revision === entry.appliedRevision) continue;
+    const held = entry.held;
+    if (held === undefined || held.revision !== revision) {
+      changed.push({ entry });
+      continue;
+    }
+    // Values the owner has to change wait for a change. Values that were
+    // given and didn't start are tried again for a while, as their cause may
+    // pass. A cause the platform fixes is listed every time: the revision
+    // doesn't move when it's fixed.
+    if (isPackEnvPlatformHold(held.code)) {
+      changed.push({ entry, platformHold: { code: held.code, since: held.since } });
+    } else if (
+      held.code === 'pack-env-update-failed' &&
+      now - Date.parse(held.since) < PACK_ENV_RETRY_MS
+    ) {
+      changed.push({ entry });
+    }
+  }
+  return changed;
+}
+
+const UNAVAILABLE_BECAUSE = {
+  store: 'its secret store is out',
+  changed: 'a secret changed while it was read, twice',
+  audit: "its secrets' audit rows weren't written",
+} as const;
+
+/**
+ * `?secrets=`: left out (`undefined`), or `values`, asked by a key holding
+ * `system:pack-env` itself: who asks, for each secret's row. Otherwise the
+ * answer refusing it.
+ */
+function secretsAsk(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+): PackEnvSecretsAsk | undefined | Response {
+  const raw = c.req.query('secrets');
+  if (raw === undefined) return undefined;
+  if (raw !== 'values') return fail(c, badInput('`secrets` must be `values`, or left out').error);
+  const principal = ownSystemScope(
+    c,
+    PACK_ENV,
+    "A deployment's secret values are given only to the pack env key",
+    authorizer,
+  );
+  if (principal instanceof Response) return principal;
+  return { requestId: c.get('requestId'), systemKeyId: principal.keyId };
+}
+
+/** GET …/pack-env, once the key and the tenant are let through. */
+async function packEnvAnswer(
+  c: Context<AppEnv>,
+  packEnv: SystemPackEnvOptions,
+  ref: DeploymentRef,
+  secrets: PackEnvSecretsAsk | undefined,
+): Promise<Response> {
+  const deployment = await packEnv.deployments.get(ref);
+  if (deployment === null) return deploymentNotFound(c, ref.deploymentId);
+  const endpoint = deployment.endpoint;
+  if (endpoint?.status === 'cleared' && endpoint.waiting !== true) {
+    return fail(c, {
+      code: 'endpoint-retired',
+      message: `Deployment ${ref.deploymentId}'s pack service was retired: its env isn't given out.`,
+      ...(endpoint.retired !== undefined && { retired: endpoint.retired }),
+    });
+  }
+  const read = await packEnvValues(packEnv.stores, {
+    tenantId: ref.tenantId,
+    ...(deployment.projectId !== undefined && { projectId: deployment.projectId }),
+    envName: packEnv.envName,
+    declaration: deployment.packEnv ?? { required: [], optional: [] },
+    deploymentId: deployment.deploymentId,
+    ...(packEnv.auditEvents !== undefined && { auditEvents: packEnv.auditEvents }),
+    ...(packEnv.log !== undefined && { log: packEnv.log }),
+    ...(secrets !== undefined && { secrets }),
+  });
+  if (read.kind === 'unaudited') return secretsUnaudited(c);
+  if (read.kind === 'unavailable') {
+    return fail(c, {
+      code: 'pack-env-unavailable',
+      message: `Deployment ${ref.deploymentId}'s pack env can't be read just now (${UNAVAILABLE_BECAUSE[read.cause]}): try again.`,
+    });
+  }
+  const { check, values } = read;
+  return c.json({
+    revision: check.revision,
+    names: check.names,
+    ...(check.problem !== undefined && { problem: check.problem }),
+    ...(values !== undefined && { env: values }),
+    ...(read.secrets !== undefined && { secrets: read.secrets }),
+    ...(read.cloudSecrets !== undefined && { cloudSecrets: read.cloudSecrets }),
+  });
+}
+
 interface ParsedEndpointBody {
   /** As sent: checks 1 to 3 run in the tenant's context, so a refusal is on record. */
   readonly url: string;
   readonly auth: PackEndpointAuth;
   readonly token: string;
+  readonly packEnvRevision?: string;
 }
 
 function parseEndpoint(body: unknown): Parsed<ParsedEndpointBody> {
@@ -494,7 +964,121 @@ function parseEndpoint(body: unknown): Parsed<ParsedEndpointBody> {
       `\`token\` must be ${MIN_TOKEN_LENGTH} to ${MAX_TOKEN_LENGTH} printable ASCII characters without spaces (it travels in a header)`,
     );
   }
-  return { kind: 'ok', value: { url: b.url, auth: b.auth as PackEndpointAuth, token } };
+  if (b.packEnvRevision !== undefined && !isRevision(b.packEnvRevision)) {
+    return badInput(
+      `\`packEnvRevision\` must be 1 to ${MAX_REVISION_LENGTH} printable ASCII characters, as \`GET …/pack-env\` gave it`,
+    );
+  }
+  return {
+    kind: 'ok',
+    value: {
+      url: b.url,
+      auth: b.auth as PackEndpointAuth,
+      token,
+      ...(typeof b.packEnvRevision === 'string' && { packEnvRevision: b.packEnvRevision }),
+    },
+  };
+}
+
+function isRevision(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length >= 1 &&
+    value.length <= MAX_REVISION_LENGTH &&
+    /^[\x21-\x7e]+$/.test(value)
+  );
+}
+
+function parsePackEnvBody(body: unknown): Parsed<Omit<PackEnvRecordInput, keyof DeploymentRef>> {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return badInput('Request body must be an object');
+  }
+  const b = body as Record<string, unknown>;
+  if (!isRevision(b.revision)) {
+    return badInput(
+      `\`revision\` must be 1 to ${MAX_REVISION_LENGTH} printable ASCII characters, as \`GET …/pack-env\` gave it`,
+    );
+  }
+  if (b.appliedRevision !== undefined && !isRevision(b.appliedRevision)) {
+    return badInput(
+      `\`appliedRevision\` must be 1 to ${MAX_REVISION_LENGTH} printable ASCII characters: the revision the service was found running`,
+    );
+  }
+  if (
+    b.held !== undefined &&
+    (typeof b.held !== 'string' || !(PACK_ENV_HELD_CODES as readonly string[]).includes(b.held))
+  ) {
+    return badInput(`\`held\` must be one of ${PACK_ENV_HELD_CODES.join(', ')}`);
+  }
+  return {
+    kind: 'ok',
+    value: {
+      revision: b.revision,
+      ...(b.held !== undefined && { held: b.held as PackEnvHeldCode }),
+      ...(typeof b.appliedRevision === 'string' && { appliedRevision: b.appliedRevision }),
+    },
+  };
+}
+
+function secretsUnaudited(c: Context<AppEnv>): Response {
+  return fail(c, {
+    code: 'pack-env-secrets-unaudited',
+    message:
+      'This server has nowhere to audit a secret given out, so it gives none: a person has to set up its audit store.',
+  });
+}
+
+function roundUnsupported(c: Context<AppEnv>): Response {
+  return fail(c, {
+    code: 'orchestrator-round-unsupported',
+    message:
+      'This server keeps no orchestrator round: whatever runs its pack services keeps one pass at a time itself.',
+  });
+}
+
+function parseClaimant(body: unknown): Parsed<string> {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return badInput('Request body must be an object');
+  }
+  const claimant = (body as Record<string, unknown>).claimant;
+  if (
+    typeof claimant !== 'string' ||
+    claimant.length === 0 ||
+    claimant.length > MAX_CLAIMANT_LENGTH ||
+    !/^[\x21-\x7e]+$/.test(claimant)
+  ) {
+    return badInput(
+      `\`claimant\` must be 1 to ${MAX_CLAIMANT_LENGTH} printable characters with no spaces: the pass's own id`,
+    );
+  }
+  return { kind: 'ok', value: claimant };
+}
+
+function parseClaimBody(
+  body: unknown,
+): Parsed<{ readonly claimant: string; readonly holdSeconds: number }> {
+  const claimant = parseClaimant(body);
+  if (claimant.kind === 'err') return claimant;
+  const holdSeconds = (body as Record<string, unknown>).holdSeconds;
+  if (
+    typeof holdSeconds !== 'number' ||
+    !Number.isInteger(holdSeconds) ||
+    holdSeconds < MIN_HOLD_SECONDS ||
+    holdSeconds > MAX_HOLD_SECONDS
+  ) {
+    return badInput(
+      `\`holdSeconds\` must be a whole number from ${MIN_HOLD_SECONDS} to ${MAX_HOLD_SECONDS}: how long the pass holds the round`,
+    );
+  }
+  return { kind: 'ok', value: { claimant: claimant.value, holdSeconds } };
+}
+
+function packEnvUnsupported(c: Context<AppEnv>): Response {
+  return fail(c, {
+    code: 'pack-env-unsupported',
+    message:
+      "This server doesn't give a pack service its declared env: its pack services take theirs from how they're run.",
+  });
 }
 
 /**

@@ -1,22 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
 import {
   type Guardrail,
   type GuardrailConfigProblem,
+  checkPoints,
   createCheckRegistry,
   describeGuardrailConfigProblems,
+  guardrailCheckPointProblems,
   validateGuardrailSpec,
 } from '@kindgi/guardrails';
 import type { Cursor, GuardrailId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
+import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
+import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { GuardrailRecord, GuardrailRegistryBinding } from '../guardrail-binding.js';
+import { type ItemRights, itemMiddleware, itemPathCheck } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
+import { isReadMethod } from '../read-method.js';
 import {
   type ReferenceScopeBinding,
   outOfScopeResponse,
@@ -66,7 +72,12 @@ export type GuardrailWriteHook = (params: {
  * (`details.issues`). Absent, or nothing to check against (an unknown
  * check, a check without a schema): no problems. A guardrail naming a
  * built-in check is checked by the route itself, against the built-in's
- * schema, whatever the runtime passes here.
+ * schema, whatever the runtime passes here. The route also checks a
+ * built-in check's points: a guardrail `at` a point the check doesn't run
+ * at is a problem at `/at` (`guardrailCheckPointProblems`). A pack
+ * check's points aren't checked when the guardrail is registered: at that
+ * point in a turn, the guardrail fails as a check that couldn't run
+ * (`check-point-unsupported`).
  */
 export type GuardrailConfigCheck = (input: {
   readonly tenantId: TenantId;
@@ -80,6 +91,14 @@ export function guardrailsRouter(
   checkConfig?: GuardrailConfigCheck,
   /** What a guardrail's project may run (`reference-scope.ts`); absent → as named. */
   referenceScope?: ReferenceScopeBinding,
+  /**
+   * The tenant's environment orders: a publish into a later environment is
+   * refused (`environment-entry.ts`). Absent: no project is a later
+   * environment.
+   */
+  environmentOrders?: Pick<EnvironmentOrderBinding, 'orderOf'>,
+  /** Rights on a guardrail more than one project serves (`item-rights.ts`); absent → its own. */
+  itemRights?: ItemRights,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -113,7 +132,7 @@ export function guardrailsRouter(
       return mw(c, next);
     });
     r.use('/', async (c, next) => {
-      if (c.req.method !== 'GET') return next();
+      if (!isReadMethod(c.req.method)) return next();
       // A project filter needs read on that project. Parse it as the
       // handler does (`?scopeKind=project&scopeId=`).
       const s = parseScopeParams((n) => c.req.query(n), {
@@ -124,18 +143,37 @@ export function guardrailsRouter(
       const mw = authorizer.authorize('read', () => ref('project', scopeProjectId));
       return mw(c, next);
     });
-    r.use('/:guardrailId/*', async (c, next) => {
-      const action = c.req.method === 'GET' ? 'read' : 'admin';
-      const guardrailId = c.req.param('guardrailId') ?? '';
-      const mw = authorizer.authorize(action, () => ref('guardrail', guardrailId));
-      return mw(c, next);
-    });
-    r.use('/:guardrailId', async (c, next) => {
-      if (c.req.method !== 'GET') return next();
-      const guardrailId = c.req.param('guardrailId') ?? '';
-      const mw = authorizer.authorize('read', () => ref('guardrail', guardrailId));
-      return mw(c, next);
-    });
+    // An item more than one project serves is checked on those projects
+    // instead (`item-rights.ts`).
+    // '/:guardrailId/*' matches '/:guardrailId' too: this one gate decides both, once.
+    r.use(
+      '/:guardrailId/*',
+      itemMiddleware({
+        authorizer,
+        rights: itemRights,
+        kind: 'guardrail',
+        id: (c) => c.req.param('guardrailId') ?? '',
+        today: (c) => (isReadMethod(c.req.method) ? 'read' : 'admin'),
+        check: itemPathCheck,
+        versionNotFound: guardrailNotFound,
+      }),
+    );
+  }
+
+  /** The guardrail's 404 (it has no versions, so the middleware never answers it). */
+  function guardrailNotFound(c: Context<AppEnv>): Response {
+    const guardrailId = c.req.param('guardrailId') ?? '';
+    c.status(statusFor('guardrail-not-found') as never);
+    return c.json(
+      toWireError(
+        {
+          code: 'guardrail-not-found',
+          message: `No guardrail registered with id "${guardrailId}"`,
+          guardrailId,
+        },
+        c.get('requestId'),
+      ),
+    );
   }
 
   // ---------- GET / (list, cursor-paginated) ----------
@@ -167,9 +205,14 @@ export function guardrailsRouter(
     const visible =
       authorizer === undefined
         ? page.data
-        : await authorizer.filterByCan(c, 'read', page.data, (a) =>
-            ref('guardrail', a.id as unknown as string),
-          );
+        : itemRights === undefined
+          ? await authorizer.filterByCan(c, 'read', page.data, (a) =>
+              ref('guardrail', a.id as unknown as string),
+            )
+          : await itemRights.filterItems(c, 'guardrail', page.data, {
+              idOf: (a) => a.id as unknown as string,
+              todayRef: (a) => ref('guardrail', a.id as unknown as string),
+            });
     return c.json({
       data: visible.map(serializeGuardrail),
       hasMore: page.nextCursor !== undefined,
@@ -239,6 +282,16 @@ export function guardrailsRouter(
       );
     }
     const projectId = projectIdRaw as ProjectId;
+    const later = await laterEnvironment(environmentOrders, tenantId, projectId);
+    if (later !== undefined) {
+      return environmentTakesPromotionsResponse(
+        c,
+        requestId,
+        authorizer,
+        { kind: 'publish', noun: 'guardrail' },
+        later,
+      );
+    }
     const { projectId: _pid, ...bodyWithoutProjectId } = bodyObj;
 
     const validated = validateGuardrailSpec(bodyWithoutProjectId);
@@ -265,14 +318,18 @@ export function guardrailsRouter(
       if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     }
 
-    // A built-in check's config is the route's to check (its schema ships with
-    // `@kindgi/guardrails`); any other check's, the runtime's.
+    // A built-in check's config and points are the route's to check (they
+    // ship with `@kindgi/guardrails`); any other check's, the runtime's.
     const builtIn = builtInChecks.get(validated.value.check);
-    const problems =
-      builtIn?.configProblems !== undefined
+    const problems = [
+      ...((builtIn?.configProblems !== undefined
         ? builtIn.configProblems(validated.value.config)
-        : await checkConfig?.({ tenantId, guardrail: validated.value });
-    if (problems !== undefined && problems.length > 0) {
+        : await checkConfig?.({ tenantId, guardrail: validated.value })) ?? []),
+      ...(builtIn !== undefined
+        ? guardrailCheckPointProblems(validated.value, checkPoints(builtIn))
+        : []),
+    ];
+    if (problems.length > 0) {
       c.status(statusFor('guardrail-config-invalid') as never);
       return c.json(
         toWireError(
@@ -330,7 +387,7 @@ export function guardrailsRouter(
         toWireError(
           {
             code: 'bad-input',
-            message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this tenant`,
+            message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this workspace`,
           },
           requestId,
         ),
@@ -402,6 +459,8 @@ function serializeGuardrail(i: GuardrailRecord): Record<string, unknown> {
     ...(i.check !== undefined && { check: i.check }),
     ...(i.config !== undefined && { config: i.config }),
     action: i.action,
+    ...(i.at !== undefined && { at: i.at }),
+    ...(i.sees !== undefined && { sees: i.sees }),
     ...(i.severity !== undefined && { severity: i.severity }),
     ...(i.scope !== undefined && { scope: i.scope }),
     ...(i.budget !== undefined && { budget: i.budget }),

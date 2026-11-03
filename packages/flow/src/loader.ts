@@ -195,7 +195,7 @@ export interface FlowSchemaProblem {
  * `output.schema` when it has one. These are `loadFlow`'s checks 10, 12,
  * 13 and 15, over every schema rather than to the first, and nothing
  * else `loadFlow` checks. For a flow that never went through `loadFlow`
- * (a deployment's index, which a tenant can write by hand), so a schema
+ * (a deployment's index, which a workspace can write by hand), so a schema
  * every run would refuse is refused where the flow arrives. A node or
  * branch that isn't an object is passed over: its shape isn't what this
  * asks. Throws `SchemaCompileBudgetError`, as `compileInlineSchema` does.

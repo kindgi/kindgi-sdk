@@ -77,6 +77,45 @@ export interface Approval {
   readonly escalatedFrom?: ApprovalId;
   /** The approval this one was escalated to. */
   readonly escalatedTo?: ApprovalId;
+  /**
+   * The one member who may decide it, set when the call would use that
+   * member's own connection: only they approve, reject or withdraw it, and
+   * only with a reviewer seat of the required rank. It's never escalated:
+   * an `escalate` decision on it answers `409 invalid-transition`, and at
+   * its deadline it expires. The other reviewers don't see it listed.
+   * Absent: any reviewer of the rank decides.
+   */
+  readonly approver?: ApprovalApprover;
+  /**
+   * The connection the call would use, shown as "as <account>": the
+   * person's own, or else the company's the gate decided on.
+   */
+  readonly connection?: ApprovalConnection;
+}
+
+/** Who alone may decide an approval. */
+export interface ApprovalApprover {
+  readonly kind: 'member';
+  readonly userId: string;
+}
+
+/**
+ * The connection a gated call would use: the app, whose it is, and, for the
+ * company's, its account and name. A person's account isn't named: the
+ * reviewer sees "this person's <app> account".
+ */
+export interface ApprovalConnection {
+  readonly app: string;
+  readonly appName: string;
+  /** Whose connection: the company's, or a person's. Absent from older approvals. */
+  readonly as?: 'company' | 'person';
+  /**
+   * The company's account label at the app: an email address, a login. A
+   * person's has none; older approvals have theirs.
+   */
+  readonly account?: string;
+  /** The company connection's name: its label, else the account's. A person's has none. */
+  readonly name?: string;
 }
 
 /**
@@ -95,6 +134,8 @@ export interface ReviewDecision {
   readonly evidence?: Readonly<Record<string, unknown>>;
   readonly reviewerRoleAtDecision: ReviewerRole;
   readonly decidedAt: Timestamp;
+  /** The text a reviewer approved a remembered fact with; see `SubmitReviewBindingInput.factText`. */
+  readonly factText?: string;
 }
 
 // ---------- method inputs / outputs ----------
@@ -191,6 +232,12 @@ export interface SubmitReviewBindingInput {
    * exported audit bundle names the trust behind it without a join.
    */
   readonly sessionProvider?: string;
+  /**
+   * With `approve`, on the approval of a fact an agent wants to remember:
+   * the text the fact holds once approved, in place of the agent's. The
+   * route has checked it (`rememberedTextProblem`, `@kindgi/memory`).
+   */
+  readonly factText?: string;
 }
 
 /**
@@ -231,6 +278,8 @@ export interface ReviewDecisionRecord {
    * (a site may rename its people) still shows as they were.
    */
   readonly deciderName?: string;
+  /** The text a reviewer approved a remembered fact with, when they edited the agent's. */
+  readonly factText?: string;
 }
 
 // ---------- error shape ----------
