@@ -27,7 +27,9 @@ person's side. This needs runtime 0.6.0 or later.
   [Self-host Kindgi](../self-host/), or the module's `server_env` on
   [Cloud Run](../cloud-run/).
 - **A way out to claude.ai.** claude.ai names itself with a client metadata
-  document, so the runtime fetches
+  document
+  ([Authentication for connectors](https://claude.com/docs/connectors/building/authentication)),
+  so the runtime fetches
   `https://claude.ai/oauth/mcp-oauth-client-metadata` when someone connects.
   If your runtime's outbound traffic is limited, allow that address.
 
@@ -112,7 +114,9 @@ before new connections.
 
 ## Behind a firewall
 
-Claude's servers call these paths, from `160.79.104.0/21`:
+Claude's servers call these paths from Anthropic's outbound addresses,
+listed on
+[Anthropic's IP addresses page](https://platform.claude.com/docs/en/api/ip-addresses):
 
 - `/mcp`
 - `/.well-known/oauth-protected-resource`,
@@ -121,13 +125,12 @@ Claude's servers call these paths, from `160.79.104.0/21`:
 - `/auth/oauth2/token` and `/auth/oauth2/register`
 - `/auth/jwks`
 
-Open only these to that range. People's browsers reach the rest of `/auth/`
-(signing in and the consent page) and the console from wherever they work, as
-they do without chat.
+Open only these to those addresses. People's browsers reach the rest of
+`/auth/` (signing in and the consent page) and the console from wherever they
+work, as they do without chat.
 
-Anthropic can change the range. Check
-[Anthropic's page](https://claude.com/docs/connectors/building/authentication.md)
-for the current one.
+The examples below use `160.79.104.0/21`. Anthropic can change its
+addresses, so take the current ones from that page.
 
 **With nginx** in front, one `location` per path, each admitting only
 Claude's range:
