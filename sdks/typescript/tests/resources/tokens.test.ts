@@ -148,7 +148,7 @@ describe('tokens.list / tokens.get', () => {
       revokedAt: '2026-10-03T01:00:00Z',
     };
     expect(page).toEqual({ data: [token], hasMore: true, nextCursor: 'next' });
-    expect(page.items).toEqual([token]);
+    expect(page.data).toEqual([token]);
     expect(stub.calls[0]?.url).toBe('https://api.example.com/v1/tokens?limit=1&cursor=c0');
   });
 

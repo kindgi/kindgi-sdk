@@ -27,8 +27,8 @@ group, aren't supported yet.
 ## Before you start
 
 - **A connection to the mailbox:** your own Google or Microsoft account,
-  or the company's mailbox, which a tenant admin connects
-  ([The company's mailbox](#the-companys-mailbox)). Gmail needs
+  or one of the company's mailboxes, which a tenant admin connects
+  ([The company's mailboxes](#the-companys-mailboxes)). Gmail needs
   `gmail.readonly` and Outlook `Mail.Read`, and an agent that answers needs
   `gmail.send` or `Mail.Send` too
   ([Google](../../connections/google/), [Microsoft](../../connections/microsoft/)).
@@ -48,15 +48,18 @@ in it:
 pnpm exec kindgi mail-triggers create --agent=acme.support-desk --mailbox=google --label="support inbox"
 ```
 
-- **What it runs:** `--agent` runs the agent's live version, or else its
+- **What it runs:** `--agent` runs the agent's pinned version, or else its
   latest. `--agent-version` pins one. `--flow` runs a flow, and needs
   `--flow-version`. There's no `--input`: each run's input is the mail
   that started it.
 - **Whose mailbox:** `--mailbox=google` is Gmail and `--mailbox=microsoft`
   is Outlook. `--as=person`, the default, is your own mailbox, through
-  your connection. `--as=company` is the company's, through the company's
-  connection, and takes `admin` on the project
-  ([The company's mailbox](#the-companys-mailbox)).
+  your own connection: the one `--connection` names, else your main one,
+  else your only one
+  ([Which mailbox a trigger reads](#which-mailbox-a-trigger-reads)).
+  `--as=company` is the company's, through the company's
+  connection that `--connection` names, and takes `admin` on the project
+  ([The company's mailboxes](#the-companys-mailboxes)).
 - **Which mail:** `--folder` is the Gmail label's id, or the Outlook
   folder's id or well-known name, such as `archive`. Without it, the
   trigger watches the inbox.
@@ -67,7 +70,7 @@ pnpm exec kindgi mail-triggers create --agent=acme.support-desk --mailbox=google
   runs: staff handle it in the mailbox
   ([See what each mail did](#see-what-each-mail-did)).
 - **Where:** `--project=<project-id>` is its project. Without it, it's the
-  tenant's Default project.
+  workspace's default project.
 - **`--label`** names it, for lists and the console.
 - **`--allow-unattended=<tool-id>`** names a tool whose calls in its runs
   needn't wait for a person's yes, once for each tool. It takes `admin` on
@@ -80,8 +83,9 @@ comes after it does.
 From your app, the clients have the same calls on `mailTriggers`:
 `register`, `list`, `get`, `update`, `pause`, `resume`, `fires`,
 `takeOwnership` and `unregister` (`mail_triggers` and `take_ownership` in
-Python). The request's `config` holds `mailbox`, `{ app, as }`, and
-`folder`, `pollSeconds` and `runsPerHour`.
+Python). The request's `config` holds `mailbox`, `{ app, as }`, with
+`connectionId`, the connection it reads with, and `folder`, `pollSeconds`
+and `runsPerHour`.
 
 ## What a run gets
 
@@ -100,14 +104,15 @@ To: support@acme.example
 No tracking number yet. Can you check?
 
 [earlier mail left out]
-Attachments: receipt.pdf (application/pdf, 84 KB)
+Attachments: 1. receipt.pdf (application/pdf, 84 KB)
 ```
 
 - **Each mail says who it's from and when.** The new mail has its id, so
-  the agent can name it, and its `To`, `Cc` and `Reply-To`. Mail the
-  mailbox sent shows as "(this mailbox)". Other mail from the mailbox's
-  address shows as "(this mailbox's address, not its sent mail)", since
-  anyone can put that address on a mail.
+  the agent can name it, and its `To`, `Cc` and `Reply-To`. An earlier
+  mail that lists attachments has its id too, for the attachment tools.
+  Mail the mailbox sent shows as "(this mailbox)". Other mail from the
+  mailbox's address shows as "(this mailbox's address, not its sent
+  mail)", since anyone can put that address on a mail.
 - **Quoted earlier mail is left out,** since the thread already has it.
   On Gmail, it's marked `[earlier mail left out]`. What's left out is a
   run of `>` lines to the end of the mail, and an English `On … wrote:`
@@ -124,8 +129,12 @@ Attachments: receipt.pdf (application/pdf, 84 KB)
   `fbclid`. A web address still over 100 characters keeps its scheme, its
   host and the start of its path, with `…`, so the agent can't give it back
   whole. Ready-made read tools keep every address whole.
-- **Attachments are listed,** with their names, types and sizes. The agent
-  doesn't read what's in them.
+- **Attachments are listed,** numbered from 1, with their names, types and
+  sizes. A size is in thousands of bytes, rounded up (1 MB is 1,000,000
+  bytes), as the file limits are. The agent doesn't see what's in them
+  unless the pack includes `gmailAttachmentGet` or `outlookAttachmentGet`
+  ([Use a connection](../../connections/use-a-connection/)), which show it
+  one attachment by the mail's id and its number.
 - **A long thread is cut to fit:** each mail's text to 50,000 characters,
   the turn to 60,000, and at most 100 mails. The turn takes the new mail,
   then the thread's first mail, then the newest, and says how many it left
@@ -221,7 +230,7 @@ pnpm exec kindgi mail-triggers update <trigger-id> --allow-unattended=acme-shop.
   the mailbox writes those runs' input. List a tool only if it's safe for
   any sender to make the agent call it, and keep refunds and changes to
   your store off the list.
-- **It lifts only the wait for a person.** Your tenant's
+- **It lifts only the wait for a person.** Your workspace's
   [approval rules](../../approvals/approval-rules-for-every-agent/) and the
   agent's own `hitl` still apply to a listed tool, so you can list a tool
   and keep an agent rule that asks before it runs. The call is still
@@ -306,7 +315,10 @@ account. No change moves the owner: only a take-over does.
 - **Only a take-over moves the owner.** `kindgi mail-triggers
   take-ownership <trigger-id>` needs `admin` on the project: "Taking a mail
   trigger over takes a project admin." On a person's mailbox, the trigger
-  then reads the new owner's own mailbox, and starts afresh there. On the
+  then reads the new owner's own mailbox, and starts afresh there. It
+  drops the connection it read with, and its `account` is absent until it
+  next reads
+  ([Which mailbox a trigger reads](#which-mailbox-a-trigger-reads)). On the
   company's, `--run-as=project` hands it to the project's own account
   instead, and `--run-as=<service-account-id>` to another service account.
 - **The owner must be able to run what the trigger runs,** with an
@@ -329,36 +341,146 @@ owner's name and whether it's personal or shared, such as "Sam Lee
 (personal)" or "this project (shared)", or "no owner (an admin can take
 it over)".
 
-## The company's mailbox
+## The company's mailboxes
 
 A shop's support address is usually the company's mailbox, not a
-person's. A tenant admin connects it once, signing in at Google or
-Microsoft as that mailbox, such as `support@acme.example`, not as
-themselves: in a project, **Connections → Connect an app**, pick the app,
-and under **For** choose **The company**.
+person's, and a shop can have several, such as `support@acme.example` and
+`sales@acme.example`. A tenant admin connects each one, signing in at
+Google or Microsoft as that mailbox, not as themselves: in a project,
+**Connections → Connect an app**, pick the app, and under **For** choose
+**The company**. From a terminal, name each one as you connect it:
 
-- **Allow it only in the projects that need it.** The company's
-  connection serves every project its app's registration allows, and in
-  those projects, anyone who may run an agent or a flow can have it read
+```sh
+pnpm exec kindgi connections connect google --for-company --label=support --permissions=gmail.readonly,gmail.send
+pnpm exec kindgi connections connect google --for-company --label=sales --permissions=gmail.readonly,gmail.send
+```
+
+Each mailbox is a company connection of its own, here `support` and
+`sales` ([Choose a connection](../../connections/choose-a-connection/)).
+
+- **Allow them only in the projects that need them.** The company's
+  connections serve every project their app's registration allows, and in
+  those projects, anyone who may run an agent or a flow can have them read
   the company's mail. Register the app for those projects only
   (`--projects` on `kindgi connection-apps add`), which limits people's
   own connections of it to them too.
-- **Have the project own the trigger,** so it doesn't depend on the admin
-  who made it:
+- **Make one trigger for each mailbox,** both running the same agent, and
+  have the project own them, so they don't depend on the admin who made
+  them:
 
   ```sh
   pnpm exec kindgi mail-triggers create --agent=acme.support-desk --mailbox=google --as=company \
-    --run-as=project --label="support inbox"
+    --connection=support --run-as=project --label="support inbox"
+  pnpm exec kindgi mail-triggers create --agent=acme.support-desk --mailbox=google --as=company \
+    --connection=sales --run-as=project --label="sales inbox"
   ```
 
-  Its runs act as the project's own account, made the first time. To have
-  another service account own it, name it by id instead
+  Their runs act as the project's own account, made the first time. To
+  have another service account own one, name it by id instead
   (`--run-as=<service-account-id>`), which needs `act_as` on it.
   `--run-as` goes with `--as=company` only. Without it, the trigger is
   personal to the admin who made it.
+- **The reply leaves from the trigger's mailbox.** A run records the
+  connection its mail was read with, and the run's calls that use the
+  company's connection at that app take it. So a mail to
+  `sales@acme.example` is answered from `sales@acme.example`, and the
+  agent needs no choice of connection for it
+  ([Which connection a call uses](../../connections/choose-a-connection/#which-connection-a-call-uses)).
 - **A tool that uses the company's mailbox** is the ready-made tool with
   `as: 'company'`, under its own tool id
   ([Ready-made tools](../../connections/use-a-connection/#ready-made-tools)).
+
+A person's mailbox is always read with its owner's own connection, which
+`--connection` can name
+([Which mailbox a trigger reads](#which-mailbox-a-trigger-reads)).
+
+### Which mailbox a trigger reads
+
+A trigger stores the connection it reads with. Over HTTP, and in the
+clients, that's `config.mailbox.connectionId`. On the company's mailbox,
+`--connection` names it, by name or id: one of the project's company
+connections at the mailbox's app.
+
+- **With one there,** a trigger made without `--connection` stores that
+  one, so another mailbox connected later never moves it.
+- **With several,** a trigger made without `--connection` is refused
+  (`409 connection-not-chosen`), and nothing is made. The CLI lists them,
+  with the command again for each:
+
+  ```text
+  Error [connection-not-chosen]: This project has 2 company Google connections (sales, support); name one in config.mailbox.connectionId.
+  Its company connections there: sales, support. Name one:
+    kindgi mail-triggers create --agent=acme.support-desk --mailbox=google --as=company --run-as=project --label='support inbox' --connection=sales
+    kindgi mail-triggers create --agent=acme.support-desk --mailbox=google --as=company --run-as=project --label='support inbox' --connection=support
+  ```
+
+  Over HTTP, `details.choices` lists each one's `connectionId` and `name`.
+  When two share a name, the CLI names them by id.
+- **With none,** it stores none, and shows `connection-missing` until a
+  tenant admin connects one.
+- **A connection that isn't one of them** is `404 connection-not-found`,
+  except a person's own live connection of the app, which is
+  `400 bad-input` ("A person's own connection is used for them; the
+  company's mailbox is read with a company connection.").
+- **A trigger that stores none,** such as one made before triggers stored
+  their connection, is pointed at the project's only company connection
+  at the app when it next reads, and stores it from then on, so a second
+  one connected later doesn't move it. With several there already, it
+  doesn't read, and shows `connection-not-chosen`, until a project admin
+  points it at one. Pointed at the account it read before, in the folder
+  it watches (`--folder` again, if it watches one), it reads on from where
+  it stopped, so mail that came meanwhile runs. Another account starts
+  afresh.
+
+On a person's mailbox, it's one of the owner's own live connections of the
+app, when a person has several accounts there
+([A person's accounts](../../connections/choose-a-connection/#a-persons-accounts)):
+
+- **`--connection` with `--as=person`** names one of yours, by name or id.
+  Any other connection is `404 connection-not-found`, as for one that
+  isn't there.
+- **Without it,** the trigger stores your main connection of the app,
+  else your only one.
+- **With several and none of them main,** it's refused
+  (`409 connection-not-chosen`), and nothing is made. The answer counts
+  them, and names none:
+
+  ```text
+  Error [connection-not-chosen]: The trigger's owner has 2 Google connections and none is their main: name one in config.mailbox.connectionId, or make one their main.
+  Name one with --connection=<connection>, or its owner makes one their main: kindgi connections update <connection> --main
+  ```
+
+- **Making another connection main never moves it.** It keeps the one it
+  stored until its mailbox is changed with `update`.
+- **The address it reads,** its `account`, is shown only to its owner and
+  tenant admins. Anyone else reads the trigger without it, and
+  `kindgi mail-triggers list --table` shows "this person's Google account"
+  in its place.
+
+Point a trigger at another of the company's mailboxes with `update`:
+
+```sh
+pnpm exec kindgi mail-triggers update <trigger-id> --mailbox=google --as=company --connection=sales
+```
+
+That's a change of mailbox, as another app is:
+
+- **`--connection` goes with `--mailbox` and `--as`,** since the mailbox is
+  replaced whole.
+- **It takes a project admin,** "Changing a trigger on the company's
+  mailbox takes a project admin."
+- **It starts afresh** at the mailbox's inbox, unless `--folder` names
+  another folder: mail that came before doesn't run.
+- **Tools allowed unattended are named again,** with `--allow-unattended`
+  or `none`, when the trigger lists any
+  ([List a tool](#list-a-tool)).
+- **A project admin's change to a personal trigger is recorded** with the
+  mailbox before and after, its connection included
+  (`trigger-changed-for-owner`, [Shared or personal](#shared-or-personal)).
+
+The company's mailbox it reads now, sent again without `--connection`,
+isn't a change of mailbox. It keeps the connection it reads with, or
+stores the only one if it stores none, and keeps its folder.
 
 ## See what each mail did
 
@@ -385,7 +507,7 @@ person's yes:
 - **`refused`:** the note says why, such as: it's over the hourly limit
   (`over-limit:`), the mailbox's connection was missing
   (`connection-missing:`), the app gave it no thread (`no-thread-id:`),
-  too many of the tenant's runs were waiting (`rate-limited:`), the
+  too many of the workspace's runs were waiting (`rate-limited:`), the
   database was busy (`database-busy:`), the owner may no longer run the
   agent or flow, or the trigger was paused or removed before the run
   started. **Such a mail never runs,** then or later: staff handle it in
@@ -403,7 +525,12 @@ A trigger's `statusReason` says why it isn't reading mail:
   admin for the company's mailbox, connects again, it reads on from where
   it stopped, so mail that came meanwhile runs then. A mail it had already
   found when the connection went is `refused`, and never runs.
-- **`owner-refused`:** its owner was removed from the tenant, it's a
+- **`connection-not-chosen`:** the trigger is on the company's mailbox,
+  stores no connection, and the project has several company connections
+  at the app, which the reason names. It doesn't read mail until a
+  project admin names one
+  ([Which mailbox a trigger reads](#which-mailbox-a-trigger-reads)).
+- **`owner-refused`:** its owner was removed from the workspace, it's a
   service account that's no longer registered, or the owner may no longer
   run its agent or flow. Nothing more is read, and its looks don't pause
   it, but mail it had already found is `refused` when its run would
@@ -429,13 +556,71 @@ rest in the mailbox. A `cursor-reset:` row in its fires says so.
   run.
 - `kindgi mail-triggers update <trigger-id>` changes what it runs, its
   mailbox, folder, pace or label, with `create`'s flags but `--project`
-  and `--run-as`.
-  `--mailbox` and `--as` go together, since the mailbox is replaced whole.
+  and `--run-as`; `--clear-label` takes the label off.
+  `--mailbox` and `--as` go together, with `--connection` for the
+  company's, since the mailbox is replaced whole: another company
+  connection is another mailbox
+  ([Which mailbox a trigger reads](#which-mailbox-a-trigger-reads)).
   A new mailbox or folder starts afresh too. Without `--folder`, it keeps
   its folder, unless the mailbox changes: then it watches the new
   mailbox's inbox. Its owner stays as it is
   ([Shared or personal](#shared-or-personal)).
 - `kindgi mail-triggers unregister <trigger-id>` removes it.
+
+## Its versions
+
+Each change to a mail trigger makes a **version** of it, which never
+changes after (runtime 0.3.0 or later). Creating it makes version 1. An
+`update` that changes something makes the next, and so does a take-over to
+another owner. An `update` that changes nothing makes none, nor do pausing,
+resuming or removing it. A trigger from before versions has none until its
+next change or its next look at the mailbox.
+
+A mail's run uses the newest version when it starts, and keeps it whatever
+later changes make: the run's `trigger.version` names it. So a change or a
+take-over reaches the next run that starts, never a run already going.
+
+From your app, newest first:
+
+- `GET /v1/mail-triggers/{triggerId}/versions` pages them
+  (`mailTriggers.versions` in TypeScript, `mail_triggers.list_versions` in
+  Python);
+- `GET /v1/mail-triggers/{triggerId}/versions/{version}` reads one
+  (`getVersion`, `get_version`). A version the trigger doesn't have is
+  `404 trigger-version-not-found`.
+
+From the CLI:
+
+```sh
+pnpm exec kindgi mail-triggers versions <trigger-id> --table
+pnpm exec kindgi mail-triggers get <trigger-id> <version>
+```
+
+- `versions` pages them, with `--limit` and `--cursor`. Its table shows
+  each one's number, when it was made, by whom, and why. `Kindgi` stands
+  in the `BY` column for a version the runtime made itself.
+- `get <trigger-id> <version>` reads one. Without a version, `get` is the
+  trigger as it is now, and its `version` is the newest. The `VERSION`
+  column of `list --table` shows it, empty for a trigger that has none
+  yet.
+
+Whoever can read the trigger can read its versions. Each one says when it
+was made (`createdAt`), by whom (`createdBy`), and why (`cause`:
+`register`, `edit` or `owner` for a take-over to another owner). Three
+causes name no one, since the runtime made the version itself: `first-fire`,
+for a trigger from before versions; `unversioned-edit`, at its next look
+at the mailbox or just before an edit or take-over, after a release from
+before versions changed the trigger during an upgrade; and `pin`, when it
+stored the project's only company connection for a trigger that stored
+none. Its `definition` is
+what it ran, as whom, which mailbox and folder it read, at what pace, its
+label and its tools allowed unattended: never its status or where it is in
+the mailbox.
+
+The evidence of a change names the version it made (`version`), on
+`trigger-changed-for-owner`, `trigger-owner-set` and
+`trigger-tools-allowed-unattended-set`, and that version has what the
+entry leaves out.
 
 ## In the console
 
@@ -460,14 +645,14 @@ Mail already there doesn't run: it starts from now." It asks for:
 - **Mailbox:** **Gmail** or **Outlook**.
 - **Whose:** **Mine, through my own connection**, which you connect first
   on the **Connections** page, or, for project admins, **The company's**
-  ([The company's mailbox](#the-companys-mailbox)).
+  ([The company's mailboxes](#the-companys-mailboxes)).
 - **Gmail label** or **Outlook folder:** empty for the inbox, else the
   label's id, such as `Label_12`, or the folder's id or well-known name,
   such as `archive`.
-- **Starts:** an agent, at its live version, or a flow, at its latest
-  version that isn't retired, which the trigger then keeps starting. To
-  start another of its versions, create the trigger with the CLI's
-  `--flow-version` ([Create one](#create-one)).
+- **Starts:** an agent (its pinned version, or its project's Latest), or a flow, at
+  its latest version that isn't retired, which the trigger then keeps
+  starting. To start another of its versions, create the trigger with the
+  CLI's `--flow-version` ([Create one](#create-one)).
 - **Looks:** how often it looks for new mail, from every 30 seconds to
   every hour. It's every minute to start with.
 - **Runs an hour, at most:** 1 to 600, 60 to start with. Past it, a mail
@@ -478,14 +663,15 @@ Mail already there doesn't run: it starts from now." It asks for:
 start empty: a project admin lists them with the CLI
 ([List a tool](#list-a-tool)). A trigger made here on the company's mailbox
 is personal to whoever made it. To have the project own it, create it with
-`--run-as=project` ([The company's mailbox](#the-companys-mailbox)).
+`--run-as=project` ([The company's mailboxes](#the-companys-mailboxes)).
 
 A trigger's page says what it does, such as "New mail in the company's
-Gmail, inbox starts the agent Support Desk (its live version), one run per
-mail." Then:
+Gmail, inbox starts the agent Support Desk (its pinned version, or the
+latest), one run per mail." Then:
 
 - **Mailbox:** whose mailbox it is, its label or folder, or **Inbox**, the
-  account it reads, once it has looked, when it last looked, and its pace,
+  account it reads, once it has looked (on a person's mailbox, to its
+  owner and tenant admins only), when it last looked, and its pace,
   such as "Looks every minute, at most 60 runs an hour".
 - **Each run:** what a run gets, "The mail and its thread, as its message"
   for an agent, in the thread's own conversation, or "The mail and its
@@ -531,7 +717,7 @@ unattended, the dialog adds that its runs still call them, with the new
 owner's access.
 
 A tenant admin gets **Change owner…** instead, on a trigger on the
-company's mailbox, whenever the tenant has a registered service account
+company's mailbox, whenever the workspace has a registered service account
 the trigger doesn't already run as. Its **Runs as** list has each
 registered service account and, when the trigger isn't already yours,
 "You — with your access". The dialog says what changes before anything

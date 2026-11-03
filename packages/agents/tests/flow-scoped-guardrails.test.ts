@@ -108,7 +108,7 @@ function turn(options: {
         parent: { runId: options.parent as RunId, nodeId: 'decide' as NodeId, scope: '' },
       }),
       ...(options.replay !== undefined && {
-        replay: { of: options.replay as RunId, evalRunId: 'eval-1' },
+        replay: { of: options.replay as RunId, testRunId: 'eval-1' },
       }),
     },
     bindings: { checks, runBinding } as unknown as InvokeAgentBindings,

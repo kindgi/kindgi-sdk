@@ -2,9 +2,9 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * A replay run names the run it replays and its eval run: the run record
- * carries `replayOf` and `evalRunId`, and `GET /v1/runs` leaves replays
- * out unless `?replays=` or `?evalRunId=` asks for them.
+ * A replay run names the run it replays and its test run: the run record
+ * carries `replayOf` and `testRunId`, and `GET /v1/runs` leaves replays
+ * out unless `?replays=` or `?testRunId=` asks for them.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -41,7 +41,7 @@ function record(overrides: Partial<KernelRunRecord>): KernelRunRecord {
 const replayed = randomUUID() as RunId;
 const replay = record({
   replayOf: replayed,
-  evalRunId: 'eval-1',
+  testRunId: 'eval-1',
   versions: { agents: { 'acme.desk.drafter': '0.2.0' } },
 });
 const plain = record({});
@@ -74,10 +74,10 @@ async function get(path: string) {
 }
 
 describe('a run names the run it replays', () => {
-  test('a replay run carries replayOf and evalRunId', async () => {
+  test('a replay run carries replayOf and testRunId', async () => {
     const answer = await get(`/v1/runs/${replay.runId}`);
     expect(answer.status).toBe(200);
-    expect(answer.json).toMatchObject({ replayOf: replayed, evalRunId: 'eval-1' });
+    expect(answer.json).toMatchObject({ replayOf: replayed, testRunId: 'eval-1' });
   });
 
   test('a run that ran some blocks at other versions says which', async () => {
@@ -88,23 +88,23 @@ describe('a run names the run it replays', () => {
   test('an ordinary run has neither', async () => {
     const answer = await get(`/v1/runs/${plain.runId}`);
     expect(answer.json).not.toHaveProperty('replayOf');
-    expect(answer.json).not.toHaveProperty('evalRunId');
+    expect(answer.json).not.toHaveProperty('testRunId');
     expect(answer.json).not.toHaveProperty('versions');
   });
 
   test('the list carries them too', async () => {
     const answer = await get('/v1/runs');
     const data = answer.json.data as Record<string, unknown>[];
-    expect(data[0]).toMatchObject({ replayOf: replayed, evalRunId: 'eval-1' });
+    expect(data[0]).toMatchObject({ replayOf: replayed, testRunId: 'eval-1' });
     expect(data[1]).not.toHaveProperty('replayOf');
   });
 });
 
-describe('GET /v1/runs?replays= and ?evalRunId=', () => {
+describe('GET /v1/runs?replays= and ?testRunId=', () => {
   test('replays are left out by default', async () => {
     const answer = await get('/v1/runs');
     expect(answer.listed[0]).toMatchObject({ replays: 'exclude' });
-    expect(answer.listed[0]).not.toHaveProperty('evalRunId');
+    expect(answer.listed[0]).not.toHaveProperty('testRunId');
   });
 
   test.each(['exclude', 'include', 'only'] as const)(
@@ -116,23 +116,23 @@ describe('GET /v1/runs?replays= and ?evalRunId=', () => {
     },
   );
 
-  test('evalRunId goes to the binding and includes replays', async () => {
-    const answer = await get('/v1/runs?evalRunId=eval-1');
+  test('testRunId goes to the binding and includes replays', async () => {
+    const answer = await get('/v1/runs?testRunId=eval-1');
     expect(answer.status).toBe(200);
-    expect(answer.listed[0]).toMatchObject({ replays: 'include', evalRunId: 'eval-1' });
+    expect(answer.listed[0]).toMatchObject({ replays: 'include', testRunId: 'eval-1' });
   });
 
-  test('evalRunId with replays=only keeps only', async () => {
-    const answer = await get('/v1/runs?evalRunId=eval-1&replays=only');
-    expect(answer.listed[0]).toMatchObject({ replays: 'only', evalRunId: 'eval-1' });
+  test('testRunId with replays=only keeps only', async () => {
+    const answer = await get('/v1/runs?testRunId=eval-1&replays=only');
+    expect(answer.listed[0]).toMatchObject({ replays: 'only', testRunId: 'eval-1' });
   });
 
   test.each([
     ['/v1/runs?replays=sometimes', '`replays` must be `exclude`, `include` or `only`'],
-    ['/v1/runs?evalRunId=', '`evalRunId` must not be empty'],
+    ['/v1/runs?testRunId=', '`testRunId` must not be empty'],
     [
-      '/v1/runs?evalRunId=eval-1&replays=exclude',
-      '`evalRunId` and `replays=exclude` cannot be combined',
+      '/v1/runs?testRunId=eval-1&replays=exclude',
+      '`testRunId` and `replays=exclude` cannot be combined',
     ],
   ])('%s is a 400, and no query', async (path, message) => {
     const answer = await get(path);

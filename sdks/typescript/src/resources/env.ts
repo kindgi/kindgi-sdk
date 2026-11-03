@@ -2,6 +2,8 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { Cursor, EnvName } from '@kindgi/types';
+
+import type { EnvCloudSecretName, EnvCloudSecretNamePage } from '../generated/api.js';
 import type { ScopeRef } from '../scope-wire.js';
 
 import { scopeForBody, scopeToQuery } from '../scope-wire.js';
@@ -56,6 +58,24 @@ export interface EnvClient {
    * @wire `DELETE /v1/env/:name?scopeKind=&scopeId=&envName=`.
    */
   delete(input: EnvDeleteInput): Promise<EnvDeleteOutcome>;
+
+  /**
+   * The names the operator set to a cloud secret under `(scope, envName)`,
+   * in name order: never which secret, which is the operator's to know. A
+   * runtime that keeps none answers `501 cloud-secrets-unsupported`.
+   *
+   * @wire `GET /v1/env/cloud-secrets?scopeKind=&scopeId=&envName=&cursor=&limit=`.
+   */
+  listCloudSecrets(input: EnvCloudSecretListInput): Promise<EnvCloudSecretNamePage>;
+}
+
+export type { EnvCloudSecretName, EnvCloudSecretNamePage };
+
+export interface EnvCloudSecretListInput {
+  readonly scope: ScopeRef;
+  readonly envName: EnvName;
+  readonly cursor?: Cursor;
+  readonly limit?: number;
 }
 
 // -------------------- inputs --------------------
@@ -230,6 +250,21 @@ export function makeEnvClient(transport: Transport): EnvClient {
         },
       });
     },
+
+    async listCloudSecrets(input) {
+      const q = scopeToQuery(input.scope);
+      return transport.request<EnvCloudSecretNamePage>({
+        method: 'GET',
+        path: '/v1/env/cloud-secrets',
+        query: {
+          envName: input.envName as unknown as string,
+          scopeKind: q.scopeKind,
+          ...(q.scopeId !== undefined && { scopeId: q.scopeId }),
+          ...(input.cursor !== undefined && { cursor: input.cursor as unknown as string }),
+          ...(input.limit !== undefined && { limit: input.limit }),
+        },
+      });
+    },
   };
 }
 
@@ -267,7 +302,7 @@ function isEnvNotFound(err: unknown): boolean {
  * outcome. Returns the `currentRevision` when the error matches, or
  * `null` when it does not (rethrow-worthy).
  */
-function tryReadRevisionConflict(err: unknown): number | null {
+export function tryReadRevisionConflict(err: unknown): number | null {
   if (err === null || typeof err !== 'object') return null;
   const asAny = err as WireEnvSetErrorEnvelope;
   const inner = asAny.error;

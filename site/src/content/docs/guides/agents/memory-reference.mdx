@@ -16,7 +16,7 @@ A fact has a `type`, `content`, and a **scope**: whose it is.
 
 - **`type`** is your name for a kind of fact, such as `acme.preference`.
 - **`content`** is yours to shape: any JSON.
-- **The scope** is the tenant by default. It's narrowed with any of `userId`,
+- **The scope** is the workspace by default. It's narrowed with any of `userId`,
   `orgId`, `projectId`, `threadId` (a conversation) and `sessionId`. An app's
   end user is `projectId` with `participantId`.
 - **Revisions:** each fact keeps its id across revisions. A change writes the
@@ -145,7 +145,7 @@ HTTP 422
 
 On `/v1/memory`, a tenant admin reads every fact. Anyone else reads:
 
-- tenant-wide facts;
+- workspace-wide facts;
 - the facts of the projects and orgs they may read;
 - their own user facts;
 - the facts of every end user and conversation in the projects they may

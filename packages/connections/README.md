@@ -42,10 +42,23 @@ Ready-made tools that act with a connection, one subpath per app:
 - `@kindgi/connections/google/tools`: `gmailSend` sends a plain-text mail
   as the person whose Google connection the call has; `gmailMessagesList`
   lists or searches their mailbox; `gmailMessageGet` reads one message
-  whole, as a `MailMessage`; and `gmailReply` answers one in its thread.
+  whole, as a `MailMessage`; `gmailAttachmentGet` stores one of its
+  attachments, by its number in the message's list, as a file the agent is
+  shown (a JPEG, PNG or WebP image, a PDF, or a text, Markdown or CSV file,
+  within its type's size limit); and `gmailReply` answers one in its thread.
 - `@kindgi/connections/microsoft/tools`: `outlookSend`,
-  `outlookMessagesList`, `outlookMessageGet` and `outlookReply`, the same
-  for Outlook.
+  `outlookMessagesList`, `outlookMessageGet`, `outlookAttachmentGet` and
+  `outlookReply`, the same for Outlook.
+- Calendars, from the same two subpaths: `googleCalendarCalendarsList` and
+  `outlookCalendarCalendarsList` list the account's calendars,
+  `googleCalendarEventsList` and `outlookCalendarEventsList` list the
+  events in a window, `googleCalendarFreeBusy` and
+  `outlookCalendarFreeBusy` say when the calendar is busy, both on the main
+  calendar or on those named by `calendarIds`, and
+  `googleCalendarEventCreate`,
+  `outlookCalendarEventCreate`, `googleCalendarEventUpdate` and
+  `outlookCalendarEventUpdate` add or change an event and invite the
+  people it names.
 - `@kindgi/connections/github/tools`, on the company's GitHub connection:
   `githubIssuesList`, `githubLabelsList`, and `githubIssuesAddLabels`, which
   adds only labels the repository has.
@@ -64,7 +77,7 @@ import { gmailSend } from '@kindgi/connections/google/tools';
 export default gmailSend({ id: 'acme.gmail.send' });
 ```
 
-The id is the pack's because a tool id is the tenant's, filed under the
+The id is the pack's because a tool id is the workspace's, filed under the
 first project that publishes it. Sending, replying, labelling and
 posting are `mutating`, and wait for a person's yes in a run no person
 started. So does a read with a person's connection, such as a mail read

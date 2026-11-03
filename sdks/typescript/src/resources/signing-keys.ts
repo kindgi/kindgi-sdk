@@ -24,7 +24,7 @@ export interface ListSigningKeysFilter {
 }
 
 /**
- * Signing keys — the tenant's trust list: the public keys whose
+ * Signing keys — the workspace's trust list: the public keys whose
  * signatures `POST /v1/deployments` accepts. Trusting and revoking need
  * a token with the `signing-keys:write` capability. A revoked key stays
  * readable, for audit.

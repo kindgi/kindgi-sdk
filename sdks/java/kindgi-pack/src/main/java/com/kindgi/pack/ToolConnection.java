@@ -10,7 +10,7 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * One of a tool's connections to another app, as a call gets it (pack protocol 2.9.0): the account,
- * and a short-lived token for this call.
+ * and a short-lived token for this call. Its name came in pack protocol 2.11.0.
  *
  * @param connectionId the connection
  * @param app the app's entry id ({@code google})
@@ -19,6 +19,8 @@ import org.jspecify.annotations.Nullable;
  *     <token>}, and never keep, print, log or return it. Printing the connection never shows it, and
  *     its JSON leaves it out.
  * @param account whose account it is
+ * @param name the connection's name: its label, else its account's; {@code null} from a runtime
+ *     before pack protocol 2.11.0
  * @param expiresAt when the token expires (ISO 8601), when the app says
  */
 public record ToolConnection(
@@ -27,8 +29,9 @@ public record ToolConnection(
     String appName,
     @JsonIgnore String accessToken,
     ConnectionAccount account,
+    @Nullable String name,
     @Nullable String expiresAt) {
-  /** All but {@code expiresAt} are required. */
+  /** All but {@code name} and {@code expiresAt} are required. */
   public ToolConnection {
     Objects.requireNonNull(connectionId, "connectionId");
     Objects.requireNonNull(app, "app");
@@ -41,7 +44,7 @@ public record ToolConnection(
   @Override
   public String toString() {
     return "ToolConnection[connectionId=" + connectionId + ", app=" + app + ", appName=" + appName
-        + ", account=" + account + ", expiresAt=" + expiresAt + "]";
+        + ", account=" + account + ", name=" + name + ", expiresAt=" + expiresAt + "]";
   }
 
   /**
@@ -62,8 +65,9 @@ public record ToolConnection(
         || !(account.get("label") instanceof String label)) {
       return null;
     }
+    String name = sent.get("name") instanceof String given ? given : null;
     String expiresAt = sent.get("expiresAt") instanceof String at ? at : null;
     return new ToolConnection(connectionId, app, appName, accessToken, new ConnectionAccount(accountId, label),
-        expiresAt);
+        name, expiresAt);
   }
 }

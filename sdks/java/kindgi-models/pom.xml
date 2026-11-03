@@ -9,7 +9,7 @@
   <parent>
     <groupId>com.kindgi</groupId>
     <artifactId>kindgi-java-parent</artifactId>
-    <version>0.1.10</version>
+    <version>0.3.1</version>
   </parent>
 
   <artifactId>kindgi-models</artifactId>
@@ -18,6 +18,13 @@
 
   <properties>
     <kindgi.openapi>${project.basedir}/../../../packages/api/openapi.json</kindgi.openapi>
+    <!--
+      The app's Jackson 2 the tests run with: 2.18 (Spring Boot 3.4's line) by default, and CI runs
+      them again with each line a Spring Boot release manages. From 2.20 on, jackson-annotations has
+      no patch number, so it has its own property.
+    -->
+    <jackson2.test.version>2.18.11</jackson2.test.version>
+    <jackson2.test.annotations.version>2.18.11</jackson2.test.annotations.version>
   </properties>
 
   <dependencies>
@@ -38,17 +45,17 @@
       <version>1.0.1</version>
     </dependency>
 
-    <!-- An app's own Jackson 2, as old as Boot 3.2's: it reads and writes the models. -->
+    <!-- An app's own Jackson 2: it reads and writes the models. -->
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>
-      <version>2.15.4</version>
+      <version>${jackson2.test.version}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>com.fasterxml.jackson.datatype</groupId>
       <artifactId>jackson-datatype-jsr310</artifactId>
-      <version>2.15.4</version>
+      <version>${jackson2.test.version}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -100,6 +107,23 @@
               <Automatic-Module-Name>com.kindgi.models</Automatic-Module-Name>
             </manifestEntries>
           </archive>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <!-- The tests see the app's own annotations, not the 2.15 the models compile against. -->
+          <classpathDependencyExcludes>
+            <classpathDependencyExclude>com.fasterxml.jackson.core:jackson-annotations</classpathDependencyExclude>
+          </classpathDependencyExcludes>
+          <additionalClasspathDependencies>
+            <additionalClasspathDependency>
+              <groupId>com.fasterxml.jackson.core</groupId>
+              <artifactId>jackson-annotations</artifactId>
+              <version>${jackson2.test.annotations.version}</version>
+            </additionalClasspathDependency>
+          </additionalClasspathDependencies>
         </configuration>
       </plugin>
     </plugins>

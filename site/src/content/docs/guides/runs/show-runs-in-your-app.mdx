@@ -55,7 +55,7 @@ Each thing your app shows has its own read:
 | The status, the output, when it started and finished | `GET /v1/runs/{runId}` | `runs.get` | |
 | Only the status and timing, with no data | `GET /v1/runs/{runId}/progress` | `runs.progress` | |
 | What happened, step by step: tool calls, branches, approvals | `GET /v1/runs/{runId}/journal` | `runs.journal` | [Read a run's journal](../read-the-journal/) |
-| Where an agent's answer came from: its model calls and tool results | `GET /v1/provenance/{runId}` | `provenance.get` | [Trace an answer](../../observability/trace-an-answer/) |
+| Where an answer came from: an agent's model calls and tool results, or a flow's steps and the runs they started | `GET /v1/provenance/{runId}` | `provenance.get` | [Trace an answer](../../observability/trace-an-answer/) |
 | What it cost: each model call's tokens and cost, its agent steps' included | `GET /v1/cost/records?rootRunId={runId}` | `cost.usage.query`, or `cost.records.list` in Python | [Cost per run and per customer](../../observability/cost-per-run/) |
 
 Read the run from your app's server, with the id from your record. Ask your
@@ -173,10 +173,11 @@ object RunDetails {
 It returns the run's status, its start and finish times, its output, and how
 many journal entries it read.
 
-A flow run has no provenance of its own, because each agent step in it is a
-turn with its own run. The step's `step.completed` entry in the flow's
-journal names that run in `payload.output.runId`. Read the turn's provenance
-by that id.
+A finished flow run has a provenance record of its own: its steps, why each
+ran, the runs each started and each step's model usage. An agent step's turn
+has its own record too, named in the step's `runs`.
+[A flow's answers](../../observability/trace-an-answer/#a-flows-answers)
+reads both.
 
 ## Kindgi's database and console aren't your app's
 

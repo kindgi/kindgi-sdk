@@ -35,10 +35,12 @@ It's built on [`@kindgi/adapter-model-shared`](../model-shared/): the retries, t
 
 `checkConfig` reports each problem with a registration at the setting at fault, without the network or the secret:
 - a `metadata.region` that isn't an AWS region (`global`, `unspecified`);
-- an unknown `auth` or `adapter_config` key;
+- an unknown `auth`;
 - a `baseURL` that isn't https, holds credentials, a query or a fragment, or has a path on Bedrock's own host;
 - `aws-identity` with a `baseURL` that isn't Bedrock's runtime in the region, naming the host;
 - `api-key` without `secret_ref`, or `aws-identity` with one.
+
+Its entry declares the keys it takes (`configKeys`: `auth`, `baseURL`), with `region` moved to `metadata.region` (`movedConfigKeys`), so a registration with any other `adapter_config` key is refused, naming it (`region` names `metadata.region`). A stored one builds without it being read.
 
 ## How it signs in
 
@@ -58,6 +60,8 @@ Each of these has a test. It signs in before each attempt, with the call's abort
 
 **Model ids:** a model id or a system inference profile (`us.amazon.nova-pro-v1:0`). Application inference profiles (`…:application-inference-profile/…`) aren't supported yet: the Claude handling and the Nova clean-up go by the model's name, so one would get neither.
 
+**How much a model thinks:** a call's level goes as the reasoning, through the AI SDK (see [`@kindgi/adapter-model-shared`](../model-shared/)). For Claude it sends adaptive thinking at that effort; a `lowest` of `between_tools` goes as effort `low`, since the AI SDK has no `between_tools`. The AI SDK sends nothing for `none` on Bedrock, for Claude (a `lowest` of `disabled`) or any other model (OpenAI's GPT models' `none`), and gives no warning: so `lowest` on such a model is reported as not sent, with a `thinking-unsupported` warning, and the model thinks as its default says. A model with no `thinking` (Nova) is sent none, with a `thinking-unsupported` warning when the call asked for one.
+
 ## Nova's chain of thought
 
 When tools are in play, Amazon Nova writes its reasoning into the answer: `<thinking>…</thinking>` before the reply. A Kindgi answer carries no reasoning (the other vendors keep it apart, and a result has no slot for reasoning text). So for a Nova model, one leading `<thinking>` block is taken out of the answer, and the result carries the warning `reasoning-text-removed` (`NOVA_THINKING_REMOVED`), which the model-call record keeps. Only an exact, closed, leading block is touched: one later in the text, or an unclosed one, is left as it came. Other vendors' models are never changed.
@@ -76,7 +80,7 @@ That's two cache points at most, under Bedrock's four per request, each with the
 
 ## Exports
 
-- **`bedrockAdapterEntry`**: the `AdapterFactoryEntry` a runtime registers, with `bedrockAdapterFactory` and `bedrockCheckConfig`.
+- **`bedrockAdapterEntry`**: the `AdapterFactoryEntry` a runtime registers, with `bedrockAdapterFactory`, `bedrockCheckConfig`, its `configKeys` and `movedConfigKeys`.
 - `readBedrockConfig(input)`: a registration read and checked, or every problem with it.
 - `bedrockRuntimeEndpoint(region)`: a region's own `bedrock-runtime` endpoint; `partitionDnsSuffix(region)`; `isBedrockRuntimeHost(hostname, region)`: whether a host may get the runtime's credentials.
 - `IDENTITY_TIMEOUT_MS`: how long the runtime's AWS identity may take.

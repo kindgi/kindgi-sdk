@@ -234,6 +234,25 @@ function parseJson(raw: string, path: string): FileConfig {
   }
 }
 
+/** What `~/.kindgi/config.json` holds now: its path, and its address and key, each when there. */
+export interface HomeLogin {
+  readonly path: string;
+  readonly apiUrl?: string;
+  readonly token?: string;
+}
+
+/** Read `~/.kindgi/config.json` as it is now, as `kindgi auth login` finds it before a save. */
+export async function readHomeLogin(home: string | undefined = homedir()): Promise<HomeLogin> {
+  const path = join(home ?? homedir(), '.kindgi', 'config.json');
+  const raw = await defaultReadFile(path);
+  const parsed = raw === null ? {} : parseJson(raw, path);
+  return {
+    path,
+    ...(typeof parsed.apiUrl === 'string' && parsed.apiUrl !== '' && { apiUrl: parsed.apiUrl }),
+    ...(typeof parsed.token === 'string' && parsed.token !== '' && { token: parsed.token }),
+  };
+}
+
 /** `~/.kindgi` holds the API key: this account's only. */
 const HOME_DIR_MODE = 0o700;
 

@@ -6,6 +6,7 @@ import type { ZodLikeSchema } from '@kindgi/schema';
 import type { OrgId, ProjectId, TenantId, ToolId, UserId } from '@kindgi/types';
 
 import type { ConnectionNeed, ToolConnection } from './connections.js';
+import type { FileStore } from './files.js';
 
 /**
  * JSON Schema for a tool's input/output. Author-supplied, Draft 2020-12.
@@ -30,7 +31,7 @@ export type EffectKind = (typeof EFFECT_KINDS)[number];
 
 /**
  * A declared side-effect. Enables policy enforcement (can this tool run in
- * this tenant?), safe parallelization (are two invocations conflicting?),
+ * this workspace?), safe parallelization (are two invocations conflicting?),
  * and causal provenance annotation.
  */
 export interface Effect {
@@ -38,7 +39,7 @@ export interface Effect {
   /**
    * Resource identifier the effect targets — for example `memory:facts`,
    * `blob:*`, `external:api.example.com`. Opaque to this package; the
-   * policy engine interprets it when enforcing tenant policy.
+   * policy engine interprets it when enforcing workspace policy.
    */
   readonly resource?: string;
   readonly notes?: string;
@@ -46,7 +47,7 @@ export interface Effect {
 
 /**
  * A typed context requirement — a named slot the tool expects the runtime
- * to supply. The name matches an entry in the tenant's provider registry
+ * to supply. The name matches an entry in the workspace's provider registry
  * (`tenant`, `db`, `memory:facts`, `blob`, etc.). Not enforced by this
  * package; declarative metadata for capability + policy layers.
  */
@@ -65,11 +66,11 @@ export interface Need {
  */
 export interface ToolContext {
   /**
-   * Tenant scope for the invocation. Every tool call is tenant-scoped;
-   * cross-tenant access is denied by policy at the kernel layer.
-   * Handlers use this to key persistence (per-tenant DBs, per-tenant
-   * blob buckets) and to route capability calls (secrets scoped to
-   * this tenant only).
+   * The workspace the call runs for. Every tool call is scoped to one
+   * workspace; cross-tenant access is denied by policy at the kernel layer.
+   * Handlers use this to key persistence (per-workspace databases and blob
+   * buckets) and to route capability calls (secrets scoped to this
+   * workspace only).
    */
   readonly tenantId: TenantId;
   /**
@@ -142,7 +143,7 @@ export interface ToolContext {
    * Caller responsibility: the dispatch site (the agent turn's
    * `dispatch-tools` step in `@kindgi/agents`, a flow node that runs
    * the tool, an MCP server) populates this from the deployment's
-   * `SecretBinding` scoped to the invoking tenant.
+   * `SecretBinding` scoped to the invoking workspace.
    */
   readonly resolveSecret?: (ref: ToolSecretRef) => Promise<string>;
   /**
@@ -163,7 +164,7 @@ export interface ToolContext {
   readonly settings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
   /**
    * The secrets this tool declares in `needsSpec.secrets`, by name,
-   * resolved by the runtime for this call: for the call's tenant, in the
+   * resolved by the runtime for this call: for the call's workspace, in the
    * env the runtime serves (`KINDGI_ENV`; in `kindgi dev`, `local` — the
    * pack's `.env` and `.env.local`). Every required name is present: one
    * the runtime can't resolve, or whose value doesn't match its schema,
@@ -187,7 +188,7 @@ export interface ToolContext {
   /**
    * The env values this tool declares in `needsSpec.env`, by name,
    * resolved by the runtime for this call: the call's project's value,
-   * else its org's, else the tenant's, in the env the runtime serves
+   * else its org's, else the workspace's, in the env the runtime serves
    * (`KINDGI_ENV`). A name no scope sets gets its schema's `default`.
    * Every declared name is present: one with neither a value nor a
    * default, or whose value doesn't match its schema, fails the call
@@ -214,10 +215,27 @@ export interface ToolContext {
    * tool dispatch, a flow's tool step); absent outside a run.
    */
   readonly record?: <T>(key: string, decide: () => T | Promise<T>) => Promise<T>;
+  /**
+   * The call's files, only for a tool that declares `storesFiles` or
+   * `readsFiles`, with only what it declares:
+   * - `store` (`storesFiles`) checks a file's bytes, stores it as a file
+   *   the call's run owns, and answers the file value to return in the
+   *   result's top-level `files`, or why it stored nothing. At most
+   *   `MAX_STORED_FILES_PER_CALL` files a call. Absent when the call has no
+   *   `idempotencyKey`.
+   * - `read` (`readsFiles`) answers the bytes of a file the call's run may
+   *   be shown, or why there are none.
+   *
+   * Absent for any other tool, when the runtime has no file store, and from
+   * a runtime before pack protocol 2.10.0: a tool then says a file can't
+   * be stored (`notShown: 'store'`) without fetching it. A unit test passes
+   * its own.
+   */
+  readonly files?: FileStore;
 }
 
 /**
- * Pointer to a tenant-scoped secret used by a declarative tool
+ * Pointer to a workspace-scoped secret used by a declarative tool
  * (e.g. `{kind: 'http'}` with a bearer secretRef). Same shape as
  * `ProviderSecretRef` in `@kindgi/api` — both are `{envName, name}`
  * references resolved via the deployment's `SecretBinding`. Kept
@@ -232,7 +250,7 @@ export interface ToolSecretRef {
 /**
  * Isolation posture the runtime enforces around the handler. Three tiers:
  *   - `'none'`              — no isolation. First-party framework handlers
- *                             only; registration rejects tenant-authored
+ *                             only; registration rejects workspace-authored
  *                             tools declaring `'none'`.
  *   - `'context-isolated'`  — same-process `node:vm` context. NOT a
  *                             security boundary; prevents accidental state
@@ -445,6 +463,12 @@ export interface ToolManifest {
    * agent's `conversationPolicy.hitl.tools` sets neither an override
    * nor a `default` for the tool — a read-only tool passes straight
    * through, a mutating tool asks on first use.
+   *
+   * It also decides what runs together: calls to read-only tools that a
+   * model step asks for one after another run at the same time, up to 8 at
+   * once, unless the agent sets `parallelToolCalls: false`; a call to a
+   * mutating tool runs on its own, and so does a call to a read-only tool
+   * that pauses or declares connections, since it may wait.
    */
   readonly mutating?: boolean;
   /**
@@ -483,13 +507,37 @@ export interface ToolManifest {
    */
   readonly pauses?: boolean;
   /**
+   * `true` when the tool may store files it fetches, such as a mail's
+   * attachments, as files its run owns. The handler of each call with an
+   * `idempotencyKey` gets `ctx.files.store`: it stores a file there and
+   * returns the file value it gets back in its result's top-level `files`,
+   * so an agent is shown the file. At most `MAX_STORED_FILES_PER_CALL`
+   * files a call.
+   *
+   * Only a tool with a handler can store files: not one with a
+   * declarative `spec`, nor an MCP tool. Absent = `false`.
+   */
+  readonly storesFiles?: boolean;
+  /**
+   * `true` when the tool may read stored files' bytes, such as a PDF an
+   * agent was given, to parse it. Each call's handler gets
+   * `ctx.files.read`, which answers the bytes of a file the call's run may
+   * be shown, by its file value's `artifactId`.
+   *
+   * Only a tool with a handler can read files: not one with a declarative
+   * `spec`, nor an MCP tool. Absent = `false`.
+   */
+  readonly readsFiles?: boolean;
+  /**
    * `true` when the tool's results are text from outside that nobody
    * checked, such as a mail someone sent or a page a search found. An
    * agent reads each result of the tool as data, not instructions: in an
    * `<event>` block, and so again in every later turn's history. It
    * changes what the model is told, not what the tool may do: pair it
-   * with approvals for anything an agent could do with what it read.
-   * Absent = `false`.
+   * with approvals for anything an agent could do with what it read. A
+   * tool whose results carry stored files from outside (a mail's
+   * attachments) sets it too, so the rule that they're data is in the
+   * agent's system message from the turn's start. Absent = `false`.
    */
   readonly resultIsOutsideData?: boolean;
   /** Isolation posture — see `SandboxMode`. */

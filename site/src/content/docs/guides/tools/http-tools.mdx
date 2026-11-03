@@ -471,7 +471,7 @@ printf 'demo-token-123' | ./kindgiw secrets set HTTPBIN_TOKEN --env=local --scop
 </Tabs>
 
 - **`--env=local`** is the env `kindgi dev` serves, and `--scope=tenant`
-  stores the secret for the whole tenant.
+  stores the secret for the whole workspace.
 - **`--from-stdin`** reads the value from the pipe. Without it, the command
   prompts for the value without echoing it.
 

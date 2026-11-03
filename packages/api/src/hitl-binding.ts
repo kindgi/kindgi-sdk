@@ -86,7 +86,10 @@ export interface Approval {
    * Absent: any reviewer of the rank decides.
    */
   readonly approver?: ApprovalApprover;
-  /** The person's connection the call would use: shown as "as <account>". */
+  /**
+   * The connection the call would use, shown as "as <account>": the
+   * person's own, or else the company's the gate decided on.
+   */
   readonly connection?: ApprovalConnection;
 }
 
@@ -96,12 +99,23 @@ export interface ApprovalApprover {
   readonly userId: string;
 }
 
-/** The connection a gated call would use: the app, and whose account. */
+/**
+ * The connection a gated call would use: the app, whose it is, and, for the
+ * company's, its account and name. A person's account isn't named: the
+ * reviewer sees "this person's <app> account".
+ */
 export interface ApprovalConnection {
   readonly app: string;
   readonly appName: string;
-  /** The account's label at the app: an email address, a login. */
-  readonly account: string;
+  /** Whose connection: the company's, or a person's. Absent from older approvals. */
+  readonly as?: 'company' | 'person';
+  /**
+   * The company's account label at the app: an email address, a login. A
+   * person's has none; older approvals have theirs.
+   */
+  readonly account?: string;
+  /** The company connection's name: its label, else the account's. A person's has none. */
+  readonly name?: string;
 }
 
 /**
@@ -120,6 +134,8 @@ export interface ReviewDecision {
   readonly evidence?: Readonly<Record<string, unknown>>;
   readonly reviewerRoleAtDecision: ReviewerRole;
   readonly decidedAt: Timestamp;
+  /** The text a reviewer approved a remembered fact with; see `SubmitReviewBindingInput.factText`. */
+  readonly factText?: string;
 }
 
 // ---------- method inputs / outputs ----------
@@ -216,6 +232,12 @@ export interface SubmitReviewBindingInput {
    * exported audit bundle names the trust behind it without a join.
    */
   readonly sessionProvider?: string;
+  /**
+   * With `approve`, on the approval of a fact an agent wants to remember:
+   * the text the fact holds once approved, in place of the agent's. The
+   * route has checked it (`rememberedTextProblem`, `@kindgi/memory`).
+   */
+  readonly factText?: string;
 }
 
 /**
@@ -256,6 +278,8 @@ export interface ReviewDecisionRecord {
    * (a site may rename its people) still shows as they were.
    */
   readonly deciderName?: string;
+  /** The text a reviewer approved a remembered fact with, when they edited the agent's. */
+  readonly factText?: string;
 }
 
 // ---------- error shape ----------

@@ -5,7 +5,7 @@ import type { OrgId, ProjectId } from './ids.js';
 
 /**
  * Where a secret an item names is read, as recorded on the item when it's
- * registered: the item's tenant itself, one of its orgs, or one of its
+ * registered: the item's workspace itself, one of its orgs, or one of its
  * projects. The runtime reads the secret at that scope only.
  */
 export type RecordedSecretScope =

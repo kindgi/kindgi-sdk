@@ -111,7 +111,7 @@ describe('a turn whose work a budget kept per tenant refuses', () => {
     );
     expect(failure.payload).toEqual({
       code: 'rate-limit-exceeded',
-      message: expect.stringMatching(/^Templates rendered for this tenant took its budget/),
+      message: expect.stringMatching(/^Templates rendered for this workspace took its budget/),
       limit: 'template-render-time',
       budgetMs: 0.001,
       retryAfterMs: expect.any(Number),

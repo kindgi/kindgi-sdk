@@ -9,6 +9,8 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import { KindgiApiError } from '@kindgi/client';
+
 import { runCli } from '../src/main.js';
 
 let home: string;
@@ -31,12 +33,16 @@ const RECORD = {
   signed: false,
 };
 
-async function provenance(argv: readonly string[]) {
+async function provenance(
+  argv: readonly string[],
+  answers: { readonly query?: unknown; readonly get?: unknown } = {},
+) {
   const calls: unknown[][] = [];
   const record =
     (name: string, result: unknown) =>
     async (...args: unknown[]) => {
       calls.push([name, ...args]);
+      if (result instanceof Error) throw result;
       return result;
     };
   const out = await runCli({
@@ -47,8 +53,8 @@ async function provenance(argv: readonly string[]) {
     clientFactory: () =>
       ({
         provenance: {
-          query: record('query', { data: [RECORD], hasMore: false, items: [RECORD] }),
-          get: record('get', { ...RECORD, nodes: [] }),
+          query: record('query', answers.query ?? { data: [RECORD], hasMore: false }),
+          get: record('get', answers.get ?? { ...RECORD, nodes: [] }),
           export: record('export', { bundle: {}, signature: 'sig' }),
         },
       }) as never,
@@ -92,6 +98,22 @@ describe('kindgi provenance (T238)', () => {
     expect(both.calls).toEqual([]);
   });
 
+  test("list --flow: that flow's runs' records; a runtime that ignores the filter is refused", async () => {
+    const flowRecord = { ...RECORD, flowRef: { id: 'acme.report', version: '1.0.0' } };
+    const filtered = { data: [flowRecord], hasMore: false };
+    const ok = await provenance(['list', '--flow=acme.report', '--table'], {
+      query: { ...filtered, flowId: 'acme.report' },
+    });
+    expect(ok.out.exitCode, ok.out.stderr).toBe(0);
+    expect(ok.calls).toEqual([['query', { flowId: 'acme.report' }]]);
+    expect(ok.out.stdout).toContain('acme.report@1.0.0');
+
+    const ignored = await provenance(['list', '--flow=acme.report'], { query: filtered });
+    expect(ignored.out.exitCode).not.toBe(0);
+    expect(ignored.out.stderr).toContain('--flow needs a runtime that lists records by flow');
+    expect(ignored.out.stdout).toBe('');
+  });
+
   test('list --table', async () => {
     const { out } = await provenance(['list', '--table']);
     expect(out.stdout).toContain('run-1');
@@ -102,6 +124,31 @@ describe('kindgi provenance (T238)', () => {
     const { out, calls } = await provenance(['get', 'run-1']);
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([['get', 'run-1']]);
+  });
+
+  test("get on a flow run whose record isn't written yet prints the record's state", async () => {
+    const notYet = (fields: Record<string, unknown>, message: string) =>
+      new KindgiApiError({
+        code: 'not-found',
+        serverCode: 'provenance-not-found',
+        message,
+        resource: { kind: 'provenance', id: 'run-1' },
+        fields: { runId: 'run-1', ...fields },
+      });
+    const writing = await provenance(['get', 'run-1'], {
+      get: notYet({ recordState: 'being-written' }, "The run's record is being written."),
+    });
+    expect(writing.out.exitCode).toBe(1);
+    expect(writing.out.stderr).toContain("The run's record is being written.");
+    expect(writing.out.stderr).toContain('Record state: being-written');
+
+    const failed = await provenance(['get', 'run-1'], {
+      get: notYet({ recordState: 'failed', reason: 'build-failed' }, "The run's record failed."),
+    });
+    expect(failed.out.stderr).toContain('Record state: failed (build-failed)');
+
+    const none = await provenance(['get', 'run-1'], { get: notYet({}, 'No record for run-1.') });
+    expect(none.out.stderr).not.toContain('Record state');
   });
 
   test('export <run-id> --signing-key [--include-messages]', async () => {

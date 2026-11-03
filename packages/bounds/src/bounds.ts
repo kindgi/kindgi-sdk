@@ -2,17 +2,17 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * The limits a Kindgi server puts on what a tenant sends it: one setting
+ * The limits a Kindgi server puts on what a workspace sends it: one setting
  * for the whole process, set once at boot (`configureTenantInputBounds`)
- * and read where tenant input is compiled or read (`tenantInputBounds`).
+ * and read where workspace input is compiled or read (`tenantInputBounds`).
  *
  * The runtime sets {@link HOSTED_BOUNDS} under the hosted profile, where
- * one tenant's input must never stall the server for the others. Anywhere
+ * one workspace's input must never stall the server for the others. Anywhere
  * else (a self-hosted server, a pack's own process, a test) it's
  * {@link SELF_HOSTED_BOUNDS}: today's behaviour, with generous limits on
  * bodies, schemas and a render's memory.
  *
- * Why one setting rather than an argument: the places that compile tenant
+ * Why one setting rather than an argument: the places that compile workspace
  * input are deep inside the SDK's packages (guardrails, schema, agents,
  * flow, tools). One explicit call at boot is testable, and a second call
  * throwing keeps it from changing while the server runs. Why not the
@@ -21,13 +21,13 @@
  */
 export interface TenantInputBounds {
   /**
-   * The engine a tenant's pattern runs on: V8's, or RE2's, which runs in
-   * linear time. On RE2, a tenant's JSON Schema checks its data in linear
+   * The engine a workspace's pattern runs on: V8's, or RE2's, which runs in
+   * linear time. On RE2, a workspace's JSON Schema checks its data in linear
    * time too (`@kindgi/schema`): its patterns run on RE2, its formats are
    * ajv-formats' `fast` ones, and `uniqueItems` compares items by a key.
    */
   readonly regex: 'v8' | 're2';
-  /** The longest a tenant's pattern may be: its source plus its flags, in characters. */
+  /** The longest a workspace's pattern may be: its source plus its flags, in characters. */
   readonly patternMaxLength: number;
   /**
    * The most citations a `must-cite` guardrail may require (`minCitations`).
@@ -48,17 +48,17 @@ export interface TenantInputBounds {
    */
   readonly schemaCacheMaxBytes: number;
   /**
-   * The time a tenant's schemas may spend compiling in any 60 seconds, in
+   * The time a workspace's schemas may spend compiling in any 60 seconds, in
    * milliseconds: the compiles that count (`runAsTenant` says whose work
-   * it is, and which count). Past it, the tenant's next compile that
+   * it is, and which count). Past it, the workspace's next compile that
    * counts is refused until the window moves on; schemas already compiled
    * keep working.
    */
   readonly schemaCompileBudgetMs: number;
   /**
-   * The time a tenant's templates may spend rendering in any 60 seconds,
+   * The time a workspace's templates may spend rendering in any 60 seconds,
    * in milliseconds, for renders done as its work (`runAsTenant`). Past it,
-   * the tenant's next render is refused until the window moves on. A
+   * the workspace's next render is refused until the window moves on. A
    * render holds the event loop while it runs.
    */
   readonly templateRenderBudgetMs: number;
@@ -75,7 +75,7 @@ export interface TenantInputBounds {
      */
     readonly memoryLimit: number;
   };
-  /** The largest body read from a tenant-named endpoint, decompressed, in bytes. */
+  /** The largest body read from a workspace-named endpoint, decompressed, in bytes. */
   readonly responseMaxBytes: number;
   /** The longest wait between two chunks of such a body, in milliseconds. */
   readonly responseIdleMs: number;

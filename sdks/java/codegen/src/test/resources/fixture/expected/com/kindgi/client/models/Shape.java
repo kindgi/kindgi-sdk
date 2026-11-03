@@ -6,10 +6,13 @@ package com.kindgi.client.models;
 
 import com.fasterxml.jackson.annotation.JsonAnyGetter;
 import com.fasterxml.jackson.annotation.JsonAnySetter;
+import com.fasterxml.jackson.annotation.JsonAutoDetect;
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import org.jspecify.annotations.Nullable;
@@ -48,15 +51,44 @@ public sealed interface Shape extends Model permits Circle, Square, Shape.DotOrP
      * @param properties its other properties
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonAutoDetect(
+            fieldVisibility = JsonAutoDetect.Visibility.NONE,
+            getterVisibility = JsonAutoDetect.Visibility.NONE,
+            isGetterVisibility = JsonAutoDetect.Visibility.NONE
+    )
     record Unrecognized(@JsonProperty("kind") @Nullable String kind,
-            @JsonAnySetter @JsonAnyGetter Map<String, Object> properties) implements Shape {
+            Map<String, Object> properties) implements Shape {
         public Unrecognized {
             properties = Checks.extras(properties);
         }
 
+        /**
+         * How a reading Jackson builds it: the known properties here, every other one through {@code put}.
+         */
+        @JsonCreator(
+                mode = JsonCreator.Mode.PROPERTIES
+        )
+        private Unrecognized(@JsonProperty("kind") @Nullable String kind) {
+            this(kind, null);
+        }
+
+        @Override
+        @JsonAnyGetter
+        public Map<String, Object> properties() {
+            return Collections.unmodifiableMap(properties);
+        }
+
+        /**
+         * Where a reading Jackson puts each property the record doesn't know.
+         */
+        @JsonAnySetter
+        private void put(String key, @Nullable Object value) {
+            properties.put(key, value);
+        }
+
         @Override
         public void validate(Checks checks) {
-            // Nothing to check: the client doesn't know this variant's constraints.
+            checks.unrecognized("kind", List.of("circle", "square", "dot", "point"));
         }
     }
 

@@ -34,6 +34,7 @@ object Context {
         "appName" -> c.appName,
         "accessToken" -> c.accessToken,
         "account" -> ListMap("id" -> c.account.id, "label" -> c.account.label)) ++
+        Option(c.name).map("name" -> _) ++
         Option(c.expiresAt).map("expiresAt" -> _))
     })
 }

@@ -68,7 +68,7 @@ export interface EmitResolveEventInput {
   readonly systemKeyId?: string;
   readonly auditEvents: AuditEventBinding;
   readonly tenantId: TenantId;
-  /** The project the event belongs to; absent for one that's the tenant's or an org's. */
+  /** The project the event belongs to; absent for one that's the workspace's or an org's. */
   readonly projectId?: ProjectId;
   /** Where an append that fails or throws is logged, at `warn`. Absent: it isn't logged. */
   readonly log?: Logger;
@@ -149,6 +149,12 @@ export interface EmitLifecycleEventInput {
    */
   readonly recoverableUntil?: string;
   /**
+   * An env name set to, or removed from, a cloud secret, which the cloud
+   * reads for a pack service. Never the secret's path or a value: a workspace
+   * may read this event, and only the operator reads the path.
+   */
+  readonly cloudSecret?: true;
+  /**
    * Who did it, as the API names its caller (`user:<id>`,
    * `service_account:<id>`, `session:<id>`, `token:<hash>`). Absent: from
    * `resolveContext`, as a binding emits.
@@ -158,7 +164,7 @@ export interface EmitLifecycleEventInput {
   readonly correlationId?: string;
   readonly auditEvents: AuditEventBinding;
   readonly tenantId: TenantId;
-  /** The project, for a project-scoped value; absent for a tenant- or org-scoped one. */
+  /** The project, for a project-scoped value; absent for a workspace- or org-scoped one. */
   readonly projectId?: ProjectId;
   /** Where an append that fails or throws is logged, at `warn`. Absent: it isn't logged. */
   readonly log?: Logger;
@@ -372,6 +378,7 @@ function buildLifecyclePayload(input: EmitLifecycleEventInput): Readonly<Record<
   if (input.rotationId !== undefined) payload.rotationId = input.rotationId;
   if (input.revokedValuesPurged === true) payload.revokedValuesPurged = true;
   if (input.recoverableUntil !== undefined) payload.recoverableUntil = input.recoverableUntil;
+  if (input.cloudSecret === true) payload.cloudSecret = true;
   if (input.resolveContext?.nodeId !== undefined) payload.nodeId = input.resolveContext.nodeId;
   if (input.resolveContext?.runId !== undefined) payload.runId = input.resolveContext.runId;
   return payload;

@@ -21,7 +21,7 @@ export interface TupleIntent {
   /** FGA object, e.g. `project:foo`. */
   readonly object: string;
   /**
-   * Optional per-tenant idempotency key. If set, the outbox rejects a
+   * Optional per-workspace idempotency key. If set, the outbox rejects a
    * duplicate enqueue (same tenantId + dedupKey) — safe to retry the
    * caller without producing double-tuples.
    */

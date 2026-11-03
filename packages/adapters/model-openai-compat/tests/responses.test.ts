@@ -263,6 +263,25 @@ describe('what the Responses path sends', () => {
     });
   });
 
+  test("a call that sets no cap is sent its model's registered maxOutputTokens; the call's own wins", async () => {
+    const endpoint = fakeEndpoint(response([textMessage('ok')]));
+    const provider = openAICompatAdapterFactory({
+      metadata: {
+        ...metadata,
+        models: metadata.models.map((m) =>
+          m.name === 'gpt-6.1-sol' ? { ...m, maxOutputTokens: 1024 } : m,
+        ),
+      },
+      config: { baseURL: BASE_URLS.OPENAI },
+      fetch: endpoint.fetch,
+    });
+    await provider.invoke(ask());
+    await provider.invoke({ ...ask(), maxOutputTokens: 64 });
+    await provider.invoke(ask('hello', 'gpt-6-luna'));
+    expect(endpoint.seen.map((s) => s.body.max_output_tokens)).toEqual([1024, 64, undefined]);
+    expect(endpoint.seen[2]?.body).not.toHaveProperty('max_output_tokens');
+  });
+
   test('the conversation as input items: system as developer, tool calls and their outputs', async () => {
     const endpoint = fakeEndpoint(response([textMessage('done')]));
     const messages: ModelMessage[] = [
@@ -697,6 +716,46 @@ describe('the Responses path follows the model data', () => {
       undefined,
       { summary: 'auto', effort: 'low' },
     ]);
+  });
+
+  test('each level is sent as reasoning.effort, and reported', async () => {
+    const endpoint = fakeEndpoint(response([textMessage('ok')]));
+    const results = [];
+    for (const level of ['lowest', 'low', 'medium', 'high'] as const) {
+      results.push(await provider(endpoint).invoke({ ...ask(), thinking: level }));
+    }
+    const efforts = ['low', 'low', 'medium', 'high'];
+    expect(endpoint.seen.map((s) => s.body.reasoning)).toEqual(
+      efforts.map((effort) => ({ effort })),
+    );
+    expect(results.map((r) => r.thinking)).toEqual(
+      ['lowest', 'low', 'medium', 'high'].map((level, i) => ({
+        level,
+        sent: { 'reasoning.effort': efforts[i] },
+      })),
+    );
+    expect(results.map((r) => r.warnings)).toEqual([undefined, undefined, undefined, undefined]);
+  });
+
+  test("a level the model doesn't take is rounded, with a warning; a call's level wins over extraBody's effort", async () => {
+    const endpoint = fakeEndpoint(response([textMessage('ok')]));
+    const result = await provider(endpoint, { 'extraBody.reasoning.effort': 'high' }).invoke({
+      ...ask(),
+      thinking: 'max',
+    });
+    expect(endpoint.seen[0]?.body.reasoning).toEqual({ effort: 'high' });
+    expect(result.thinking).toEqual({ level: 'high', sent: { 'reasoning.effort': 'high' } });
+    expect(result.warnings).toEqual([
+      {
+        code: 'thinking-level-adjusted',
+        message: "gpt-6.1-sol doesn't take thinking level max, so the call sent high.",
+      },
+    ]);
+    await provider(endpoint, { 'extraBody.reasoning.effort': 'high' }).invoke({
+      ...ask(),
+      thinking: 'minimal',
+    });
+    expect(endpoint.seen[1]?.body.reasoning).toEqual({ effort: 'low' });
   });
 
   test('the developer message names the tools as they are sent', async () => {

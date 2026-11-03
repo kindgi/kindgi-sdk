@@ -70,7 +70,7 @@ function inviteLine(person: User, email: InviteEmail | undefined): string {
     case 'not-configured':
       return `Invited, but this deployment sends no email: tell them to sign in through a provider with ${person.primaryEmail ?? 'their email'}${until}.\n`;
     case 'capped':
-      return `Invited, but the tenant's invitations for today are used up: send it later (${resend}), or tell them to sign in${until}.\n`;
+      return `Invited, but the workspace's invitations for today are used up: send it later (${resend}), or tell them to sign in${until}.\n`;
     default:
       return `Invited, but the invitation email didn't go out: send it again (${resend}), or tell them to sign in${until}.\n`;
   }
@@ -80,11 +80,11 @@ const add: LeafCommand = {
   kind: 'leaf',
   name: 'add',
   description:
-    "Add a person to the tenant; prints their id. They can read the tenant's settings at once. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then give them their first key (`kindgi tokens create --for=user:<id>`). Where the runtime invites people, one added with an email is invited, and the invitation emailed unless `--no-invite`; it says whether it was. Tenant admins only.",
+    "Add a person to the workspace; prints their id. They can read the workspace's settings at once. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then give them their first key (`kindgi tokens create --for=user:<id>`). Where the runtime invites people, one added with an email is invited, and the invitation emailed unless `--no-invite`; it says whether it was. Tenant admins only.",
   usage: 'kindgi people add --name=<display-name> [--email=<email>] [--no-invite]',
   optionSpec: {
     name: { type: 'string', description: 'Their name, as people see it.' },
-    email: { type: 'string', description: "Their email; unique among the tenant's people." },
+    email: { type: 'string', description: "Their email; unique among the workspace's people." },
     'no-invite': {
       type: 'boolean',
       description: "Don't email the invitation: you tell them. They're still invited.",
@@ -111,7 +111,7 @@ const add: LeafCommand = {
         stdout: renderJson(added, ctx.globals.format).stdout,
         stderr: successNote(
           ctx.globals.format,
-          `Added to the tenant: they can read its settings. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then their first key: kindgi tokens create --for=user:${String(created.userId)}\n${inviteLine(created, created.inviteEmail)}`,
+          `Added to the workspace: they can read its settings. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then their first key: kindgi tokens create --for=user:${String(created.userId)}\n${inviteLine(created, created.inviteEmail)}`,
         ),
       };
     }),
@@ -172,7 +172,7 @@ const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
   description:
-    "List the tenant's people; `--query` matches the start of a name, `--pending` keeps the people invited who haven't signed in yet (STATE: pending or expired). People who were removed are left out unless `--include-removed`.",
+    "List the workspace's people; `--query` matches the start of a name, `--pending` keeps the people invited who haven't signed in yet (STATE: pending or expired). People who were removed are left out unless `--include-removed`.",
   usage:
     'kindgi people list [--query=<name-prefix>] [--pending] [--include-removed] [--limit=<n>] [--cursor=<c>] [--table]',
   optionSpec: {
@@ -238,7 +238,7 @@ const grants: LeafCommand = {
   kind: 'leaf',
   name: 'grants',
   description:
-    "What a person may do, as granted directly: tenant admin, tenant member (reads the tenant's settings), project and team roles, the reviewer roster. A tenant admin reads anyone's; anyone else only their own.",
+    "What a person may do, as granted directly: tenant admin, tenant member (reads the workspace's settings), project and team roles, the reviewer roster. A tenant admin reads anyone's; anyone else only their own.",
   usage: 'kindgi people grants <user-id> [--table]',
   run: (ctx) =>
     runSdk(
@@ -291,7 +291,7 @@ const remove: LeafCommand = {
   kind: 'leaf',
   name: 'remove',
   description:
-    'Remove a person from the tenant: every API key and session of theirs is revoked, and every role and membership taken away, before it answers (their keys get 401 at once). Their record stays, so their history still says who they were; their email is free again (adding it makes a new person). Refused for yourself, the seed user and the only tenant admin. Tenant admins only.',
+    'Remove a person from the workspace: every API key and session of theirs is revoked, and every role and membership taken away, before it answers (their keys get 401 at once). Their record stays, so their history still says who they were; their email is free again (adding it makes a new person). Refused for yourself, the seed user and the only tenant admin. Tenant admins only.',
   usage: 'kindgi people remove <user-id>',
   run: (ctx) =>
     runSdkRendered(ctx, 'people remove', async () => {
@@ -312,7 +312,7 @@ export const peopleCommand: Command = {
   kind: 'group',
   name: 'people',
   description:
-    "The tenant's people: add one, send their invitation again, list, get, their grants, tenant admin given or taken (grant / ungrant), their second factor (read, or reset for a lost phone), and remove one.",
+    "The workspace's people: add one, send their invitation again, list, get, their grants, tenant admin given or taken (grant / ungrant), their second factor (read, or reset for a lost phone), and remove one.",
   subcommands: [
     add,
     invite,

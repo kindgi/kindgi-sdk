@@ -29,30 +29,31 @@ public final class WireErrors {
       Set.of(
           "not-found", "run-not-found", "agent-not-found", "tool-not-found", "guardrail-not-found",
           "flow-not-found", "conversation-not-found", "approval-not-found", "reviewer-not-found",
-          "proposal-not-found", "provenance-not-found", "observation-not-found", "blob-not-found",
+          "suggested-change-not-found", "provenance-not-found", "observation-not-found", "blob-not-found",
           "audit-bundle-not-found", "signing-not-configured", "signing-key-not-found",
           "adapter-not-found", "fact-not-found", "identity-user-not-found", "provider-not-found",
-          "capability-not-found", "token-not-found", "agent-version-not-found", "promotion-not-found");
+          "capability-not-found", "token-not-found", "agent-version-not-found", "pin-not-found");
   static final Set<String> CONFLICT =
       Set.of(
           "conflict", "already-terminal", "run-already-terminal", "idempotency-key-body-mismatch",
           "hitl-required", "agent-already-registered", "tool-already-registered",
           "guardrail-already-registered", "flow-already-registered", "conversation-closed",
-          "provider-already-registered", "proposal-invalid-state-transition", "approval-not-decided",
+          "provider-already-registered", "suggested-change-invalid-state-transition", "approval-not-decided",
           "slug-conflict", "project-default-already-exists", "registry-read-only",
           "policy-already-registered", "policy-scope-taken", "policy-scope-changed",
-          "nothing-to-roll-back", "not-pinned", "agent-version-live", "eval-suite-already-registered",
+          "nothing-runs-in-scope", "not-pinned", "agent-version-pinned",
+          "test-set-already-registered",
           "mcp-endpoint-already-registered", "identity-provider-already-registered",
-          "version-already-exists", "eval-run-already-terminal", "approval-already-decided",
-          "judge-class-name-taken", "promotion-superseded", "gate-policy-already-registered",
-          "gate-policy-scope-taken", "gate-policy-scope-changed", "gate-policy-scope-unpinned",
-          "gate-policy-needs-pin", "gate-policy-descendant-unpinned");
+          "version-already-exists", "test-run-already-terminal", "approval-already-decided",
+          "corrector-group-name-taken", "pin-superseded", "release-gate-already-registered",
+          "release-gate-scope-taken", "release-gate-scope-changed", "release-gate-scope-unpinned",
+          "release-gate-needs-pin", "release-gate-descendant-unpinned");
   static final Set<String> INVALID =
       Set.of(
           "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",
           "unresolved-guardrail", "schema-validation-failed", "invalid-agent", "invalid-tool-definition",
           "invalid-schema", "unknown-effect", "invalid-guardrail", "invalid-provider",
-          "provider-config-invalid", "supervisor-header-missing", "scope-invalid");
+          "provider-config-invalid", "scope-invalid");
   static final Map<String, AuthException.Reason> AUTH =
       Map.of(
           "auth-missing", AuthException.Reason.UNAUTHENTICATED,

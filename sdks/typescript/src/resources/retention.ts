@@ -9,7 +9,7 @@ import type { RetentionDomain, RetentionScheduledPage, RetentionSweepResult } fr
  * things is a tombstone; a `retention` policy per domain (published with
  * `policies.author`) sets how long a tombstone stays before a sweep
  * purges it for good. Nothing sweeps on its own: call `sweep` from a
- * schedule. Both need `admin` on the tenant.
+ * schedule. Both need `admin` on the workspace.
  */
 export interface RetentionClient {
   /**

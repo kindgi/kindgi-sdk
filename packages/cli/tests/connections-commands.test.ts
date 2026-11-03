@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-/** `kindgi connections …`: list, get, connect (and its wait), disconnect (and its question). */
+/** `kindgi connections …`: list, get, connect (and its wait), update, disconnect (and its question). */
 
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { KindgiApiError, fromWire } from '@kindgi/client';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { ConnectionsSeam } from '../src/commands/connections.js';
@@ -118,6 +119,35 @@ const ENTRIES = {
   ],
 };
 
+/** The company's connection named `support`, of the account sales@acme.example. */
+const SUPPORT_ID = '5e6f7a88-5555-4e7f-8a81-000000000005';
+const SUPPORT = {
+  ...CONNECTION,
+  connectionId: SUPPORT_ID,
+  owner: { kind: 'company' },
+  account: { id: '2088', label: 'sales@acme.example' },
+  label: 'support',
+};
+/** Another app's company connection, also named `support`. */
+const OTHER_SUPPORT_ID = '6f7a8b99-6666-4f80-9b92-000000000006';
+const OTHER_SUPPORT = {
+  ...SUPPORT,
+  connectionId: OTHER_SUPPORT_ID,
+  app: 'microsoft',
+  account: { id: '3099', label: 'ops@acme.example' },
+};
+
+/** `connections.list` as the server answers it: only what its `app` filter keeps. */
+function listing(
+  rec: ReturnType<typeof recorder>['rec'],
+  rows: readonly { readonly app: string }[],
+): (filter?: { readonly app?: string }) => Promise<unknown> {
+  return async (filter = {}) => {
+    const kept = rows.filter((r) => filter.app === undefined || r.app === filter.app);
+    return rec('list', { data: kept, hasMore: false })(filter);
+  };
+}
+
 /** A waiting connect's seam: a person at the terminal, no real pauses, a clock before the link expires. */
 function waitingSeam(lines: string[], overrides: Partial<ConnectionsSeam> = {}): ConnectionsSeam {
   return {
@@ -192,6 +222,38 @@ describe('kindgi connections list and get', () => {
     expect(out.exitCode).toBe(0);
     expect(out.stdout).toMatch(/LAST USED\s+REMOVED/);
     expect(out.stdout).toContain(removedAt);
+  });
+
+  test("list --table: LABEL first, its account label in its place when it has none; JSON is the wire's", async () => {
+    const { rec } = recorder();
+    const page = { data: [SUPPORT, CONNECTION], hasMore: false };
+    const out = await run(['connections', 'list', '--table'], {
+      connections: { list: rec('list', page) },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    const [header, , labelled, unlabelled] = out.stdout.split('\n');
+    expect(header).toMatch(/^LABEL\s+ID\s+APP\s+ACCOUNT\s+OWNER/);
+    expect(labelled).toMatch(
+      new RegExp(`^support\\s+${SUPPORT_ID}\\s+google\\s+sales@acme\\.example`),
+    );
+    expect(unlabelled).toMatch(
+      new RegExp(`^ana@acme\\.example\\s+${CONNECTION_ID}\\s+google\\s+ana@acme\\.example`),
+    );
+    const json = await run(['connections', 'list'], { connections: { list: rec('list', page) } });
+    expect(JSON.parse(json.stdout)).toEqual(page);
+  });
+
+  test("list --table marks a person's main connection after its label, as `(main)`", async () => {
+    const { rec } = recorder();
+    const page = { data: [{ ...CONNECTION, main: true }, SUPPORT], hasMore: false };
+    const out = await run(['connections', 'list', '--table'], {
+      connections: { list: rec('list', page) },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    const [, , main, other] = out.stdout.split('\n');
+    expect(main).toMatch(new RegExp(`^ana@acme\\.example \\(main\\)\\s+${CONNECTION_ID}\\s`));
+    expect(other).toMatch(new RegExp(`^support\\s+${SUPPORT_ID}\\s`));
+    expect(other).not.toContain('(main)');
   });
 
   // An empty filter read as left out would list every project's or every app's connections.
@@ -386,6 +448,78 @@ describe('kindgi connections connect', () => {
       `Connected ana@acme.example at google (connection ${CONNECTION_ID}).\n`,
     );
     expect(out.stderr).toBe('');
+  });
+
+  describe("a person's second connection: which of theirs their agents use", () => {
+    const done = { ...REQUEST, state: 'connected', connectionId: CONNECTION_ID };
+    // Another of Ana's, through the same registration in the same env.
+    const work = { ...CONNECTION, connectionId: SUPPORT_ID, label: 'work' };
+    const elsewhere = {
+      ...CONNECTION,
+      connectionId: '9a8b7c66-6666-4d5e-8f90-000000000006',
+      envName: 'staging',
+      main: true,
+    };
+    const connectWith = (list: () => Promise<unknown>) => {
+      const { calls, rec, seq } = recorder();
+      return {
+        calls,
+        out: run(
+          ['connections', 'connect', 'google', '--permissions=gmail.send'],
+          {
+            connections: {
+              connect: rec('connect', REQUEST),
+              getRequest: seq('getRequest', [REQUEST, done]),
+              get: rec('get', CONNECTION),
+              list,
+            },
+          },
+          waitingSeam([]),
+        ),
+      };
+    };
+
+    test('their main says it is, and how to make this one main instead', async () => {
+      const filters: unknown[] = [];
+      const { out } = connectWith(async (...args: unknown[]) => {
+        filters.push(args[0]);
+        return { data: [CONNECTION, { ...work, main: true }, elsewhere], hasMore: false };
+      });
+      const said = await out;
+      expect(said.exitCode, said.stderr).toBe(0);
+      expect(filters).toEqual([{ app: 'google', owner: 'me' }]);
+      expect(said.stderr).toBe(
+        `work is your main connection at google, the one your agents use when no choice names another: \`kindgi connections update ${CONNECTION_ID} --main\` makes this one your main.\n`,
+      );
+    });
+
+    test('several and none main says their calls stop until one is, or a choice names one', async () => {
+      const { out } = connectWith(async () => ({
+        data: [CONNECTION, work, elsewhere],
+        hasMore: false,
+      }));
+      const said = await out;
+      expect(said.exitCode, said.stderr).toBe(0);
+      expect(said.stderr).toBe(
+        'You have 2 connections at google and none is your main, so a call of your agents that needs one stops with connection-not-chosen until you make one your main, or a choice names one: `kindgi connections update <connection> --main`.\n',
+      );
+    });
+
+    test('their first says nothing, and a list that fails adds nothing: the connect still succeeded', async () => {
+      for (const list of [
+        async () => ({ data: [CONNECTION, elsewhere], hasMore: false }),
+        async () => {
+          throw new Error('the list failed');
+        },
+      ]) {
+        const said = await connectWith(list).out;
+        expect(said.exitCode, said.stderr).toBe(0);
+        expect(said.stdout).toBe(
+          `Connected ana@acme.example at google (connection ${CONNECTION_ID}).\n`,
+        );
+        expect(said.stderr).toBe('');
+      }
+    });
   });
 
   test('a company connection says so', async () => {
@@ -604,6 +738,344 @@ describe('kindgi connections connect', () => {
         'The app granted less than asked: not gmail.readonly. Tools that need those ask to connect again.\n',
       );
     });
+  });
+});
+
+describe('kindgi connections connect --label and --reconnect', () => {
+  test('--label goes on the connect as the name asked for', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      ['connections', 'connect', 'google', '--permissions=gmail.send', '--label=support'],
+      { connections: { connect: rec('connect', REQUEST) } },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['connect', { app: 'google', permissions: ['gmail.send'], label: 'support' }],
+    ]);
+  });
+
+  test("--reconnect by name: looked up among the owner's own at the app, sent as its id", async () => {
+    const mine = recorder();
+    const out = await run(
+      [
+        'connections',
+        'connect',
+        'google',
+        '--permissions=gmail.send',
+        '--reconnect=ana@acme.example',
+      ],
+      {
+        connections: {
+          list: listing(mine.rec, [CONNECTION]),
+          connect: mine.rec('connect', REQUEST),
+        },
+      },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(mine.calls).toEqual([
+      ['list', { app: 'google', owner: 'me' }],
+      ['connect', { app: 'google', permissions: ['gmail.send'], reconnects: CONNECTION_ID }],
+    ]);
+
+    const company = recorder();
+    const theirs = await run(
+      [
+        'connections',
+        'connect',
+        'google',
+        '--permissions=gmail.send',
+        '--for-company',
+        '--reconnect=support',
+      ],
+      {
+        connections: {
+          list: listing(company.rec, [SUPPORT, OTHER_SUPPORT]),
+          connect: company.rec('connect', REQUEST),
+        },
+      },
+    );
+    expect(theirs.exitCode, theirs.stderr).toBe(0);
+    expect(company.calls).toEqual([
+      ['list', { app: 'google', ownerKind: 'company' }],
+      [
+        'connect',
+        { app: 'google', permissions: ['gmail.send'], for: 'company', reconnects: SUPPORT_ID },
+      ],
+    ]);
+  });
+
+  test('--reconnect by id is sent as it is, without a lookup', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      ['connections', 'connect', 'google', '--permissions=gmail.send', `--reconnect=${SUPPORT_ID}`],
+      { connections: { connect: rec('connect', REQUEST) } },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['connect', { app: 'google', permissions: ['gmail.send'], reconnects: SUPPORT_ID }],
+    ]);
+  });
+
+  test('--label with --reconnect is refused before any call: a reconnect keeps its name', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      [
+        'connections',
+        'connect',
+        'google',
+        '--permissions=gmail.send',
+        '--label=support',
+        `--reconnect=${SUPPORT_ID}`,
+      ],
+      { connections: { connect: rec('connect', REQUEST) } },
+    );
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain(
+      'a reconnect keeps its name (`kindgi connections update` renames it)',
+    );
+    expect(calls).toEqual([]);
+  });
+
+  test('a connection-not-found for the reconnect names --reconnect', async () => {
+    const out = await run(
+      ['connections', 'connect', 'google', '--permissions=gmail.send', `--reconnect=${SUPPORT_ID}`],
+      {
+        connections: {
+          connect: async () => {
+            throw new KindgiApiError(
+              fromWire(
+                {
+                  code: 'connection-not-found',
+                  message: 'No such connection to reconnect',
+                  details: { field: 'reconnects' },
+                },
+                404,
+              ),
+            );
+          },
+        },
+      },
+    );
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe('Error [not-found]: --reconnect: No such connection to reconnect\n');
+  });
+
+  test('the finish names the label first, then whose account at which app', async () => {
+    const done = { ...REQUEST, state: 'connected', connectionId: SUPPORT_ID };
+    const said = async (connection: Record<string, unknown>, state = done) => {
+      const { rec } = recorder();
+      return run(
+        ['connections', 'connect', 'google', '--permissions=gmail.send', '--for-company'],
+        {
+          connections: {
+            connect: rec('connect', REQUEST),
+            getRequest: rec('getRequest', state),
+            get: rec('get', connection),
+          },
+        },
+        waitingSeam([]),
+      );
+    };
+    expect((await said(SUPPORT)).stdout).toBe(
+      `Connected support (sales@acme.example at google, company) (connection ${SUPPORT_ID}).\n`,
+    );
+    expect((await said({ ...SUPPORT, owner: CONNECTION.owner })).stdout).toBe(
+      `Connected support (sales@acme.example at google) (connection ${SUPPORT_ID}).\n`,
+    );
+    // A label that is its account's own is said once.
+    expect((await said({ ...SUPPORT, label: 'sales@acme.example' })).stdout).toBe(
+      `Connected sales@acme.example at google, the company's account (connection ${SUPPORT_ID}).\n`,
+    );
+    const partial = { ...done, state: 'declined', missing: ['gmail.readonly'] };
+    expect((await said(SUPPORT, partial)).stdout).toBe(
+      `Connected support (sales@acme.example at google, company) (connection ${SUPPORT_ID}), with less than asked.\n`,
+    );
+  });
+});
+
+describe('kindgi connections update', () => {
+  async function rename(
+    argv: readonly string[],
+    rows: readonly { readonly connectionId: string; readonly app: string }[],
+  ) {
+    const r = recorder();
+    const byId = new Map(rows.map((c) => [c.connectionId, c] as const));
+    const out = await run(['connections', 'update', ...argv], {
+      connections: {
+        list: listing(r.rec, rows),
+        get: async (id: string) => r.rec('get', byId.get(id))(id),
+        update: async (id: string, input: { label: string }) =>
+          r.rec('update', { ...byId.get(id), label: input.label })(id, input),
+      },
+    });
+    return { out, calls: r.calls };
+  }
+
+  test('by id: no lookup; says the old name and the new', async () => {
+    const { out, calls } = await rename([CONNECTION_ID, '--label=ana'], [CONNECTION]);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['get', CONNECTION_ID],
+      ['update', CONNECTION_ID, { label: 'ana' }],
+    ]);
+    expect(out.stderr).toBe(`Renamed ana@acme.example to ana (connection ${CONNECTION_ID}).\n`);
+    expect(JSON.parse(out.stdout)).toMatchObject({ connectionId: CONNECTION_ID, label: 'ana' });
+  });
+
+  test('by its label, any case; by its account label only when it has no label', async () => {
+    const rows = [SUPPORT, CONNECTION];
+    const byLabel = await rename(['Support', '--label=helpdesk'], rows);
+    expect(byLabel.out.exitCode, byLabel.out.stderr).toBe(0);
+    expect(byLabel.calls).toEqual([
+      ['list', {}],
+      ['update', SUPPORT_ID, { label: 'helpdesk' }],
+    ]);
+    expect(byLabel.out.stderr).toBe(`Renamed support to helpdesk (connection ${SUPPORT_ID}).\n`);
+
+    const byAccount = await rename(['ana@acme.example', '--label=ana'], rows);
+    expect(byAccount.calls.at(-1)).toEqual(['update', CONNECTION_ID, { label: 'ana' }]);
+
+    // support's account is sales@acme.example, but it's named support.
+    const named = await rename(['sales@acme.example', '--label=sales'], rows);
+    expect(named.out.exitCode).toBe(2);
+    expect(named.out.stderr).toContain('No connection is named "sales@acme.example"');
+    expect(named.calls).toEqual([['list', {}]]);
+  });
+
+  test('a name several connections have is refused, listing them; --app narrows it', async () => {
+    const rows = [SUPPORT, OTHER_SUPPORT];
+    const both = await rename(['support', '--label=helpdesk'], rows);
+    expect(both.out.exitCode).toBe(2);
+    expect(both.out.stderr).toContain('"support" names 2 connections:');
+    expect(both.out.stderr).toContain(
+      `  support  sales@acme.example at google, company  ${SUPPORT_ID}\n`,
+    );
+    expect(both.out.stderr).toContain(
+      `  support  ops@acme.example at microsoft, company  ${OTHER_SUPPORT_ID}\n`,
+    );
+    expect(both.out.stderr).toContain('--app=<app> narrows it; or pass the connection id.');
+    expect(both.calls).toEqual([['list', {}]]);
+
+    const narrowed = await rename(['support', '--app=microsoft', '--label=helpdesk'], rows);
+    expect(narrowed.out.exitCode, narrowed.out.stderr).toBe(0);
+    expect(narrowed.calls).toEqual([
+      ['list', { app: 'microsoft' }],
+      ['update', OTHER_SUPPORT_ID, { label: 'helpdesk' }],
+    ]);
+  });
+
+  test('a name none has is refused, saying how to list them', async () => {
+    const none = await rename(['nobody', '--label=x'], [SUPPORT]);
+    expect(none.out.exitCode).toBe(2);
+    expect(none.out.stderr).toContain(
+      'No connection is named "nobody". `kindgi connections list` shows them; pass a connection id instead.',
+    );
+    const at = await rename(['support', '--app=microsoft', '--label=x'], [SUPPORT]);
+    expect(at.out.stderr).toContain(
+      'No connection at microsoft is named "support". `kindgi connections list --app=microsoft` shows them',
+    );
+    expect(at.calls).toEqual([['list', { app: 'microsoft' }]]);
+  });
+
+  test('the lookup reads every page', async () => {
+    const { calls, rec, seq } = recorder();
+    const out = await run(['connections', 'update', 'support', '--label=helpdesk'], {
+      connections: {
+        list: seq('list', [
+          { data: [CONNECTION], hasMore: true, nextCursor: 'c2' },
+          { data: [SUPPORT], hasMore: false },
+        ]),
+        update: rec('update', { ...SUPPORT, label: 'helpdesk' }),
+      },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['list', {}],
+      ['list', { cursor: 'c2' }],
+      ['update', SUPPORT_ID, { label: 'helpdesk' }],
+    ]);
+  });
+
+  test.each([
+    [['support'], 'Missing required flag: --label=<name> or --main'],
+    [['support', '--label='], '--label takes a value'],
+    [['support', '--label=  '], '--label takes a value'],
+    [['--label=helpdesk'], 'connection'],
+    [['support', '--label=helpdesk', '--main'], '--label or --main, one change at a time'],
+  ] as const)('%j is refused before any call', async (argv, said) => {
+    const { out, calls } = await rename(argv, [SUPPORT]);
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain(said);
+    expect(calls).toEqual([]);
+  });
+});
+
+describe('kindgi connections update --main', () => {
+  /** The person's own connections at google: work, their main, and school. */
+  const SCHOOL_ID = '7a8b9cad-7777-4a91-8ca3-000000000007';
+  const WORK = { ...CONNECTION, label: 'work', main: true };
+  const SCHOOL = {
+    ...CONNECTION,
+    connectionId: SCHOOL_ID,
+    label: 'school',
+    account: { id: '1078', label: 'ana@school.acme.example' },
+  };
+
+  test('by name: looked up among your own only, made your main, and said so', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(['connections', 'update', 'school', '--main'], {
+      connections: {
+        list: listing(rec, [WORK, SCHOOL]),
+        update: rec('update', { ...SCHOOL, main: true }),
+      },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['list', { owner: 'me' }],
+      ['update', SCHOOL_ID, { main: true }],
+    ]);
+    expect(out.stderr).toBe(
+      `Made school your main connection at google (connection ${SCHOOL_ID}).\n`,
+    );
+    expect(JSON.parse(out.stdout)).toMatchObject({ connectionId: SCHOOL_ID, main: true });
+  });
+
+  test('by id: read first; the main one already changes nothing, and says so', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(['connections', 'update', CONNECTION_ID, '--main'], {
+      connections: { get: rec('get', WORK), update: rec('update', WORK) },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['get', CONNECTION_ID],
+      ['update', CONNECTION_ID, { main: true }],
+    ]);
+    expect(out.stderr).toBe('work is already your main connection at google: nothing changed.\n');
+  });
+
+  test("the server's refusal, a company connection's here, is said as it gave it", async () => {
+    const out = await run(['connections', 'update', SUPPORT_ID, '--main'], {
+      connections: {
+        get: async () => SUPPORT,
+        update: async () => {
+          throw new KindgiApiError(
+            fromWire(
+              {
+                code: 'bad-input',
+                message:
+                  "The company has no main connection: its agents use the company's through their choices.",
+                details: { field: 'main' },
+              },
+              400,
+            ),
+          );
+        },
+      },
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      "The company has no main connection: its agents use the company's through their choices.",
+    );
   });
 });
 

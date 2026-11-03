@@ -2,10 +2,11 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { type BlockDefinition, settingsSchemaIssues, validateBlock } from '@kindgi/agents';
-import { latestVersion, nextVersion } from '@kindgi/tools';
+import { highestVersion, nextVersion } from '@kindgi/tools';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
-import type { BlockRecord, BlockRegistryBinding } from './block-binding.js';
+import type { PinActor } from './agent-pin-binding.js';
+import type { BlockRecord, BlockRegistryBinding, BlockVersionSource } from './block-binding.js';
 import { firstEnvironmentOf } from './environment-entry.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 
@@ -82,6 +83,10 @@ export interface PublishBlockEditInput {
    * Absent: in the block's project.
    */
   readonly orders?: Pick<EnvironmentOrderBinding, 'orderOf'>;
+  /** Who publishes it, stored with the version. */
+  readonly publishedBy: PinActor;
+  /** Where it comes from, stored with the version: the suggested change. */
+  readonly source: BlockVersionSource;
 }
 
 export type PublishBlockEditOutcome =
@@ -93,7 +98,7 @@ const MAX_TRIES = 100;
 
 /** The block version an edit would publish, numbered `version`; issues when it isn't valid. */
 export async function blockEditDefinition(
-  input: PublishBlockEditInput,
+  input: Pick<PublishBlockEditInput, 'blocks' | 'tenantId' | 'from' | 'edit'>,
   version: string,
 ): Promise<
   | { readonly kind: 'ok'; readonly block: BlockDefinition; readonly latest: BlockRecord | null }
@@ -149,7 +154,7 @@ export async function publishBlockEdit(
   const projectId =
     (await firstEnvironmentOf(input.orders, tenantId, from.projectId)) ?? from.projectId;
   const versions = await allVersions(blocks, tenantId, from.id);
-  const highest = latestVersion(versions) ?? from.version;
+  const highest = highestVersion(versions) ?? from.version;
   let candidate = nextVersion(highest);
   for (let tries = 0; candidate !== undefined && tries < MAX_TRIES; tries++) {
     const checked = await blockEditDefinition(input, candidate);
@@ -158,6 +163,8 @@ export async function publishBlockEdit(
       tenantId,
       projectId,
       block: withCarriedSchema(checked.latest, checked.block),
+      publishedBy: input.publishedBy,
+      source: input.source,
     });
     if (outcome.kind === 'ok') return { kind: 'ok', version: outcome.version };
     if (outcome.kind !== 'already-registered') {

@@ -1,6 +1,6 @@
 # `@kindgi/audit-events`
 
-Type contract for the Kindgi audit log. Defines the `AuditEvent` record every subsystem emits (authorization decisions; secret and env writes, recorded by `@kindgi/api`'s `/v1/secrets` and `/v1/env` routes with the caller and request, never a value; run outcomes, guardrail violations, human-in-the-loop decisions) and `AuditEventBinding`, the tenant-scoped append / query / purge interface that storage adapters implement. Types only; this package has no runtime code.
+Type contract for the Kindgi audit log. Defines the `AuditEvent` record every subsystem emits (authorization decisions; secret and env writes, recorded by `@kindgi/api`'s `/v1/secrets` and `/v1/env` routes with the caller and request, never a value; run outcomes, guardrail violations, human-in-the-loop decisions) and `AuditEventBinding`, the workspace-scoped append / query / purge interface that storage adapters implement. Types only; this package has no runtime code.
 
 ## Purpose
 
@@ -9,8 +9,8 @@ Give the whole system one audit substrate: one record shape, one write surface, 
 ## Exports
 
 - **`AuditEvent`** — one audit record:
-  - `id` — caller-supplied, unique per tenant.
-  - `tenantId`, `projectId?` (absent for tenant-level events), `kind` (open string, e.g. `'authz-decision'`, `'secret-set'`, `'run-outcome'`), `timestamp`.
+  - `id` — caller-supplied, unique per workspace.
+  - `tenantId`, `projectId?` (absent for workspace-level events), `kind` (open string, e.g. `'authz-decision'`, `'secret-set'`, `'run-outcome'`), `timestamp`.
   - `actor` — `<type>:<id>`, e.g. `user:u-1042`, `agent:support-triage`, `user:system` for framework-internal actions. `onBehalfOf?` names the delegating party.
   - `correlationId?`, `runId?`, `agentId?`, `flowId?`, `outcome?`.
   - `payload` — versioned envelope `{ v: 1, doc: … }`; the `doc` shape depends on `kind`.
@@ -40,7 +40,7 @@ async function recordDecision(
   allowed: boolean,
 ): Promise<void> {
   const event: AuditEvent = {
-    id: randomUUID(), // unique per tenant; re-appending the same id is a no-op
+    id: randomUUID(), // unique per workspace; re-appending the same id is a no-op
     tenantId,
     projectId,
     kind: 'authz-decision',

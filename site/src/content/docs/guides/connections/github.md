@@ -44,7 +44,10 @@ GitHub Apps → New GitHub App**
 - **Webhook:** untick **Active**. You turn it on in step 3, with the
   address Kindgi gives you.
 - **Permissions:** what your tools need, such as **Repository → Issues:
-  Read and write**. **Metadata: Read-only** comes with every app.
+  Read and write**. For a project's repo connection, which opens a draft
+  pull request when a block change is pinned there, add **Repository →
+  Contents: Read and write** and **Repository → Pull requests: Read and
+  write**. **Metadata: Read-only** comes with every app.
 - **Where can this GitHub App be installed? Only on this account.** Only
   your organization can then install it.
 
@@ -171,7 +174,11 @@ again, the company's calls fail with `connection-missing`.
   installation on that account, the reconnect fails with
   `connection-installation-unreachable`. Choosing an installation on
   another account fails with `connection-account-mismatch`. To connect
-  another account instead, disconnect, then connect again.
+  another account as well, connect again, not as a reconnect, and choose
+  its installation, or install the app there
+  ([4. Install it for the company](#4-install-it-for-the-company)): the
+  company keeps a connection of its own for each account
+  ([Choose a connection](../choose-a-connection/)).
 - **A reconnect asks again for every permission the connection had,** so
   have an owner give the app back what it lost on GitHub first. Until
   then the reconnect is declined, naming what's missing, and the

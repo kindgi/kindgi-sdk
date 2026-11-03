@@ -286,7 +286,7 @@ function missingEnv(names: readonly string[]): DevOutput {
 }
 
 /**
- * The line `kindgi dev` shows when a version made live in the console is
+ * The line `kindgi dev` shows when a version pinned in the console is
  * written into the pack: the block, its version, and the files it went into.
  */
 export function showBlockWritten(write: PackBlockWrite, written: PackBlockWritten): string {
@@ -294,7 +294,7 @@ export function showBlockWritten(write: PackBlockWrite, written: PackBlockWritte
     written.templateFile === undefined
       ? written.file
       : `${written.file} and ${written.templateFile}`;
-  return `✎ ${write.id} ${write.version} made live: written into ${files} (was ${written.replaced})`;
+  return `✎ ${write.id} ${write.version} pinned: written into ${files} (was ${written.replaced})`;
 }
 
 /**

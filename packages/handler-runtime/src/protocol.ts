@@ -42,7 +42,7 @@ export interface PackCallContext {
   readonly idempotencyKey?: string;
   /**
    * The env values the tool declares (`needsSpec.env`), resolved for this
-   * call: project, else org, else tenant (protocol 2.5.0). Strings.
+   * call: project, else org, else workspace (protocol 2.5.0). Strings.
    */
   readonly env?: Readonly<Record<string, unknown>>;
   readonly secrets?: Readonly<Record<string, unknown>>;
@@ -63,12 +63,33 @@ export interface PackCallContext {
    * before 2.8.0 ignores it.
    */
   readonly waitToken?: WaitTokenRef;
+  /**
+   * Where a tool that declares `storesFiles` or `readsFiles` stores and
+   * reads files (protocol 2.10.0): sent only for such a tool, when the
+   * runtime has a file store, and for one that only stores, when the call
+   * has an `idempotencyKey`. Like `secrets`, never logged. The runner keeps
+   * it from the handler, which gets `files`. A pack service from before
+   * 2.10.0 ignores it.
+   */
+  readonly toolFiles?: ToolFilesRef;
 }
 
 /** A wait token: its id, and the link the other system posts its answer to. */
 export interface WaitTokenRef {
   readonly id: string;
   readonly url: string;
+}
+
+/**
+ * A call's tool files (protocol 2.10.0): the link the runner posts each
+ * stored file's bytes to, and under which it gets each read file's bytes
+ * (`<url>/<artifactId>`), and the token it sends in `Authorization`. For
+ * this call only, until its deadline or its answer, and only for what the
+ * tool declares.
+ */
+export interface ToolFilesRef {
+  readonly url: string;
+  readonly token: string;
 }
 
 /** The longest a pause may wait: 24 days, in milliseconds (protocol 2.8.0). */
@@ -307,10 +328,10 @@ export const PACK_HEADERS = {
    */
   traceparent: 'traceparent',
   /**
-   * The tenant the call is for, set by the server from the deployment it
+   * The workspace the call is for, set by the server from the deployment it
    * routed the call to (never copied from a caller), on `/v1/invoke` and
    * `/v1/info`. A pack service with `KINDGI_PACK_TENANT_ID` refuses a call
-   * whose header is missing or names another tenant, with 421. Optional: a
+   * whose header is missing or names another workspace, with 421. Optional: a
    * pack service that doesn't read it ignores it.
    */
   tenantId: 'kindgi-tenant-id',

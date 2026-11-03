@@ -118,6 +118,10 @@ one narrowed to a role or a project, is refused with
 off. API tokens work for the API, the CLI and the SDKs, whatever this
 setting says.
 
+The session ends when its key expires, and when the key is revoked: each
+request on the session checks the key
+([Sessions](../../../guides/sso/sessions/#signing-out)).
+
 The startup output says which ways in the console has. With only the token:
 
 ```text
@@ -533,11 +537,12 @@ as it is.
 
 At most 8 links. A label is 1 to 40 characters once trimmed, isn't only
 digits, and isn't another link's label once trimmed. It can't hold a
-control or format character, such as a bidirectional override or a
-zero-width space, since those can disguise what a label says. Each URL is
-an absolute `https` URL with no username or password in it. With anything
-else, the runtime doesn't start, and says why. Unset, the console
-shows none.
+control, format or invisible character, such as a bidirectional
+override, a zero-width space or a line separator, since those can
+disguise what a label says. An emoji with the variation selector that
+picks its look, such as ✉️ or 1️⃣, is fine. Each URL is an absolute
+`https` URL with no username or password in it. With anything else, the
+runtime doesn't start, and says why. Unset, the console shows none.
 
 The console reads the links once on each page load, from the sign-in
 options, without an email. Sign-in's limit of 30 lookups a minute per

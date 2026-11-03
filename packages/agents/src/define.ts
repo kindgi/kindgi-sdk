@@ -65,6 +65,7 @@ export function defineAgent(spec: DefineAgentSpec): Result<Agent, InvalidAgentEr
     ...validateBudget(spec.budget),
     ...validateConversationPolicy(spec.conversationPolicy, toolIdsOf(spec.tools)),
     ...validateToolErrors(spec.toolErrors),
+    ...validateParallelToolCalls(spec.parallelToolCalls),
   ];
   const output = resolveOutput(spec.output);
   if (output.kind === 'err') issues.push(...output.issues);
@@ -154,7 +155,7 @@ export interface DefineAgentSpec {
    * for an agent that should run on a model that can follow a JSON schema
    * natively (its typed `output` is still checked by parse and repair, on
    * every model). The router uses
-   * the first entry to pick a compatible provider from the tenant's
+   * the first entry to pick a compatible provider from the workspace's
    * `ProviderRegistry`.
    */
   readonly capabilities: Agent['capabilities'];
@@ -203,7 +204,7 @@ export interface DefineAgentSpec {
   readonly parameters?: readonly PromptParameter[];
   /**
    * Preferred model provider by id. Soft hint — the router prefers
-   * this provider when it satisfies `capabilities.needs` + tenant
+   * this provider when it satisfies `capabilities.needs` + workspace
    * policy, falling back to normal capability-based selection when
    * the preferred provider is unregistered or filtered out. Enables
    * A/B'ing agents across providers without churning registrations:
@@ -234,9 +235,21 @@ export interface DefineAgentSpec {
    * the model as the call's result, so it can correct the call, up to
    * `maxRetries` times per turn, for the kinds in `retryOn`. Default:
    * one retry, for `invalid-arguments` and `unknown-tool` (nothing ran).
-   * A tenant's `tool-errors` policy can lower it. See `ToolErrorsSpec`.
+   * A workspace's `tool-errors` policy can lower it. See `ToolErrorsSpec`.
    */
   readonly toolErrors?: ToolErrorsSpec;
+  /**
+   * Whether calls to read-only tools (`mutating: false`, no changing
+   * effect) that a model step asks for one after another run at the same
+   * time, up to 8 at once. A call to a read-only tool that pauses or
+   * declares connections runs on its own, since it may wait. Default: on.
+   * `false`: every call runs on its own, in the order the model asked for
+   * them. Either way, a step's results reach the conversation and the
+   * model in that order, and once a call needs a review, the step's calls
+   * that haven't started run one at a time. It doesn't change what the
+   * model may ask for.
+   */
+  readonly parallelToolCalls?: boolean;
   /**
    * Per-conversation behavior — how much history to load, when to
    * gate on HITL, when to auto-close. Every field optional; defaults
@@ -613,6 +626,11 @@ function validateToolErrors(toolErrors: DefineAgentSpec['toolErrors']): Issue[] 
     : checked.issues.map((i) => ({ path: `/toolErrors${i.path}`, message: i.message }));
 }
 
+function validateParallelToolCalls(value: unknown): Issue[] {
+  if (value === undefined || typeof value === 'boolean') return [];
+  return [{ path: '/parallelToolCalls', message: 'parallelToolCalls must be true or false' }];
+}
+
 /** The agent's tool ids, when its `tools` is a list of refs (else nothing to check keys against). */
 function toolIdsOf(tools: unknown): ReadonlySet<string> | undefined {
   if (!Array.isArray(tools)) return undefined;
@@ -904,5 +922,6 @@ function buildAgent(spec: DefineAgentSpec, output: AgentOutputSpec | undefined):
         ...(spec.toolErrors.retryOn !== undefined && { retryOn: [...spec.toolErrors.retryOn] }),
       },
     }),
+    ...(spec.parallelToolCalls !== undefined && { parallelToolCalls: spec.parallelToolCalls }),
   };
 }

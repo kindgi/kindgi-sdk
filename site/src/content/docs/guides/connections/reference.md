@@ -15,12 +15,40 @@ sidebar:
 - **Removed:** its token is withdrawn and destroyed. The record stays, with
   who removed it, when and why.
 
-Each person or company has one live connection per registration and
-environment. A person's connection serves every project the registration
-allows.
+The company and each person keep one live connection per account,
+registration and environment, which serves every project the registration
+allows. So either can have several of one app, each with its own name: the
+company's `support@acme.example` and `sales@acme.example` at Google, say,
+or a person's work and home accounts. A connect that lands on an account
+its owner already has reconnects that connection when the grant keeps
+every permission it holds, and the connection keeps its name and gains
+what was allowed. One of a person's connections through a
+registration in an environment is their **main**, the one their agents use
+when no choice names another. When there are several, the run's mail, a
+choice or a person's main says which one a call uses
+([Choose a connection](../choose-a-connection/)).
 
-Only a connection's owner and your workspace's admins can see it or remove
-it. Registering an app is for workspace admins only.
+Each connection has a name, its `label`, that people know it by. It's the
+name given at the connect, or else the account's, such as an email address.
+Its owner or a workspace admin can change it
+(`PATCH /v1/connections/{connectionId}`). A name is 1 to 100 characters
+once spaces at either end are trimmed, with no control, format or invisible
+character, such as a bidi override, a zero-width joiner or a line
+separator, and no variation selector except in an emoji. So a typed name
+with a joined emoji such as 👩‍💻 is refused, while ✉️ and 1️⃣ are fine. A
+name taken from the account loses those characters and is cut to 100. One
+owner's live connections to an app in an environment each have their own
+name, whatever the case, an emoji's variation selector or how accented
+letters are encoded. A new connection whose name was taken in the meantime
+gets the first free number after it, such as `ana@acme.com 2`. A reconnect
+keeps the name. A connection made before connections had names has none,
+and shows its account.
+
+Only a connection's owner and your workspace's admins can see, rename or
+remove it. A project's members see the names of the company's connections
+it can use, so they can tell them apart
+([Who sees what](../choose-a-connection/#who-sees-what)). Registering an app
+is for workspace admins only.
 
 ## Where the token is kept
 
@@ -37,7 +65,120 @@ it. Registering an app is for workspace admins only.
 
 A token goes only into the one call that needs it: never into a run's
 journal, a log, an approval or an error. The journal records which
-connection and account a call used.
+connection and account a call used
+([What a run records](#what-a-run-records)).
+
+## What a run records
+
+Each call that runs on a connection records it in the run's journal,
+under the tool's name for the connection: its `connectionId`, `app`,
+`appName` and `account`, and for the company's connection, its `name`.
+The company's `account` is `{ "id", "label" }`. A person's is `{ "id" }`
+only: the runtime keeps a person's account by its id, never its label. The
+record also says how the connection was picked, as `pick`:
+
+```json excerpt
+"mailbox": {
+  "connectionId": "0b6f3a52-…",
+  "app": "google",
+  "appName": "Google",
+  "account": { "id": "…", "label": "support@acme.example" },
+  "name": "support",
+  "pick": {
+    "by": "choice",
+    "choiceId": "5d1c9e07-…",
+    "as": "company",
+    "registration": { "id": "1a2b3c4d-…", "name": "Google (1a2b3c4d)" }
+  }
+}
+```
+
+A person's, for a call that named one of the five accounts in its tool's
+set ([Read several accounts with one tool](../choose-a-connection/#read-several-accounts-with-one-tool)):
+
+```json excerpt
+"calendar": {
+  "connectionId": "3c7e1f90-…",
+  "app": "google",
+  "appName": "Google",
+  "account": { "id": "…" },
+  "pick": {
+    "by": "named",
+    "choiceId": "6a9b2c4d-…",
+    "as": "person",
+    "setSize": 5,
+    "registration": { "id": "1a2b3c4d-…", "name": "Google (1a2b3c4d)" }
+  }
+}
+```
+
+- **`by`** is how it was picked
+  ([Which connection a call uses](../choose-a-connection/#which-connection-a-call-uses)):
+  - `mailbox`: the mailbox the run's mail came to, the company's or the
+    person's.
+  - `named`: the connection of the tool's set that the call named, with
+    the set's `choiceId`.
+  - `choice`: a choice, with its `choiceId`: the tool's, else the agent's
+    or flow's, the company's or the person's own. With a set, it's the
+    set's default, which a call that named none got.
+  - `only`: the project's only company candidate.
+  - `main`: the person's main connection
+    ([A person's accounts](../choose-a-connection/#a-persons-accounts)).
+  - `own`: the person's only connection of the app.
+- **`as`** is whose connection the call needed: `company`, or `person`,
+  the run's person.
+- **`setSize`**, with a set, is how many connections it holds. It counts a
+  person's set, and never names the others.
+- **`registration`** is the registration the connection came through,
+  `{ "id", "name" }`. Its name is its label, which
+  `kindgi connection-apps list --table` shows, else its app's name and the
+  first 8 characters of its id, as above.
+
+`pick` names registrations only, never a person's connection names or
+accounts. Records from older runtimes have no `pick`, or a `pick` without
+`as` and `setSize`, and keep a person's account label as it was recorded.
+
+In the console, a run's page words this record under **What happened**,
+below each tool call that ran, in an agent's turn or a flow's tool step:
+
+```text
+Ran on the company's Google connection "support", the mailbox the run's mail came to.
+Ran on the company's Google connection "support", chosen for it.
+Ran on the company's Google connection "support", the default of the set chosen for it.
+Ran on the company's Google connection "support", which the call named from its set.
+Ran on the company's Google connection "support", the project's only one.
+Ran on their Google connection whose mailbox the run's mail came to.
+Ran on their Google connection chosen for it.
+Ran on their Google connection, the default of a set of 5 chosen for it.
+Ran on one of 5 of their Google connections, which the call named from their set.
+Ran on their main Google connection.
+Ran on their only Google connection.
+Ran on a connection to Google.
+```
+
+The first five are the company's, and the next six a person's, by `by`
+and `setSize`. When you're the run's person, "their" reads "your". "Chosen
+for it" links to the choice, when you can read it. The last line is for a
+record without `pick`. A record without `as` reads as it did before: `own`
+as a person's, one with a `name` as the company's, and any other as the
+last line. A call that didn't run, such as one an approval turned down,
+has no line. A call that ran has a line for each connection it ran on, but
+in a record without `pick` the connections of one app share one line.
+These lines name a person's connection by its app only, and a set's by how
+many it holds, never which.
+
+The page tells that a call ran from the call's result, so two cases come
+out wrong. In a turn that's still running, or that failed, it has no
+results to read, so a call that the check right before its tool stopped,
+such as with `connection-changed`, still shows its line. And in a turn
+that completed, a call that ran, was refused by the app and then
+couldn't get its connection again shows none.
+
+Anyone with `read` on the project can read the run's journal, and so this
+record: a company connection's account label, and a person's account by
+its id only. What a call took and returned, and what the model wrote, stay
+as the model and the tool made them, so an account a call named can show
+there.
 
 ## Renewal
 
@@ -155,7 +296,24 @@ already gone at the app, so Kindgi only destroys the stored token.
   and the run acts as nobody: a service account's run, or an event's.
 - **`connection-missing`:** the connection isn't there, lacks a
   permission, or needs reconnecting, and the run can't wait for its owner.
-  The error names the app and what's missing.
+  The error names the app and what's missing. A company connection that's
+  there but can't serve the call is named too, a person's by the tool's
+  name for it, and the call never falls back to another one. A name in
+  `accounts` that the tool's set doesn't have fails the call the same way,
+  and so does one of the set once the tool's version no longer takes a
+  set, without repeating the name
+  ([Read several accounts with one tool](../choose-a-connection/#read-several-accounts-with-one-tool)).
+- **`connection-not-chosen`:** the call needs a company connection, the
+  project has several of the app, and the agent or flow has no choice of
+  one. The run fails, naming them. Or the call needs a person's
+  connection, they have several of the app and none is their main, and
+  they have no choice of one: the run fails, counting them, not naming
+  them
+  ([When none is chosen](../choose-a-connection/#when-none-is-chosen)).
+- **`connection-changed`:** the call's connection changed while it waited,
+  such as for its approval, so it didn't run. The model reads that, and
+  the turn goes on
+  ([When the connection changes](../choose-a-connection/#when-the-connection-changes)).
 - **`connection-declined`:** the person declined, or didn't allow a
   permission the call needs.
 - **`connection-timed-out`:** nobody connected before the wait ran out.

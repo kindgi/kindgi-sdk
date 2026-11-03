@@ -193,6 +193,7 @@ function runtime(
         data: [{ name: 'ACME_REGION', value: 'eu', revision: 1, updatedAt: 'x' }],
       })),
       delete: record('env.delete', () => ({ deleted: true })),
+      listCloudSecrets: record('env.listCloudSecrets', () => ({ data: [] })),
     },
     providers: {
       register: record('providers.register', (input) => ({
@@ -352,7 +353,7 @@ describe('kindgi secrets: --env naming a pack environment, on a runtime that kee
     ]);
     expect(missing.exitCode).toBe(2);
     expect(missing.stderr).toBe(
-      'The pack\'s environment staging-1: No project of this tenant has the slug "acme-staging-1". `kindgi projects list` shows them; pass a project id instead.\n',
+      'The pack\'s environment staging-1: No project of this workspace has the slug "acme-staging-1". `kindgi projects list` shows them; pass a project id instead.\n',
     );
     expect(sentTo(none, 'secrets.set')).toEqual([]);
     const two = runtime(REFUSES, [
@@ -472,7 +473,7 @@ describe('kindgi env: --env naming a pack environment, on a runtime that keeps i
       await cli(rt, ['env', 'pull', '--env=staging-1', '--quiet']),
     ];
     for (const out of done) expect([out.exitCode, out.stdout, out.stderr]).toEqual([0, '', '']);
-    for (const op of ['env.set', 'env.list', 'env.delete']) {
+    for (const op of ['env.set', 'env.list', 'env.delete', 'env.listCloudSecrets']) {
       expect(sentTo(rt, op)).toEqual(
         op === 'env.list' ? [AT_STAGING_1, AT_STAGING_1] : [AT_STAGING_1],
       );
@@ -489,6 +490,7 @@ describe('kindgi env: --env naming a pack environment, on a runtime that keeps i
       '--scope=project',
       '--quiet',
     ]);
+    // The woocommerce starter's connect-store script reads the old value from these words.
     expect([refused.exitCode, refused.stdout, refused.stderr]).toEqual([
       1,
       '',

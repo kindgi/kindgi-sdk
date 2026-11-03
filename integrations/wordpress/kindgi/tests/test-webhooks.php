@@ -150,4 +150,23 @@ function test_webhooks_an_older_woocommerce_listing_every_webhook_still_shows_on
 	kindgi_test_store_webhooks();
 	$GLOBALS['kindgi_test']['webhooks_ignore_status'] = true;
 	kindgi_assert_same( array( 3 ), array_column( Kindgi_Webhooks::off(), 'id' ), 'not the active one to Kindgi' );
+	kindgi_assert_same( 1, Kindgi_Webhooks::on(), 'not the turned-off ones' );
+}
+
+function test_webhooks_counts_only_kindgis_that_woocommerce_delivers(): void {
+	kindgi_assert_same( 0, Kindgi_Webhooks::on(), 'none yet' );
+	kindgi_test_store_webhooks();
+	kindgi_assert_same( 1, Kindgi_Webhooks::on(), "the active one to Kindgi, not the one turned off or the ERP's" );
+	$GLOBALS['kindgi_test']['webhooks'][6] = new Kindgi_Test_Webhook( 6, 'Order updated → ERP', 'https://erp.acme.example/inbound/updates', 'active' );
+	kindgi_assert_same( 1, Kindgi_Webhooks::on(), "still not the ERP's" );
+}
+
+function test_webhooks_counts_the_paused_kindgis_apart(): void {
+	kindgi_assert_same( 0, Kindgi_Webhooks::paused(), 'none yet' );
+	kindgi_test_store_webhooks();
+	$GLOBALS['kindgi_test']['webhooks'][7] = new Kindgi_Test_Webhook( 7, 'Order refunded → Kindgi', KINDGI_TEST_RECEIVE . '-refunded', 'paused' );
+	$GLOBALS['kindgi_test']['webhooks'][8] = new Kindgi_Test_Webhook( 8, 'Order updated → ERP', 'https://erp.acme.example/inbound/updates', 'paused' );
+	kindgi_assert_same( 1, Kindgi_Webhooks::paused(), "Kindgi's, not the ERP's" );
+	kindgi_assert_same( 1, Kindgi_Webhooks::on(), 'not counted as on' );
+	kindgi_assert_same( array( 3 ), array_column( Kindgi_Webhooks::off(), 'id' ), 'nor as off' );
 }

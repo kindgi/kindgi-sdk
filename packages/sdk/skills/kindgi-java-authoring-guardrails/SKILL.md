@@ -6,17 +6,17 @@ description: >
   `public static final` field, a `(config, trace)` check returning a
   `CheckResult`, `RunTrace`, config records and the values a check runs
   with, actions, severity and scope, unit tests with `evaluate`, and wiring
-  a guardrail onto an agent. In 0.1 only the halt action acts (retry /
-  escalate / compensate are only recorded: nothing runs the turn again), and
-  a check sees only the current turn: its user message and tool results, not
-  earlier turns'. Load this whenever you are authoring or editing code in a
-  Java pack's guardrails packages (a pack whose `kindgi.config.json` says
-  `"language": "java"`), defining a check, or wiring a guardrail onto an
-  agent. Java agents are covered by kindgi-java-authoring-agents, Java tools
-  by kindgi-java-authoring-tools.
+  a guardrail onto an agent. halt fails the turn and retry sends the answer
+  back to the model for a new one (escalate / compensate are only recorded
+  in 0.1), and a check sees only the current turn: its user message and tool
+  results, not earlier turns'. Load this whenever you are authoring or
+  editing code in a Java pack's guardrails packages (a pack whose
+  `kindgi.config.json` says `"language": "java"`), defining a check, or
+  wiring a guardrail onto an agent. Java agents are covered by
+  kindgi-java-authoring-agents, Java tools by kindgi-java-authoring-tools.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.2"
+version: "0.1.5"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -42,6 +42,8 @@ class in a `guardrails` package. For an agent turn, the runtime evaluates
 every guardrail the agent lists once, on the final answer, before it is
 stored.
 
+`Guardrail.define` has no field for the other points a guardrail can run at (`at`, and a check's `points`), so a Java guardrail runs at the final answer only; the points are documented at https://docs.kindgi.com/v0.3/guides/guardrails/configure-a-guardrail/#where-in-the-turn-it-runs.
+
 Ask what the rule should catch before writing one. The sample
 `response-not-empty` guardrail is a demonstration, not a template.
 
@@ -50,14 +52,20 @@ Ask what the rule should catch before writing one. The sample
 Read this before you plan a guardrail. Three limits decide what can be
 built:
 
-- **Only `halt` acts.** A failed `halt` guardrail fails the turn with
-  `guardrail-violation`, and the answer is not stored. `retry`, `escalate`
-  and `compensate` are recorded on the turn's violations, as `log-only`
-  is, and the turn completes: nothing runs the turn again, escalates or
-  calls a compensating tool. So "block the reply and make the agent try
-  again" can't be a guardrail. Use `halt`: the error names the guardrail
-  and the check's reason, and the message is sent again (by the person, or
-  by your app when it gets `guardrail-violation`).
+- **`halt` and `retry` act.** A failed `halt` guardrail fails the turn with
+  `guardrail-violation`, and the answer is not stored. A failed `retry`
+  guardrail sends the answer back to the model, with the check's reason in a
+  user message, for a new one; the failed answer isn't stored. When it has
+  failed `retry.maxAttempts` answers (the first one included; 2 when left
+  out), the turn fails with `guardrail-violation` and
+  `details.attempts`. Each new answer is a model call that the agent's
+  `budget.maxSteps` counts. The `halt` and `retry` guardrails judge each
+  answer, a judge's calls included, which `budget.maxCostUsd` doesn't count;
+  the others judge only the answer that's sent. A new answer can call tools
+  again, side-effecting ones included, with approvals as usual. `escalate`
+  and `compensate` are recorded on the turn's violations, as `log-only` is,
+  and the turn completes: nothing escalates or calls a compensating tool. So
+  "block the reply and make the agent try again" is a `retry` guardrail.
 - **A check sees one turn.** The trace holds the current turn only: its
   user message (`trace.userInput()`), its tool calls and their results
   (`toolCalls()`, `toolResults()`) and its answer (`output()`). Earlier
@@ -155,11 +163,12 @@ public final class Citations {
   builder refuses a check with neither.
   - In an agent turn, a failed `halt` guardrail fails the turn
     (`guardrail-violation`), and the answer is not stored.
+  - A failed `retry` guardrail sends the answer back for a new one, up to
+    its `maxAttempts` answers (above).
   - Any other action reports the failure in the turn result's `violations`,
     and the turn completes.
-  - In 0.1 the runtime acts only on `halt`: `retry`, `escalate` and
-    `compensate` are recorded on the violation, with no second attempt,
-    escalation or compensating call.
+  - `escalate` and `compensate` are recorded on the violation, with no
+    escalation or compensating call in 0.1.
 - **`severity`:** `info`, `warn`, `error` (default) or `critical`. It's
   independent of the action: dashboards group by severity, and execution
   follows the action.
@@ -168,7 +177,12 @@ public final class Citations {
   `flows` and `tenants` lists.
 - **`name`:** a display name. **`checkId`:** defaults to the id.
 - **`kind`:** `zero-llm`, the default: a check over the trace, which is what
-  a pack writes.
+  a pack writes. `llm-judge`: a model judges the turn against the rubric in
+  `config` (`set("config", Map.of("rubric", "..."))`), and the check is never
+  called. It costs model calls and needs **`judgeCapabilities(...)`**, what
+  the judge model is routed by (`Map.of("needs", List.of(Map.of("feature",
+  "structured-output")))`); `check(...)` refuses an llm-judge guardrail
+  without it.
 - `set("sandbox" | "limits" | "network", …)` are recorded in the index.
 
 ## Testing
@@ -229,8 +243,9 @@ no registered guardrail fails the turn before the model is called
 2. **`set("config", …)` keyed by Java names.** It's keyed like the wire: the
    record's Jackson names.
 3. **No `onViolation` or `action`.** The builder refuses the check.
-4. **Expecting another attempt.** `halt` stops the turn, and in 0.1 `retry`
-   doesn't run the turn again: it's only recorded.
+4. **Expecting `halt` to try again.** `halt` stops the turn; `retry` asks
+   the model for a new answer, and fails the turn once its `maxAttempts`
+   answers have failed.
 5. **Calling a model from the check.** That isn't available: keep checks
    pure.
 6. **Throwing for a broken rule.** Return `CheckResult.fail(…)`. An

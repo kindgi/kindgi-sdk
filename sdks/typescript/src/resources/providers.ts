@@ -2,14 +2,14 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Providers — tenant-mutable model-routing catalog. CRUD.
+ * Providers — workspace-mutable model-routing catalog. CRUD.
  *
  * @wire /v1/providers/*  (packages/api/src/routes/providers.ts)
  * @generated Wire shapes from `../generated/api.js`.
  *
  * Distinct from `client.adapters` (deployment-wired infrastructure
  * inventory, read-only + smoke-test): adapters = static deployment
- * inventory; providers = dynamic tenant catalog.
+ * inventory; providers = dynamic workspace catalog.
  */
 
 import type {
@@ -54,8 +54,10 @@ export interface ProvidersClient {
   /**
    * What would keep the runtime from building a registered provider, by its
    * adapter's own check of its stored registration (static: no network, no
-   * secret read). `checked: false` when the runtime has no check for its
-   * adapter. A runtime older than this route answers 404.
+   * secret read). `warnings` lists the `adapter_config` keys its adapter
+   * doesn't take, which it builds without reading. `checked: false` when
+   * the runtime has no check for its adapter and the adapter declares no
+   * keys. A runtime older than this route answers 404.
    */
   check(providerId: string): Promise<ProviderCheck>;
   /** @wire POST /v1/providers/:providerId/unregister */

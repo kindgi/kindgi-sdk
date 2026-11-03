@@ -7,9 +7,10 @@ package com.kindgi.pack.scaladsl
 class ConnectionsSuite extends munit.FunSuite {
   test("a connection is readable by its name, and printing the context never shows its token") {
     val mail: ToolConnection =
-      new ToolConnection("c-1", "google", "Google", "ya29.acme-token", new ConnectionAccount("g-1", "ana@acme.example"), null)
+      new ToolConnection("c-1", "google", "Google", "ya29.acme-token", new ConnectionAccount("g-1", "ana@acme.example"), "Ana's mail", null)
     val ctx: ToolContext = com.kindgi.pack.ToolContext.forTest(java.util.Map.of("mail", mail))
     assertEquals(ctx.connections().get("mail").account().label(), "ana@acme.example")
+    assertEquals(ctx.connections().get("mail").name(), "Ana's mail")
     assert(!ctx.toString.contains("ya29"), ctx.toString)
   }
 

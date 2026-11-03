@@ -289,8 +289,8 @@ describe("@kindgi/sdk/client — a comparison's typed result", () => {
   });
 
   it('preserves the comparison result types across the facade', () => {
-    expectTypeOf<import('@kindgi/sdk/client').JudgedComparisonResult>().toEqualTypeOf<
-      import('@kindgi/client').JudgedComparisonResult
+    expectTypeOf<import('@kindgi/sdk/client').CorrectedComparisonResult>().toEqualTypeOf<
+      import('@kindgi/client').CorrectedComparisonResult
     >();
     expectTypeOf<import('@kindgi/sdk/client').ComparisonMetric>().toEqualTypeOf<
       import('@kindgi/client').ComparisonMetric

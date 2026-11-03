@@ -47,7 +47,14 @@ function approval(id: string, approver?: UserId, createdAt = '2026-10-22T08:00:0
     }),
   } as unknown as Approval;
 }
-const APPROVALS = [approval('appr-open'), approval('appr-owner', OWNER)];
+// The open one acts with a company connection: shown, and anyone of the rank decides it.
+const APPROVALS = [
+  {
+    ...approval('appr-open'),
+    connection: { app: 'acme', appName: 'Acme', account: 'support@acme.example', name: 'support' },
+  },
+  approval('appr-owner', OWNER),
+];
 /** Each approval's exact `createdAt`, as the binding gives it for a cursor. */
 const exactOf = (rows: readonly Approval[]) =>
   Object.fromEntries(
@@ -210,6 +217,37 @@ describe('one approval, and its audit bundle: its approver and the tenant admin'
     expect((await h.call(who, 'GET', '/v1/approvals/appr-open')).status).toBe(200);
   });
 
+  test('one with a company connection shows it, named, addressed to no one', async () => {
+    const answer = await harness().call(OTHER, 'GET', '/v1/approvals/appr-open');
+    expect(answer.json).not.toHaveProperty('approver');
+    expect(answer.json.connection).toEqual({
+      app: 'acme',
+      appName: 'Acme',
+      account: 'support@acme.example',
+      name: 'support',
+    });
+    const owners = await harness().call(OWNER, 'GET', '/v1/approvals/appr-owner');
+    expect(owners.json.connection).toEqual({
+      app: 'acme',
+      appName: 'Acme',
+      account: 'owner@acme.example',
+    });
+  });
+
+  test("one with a person's connection says whose, and names no account", async () => {
+    const theirs = {
+      ...approval('appr-person', OWNER),
+      connection: { app: 'acme', appName: 'Acme', as: 'person' },
+    } as Approval;
+    const answer = await harness({ pages: [[theirs]] }).call(OWNER, 'GET', '/v1/approvals');
+    expect(answer.status).toBe(200);
+    expect((answer.json.data as { connection?: unknown }[])[0]?.connection).toEqual({
+      app: 'acme',
+      appName: 'Acme',
+      as: 'person',
+    });
+  });
+
   test('its audit bundle: not found for another reviewer; past that check for its approver', async () => {
     const h = harness();
     const other = await h.call(OTHER, 'POST', '/v1/approvals/appr-owner/audit-bundle', {});
@@ -256,5 +294,22 @@ describe('decided: by its approver alone', () => {
     const h = harness();
     await h.call(OTHER, 'POST', '/v1/approvals/appr-open/complete', { decision: 'approve' });
     expect(h.submitted).toEqual([{ reviewerId: `rev-${OTHER}` }]);
+  });
+});
+
+describe('its approver, their id in another case: a seed user id an older version kept in upper case', () => {
+  const UPPER = OWNER.toUpperCase();
+
+  test('sees it, in the list and alone, with no tenant-admin check', async () => {
+    const h = harness();
+    expect(await h.listed(UPPER)).toEqual(['appr-open', 'appr-owner']);
+    expect((await h.call(UPPER, 'GET', '/v1/approvals/appr-owner')).status).toBe(200);
+    expect(h.adminChecks).toEqual([]);
+  });
+
+  test('decides it', async () => {
+    const h = harness();
+    await h.call(UPPER, 'POST', '/v1/approvals/appr-owner/complete', { decision: 'approve' });
+    expect(h.submitted).toEqual([{ reviewerId: `rev-${UPPER}` }]);
   });
 });

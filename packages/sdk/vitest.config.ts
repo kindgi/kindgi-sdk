@@ -8,11 +8,12 @@ export default defineConfig({
     include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
     environment: 'node',
     testTimeout: 30_000,
-    // tests/webhook-events.test.ts runs the repo's
-    // scripts/gen-webhook-event-shapes.mjs by path, not by import, so
-    // `vitest --changed` runs this suite when it changes.
+    // tests/webhook-events.test.ts runs the shapes generator's check, which
+    // reads the API's openapi.json by path, so `vitest --changed` runs this
+    // suite when either changes.
     forceRerunTriggers: [
       ...configDefaults.forceRerunTriggers,
+      '**/packages/api/openapi.json',
       '**/scripts/gen-webhook-event-shapes.mjs',
     ],
   },

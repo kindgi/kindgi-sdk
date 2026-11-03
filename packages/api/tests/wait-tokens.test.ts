@@ -65,6 +65,8 @@ interface Options {
   readonly waiting?: () => Promise<readonly WaitingToken[]>;
   readonly grants?: readonly string[];
   readonly resumeThrows?: boolean;
+  /** The resume answers this error, as the runtime's run handler would. */
+  readonly resumeFails?: { readonly code: string; readonly details?: Record<string, unknown> };
   /** The resume runs on and never settles, as a long stretch of the run would. */
   readonly resumeHangs?: boolean;
   /** How the deployment tells clients apart and where it counts them (`webhookReceiver`'s). */
@@ -117,6 +119,10 @@ function harness(options: Options = {}) {
     resumeRun: async ({ runId }: { runId: RunId }) => {
       resumed.push(runId);
       if (options.resumeThrows === true) throw new Error('the resume broke');
+      if (options.resumeFails !== undefined) {
+        const { code, details } = options.resumeFails;
+        return { kind: 'err', error: { code, message: code, ...(details && { details }) } };
+      }
       if (options.resumeHangs === true) return new Promise(() => {});
       current = { ...run, status: 'completed', output: ANSWER };
       return { kind: 'ok', runId };
@@ -178,6 +184,13 @@ function harness(options: Options = {}) {
   return { app, run, completed, resumed, asked, lines, answer, resume };
 }
 
+/** The log's lines about a resume after an answer: their level, message and code. */
+const resumeLines = (lines: readonly string[]) =>
+  lines
+    .map((l) => JSON.parse(l) as { level: string; message: string; code?: string })
+    .filter((l) => l.message.startsWith('resume after a wait token answer'))
+    .map(({ level, message, code }) => ({ level, message, code }));
+
 const errorOf = async (res: Response) =>
   ((await res.json()) as { error: { code: string; message: string; details?: unknown } }).error;
 
@@ -207,6 +220,36 @@ describe('the link', () => {
     await vi.waitFor(() =>
       expect(h.lines.some((l) => l.includes('resume after a wait token answer failed'))).toBe(true),
     );
+  });
+
+  test('a resume that finds the run still held is a timing, at info; a lease lost after the resume took the run is a warning', async () => {
+    const held = harness({
+      resumeFails: { code: 'run-lease-lost', details: { runId: 'r', held: true } },
+    });
+    expect((await held.answer(JSON.stringify(ANSWER))).status).toBe(200);
+    await vi.waitFor(() => expect(resumeLines(held.lines)).toHaveLength(1));
+    expect(resumeLines(held.lines)).toEqual([
+      {
+        level: 'info',
+        message: 'resume after a wait token answer: the run is still held, and goes on there',
+        code: 'run-lease-lost',
+      },
+    ]);
+
+    const lost = harness({ resumeFails: { code: 'run-lease-lost', details: { runId: 'r' } } });
+    expect((await lost.answer(JSON.stringify(ANSWER))).status).toBe(200);
+    await vi.waitFor(() => expect(resumeLines(lost.lines)).toHaveLength(1));
+    expect(resumeLines(lost.lines)).toEqual([
+      { level: 'warn', message: 'resume after a wait token answer failed', code: 'run-lease-lost' },
+    ]);
+
+    // `held` on another code isn't the timing: still a warning.
+    const other = harness({
+      resumeFails: { code: 'run-journal-unavailable', details: { held: true } },
+    });
+    expect((await other.answer(JSON.stringify(ANSWER))).status).toBe(200);
+    await vi.waitFor(() => expect(resumeLines(other.lines)).toHaveLength(1));
+    expect(resumeLines(other.lines)[0]).toMatchObject({ level: 'warn' });
   });
 
   test("answers at once, while the run's resume goes on behind the answer", async () => {
@@ -416,6 +459,20 @@ describe('POST /v1/runs/{runId}/resume with a pause', () => {
       }),
     ]);
     expect(h.resumed).toEqual([h.run.runId]);
+  });
+
+  test('a resume that finds the run still held logs at info, as on the link', async () => {
+    const h = harness({
+      resumeFails: { code: 'run-lease-lost', details: { runId: 'r', held: true } },
+    });
+    await h.resume({ waitpointId: PAUSE_ID, value: ANSWER });
+    expect(resumeLines(h.lines)).toEqual([
+      {
+        level: 'info',
+        message: 'resume after a wait token answer: the run is still held, and goes on there',
+        code: 'run-lease-lost',
+      },
+    ]);
   });
 
   test('no value is {}, as an empty body on the link; a null is the answer, as on the link', async () => {

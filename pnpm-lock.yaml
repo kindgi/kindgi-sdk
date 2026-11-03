@@ -193,6 +193,9 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.68.0
         version: 0.68.0(zod@4.6.5)
+      '@kindgi/adapter-model-shared':
+        specifier: workspace:*
+        version: link:../model-shared
       '@kindgi/capabilities':
         specifier: workspace:*
         version: link:../../capabilities
@@ -200,9 +203,6 @@ importers:
         specifier: workspace:*
         version: link:../../types
     devDependencies:
-      '@kindgi/adapter-model-shared':
-        specifier: workspace:*
-        version: link:../model-shared
       '@types/node':
         specifier: ^22.10.5
         version: 22.20.3
@@ -268,6 +268,9 @@ importers:
       '@google/genai':
         specifier: ^2.24.0
         version: 2.24.0(supports-color@10.2.2)
+      '@kindgi/adapter-model-shared':
+        specifier: workspace:*
+        version: link:../model-shared
       '@kindgi/capabilities':
         specifier: workspace:*
         version: link:../../capabilities
@@ -720,6 +723,9 @@ importers:
 
   packages/connections:
     dependencies:
+      '@kindgi/capabilities':
+        specifier: workspace:*
+        version: link:../capabilities
       '@kindgi/tools':
         specifier: workspace:*
         version: link:../tools
@@ -1109,6 +1115,12 @@ importers:
 
   packages/provenance:
     dependencies:
+      '@kindgi/flow':
+        specifier: workspace:*
+        version: link:../flow
+      '@kindgi/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       '@kindgi/schema':
         specifier: workspace:*
         version: link:../schema

@@ -96,7 +96,7 @@ describe('guardrails.get / list / delete', () => {
     });
 
     const page = await client.guardrails.list({ name: 'acme', limit: 25 });
-    expect(page.items).toHaveLength(1);
+    expect(page.data).toHaveLength(1);
     const url = new URL(stub.calls[0]?.url);
     expect(url.searchParams.get('name')).toBe('acme');
     expect(url.searchParams.get('limit')).toBe('25');

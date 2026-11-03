@@ -5,12 +5,13 @@
  * Where builds and new versions enter an environment order: its first
  * environment only. A later environment takes builds by promotion from
  * the one before it, so nothing runs there that didn't pass through the
- * environments before it. A deploy, a publish through the API and a
- * derived agent version aimed at a later environment are refused with
- * `409 environment-takes-promotions`, before anything is written. A
- * project in no order, or first in its order, takes them as before.
+ * environments before it. A deploy, a publish through the API, a
+ * suggested change and a tool pin aimed at a later environment are
+ * refused with `409 environment-takes-promotions`, before anything is
+ * written. A project in no order, or first in its order, takes them as
+ * before.
  *
- * Eval suites aren't refused: they're test data, published in any
+ * Test sets aren't refused: they're test data, published in any
  * environment, and reached there and in the later ones.
  */
 
@@ -39,7 +40,10 @@ export interface LaterEnvironment {
 export type EnvironmentEntry =
   | { readonly kind: 'deploy' }
   | { readonly kind: 'publish'; readonly noun: string }
-  | { readonly kind: 'derive' };
+  /** A suggested change: its agent version is made where the agent's new versions are. */
+  | { readonly kind: 'suggested-change' }
+  /** A tool pin: it acts where agent and flow versions are made, which is the first environment. */
+  | { readonly kind: 'tool-pin' };
 
 /**
  * Where `projectId` sits when it's a later environment of its order;
@@ -104,7 +108,10 @@ export function environmentTakesPromotionsMessage(
   if (entry.kind === 'publish') {
     return `${rule} Publish the ${entry.noun} in the order's first environment instead: what moves between environments is builds, so a version published through the API stays in the environment it was published in. Nothing was published.`;
   }
-  return `${rule} A new version of an agent is made in the order's first environment, and reaches the later ones when a build of the agent is promoted. Nothing was made.`;
+  if (entry.kind === 'suggested-change') {
+    return `${rule} Suggest the change in the order's first environment instead: a new version of an agent is made there, and reaches the later ones when a build of the agent is promoted. Nothing was made.`;
+  }
+  return `${rule} A tool's pin acts when an agent or flow version is made and locks its tools, and in this order versions are made in the first environment: pin the tool there. Nothing was pinned.`;
 }
 
 /**

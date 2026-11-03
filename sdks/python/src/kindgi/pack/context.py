@@ -13,6 +13,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
 from ..log import Logger, noop_logger
+from .files import FileStore, file_store_from_wire
 
 if TYPE_CHECKING:
     from .define import Tool
@@ -137,6 +138,11 @@ class ToolConnection:
     account: ConnectionAccount
     expires_at: str | None = None
     """When the token expires (ISO 8601), when the app says."""
+    name: str | None = None
+    """The connection's name: its label, else its account's.
+
+    `None` from a runtime before pack protocol 2.11.0.
+    """
 
     @classmethod
     def from_wire(cls, value: Any) -> ToolConnection | None:
@@ -151,6 +157,7 @@ class ToolConnection:
         account_id = cast("Mapping[str, Any]", account).get("id")
         label = cast("Mapping[str, Any]", account).get("label")
         expires_at = raw.get("expiresAt")
+        name = raw.get("name")
         if not isinstance(account_id, str) or not isinstance(label, str):
             return None
         return cls(
@@ -160,6 +167,7 @@ class ToolConnection:
             access_token=cast(str, texts[3]),
             account=ConnectionAccount(id=account_id, label=label),
             expires_at=expires_at if isinstance(expires_at, str) else None,
+            name=name if isinstance(name, str) else None,
         )
 
 
@@ -213,7 +221,7 @@ class ToolContext:
     """Per-call context: who the call is for, its resolved env/secrets/config, its cancellation."""
 
     tenant_id: str
-    """Tenant the call runs for — key per-tenant state by it."""
+    """The workspace the call runs for — key per-workspace state by it."""
     run_id: str
     """The kernel run this call belongs to (an agent turn or a flow step)."""
     request_id: str | None = None
@@ -227,11 +235,11 @@ class ToolContext:
     from input. `None` when the project has no org."""
     env: Mapping[str, Any] = field(default_factory=_empty)
     """The env values the tool declares (`needs_spec["env"]`), by name, resolved for this call:
-    the project's value, else its org's, else the tenant's (a schema `default` when no scope sets
+    the project's value, else its org's, else the workspace's (a schema `default` when no scope sets
     one). Strings. Empty when the tool declares none, and from an older runtime (protocol 2.5.0).
     The pack service's own environment stays in `os.environ`."""
     secrets: Mapping[str, Any] = field(default_factory=_empty, repr=False)
-    """The secrets the tool declares (`needs_spec["secrets"]`), resolved for this call's tenant.
+    """The secrets the tool declares (`needs_spec["secrets"]`), resolved for this call's workspace.
     An optional one (its schema names null: `{"type": ["string", "null"]}`) is absent when the
     env doesn't have it, or has it empty: read it with `.get` (runtime 0.1.6 or later; an older
     runtime requires it). Never in the context's `repr`, so printing a context never prints a
@@ -261,6 +269,16 @@ class ToolContext:
     (`ctx.connections["mail"].access_token`). Empty when the tool declares none, and from a
     runtime before protocol 2.9.0. Never in the context's `repr`. When the app refuses a token
     (a 401), raise `ConnectionRejected("mail")`."""
+    files: FileStore | None = field(default=None, repr=False)
+    """The call's files, for a tool that declares `stores_files=True` or `reads_files=True`.
+    `ctx.files.store(name=…, content_type=…, data=…)` (`store_async` from an async handler)
+    stores a file the tool fetched as a file the call's run owns, and answers its value, to
+    return in the result's top-level `files`, or why nothing was stored; a call has it when its
+    tool stores files and it has an idempotency key (`ctx.files.stores`).
+    `ctx.files.read(artifact_id)` (`read_async`) answers the bytes of a file the call's run may
+    be shown, or why there are none; a call has it when its tool reads files
+    (`ctx.files.reads`). `None` for a tool that declares neither, and from a runtime before
+    pack protocol 2.10.0: return a file's `notShown` as `store` then."""
     _wait_token: WaitToken | None = field(default=None, repr=False)
 
     @property
@@ -323,9 +341,13 @@ class ToolContext:
         log: Logger = noop_logger,
         *,
         pauses: bool = False,
+        stores_files: bool = False,
+        reads_files: bool = False,
     ) -> ToolContext:
         """The context for a protocol v2 `ctx` (`tenantId`, `runId`, …). Its `waitToken` is kept
-        only for a tool that `pauses`."""
+        only for a tool that `pauses`, and its `toolFiles`, as `files`, only for a tool that
+        `stores_files` (on a call with an `idempotencyKey`) or `reads_files`, with what it
+        declares."""
 
         def mapping(key: str) -> Mapping[str, Any]:
             value = ctx.get(key)
@@ -337,11 +359,12 @@ class ToolContext:
             value = ctx.get(key)
             return value if isinstance(value, str) else None
 
+        idempotency_key = text("idempotencyKey")
         return cls(
             tenant_id=str(ctx["tenantId"]),
             run_id=str(ctx["runId"]),
             request_id=text("requestId"),
-            idempotency_key=text("idempotencyKey"),
+            idempotency_key=idempotency_key,
             project_id=text("projectId"),
             org_id=text("orgId"),
             env=mapping("env"),
@@ -351,6 +374,9 @@ class ToolContext:
             cancellation=cancellation,
             log=log,
             connections=_connections(ctx.get("connections")),
+            files=file_store_from_wire(
+                ctx, stores=stores_files and idempotency_key is not None, reads=reads_files
+            ),
             _wait_token=wait_token_from_wire(ctx) if pauses else None,
         )
 

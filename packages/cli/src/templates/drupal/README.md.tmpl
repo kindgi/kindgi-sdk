@@ -190,9 +190,9 @@ set, a client the site refused (`mcp-auth-refused`), or a site whose MCP
 Server shows no tools (step 5). Run the script again whenever you change
 the site's tools.
 
-The endpoint's id, `drupal`, is one name in your tenant, and the script
+The endpoint's id, `drupal`, is one name in your workspace, and the script
 replaces an endpoint that has it. For a second Drupal site in the same
-tenant, give its pack another id: `DRUPAL_ENDPOINT` in `lib/drupal.ts` and
+workspace, give its pack another id: `DRUPAL_ENDPOINT` in `lib/drupal.ts` and
 `ENDPOINT` in `scripts/connect-drupal.mjs` (`drupal-shop`, say), which also
 renames its tools (`drupal-shop.tool_api__…`).
 

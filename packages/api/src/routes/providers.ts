@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 
+import type { AuditEventBinding } from '@kindgi/audit-events';
 import {
   type AdapterConfig,
   type AdapterConfigProblem,
@@ -11,11 +12,14 @@ import {
   type Feature,
   type ModelInfo,
   type ProviderMetadata,
-  isModelThinking,
+  adapterConfigKeyProblems,
+  modelThinkingProblem,
   validateProviderLabels,
 } from '@kindgi/capabilities';
+import { emitAuditEvent } from '@kindgi/compliance';
 import type { Cursor, TenantId } from '@kindgi/types';
 
+import { callerIdentity } from '../caller.js';
 import type { CapabilityDescriptor } from '../capability-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -25,6 +29,7 @@ import type {
   ProviderSecretRef,
 } from '../provider-binding.js';
 import type { SecretUse } from '../provider-keys.js';
+import { RESERVED_SECRET_NAME_PREFIX } from '../secrets-binding.js';
 import { type ServedEnvRule, refuseUnservedReference } from '../served-env.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
@@ -77,9 +82,32 @@ export function providersRouter(
      * (`refuseUnservedReference`). Absent: any env.
      */
     readonly servedEnv?: ServedEnvRule;
+    /**
+     * Where registering and unregistering a provider are recorded, with the
+     * caller as their actor. Absent: neither is.
+     */
+    readonly auditEvents?: AuditEventBinding;
   } = {},
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+
+  /** An audit event for a provider change: its id and adapter, never its key or secret. */
+  async function audit(
+    c: Context<AppEnv>,
+    kind: 'provider-registered' | 'provider-unregistered',
+    doc: Readonly<Record<string, unknown>>,
+  ): Promise<void> {
+    await emitAuditEvent({
+      auditEvents: options.auditEvents,
+      tenantId: c.get('tenantId') as TenantId,
+      kind,
+      actor: callerIdentity(c),
+      outcome: 'succeeded',
+      correlationId: c.get('requestId'),
+      doc,
+      log: c.get('log').child({ subsystem: 'audit' }),
+    });
+  }
   r.use('*', tenantResourceAccess(authorizer));
 
   // ---------- GET / (list, cursor-paginated) ----------
@@ -259,7 +287,13 @@ export function providersRouter(
       ...(secretRefResult.value !== undefined && { secretRef: secretRefResult.value }),
       ...(adapterConfigResult.value !== undefined && { adapterConfig: adapterConfigResult.value }),
     });
-    const problems = [...registrationProblems(bodyObj), ...(adapterProblems ?? [])];
+    // A key the adapter doesn't take is refused here too: a stored one
+    // builds, with a warning, but a new registration needn't carry one.
+    const problems = [
+      ...registrationProblems(bodyObj),
+      ...(adapterProblems?.issues ?? []),
+      ...(adapterProblems?.warnings ?? []),
+    ];
     if (problems.length > 0) {
       c.status(statusFor('provider-config-invalid') as never);
       return c.json(
@@ -341,6 +375,10 @@ export function providersRouter(
         ),
       );
     }
+    await audit(c, 'provider-registered', {
+      providerId: outcome.providerId,
+      adapterId: bodyObj.adapter_id,
+    });
     if (onWrite !== undefined) {
       try {
         await onWrite({ tenantId, providerId: outcome.providerId, kind: 'register' });
@@ -376,7 +414,10 @@ export function providersRouter(
       providerId,
       adapterId: entry.adapterId,
       checked: problems !== undefined,
-      issues: problems ?? [],
+      issues: problems?.issues ?? [],
+      // Keys it builds without reading: apart from `issues`, which stop a build.
+      ...(problems !== undefined &&
+        problems.warnings.length > 0 && { warnings: problems.warnings }),
       // Where its key resolves from, by name only (never a value), so
       // `kindgi dev` can keep a provider's key out of the pack's environment.
       ...(entry.secretRef !== undefined && {
@@ -405,6 +446,7 @@ export function providersRouter(
         ),
       );
     }
+    await audit(c, 'provider-unregistered', { providerId });
     if (onWrite !== undefined) {
       try {
         await onWrite({ tenantId, providerId, kind: 'unregister' });
@@ -469,6 +511,82 @@ function serializeCapability(d: CapabilityDescriptor): Record<string, unknown> {
 /** `metadata.region`: one DNS label (`us-central1`, `eu-west-1`, `global`, `unspecified`). */
 const REGION = /^[a-z][a-z0-9-]{0,62}$/;
 
+/** The fields provider `metadata` takes (`ProviderMetadataSchema`). */
+export const METADATA_FIELDS: readonly string[] = [
+  'id',
+  'region',
+  'models',
+  'defaultModel',
+  'attributes',
+  'description',
+  'capabilityKind',
+  'fallback',
+  'labels',
+];
+
+/** The fields a model in `metadata.models[]` takes (`ModelInfoSchema`). */
+export const MODEL_FIELDS: readonly string[] = [
+  'name',
+  'contextWindow',
+  'features',
+  'cost',
+  'p95LatencyMs',
+  'maxOutputTokens',
+  'sampling',
+  'thinking',
+  'description',
+];
+
+/**
+ * The refusal of the fields provider metadata sets beyond the ones it
+ * takes, or undefined when it sets none (`unknownFields`).
+ */
+function unknownMetadataFields(
+  providerId: string,
+  metadata: Record<string, unknown>,
+): { message: string; reason: string } | undefined {
+  const keys = unknownFields(metadata, METADATA_FIELDS);
+  if (keys.length === 0) return undefined;
+  const which = keys.length === 1 ? "isn't a field" : "aren't fields";
+  return {
+    message: `provider "${providerId}" metadata has ${quoted(keys)}, which ${which} of provider metadata: it takes ${METADATA_FIELDS.join(', ')}`,
+    reason: 'unknown-metadata-field',
+  };
+}
+
+/**
+ * The refusal of the fields a model sets beyond the ones a model takes,
+ * or undefined when it sets none (`unknownFields`).
+ */
+function unknownModelFields(
+  providerId: string,
+  modelName: string,
+  model: Record<string, unknown>,
+): { message: string; reason: string } | undefined {
+  const keys = unknownFields(model, MODEL_FIELDS);
+  if (keys.length === 0) return undefined;
+  const which = keys.length === 1 ? "isn't a model field" : "aren't model fields";
+  return {
+    message: `provider "${providerId}" model "${modelName}" has ${quoted(keys)}, which ${which}: a model takes ${MODEL_FIELDS.join(', ')}`,
+    reason: 'unknown-model-field',
+  };
+}
+
+/**
+ * The keys an object sets beyond the fields it takes. The schema allows
+ * no others, and a misspelled one (`thinkng`) would otherwise be dropped
+ * without a word, registering a model without the setting it meant.
+ */
+function unknownFields(value: Record<string, unknown>, fields: readonly string[]): string[] {
+  return Object.keys(value).filter((key) => !fields.includes(key));
+}
+
+/** `"a"`, `"a" and "b"`, `"a", "b" and "c"`. */
+function quoted(keys: readonly string[]): string {
+  const all = keys.map((k) => JSON.stringify(k));
+  return all.length === 1 ? (all[0] as string) : `${all.slice(0, -1).join(', ')} and ${all.at(-1)}`;
+}
+
 function validateProviderMetadata(
   body: unknown,
 ):
@@ -478,6 +596,8 @@ function validateProviderMetadata(
   if (typeof b.id !== 'string' || b.id.length === 0) {
     return { kind: 'err', error: { message: 'metadata.id required', reason: 'empty-id' } };
   }
+  const unknownMetadata = unknownMetadataFields(b.id, b);
+  if (unknownMetadata !== undefined) return { kind: 'err', error: unknownMetadata };
   if (typeof b.region !== 'string' || b.region.length === 0) {
     return {
       kind: 'err',
@@ -613,6 +733,8 @@ function validateModelInfo(
       },
     };
   }
+  const unknownModel = unknownModelFields(providerId, m.name, m);
+  if (unknownModel !== undefined) return { kind: 'err', error: unknownModel };
   if (
     typeof m.contextWindow !== 'number' ||
     m.contextWindow <= 0 ||
@@ -707,11 +829,12 @@ function validateModelInfo(
       },
     };
   }
-  if (m.thinking !== undefined && !isModelThinking(m.thinking)) {
+  const thinking = m.thinking === undefined ? undefined : modelThinkingProblem(m.thinking);
+  if (thinking !== undefined) {
     return {
       kind: 'err',
       error: {
-        message: `provider "${providerId}" model "${m.name}" thinking must be { mode: 'adaptive' | 'always', lowest: <the vendor's setting> }`,
+        message: `provider "${providerId}" model "${m.name}" thinking ${thinking}`,
         reason: 'invalid-thinking',
       },
     };
@@ -738,7 +861,12 @@ function validateModelInfo(
     ...(m.maxOutputTokens !== undefined && { maxOutputTokens: m.maxOutputTokens }),
     ...(m.sampling !== undefined && { sampling: m.sampling }),
     ...(m.thinking !== undefined && {
-      thinking: { mode: m.thinking.mode, lowest: m.thinking.lowest },
+      thinking: {
+        mode: m.thinking.mode,
+        lowest: m.thinking.lowest,
+        ...(m.thinking.levels !== undefined && { levels: m.thinking.levels }),
+        ...(m.thinking.default !== undefined && { default: m.thinking.default }),
+      },
     }),
     ...(m.description !== undefined && { description: m.description }),
   };
@@ -777,31 +905,55 @@ function costExtraRates(
 }
 
 /**
- * What's wrong with a registration, by its adapter's own static check
- * (`AdapterFactoryEntry.checkConfig`): no network, no secret read.
+ * What's wrong with a registration, read statically: no network, no secret
+ * read. `issues` stop the runtime building it: its adapter's own check
+ * (`AdapterFactoryEntry.checkConfig`), or an adapter the deployment doesn't
+ * have. `warnings` are the `adapter_config` keys its adapter doesn't take
+ * (`adapterConfigKeyProblems`): it builds without reading them.
  * `undefined` when there's nothing to check it with (no factories wired, or
- * an adapter without a check). An adapter the deployment doesn't have is a
- * problem: the runtime could never build the provider.
+ * an adapter with no check and no declared keys).
  */
 function configProblems(
   factories: AdapterFactoryRegistry | undefined,
   registration: ProviderRuntimeEntry,
-): readonly AdapterConfigProblem[] | undefined {
+):
+  | {
+      readonly issues: readonly AdapterConfigProblem[];
+      readonly warnings: readonly AdapterConfigProblem[];
+    }
+  | undefined {
   if (factories === undefined) return undefined;
   const entry = factories.get(registration.adapterId);
   if (entry === undefined) {
-    return [
-      {
-        path: '/adapter_id',
-        message: `This runtime has no adapter "${registration.adapterId}", so it can't build provider "${registration.metadata.id}".`,
-      },
-    ];
+    return {
+      issues: [
+        {
+          path: '/adapter_id',
+          message: `This runtime has no adapter "${registration.adapterId}", so it can't build provider "${registration.metadata.id}".`,
+        },
+      ],
+      warnings: [],
+    };
   }
-  return entry.checkConfig?.({
-    metadata: registration.metadata,
-    ...(registration.adapterConfig !== undefined && { config: registration.adapterConfig }),
-    hasSecretRef: registration.secretRef !== undefined,
-  });
+  if (
+    entry.checkConfig === undefined &&
+    entry.configKeys === undefined &&
+    entry.movedConfigKeys === undefined
+  ) {
+    return undefined;
+  }
+  const issues =
+    entry.checkConfig?.({
+      metadata: registration.metadata,
+      ...(registration.adapterConfig !== undefined && { config: registration.adapterConfig }),
+      hasSecretRef: registration.secretRef !== undefined,
+    }) ?? [];
+  // A key the adapter's own check refuses (openai-compat's bare `extraBody`)
+  // stops the build: it's an issue, not also a key built without reading.
+  const warnings = adapterConfigKeyProblems(entry, registration.adapterConfig).filter(
+    (w) => !issues.some((i) => i.path === w.path),
+  );
+  return { issues, warnings };
 }
 
 /**
@@ -871,7 +1023,8 @@ function parseAdapterConfig(
 /**
  * Parse the optional `secret_ref` on the register request body.
  * Accepts `undefined` (no credential — dev-echo, local models),
- * `{envName: string, name: string}`, or rejects any other shape.
+ * `{envName: string, name: string}`, or rejects any other shape, and a
+ * `name` under the reserved `kindgi.` prefix.
  */
 function parseSecretRef(
   raw: unknown,
@@ -888,6 +1041,12 @@ function parseSecretRef(
   }
   if (typeof r.name !== 'string' || r.name.length === 0) {
     return { kind: 'err', error: '`secret_ref.name` must be a non-empty string.' };
+  }
+  if (r.name.startsWith(RESERVED_SECRET_NAME_PREFIX)) {
+    return {
+      kind: 'err',
+      error: `\`secret_ref.name\` is \`${r.name}\`, under the reserved "${RESERVED_SECRET_NAME_PREFIX}" prefix: those names are Kindgi's own. Store the key under a name of its own.`,
+    };
   }
   return { kind: 'ok', value: { envName: r.envName, name: r.name } };
 }
