@@ -178,7 +178,10 @@ workflow's `publish-maven` job, in the `maven-publish` environment
    kindgi-pack doesn't resolve. It has no environment: npm's approval comes
    up only once Central serves, and a slower Central fails that job before
    it does, so rerunning the failed jobs asks for npm's approval only once.
-   A release that skipped Maven stops there.
+   A request to Central that errors fails that job at once, the same way.
+   If the job reaches its 135-minute limit instead, GitHub cancels it:
+   rerun that job alone (`gh run rerun <run-id> --job <job-id>`), which
+   reruns the jobs after it too. A release that skipped Maven stops there.
 
 The environment holds the Portal user token (`MAVEN_CENTRAL_USERNAME`,
 `MAVEN_CENTRAL_PASSWORD`), the signing key (`MAVEN_GPG_PRIVATE_KEY`,
