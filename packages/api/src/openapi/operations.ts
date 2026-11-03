@@ -13102,7 +13102,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.sites.revokeKey',
     summary: "Revoke one of a site's keys",
     description:
-      "Statements signed with it are refused from now on, and Kindgi won't enroll it again, for this site or another site in the tenant at the same address. The site's live sessions end. Tenant admins only.",
+      "Statements signed with it are refused from now on, and Kindgi won't enroll it again, for this site or another site in the workspace at the same address. The site's live sessions end. Tenant admins only.",
     tags: ['sites'],
     security: 'bearer',
     parameters: [
@@ -13170,7 +13170,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.sites.enroll',
     summary: 'A site posts its public key with its enrollment code',
     description:
-      "Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Once the code checks out, a key this site retired, or another site in the tenant at the same address retired, is refused unless it's live on this site now (`409 site-enrollment-key-retired`), and the code isn't used up. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.",
+      "Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Once the code checks out, a key this site retired, or another site in the workspace at the same address retired, is refused unless it's live on this site now (`409 site-enrollment-key-retired`), and the code isn't used up. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.",
     tags: ['sites'],
     security: 'public',
     requestBody: { required: true, schema: ref('EnrollSiteBody') },
@@ -13184,7 +13184,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '401': ErrorResponse('The code was refused (`site-enrollment-refused`).'),
       '409': ErrorResponse(
-        "The key was retired at this site, or at another site in the tenant at the same address, and it isn't live on this site (`site-enrollment-key-retired`). The code isn't used up.",
+        "The key was retired at this site, or at another site in the workspace at the same address, and it isn't live on this site (`site-enrollment-key-retired`). The code isn't used up.",
       ),
       '413': ErrorResponse('The body is over 4096 bytes (`site-request-too-large`).'),
       '429': ErrorResponse('Too many failures from this client.'),
