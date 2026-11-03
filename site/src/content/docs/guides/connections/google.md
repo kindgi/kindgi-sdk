@@ -56,8 +56,10 @@ In your organization's project:
      counts every permission that reads mail as restricted. For the
      calendar tools, add the ones they need:
      `https://www.googleapis.com/auth/calendar.events.owned.readonly` to
-     list events, `https://www.googleapis.com/auth/calendar.freebusy` for
-     free/busy,
+     list events,
+     `https://www.googleapis.com/auth/calendar.events.readonly` to list
+     events on calendars others share,
+     `https://www.googleapis.com/auth/calendar.freebusy` for free/busy,
      `https://www.googleapis.com/auth/calendar.calendarlist.readonly` to
      list the calendars, and
      `https://www.googleapis.com/auth/calendar.events.owned` to add and

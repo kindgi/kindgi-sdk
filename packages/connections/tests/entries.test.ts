@@ -72,6 +72,15 @@ describe('the Google entry', () => {
     });
   });
 
+  it('reads the events on calendars others share only with a key of its own', () => {
+    expect(google.permissions['calendar.events.readonly']).toEqual({
+      grants: 'https://www.googleapis.com/auth/calendar.events.readonly',
+      says: 'See the events on all your calendars, those others share with you too',
+      changes: false,
+      review: 'sensitive',
+    });
+  });
+
   it('learns the account from the ID token, from either form of the issuer', () => {
     expect(google.account).toEqual({
       kind: 'openid',
@@ -223,6 +232,11 @@ describe('the Microsoft entry', () => {
         grants: 'Calendars.ReadWrite',
         says: 'Read, add and change events on your calendar',
         changes: true,
+      },
+      'calendars.read': {
+        grants: 'Calendars.Read',
+        says: 'See the events on your calendars, with their details, those others share with you too',
+        changes: false,
       },
     });
   });
