@@ -40,9 +40,9 @@ the slash at the end of a page's URL with `.md`.
   change them, and ask before you change anything else. That includes an
   app's `package.json` name (pass `--pack-id` instead), its `zod` version,
   and its package manager's settings, such as pnpm's `minimumReleaseAge`.
-- **The commands run the CLI as `npx --yes @kindgi/cli@0.1` until step 2
+- **The commands run the CLI as `npx --yes @kindgi/cli@0.2` until step 2
   makes a project,** if `node --version` works. For someone using Python
-  without Node, use `uvx --from "kindgi-cli>=0.1,<0.2" kindgi` in its place
+  without Node, use `uvx --from "kindgi-cli>=0.2,<0.3" kindgi` in its place
   (the CLI from PyPI; it needs no Node). From step 2 on, they write
   `pnpm exec kindgi`, run from the project's folder. Use the project's form
   in its place:
@@ -79,7 +79,7 @@ always use the fallback.
 Then run doctor, as a command of its own:
 
 ```sh
-npx --yes @kindgi/cli@0.1 doctor --json
+npx --yes @kindgi/cli@0.2 doctor --json
 ```
 
 Run it like that here and in every later step: nothing before or after it,
@@ -135,8 +135,8 @@ object, whose `ok` is `false` when a check fails; it also exits `1` then
 
 The checks come in this order: `node`, `npm`, `python`, `uv`, `java`,
 `maven`, `sbt`, `docker`, `registry`, `dev-sandbox`, `api-key`,
-`console-sign-in`, `license`, `mcp-headers`, `project`, `dependencies`,
-`model-key`, `runtime`, `provider`, `erasures`.
+`console-sign-in`, `license`, `mcp-headers`, `mcp-env`, `project`,
+`dependencies`, `model-key`, `runtime`, `provider`, `erasures`.
 
 - **`fail`:** run its `fix`, as written: it names the CLI to use in that
   folder. When the fix needs the person (start Docker Desktop, sign in, copy
@@ -146,7 +146,7 @@ The checks come in this order: `node`, `npm`, `python`, `uv`, `java`,
   checks that would send it skip.
 - **`warn`:** it works now, but the person should know: tell them its
   `message` and `fix`, and go on. `ok` stays `true` and the exit code `0`.
-  In this release six checks warn. `dev-sandbox`: when `kindgi dev` can't
+  In this release seven checks warn. `dev-sandbox`: when `kindgi dev` can't
   run the pack's code sandboxed on this machine (Linux without bubblewrap,
   a container, Windows, or inside another sandbox); the code would then run
   with the person's own access. `console-sign-in`: when nobody can sign in
@@ -155,6 +155,9 @@ The checks come in this order: `node`, `npm`, `python`, `uv`, `java`,
   with it, or is signed with a key this CLI doesn't know yet. `mcp-headers`:
   when an MCP endpoint on that runtime keeps a credential in plaintext
   `config.headers`, from before that was refused; it still works.
+  `mcp-env`: when a stdio MCP endpoint on that runtime keeps a credential in
+  plaintext `config.env`, or a `secretRef`, from before that was refused; it
+  still works.
   `model-key`: when the key is in a file the app loads too, where the app's
   routes can read it; the fix gives Kindgi its own copy. `provider`: when an
   agent that names no model would get a model the preset no longer lists, or
@@ -176,22 +179,20 @@ step 1.
 If doctor's `registry` check passes, this machine can already pull the
 runtime: skip this step.
 
-1. Ask the person: "Sign in at https://access.kindgi.com with GitHub. Under
-   **1. Pull the runtime image**, copy the token, and tell me when you're
-   done. Also tell me the robot name in its command, after `--username` (it
-   isn't secret)." If the page doesn't give them a token, stop here until
-   they have one.
-2. When they say they're done, pipe the clipboard into the login, with the
-   robot name they gave you:
+1. Ask the person: "Sign in at https://access.kindgi.com with GitHub or your
+   email address. Under **1. Your license key**, copy the key (it starts with
+   `kgi_lk_`), and tell me when you're done." If the page doesn't give them a
+   key, stop here until they have one.
+2. When they say they're done, pipe the clipboard into the login:
 
    ```sh
-   <read the clipboard> | npx --yes @kindgi/cli@0.1 auth registry --username <robot name> --password-stdin
+   <read the clipboard> | npx --yes @kindgi/cli@0.2 auth registry --password-stdin
    ```
 
    It ends with:
 
    ```text
-   ✓ You can pull quay.io/kindgi/runtime:…@sha256:…, the image this CLI runs.
+   ✓ You can pull registry.kindgi.com/kindgi/runtime:…@sha256:…, the image this CLI runs.
    ```
 
 3. Clear the clipboard, if this OS lets you.
@@ -222,28 +223,28 @@ that uses it, as that page shows. Otherwise:
 
    ```sh
    # TypeScript
-   npx --yes @kindgi/cli@0.1 init my-agents
+   npx --yes @kindgi/cli@0.2 init my-agents
    cd my-agents
    pnpm install     # if pnpm --version works; else: npm install
    ```
 
    ```sh
    # Python (no Node needed)
-   uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-agents --template=python
+   uvx --from "kindgi-cli>=0.2,<0.3" kindgi init my-agents --template=python
    cd my-agents
    uv sync          # brings the CLI too: from now on, uv run kindgi …
    ```
 
    ```sh
    # Java (preview)
-   npx --yes @kindgi/cli@0.1 init my-agents --template=java   # from now on: ./kindgiw …
+   npx --yes @kindgi/cli@0.2 init my-agents --template=java   # from now on: ./kindgiw …
    cd my-agents
    ./mvnw -q test
    ```
 
    ```sh
    # Scala (preview)
-   npx --yes @kindgi/cli@0.1 init my-agents --template=scala   # from now on: ./kindgiw …
+   npx --yes @kindgi/cli@0.2 init my-agents --template=scala   # from now on: ./kindgiw …
    cd my-agents
    sbt -batch test
    ```
@@ -356,7 +357,7 @@ user**, which needs no token: don't print the token in the chat.
    - `--env=local` is the environment the secret belongs to. Under
      `kindgi dev`, `local` is the pack's env files, `.kindgi/secrets.env`
      among them.
-   - `--scope=tenant` is where the secret lives: the tenant, rather than one
+   - `--scope=tenant` is where the secret lives: the workspace, rather than one
      org or project.
    - `--preset=openai` registers OpenAI's models from Kindgi's built-in
      preset, which reads the key from that provider's secret in the table,
@@ -421,12 +422,13 @@ Tell the person, in your own words:
 >
 > 1. **Give it a tool:** ask me "add a tool that looks up an order, and let
 >    the agent call it".
-> 2. **Judge a few answers:** say yes or no to what it answered, so later
->    versions can be checked against your judgments
->    ([Judge a run's output](https://docs.kindgi.com/guides/evals/judge-a-runs-output/)).
+> 2. **Correct a few runs:** say whether what it did and answered was right,
+>    and what was right instead, so later versions can be checked against
+>    your corrections
+>    ([Correct a run's output](https://docs.kindgi.com/guides/improve/correct-a-runs-output/)).
 > 3. **Compare two versions:** change its instructions and see whether people's
->    judgments rate the new version higher
->    ([Compare a version on a test set](https://docs.kindgi.com/guides/evals/compare-an-agent-version/)).
+>    corrections rate the new version higher
+>    ([Try a version on the test cases](https://docs.kindgi.com/guides/improve/compare-an-agent-version/)).
 
 If the person then asks for an app that starts the agent's runs, read
 [Start runs from your app](https://docs.kindgi.com/start/call-from-your-app.md)

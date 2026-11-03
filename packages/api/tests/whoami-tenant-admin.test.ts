@@ -23,6 +23,7 @@ import type {
   RunHandlerBinding,
   Session,
   SessionStoreBinding,
+  TokenAdmin,
   TokenResolution,
 } from '../src/index.js';
 import { createStubAppBindings } from '../src/testing/index.js';
@@ -112,6 +113,19 @@ const directory: IdentityDirectoryBinding = {
   revokeAllSessions: async ({ userId }) => ({ userId, revokedCount: 0 }),
 };
 
+/** The deployment's API keys, each of `KEYS` with an id, live: a token sign-in's session reads its key. */
+const keys: TokenAdmin = {
+  mint: async () => {
+    throw new Error('unused');
+  },
+  list: async () => [],
+  get: async ({ tokenId }) =>
+    Object.values(KEYS).some((key) => key.tokenId === tokenId)
+      ? { tokenId, role: 'admin', capabilities: [], createdAt: new Date() }
+      : undefined,
+  revoke: async () => ({ kind: 'not-found' }),
+};
+
 /**
  * With `admins`, an authorizer: `admin` on the tenant for those users only.
  * `'unreachable'`: an authorizer whose store can't answer (every check throws).
@@ -137,6 +151,7 @@ function makeApp(admins?: readonly UserId[] | 'unreachable') {
     runHandler: {} as RunHandlerBinding,
     sessionStore: sessions(),
     identityDirectory: directory,
+    tokenAdmin: keys,
     session: { ttl: 60 * 60 * 1000, cookie: { allowedOrigins: [CONSOLE] }, tokenSignIn: true },
     ...(admins !== undefined && {
       authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding },

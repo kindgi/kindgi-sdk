@@ -9,7 +9,7 @@ import { type InvokeToolOptions, invokeTool } from './invoke.js';
 import type { Tool, ToolContext } from './types.js';
 
 /**
- * A context for calling a tool in a unit test: tenant `tenant-test`, run `run-test`, a signal
+ * A context for calling a tool in a unit test: workspace `tenant-test`, run `run-test`, a signal
  * that never fires, and whatever you pass over them (`env`, `secrets`, `projectId`, …). The
  * TypeScript counterpart of Python's `ToolContext.for_test`.
  */

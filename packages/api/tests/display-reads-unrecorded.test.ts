@@ -4,7 +4,7 @@
 /**
  * What a response shows the caller about its own access records no
  * decision: whoami's `tenantAdmin`, `/me/permissions`' `tenant.admin` and
- * the judging queue's `can`. A console reads them on every poll, and each
+ * the expert queue's `can`. A console reads them on every poll, and each
  * read left a row in the tenant's access audit: allowed for an admin,
  * refused for everyone else. They're decided as before, through the
  * binding's `probe`. Every check that decides a request is recorded as
@@ -20,9 +20,9 @@ import type { ApiTokenId, ProjectId, SessionId, TenantId, Timestamp, UserId } fr
 
 import { SESSION_TOKEN_PREFIX, createApp } from '../src/index.js';
 import type {
+  ExpertQueueBinding,
+  ExpertQueueItem,
   IdentityDirectoryBinding,
-  JudgingQueueBinding,
-  JudgingQueueItem,
   MyAccessBinding,
   RunHandlerBinding,
   Session,
@@ -232,23 +232,23 @@ const myAccess: MyAccessBinding = {
   read: async () => ({ projects: [], orgs: [], teams: [], capabilities: {} }),
 };
 
-const ITEM: JudgingQueueItem = {
+const ITEM: ExpertQueueItem = {
   runId: 'run-1',
   projectId: PROJECT,
   flowId: 'flow-1',
   runStatus: 'completed',
   completedAt: '2026-10-17T00:00:00.000Z' as Timestamp,
   rules: [],
-  wantedClassIds: [],
-  anyJudgment: false,
-  progress: { total: 0, byClass: [] },
+  wantedGroupIds: [],
+  anyCorrection: false,
+  progress: { total: 0, byGroup: [] },
   addedAt: '2026-10-17T00:00:00.000Z' as Timestamp,
   state: 'open',
-} as unknown as JudgingQueueItem;
+} as unknown as ExpertQueueItem;
 
-const judgingQueue = {
+const expertQueue = {
   listQueue: async () => ({ data: [ITEM], hasMore: false, total: 1 }),
-} as unknown as JudgingQueueBinding;
+} as unknown as ExpertQueueBinding;
 
 function harness(options: { readonly probe?: boolean; readonly unreachable?: boolean } = {}) {
   const s = store(options);
@@ -259,7 +259,7 @@ function harness(options: { readonly probe?: boolean; readonly unreachable?: boo
     sessionStore,
     identityDirectory: directory,
     myAccess,
-    judgingQueue,
+    expertQueue,
     authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding: s.binding },
   });
   /** One request, and the rows it left in the audit. */
@@ -292,10 +292,10 @@ describe('what a response shows the caller about its own access records nothing'
   });
 
   test.each(CALLERS)(
-    "the judging queue's can, for $who: only the list's own check is recorded",
+    "the expert queue's can, for $who: only the list's own check is recorded",
     async (caller) => {
       const h = harness();
-      const r = await h.get(caller.token, `/v1/projects/${PROJECT}/judging-queue`);
+      const r = await h.get(caller.token, `/v1/projects/${PROJECT}/expert-queue`);
       expect(r.status).toBe(200);
       expect(r.body.data[0].can).toEqual({ dismiss: caller.writes, reopen: false });
       // Only the list's own check (`read` on the project) is recorded; the

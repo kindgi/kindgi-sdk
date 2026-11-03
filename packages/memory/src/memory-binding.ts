@@ -24,16 +24,16 @@ import type { RecallHit, SearchConversationsInput } from './recall.js';
  * receive it as `InvokeAgentBindings.memoryBinding`.
  *
  * Contract notes:
- *   - Every method is tenant-scoped via `input.tenantId`. The binding
- *     implementation enforces tenant isolation; callers just supply the
- *     tenant id.
+ *   - Every method is workspace-scoped via `input.tenantId`. The binding
+ *     implementation enforces workspace isolation; callers just supply the
+ *     workspace id.
  *   - Provenance emission is internal to the implementation — the
  *     binding may record provenance events, but the public interface
  *     never accepts or returns a `ProvenanceBuilder`.
  */
 export interface MemoryQueryBinding {
   /**
-   * List facts filtered by tenant, type, and scope, capped by `limit`
+   * List facts filtered by workspace, type, and scope, capped by `limit`
    * (no pagination cursor): each fact's current revision, never one
    * pending review, and only what `readers` may see (the guard, applied
    * in the query before the limit).
@@ -65,7 +65,7 @@ export interface MemoryQueryBinding {
    * `source: 'conversations'`): what `readers` may recall
    * (`isRecallReadableBy`), narrowed by `selections`, newest first
    * (`list`), by full-text rank (`keyword`) or by meaning (`semantic`).
-   * Never a comparison's replay conversation (an eval run's replay turn
+   * Never a comparison's replay conversation (a test run's replay turn
    * opens one): its messages are no one's earlier conversation.
    * Optional: without it, such an intent recalls nothing and its turn
    * journals why. `semantic` without embeddings answers
@@ -98,7 +98,7 @@ export interface ListFactsInput {
   readonly scope?: Partial<MemoryScope>;
   /**
    * What the reader may see (the scope guard), applied inside the query
-   * before any limit. Absent: only tenant-wide facts.
+   * before any limit. Absent: only workspace-wide facts.
    */
   readonly readers?: MemoryReaders;
   readonly limit?: number;
@@ -113,7 +113,7 @@ export interface SearchByKeywordInput {
   readonly scope?: Partial<MemoryScope>;
   /**
    * What the reader may see (the scope guard), applied inside the query
-   * before any limit. Absent: only tenant-wide facts.
+   * before any limit. Absent: only workspace-wide facts.
    */
   readonly readers?: MemoryReaders;
   readonly topK?: number;
@@ -132,7 +132,7 @@ export interface SearchBySemanticInput {
   readonly scope?: Partial<MemoryScope>;
   /**
    * What the reader may see (the scope guard), applied inside the query
-   * before any limit. Absent: only tenant-wide facts.
+   * before any limit. Absent: only workspace-wide facts.
    */
   readonly readers?: MemoryReaders;
   readonly topK?: number;

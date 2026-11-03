@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: packages/cli/src/templates/**
 
 /**
  * C1 — End-to-end integration test for `kindgi init` (augment mode) +
@@ -361,6 +362,7 @@ export async function lookupTool(input: { id: string }): Promise<string> {
           keepIfInstalled: [],
         },
         hasIncludes: false,
+        hasBlocks: false,
       });
       const contextDir = join(workDir, 'context');
       await writeContextReal({
@@ -371,6 +373,7 @@ export async function lookupTool(input: { id: string }): Promise<string> {
         containerfilePath,
         includes: [],
         extensionFiles: [],
+        blockFiles: [],
       });
       const tarPath = join(workDir, 'pack.tgz');
       await tarPackReal({ contextDir, outputPath: tarPath });

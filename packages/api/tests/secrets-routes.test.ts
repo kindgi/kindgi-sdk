@@ -840,6 +840,25 @@ describe('API — DELETE /v1/secrets/:name — soft + hard revoke', () => {
     const body = (await hard.json()) as { revoked: boolean; hard: boolean };
     expect(body.revoked).toBe(true);
     expect(body.hard).toBe(true);
+    expect(body).not.toHaveProperty('recoverableUntil');
+  });
+
+  test('a hard revoke that left a recoverable copy answers until when (recoverableUntil)', async () => {
+    const until = '2026-11-22T21:00:00.000Z';
+    const secrets: SecretBinding = {
+      ...makeInMemorySecretsBinding(),
+      revoke: async () => ({
+        kind: 'ok',
+        value: { revoked: true, hard: true, recoverableUntil: until },
+      }),
+    };
+    const app = makeApp({ secrets });
+    const res = await app.request('/v1/secrets/x?envName=staging&scopeKind=tenant&hard=true', {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${TOKEN_ALL}` },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ revoked: true, hard: true, recoverableUntil: until });
   });
 });
 

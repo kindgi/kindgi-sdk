@@ -64,7 +64,8 @@ export interface AuthClient {
    * the list is empty. `methods` says which ways in the deployment allows
    * (both `false`: nobody can sign in to the console). `legal`, when its
    * operator set them, has its terms and privacy policy for a sign-in page
-   * to link.
+   * to link; `links`, when set, the deployment's own links, in order, for
+   * the console to show on every page.
    * @wire GET /v1/auth/sign-in-options
    */
   signInOptions(input?: { readonly email?: string }): Promise<SignInOptionsResult>;

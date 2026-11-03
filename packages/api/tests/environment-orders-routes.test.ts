@@ -326,12 +326,12 @@ describe('setting an order', () => {
     });
   });
 
-  test('the Default project can be ordered, at any position (an existing workspace puts it last, as prod)', async () => {
-    // Nothing special-cases the Default project — it's a tenant-level project
+  test('the default project can be ordered, at any position (an existing workspace puts it last, as prod)', async () => {
+    // Nothing special-cases the default project — it's a tenant-level project
     // like any other, so a tenant order may list it anywhere. (Refusing a deploy
-    // into it, promoting into it, and keeping its live pins are steps 3/4/5;
-    // step 2 only has to let it be placed in a tenant-level order.)
-    const dflt = p.c; // stands for the tenant's Default project (parent = tenant)
+    // into it, promoting into it and keeping its pins aren't this route's job:
+    // it only has to let it be placed in a tenant-level order.)
+    const dflt = p.c; // stands for the tenant's default project (parent = tenant)
     const h = makeApp({ liveUnder: { [p.a]: 'tenant', [p.b]: 'tenant', [dflt]: 'tenant' } });
     const r = await h.call('/v1/environment-orders/tenant', {
       method: 'PUT',

@@ -122,11 +122,15 @@ class GuardrailViolationError(KindgiApiError):
         *,
         violations: list[Mapping[str, Any]],
         evaluation_errors: list[Mapping[str, Any]],
+        attempts: int | None = None,
         **kw: Any,
     ) -> None:
         super().__init__(message, **kw)
         self.violations = violations
         self.evaluation_errors = evaluation_errors
+        # The answers the turn had when a `retry` guardrail's attempts ran out,
+        # the first one included; `None` when a `halt` guardrail stopped it.
+        self.attempts = attempts
 
 
 class ServerError(KindgiApiError):
@@ -136,32 +140,34 @@ class ServerError(KindgiApiError):
 _NOT_FOUND = {
     "not-found", "run-not-found", "agent-not-found", "tool-not-found", "guardrail-not-found",
     "flow-not-found", "conversation-not-found", "approval-not-found", "reviewer-not-found",
-    "proposal-not-found", "provenance-not-found", "observation-not-found", "blob-not-found",
+    "suggested-change-not-found", "provenance-not-found", "observation-not-found", "blob-not-found",
     "audit-bundle-not-found", "signing-not-configured", "signing-key-not-found",
     "adapter-not-found", "fact-not-found", "identity-user-not-found", "provider-not-found",
-    "capability-not-found", "token-not-found", "agent-version-not-found", "promotion-not-found",
+    "capability-not-found", "token-not-found", "agent-version-not-found", "pin-not-found",
 }  # fmt: skip
 _CONFLICT = {
     "conflict", "already-terminal", "run-already-terminal", "idempotency-key-body-mismatch",
     "idempotency-key-in-flight", "idempotency-key-replay-withheld",
     "hitl-required", "agent-already-registered", "tool-already-registered",
     "guardrail-already-registered", "flow-already-registered", "conversation-closed",
-    "provider-already-registered", "proposal-invalid-state-transition", "approval-not-decided",
+    "provider-already-registered", "suggested-change-invalid-state-transition",
+    "approval-not-decided",
     "slug-conflict", "project-default-already-exists", "registry-read-only",
     "policy-already-registered", "policy-scope-taken", "policy-scope-changed",
-    "nothing-to-roll-back", "not-pinned", "agent-version-live", "eval-suite-already-registered",
+    "nothing-runs-in-scope", "not-pinned", "agent-version-pinned",
+    "test-set-already-registered",
     "mcp-endpoint-already-registered", "identity-provider-already-registered",
-    "version-already-exists", "eval-run-already-terminal", "approval-already-decided",
-    "judge-class-name-taken", "promotion-superseded", "gate-policy-already-registered",
-    "gate-policy-scope-taken", "gate-policy-scope-changed", "gate-policy-scope-unpinned",
-    "gate-policy-needs-pin", "gate-policy-descendant-unpinned", "fact-changed", "legal-hold",
+    "version-already-exists", "test-run-already-terminal", "approval-already-decided",
+    "corrector-group-name-taken", "pin-superseded", "release-gate-already-registered",
+    "release-gate-scope-taken", "release-gate-scope-changed", "release-gate-scope-unpinned",
+    "release-gate-needs-pin", "release-gate-descendant-unpinned", "fact-changed", "legal-hold",
     "erasure-in-progress", "provider-key-in-use",
 }  # fmt: skip
 _INVALID = {
     "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",
     "unresolved-guardrail", "schema-validation-failed", "invalid-agent", "invalid-tool-definition",
     "invalid-schema", "unknown-effect", "invalid-guardrail", "invalid-provider",
-    "guardrail-config-invalid", "provider-config-invalid", "supervisor-header-missing",
+    "guardrail-config-invalid", "provider-config-invalid",
     "scope-invalid", "artifact-too-large", "provider-key-refused",
 }  # fmt: skip
 _AUTH: Mapping[str, Literal["unauthenticated", "forbidden", "token-expired"]] = {
@@ -232,6 +238,7 @@ def from_wire(body: Any, status: int, *, retry_after: str | None = None) -> Kind
             message,
             violations=_list(details.get("violations")),
             evaluation_errors=_list(details.get("evaluationErrors")),
+            attempts=_count(details.get("attempts")),
             **common,
         )
     return ServerError(message, **common)
@@ -274,6 +281,10 @@ def _family(code: str, status: int) -> str:
 
 def _text(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
+
+
+def _count(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def _list(value: Any) -> list[Mapping[str, Any]]:

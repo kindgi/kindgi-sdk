@@ -66,6 +66,7 @@ describe("a run id that isn't one", () => {
     ['GET', '/v1/runs/not-a-uuid/stream'],
     ['GET', '/v1/runs/not-a-uuid/progress/stream'],
     ['POST', '/v1/runs/not-a-uuid/cancel'],
+    ['POST', '/v1/runs/not-a-uuid/resume'],
   ])('%s %s: 400 bad-input, and no query', async (method, path) => {
     const answer = await call(path, method);
     expect(answer.status).toBe(400);
@@ -80,11 +81,6 @@ describe("a run id that isn't one", () => {
     const answer = await call(`/v1/runs/${randomUUID()}`);
     expect(answer.status).toBe(404);
     expect(answer.json.error).toMatchObject({ code: 'run-not-found' });
-  });
-
-  test('resume still answers 422 whatever the id', async () => {
-    const answer = await call('/v1/runs/not-a-uuid/resume', 'POST');
-    expect(answer.status).toBe(422);
   });
 
   test.each([

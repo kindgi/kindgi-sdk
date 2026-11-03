@@ -4,12 +4,20 @@
 import type { Capability } from '@kindgi/capabilities';
 import type { Fact, MemoryScope, RecalledMessage } from '@kindgi/memory';
 import type { ToolErrorsSpec, ToolHitlMode, ToolHitlRule } from '@kindgi/policy-contract';
-import type { Brand, ConversationId, ProjectId, Semver, TenantId, Timestamp } from '@kindgi/types';
+import type {
+  Brand,
+  ConversationId,
+  FileValue,
+  ProjectId,
+  Semver,
+  TenantId,
+  Timestamp,
+} from '@kindgi/types';
 
 import type { AgentDerivation, AgentPins } from './pins.js';
 
 /**
- * Branded agent id. Convention: dotted namespace under the tenant's
+ * Branded agent id. Convention: dotted namespace under the workspace's
  * pack — e.g. `acme.citation-verifier`, `acme.drafting`.
  */
 export type AgentId = Brand<string, 'AgentId'>;
@@ -46,10 +54,17 @@ export interface ConversationMessage {
   readonly role: MessageRole;
   /**
    * Free-form text OR structured content. `string` is the common case
-   * (a chat message); `Record<string, unknown>` supports tool-result
-   * shapes and multi-modal payloads without a v2 bump.
+   * (a chat message); `Record<string, unknown>` holds a tool's result.
    */
   readonly content: string | Readonly<Record<string, unknown>>;
+  /**
+   * Stored files the message carries, for a user message (its run's input
+   * files) or a tool's result: references, never bytes. Each was admitted
+   * by the run's rule when the message was written, with the runtime's own
+   * checked fields. A later turn asks the rule again before its model is
+   * shown one.
+   */
+  readonly files?: readonly FileValue[];
   /**
    * For `role: 'tool'` messages: the tool id and the invocation id
    * that produced this output. Enables provenance edges from the
@@ -102,7 +117,7 @@ export interface PromptParameter {
  *
  * Scope options, each within what the run may see (its project and org,
  * the user it acts for, its conversation and that conversation's end
- * user, and tenant-wide facts; never another conversation's or another
+ * user, and workspace-wide facts; never another conversation's or another
  * end user's):
  *   - `same-conversation`: this conversation's facts.
  *   - `same-user`:         the facts of this run's end user (the
@@ -185,7 +200,7 @@ export interface AgentMemoryPolicy {
  *   - `same-conversation`: this conversation;
  *   - `same-project`:      the run's project (a person approves each
  *                          one first);
- *   - `tenant`:            the whole tenant (a person approves each
+ *   - `tenant`:            the whole workspace (a person approves each
  *                          one first).
  * Each but `tenant` includes the run's project when there is one.
  */
@@ -213,7 +228,7 @@ export interface RememberPolicy {
 /**
  * Typed reference to a tool. Every agent tool binding is `{ id, version }`
  * — no bare-id "latest" shortcut. `version` is a semver **range**
- * (npm-style grammar), resolved at run start against the tenant's tool
+ * (npm-style grammar), resolved at run start against the workspace's tool
  * registry via `semver.maxSatisfying`.
  *
  * Range examples:
@@ -279,7 +294,7 @@ export interface ConversationPolicy {
  * per-tool rule — a mode plus the reviewer role its approvals need
  * (deployments that route "always-ask-financial-tools" through senior
  * reviewers use the rule; a mode alone routes through the agent's
- * `defaultReviewerRole`). Shared with the tenant `hitl` policy, so they
+ * `defaultReviewerRole`). Shared with the workspace `hitl` policy, so they
  * live in `@kindgi/policy-contract`.
  */
 export type { ToolHitlMode, ToolHitlRule } from '@kindgi/policy-contract';
@@ -334,7 +349,7 @@ export interface ConversationHitlPolicy {
   readonly separateApprover?: boolean | SeparateApproverPolicy;
   /**
    * Timeout the approval carries at enqueue time. Absent = the
-   * framework default (24h). A tenant policy's `maxTimeoutMs` caps it
+   * framework default (24h). A workspace policy's `maxTimeoutMs` caps it
    * (see `resolveEffectiveHitlPolicy`).
    */
   readonly timeoutMs?: number;
@@ -355,7 +370,11 @@ export interface ConversationHitlPolicy {
  * timer in `invokeAgent`.
  */
 export interface TurnBudget {
-  /** Maximum model→tool→model iterations per turn. Default 8. */
+  /**
+   * Maximum model→tool→model iterations per turn. Default 8. At most
+   * `AGENT_TURN_LOOP_MAX_ITERATIONS` (32), the most the turn's loop
+   * runs: a higher value acts as 32.
+   */
   readonly maxSteps?: number;
   /** Maximum USD spend per turn, summed over the turn's model calls. */
   readonly maxCostUsd?: number;
@@ -400,7 +419,7 @@ export interface Agent {
   readonly id: AgentId;
   /**
    * Semver — REQUIRED. Distinct from tools' `version` in that agents
-   * are versioned per-tenant (rotate + rollout independently of tool
+   * are versioned per-workspace (rotate + rollout independently of tool
    * versions). `agent_conversations.agentVersion` pins each thread to
    * a specific version; resume-across-version bumps rejects with
    * `agent-version-mismatch`.
@@ -482,22 +501,32 @@ export interface Agent {
    * against the guardrail definitions bound for the run
    * (`GuardrailsBindings.guardrails`, evaluated through its `checks`
    * registry from `@kindgi/guardrails`); an unknown id fails the turn
-   * with `unresolved-guardrail`. Evaluated once per turn, on the final
-   * response before it is stored.
+   * with `unresolved-guardrail`. Each is evaluated where its `at` says:
+   * once per turn, on the final response before it is stored (the
+   * default), or inside the turn's loop, on each tool call before it
+   * runs, each call's result before the model sees it, or each model
+   * reply before its calls run. On the final response, with a `retry`
+   * guardrail, each answer the model finishes is judged on the turn's
+   * `halt` and `retry` guardrails: a `halt` failure fails the turn at
+   * once, and a `retry` failure sends the answer back for a new one, up
+   * to `retry.maxAttempts`; past it, the turn fails with
+   * `guardrail-violation`.
    */
   readonly guardrails: readonly string[];
   /**
    * Preferred model provider by id. Soft hint — the router prefers
    * this provider when it satisfies the agent's `capabilities.needs`,
    * falling back to normal capability-based selection when the
-   * preferred provider is unregistered or filtered out by tenant
+   * preferred provider is unregistered or filtered out by workspace
    * policy. Enables A/B'ing agents across providers without
    * churning provider registrations: register several, pin the agent
    * to the one you want to test.
    *
    * The value is a `ProviderMetadata.id` string (e.g. `'anthropic'`).
    * Use in combination with `preferredModel` for `(provider, model)`
-   * tuple pinning. Unset = capability-match only.
+   * tuple pinning. Unset = capability-match only. A version whose
+   * model-settings block names the model (`providerId`, `model`) sets
+   * neither: the model is named in one place.
    */
   readonly preferredProvider?: string;
   /**
@@ -515,7 +544,8 @@ export interface Agent {
    * The value is a `ModelInfo.name` string (e.g. `'claude-sonnet-5-5'`).
    * Enables model-level A/B'ing under one connection: register
    * Anthropic once with `models: [sonnet, opus, haiku]`, then pin
-   * per-agent.
+   * per-agent. To let an Improve run try other models, name the
+   * model in the model-settings block (`model`) instead: never both.
    */
   readonly preferredModel?: string;
   /**
@@ -544,9 +574,21 @@ export interface Agent {
    * the model as the call's result, so it can correct the call, up to
    * `maxRetries` times per turn, for the kinds in `retryOn`. Default:
    * one retry, for `invalid-arguments` and `unknown-tool` (nothing ran).
-   * A tenant's `tool-errors` policy can lower it. See `ToolErrorsSpec`.
+   * A workspace's `tool-errors` policy can lower it. See `ToolErrorsSpec`.
    */
   readonly toolErrors?: ToolErrorsSpec;
+  /**
+   * Whether calls to read-only tools (`mutating: false`, no changing
+   * effect) that a model step asks for one after another run at the same
+   * time, up to 8 at once. A call to a read-only tool that pauses or
+   * declares connections runs on its own, since it may wait. Default: on.
+   * `false`: every call runs on its own, in the order the model asked for
+   * them. Either way, a step's results reach the conversation and the
+   * model in that order, and once a call needs a review, the step's calls
+   * that haven't started run one at a time. It doesn't change what the
+   * model may ask for.
+   */
+  readonly parallelToolCalls?: boolean;
   /**
    * The exact block versions this agent version runs, resolved by the
    * runtime when the version was published (see `AgentPins`). Never
@@ -564,8 +606,9 @@ export interface Agent {
   readonly settings?: readonly BlockRef[];
   /**
    * A settings block of model settings (`MODEL_SETTINGS_SCHEMA`:
-   * `temperature`, `maxOutputTokens`) the turn's model calls use. Pinned
-   * at publish with the other settings.
+   * `temperature`, `maxOutputTokens`, `thinking`, and the model it
+   * prefers, `providerId` and `model`) the turn's model calls use.
+   * Pinned at publish with the other settings.
    */
   readonly modelSettings?: BlockRef;
   /** `pinsDigest(pins)`, recorded when the version was published. */

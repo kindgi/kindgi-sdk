@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: packages/api/openapi.json packages/sdk/src/webhook-event-shapes.generated.ts
 
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -18,7 +19,7 @@ test('the committed shapes are what the schema generates (check:webhook-shapes)'
 test('every event the API sends, by its type', () => {
   assert.deepEqual(Object.keys(shapesOf(openapi())).sort(), [
     'approval.requested',
-    'improvement-pass.finished',
+    'improve-run.finished',
     'run.finished',
     'webhook.test',
   ]);
@@ -66,7 +67,7 @@ test('a format, a type or a oneOf it cannot check fails the generation', () => {
   schemas(type).FinishedRun.properties.flowVersion.type = ['string', 'integer'];
   assert.throws(() => shapesOf(type), /type \["string","integer"\] isn't one the checker reads/);
   const union = openapi();
-  schemas(union).LiveScope.discriminator = undefined;
+  schemas(union).AgentPinScope.discriminator = undefined;
   assert.throws(() => shapesOf(union), /a oneOf without a discriminator/);
 });
 
@@ -79,9 +80,9 @@ test('a field with no type is any JSON value; a keyword on it fails the generati
   assert.throws(() => shapesOf(doc), /RunFailure\.cause: "minimum" without a type isn't a keyword/);
 });
 
-test("LiveScope's variants are keyed by their kind, and a nullable type is kept nullable", () => {
+test("AgentPinScope's variants are keyed by their kind, and a nullable type is kept nullable", () => {
   const shapes = shapesOf(openapi());
-  const scope = shapes['improvement-pass.finished'].required.data.required.pass.required.scope;
+  const scope = runFields(shapes).optional.agent.optional.pinnedScope;
   assert.equal(scope.kind, 'union');
   assert.deepEqual(Object.keys(scope.variants), ['tenant', 'org', 'project', 'segment']);
   assert.deepEqual(runFields(shapes).required.failureMessage, { kind: 'string', nullable: true });

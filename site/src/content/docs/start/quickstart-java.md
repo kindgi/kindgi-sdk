@@ -18,21 +18,22 @@ still change in a later release without the usual deprecation period.
 
 **Before you start**, set up what the [Install page](../install/) describes:
 Docker, Node 22.12 or later, and access to the runtime image: sign in at
-[access.kindgi.com](https://access.kindgi.com) with GitHub for its pull
-credentials, then log in once with `kindgi auth registry`. You also need a
-JDK 17 or later, with `JAVA_HOME` set to it. Maven comes with the pack.
+[access.kindgi.com](https://access.kindgi.com) with GitHub or your email
+address for a license key, then log in once with `kindgi auth registry`.
+You also need a JDK 17 or later, with `JAVA_HOME` set to it. Maven comes
+with the pack.
 
 ## 1. Create the pack
 
 ```sh tutorial=run
-npx --yes @kindgi/cli@0.1 init my-pack --template=java
+npx --yes @kindgi/cli@0.2 init my-pack --template=java
 cd my-pack
 ./mvnw -q test    # the template's tests: the tools, called directly
 ```
 
-- `npx --yes @kindgi/cli@0.1` runs the newest 0.1 release of the Kindgi CLI,
+- `npx --yes @kindgi/cli@0.2` runs the newest 0.2 release of the Kindgi CLI,
   the line these docs describe, without installing it
-  ([Check this machine](../install/#check-this-machine) says how). `@0.1` is
+  ([Check this machine](../install/#check-this-machine) says how). `@0.2` is
   optional: `npx --yes @kindgi/cli init my-pack --template=java` runs the
   newest release, which may be on a later line than these docs.
 - `init my-pack` makes the pack in a new folder, `my-pack`.
@@ -49,7 +50,7 @@ pass:
 ```
 
 Without Node, run `init` from PyPI instead:
-`uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-pack --template=java`.
+`uvx --from "kindgi-cli>=0.2,<0.3" kindgi init my-pack --template=java`.
 
 The pack is a Maven project. Its config is `kindgi.config.json`; its tools,
 guardrails, agents and flows are classes in four packages:
@@ -233,7 +234,7 @@ provider:
   writes it to Kindgi's own `.kindgi/secrets.env`.
 - `--env=local` is the environment the secret belongs to. Under
   `kindgi dev`, `local` is the pack's env files, that one among them.
-- `--scope=tenant` is where the secret lives: the tenant, rather than one
+- `--scope=tenant` is where the secret lives: the workspace, rather than one
   org (`org:<orgId>`) or project (`project:<projectId>`).
 - `--preset=<preset>` registers the provider's models from Kindgi's built-in
   preset, which reads the `<KEY_NAME>` secret. `kindgi providers presets`

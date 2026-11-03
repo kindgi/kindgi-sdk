@@ -1,24 +1,24 @@
 ---
 title: Set approval rules for every agent
-description: Publish a tenant policy that makes chosen tools ask for approval and raises the reviewer role, whatever each agent says.
+description: Publish a workspace policy that makes chosen tools ask for approval and raises the reviewer role, whatever each agent says.
 sidebar:
   order: 4
 ---
 
-This guide publishes a tenant policy that makes chosen tools ask for
+This guide publishes a workspace policy that makes chosen tools ask for
 approval, and raises the reviewer role, for every agent.
 
 An agent's own `hitl` settings are up to whoever writes the agent. A
-tenant's `hitl` **policy** sets rules every agent is held to: a tool that must
+workspace's `hitl` **policy** sets rules every agent is held to: a tool that must
 always ask, and a lowest reviewer role. A policy can only make an agent
 stricter, never looser.
 
 ## Before you start
 
-- **A runtime,** such as `kindgi dev`, with Kindgi 0.1's CLI.
+- **A runtime,** such as `kindgi dev`, with Kindgi 0.2's CLI.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set in your shell. Policies
-  are published through the HTTP API. With `kindgi dev`, the URL and token
-  are the ones it prints. They're also in the pack's `.kindgirc.json`.
+  are published through the HTTP API. With `kindgi dev`, they're `apiUrl`
+  and `token` in the pack's `.kindgirc.json`.
 - **An agent that calls the tool you gate.** This guide uses
   `acme-ops.status-agent`, which calls `acme-ops.post-update`.
 
@@ -134,7 +134,7 @@ curl -X POST "$KINDGI_API_URL/v1/policies/acme.approval-rules/versions/1.0.0/unr
 {"policyId":"acme.approval-rules","version":"1.0.0","unregistered":true}
 ```
 
-`GET /v1/policies` lists the tenant's policies.
+`GET /v1/policies` lists the workspace's policies.
 [Policies in the HTTP API](../../../reference/api/operations/tags/policies/)
 has every operation.
 

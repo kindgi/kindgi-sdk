@@ -18,6 +18,8 @@ import type {
   DeploymentBinding,
   DeploymentEndpoint,
   EnvBinding,
+  EnvCloudSecretBinding,
+  EnvCloudSecretRecord,
   EnvRecord,
   PackEnvRecordInput,
   RunHandlerBinding,
@@ -112,6 +114,8 @@ function makeApp(
     /** Where values given out are audited: absent, none. */
     readonly audit?: 'ok' | 'refused' | 'throws';
     readonly logger?: Logger;
+    /** A store of the operator's cloud secrets, read with `get`. */
+    readonly cloudSecrets?: boolean;
   } = {},
 ) {
   const withPackEnv = options.withPackEnv ?? true;
@@ -138,6 +142,26 @@ function makeApp(
       return e === envName ? (envRows.get(`${scopeKey(scope)}|${name}`) ?? null) : null;
     },
   } as EnvBinding;
+  const cloudRows = new Map<string, EnvCloudSecretRecord>();
+  const setCloud = (scope: Scope, name: string, cloudSecret: string) => {
+    const at = new Date(clock++).toISOString();
+    const old = cloudRows.get(`${scopeKey(scope)}|${name}`);
+    cloudRows.set(`${scopeKey(scope)}|${name}`, {
+      scope,
+      envName,
+      name,
+      cloudSecret,
+      revision: (old?.revision ?? 0) + 1,
+      createdAt: old?.createdAt ?? at,
+      updatedAt: at,
+      recordId: old?.recordId ?? randomUUID(),
+    });
+  };
+  const cloudSecrets = {
+    async get({ scope, envName: e, name }) {
+      return e === envName ? (cloudRows.get(`${scopeKey(scope)}|${name}`) ?? null) : null;
+    },
+  } as EnvCloudSecretBinding;
   const secretRows = new Map<string, SecretRecord & { readonly value: string }>();
   const secretFaults = new Map<string, SecretError['code']>();
   /** A name whose read the store answers from another scope than the one asked. */
@@ -213,6 +237,9 @@ function makeApp(
   const applied = new Map<string, string>();
   const binding: SystemDeploymentsBinding = {
     async listNeedingEndpoint() {
+      return { kind: 'ok', data: [] };
+    },
+    async listReady() {
       return { kind: 'ok', data: [] };
     },
     async listToRetire() {
@@ -297,6 +324,7 @@ function makeApp(
     imageRegistry: {} as never,
     imagePrefixes: { of: async () => undefined },
     envBinding: env,
+    ...(options.cloudSecrets === true && { envCloudSecrets: cloudSecrets }),
     ...(options.secrets === true && { secretsBinding: secrets }),
     ...(auditEvents !== undefined && { auditEvents }),
     ...(options.logger !== undefined && { logger: options.logger }),
@@ -334,6 +362,7 @@ function makeApp(
     recorded,
     setInputs,
     setEnv,
+    setCloud,
     applied,
     setSecret,
     secretFaults,
@@ -370,6 +399,46 @@ describe('GET /v1/system/tenants/{t}/deployments/{d}/pack-env', () => {
     expect(p.body.env).toEqual({ API_BASE: 'https://acme.test' });
     expect(s.body.revision).toMatch(/^pe1-/);
     expect(s.body.problem).toBeUndefined();
+  });
+
+  test('a name set to a cloud secret is given by its path, beside the values, and moves the revision', async () => {
+    const a = makeApp({ cloudSecrets: true });
+    a.deployments.set('d', deployment('d', staging, ready));
+    const at = { kind: 'project', tenantId: live, projectId: staging } as const;
+    a.setEnv(at, 'API_BASE', 'https://staging.acme.test');
+    const before = await a.call(PACK_ENV, 'GET', valuesPath(live, 'd'));
+    expect(before.body.cloudSecrets).toBeUndefined();
+    const PATH = 'projects/acme-prod/secrets/log-level/versions/2';
+    a.setCloud(at, 'LOG_LEVEL', PATH);
+    const r = await a.call(PACK_ENV, 'GET', valuesPath(live, 'd'));
+    expect(r.status).toBe(200);
+    expect(r.body.problem).toBeUndefined();
+    expect(r.body.env).toEqual({ API_BASE: 'https://staging.acme.test' });
+    expect(r.body.cloudSecrets).toEqual({ LOG_LEVEL: PATH });
+    expect(r.body.revision).not.toBe(before.body.revision);
+  });
+
+  test('a name set as a value and to a cloud secret: ambiguous, and neither is given', async () => {
+    const a = makeApp({ cloudSecrets: true });
+    a.deployments.set('d', deployment('d', staging, ready));
+    const at = { kind: 'project', tenantId: live, projectId: staging } as const;
+    a.setEnv(at, 'API_BASE', 'https://staging.acme.test');
+    a.setCloud(
+      { kind: 'tenant', tenantId: live },
+      'API_BASE',
+      'projects/acme-prod/secrets/b/versions/1',
+    );
+    const r = await a.call(PACK_ENV, 'GET', valuesPath(live, 'd'));
+    expect(r.body.problem).toBe('pack-env-ambiguous');
+    expect(r.body.env).toBeUndefined();
+    expect(r.body.cloudSecrets).toBeUndefined();
+    expect(r.body.names).toContainEqual(
+      expect.objectContaining({
+        name: 'API_BASE',
+        problem: 'ambiguous',
+        cloudSecretScope: { kind: 'tenant' },
+      }),
+    );
   });
 
   test('no values while there is a problem, which names the name', async () => {
@@ -655,6 +724,25 @@ describe('GET /v1/deployments/{id}/pack-env', () => {
       ],
     });
     expect(r.text).not.toContain('hidden.acme.test');
+  });
+
+  test('a name set to a cloud secret: set, by the operator, and never its path', async () => {
+    const a = makeApp({ cloudSecrets: true });
+    a.deployments.set('d', deployment('d', staging, ready));
+    const at = { kind: 'project', tenantId: live, projectId: staging } as const;
+    a.setEnv(at, 'API_BASE', 'https://hidden.acme.test');
+    a.setCloud(at, 'LOG_LEVEL', 'projects/acme-prod/secrets/log-level/versions/2');
+    const r = await a.call(TENANT_KEY, 'GET', '/v1/deployments/d/pack-env');
+    expect(r.status).toBe(200);
+    expect(r.body.data).toContainEqual({
+      name: 'LOG_LEVEL',
+      required: false,
+      kind: 'cloud-secret',
+      scope: { kind: 'project', id: staging },
+      missing: false,
+    });
+    expect(r.text).not.toContain('projects/');
+    expect(r.text).not.toContain('log-level');
   });
 
   test("a server that doesn't run a pack service per deployment: 501 pack-env-not-served", async () => {
@@ -968,6 +1056,7 @@ describe('GET /v1/system/pack-env: a hold the platform fixes', () => {
       ['d-unaudited', 'pack-env-secrets-unaudited', ago(61)],
       ['d-not-yet', 'pack-env-secret-not-yet', ago(1)],
       ['d-too-large', 'pack-env-secret-too-large', ago(1)],
+      ['d-name-too-long', 'pack-env-name-too-long', ago(1)],
       ['d-redeploy', 'pack-env-secret-redeploy', ago(1)],
       ['d-missing', 'pack-env-missing', ago(1)],
     ];

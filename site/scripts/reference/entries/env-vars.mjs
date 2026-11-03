@@ -15,6 +15,9 @@ export const ENV_DEFAULTS = {
   KINDGI_PUBLIC_URL:
     'none: the address the server binds (shown as `http://localhost:<port>` when it binds all interfaces)',
   KINDGI_DATABASE_URL: '`postgres://localhost:5432/kindgi`',
+  KINDGI_DATABASE_SERVER_CA_PATH:
+    "none (with `KINDGI_DATABASE_SERVER_CA` unset): `KINDGI_DATABASE_URL`'s `sslmode` decides",
+  KINDGI_DATABASE_SERVER_CA: 'none: same as `KINDGI_DATABASE_SERVER_CA_PATH`',
   KINDGI_DB_STATEMENT_TIMEOUT_MS:
     '`60000` (60 seconds); `0` turns it off; longer than the lock timeout when both are on',
   KINDGI_DB_LOCK_TIMEOUT_MS:
@@ -86,6 +89,7 @@ export const ENV_DEFAULTS = {
   KINDGI_AUTH_TURNSTILE_SITE_KEY: 'none: no Turnstile widget',
   KINDGI_AUTH_TERMS_URL: 'none: the sign-in page links no terms',
   KINDGI_AUTH_PRIVACY_URL: 'none: the sign-in page links no privacy policy',
+  KINDGI_CONSOLE_LINKS: "none: the console shows no links of the deployment's own",
   KINDGI_TRUSTED_PROXIES:
     "none: no trusted proxies; the connection's peer is the client address and `X-Forwarded-For` is ignored",
   KINDGI_SESSION_TTL_MS: '`43200000` (12 hours); at least `60000`',
@@ -133,10 +137,19 @@ export const ENV_DEFAULTS = {
   KINDGI_ARTIFACTS: 'none: artifacts are off (no `/v1/artifacts`)',
   KINDGI_TURN_MEMORY_MIB: "none: no limit on every tenant's turns together",
   KINDGI_TURN_MEMORY_PER_TENANT_MIB: 'none: no limit per tenant',
+  KINDGI_FILE_MEMORY_MIB:
+    "`512`, or a quarter of the server's memory when that's less; at least `35`",
+  KINDGI_FILE_CACHE_MIB: 'half of `KINDGI_FILE_MEMORY_MIB`; `0` keeps none',
   KINDGI_TEMPLATE_RENDER_WORKERS:
     '`1` when `KINDGI_TENANCY=multi`, else `0`: the template renders in the server process',
   KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB: '`128`; at least `1`',
   KINDGI_ARTIFACT_MAX_BYTES: '`104857600` (100 MiB)',
+  KINDGI_S3_REGION:
+    'none: required with any `s3:` target, and with any other `KINDGI_S3_*` setting',
+  KINDGI_S3_ENDPOINT: 'none: AWS S3',
+  KINDGI_S3_PATH_STYLE: '`false`: the bucket is named in the host name',
+  KINDGI_S3_CREDENTIALS_PATH:
+    "none: S3 signs in as the server's AWS identity (`KINDGI_AWS_IDENTITY`)",
   KINDGI_LOG_LEVEL: '`info`',
   KINDGI_LOG_LEVELS: 'none: no per-subsystem levels; `KINDGI_LOG_LEVEL` applies everywhere',
   KINDGI_LOG_FORMAT:
@@ -180,6 +193,9 @@ export const ENV_DEFAULTS = {
   KINDGI_PACK_ROUTING: '`single`: one pack service, `KINDGI_PACK_SERVICE_URL`, for every call',
   KINDGI_PACK_ENDPOINT_HOSTS:
     'none: with `KINDGI_PACK_ROUTING=per-deployment`, the server refuses to start',
+  KINDGI_PACK_ENDPOINT_KMS_KEY:
+    "none: the secrets' own key, which `KINDGI_SECRETS_BACKEND=postgres` has; with any other backend, per-deployment routing refuses to start",
+  KINDGI_ENV_CLOUD_SECRETS: '`off`: no cloud secrets are kept, and their routes answer 501',
   KINDGI_IMAGE_REGISTRY_HOST: 'none: every registry is read anonymously',
   KINDGI_IMAGE_REGISTRY_USERNAME: 'none: no credentials (anonymous reads)',
   KINDGI_IMAGE_REGISTRY_PASSWORD: 'none: no credentials (anonymous reads)',
@@ -188,6 +204,9 @@ export const ENV_DEFAULTS = {
   KINDGI_PACK_DIR: 'none: packs come from signed deployments in Postgres',
   KINDGI_DEV_CONSOLE_LOGIN: '`false`',
   KINDGI_DEV_HOST_ALIAS: 'none: calls to loopback addresses connect as written',
+  KINDGI_ORCHESTRATOR_PACK_SERVICE:
+    "none: each field's default, and no network of its own (ingress from anywhere, the invoker check still on)",
+  KINDGI_ORCHESTRATOR_RUNTIME_AUTH: 'none: the system key alone',
 };
 
 /**
@@ -255,6 +274,10 @@ export const ENV_EXAMPLES = {
   KINDGI_MEMORY_EMBEDDINGS_API_KEY: {
     value: '<API key of the embeddings endpoint>',
   },
+  KINDGI_DATABASE_SERVER_CA: {
+    value: '<the database server CA certificates in PEM>',
+    make: 'cat database-ca.pem',
+  },
   KINDGI_ERASURE_LEDGER_KEY: {
     value: '<32 random bytes, base64>',
     make: 'openssl rand -base64 32',
@@ -285,6 +308,9 @@ export const ENV_EXAMPLES = {
   KINDGI_IMAGE_REGISTRY_PASSWORD: {
     value: '<registry password or read-only access token>',
   },
+  KINDGI_ORCHESTRATOR_SYSTEM_KEY: {
+    value: '<system key with system:deployments and system:pack-env>',
+  },
 };
 
 /** "See also" for each group's variables that no guide names: page slugs. */
@@ -299,5 +325,6 @@ export const ENV_GROUP_SEE_ALSO = {
   'local-key': ['deploy/self-hosted/self-host'],
   'pack-service': ['deploy/self-hosted/self-host', 'concepts/architecture'],
   'image-registry': ['deploy/self-hosted/self-host', 'concepts/security'],
+  'pack-orchestrator': ['deploy/self-hosted/cloud-run', 'concepts/security'],
   dev: ['guides/secrets/dev-sandbox', 'deploy/self-hosted/self-host'],
 };

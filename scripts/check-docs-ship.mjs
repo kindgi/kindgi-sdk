@@ -8,11 +8,11 @@
  *
  * The contracts are what users build against: the HTTP API's spec, the
  * environment variables, the wire schemas, the CLI's commands, the SDKs'
- * public sources. The docs are the site's pages, the skills, a README, or
- * the contributor docs. A pull request whose changes (since it left its
- * base) touch a contract and none of the docs passes only with a line
- * `No-docs: <reason>` in a commit message of its own (for example, a
- * refactor with no visible change).
+ * public sources. The docs are the site's pages, the reference's
+ * hand-written entries, the skills, a README, or the contributor docs. A
+ * pull request whose changes (since it left its base) touch a contract and
+ * none of the docs passes only with a line `No-docs: <reason>` in a commit
+ * message of its own (for example, a refactor with no visible change).
  *
  * Its own commits are the ones since it left its base, less what other
  * pull requests' heads carry: a branch built on another pull request's
@@ -29,7 +29,10 @@
  * the base; and a squash whose subject doesn't end in `(#<n>)`.
  *
  * The generated reference (CLI, env vars, schemas, SDK APIs) follows the
- * code by itself; this check is about the pages people write.
+ * code by itself; this check is about what people write. That includes the
+ * reference's entries (site/scripts/reference/entries/): what an error
+ * code, a command or a variable says is written there, and its page is
+ * built from them.
  *
  * In GitHub Actions it reads the `pull_request` event (`GITHUB_EVENT_PATH`):
  * the pull request is the event's, and the base is what GitHub's merge of
@@ -67,6 +70,7 @@ const CONTRACTS = [
 ];
 const DOCS = [
   /^site\/src\/content\/docs\//,
+  /^site\/scripts\/reference\/entries\//,
   /^packages\/sdk\/skills\//,
   /(^|\/)README\.md$/,
   /^docs\//,
@@ -405,7 +409,8 @@ function main(args) {
       `${NAME}: this branch changes a public contract but no docs:`,
       ...contracts.map((path) => `  ${path}`),
       '',
-      'Update the pages that describe it (site/src/content/docs/, a skill, a README),',
+      'Update the pages that describe it (site/src/content/docs/, a reference entry in',
+      'site/scripts/reference/entries/, a skill, a README),',
       "or add a line `No-docs: <why>` to a commit message of this pull request's own.",
       ...(skipped.length === 0
         ? []

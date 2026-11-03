@@ -4,6 +4,15 @@
 import type { NodeId } from '@kindgi/types';
 
 /**
+ * The `reason` a waitpoint is cancelled with when its `timeoutMs` passes.
+ * A caller that parks on a token tells a timeout from any other cancel by
+ * it (`WaitpointCancelledError.reason`). A host may configure another
+ * reason for its own waits, but never for a tool call's pause, whose
+ * timeout is always this one.
+ */
+export const WAITPOINT_TIMEOUT_REASON = 'timeout';
+
+/**
  * Thrown from `NodeContext.waitForToken()` on flow replay when the
  * waitpoint was cancelled externally (`RunBinding.cancelToken` in
  * `@kindgi/runtime`, or a timeout) before a decision was recorded.

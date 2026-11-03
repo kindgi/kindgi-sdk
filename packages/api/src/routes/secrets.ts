@@ -10,6 +10,7 @@ import type { Cursor, EnvName, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { isReadMethod } from '../read-method.js';
 import type { RotationStatus, RotationStatusStore } from '../rotation-status-store.js';
 import type {
   SecretBinding,
@@ -121,7 +122,7 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
         });
         return mw(c, next);
       }
-      if (c.req.method === 'GET') {
+      if (isReadMethod(c.req.method)) {
         const mw = authorizer.authorize('admin', scopeFromQuery);
         return mw(c, next);
       }
@@ -960,11 +961,15 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
         toWireError({ code: outcome.error.code, message: outcome.error.message, name }, requestId),
       );
     }
+    // A hard revoke that left a recoverable copy in the secret manager
+    // says until when, in the answer and on the record.
+    const { recoverableUntil } = outcome.value;
+    const recoverable = recoverableUntil === undefined ? {} : { recoverableUntil };
     // Only a revoke that changed something is recorded.
     if (outcome.value.revoked) {
-      await auditWrite(c, auditEvents, { ...revokeAudit, outcome: 'succeeded' });
+      await auditWrite(c, auditEvents, { ...revokeAudit, outcome: 'succeeded', ...recoverable });
     }
-    return c.json({ revoked: outcome.value.revoked, hard: outcome.value.hard });
+    return c.json({ revoked: outcome.value.revoked, hard: outcome.value.hard, ...recoverable });
   });
 
   return r;

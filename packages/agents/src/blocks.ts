@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { runOutsideTenant } from '@kindgi/bounds';
+import { THINKING_LEVELS, type ThinkingLevel } from '@kindgi/capabilities';
 import { type CompiledInlineSchema, compileInlineSchema, compileJsonSchema } from '@kindgi/schema';
 import type { ProjectId, Result, TenantId } from '@kindgi/types';
 
@@ -17,7 +18,7 @@ import type { PromptParameter } from './types.js';
  * unregister and reinstate), into a project. An agent references one by
  * range, and the version it runs is pinned when the agent version is
  * published, so an edit reaches an agent only through a new agent
- * version, which is what gets compared, tested and promoted.
+ * version, which is what gets compared, tested and pinned.
  */
 export const BLOCK_KINDS = ['prompt', 'settings'] as const;
 export type BlockKind = (typeof BLOCK_KINDS)[number];
@@ -138,9 +139,9 @@ let modelSettingsValidator: ReturnType<typeof compileJsonSchema> | undefined;
 /**
  * Whether `values` are model settings (`MODEL_SETTINGS_SCHEMA`): the
  * problems, none when they are. The schema is Kindgi's and never
- * changes, so it's compiled once in a process, outside any tenant's
+ * changes, so it's compiled once in a process, outside any workspace's
  * scope (`runOutsideTenant`), and its validator kept here: checking model
- * settings never counts against a tenant's compile budget.
+ * settings never counts against a workspace's compile budget.
  */
 export function modelSettingsIssues(values: unknown, path = '/content/values'): BlockIssue[] {
   modelSettingsValidator ??= runOutsideTenant(() =>
@@ -218,8 +219,9 @@ function invalid(issues: readonly BlockIssue[]): Result<never, InvalidBlock> {
 
 /**
  * What a model-settings block's values may set: the model-call knobs a
- * turn passes on. Checked (`modelSettingsIssues`) when an agent version
- * that references the block (`Agent.modelSettings`) is published.
+ * turn passes on, and the model it prefers. Checked
+ * (`modelSettingsIssues`) when an agent version that references the
+ * block (`Agent.modelSettings`) is published.
  */
 export const MODEL_SETTINGS_SCHEMA: Readonly<Record<string, unknown>> = {
   type: 'object',
@@ -227,6 +229,10 @@ export const MODEL_SETTINGS_SCHEMA: Readonly<Record<string, unknown>> = {
   properties: {
     temperature: { type: 'number', minimum: 0, maximum: 2 },
     maxOutputTokens: { type: 'integer', minimum: 1 },
+    // The enum alone: a value outside it is one issue, a number included.
+    thinking: { enum: [...THINKING_LEVELS] },
+    providerId: { type: 'string', minLength: 1 },
+    model: { type: 'string', minLength: 1 },
   },
 };
 
@@ -234,6 +240,102 @@ export const MODEL_SETTINGS_SCHEMA: Readonly<Record<string, unknown>> = {
 export interface ModelSettings {
   readonly temperature?: number;
   readonly maxOutputTokens?: number;
+  /**
+   * How much the turn's model thinks before it answers: `lowest` (as
+   * little as it allows) up to `max`. A level the model doesn't take is
+   * rounded to one it does, and the call says so. Absent: the model's
+   * own default. Each call records the level it sent.
+   */
+  readonly thinking?: ThinkingLevel;
+  /**
+   * The provider the turn prefers, as `Agent.preferredProvider` (a soft
+   * hint: the policy and the capability still choose). Set here, the
+   * agent version names none.
+   */
+  readonly providerId?: string;
+  /**
+   * The model the turn prefers, as `Agent.preferredModel`. Set here, the
+   * agent version names none, and an Improve run can try the other
+   * models the block's schema lists for it (an `enum` marked tunable).
+   */
+  readonly model?: string;
+}
+
+/** The model a version names, by its agent fields. */
+interface NamesAModel {
+  readonly preferredProvider?: string;
+  readonly preferredModel?: string;
+}
+
+const MODEL_KEYS = ['providerId', 'model'] as const;
+
+/**
+ * Why an agent version can't run these model settings: both it and its
+ * model-settings block name the model (`preferredProvider` or
+ * `preferredModel`, and `providerId` or `model`). One place only, so
+ * which model runs is never a question of which wins. Undefined when
+ * they don't.
+ */
+export function modelNamedTwice(agent: NamesAModel, values: unknown): string | undefined {
+  const fields = [
+    ...(agent.preferredProvider !== undefined ? ['preferredProvider'] : []),
+    ...(agent.preferredModel !== undefined ? ['preferredModel'] : []),
+  ];
+  if (fields.length === 0 || values === null || typeof values !== 'object') return undefined;
+  const keys = MODEL_KEYS.filter((k) => (values as Record<string, unknown>)[k] !== undefined);
+  if (keys.length === 0) return undefined;
+  return `it sets ${keys.join(' and ')}, and the agent version sets ${fields.join(' and ')}: name the model in one place, the block or the agent version`;
+}
+
+/**
+ * The keys of a model-settings block an Improve run may search: the
+ * ones its schema marks tunable (`tunableKeys`) that model settings
+ * have, a number's bounds kept inside `MODEL_SETTINGS_SCHEMA`'s, an enum
+ * only of values model settings take. `providerId` and `model` only
+ * when the agent version names no model itself: a candidate that set
+ * one would name it twice (`modelNamedTwice`); `skipped` says so.
+ */
+export function modelSettingsTunableKeys(
+  schema: Readonly<Record<string, unknown>> | undefined,
+  agent: NamesAModel,
+): { readonly keys: TunableKey[]; readonly skipped?: string } {
+  const namesAModel = agent.preferredProvider !== undefined || agent.preferredModel !== undefined;
+  const keys: TunableKey[] = [];
+  const skipped: string[] = [];
+  for (const key of tunableKeys(schema)) {
+    const kept = withinModelSettings(key);
+    if (kept === undefined) continue;
+    if (namesAModel && (MODEL_KEYS as readonly string[]).includes(key.key)) {
+      skipped.push(key.key);
+      continue;
+    }
+    keys.push(kept);
+  }
+  return {
+    keys,
+    ...(skipped.length > 0 && {
+      skipped: `${skipped.map((k) => `"${k}"`).join(' and ')} can't be tried: the agent version names its model (preferredProvider or preferredModel), and a model-settings block that named one too would name it twice`,
+    }),
+  };
+}
+
+/** A tunable key held to what model settings take; undefined when nothing's left of it. */
+function withinModelSettings(key: TunableKey): TunableKey | undefined {
+  if (key.kind === 'enum') {
+    const values = key.values.filter((v) => modelSettingsIssues({ [key.key]: v }).length === 0);
+    return values.length > 1 ? { ...key, values } : undefined;
+  }
+  const prop = (
+    MODEL_SETTINGS_SCHEMA.properties as Readonly<Record<string, Readonly<Record<string, unknown>>>>
+  )[key.key];
+  if (prop?.type !== 'number' && prop?.type !== 'integer') return undefined;
+  const minimum =
+    typeof prop.minimum === 'number' ? Math.max(key.minimum, prop.minimum) : key.minimum;
+  const maximum =
+    typeof prop.maximum === 'number' ? Math.min(key.maximum, prop.maximum) : key.maximum;
+  // An integer knob is tried at integers, whatever the block's schema says.
+  const kind = prop.type === 'integer' ? 'integer' : key.kind;
+  return minimum < maximum ? { key: key.key, kind, minimum, maximum } : undefined;
 }
 
 /**
@@ -245,9 +347,16 @@ export interface ModelSettings {
  * `projectId` is the turn's project: a reader that knows projects answers
  * only for blocks a run there may reach (`null`, no versions, otherwise),
  * so a turn never reads another project's prompts or settings. Absent:
- * every block of the tenant.
+ * every block of the workspace.
  */
 export interface BlockReader {
+  /**
+   * Said after a range no version satisfies: where this runtime's blocks
+   * come from, and what to do (under `kindgi dev`, the pack's files: add
+   * the block under its blocks folder). Absent: the miss says only what
+   * is published.
+   */
+  readonly missNote?: string;
   getVersion(input: {
     readonly tenantId: TenantId;
     readonly blockId: string;
@@ -261,10 +370,10 @@ export interface BlockReader {
   }): Promise<readonly string[]>;
 }
 
-/** The schema marker that lets an improvement pass search a settings key's values. */
+/** The schema marker that lets an Improve run search a settings key's values. */
 export const TUNABLE_MARKER = 'x-kindgi-tunable';
 
-/** A settings key an improvement pass may search: a bounded number, or one of a list. */
+/** A settings key an Improve run may search: a bounded number, or one of a list. */
 export type TunableKey =
   | {
       readonly key: string;
@@ -304,7 +413,7 @@ function tunableOf(key: string, prop: Readonly<Record<string, unknown>>): Tunabl
 
 /**
  * The settings keys a schema marks tunable (`"x-kindgi-tunable": true` on
- * a top-level property): what an improvement pass may search, within the
+ * a top-level property): what an Improve run may search, within the
  * bounds the schema gives. Nothing is tunable unless its author says so.
  */
 export function tunableKeys(schema: Readonly<Record<string, unknown>> | undefined): TunableKey[] {

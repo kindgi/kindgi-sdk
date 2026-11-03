@@ -271,7 +271,7 @@ describe('the values a deployment needs in a project, names only', () => {
     });
   });
 
-  test('a tenant-wide deployment: its own project is the Default project', async () => {
+  test('a tenant-wide deployment: its own project is the default project', async () => {
     const h = harness({
       granted: [READ, `read project:${DEFAULT}`, `admin project:${DEFAULT}`],
       secrets: ['tenant/ACME_TOKEN'],
@@ -355,7 +355,7 @@ describe('who may read them', () => {
       expect(out.status, path).toBe(404);
       expect(out.body.error, path).toMatchObject({
         code: 'deployment-not-found',
-        message: 'No deployment with id "d-own" under this tenant',
+        message: 'No deployment with id "d-own" under this workspace',
       });
     }
     expect(h.asked).toContain(`read project:${OWN}`);

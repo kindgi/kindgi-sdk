@@ -16,8 +16,8 @@ Google Cloud project.
   with the `kindgi` CLI set up as [Set up SSO](../#before-you-start) says.
 - **A Google Cloud project in your organization,** and someone who can
   create OAuth clients in it.
-- **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.2's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.2` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## 1. Get the redirect URI
@@ -26,7 +26,7 @@ Google Cloud project.
 whoever runs your Google Cloud project:
 
 ```sh
-npx --yes @kindgi/cli@0.1 sso providers start acme-google --idp=google
+npx --yes @kindgi/cli@0.2 sso providers start acme-google --idp=google
 ```
 
 - `acme-google` is the provider's id in your workspace.
@@ -90,7 +90,7 @@ Store the secret in Kindgi's secret store, by name, so it never travels by
 email or chat:
 
 ```sh
-npx --yes @kindgi/cli@0.1 secrets set ACME_GOOGLE_SECRET --env=production --scope=tenant
+npx --yes @kindgi/cli@0.2 secrets set ACME_GOOGLE_SECRET --env=production --scope=tenant
 ```
 
 - `ACME_GOOGLE_SECRET` is the secret's name. The registration keeps only
@@ -122,7 +122,7 @@ Re-enter to confirm:
 `finish` registers the client, and offers it to people at your domains:
 
 ```sh
-npx --yes @kindgi/cli@0.1 sso providers finish acme-google --kind=oidc --issuer=https://accounts.google.com \
+npx --yes @kindgi/cli@0.2 sso providers finish acme-google --kind=oidc --issuer=https://accounts.google.com \
   --client-id=<client id> --client-secret-ref=ACME_GOOGLE_SECRET --domains=<your domain>
 ```
 

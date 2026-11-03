@@ -348,7 +348,7 @@ describe('describeReconcile', () => {
     expect(describeReconcile([], inputs)).toEqual([]);
   });
 
-  test('all unchanged: one line', () => {
+  test('all unchanged: one line, and not a problem', () => {
     expect(
       describeReconcile(
         [
@@ -357,10 +357,12 @@ describe('describeReconcile', () => {
         ],
         inputs,
       ),
-    ).toEqual(['✓ Providers from kindgi.config.ts: anthropic, gemini (unchanged)']);
+    ).toEqual([
+      { text: '✓ Providers from kindgi.config.ts: anthropic, gemini (unchanged)', problem: false },
+    ]);
   });
 
-  test('each outcome its line, with the command that fixes it', () => {
+  test('each outcome its line, with the command that fixes it; the warnings are the problems, and the heading goes with them', () => {
     expect(
       describeReconcile(
         [
@@ -373,12 +375,67 @@ describe('describeReconcile', () => {
         inputs,
       ),
     ).toEqual([
-      'Providers from kindgi.config.ts:',
-      '  · gemini: unchanged',
-      '  ⚠ anthropic: not registered: ANTHROPIC_API_KEY is not in .env, .env.local. Set it (npx --no -- kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant), then restart kindgi dev',
-      "  ⚠ local-llm: registered already, not from kindgi.config.ts, with another region or models; left as it is. For the config's: npx --no -- kindgi providers unregister local-llm, then restart kindgi dev",
-      "  · qwen: registered already, not from kindgi.config.ts, with the same models (its adapter settings and key aren't listed to compare); left as it is. For the config's: npx --no -- kindgi providers unregister qwen, then restart kindgi dev",
-      '  ✓ old: unregistered (no longer in kindgi.config.ts)',
+      { text: 'Providers from kindgi.config.ts:', problem: true },
+      { text: '  · gemini: unchanged', problem: false },
+      {
+        text: '  ⚠ anthropic: not registered: ANTHROPIC_API_KEY is not in .env, .env.local. Set it (npx --no -- kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant), then restart kindgi dev',
+        problem: true,
+      },
+      {
+        text: "  ⚠ local-llm: registered already, not from kindgi.config.ts, with another region or models; left as it is. For the config's: npx --no -- kindgi providers unregister local-llm, then restart kindgi dev",
+        problem: true,
+      },
+      {
+        text: "  · qwen: registered already, not from kindgi.config.ts, with the same models (its adapter settings and key aren't listed to compare); left as it is. For the config's: npx --no -- kindgi providers unregister qwen, then restart kindgi dev",
+        problem: false,
+      },
+      { text: '  ✓ old: unregistered (no longer in kindgi.config.ts)', problem: false },
+    ]);
+  });
+
+  test('a failed one is a problem too', () => {
+    expect(
+      describeReconcile(
+        [
+          { id: 'gemini', kind: 'registered' },
+          {
+            id: 'anthropic',
+            kind: 'failed',
+            message: 'bad-input: adapter @kindgi/adapter-model-anthropic is not registered',
+          },
+        ],
+        inputs,
+      ),
+    ).toEqual([
+      { text: 'Providers from kindgi.config.ts:', problem: true },
+      { text: '  ✓ gemini: registered', problem: false },
+      {
+        text: '  ✗ anthropic: bad-input: adapter @kindgi/adapter-model-anthropic is not registered',
+        problem: true,
+      },
+    ]);
+  });
+
+  test('no warning or failure: the heading is not a problem either', () => {
+    expect(
+      describeReconcile(
+        [
+          { id: 'gemini', kind: 'unchanged' },
+          { id: 'anthropic', kind: 'registered' },
+          { id: 'qwen', kind: 'updated' },
+          { id: 'llama', kind: 'released' },
+        ],
+        inputs,
+      ),
+    ).toEqual([
+      { text: 'Providers from kindgi.config.ts:', problem: false },
+      { text: '  · gemini: unchanged', problem: false },
+      { text: '  ✓ anthropic: registered', problem: false },
+      { text: '  ✓ qwen: registered again (changed in kindgi.config.ts)', problem: false },
+      {
+        text: '  · llama: changed in the runtime since kindgi dev registered it; left as it is',
+        problem: false,
+      },
     ]);
   });
 });

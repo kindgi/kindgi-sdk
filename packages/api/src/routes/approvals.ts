@@ -13,6 +13,7 @@ import type { ConversationBinding, GateDecisionValue } from '@kindgi/agents';
 import type { AuditEventBinding } from '@kindgi/audit-events';
 import { REVIEWER_ROLE_RANK, type ResourceRef, type ReviewerRole, ref } from '@kindgi/authz';
 import type { ExportSigningBinding } from '@kindgi/crypto';
+import { FACT_APPROVAL_SUBJECT, rememberedTextProblem } from '@kindgi/memory';
 import type { RunBinding } from '@kindgi/runtime';
 import type {
   ApprovalId,
@@ -25,10 +26,13 @@ import type {
   UserId,
 } from '@kindgi/types';
 
+import { approvalResourceRef } from '../approval-resource.js';
+import { sameUserId } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
-import type { RunHandlerBinding, RunTrace } from '../handler-binding.js';
+import type { RunHandlerBinding } from '../handler-binding.js';
 import type {
   Approval,
+  ApprovalConnection,
   ApprovalPosition,
   ApprovalStatus,
   HitlBinding,
@@ -37,6 +41,8 @@ import type {
 } from '../hitl-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { databaseBusyAnswer } from '../middleware/error-mapper.js';
+import { isReadMethod } from '../read-method.js';
+import { type ResumeReport, resumeAnswer, resumeInline } from '../resume-inline.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
 import {
@@ -129,6 +135,13 @@ export interface ApprovalsRouterOptions {
  * as an `admin` reviewer (`reviewersRouter`). Deciding stays the roster's,
  * and an API key with no user reads nothing it couldn't before.
  *
+ * An approval addressed to one member (`approver`: a call that acts with
+ * that member's own connection) is theirs alone to decide, and among the
+ * reviewers only they see it. A person who is the tenant's admin still
+ * reads it, but can't decide it (`403 named-approver-required`); to anyone
+ * else it doesn't exist. That check is made only when a read holds an
+ * approval addressed to someone else.
+ *
  * Visibility filter: a caller with role `R` sees approvals whose
  * `requiredRole` rank ≤ their rank (standard < senior < admin). The
  * scoping is applied post-fetch on the returned rows — pushing the
@@ -154,16 +167,15 @@ export function approvalsRouter(
   const runHandler = options.runHandler;
 
   /** What an approval is checked on: its project, else its run's, else the tenant. */
-  const approvalRef = async (tenantId: TenantId, approval: Approval): Promise<ResourceRef> => {
-    if (approval.projectId !== undefined) {
-      return ref('project', approval.projectId as unknown as string);
-    }
-    const runId = approval.provenanceRef?.runId;
-    const run = runId === undefined ? null : await runBinding.getRun(tenantId, runId as never);
-    return run === null
-      ? ref('tenant', tenantId as unknown as string)
-      : ref('project', run.projectId as unknown as string);
-  };
+  const approvalRef = (tenantId: TenantId, approval: Approval): Promise<ResourceRef> =>
+    approvalResourceRef(
+      tenantId,
+      {
+        projectId: approval.projectId,
+        runId: approval.provenanceRef?.runId as RunId | undefined,
+      },
+      (t, runId) => runBinding.getRun(t, runId as never),
+    );
   /** Whether the caller may read the approval's project (always, without an authorizer). */
   const mayRead = async (c: Context<AppEnv>, approval: Approval): Promise<boolean> =>
     authorizer === undefined ||
@@ -174,10 +186,38 @@ export function approvalsRouter(
    * the roster gives, since the authorizer records each check it makes: a
    * reviewer reading their own tier makes none.
    */
-  const readsAsTenantAdmin = async (c: Context<AppEnv>): Promise<boolean> =>
-    authorizer !== undefined &&
-    c.get('userId') !== undefined &&
-    authorizer.can(c, 'admin', ref('tenant', c.get('tenantId') as unknown as string));
+  const readsAsTenantAdmin = (c: Context<AppEnv>): Promise<boolean> => {
+    // Asked once per request, however many places need it.
+    let asked = tenantAdminAsked.get(c);
+    if (asked === undefined) {
+      asked = (async () =>
+        authorizer !== undefined &&
+        c.get('userId') !== undefined &&
+        authorizer.can(c, 'admin', ref('tenant', c.get('tenantId') as unknown as string)))();
+      tenantAdminAsked.set(c, asked);
+    }
+    return asked;
+  };
+  const tenantAdminAsked = new WeakMap<Context<AppEnv>, Promise<boolean>>();
+  /** Whether the caller is the member it's addressed to, the ids in either case. */
+  const isApprover = (c: Context<AppEnv>, approver: { readonly userId: string }): boolean => {
+    const userId = c.get('userId');
+    return userId !== undefined && sameUserId(approver.userId, userId);
+  };
+  /**
+   * Whether the caller may see an approval addressed to one member
+   * (`approver`, a call that acts with that member's own connection): that
+   * member, or a person who is the tenant's admin. Another reviewer of the
+   * rank doesn't: it isn't theirs to decide. One addressed to no one is
+   * seen as the tiers allow.
+   */
+  const seesAddressed = async (c: Context<AppEnv>, approval: Approval): Promise<boolean> =>
+    approval.approver === undefined ||
+    isApprover(c, approval.approver) ||
+    (await readsAsTenantAdmin(c));
+  /** Whether the caller may decide it: only its approver, when it has one. */
+  const decidesAddressed = (c: Context<AppEnv>, approval: Approval): boolean =>
+    approval.approver === undefined || isApprover(c, approval.approver);
 
   // ---------- role gate for the whole resource ----------
   // A reviewer: a token that carries a role, or whose user the roster
@@ -189,13 +229,13 @@ export function approvalsRouter(
   // check, as it records every one.
   r.use('*', async (c, next) => {
     let role = await callerReviewerRole(c, reviewerBinding);
-    if (role === undefined && c.req.method === 'GET' && (await readsAsTenantAdmin(c))) {
+    if (role === undefined && isReadMethod(c.req.method) && (await readsAsTenantAdmin(c))) {
       role = 'admin';
       c.set('reviewerRole', role);
     }
     if (role === undefined) {
       return refused(c, authorizer, {
-        action: c.req.method === 'GET' ? 'read' : 'admin',
+        action: isReadMethod(c.req.method) ? 'read' : 'admin',
         resource: ref('tenant', c.get('tenantId') as unknown as string),
         message:
           "The caller isn't a reviewer: its token carries no reviewer role, and its user isn't registered as one (`kindgi reviewers register`). The approvals surface is reviewer-only.",
@@ -459,13 +499,20 @@ export function approvalsRouter(
         (assignee === undefined || a.assignedTo === assignee) &&
         (decider === undefined || a.decision?.reviewerId === decider),
     );
-    let visible = inTier;
+    // One addressed to someone else is left out, unless the caller reads as
+    // the tenant's admin: asked only when the page holds one.
+    const theirs = inTier.some((a) => a.approver !== undefined && !isApprover(c, a.approver));
+    const addressed = theirs && !(await readsAsTenantAdmin(c));
+    let visible = addressed
+      ? inTier.filter((a) => a.approver === undefined || isApprover(c, a.approver))
+      : inTier;
     if (authorizer !== undefined) {
-      const refs = await Promise.all(inTier.map((a) => approvalRef(tenantId, a)));
+      const mine = visible;
+      const refs = await Promise.all(mine.map((a) => approvalRef(tenantId, a)));
       const readable = await authorizer.filterByCan(
         c,
         'read',
-        inTier.map((approval, i) => ({ approval, at: refs[i] as ResourceRef })),
+        mine.map((approval, i) => ({ approval, at: refs[i] as ResourceRef })),
         (row) => row.at,
       );
       visible = readable.map((row) => row.approval);
@@ -526,7 +573,7 @@ export function approvalsRouter(
     const aboveTier =
       REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role] &&
       !(await readsAsTenantAdmin(c));
-    if (aboveTier || !(await mayRead(c, approval))) {
+    if (aboveTier || !(await mayRead(c, approval)) || !(await seesAddressed(c, approval))) {
       c.status(statusFor('approval-not-found') as never);
       return c.json(
         toWireError(
@@ -581,9 +628,12 @@ export function approvalsRouter(
       return c.json(toWireError(found.error as never, requestId));
     }
     const approval = found.value;
+    // One addressed to a member is hidden from the other reviewers, as in
+    // the list: they find no such approval.
     if (
       REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role] ||
-      !(await mayRead(c, approval))
+      !(await mayRead(c, approval)) ||
+      !(await seesAddressed(c, approval))
     ) {
       c.status(statusFor('approval-not-found') as never);
       return c.json(
@@ -597,21 +647,29 @@ export function approvalsRouter(
         ),
       );
     }
-
-    // An agent's tool-call and session gates resume on the decision alone
-    // (`readGateDecision` fails closed on anything else), so a `value`
-    // can't stand in for it: refused before anything is recorded.
-    if (parsed.value.value !== undefined && AGENT_GATE_SUBJECTS.has(approval.subjectKind)) {
-      c.status(statusFor('bad-input') as never);
+    // The tenant's admin reads it, but only its approver decides it.
+    if (!decidesAddressed(c, approval)) {
+      const account =
+        approval.connection === undefined ? 'account' : `${approval.connection.appName} account`;
+      c.status(statusFor('named-approver-required') as never);
       return c.json(
         toWireError(
           {
-            code: 'bad-input',
-            message: `An approval of an agent's ${approval.subjectKind === TOOL_CALL_GATE_SUBJECT ? 'tool call' : 'session'} takes a decision (approve or reject) and an optional rationale, not a \`value\`: the turn resumes on the decision alone.`,
+            code: 'named-approver-required',
+            message: `Only user ${approval.approver?.userId} can decide approval ${approvalId as unknown as string}: the call it gates acts with their own ${account}.`,
+            approvalId: approvalId as unknown as string,
           },
           requestId,
         ),
       );
+    }
+
+    // What the body carries must fit the approval's kind: refused before
+    // anything is recorded.
+    const refusal = bodyRefusal(parsed.value, approval.subjectKind);
+    if (refusal !== undefined) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message: refusal }, requestId));
     }
 
     const reviewerId = await reviewerBinding.resolveReviewer({
@@ -622,7 +680,7 @@ export function approvalsRouter(
       return refused(c, authorizer, {
         action: 'admin',
         resource: ref('tenant', c.get('tenantId') as unknown as string),
-        message: 'No reviewer row registered for this user under this tenant.',
+        message: 'No reviewer row registered for this user under this workspace.',
         failing: 'actor',
       });
     }
@@ -637,6 +695,7 @@ export function approvalsRouter(
       decision: parsed.value.decision,
       ...(parsed.value.rationale !== undefined && { rationale: parsed.value.rationale }),
       ...(sessionProvider !== undefined && { sessionProvider }),
+      ...(parsed.value.factText !== undefined && { factText: parsed.value.factText }),
     });
     if (submitted.kind === 'err') {
       c.status(statusFor(submitted.error.code) as never);
@@ -736,7 +795,7 @@ export function approvalsRouter(
       }),
       waitpointResolved,
       ...(runStatus !== undefined && { runStatus }),
-      ...(resume !== undefined && { resume }),
+      ...(resume !== undefined && { resume: resumeAnswer(resume) }),
     });
   });
 
@@ -766,7 +825,8 @@ export function approvalsRouter(
     const approval = found.value;
     if (
       REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role] ||
-      !(await mayRead(c, approval))
+      !(await mayRead(c, approval)) ||
+      !(await seesAddressed(c, approval))
     ) {
       c.status(statusFor('approval-not-found') as never);
       return c.json(
@@ -917,6 +977,21 @@ function serializeApproval(a: Approval): Record<string, unknown> {
     ...(a.withdrawnBecause !== undefined && { withdrawnBecause: a.withdrawnBecause }),
     ...(a.escalatedFrom !== undefined && { escalatedFrom: a.escalatedFrom }),
     ...(a.escalatedTo !== undefined && { escalatedTo: a.escalatedTo }),
+    ...(a.approver !== undefined && {
+      approver: { kind: a.approver.kind, userId: a.approver.userId },
+    }),
+    ...(a.connection !== undefined && { connection: approvalConnection(a.connection) }),
+  };
+}
+
+/** The connection the call would use, field by field. */
+function approvalConnection(connection: ApprovalConnection): Record<string, unknown> {
+  return {
+    app: connection.app,
+    appName: connection.appName,
+    ...(connection.as !== undefined && { as: connection.as }),
+    ...(connection.account !== undefined && { account: connection.account }),
+    ...(connection.name !== undefined && { name: connection.name }),
   };
 }
 
@@ -930,6 +1005,7 @@ function serializeApprovalDecision(d: ReviewDecisionRecord): Record<string, unkn
     ...(d.rationale !== undefined && { rationale: d.rationale }),
     ...(d.sessionProvider !== undefined && { sessionProvider: d.sessionProvider }),
     ...(d.deciderName !== undefined && { deciderName: d.deciderName }),
+    ...(d.factText !== undefined && { factText: d.factText }),
   };
 }
 
@@ -941,6 +1017,7 @@ function serializeDecision(d: {
   readonly rationale?: string;
   readonly reviewerRoleAtDecision: string;
   readonly decidedAt: string;
+  readonly factText?: string;
 }): Record<string, unknown> {
   return {
     id: d.id,
@@ -950,13 +1027,32 @@ function serializeDecision(d: {
     ...(d.rationale !== undefined && { rationale: d.rationale }),
     reviewerRoleAtDecision: d.reviewerRoleAtDecision,
     decidedAt: d.decidedAt,
+    ...(d.factText !== undefined && { factText: d.factText }),
   };
+}
+
+/**
+ * Why a decision's body doesn't fit its approval's kind, if it doesn't. An
+ * agent's tool-call and session gates resume on the decision alone
+ * (`readGateDecision` fails closed on anything else), so a `value` can't
+ * stand in for it. Only a fact an agent wants to remember takes an edit of
+ * its text.
+ */
+function bodyRefusal(body: ParsedComplete, subjectKind: string): string | undefined {
+  if (body.value !== undefined && AGENT_GATE_SUBJECTS.has(subjectKind)) {
+    return `An approval of an agent's ${subjectKind === TOOL_CALL_GATE_SUBJECT ? 'tool call' : 'session'} takes a decision (approve or reject) and an optional rationale, not a \`value\`: the turn resumes on the decision alone.`;
+  }
+  if (body.factText !== undefined && subjectKind !== FACT_APPROVAL_SUBJECT) {
+    return `Only the approval of a fact an agent wants to remember (\`subjectKind: ${FACT_APPROVAL_SUBJECT}\`) takes \`factText\`; this one is \`${subjectKind}\`.`;
+  }
+  return undefined;
 }
 
 type ParsedComplete = {
   readonly decision: ReviewDecisionKind;
   readonly rationale?: string;
   readonly value?: unknown;
+  readonly factText?: string;
 };
 
 function parseCompleteBody(
@@ -988,10 +1084,28 @@ function parseCompleteBody(
       error: { code: 'bad-input', message: '`rationale` must be a string when supplied' },
     };
   }
+  const factText = b.factText;
+  if (factText !== undefined) {
+    const problem = rememberedTextProblem(factText);
+    if (problem !== undefined) {
+      return { kind: 'err', error: { code: 'bad-input', message: `\`factText\` ${problem}` } };
+    }
+    if (decision !== 'approve') {
+      return {
+        kind: 'err',
+        error: {
+          code: 'bad-input',
+          message:
+            "`factText` goes only with `decision: approve`: it's the text the approved fact holds.",
+        },
+      };
+    }
+  }
   const out: ParsedComplete = {
     decision: decision as ReviewDecisionKind,
     ...(rationale !== undefined && { rationale }),
     ...('value' in b && { value: b.value }),
+    ...(typeof factText === 'string' && { factText }),
   };
   return { kind: 'ok', value: out };
 }
@@ -1017,40 +1131,6 @@ function parseAuditBundleBody(
     includeMessages = im;
   }
   return { kind: 'ok', value: { signingKeyId: signingKeyId.value, includeMessages } };
-}
-
-/** How the inline resume after a decision went. */
-type ResumeReport =
-  | { readonly kind: 'ok' }
-  | { readonly kind: 'failed'; readonly code: string; readonly message: string };
-
-/**
- * Resume the run a decision released, in the same request. A resume that
- * fails is reported, not raised: the decision is durable either way, and
- * the runtime ends a run that can't go on, or resumes it later.
- */
-async function resumeInline(
-  runHandler: RunHandlerBinding,
-  tenantId: TenantId,
-  runId: RunId,
-  trace: RunTrace | undefined,
-): Promise<ResumeReport> {
-  try {
-    const outcome = await runHandler.resumeRun({
-      tenantId,
-      runId,
-      ...(trace !== undefined && { trace }),
-    });
-    return outcome.kind === 'ok'
-      ? { kind: 'ok' }
-      : { kind: 'failed', code: outcome.error.code, message: outcome.error.message };
-  } catch (cause) {
-    return {
-      kind: 'failed',
-      code: 'resume-failed',
-      message: cause instanceof Error ? cause.message : String(cause),
-    };
-  }
 }
 
 /** Marks an oldest-first page's cursor (`order=asc`), which only continues that order. */

@@ -61,7 +61,7 @@ import {
   loadPresets,
 } from '../mcp/preset-loader.js';
 import type { Preset } from '../mcp/preset-types.js';
-import { renderJson } from '../output.js';
+import { renderJson, successNote } from '../output.js';
 import { type BinRunner, binCommand, detectBinRunner } from '../package-manager.js';
 import { requiredPositional, stringFlag } from './helpers.js';
 import type { Command, CommandResult, LeafCommand } from './types.js';
@@ -348,7 +348,10 @@ const addCmd: LeafCommand = {
       kind: 'ok',
       rendered: {
         stdout: addRendered.stdout,
-        stderr: `\n  Added "${serverName}" (preset ${preset.kind}) to .mcp.json.\n  Restart your MCP client (Claude Code, Cursor, ...) to activate.\n\n`,
+        stderr: successNote(
+          ctx.globals.format,
+          `\n  Added "${serverName}" (preset ${preset.kind}) to .mcp.json.\n  Restart your MCP client (Claude Code, Cursor, ...) to activate.\n\n`,
+        ),
       },
     };
   },
@@ -414,7 +417,10 @@ const removeCmd: LeafCommand = {
         kind: 'ok',
         rendered: {
           stdout: rendered.stdout,
-          stderr: `\n  No server "${serverName}" in .mcp.json (nothing to remove).\n\n`,
+          stderr: successNote(
+            ctx.globals.format,
+            `\n  No server "${serverName}" in .mcp.json (nothing to remove).\n\n`,
+          ),
         },
       };
     }
@@ -431,7 +437,7 @@ const removeCmd: LeafCommand = {
       kind: 'ok',
       rendered: {
         stdout: rendered.stdout,
-        stderr: `\n  Removed "${serverName}" from .mcp.json.\n\n`,
+        stderr: successNote(ctx.globals.format, `\n  Removed "${serverName}" from .mcp.json.\n\n`),
       },
     };
   },

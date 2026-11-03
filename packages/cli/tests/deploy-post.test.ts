@@ -3,7 +3,9 @@
 
 import { describe, expect, test } from 'vitest';
 
+import { DEPLOY_ENVELOPE_SCHEMA, type DeployEnvelope } from '../src/build/envelope.js';
 import {
+  buildPostBody,
   findProjectsReal,
   listEnvironmentOrdersReal,
   listProjectsReal,
@@ -32,6 +34,36 @@ const post = (fetchImpl: typeof fetch) =>
     idempotencyKey: 'k1',
     fetchImpl,
   });
+
+describe('buildPostBody', () => {
+  test("keeps the keys in a released CLI's order: the server fingerprints the body's bytes", () => {
+    // A reorder would make the same envelope, deployed again by another
+    // CLI version under the same Idempotency-Key, a different body there.
+    const envelope: DeployEnvelope = {
+      $schema: DEPLOY_ENVELOPE_SCHEMA,
+      imageRef: 'ghcr.io/acme/kindgi-pack@sha256:00',
+      imageDigest: 'sha256:00',
+      artifactVersion: '1.0.0',
+      index: {},
+      indexHash: 'sha256:01',
+      tenantId: 'acme',
+      publishedAt: '2026-10-24T00:00:00.000Z',
+      signerKeyId: 'acme-key',
+      signerPublicKey: 'acme-public-key',
+      signature: 'acme-signature',
+    };
+    expect(Object.keys(buildPostBody(envelope))).toEqual([
+      'imageRef',
+      'artifactVersion',
+      'index',
+      'indexHash',
+      'signerKeyId',
+      'signerPublicKey',
+      'signature',
+      'publishedAt',
+    ]);
+  });
+});
 
 describe('postDeploymentReal', () => {
   test('X-Idempotent-Replay on a refusal is carried to the result', async () => {

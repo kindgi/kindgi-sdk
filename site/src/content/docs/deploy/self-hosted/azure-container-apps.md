@@ -16,9 +16,9 @@ ready 10 seconds after its container started, its first migrations
 included.
 
 :::note[Access to the runtime image]
-Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
-runtime image's pull credentials, and log in once with `kindgi auth registry`
-(see [Install](../../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or your
+email address for a license key. The key is also the runtime image's
+password ([Pull the runtime image](../pull-the-runtime-image/)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## What you'll have
@@ -26,7 +26,9 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
 - **The runtime** (`<name_prefix>-server`): Kindgi's server, a container app
   with its own user-assigned managed identity. External ingress, port 4000,
   one replica.
-- **Your pack's service** (`<name_prefix>-pack`): your tools' code.
+- **Your pack's service** (`<name_prefix>-pack`): your tools' code. It runs
+  only the tool versions in its image's build
+  ([A self-hosted runtime runs what your pack has](../../../guides/agents/agent-and-tool-versions/#a-self-hosted-runtime-runs-what-your-pack-has)).
   Environment-internal ingress: only apps in the same Container Apps
   environment reach it, and the runtime sends the shared pack token on every
   call.
@@ -40,6 +42,12 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
   PostgreSQL, or two subnets in a VNet you already have
   ([A new VNet, or yours](#a-new-vnet-or-yours)).
 - **Log Analytics** for both apps' logs.
+
+**One tenant:** the runtime serves the tenant it seeds (`seed_tenant_id`),
+and the plan refuses `KINDGI_TENANCY` or `KINDGI_PACK_ROUTING` other than
+`single`. [Serving many tenants](../serve-many-tenants/) needs a container
+app for each deployment's pack service, run by an orchestrator of your own,
+which this module doesn't make.
 
 Who calls whom:
 
@@ -73,17 +81,18 @@ Who calls whom:
   write-only. Also the **Azure CLI**, **Docker** with `buildx`, **jq**, and
   your pack's `kindgi` CLI, 0.1.6 or later. The module needs the `azurerm`
   provider 5.9 or later, and its lock file pins it.
-- **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.2's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.2` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead. The
   build, `env plan` and deploy steps need the pack's folder, so they use
   `pnpm exec kindgi`.
 - **Runtime 0.1.6 or later:** the first with Key Vault keys and the
   registry's managed identity.
-- **Access to the runtime image** (`kindgi auth registry`; see
-  [Install](../../../start/install/)).
-- **A license key:** a non-production key covers staging. Get one at
+- **A license key:** a non-production key covers staging, and it also pulls
+  the runtime image. Get one at
   [access.kindgi.com](https://access.kindgi.com), or from contact@kindgi.com.
+- **Docker logged in to `registry.kindgi.com`** with that key
+  ([Pull the runtime image](../pull-the-runtime-image/)).
 - **A pack** that `kindgi build --local --push` builds, with an environment
   block for this deployment in its config, whose `registry` is the module's
   registry (step 2 prints it).
@@ -178,24 +187,38 @@ those there.
 
 ## 2. The images into the registry
 
-The two apps run from images in the module's registry. Copy the runtime
-image there by digest, with every platform it was built for:
+The two apps run from images in the module's registry, which they pull with
+their managed identities, never a password. With Docker logged in to
+`registry.kindgi.com`, copy the runtime image into the module's registry by
+digest, with every platform it was built for:
 
 ```sh
 ACR=$(terraform output -raw image_registry)
-az acr login -n "${ACR%%.*}"
-docker buildx imagetools create --tag "$ACR/runtime:0.1.9" \
-  quay.io/kindgi/runtime:0.1.9@sha256:604e283abed492f5bd50c88dcf582d13e38e19534ee7ddad817ba08012f99523
+az acr login -n "${ACR%%.*}" --expose-token --only-show-errors --query accessToken -o tsv \
+  | docker login "$ACR" --username 00000000-0000-0000-0000-000000000000 --password-stdin
+docker buildx imagetools create --tag "$ACR/runtime:0.3.0" \
+  registry.kindgi.com/kindgi/runtime:0.3.0@sha256:1f5cfe0032bb82b467781949978719d6a3da4d500cd994471f2f2e009c9a1b9f
 ```
 
 - `ACR` is the registry's address, from the foundation's output, and
   `${ACR%%.*}` its name, for `az acr login`.
+- `--expose-token` has az print the registry's token instead of logging
+  Docker in, and `--query accessToken -o tsv` keeps the token alone, which
+  goes straight to `docker login`'s stdin. A plain `az acr login` runs
+  `docker login --password <token>`, which puts the token on a command line
+  other processes on the machine can read.
+  `00000000-0000-0000-0000-000000000000` is the username az's token goes
+  with.
 - `imagetools create --tag` copies the image by digest, every platform
   included, under the tag you give.
 
 The copy keeps the release's digest. A plain `docker pull`, `tag` and `push`
 from an Apple silicon machine pushes only the arm64 image, which Container
 Apps can't run.
+
+The copy goes through the machine you run it on, every layer down and back up,
+and takes both platforms (amd64 and arm64), so on a slow uplink it can take
+most of an hour.
 
 Then build and push your pack's image, signed:
 
@@ -328,7 +351,10 @@ jq '{pack_env: .env, pack_secret_env: .secret_env}' pack-env.json > dev.pack-env
 
 `jq` turns the plan's `env` and `secret_env` into the module's `pack_env`
 and `pack_secret_env` variables. Terraform reads `*.auto.tfvars.json` only
-from the module's directory.
+from the module's directory, and there it reads each such file by itself,
+for every `plan` and `apply`. So keep the name's ending: a file such as
+`dev.pack-env.tfvars.json` is read only with `-var-file`, and a plan made
+without it takes the pack's env away.
 
 ## 4. The services
 
@@ -379,6 +405,15 @@ Then the lines name the license and the pack's service it reached:
   …
   Pack service: https://acme-pack.internal.… — acme (artifact 20261008.211554), protocol 2, 3 tools, 1 check
 ```
+
+**Keep the pack's service warm when response time matters.** The default,
+`pack_min_instances = 1`, keeps one replica running, so the first tool call
+after a quiet spell doesn't wait for one to start. That replica runs around
+the clock
+([Azure Container Apps pricing](https://azure.microsoft.com/pricing/details/container-apps/)).
+`pack_min_instances = 0` lets the service scale to zero when it's idle,
+which suits a dev deployment: the first tool call after that waits for a
+replica to start.
 
 ### How the runtime calls your pack's service
 
@@ -432,7 +467,7 @@ pack's key, then deploy:
 ```sh
 URL=$(terraform output -raw server_url)
 export KINDGI_API_TOKEN=$(az keyvault secret show --vault-name "$V" -n api-token --query value -o tsv)
-npx --yes @kindgi/cli@0.1 key trust acme-dev --label dev --url "$URL"
+npx --yes @kindgi/cli@0.2 key trust acme-dev --label dev --url "$URL"
 ```
 
 It prints the key the runtime now trusts, then says so:
@@ -475,7 +510,7 @@ It prints the deployment as JSON, then each step. The last steps:
 
   Deploy complete.
   Runs started from now use image sha256:4d18e69581b56… (artifactVersion 20261008.211554).
-  Runs already in flight continue on their pinned image.
+  With one pack service, runs already in flight call that service's current build, as new runs do: a call naming a tool version that build doesn't have fails with tool-version-mismatch.
 ```
 
 To deploy a client's pack into its own project, add `--project <id or slug>` ([Deploy a client's pack into its project](../../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
@@ -499,14 +534,130 @@ Check the runtime answers, lists your pack's tools, and runs a flow:
 
 ```sh
 curl "$URL/health"                                  # {"ok":true}
-npx --yes @kindgi/cli@0.1 tools list --url "$URL"   # your pack's tools
-npx --yes @kindgi/cli@0.1 runs start --flow=acme.greet-flow --input='{"name":"Azure"}' --url "$URL"
+npx --yes @kindgi/cli@0.2 tools list --url "$URL"   # your pack's tools
+npx --yes @kindgi/cli@0.2 runs start --flow=acme.greet-flow --input='{"name":"Azure"}' --url "$URL"
 ```
 
 `--flow` names the flow to run, and `--input` is its input, as JSON.
 
 In the verification run, that flow (one tool step) completed in 399 ms, start
 to finish, with the output `{"greeting":"Hello, Azure!"}`.
+
+## 7. Turn on sign-in
+
+Nobody can sign in to the console until you turn sign-in on. The API, the
+CLI and the SDKs take API tokens either way. Until then, the startup lines
+say so:
+
+```text
+  ⚠ Console sign-in: nobody can sign in to the console. KINDGI_CONSOLE_TOKEN_SIGN_IN=on allows an API token; KINDGI_AUTH_SECRET_PATH turns on sign-in with identity providers.
+```
+
+The runtime's own settings go in two variables, as the pack's do:
+`server_env` for plain values, and `server_secret_env` for Key Vault
+secrets, read with the runtime's identity. You create each secret in the
+module's vault with `put` ([3. The secrets](#3-the-secrets)), and the
+runtime gets read access to exactly those. The plan refuses a name the
+module sets itself (its own variables cover those, such as `public_url`
+below), `KINDGI_DEV`, a name in both maps, and a secret given as a plain
+value: a name with `SECRET` in it, or the SMTP URL.
+
+**With an API token,** which the console's sign-in page then takes:
+
+```hcl excerpt
+server_env = {
+  KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
+}
+```
+
+**With an emailed link,** you need the runtime's sign-in secret, an SMTP
+server and `public_url`:
+
+```sh
+# In the shell from step 3: it defines `put` and keeps az's log file off. No `--debug`.
+# The sign-in secret: 32 bytes, base64.
+openssl rand 32 | base64 | tr -d '\n' | put auth-secret
+# The SMTP URL, password included: paste it; it never goes in a file.
+read -rs SMTP_URL && printf '%s' "$SMTP_URL" | put smtp-url && unset SMTP_URL
+```
+
+```hcl excerpt
+public_url = "https://kindgi-server.<environment domain>" # terraform output -raw server_url
+server_env = {
+  KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
+  KINDGI_AUTH_EMAIL_FROM       = "kindgi@acme.example"
+}
+server_secret_env = {
+  KINDGI_AUTH_SECRET         = { secret = "auth-secret", version = "<the version put printed>" }
+  KINDGI_AUTH_EMAIL_SMTP_URL = { secret = "smtp-url", version = "<the version put printed>" }
+}
+```
+
+Pin each secret to a version, as here, rather than `latest`: a new version
+then reaches the runtime only when you change `version`, not whenever
+Container Apps picks it up.
+
+- **`public_url`** (`KINDGI_PUBLIC_URL`) is the address people open the
+  console at: `terraform output -raw server_url` after the first apply, so
+  the emailed link comes with a second apply, or your own domain in front.
+  Console sessions are then accepted from that address only. The plan
+  refuses `KINDGI_AUTH_SECRET` without it, because the runtime wouldn't
+  start. A tool that pauses hands other systems a link made from it too
+  ([On a server you run](../../../guides/tools/wait-for-another-system/#on-a-server-you-run)).
+
+**With Continue with Google,** you need the sign-in secret and `public_url`,
+as for the emailed link, and an OAuth client of type **Web application** in
+the Google Cloud console ([Google](../sign-in/#google)). Its authorized
+redirect URI is `public_url` followed by
+`/auth/kindgi/social/callback/google`:
+
+```text
+https://kindgi-server.<environment domain>/auth/kindgi/social/callback/google
+```
+
+Store the client's secret, then give the runtime the client's ID and the
+secret:
+
+```sh
+# In the shell from step 3. The Google client's secret: paste it; it never goes in a file.
+read -rs GOOGLE_SECRET && printf '%s' "$GOOGLE_SECRET" | put google-client-secret && unset GOOGLE_SECRET
+```
+
+```hcl excerpt
+public_url = "https://kindgi-server.<environment domain>"
+server_env = {
+  KINDGI_AUTH_GOOGLE_CLIENT_ID = "<client id>"
+}
+server_secret_env = {
+  KINDGI_AUTH_SECRET               = { secret = "auth-secret", version = "<the version put printed>" }
+  KINDGI_AUTH_GOOGLE_CLIENT_SECRET = { secret = "google-client-secret", version = "<the version put printed>" }
+}
+```
+
+- `<client id>` is the client's ID in the Google Cloud console, ending in
+  `.apps.googleusercontent.com`.
+- **Microsoft and GitHub** go the same way, with `MICROSOFT` or `GITHUB` in
+  the names, and a redirect URI ending in `microsoft` or `github`
+  ([Continue with Google, Microsoft or GitHub](../sign-in/#continue-with-google-microsoft-or-github)).
+  So do verified domains and Turnstile: `KINDGI_AUTH_VERIFIED_DOMAINS` and
+  the Turnstile site key in `server_env`, and `KINDGI_AUTH_TURNSTILE_SECRET`
+  in `server_secret_env`.
+- **Several ways in** share the two maps: with the emailed link too, they
+  hold both sets of settings.
+- **The module mounts no files,** so use the value forms of the settings,
+  such as `KINDGI_AUTH_GOOGLE_CLIENT_SECRET`, not their `…_PATH` forms.
+
+**Check it worked:** after the apply, the new revision's startup lines
+([4. The services](#4-the-services)) say which ways in the console has,
+instead of the warning. With Continue with Google alone:
+
+```text
+  Console sign-in: identity providers (KINDGI_CONSOLE_TOKEN_SIGN_IN=on also allows an API token)
+  …
+  Continue with: Google (the deployment's own apps)
+```
+
+What each setting does, and the ways in: [Turn on sign-in](../sign-in/).
 
 ## The roles it sets up
 
@@ -522,17 +673,15 @@ to finish, with the output `{"greeting":"Hello, Azure!"}`.
 
 ## Operate it
 
-- **Upgrade at least every 90 days while Kindgi is in preview.** Until
-  Kindgi 1.0, a release stops starting 90 days after it was released.
-  Container Apps starts new replicas on its own, and after that day none
-  comes up. The runtime warns from 30 days before, at startup and once a
+- **Upgrade at least every 90 days.** A preview release stops starting 90
+  days after it was released. Container Apps starts new replicas on its
+  own, and after that day none comes up. The runtime warns from 30 days before, at startup and once a
   day, in a log record with `"event": "kindgi.preview_expiry"`: alert on it
   in Log Analytics
   ([Licensing](../../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
-- **Upgrade:** make sure a restorable backup exists. Automatic backups with
-  point-in-time restore are on. Copy the new runtime image by digest, set
-  `server_image`, and apply. Migrations only go forward: never run two runtime
-  versions on one database, and go back by restoring the backup.
+- **Upgrade:** [Upgrade](#upgrade) has the steps. Migrations only go
+  forward: never run two runtime versions on one database, and go back by
+  restoring the backup.
 - **Rotate a secret:** add a version with `put` again. The apps read their
   secrets when they start. The module references every secret but the two
   pinned keys without a version. So a replica that starts after Container
@@ -575,6 +724,218 @@ to finish, with the output `{"greeting":"Hello, Azure!"}`.
   `ContainerAppSystemLogs_CL`. Filter the runtime's records by `traceId` to
   follow one request or run ([Logs](../logs/)).
 
+## Upgrade
+
+The module's `upgrade.sh` runs these steps for you: a deployment of the
+module on runtime 0.1.8 or later, in either network shape, can run it to
+0.2.0 or later. Use the `upgrade.sh` as of the `@kindgi/sdk@<version>` tag
+of the release you're upgrading to: it knows the steps up to its own
+release. It first came with the `@kindgi/sdk@0.4.0` tag, so to keep the
+module at an earlier release, upgrade by hand. The module's README has
+what it checks and changes, under
+[Upgrading](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/azure-container-apps#upgrading),
+and `./upgrade.sh --help` lists its options.
+
+Upgrade by hand instead if you'd rather: run these steps on a staging
+deployment first if you have one. Run them in the module's folder, as the
+identity that deploys the module. `<rg>` is the resource group, and
+`<name_prefix>` your `name_prefix`.
+
+1. **Read the upgrade steps** of each release you're upgrading across, in
+   its release notes
+   ([Upgrade the runtime](../operate/#upgrade-the-runtime) links them), and
+   note the new release's digest: `docker pull
+   registry.kindgi.com/kindgi/runtime:<version>` prints it
+   ([Pull the runtime image](../pull-the-runtime-image/)).
+2. **Copy the new runtime image** into the module's registry by digest,
+   every platform included, as in
+   [2. The images into the registry](#2-the-images-into-the-registry), with
+   Docker logged in to `registry.kindgi.com` (it has 0.2.0 and later):
+
+   ```sh
+   ACR=$(terraform output -raw image_registry)
+   az acr login -n "${ACR%%.*}" --expose-token --only-show-errors --query accessToken -o tsv \
+     | docker login "$ACR" --username 00000000-0000-0000-0000-000000000000 --password-stdin
+   docker buildx imagetools create --tag "$ACR/runtime:<version>" \
+     registry.kindgi.com/kindgi/runtime:<version>@sha256:<digest>
+   ```
+
+3. **Check the database can go back.** The module keeps automatic backups
+   with point-in-time restore, for `database_backup_retention_days` (7 by
+   default). This prints the earliest time a restore can go back to:
+
+   ```sh
+   PG=$(terraform output -raw database_server_name)
+   az postgres flexible-server show -g <rg> -n "$PG" --query backup.earliestRestoreDate -o tsv
+   ```
+
+4. **Set the new image:** `server_image` in `dev.tfvars`, to
+   `$ACR/runtime@sha256:<digest>`. If the release notes say to rebuild the
+   pack, rebuild it as in
+   [2. The images into the registry](#2-the-images-into-the-registry) and
+   set `pack_image` too. Keep a copy of the file as it was: it's your way
+   back.
+5. **Plan, and save the plan:**
+
+   ```sh
+   (umask 077 && terraform plan -var-file=dev.tfvars -out=upgrade.tfplan)
+   ```
+
+   Terraform also reads every `*.auto.tfvars.json` in the folder, your
+   pack's env among them. Read the plan: it should change the server's
+   image, the license renewal job's too with `license_renewal_schedule`,
+   and what the release notes say. A plan that removes the pack's env was
+   made without its file ([3. The secrets](#3-the-secrets)).
+
+   The plan holds your variables' values: `umask 077` keeps it readable by
+   you alone, and you delete it once it's applied.
+6. **Note the time, then apply exactly that plan:**
+
+   ```sh
+   date -u +%Y-%m-%dT%H:%M:%SZ
+   terraform apply upgrade.tfplan
+   rm upgrade.tfplan
+   ```
+
+   - `date -u` prints the time, in UTC, that a restore goes back to if you
+     go back. Write it down. Writes made after it aren't in the restore.
+   - A saved plan applies as you read it, with the variables it was made
+     with, so it takes no `-var-file`. If the state changed since,
+     Terraform refuses it as stale: plan again.
+   - The new revision migrates the database as it starts. Once it's
+     ready, it takes all the traffic, and the one before it stops.
+7. **Check it:**
+
+   ```sh
+   az containerapp revision list -n <name_prefix>-server -g <rg> -o table
+   ```
+
+   It lists the active revisions. Once the new one is ready, it's the only
+   one, with all the traffic, and healthy. Then read its startup lines, as
+   in [4. The services](#4-the-services), and run a flow, as in
+   [6. Check it](#6-check-it).
+
+**If it doesn't come up, go back.** Nothing rolls back on its own, and
+migrations only go forward, so never point the old version at the
+migrated database. A point-in-time restore makes a new server, and never
+overwrites the module's. So the runtime moves onto the restored one,
+through its database URL in Key Vault. Container Apps picks up a new
+version of that URL within 30 minutes, and a revision made sooner may
+start with the one before it
+([Microsoft: Key Vault secret URI and secret rotation](https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets#key-vault-secret-uri-and-secret-rotation)).
+So nothing runs while it changes:
+
+1. **First, export the erasure ledger** from the server serving now
+   ([Erasures and backups](../back-up-and-restore/#erasures-and-backups)).
+   It holds every erasure so far, those made after the time you noted too.
+   If no server answers, the restored database's own ledger is all there
+   is.
+2. **Restore the database as it was at the time you noted,** into a new
+   server:
+
+   ```sh
+   PG=$(terraform output -raw database_server_name)
+   az postgres flexible-server restore -g <rg> --name "$PG-back" \
+     --source-server "$PG" --restore-time <the time you noted>
+   az postgres flexible-server parameter set -g <rg> -s "$PG-back" \
+     --name azure.extensions --value VECTOR
+   ```
+
+   - With no network options, `az` puts the new server in the module
+     server's subnet and private DNS zone.
+   - The new server keeps the module server's tier, storage and backup
+     retention, but none of its server parameters
+     ([Microsoft: Backup and restore](https://learn.microsoft.com/en-us/azure/postgresql/backup-restore/concepts-backup-restore)).
+     The second command allows pgvector on it, as the module does on its
+     own.
+   - Nothing reads it yet: the new version keeps serving from the module's
+     server.
+3. **Save the plan that goes back.** Put `server_image`, and `pack_image`,
+   back from the copy of `dev.tfvars` you kept, then plan, and read it:
+
+   ```sh
+   (umask 077 && terraform plan -var-file=dev.tfvars -out=back.tfplan)
+   ```
+
+   Plan now: a plan reads the module's server, which the next step stops.
+4. **Stop the new version.** Deactivate its revision, then stop the
+   module's database server. `PG` is from step 2: in a new shell, set it
+   again first.
+
+   ```sh
+   REV=$(az containerapp revision list -n <name_prefix>-server -g <rg> --query "[?properties.active].name" -o tsv)
+   az containerapp revision deactivate -n <name_prefix>-server -g <rg> --revision "$REV"
+   az postgres flexible-server stop -g <rg> -n "$PG"
+   az postgres flexible-server show -g <rg> -n "$PG" --query state -o tsv
+   az containerapp revision list -n <name_prefix>-server -g <rg> -o table
+   ```
+
+   - Deactivating a revision stops its replicas, so the new version can't
+     start on the restored server once the URL names it.
+   - With the module's server stopped, no revision can reach the migrated
+     database, whichever URL it starts with.
+   - The last two commands check it: the server is `Stopped`, and no
+     revision is listed, since the list shows only active ones. If it
+     lists any revision, stop here, and don't change the URL while one can
+     run.
+5. **Point the runtime at the restored server.** Set the restored server's
+   admin password and the database URL with it, as in
+   [3. The secrets](#3-the-secrets): the password goes through a pipe,
+   never on a command line.
+
+   ```sh
+   # Off in this shell: az's log file, if it's on, records each request's body.
+   export AZURE_LOGGING_ENABLE_LOG_FILE=no
+
+   V=$(terraform output -raw key_vault_name)
+   put() { az keyvault secret set --vault-name "$V" -n "$1" --file /dev/stdin --query id -o tsv; }
+
+   DBPW=$(openssl rand -hex 24)
+   BACK=$(az postgres flexible-server show -g <rg> -n "$PG-back" --query fullyQualifiedDomainName -o tsv) &&
+     [ -n "$BACK" ] &&
+     printf '%s' "$DBPW" | az postgres flexible-server update -g <rg> -n "$PG-back" --admin-password @- -o none &&
+     printf 'postgres://kindgiadmin:%s@%s:5432/kindgi?sslmode=require' "$DBPW" "$BACK" | put database-url
+   unset DBPW
+   ```
+
+   Each command runs only if the one before it worked, so the vault never
+   gets a URL for a server or a password that isn't there.
+6. **Wait 30 minutes, then apply the plan that goes back:**
+
+   ```sh
+   terraform apply back.tfplan && rm back.tfplan
+   ```
+
+   - Nothing runs while you wait, and by the end of it Container Apps has
+     the URL's new version.
+   - The plan's revision can reach only the restored server. One that
+     starts with the URL before can't connect, and Container Apps
+     restarts it with the new one.
+   - If Terraform refuses the plan as stale, start the module's server,
+     plan again as in step 3, stop it as in step 4, and apply.
+   - Check it as the upgrade's step 7 does: once the plan's revision is
+     the only active one, healthy, it serves from the restored server.
+7. **Replay the erasures before anyone uses it**
+   ([Erasures and backups](../back-up-and-restore/#erasures-and-backups)).
+   A replay matches only with the same ledger key, which the module pins
+   (`erasure_ledger_key_version`).
+
+From then on, the runtime serves from the restored server, which the module
+doesn't manage. The module's own server, which `database_server_name`
+names, stays: Terraform keeps it, and would make it again if you deleted it
+by hand. Start it again before your next plan; a stopped server also starts
+again on its own after seven days. Its database, the migrated one, doesn't
+get the erasures made since, so once the restored server is checked, delete
+it ([Erasures and backups](../back-up-and-restore/#erasures-and-backups)):
+
+```sh
+az postgres flexible-server start -g <rg> -n "$PG"
+az postgres flexible-server db delete -g <rg> -s "$PG" -d kindgi --yes
+```
+
+The module's next apply makes it again, empty. At the next upgrade, check
+and restore the server the URL names, not the module's.
+
 ## Tear it down
 
 ```sh
@@ -611,3 +972,4 @@ terraform destroy -var-file=dev.tfvars
 - [Renew the license key](../renew-the-license-key/): on the module's
   schedule.
 - [Logs](../logs/): what the runtime logs, and how to follow a run.
+- [Turn on sign-in](../sign-in/): every way in, and what each setting does.

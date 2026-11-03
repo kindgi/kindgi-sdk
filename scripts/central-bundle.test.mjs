@@ -283,14 +283,37 @@ describe('the Release workflow', () => {
   };
 
   test('npm publishes a CLI only once its kindgi-pack version is on Central', () => {
-    const npm = job('publish');
-    assert.match(npm, /needs: publish-maven/);
-    const guard = npm.indexOf(
-      'central-bundle.mjs on-central --version "$(node -p "require(\'./packages/cli/package.json\').version")"',
+    const wait = job('maven-on-central');
+    assert.match(wait, /\n {4}needs: publish-maven\n/);
+    assert.ok(
+      wait.includes(
+        'central-bundle.mjs on-central --wait-minutes 120 --version "$(node -p "require(\'./packages/cli/package.json\').version")"',
+      ),
+      'the on-central step is gone',
     );
-    const publish = npm.indexOf('pnpm -r publish --no-git-checks');
-    assert.ok(guard !== -1, 'the on-central step is gone');
-    assert.ok(guard < publish, 'the on-central step runs after npm publishes');
+    const npm = job('publish');
+    assert.match(npm, /\n {4}needs: \[publish-maven, maven-on-central\]\n/);
+    assert.match(npm, /\(inputs\.dry-run \|\| needs\.maven-on-central\.result == 'success'\)/);
+  });
+
+  test("the wait for Central comes before npm's approval, outlasts Central's lag, and runs in a dry run", () => {
+    const wait = job('maven-on-central');
+    assert.doesNotMatch(wait, /\n {4}environment:/, 'the wait holds an approval');
+    assert.ok(
+      !job('publish').includes('central-bundle.mjs on-central'),
+      "npm's approved job waits for Central",
+    );
+    const minutes = Number(wait.match(/ on-central --wait-minutes (\d+) /)?.[1]);
+    const limit = Number(wait.match(/\n {4}timeout-minutes: (\d+)\n/)?.[1]);
+    assert.ok(minutes >= 120, `the wait is ${minutes} minutes`);
+    assert.ok(limit > minutes, `the job's ${limit}-minute limit cuts the ${minutes}-minute wait`);
+    // The job runs in a dry run, its step skipped: a job skipped there would skip the
+    // jobs after it whose `if:` has no !cancelled().
+    assert.match(wait, /\n {4}if: github\.event_name == 'workflow_dispatch'\n/);
+    assert.match(
+      wait,
+      /\n {8}if: \$\{\{ !inputs\.dry-run \}\}\n {8}run: node scripts\/central-bundle\.mjs on-central /,
+    );
   });
 
   test('Maven Central gets the checked, signature-verified bundle', () => {

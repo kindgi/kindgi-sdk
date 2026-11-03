@@ -1,6 +1,6 @@
 ---
 title: Sign in to the console
-description: What a person sees on the console's sign-in page, from their email to the console, and what each message there means.
+description: What a person sees on the console's sign-in page, from their email to the console, what each message there means, and the menu under your name once you're in.
 sidebar:
   order: 1
 ---
@@ -95,6 +95,35 @@ keep the token.
 
 When the page says **There's no way to sign in here yet**, the deployment
 has no way in turned on. Ask whoever runs it.
+
+## The menu under your name
+
+Once you're in, your name is at the top right of every page. Its menu has:
+
+- who you're signed in as;
+- **My access**: what you may do, and how you have it
+  ([The console, by role](../../../deploy/authorization/#the-console-by-role));
+- **Docs**, and below it the links the deployment adds
+  ([Your own links in the console](../../../deploy/self-hosted/sign-in/#your-own-links-in-the-console));
+- **Theme:** **System**, **Light** or **Dark**. System, to start with,
+  follows your device's setting as it changes.
+- **Times:** **Local** with your city, such as **Local (Toronto)**, or
+  **UTC**. Local, to start with, shows times on your browser's clock.
+- **Sign out** ([Signing out](../sessions/#signing-out)).
+
+Each time names its zone either way, such as "25 Oct 2026, 1:08 AM EDT".
+Its clock reads 12 or 24 hours as your browser's language does: 12 in
+American English, 24 in British English, French or German. Only what the
+console shows changes: the runtime keeps and sends times in UTC, so the API
+and its clients see UTC. A few stay in UTC and say so: cost by day ("Spend
+by day (UTC), by agent"), the project overview's "The last 7 days, by UTC
+day", and
+an Improve schedule's monthly cap ("A calendar month, UTC."). A schedule's
+cron reads in the schedule's own zone
+([Run on a schedule](../../runs/run-on-a-schedule/#in-the-console)).
+
+Your Theme and Times are kept in this browser, not with your account:
+another browser, or a new private window, starts at System and Local.
 
 ## Next
 

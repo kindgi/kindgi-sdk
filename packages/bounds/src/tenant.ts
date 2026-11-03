@@ -16,16 +16,16 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 /**
- * Which of a tenant's schema compiles count against its budget.
+ * Which of a workspace's schema compiles count against its budget.
  * `recompiles`: compiling a schema again, after the cache dropped it; the
- * first compile of a schema the tenant published doesn't count, so a
- * restarted server compiles each tenant's schemas freely. `all`: every
+ * first compile of a schema the workspace published doesn't count, so a
+ * restarted server compiles each workspace's schemas freely. `all`: every
  * compile, for a request that publishes, deploys or registers schemas,
  * which is where new ones come from.
  */
 export type TenantCompiles = 'recompiles' | 'all';
 
-/** The tenant whose work is running, and which of its compiles count. */
+/** The workspace whose work is running, and which of its compiles count. */
 export interface TenantScope {
   readonly tenantId: string;
   readonly compiles: TenantCompiles;
@@ -33,7 +33,7 @@ export interface TenantScope {
 
 /** `runAsTenant`'s options. */
 export interface RunAsTenantOptions {
-  /** Which of the tenant's compiles count: `recompiles` unless set. */
+  /** Which of the workspace's compiles count: `recompiles` unless set. */
   readonly compiles?: TenantCompiles;
 }
 
@@ -45,9 +45,9 @@ export function runAsTenant<T>(tenantId: string, fn: () => T, options: RunAsTena
 }
 
 /**
- * Runs `fn` outside any tenant's scope, and returns what it returns: for
- * Kindgi's own work that a tenant's request happens to start (compiling
- * one of Kindgi's schemas the first time, say), which no tenant is
+ * Runs `fn` outside any workspace's scope, and returns what it returns: for
+ * Kindgi's own work that a workspace's request happens to start (compiling
+ * one of Kindgi's schemas the first time, say), which no workspace is
  * charged for.
  */
 export function runOutsideTenant<T>(fn: () => T): T {

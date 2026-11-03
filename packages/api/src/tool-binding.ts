@@ -4,7 +4,7 @@
 import type { TupleEnqueueHook } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
 import type { CodeArtifactRef, ToolManifest } from '@kindgi/tools';
-import type { Cursor, ProjectId, Semver, TenantId, ToolId } from '@kindgi/types';
+import type { Cursor, PinScope, ProjectId, Semver, TenantId, ToolId } from '@kindgi/types';
 
 import type { RecordedSecretScope } from './secret-scope.js';
 
@@ -110,7 +110,8 @@ export interface ToolRegistryBinding {
    * NO active versions, the tool has no latest version — it enters the
    * derived "retired" state (GET returns 410 gone).
    * Publish of a new version reactivates. Version is REQUIRED
-   * (there are no bare-tool-id semantics).
+   * (there are no bare-tool-id semantics). A pinned version stays
+   * (`pinned`, `409 tool-version-pinned`).
    */
   unregister(input: ToolUnregisterInput): Promise<ToolUnregisterOutcome>;
   /**
@@ -203,7 +204,7 @@ export interface ToolListVersionsInput {
    * `false` (default) → return only active versions. `true` → return
    * active + tombstoned rows; tombstoned entries carry `unregisteredAt`
    * on the wire, active entries do not. Aligns with the soft-tombstone
-   * pattern used by agents / flows / eval suites / policies.
+   * pattern used by agents / flows / test sets / policies.
    */
   readonly includeTombstoned?: boolean;
 }
@@ -225,7 +226,7 @@ export interface ToolPublishInput {
    * Project the tool is registered into. REQUIRED. Callers
    * that don't naturally know a projectId (deployment
    * route, boot-time dev-echo seed, MCP bridge) resolve the tenant's
-   * Default via `projectBinding.getDefault(tenantId)` at THEIR layer.
+   * default via `projectBinding.getDefault(tenantId)` at THEIR layer.
    */
   readonly projectId: ProjectId;
   readonly tool: ToolManifest;
@@ -357,6 +358,13 @@ export interface ToolKindMismatch {
 
 export type ToolUnregisterOutcome = {
   readonly unregistered: boolean;
+  /**
+   * Set when the version wasn't unregistered because it's pinned: the
+   * scopes that pin it. A pin is a standing choice, so the operator moves
+   * or removes those pins first. The route answers `409 tool-version-pinned`.
+   * Absent: a registry that doesn't know pins, as before.
+   */
+  readonly pinned?: readonly PinScope[];
 };
 
 export type ToolReinstateVersionOutcome =

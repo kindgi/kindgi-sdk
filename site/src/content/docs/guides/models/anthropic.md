@@ -14,7 +14,7 @@ prices. Sonnet 5.5 is its default. You provide the key.
 
 ## Before you start
 
-- **A pack** with `kindgi dev` running, from Kindgi 0.1's CLI.
+- **A pack** with `kindgi dev` running, from Kindgi 0.2's CLI.
 - **An Anthropic API key.**
 - **An agent,** to try it. This guide uses `acme.order-desk`.
 
@@ -30,7 +30,7 @@ pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
 - `--env=local` is the environment the secret belongs to. Under
   `kindgi dev`, `local` is the pack's env files, `.kindgi/secrets.env` among
   them.
-- `--scope=tenant` is where the secret lives: the tenant, rather than one org
+- `--scope=tenant` is where the secret lives: the workspace, rather than one org
   (`org:<orgId>`) or project (`project:<projectId>`).
 
 It prompts for the key without echoing it and writes it to Kindgi's own
@@ -120,8 +120,9 @@ require the model, as
 offer only some models, register only those, with `--models`.
 
 The Claude 5.5 models take no `temperature`, and they think before they
-answer. [Temperature and thinking](../#temperature-and-thinking) says what
-that means for an agent.
+answer. Each takes the thinking levels `low`, `medium`, `high`, `xhigh` and
+`max`, sent as Anthropic's effort. [Temperature and thinking](../#temperature-and-thinking)
+says what that means for an agent.
 
 Anthropic lists each model's status, and any retirement date, on its
 [model deprecations](https://platform.claude.com/docs/en/about-claude/model-deprecations)

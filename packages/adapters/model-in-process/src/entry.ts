@@ -48,6 +48,8 @@ export const inProcessAdapterEntry: AdapterFactoryEntry = {
   factory: inProcessAdapterFactory,
   prepare: (params) => prepareInProcessModel(params as PrepareInProcessParams),
   checkConfig: inProcessCheckConfig,
+  // It takes no `adapter_config`: its models are in the metadata.
+  configKeys: [],
 };
 
 function modelsProblem(

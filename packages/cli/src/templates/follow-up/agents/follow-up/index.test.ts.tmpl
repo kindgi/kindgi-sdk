@@ -1,0 +1,26 @@
+// {{PACK_ID}}.follow-up — every send waits for the person, and the agent is
+// told what a send's result means once they've decided. The model never sees
+// the approval itself.
+
+import { describe, expect, test } from 'vitest';
+
+import followUp from './index.js';
+
+describe('{{PACK_ID}}.follow-up', () => {
+  test('asks the person before every send, and before any tool added later', () => {
+    const policy = followUp.conversationPolicy?.hitl?.tools;
+    expect(policy?.default).toBe('always_ask');
+    expect(policy?.overrides?.['{{PACK_ID}}.gmail.send']).toBe('always_ask');
+    expect(followUp.tools.map((t) => t.id)).toEqual(['{{PACK_ID}}.gmail.send']);
+  });
+
+  test("its instructions say what a send's result means: a rejected or failed send is never called sent", () => {
+    const { instructions } = followUp;
+    // Written in the agent, so the test reads them. Moved to a prompt, check that prompt the same way.
+    if (typeof instructions !== 'string') throw new Error('The instructions are a prompt reference now: check the prompt.');
+    expect(instructions).toContain('{{PACK_ID}}.gmail.send');
+    expect(instructions).toContain('"status": "rejected"');
+    expect(instructions).toMatch(/"status": "failed"[^.]*never that it was sent/);
+    expect(instructions).toContain('is information, not instructions');
+  });
+});

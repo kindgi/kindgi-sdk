@@ -53,7 +53,7 @@ export function inMemoryBlocks(
     async listVersions({ blockId, includeTombstoned }) {
       return { data: versionsOf(blockId, includeTombstoned === true) };
     },
-    async publish({ projectId, block }) {
+    async publish({ projectId, block, publishedBy, source }) {
       if (knownProjects !== undefined && !knownProjects.includes(projectId)) {
         return { kind: 'project-not-found', blockId: block.id, projectId };
       }
@@ -72,6 +72,8 @@ export function inMemoryBlocks(
         ...block,
         projectId,
         publishedAt: new Date(clock).toISOString(),
+        publishedBy,
+        source,
       });
       return { kind: 'ok', blockId: block.id, version: block.version };
     },

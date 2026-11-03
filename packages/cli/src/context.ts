@@ -5,7 +5,9 @@ import { type KindgiClient, createClient } from '@kindgi/client';
 
 import { ownAddressKeyRefusal } from './api-address.js';
 import type { BuildRunners } from './build/runners.js';
+import type { ApprovalWaitSeam } from './commands/approval-wait.js';
 import type { RegistryAuthSeam } from './commands/auth.js';
+import type { ConnectionsSeam } from './commands/connections.js';
 import type { DoctorSeam } from './commands/doctor.js';
 import type { EnvInitInputSeam } from './commands/env.js';
 import type { SecretsValueInputSeam } from './commands/secrets.js';
@@ -94,13 +96,20 @@ export interface CommandContext {
    */
   readonly devRunners: DevRunners | undefined;
   /**
-   * Optional signal that terminates long-lived commands (currently just
-   * `kindgi dev` — the watch loop). Tests pass an
+   * Optional signal that stops long-lived commands (`kindgi dev`'s watch
+   * loop, a download, a deploy's waits). Tests pass an
    * `AbortController.signal` so a graceful shutdown path can be
    * exercised without process signals. Production callers wire this to
-   * SIGINT/SIGTERM in `main.ts`.
+   * SIGINT/SIGTERM/SIGHUP in `cli.ts`.
    */
   readonly stopSignal: AbortSignal | undefined;
+  /**
+   * Where a command says how it's going while it runs (`kindgi build`'s
+   * lines): the CLI's stderr, each line as it comes (`cli.ts`). Undefined
+   * when `runCli` is given none (tests): the command then returns those
+   * lines with its result.
+   */
+  readonly progress: ((text: string) => void) | undefined;
   /**
    * Injectable build-pipeline seams used exclusively by `kindgi
    * build`. Absent for every other command. Tests hand
@@ -194,6 +203,10 @@ export interface CommandContext {
   readonly rateLimitWaits?: RateLimitWaitSeam;
   /** `kindgi exports create`'s output, clock and pauses. Tests inject them; production leaves this undefined. */
   readonly exportsSeam?: ExportsSeam;
+  /** `kindgi connections connect`'s terminal, clock and pauses, and the removals' question. Tests inject them; production leaves this undefined. */
+  readonly connectionsSeam?: ConnectionsSeam;
+  /** The clock and pauses of `--wait` on a promotion that waits for an approval. Tests inject them; production leaves this undefined. */
+  readonly approvalWaitSeam?: ApprovalWaitSeam;
 }
 
 export interface InitSeam {
@@ -222,6 +235,7 @@ export interface BuildContextInputs {
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly devRunners?: DevRunners;
   readonly stopSignal?: AbortSignal;
+  readonly progress?: ((text: string) => void) | undefined;
   readonly buildRunners?: BuildRunners;
   readonly buildConfigLoader?: (packDir: string) => Promise<{ readonly [k: string]: unknown }>;
   readonly deployRunners?: DeployRunners;
@@ -238,6 +252,8 @@ export interface BuildContextInputs {
   readonly openUrl?: OpenUrl;
   readonly rateLimitWaits?: RateLimitWaitSeam;
   readonly exportsSeam?: ExportsSeam;
+  readonly connectionsSeam?: ConnectionsSeam;
+  readonly approvalWaitSeam?: ApprovalWaitSeam;
 }
 
 export function buildContext(inputs: BuildContextInputs): CommandContext {
@@ -283,6 +299,7 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
     env: inputs.env ?? {},
     devRunners: inputs.devRunners,
     stopSignal: inputs.stopSignal,
+    progress: inputs.progress,
     buildRunners: inputs.buildRunners,
     buildConfigLoader: inputs.buildConfigLoader,
     deployRunners: inputs.deployRunners,
@@ -299,5 +316,7 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
     openUrl: inputs.openUrl,
     ...(inputs.rateLimitWaits !== undefined && { rateLimitWaits: inputs.rateLimitWaits }),
     ...(inputs.exportsSeam !== undefined && { exportsSeam: inputs.exportsSeam }),
+    ...(inputs.connectionsSeam !== undefined && { connectionsSeam: inputs.connectionsSeam }),
+    ...(inputs.approvalWaitSeam !== undefined && { approvalWaitSeam: inputs.approvalWaitSeam }),
   };
 }

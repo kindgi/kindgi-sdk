@@ -100,6 +100,8 @@ export interface WriteContainerfileOptions {
   readonly image: ResolvedImage;
   /** Whether the context has `include/` (`bundle.include` files). */
   readonly hasIncludes: boolean;
+  /** Whether the context has `blocks/` (the pack's data blocks, for the indexer stage). */
+  readonly hasBlocks: boolean;
 }
 
 export interface WriteContextOptions {
@@ -112,6 +114,8 @@ export interface WriteContextOptions {
   readonly includes: readonly string[];
   /** The files the image's build extensions read, relative to `packDir`. */
   readonly extensionFiles: readonly string[];
+  /** The pack's data blocks and their templates, relative to `packDir` (`checkPackBlocks`). */
+  readonly blockFiles: readonly string[];
 }
 
 export interface TarPackOptions {
@@ -242,7 +246,10 @@ export interface PythonBuildRunners {
     },
   ) => Promise<LocalIndexResult>;
   readonly writeContainerfile: (
-    opts: Omit<WriteContainerfileOptions, 'baseImageRef' | 'install' | 'image' | 'hasIncludes'> & {
+    opts: Omit<
+      WriteContainerfileOptions,
+      'baseImageRef' | 'install' | 'image' | 'hasIncludes' | 'hasBlocks'
+    > & {
       readonly baseImageRef: string;
       readonly uvImageRef: string;
       readonly installer: PythonInstaller;

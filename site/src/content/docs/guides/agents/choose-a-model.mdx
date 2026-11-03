@@ -12,13 +12,13 @@ provider or a model, and shows which one answered.
 
 An agent doesn't name a model. Its `capabilities` say what the model must
 support. When a turn starts, Kindgi picks one from the providers registered
-for your tenant. You can prefer a provider or a model, or require one.
+for your workspace. You can prefer a provider or a model, or require one.
 
 ## Before you start
 
 - **An agent,** in a pack on a runtime such as `kindgi dev`, with Kindgi
   0.1's CLI. This guide uses `acme.order-desk`.
-- **Providers registered for your tenant,** as [Models](../../models/)
+- **Providers registered for your workspace,** as [Models](../../models/)
   shows. Without one, `dev-echo` answers.
 
 ## What the model must support
@@ -223,6 +223,14 @@ provider and model the turn would use:
 the provider isn't registered, or its models don't meet the needs, the turn
 takes the next model in line.
 
+The preference can live in the agent's model-settings block instead, as its
+`model` and `providerId`, with the same rules. Then an expert can change it
+without a code deploy, and
+[Improve can try other models](../../improve/improve-an-agent/#let-it-try-another-model-or-temperature)
+from the list you give it, and keeps one only when it does better. Name the model in one place: a version whose
+definition and model-settings block both name a model or a provider is
+refused when it's published.
+
 ## Require a model
 
 To make sure a turn runs on one model, ask your coding agent: "My agent must
@@ -296,7 +304,7 @@ JSON that `kindgi runs start` prints. For `models: { allow: ['gpt-5'] }`:
 }
 ```
 
-A provider registered for the tenant that the runtime couldn't set up, such as
+A provider registered for the workspace that the runtime couldn't set up, such as
 one whose
 [settings the deployment no longer allows](../../../concepts/security/#what-a-tenant-cant-make-the-server-do),
 is never a candidate. The reasons name it under `provider set up`, by its
@@ -358,7 +366,7 @@ Anthropic models.
 
 ## `dev-echo`, the fallback
 
-`kindgi dev` gives your tenant `dev-echo`, a stand-in that needs no key. It
+`kindgi dev` gives your workspace `dev-echo`, a stand-in that needs no key. It
 calls the agent's first tool with `{"message": <the user message>}`, and
 answers `Tool responded: <the result>`. An agent with no tools gets its user
 message back. Its text answers start with a line that says what it is:
@@ -394,6 +402,18 @@ If you registered a model and still see this, the agent's needs don't match
 it. Compare its `capabilities` with the models' `features`, which
 `kindgi providers list` shows. `dev-echo` has only `tool-use`, so an agent
 that needs anything else fails with no model registered.
+
+## How much it thinks
+
+Which model answers and how much it thinks are set in different places. A
+model that thinks is sent the level `thinking` asks for in the agent's
+[model settings](../../improve/change-a-prompt-or-setting/#use-them-in-an-agent).
+When they ask none, it's sent the `thinking.default` its provider's
+registration gives it, and without one, no level, so it thinks as its vendor
+sets. A guardrail's model judge, or a test run's judging model, asks for the
+least thinking.
+[Temperature and thinking](../../models/#temperature-and-thinking) lists the
+levels, and how one the model doesn't take is sent.
 
 ## See which model answered
 

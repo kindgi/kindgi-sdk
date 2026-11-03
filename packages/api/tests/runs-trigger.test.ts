@@ -2,9 +2,9 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * A run a trigger started names the trigger and the fire: the record's
- * `trigger` is on the wire as `Run.trigger`, and `GET /v1/runs?triggerId=`
- * lists one trigger's runs.
+ * A run a trigger started names the trigger, the fire and the trigger's
+ * version it started with: the record's `trigger` is on the wire as
+ * `Run.trigger`, and `GET /v1/runs?triggerId=` lists one trigger's runs.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -39,6 +39,7 @@ const fired: KernelRunRecord = {
     kind: 'schedule',
     fireId: 'f-1',
     scheduledFor: '2026-10-07T07:00:00.000Z' as Timestamp,
+    version: 3,
   },
 };
 
@@ -69,7 +70,7 @@ async function get(path: string) {
 }
 
 describe('a run names the trigger that started it', () => {
-  test('the run carries trigger: its id, kind, fire and occurrence', async () => {
+  test('the run carries trigger: its id, kind, fire, occurrence and version', async () => {
     const answer = await get(`/v1/runs/${fired.runId}`);
     expect(answer.status).toBe(200);
     expect(answer.json.trigger).toEqual({
@@ -77,6 +78,7 @@ describe('a run names the trigger that started it', () => {
       kind: 'schedule',
       fireId: 'f-1',
       scheduledFor: '2026-10-07T07:00:00.000Z',
+      version: 3,
     });
   });
 

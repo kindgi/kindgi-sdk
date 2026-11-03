@@ -3,7 +3,7 @@
 
 import type { ProjectId, Result, RunId, Semver, TenantId, Timestamp } from '@kindgi/types';
 
-import type { RunReplayRef, RunStartedBy } from '@kindgi/runtime';
+import type { RunMailbox, RunReplayRef, RunStartedBy } from '@kindgi/runtime';
 
 import type { PersistenceError } from './errors.js';
 import type { AgentId, ConversationId } from './types.js';
@@ -47,6 +47,20 @@ export interface RunSnapshotWriteInput {
    * long as `read` answers the run's.
    */
   readonly startedBy?: RunStartedBy;
+  /**
+   * What the turn may call without a person's yes
+   * (`InvokeAgentInput.toolsAllowedUnattended`). A store that keeps it
+   * with the run's record instead may ignore it here, as long as `read`
+   * answers the run's.
+   */
+  readonly toolsAllowedUnattended?: readonly string[];
+  /**
+   * The mailbox a mail trigger's turn came from
+   * (`InvokeAgentInput.mailbox`). A store that keeps it with the run's
+   * record instead may ignore it here, as long as `read` answers the
+   * run's.
+   */
+  readonly mailbox?: RunMailbox;
 }
 
 /**
@@ -77,6 +91,18 @@ export interface RunSnapshotRecord {
    * from before runs recorded it): the resumed turn counts as unattended.
    */
   readonly startedBy?: RunStartedBy | null;
+  /**
+   * What the turn may call without a person's yes, as recorded when its
+   * run started: a resumed turn gets it from here, never from whoever
+   * resumes it. Absent or null: none.
+   */
+  readonly toolsAllowedUnattended?: readonly string[] | null;
+  /**
+   * The mailbox a mail trigger's run came from, as recorded when it
+   * started: a resumed turn gets it from here, never from whoever resumes
+   * it. Absent or null on every other run.
+   */
+  readonly mailbox?: RunMailbox | null;
   readonly createdAt: Timestamp;
 }
 

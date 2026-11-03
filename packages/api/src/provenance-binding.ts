@@ -19,6 +19,8 @@ import type {
   Timestamp,
 } from '@kindgi/types';
 
+import type { CostTokenTotals } from './cost-binding.js';
+
 // ---------- domain type surface ----------
 
 export const NODE_KINDS = [
@@ -37,6 +39,7 @@ export const NODE_KINDS = [
   'memory-write',
   'wait',
   'resume',
+  'step',
 ] as const;
 
 export type NodeKind = (typeof NODE_KINDS)[number];
@@ -111,6 +114,8 @@ export interface ListProvenanceRecordsInput {
   readonly scope?: ListScope;
   readonly runId?: RunId;
   readonly agentId?: string;
+  /** Only the records of this flow's runs (`flowRef.id`, exact match). An agent's turns never match: `agentId` finds those. */
+  readonly flowId?: FlowId;
   readonly createdAfter?: Date;
   readonly cursor?: ProvenanceListCursor;
 }
@@ -143,6 +148,13 @@ export interface ListProvenanceRecordsResult {
  * Structural error surface returned by `ProvenanceBinding` methods.
  * Implementations emit codes `provenance-not-found` + `persistence-error`
  * — the routes pass them through to `statusFor()` / `toWireError()`.
+ *
+ * On `provenance-not-found`, an implementation may say why the run has no
+ * record yet, and the routes pass it on under `error.details`:
+ * `recordState` (`being-written` while it's queued to be written,
+ * `failed` once writing it failed; more may come) and, with `failed`,
+ * `reason`, a code (`read-failed`, `build-failed`, `write-failed`; more
+ * may come). Both are strings, and only for a run the caller may read.
  */
 export interface ProvenanceBindingError {
   readonly code: string;
@@ -191,6 +203,22 @@ export interface ProvenanceBinding {
     tenantId: TenantId,
     runId: RunId,
   ): Promise<Result<CallUsageByCallId, ProvenanceBindingError>>;
+
+  /**
+   * A flow run's model usage by the step that started each of its runs:
+   * the model calls of those runs, and of theirs, from the cost ledger,
+   * one row per step as the run rows name it. Optional, as
+   * `getCallUsage` is. The routes place each row on the record's node
+   * that counts the step's runs (`stepNodePlacer` from
+   * `@kindgi/provenance`), so a folded loop node sums its iterations',
+   * and a row with no node is left out. They add the sums to a read of a
+   * record with `step` nodes as `stepUsage`, outside the signed DAG, and
+   * a signed export includes it as it stood when signed.
+   */
+  getStepUsage?(
+    tenantId: TenantId,
+    runId: RunId,
+  ): Promise<Result<readonly StepRunsUsage[], ProvenanceBindingError>>;
 }
 
 /** One model call's usage, as the cost ledger has it. */
@@ -208,3 +236,25 @@ export interface CallUsage {
 }
 
 export type CallUsageByCallId = Readonly<Record<string, CallUsage>>;
+
+/**
+ * The model usage of the runs one step started, and of theirs, summed:
+ * the step as its runs' rows name it, `parentScope` `''` for a step of
+ * the flow itself or the JSON of its loop path, innermost first.
+ */
+export interface StepRunsUsage {
+  readonly parentNodeId: string;
+  readonly parentScope: string;
+  readonly calls: number;
+  readonly costUsd: number;
+  readonly tokens: CostTokenTotals;
+}
+
+/** One step's model usage: the calls of the runs it started, and of theirs, summed. */
+export interface StepUsage {
+  readonly calls: number;
+  readonly costUsd: number;
+  readonly tokens: CostTokenTotals;
+}
+
+export type StepUsageByNodeId = Readonly<Record<string, StepUsage>>;

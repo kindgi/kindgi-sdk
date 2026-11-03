@@ -374,7 +374,7 @@ async function runPage(page, databaseUrl) {
       } else if (step.kind === 'background') {
         if (!step.ready) throw new Error(`${where}: a background step needs ready="…"`);
         // Every form of `kindgi dev` (`kindgi dev`, `pnpm exec kindgi dev`,
-        // `npx @kindgi/cli@0.1 dev`) gets its own free port, so two runs at
+        // `npx @kindgi/cli@0.2 dev`) gets its own free port, so two runs at
         // once never both reach for the default.
         const command = KINDGI_DEV.test(body) ? `${body} --port ${await freePort()}` : body;
         const child = spawn('bash', ['-c', `cd ${JSON.stringify(cwd)} && exec ${command}`], {

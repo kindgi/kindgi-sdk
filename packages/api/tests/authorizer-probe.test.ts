@@ -219,7 +219,7 @@ describe('what reads without recording', () => {
     // Where they're defined (caller.ts, over `Authorizer.probe`; the
     // authorizer, over the binding's), and the responses that show the
     // caller its own access, each checked to decide nothing: whoami,
-    // `/me/permissions` and the judging queue's `can`. A new one fails here
+    // `/me/permissions` and the expert queue's `can`. A new one fails here
     // until someone has checked the same of it.
     expect(found.sort()).toEqual(
       [
@@ -230,7 +230,7 @@ describe('what reads without recording', () => {
         'middleware/authorize.ts: .probe',
         'routes/identity.ts: isTenantAdminForDisplay',
         'routes/identity.ts: isTenantAdminForDisplay',
-        'routes/judging.ts: canForDisplay',
+        'routes/expert-queue.ts: canForDisplay',
       ].sort(),
     );
   });
