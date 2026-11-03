@@ -44557,7 +44557,7 @@
             }
           },
           "403": {
-            "description": "The caller can read the conversation, and has no `execute` on its agent or, for an agent more than one project serves, no `call` on the conversation's project (`caller` or `editor`). Closing one doesn't take reading it.",
+            "description": "The caller can read the conversation, and has no `execute` on its agent or, for an agent more than one project serves, no `call` on the conversation's project (`caller` or `editor`); or may run its project (`run`) without `write` there, and someone else opened it. Closing one doesn't take reading it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -44607,7 +44607,7 @@
             }
           }
         },
-        "description": "Idempotent: closing an already-closed conversation returns 200 with the current row (no timestamp bump).",
+        "description": "Idempotent: closing an already-closed conversation returns 200 with the current row (no timestamp bump). Someone who may run the conversation's project (`run`) without `write` there, as a runner, or anyone where the project lets everyone in its workspace run it, closes only the conversations they opened.",
         "parameters": [
           {
             "name": "conversationId",

@@ -309,7 +309,8 @@ A project's members have a role: `owner`, `admin`, `editor`, `runner` or
 `viewer`. Each includes the next ones: an owner is also an admin, an editor,
 a runner and a viewer. A `runner` can run: start runs of the project's
 agents and flows, use their tools inside those runs, stop their own runs,
-and keep their own schedules. They change nothing else in the project.
+close the conversations they opened, and keep their own schedules. They
+change nothing else in the project.
 A role given as `member` before it was retired still reads back as `member`
 and grants what `viewer` does. Giving it is a `400` that says to use
 `viewer`. An API key's `member` role is a different one, and stays
@@ -371,10 +372,11 @@ without a role of their own. It's the project's `everyoneCanRun`:
   versions, where an agent names its owner by id alone; their own runs,
   with their journal, progress and provenance, and their public links; the
   conversations they opened; and their own schedules. They can stop their
-  own runs and keep their own schedules. Anyone else's runs, conversations
-  and schedules, an agent's other pages, its tools, test sets and
-  approvals take a role, as before.
-- A role given to someone still counts: an editor stays an editor.
+  own runs, close the conversations they opened, and keep their own
+  schedules. Anyone else's runs, conversations and schedules, an agent's
+  other pages, its tools, test sets and approvals take a role, as before.
+- A role given to someone still counts: an editor stays an editor, and a
+  viewer runs as a runner does.
 
 A project admin turns it on or off:
 
