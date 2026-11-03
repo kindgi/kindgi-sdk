@@ -10712,6 +10712,10 @@ class Project(BaseModel):
     """
     When the project was put in production; absent while it isn't. A run in a project in production is a production run, and a run anywhere else is staging.
     """
+    former_slugs: Annotated[list[str] | None, Field(alias="formerSlugs")] = None
+    """
+    The slugs this project had before it was renamed, newest first, and empty when it never was. No other project of the workspace can take them, in any org, while this project exists. Absent from a runtime that doesn't keep them.
+    """
     sort_end_user_corrections: Annotated[bool | None, Field(alias="sortEndUserCorrections")] = None
     """
     `true`: end users' corrections (an app's, with a `participantId`, and not an expert's) are sorted like the others when they're saved, and a schedule counting everyone's corrections counts them. `false` (the default): they're listed and become test cases, but stay open and unsorted, and never start Improve.
