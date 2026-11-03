@@ -3041,7 +3041,7 @@ export const ERROR_ENTRIES = {
   },
   'site-enrollment-key-retired': {
     description:
-      "`POST /v1/auth/sites/enroll` took the code but refused the key: the site retired it (an admin revoked it, or a newer key replaced it), or another of the tenant's sites at the same address retired it, and it isn't live on this site now. Kindgi compares keys by their thumbprint. The code isn't used up: set a new key on the site and connect again with the same code before it expires. A key set in `wp-config.php` or the environment has to change first.",
+      "`POST /v1/auth/sites/enroll` took the code but refused the key: the site retired it (an admin revoked it, or a newer key replaced it), or another of the workspace's sites at the same address retired it, and it isn't live on this site now. Kindgi compares keys by their thumbprint. The code isn't used up: set a new key on the site and connect again with the same code before it expires. A key set in `wp-config.php` or the environment has to change first.",
     details: [],
   },
   'site-key-invalid': {
