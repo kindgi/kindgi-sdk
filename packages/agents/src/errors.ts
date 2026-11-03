@@ -51,7 +51,7 @@ export interface AgentVersionMismatchError {
   readonly actualVersion: string;
 }
 
-/** No conversation with the given id exists (for this tenant). */
+/** No conversation with the given id exists (for this workspace). */
 export interface ConversationNotFoundError {
   readonly code: 'conversation-not-found';
   readonly message: string;

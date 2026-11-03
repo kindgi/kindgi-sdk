@@ -16,7 +16,7 @@ export type TurnMemoryCharge =
   | {
       readonly ok: false;
       /**
-       * `tenant`: the turn's tenant already holds its share. `server`:
+       * `tenant`: the turn's workspace already holds its share. `server`:
        * every tenant's turns together hold the runtime's whole limit.
        */
       readonly limit: 'tenant' | 'server';

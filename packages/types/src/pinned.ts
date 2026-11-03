@@ -8,7 +8,7 @@ export type PinnedItemKind = 'flow' | 'tool';
 
 /**
  * Where a flow or tool version is pinned, from least to most specific: the
- * tenant, an org, or a project. The most specific pin that covers a
+ * workspace, an org, or a project. The most specific pin that covers a
  * project is the one in use there when nothing names a version. Flows and
  * tools pin no finer than a project.
  */

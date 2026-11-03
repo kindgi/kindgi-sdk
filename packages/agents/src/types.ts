@@ -17,7 +17,7 @@ import type {
 import type { AgentDerivation, AgentPins } from './pins.js';
 
 /**
- * Branded agent id. Convention: dotted namespace under the tenant's
+ * Branded agent id. Convention: dotted namespace under the workspace's
  * pack — e.g. `acme.citation-verifier`, `acme.drafting`.
  */
 export type AgentId = Brand<string, 'AgentId'>;
@@ -228,7 +228,7 @@ export interface RememberPolicy {
 /**
  * Typed reference to a tool. Every agent tool binding is `{ id, version }`
  * — no bare-id "latest" shortcut. `version` is a semver **range**
- * (npm-style grammar), resolved at run start against the tenant's tool
+ * (npm-style grammar), resolved at run start against the workspace's tool
  * registry via `semver.maxSatisfying`.
  *
  * Range examples:
@@ -294,7 +294,7 @@ export interface ConversationPolicy {
  * per-tool rule — a mode plus the reviewer role its approvals need
  * (deployments that route "always-ask-financial-tools" through senior
  * reviewers use the rule; a mode alone routes through the agent's
- * `defaultReviewerRole`). Shared with the tenant `hitl` policy, so they
+ * `defaultReviewerRole`). Shared with the workspace `hitl` policy, so they
  * live in `@kindgi/policy-contract`.
  */
 export type { ToolHitlMode, ToolHitlRule } from '@kindgi/policy-contract';
@@ -349,7 +349,7 @@ export interface ConversationHitlPolicy {
   readonly separateApprover?: boolean | SeparateApproverPolicy;
   /**
    * Timeout the approval carries at enqueue time. Absent = the
-   * framework default (24h). A tenant policy's `maxTimeoutMs` caps it
+   * framework default (24h). A workspace policy's `maxTimeoutMs` caps it
    * (see `resolveEffectiveHitlPolicy`).
    */
   readonly timeoutMs?: number;
@@ -419,7 +419,7 @@ export interface Agent {
   readonly id: AgentId;
   /**
    * Semver — REQUIRED. Distinct from tools' `version` in that agents
-   * are versioned per-tenant (rotate + rollout independently of tool
+   * are versioned per-workspace (rotate + rollout independently of tool
    * versions). `agent_conversations.agentVersion` pins each thread to
    * a specific version; resume-across-version bumps rejects with
    * `agent-version-mismatch`.
@@ -517,7 +517,7 @@ export interface Agent {
    * Preferred model provider by id. Soft hint — the router prefers
    * this provider when it satisfies the agent's `capabilities.needs`,
    * falling back to normal capability-based selection when the
-   * preferred provider is unregistered or filtered out by tenant
+   * preferred provider is unregistered or filtered out by workspace
    * policy. Enables A/B'ing agents across providers without
    * churning provider registrations: register several, pin the agent
    * to the one you want to test.
@@ -574,7 +574,7 @@ export interface Agent {
    * the model as the call's result, so it can correct the call, up to
    * `maxRetries` times per turn, for the kinds in `retryOn`. Default:
    * one retry, for `invalid-arguments` and `unknown-tool` (nothing ran).
-   * A tenant's `tool-errors` policy can lower it. See `ToolErrorsSpec`.
+   * A workspace's `tool-errors` policy can lower it. See `ToolErrorsSpec`.
    */
   readonly toolErrors?: ToolErrorsSpec;
   /**

@@ -111,7 +111,7 @@ export type RenderInstructionsResult =
  * agent whose instructions are a prompt block can't render without it.
  *
  * Throws `TemplateRenderBudgetError` (a `TenantBudgetError`) when the
- * tenant has spent its render budget: that's no fault of the template's.
+ * workspace has spent its render budget: that's no fault of the template's.
  */
 export function renderInstructions(
   agent: Agent,

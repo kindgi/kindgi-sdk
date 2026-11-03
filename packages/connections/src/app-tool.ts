@@ -8,7 +8,7 @@ import type { ToolId } from '@kindgi/types';
 export interface AppToolOptions {
   /**
    * The tool's id, namespaced by the pack like any of its own tools
-   * (`acme.gmail.send`). There is no default: a tool id is the tenant's,
+   * (`acme.gmail.send`). There is no default: a tool id is the workspace's,
    * filed under the first project that publishes it, so a fixed id would
    * leave every other project unable to publish the tool.
    */

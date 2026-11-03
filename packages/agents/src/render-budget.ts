@@ -20,7 +20,7 @@ import {
   tenantInputBounds,
 } from '@kindgi/bounds';
 
-/** A tenant's render refused: it spent `budgetMs` in the last 60 seconds. Retry after `retryAfterMs`. */
+/** A workspace's render refused: it spent `budgetMs` in the last 60 seconds. Retry after `retryAfterMs`. */
 export class TemplateRenderBudgetError extends TenantBudgetError {
   readonly code = 'template-render-budget-exceeded';
 

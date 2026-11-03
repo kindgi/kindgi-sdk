@@ -4,7 +4,7 @@ Type contract for Kindgi memory: typed, versioned facts, the hash-chained run lo
 
 ## Purpose
 
-Give agent code, tools, and storage backends one shared vocabulary for memory, so that code that reads facts (for example the retrieval step in [`@kindgi/agents`](../agents/)) depends only on an interface and never on a database client. Every operation is tenant-scoped: callers pass `tenantId` on each call, and the binding implementation enforces isolation.
+Give agent code, tools, and storage backends one shared vocabulary for memory, so that code that reads facts (for example the retrieval step in [`@kindgi/agents`](../agents/)) depends only on an interface and never on a database client. Every operation is workspace-scoped: callers pass `tenantId` on each call, and the binding implementation enforces isolation.
 
 ## Exports
 

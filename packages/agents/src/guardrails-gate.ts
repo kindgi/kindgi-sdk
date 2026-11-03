@@ -64,7 +64,7 @@ export interface GuardrailsBindings {
   readonly compliance?: ComplianceProvider;
   /**
    * Provider registry for llm-judge guardrails; the judge model is
-   * routed through it under the turn's tenant policy. If absent,
+   * routed through it under the turn's workspace policy. If absent,
    * llm-judge guardrails error with `judge-missing`; if no provider
    * satisfies the judge's capability, with `judge-routing-failed`.
    */

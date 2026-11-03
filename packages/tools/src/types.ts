@@ -250,7 +250,7 @@ export interface ToolSecretRef {
 /**
  * Isolation posture the runtime enforces around the handler. Three tiers:
  *   - `'none'`              — no isolation. First-party framework handlers
- *                             only; registration rejects tenant-authored
+ *                             only; registration rejects workspace-authored
  *                             tools declaring `'none'`.
  *   - `'context-isolated'`  — same-process `node:vm` context. NOT a
  *                             security boundary; prevents accidental state

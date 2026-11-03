@@ -87,7 +87,7 @@ export interface PackServiceConfig {
    * an in-process caller's environment is left alone.
    */
   readonly envFilter?: PackEnvFilter;
-  /** The one tenant this service serves (`KINDGI_PACK_TENANT_ID`). Absent: no pin. */
+  /** The one workspace this service serves (`KINDGI_PACK_TENANT_ID`). Absent: no pin. */
   readonly tenantId?: string;
 }
 

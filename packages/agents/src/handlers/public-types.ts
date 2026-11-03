@@ -54,7 +54,7 @@ export interface InvokeAgentInput {
   /**
    * Content-scope anchor. REQUIRED — every
    * agent turn is a run bound to exactly one project inside the
-   * tenant. Callers without a natural project id resolve to the tenant's
+   * workspace. Callers without a natural project id resolve to the workspace's
    * default via `projectBinding.getDefault(tenantId)` (`@kindgi/api`)
    * at the caller layer.
    */
@@ -118,7 +118,7 @@ export interface InvokeAgentInput {
    * this turn though no person started its run: the
    * `toolsAllowedUnattended` of the webhook, schedule or mail trigger that
    * started it, recorded with the run (`RunFlowInput.toolsAllowedUnattended`).
-   * Only that wait is lifted: the tenant's floor and the agent's own rules
+   * Only that wait is lifted: the workspace's floor and the agent's own rules
    * still apply. Set by the runtime from the run, never from a request.
    */
   readonly toolsAllowedUnattended?: readonly string[];
@@ -173,16 +173,16 @@ export interface InvokeAgentInput {
 
 export interface InvokeAgentBindings extends GuardrailsBindings {
   /**
-   * Model providers. Setup hydrates the tenant's providers (when the
+   * Model providers. Setup hydrates the workspace's providers (when the
    * registry supports it) and routes the agent's first capability over
-   * `list(tenantId)` under the merged tenant policy; llm-judge
+   * `list(tenantId)` under the merged workspace policy; llm-judge
    * guardrails route through it too.
    */
   readonly providerRegistry: ProviderRegistry;
   /**
    * Tools. Setup calls `forTenant(tenantId)` and resolves the agent's
-   * tool refs on the returned tenant-bound registry, so a turn never
-   * sees another tenant's tools.
+   * tool refs on the returned workspace-bound registry, so a turn never
+   * sees another workspace's tools.
    */
   readonly toolRegistry: ToolRegistry;
   /**
@@ -234,12 +234,12 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    */
   readonly runBinding?: RunBinding;
   /**
-   * Statically-injected tenant policy for model routing. When a
+   * Statically-injected workspace policy for model routing. When a
    * `policyRegistry` also yields a policy, the two are MERGED so the
    * result is at least as strict as each: allow lists intersect, deny
    * lists union, cost/token caps take the smaller value.
    *
-   * Absent-and-registry-absent = router runs without any tenant policy.
+   * Absent-and-registry-absent = router runs without any workspace policy.
    */
   readonly tenantPolicy?: TenantPolicy;
   /**
@@ -286,7 +286,7 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
   readonly guardrailOutcomes?: GuardrailOutcomeSink;
   /**
    * Declarative HTTP tools: optional secret resolver populated
-   * from the deployment's tenant-scoped `SecretBinding`. When present,
+   * from the deployment's workspace-scoped `SecretBinding`. When present,
    * `dispatch-tools` threads it into every `ToolContext` so
    * declarative HTTP tools (spec kind 'http') can resolve declared `secret_ref`s at
    * invoke time. Absent → HTTP tools that declare `authorization`
@@ -309,7 +309,7 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    *   without an answer.
    * - **A built-in tool** (`kindgi_<verb>`) is asked only when what it
    *   touches reaches beyond the turn's project: `kindgi_remember` for a
-   *   tenant-scope fact.
+   *   workspace-scope fact.
    * - **`principal` is absent** for a turn that has none. The authorizer
    *   decides what that gets.
    * - **`toolVersion` is the version the call runs:** the one the turn
@@ -378,7 +378,7 @@ export interface TurnConnections {
 export interface HitlBindings {
   /**
    * Open the approval a gate asks for. A binding refuses one past the
-   * tenant's limit on approvals waiting by throwing an error with
+   * workspace's limit on approvals waiting by throwing an error with
    * `code: 'approvals-pending-limit'` (and `approvalsPending`, the limit):
    * the step then fails with that code, naming the limit. It refuses one
    * whose `approver` has no reviewer seat at its `requiredRole` or above

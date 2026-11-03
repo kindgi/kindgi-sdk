@@ -12,7 +12,7 @@ import type { ModelProvider, ProviderMetadata } from './types.js';
  *
  * Populated at boot by deployment code, in lockstep with the adapters
  * it registers in storage. A storage-backed provider registry reads a
- * tenant's stored providers, looks up each one's adapter id here, calls
+ * workspace's stored providers, looks up each one's adapter id here, calls
  * the factory to instantiate a `ModelProvider`, and caches the result.
  *
  * Failure surfaces:
@@ -224,7 +224,7 @@ export type PrepareEvent =
  * Input passed to an adapter factory at instantiation time. The
  * provider registry composes the arguments from persisted state (the
  * stored provider `metadata`) plus a pre-bound `resolveApiKey` closure
- * that reads the tenant-scoped secret store.
+ * that reads the workspace-scoped secret store.
  *
  * Adapters that don't need credentials (dev-echo, in-process
  * models) receive no `resolveApiKey` — they ignore the field

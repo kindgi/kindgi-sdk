@@ -33,7 +33,7 @@ export const FIRST_COMPILES = 4_096;
 /** How long a tenant compiles nothing before it's forgotten. */
 export const FORGET_AFTER_MS = 60 * 60_000;
 
-/** A tenant's compile refused: it spent `budgetMs` in the last 60 seconds. Retry after `retryAfterMs`. */
+/** A workspace's compile refused: it spent `budgetMs` in the last 60 seconds. Retry after `retryAfterMs`. */
 export class SchemaCompileBudgetError extends TenantBudgetError {
   readonly code = 'schema-compile-budget-exceeded';
 
