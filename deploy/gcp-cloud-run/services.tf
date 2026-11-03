@@ -20,6 +20,12 @@ locals {
   : var.database_instance.url_secret)
   registry_host = "${local.own_repository ? var.region : var.image_repository.location}-docker.pkg.dev"
 
+  # Where people and the operator's own calls reach the server: its run.app
+  # URL, or, behind your load balancer (server_ingress), public_url, since
+  # the run.app URL then takes only internal calls. The pack orchestrator
+  # keeps the run.app URL and reaches it through the VPC.
+  server_url = var.server_ingress == "INGRESS_TRAFFIC_ALL" ? google_cloud_run_v2_service.server.uri : trimsuffix(var.public_url, "/")
+
   # Every name the module sets on the server (some only with an option on),
   # plus KINDGI_DEV and KINDGI_DATABASE_SERVER_CA_PATH (the database's CA
   # comes from the module): server_env and server_secret_env can't set these.
@@ -60,7 +66,7 @@ locals {
 resource "google_cloud_run_v2_service" "server" {
   name                 = "${var.name_prefix}-server"
   location             = var.region
-  ingress              = "INGRESS_TRAFFIC_ALL"
+  ingress              = var.server_ingress
   deletion_protection  = false
   invoker_iam_disabled = var.server_invoker_iam_disabled
 
@@ -389,6 +395,14 @@ resource "google_cloud_run_v2_service" "server" {
     precondition {
       condition     = var.network_mode == "direct" || var.pack_ingress == "INGRESS_TRAFFIC_ALL"
       error_message = "network_mode = \"connector\" or \"none\" needs pack_ingress = \"INGRESS_TRAFFIC_ALL\": a server without a VPC reaches each pack service over its public URL (IAM still admits only the project's invokers, the server's account among them)."
+    }
+    precondition {
+      condition     = var.server_ingress == "INGRESS_TRAFFIC_ALL" || local.direct
+      error_message = "server_ingress = \"INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER\" needs network_mode = \"direct\": the run.app URL then takes only internal calls, and the pack orchestrator reaches the server through the module's VPC, which connector and none mode don't make. Set network_mode = \"direct\", or leave server_ingress at INGRESS_TRAFFIC_ALL."
+    }
+    precondition {
+      condition     = var.server_ingress == "INGRESS_TRAFFIC_ALL" || var.public_url != ""
+      error_message = "server_ingress = \"INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER\" needs public_url, the load balancer's address (such as https://kindgi.example.com): the run.app URL then refuses you, so server_url and the orchestrator's key steps name public_url instead. Set it, or leave server_ingress at INGRESS_TRAFFIC_ALL."
     }
     precondition {
       condition     = length(setintersection(local.single_pack_env, local.server_extra_env)) == 0
