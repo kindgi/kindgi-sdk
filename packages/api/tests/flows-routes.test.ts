@@ -333,7 +333,7 @@ describe('API — flows get', () => {
     expect(body.edges).toHaveLength(4);
   });
 
-  test("mcp: as published when it is set; absent, no key, so the answer is as before", async () => {
+  test('mcp: as published when it is set; absent, no key, so the answer is as before', async () => {
     const { app } = makeApp();
     const publish = async (body: Record<string, unknown>) => {
       const res = await app.request('/v1/flows', {
