@@ -4178,7 +4178,7 @@ export const ERROR_ENTRIES = {
   },
   'connection-not-chosen': {
     description:
-      "A tool call needs a company connection of an app, the project has more than one in this environment, and the agent or flow has no choice of one. The turn's run fails rather than pick one: a project admin chooses the connection (`PUT /v1/connection-choices`), then the turn runs again. Or a mail trigger's create or update puts it on the company's mailbox without `config.mailbox.connectionId`, and the project has more than one company connection of the app: nothing changes; name one of `details.choices` and send it again.",
+      "A tool call needs a connection of an app, there's more than one it could use in this environment, and nothing picks one, so the turn's run fails rather than pick one. For a company connection, the project has more than one and the agent or flow has no choice of one: a project admin chooses it (`PUT /v1/connection-choices`), then the turn runs again. For a person's, they have more than one, none is their main, and they have no choice of one for the agent or flow: they make one their main (`PATCH /v1/connections/{connectionId}` with `main`), or choose one for it. The message counts a person's connections and names none. Or a mail trigger's create or update names no `config.mailbox.connectionId`: on the company's mailbox, the project has more than one company connection of the app, and you name one of `details.choices`; on a person's, its owner has more than one and none is their main, and the message counts them and names none. Nothing changes; send it again with one named.",
     details: [
       {
         key: 'connection',
@@ -4187,7 +4187,7 @@ export const ERROR_ENTRIES = {
       {
         key: 'choices',
         meaning:
-          "the connections to choose from: for a turn's run, their names, sorted; for a mail trigger, `{connectionId, name}` objects sorted by name",
+          "the connections to choose from, for the company's only: for a turn's run, their names, sorted; for a mail trigger, `{connectionId, name}` objects sorted by name",
       },
       {
         key: 'runId',

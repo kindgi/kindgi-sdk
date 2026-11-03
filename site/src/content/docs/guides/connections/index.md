@@ -23,22 +23,26 @@ A connection has one owner, and the owner decides which runs can use it:
   installed on your organization. Any run in the projects it allows can use
   it, scheduled runs included.
 
-The model never picks a connection or an account. Kindgi picks the
-connection from the run, before the call. A person's is the one connection
-of the person the run acts as. The company can have several of one app,
-such as `support@acme.example` and `sales@acme.example`, so a call that
-needs the company's takes, in this order:
+Kindgi picks the connection from the run, before the call. The company can
+have several of one app, such as `support@acme.example` and
+`sales@acme.example`, and so can a person, such as a work account and a
+home account. A call takes, in this order:
 
-1. **The mailbox the run's mail came to,** for a run a company mail
-   trigger started, when the call is at the mailbox's app.
-2. **Else the agent's or flow's choice** for that app, which a project
-   admin makes.
-3. **Else the only company connection of that app** the project can use.
+1. **The mailbox the run's mail came to,** for a run a mail trigger
+   started, when the call is at the mailbox's app.
+2. **Else the account the call names,** when its tool only reads and its
+   choice holds several: the model picks one of them by name. That's the
+   only time the model picks a connection.
+3. **Else the tool's choice, else the agent's or flow's,** for that app:
+   the company's, which a project admin makes, or a person's own.
+4. **Else, for the company, the only connection of that app** the project
+   can use. For a person, their main one, else their only one.
 
-With none, the call fails with `connection-missing`. With several and no
-choice, the run fails with `connection-not-chosen`, naming them. A mailbox
-or chosen connection that's gone, or can't serve the call, is refused,
-naming it: Kindgi never falls back to another one
+With none, the call fails with `connection-missing`. With several and
+nothing chosen, the run fails with `connection-not-chosen`, naming the
+company's and counting a person's. A mailbox's, a named or a chosen
+connection that's gone, or can't serve the call, is refused: Kindgi never
+falls back to another one
 ([Choose a connection](choose-a-connection/)).
 
 A schedule or a webhook runs as its owner. A personal one uses its owner's
@@ -62,8 +66,10 @@ runs as a service account and uses the company's
    ([Use a connection in a tool](use-a-connection/)). Before each call,
    Kindgi finds the connection and hands that call its current
    short-lived token.
-4. **Approvals show the account.** An approval for a call that uses a
-   connection says whose account it acts as, such as "as ana@acme.com".
+4. **Approvals say whose account.** An approval for a call that uses a
+   connection says whose it acts with: the company's by its account, such
+   as `support@acme.example`, and a person's as "this person's Google
+   account".
 
 ## When nobody has connected yet
 
@@ -136,7 +142,8 @@ npx --yes @kindgi/cli@0.2 connections connect google --permissions=gmail.send
 - [Use a connection in a tool](use-a-connection/): declare what a tool
   needs, and read the token in its handler.
 - [Choose a connection](choose-a-connection/): name connections, and say
-  which of the company's an agent or a flow uses.
+  which one an agent, a flow or one of its tools uses, the company's or a
+  person's own.
 - [Add an app](add-an-app/): what an app's entry describes, for an app
   Kindgi doesn't have yet.
 - [How connections work](reference/): a connection's states, renewal, what

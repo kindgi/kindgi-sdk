@@ -407,7 +407,10 @@ expires, which a test can leave `null`.
 Kindgi picks the connection from the run, never from the model or the
 input:
 
-- **`as: 'person'`** uses the connection of the person the run acts as:
+- **`as: 'person'`** uses the connection of the person the run acts as,
+  their main one when they have several of the app, unless a choice of
+  theirs names another
+  ([A person's accounts](../choose-a-connection/#a-persons-accounts)):
   - in a run you start, from the console, the CLI, or your own API key:
     yours;
   - in a run of a schedule or a webhook: its owner's. A schedule or webhook
@@ -438,7 +441,9 @@ input:
 - **A flow's tool step can't wait,** so it fails with `connection-missing`
   the same way.
 - **Several of the company's connections of the app, and no choice,** fail
-  the run with `connection-not-chosen`, naming them
+  the run with `connection-not-chosen`, naming them. So do several of a
+  person's, with none of them main and no choice of theirs, counted and
+  not named
   ([When none is chosen](../choose-a-connection/#when-none-is-chosen)).
 
 An agent's call stopped this way runs nothing. The run records
@@ -458,7 +463,8 @@ your app, `runs.get` answers it under `waitingFor.connections`
 ## Approvals
 
 A call that uses a connection is approved as any other call is, and the
-approval shows the account it acts as.
+approval says whose connection it acts with: the company's by its account,
+a person's as "this person's Google account".
 
 - **In a run you started,** the agent's own approval settings decide
   ([Ask before a tool runs](../../approvals/ask-before-a-tool-runs/)).
@@ -482,8 +488,8 @@ Without one, the call fails at once with
 workspace admin sees such an approval but can't decide it
 (`named-approver-required`). It never escalates: if that person doesn't
 decide by its deadline, it expires.
-The approval names them as its `approver`, and the account as its
-`connection`
+The approval names them as its `approver`, and its `connection` says
+it's a person's, without the account
 ([An approval's fields](../../approvals/approvals-reference/#an-approvals-fields)).
 With reviewer email on, only they're emailed about it
 ([Reviewer email](../../approvals/decide-an-approval/#reviewer-email)).

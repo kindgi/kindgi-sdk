@@ -54,7 +54,10 @@ pnpm exec kindgi mail-triggers create --agent=acme.support-desk --mailbox=google
   that started it.
 - **Whose mailbox:** `--mailbox=google` is Gmail and `--mailbox=microsoft`
   is Outlook. `--as=person`, the default, is your own mailbox, through
-  your connection. `--as=company` is the company's, through the company's
+  your own connection: the one `--connection` names, else your main one,
+  else your only one
+  ([Which mailbox a trigger reads](#which-mailbox-a-trigger-reads)).
+  `--as=company` is the company's, through the company's
   connection that `--connection` names, and takes `admin` on the project
   ([The company's mailboxes](#the-companys-mailboxes)).
 - **Which mail:** `--folder` is the Gmail label's id, or the Outlook
@@ -81,8 +84,8 @@ From your app, the clients have the same calls on `mailTriggers`:
 `register`, `list`, `get`, `update`, `pause`, `resume`, `fires`,
 `takeOwnership` and `unregister` (`mail_triggers` and `take_ownership` in
 Python). The request's `config` holds `mailbox`, `{ app, as }`, with
-`connectionId` for the company's, and `folder`, `pollSeconds` and
-`runsPerHour`.
+`connectionId`, the connection it reads with, and `folder`, `pollSeconds`
+and `runsPerHour`.
 
 ## What a run gets
 
@@ -312,7 +315,10 @@ account. No change moves the owner: only a take-over does.
 - **Only a take-over moves the owner.** `kindgi mail-triggers
   take-ownership <trigger-id>` needs `admin` on the project: "Taking a mail
   trigger over takes a project admin." On a person's mailbox, the trigger
-  then reads the new owner's own mailbox, and starts afresh there. On the
+  then reads the new owner's own mailbox, and starts afresh there. It
+  drops the connection it read with, and its `account` is absent until it
+  next reads
+  ([Which mailbox a trigger reads](#which-mailbox-a-trigger-reads)). On the
   company's, `--run-as=project` hands it to the project's own account
   instead, and `--run-as=<service-account-id>` to another service account.
 - **The owner must be able to run what the trigger runs,** with an
@@ -384,15 +390,16 @@ Each mailbox is a company connection of its own, here `support` and
   `as: 'company'`, under its own tool id
   ([Ready-made tools](../../connections/use-a-connection/#ready-made-tools)).
 
-A person's mailbox is always read with its owner's own connection:
-`--connection` is for the company's only.
+A person's mailbox is always read with its owner's own connection, which
+`--connection` can name
+([Which mailbox a trigger reads](#which-mailbox-a-trigger-reads)).
 
 ### Which mailbox a trigger reads
 
-A trigger on the company's mailbox stores the connection it reads with.
+A trigger stores the connection it reads with. Over HTTP, and in the
+clients, that's `config.mailbox.connectionId`. On the company's mailbox,
 `--connection` names it, by name or id: one of the project's company
-connections at the mailbox's app. Over HTTP, and in the clients, that's
-`config.mailbox.connectionId`.
+connections at the mailbox's app.
 
 - **With one there,** a trigger made without `--connection` stores that
   one, so another mailbox connected later never moves it.
@@ -414,10 +421,7 @@ connections at the mailbox's app. Over HTTP, and in the clients, that's
 - **A connection that isn't one of them** is `404 connection-not-found`,
   except a person's own live connection of the app, which is
   `400 bad-input` ("A person's own connection is used for them; the
-  company's mailbox is read with a company connection."). On a person's
-  mailbox, `--connection` is refused
-  before anything is sent, and `config.mailbox.connectionId` is
-  `400 bad-input`.
+  company's mailbox is read with a company connection.").
 - **A trigger that stores none,** such as one made before triggers stored
   their connection, is pointed at the project's only company connection
   at the app when it next reads, and stores it from then on, so a second
@@ -427,6 +431,31 @@ connections at the mailbox's app. Over HTTP, and in the clients, that's
   it watches (`--folder` again, if it watches one), it reads on from where
   it stopped, so mail that came meanwhile runs. Another account starts
   afresh.
+
+On a person's mailbox, it's one of the owner's own live connections of the
+app, when a person has several accounts there
+([A person's accounts](../../connections/choose-a-connection/#a-persons-accounts)):
+
+- **`--connection` with `--as=person`** names one of yours, by name or id.
+  Any other connection is `404 connection-not-found`, as for one that
+  isn't there.
+- **Without it,** the trigger stores your main connection of the app,
+  else your only one.
+- **With several and none of them main,** it's refused
+  (`409 connection-not-chosen`), and nothing is made. The answer counts
+  them, and names none:
+
+  ```text
+  Error [connection-not-chosen]: The trigger's owner has 2 Google connections and none is their main: name one in config.mailbox.connectionId, or make one their main.
+  Name one with --connection=<connection>, or its owner makes one their main: kindgi connections update <connection> --main
+  ```
+
+- **Making another connection main never moves it.** It keeps the one it
+  stored until its mailbox is changed with `update`.
+- **The address it reads,** its `account`, is shown only to its owner and
+  tenant admins. Anyone else reads the trigger without it, and
+  `kindgi mail-triggers list --table` shows "this person's Google account"
+  in its place.
 
 Point a trigger at another of the company's mailboxes with `update`:
 
@@ -641,7 +670,8 @@ Gmail, inbox starts the agent Support Desk (its pinned version, or the
 latest), one run per mail." Then:
 
 - **Mailbox:** whose mailbox it is, its label or folder, or **Inbox**, the
-  account it reads, once it has looked, when it last looked, and its pace,
+  account it reads, once it has looked (on a person's mailbox, to its
+  owner and tenant admins only), when it last looked, and its pace,
   such as "Looks every minute, at most 60 runs an hour".
 - **Each run:** what a run gets, "The mail and its thread, as its message"
   for an agent, in the thread's own conversation, or "The mail and its
