@@ -221,9 +221,7 @@ export function agentsRouter(
         today: (c) =>
           isTestSetPath(c.req.path)
             ? undefined
-            : isReadMethod(c.req.method) ||
-                readsDefinition(c) ||
-                isAgentPinCheck(c.req.method, c.req.path)
+            : isReadMethod(c.req.method) || isAgentPinCheck(c.req.method, c.req.path)
               ? 'read'
               : isAgentPinWrite(c.req.method, c.req.path)
                 ? undefined

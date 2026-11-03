@@ -176,12 +176,7 @@ export function flowsRouter(
         rights: itemRights,
         kind: 'flow',
         id: (c) => c.req.param('flowId') ?? '',
-        today: (c) =>
-          isReadMethod(c.req.method) || readsDefinition(c)
-            ? 'read'
-            : pinWrite(c)
-              ? undefined
-              : 'admin',
+        today: (c) => (isReadMethod(c.req.method) ? 'read' : pinWrite(c) ? undefined : 'admin'),
         check: (c): ItemCheck =>
           readsDefinition(c) ? readCheck(underItem(c), true) : itemPathCheck(c),
         versionNotFound: flowVersionNotFound,
