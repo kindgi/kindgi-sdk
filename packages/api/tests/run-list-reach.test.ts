@@ -22,12 +22,16 @@ import { decodeCursor, encodeCursor } from '../src/routes/pagination.js';
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
-import type { TokenResolver } from '../src/index.js';
+import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
 
 const tenantId = randomUUID() as TenantId;
 const TOKEN = 'run-list-reach';
-const resolveToken: TokenResolver = async (token) =>
-  token === TOKEN ? { tenantId, userId: 'user-1' as UserId } : null;
+/** A credential that names no person, key or session: its caller acts for no one. */
+const NO_ONE = 'run-list-reach-no-one';
+const resolveToken: TokenResolver = async (token) => {
+  if (token === TOKEN) return { tenantId, userId: 'user-1' as UserId };
+  return token === NO_ONE ? { tenantId } : null;
+};
 /** Read by the caller. */
 const READ = randomUUID() as ProjectId;
 /** Run, not read, by the caller: everyone in the workspace may run it. */
@@ -94,6 +98,8 @@ function harness(opts: {
   /** The authorizer lists objects (OpenFGA's `listObjects`); else the projects are checked one by one. */
   readonly lists?: boolean;
   readonly projects?: readonly ProjectId[];
+  /** The caller's credential: `TOKEN` (user-1) unless given. */
+  readonly token?: string;
 }) {
   const asked: ListRunsInput[] = [];
   const decide = (action: Action, r: ResourceRef): Decision => {
@@ -133,13 +139,14 @@ function harness(opts: {
     ...stubs,
     kernelBinding: { ...stubs.kernelBinding, run },
     resolveToken,
+    runHandler: {} as RunHandlerBinding,
     ...(projectBinding !== undefined && { projectBinding }),
     authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding },
   });
   const call = async (path: string, method = 'GET') => {
     const res = await app.request(path, {
       method,
-      headers: { authorization: `Bearer ${TOKEN}` },
+      headers: { authorization: `Bearer ${opts.token ?? TOKEN}` },
     });
     return {
       status: res.status,
@@ -262,6 +269,13 @@ describe('?actsFor=me', () => {
     });
     const res = await call('/v1/runs?actsFor=me');
     expect(res.body?.data.map((r) => r.id)).toEqual([own.runId]);
+  });
+
+  test("from a caller who acts for no one: an empty page with no cursor, and the store isn't asked", async () => {
+    const { call, asked } = harness({ grants: [`read project:${READ}`], token: NO_ONE });
+    const res = await call('/v1/runs?actsFor=me');
+    expect([res.status, res.body]).toEqual([200, { data: [], hasMore: false }]);
+    expect(asked).toEqual([]);
   });
 
   test("anything but `me` is a 400, and the store isn't asked", async () => {
