@@ -38,6 +38,7 @@ import {
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
+import { isReadMethod } from '../read-method.js';
 import { type SecretScopeDeps, secretScopesFor } from '../secret-scope.js';
 import { type ServedEnvRule, refuseUnservedReference } from '../served-env.js';
 import { type TenantHostAccess, deniesHostReach, stdioRefusal } from '../tenant-host-access.js';
@@ -111,7 +112,7 @@ export function mcpRouter(
     // '/endpoints/:endpointId/*' matches '/endpoints/:endpointId' too: this
     // one gate decides both, once.
     r.use('/endpoints/:endpointId/*', async (c, next) => {
-      const action = c.req.method === 'GET' ? 'read' : 'admin';
+      const action = isReadMethod(c.req.method) ? 'read' : 'admin';
       const endpointId = c.req.param('endpointId') ?? '';
       const mw = authorizer.authorize(action, () => ref('mcp_endpoint', endpointId));
       return mw(c, next);

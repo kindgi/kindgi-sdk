@@ -1014,6 +1014,22 @@
           }
         }
       },
+      "Meter": {
+        "type": "object",
+        "description": "An open record whose other properties are numbers, beside a property that can be left out or `null`.",
+        "additionalProperties": {
+          "type": "integer"
+        },
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "unit": {
+            "type": ["string", "null"]
+          }
+        }
+      },
       "Node": {
         "type": "object",
         "additionalProperties": false,

@@ -29,6 +29,7 @@ import {
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
+import { isReadMethod } from '../read-method.js';
 import {
   type ReferenceScopeBinding,
   flowReferences,
@@ -146,7 +147,7 @@ export function flowsRouter(
       return mw(c, next);
     });
     r.use('/', async (c, next) => {
-      if (c.req.method !== 'GET') return next();
+      if (!isReadMethod(c.req.method)) return next();
       // A project filter needs read on that project. Parse it as the
       // handler does (`?scopeKind=project&scopeId=`).
       const s = parseScopeParams((n) => c.req.query(n), {
@@ -176,7 +177,11 @@ export function flowsRouter(
         kind: 'flow',
         id: (c) => c.req.param('flowId') ?? '',
         today: (c) =>
-          c.req.method === 'GET' || readsDefinition(c) ? 'read' : pinWrite(c) ? undefined : 'admin',
+          isReadMethod(c.req.method) || readsDefinition(c)
+            ? 'read'
+            : pinWrite(c)
+              ? undefined
+              : 'admin',
         check: (c): ItemCheck =>
           readsDefinition(c) ? readCheck(underItem(c), true) : itemPathCheck(c),
         versionNotFound: flowVersionNotFound,

@@ -8,7 +8,6 @@ import { WaitpointCancelledError } from '@kindgi/handler';
 import { runIsAttended } from '@kindgi/runtime';
 import { connectionRejectionOf, isConnectionRenewError } from '@kindgi/tools';
 import type {
-  ConnectionAccount,
   ConnectionChoiceOption,
   ConnectionNeed,
   ConnectionPick,
@@ -21,6 +20,7 @@ import type {
 
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
+import { namedAccounts } from './named-accounts.js';
 import type { HitlEnqueueInput } from './public-types.js';
 import type { ConnectWaitResult } from './tool-hitl.js';
 
@@ -84,7 +84,12 @@ export interface ConnectionSeen {
   readonly connectionId: string;
   readonly app: string;
   readonly appName: string;
-  readonly account: ConnectionAccount;
+  /**
+   * Whose account it is at the app: its id, and the company's label. A
+   * person's has no label: their account is theirs alone. Older records
+   * keep it.
+   */
+  readonly account: { readonly id: string; readonly label?: string };
   /** The company connection's name: its label, else its account's label. Never a person's. */
   readonly name?: string;
   /** How it was picked, and through which registration. Absent from older records. */
@@ -152,8 +157,12 @@ export async function gateConnections(
   // an approval would wait; any other run can't wait.
   const waitMs = runIsAttended(ctx.input.startedBy) ? (ctx.hitlPolicy?.timeoutMs ?? 0) : 0;
   const key = `${CONNECTION_GATE_RECORD_PREFIX}${call.id}`;
+  // The set members the call names, by id from its turn's offer.
+  const named = namedAccounts(ctx, call, tool);
+  if (named.kind === 'failed') return named;
+  const { accounts } = named;
 
-  const first = await recordResolve(ctx, kctx, key, call, tool, needs, waitMs);
+  const first = await recordResolve(ctx, kctx, key, call, tool, needs, waitMs, accounts);
   if (first.kind === 'failed') return first;
   if (first.record.kind === 'ready') return first.record;
   if (first.record.kind === 'refused') return { kind: 'failed', failure: refusal(first.record) };
@@ -162,7 +171,16 @@ export async function gateConnections(
     const failure = await waitForConnect(kctx, request);
     if (failure !== undefined) return { kind: 'failed', failure };
   }
-  const connected = await recordResolve(ctx, kctx, `${key}:connected`, call, tool, needs, 0);
+  const connected = await recordResolve(
+    ctx,
+    kctx,
+    `${key}:connected`,
+    call,
+    tool,
+    needs,
+    0,
+    accounts,
+  );
   if (connected.kind === 'failed') return connected;
   if (connected.record.kind === 'ready') return connected.record;
   if (connected.record.kind === 'refused') {
@@ -177,7 +195,9 @@ export async function gateConnections(
  * decided on (step 1): a need that comes to another connection now fails
  * the call (`connection-changed`), so an approved call runs only on the
  * connection it was approved against. `renew` names the ones to renew
- * first, after the app refused them.
+ * first, after the app refused them. A need the call named a set's member
+ * for asks for the one the gate decided on, by its id, never for the
+ * name again: a rename since then moves nothing.
  */
 export async function freshConnections(
   ctx: TurnContext,
@@ -193,9 +213,10 @@ export async function freshConnections(
   const needs = connectionNeedsOf(tool);
   if (needs === undefined) return { kind: 'ready', connections: {} };
   if (ctx.bindings.connections === undefined) return { kind: 'failed', failure: notServed(needs) };
+  const accounts = decidedAccounts(decided);
   let outcome: ResolveConnectionsOutcome;
   try {
-    outcome = await resolve(ctx, kctx, call, tool, needs, 0, renew);
+    outcome = await resolve(ctx, kctx, call, tool, needs, 0, renew, accounts);
   } catch (cause) {
     const failure = renewFailureOf(cause);
     if (failure === undefined) throw cause;
@@ -293,29 +314,39 @@ export function connectionApprovalOf(
     const seen = connections[name];
     return {
       approver: { kind: 'member', userId: person },
-      ...(seen !== undefined && { connection: approvalConnection(seen) }),
+      ...(seen !== undefined && { connection: approvalConnection(seen, 'person') }),
     };
   }
   const company = firstNeed(tool, 'company');
   const seen = company === undefined ? undefined : connections[company];
-  return seen === undefined ? undefined : { connection: approvalConnection(seen) };
+  return seen === undefined ? undefined : { connection: approvalConnection(seen, 'company') };
 }
 
-/** A connection as the approval shows it. */
-function approvalConnection(seen: ConnectionSeen): NonNullable<HitlEnqueueInput['connection']> {
+/**
+ * A connection as the approval shows it: a person's by its app alone
+ * ("this person's Google account"), the company's by its account and name.
+ */
+function approvalConnection(
+  seen: ConnectionSeen,
+  as: 'company' | 'person',
+): NonNullable<HitlEnqueueInput['connection']> {
+  if (as === 'person') return { app: seen.app, appName: seen.appName, as };
   return {
     app: seen.app,
     appName: seen.appName,
-    account: seen.account.label,
+    as,
+    ...(seen.account.label !== undefined && { account: seen.account.label }),
     ...(seen.name !== undefined && { name: seen.name }),
   };
 }
 
-/** A connection as a message names it: its name and account, or the account alone. */
-function described(c: { readonly name?: string; readonly account: ConnectionAccount }): string {
-  return c.name !== undefined && c.name !== c.account.label
-    ? `${c.name}, ${c.account.label}`
-    : c.account.label;
+/** A company connection as a message names it: its name and account, or the account alone. */
+function described(c: {
+  readonly name?: string;
+  readonly account: { readonly id: string; readonly label?: string };
+}): string {
+  const account = c.account.label ?? c.account.id;
+  return c.name !== undefined && c.name !== account ? `${c.name}, ${account}` : account;
 }
 
 /**
@@ -359,7 +390,7 @@ export function approverNotAReviewerOf(
   const as =
     approval.connection === undefined
       ? 'their own connection'
-      : `their ${approval.connection.appName} account ${approval.connection.account}`;
+      : `this person's ${approval.connection.appName} account`;
   return {
     code: 'connection-approver-not-a-reviewer',
     ...(name !== undefined && { connection: name }),
@@ -406,13 +437,14 @@ async function recordResolve(
   tool: Tool,
   needs: Readonly<Record<string, ConnectionNeed>>,
   waitMs: number,
+  accounts: Readonly<Record<string, string>> | undefined,
 ): Promise<
   | { readonly kind: 'recorded'; readonly record: GateRecord }
   | { readonly kind: 'failed'; readonly failure: ConnectionCallFailure }
 > {
   try {
     const record = await kctx.record(key, async () =>
-      recorded(await resolve(ctx, kctx, call, tool, needs, waitMs), needs),
+      recorded(await resolve(ctx, kctx, call, tool, needs, waitMs, undefined, accounts), needs),
     );
     return { kind: 'recorded', record };
   } catch (cause) {
@@ -430,6 +462,7 @@ function resolve(
   needs: Readonly<Record<string, ConnectionNeed>>,
   waitMs: number,
   renew?: readonly string[],
+  accounts?: Readonly<Record<string, string>>,
 ): Promise<ResolveConnectionsOutcome> {
   const served = ctx.bindings.connections;
   if (served === undefined) throw new Error('resolve called with no connections binding');
@@ -450,13 +483,15 @@ function resolve(
     ...(renew !== undefined && { renew }),
     target: { agentId: ctx.input.agent.id as unknown as string },
     ...(ctx.input.mailbox !== undefined && { mailbox: ctx.input.mailbox }),
+    ...(accounts !== undefined && { accounts }),
   });
 }
 
 /**
  * The resolver's answer as the gate records it: what it names, never a
  * token. Any project reader reads a run's record, so a person's
- * connection is named by its app and account, never by their name for it.
+ * connection is named by its app and account id, never by their name or
+ * address for it.
  */
 function recorded(
   outcome: ResolveConnectionsOutcome,
@@ -498,7 +533,10 @@ function recorded(
       connectionId: c.connectionId,
       app: c.app,
       appName: c.appName,
-      account: { id: c.account.id, label: c.account.label },
+      account:
+        needs[name]?.as === 'company'
+          ? { id: c.account.id, label: c.account.label }
+          : { id: c.account.id },
       ...(c.name !== undefined && needs[name]?.as === 'company' && { name: c.name }),
       ...(pick !== undefined && { pick: pickSeen(pick) }),
     };
@@ -511,6 +549,8 @@ function pickSeen(pick: ConnectionPick): ConnectionPick {
   return {
     by: pick.by,
     ...(pick.choiceId !== undefined && { choiceId: pick.choiceId }),
+    ...(pick.as !== undefined && { as: pick.as }),
+    ...(pick.setSize !== undefined && { setSize: pick.setSize }),
     registration: { id: pick.registration.id, name: pick.registration.name },
   };
 }
@@ -580,7 +620,7 @@ function refusal(refused: Extract<GateRecord, { kind: 'refused' }>): ConnectionC
       code: 'connection-not-chosen',
       message: refused.message,
       connection: refused.name,
-      choices: (refused.choices ?? []).map((c) => c.name),
+      ...(refused.choices !== undefined && { choices: refused.choices.map((c) => c.name) }),
     });
   }
   return {
@@ -615,4 +655,18 @@ function notServed(needs: Readonly<Record<string, ConnectionNeed>>): ConnectionC
 function renewFailureOf(cause: unknown): ConnectionCallFailure | undefined {
   if (!isConnectionRenewError(cause)) return undefined;
   return { code: cause.code, connection: cause.connection, message: cause.message };
+}
+
+/**
+ * The connections the gate decided on for the needs the call named a set's
+ * member for, by their ids; none when it named none.
+ */
+function decidedAccounts(
+  decided: Readonly<Record<string, ConnectionSeen>>,
+): Readonly<Record<string, string>> | undefined {
+  const accounts: Record<string, string> = {};
+  for (const [name, seen] of Object.entries(decided)) {
+    if (seen.pick?.by === 'named') accounts[name] = seen.connectionId;
+  }
+  return Object.keys(accounts).length > 0 ? accounts : undefined;
 }

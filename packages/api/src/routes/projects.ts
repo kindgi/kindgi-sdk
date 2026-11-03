@@ -22,6 +22,7 @@ import { callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { isReadMethod } from '../read-method.js';
 import type { ServiceAccountBinding } from '../service-account-binding.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
@@ -200,11 +201,10 @@ export function projectsRouter(
   // ---------- GET /default (literal segment; must precede /:projectId) ----------
   // Read on the default project, or `run` there, as `GET /:projectId`
   // checks it: someone with a role on another project only gets 403, not
-  // its settings. A HEAD is served by the GET handler (Hono), so it's
-  // checked as GET.
+  // its settings.
   if (authorizer !== undefined) {
     r.use('/default', async (c, next) => {
-      if (c.req.method !== 'GET' && c.req.method !== 'HEAD') return next();
+      if (!isReadMethod(c.req.method)) return next();
       const proj = await binding.getDefault(c.get('tenantId') as TenantId);
       // None: the handler answers 404.
       if (proj === undefined) return next();
@@ -285,8 +285,7 @@ export function projectsRouter(
     r.use('/:projectId', async (c, next) => {
       const method = c.req.method;
       const projectId = c.req.param('projectId');
-      // A HEAD is served by the GET handler (Hono), so it's checked as GET.
-      if (method === 'GET' || method === 'HEAD') {
+      if (isReadMethod(method)) {
         const project = ref('project', projectId);
         return (await actionOrRunRefusal(authorizer, c, 'read', project, projectId)) ?? next();
       }
@@ -300,13 +299,13 @@ export function projectsRouter(
     // their own roles through their grants, not the other people here.
     r.use('/:projectId/memberships', async (c, next) => {
       const projectId = c.req.param('projectId');
-      const action = c.req.method === 'GET' ? 'write' : 'admin';
+      const action = isReadMethod(c.req.method) ? 'write' : 'admin';
       const mw = authorizer.authorize(action, () => ref('project', projectId));
       return mw(c, next);
     });
     r.use('/:projectId/memberships/:userId', async (c, next) => {
       const projectId = c.req.param('projectId');
-      const action = c.req.method === 'GET' ? 'write' : 'admin';
+      const action = isReadMethod(c.req.method) ? 'write' : 'admin';
       const mw = authorizer.authorize(action, () => ref('project', projectId));
       return mw(c, next);
     });

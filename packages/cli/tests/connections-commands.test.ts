@@ -243,6 +243,19 @@ describe('kindgi connections list and get', () => {
     expect(JSON.parse(json.stdout)).toEqual(page);
   });
 
+  test("list --table marks a person's main connection after its label, as `(main)`", async () => {
+    const { rec } = recorder();
+    const page = { data: [{ ...CONNECTION, main: true }, SUPPORT], hasMore: false };
+    const out = await run(['connections', 'list', '--table'], {
+      connections: { list: rec('list', page) },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    const [, , main, other] = out.stdout.split('\n');
+    expect(main).toMatch(new RegExp(`^ana@acme\\.example \\(main\\)\\s+${CONNECTION_ID}\\s`));
+    expect(other).toMatch(new RegExp(`^support\\s+${SUPPORT_ID}\\s`));
+    expect(other).not.toContain('(main)');
+  });
+
   // An empty filter read as left out would list every project's or every app's connections.
   test.each([
     ['--project=', '--project takes a value'],
@@ -435,6 +448,78 @@ describe('kindgi connections connect', () => {
       `Connected ana@acme.example at google (connection ${CONNECTION_ID}).\n`,
     );
     expect(out.stderr).toBe('');
+  });
+
+  describe("a person's second connection: which of theirs their agents use", () => {
+    const done = { ...REQUEST, state: 'connected', connectionId: CONNECTION_ID };
+    // Another of Ana's, through the same registration in the same env.
+    const work = { ...CONNECTION, connectionId: SUPPORT_ID, label: 'work' };
+    const elsewhere = {
+      ...CONNECTION,
+      connectionId: '9a8b7c66-6666-4d5e-8f90-000000000006',
+      envName: 'staging',
+      main: true,
+    };
+    const connectWith = (list: () => Promise<unknown>) => {
+      const { calls, rec, seq } = recorder();
+      return {
+        calls,
+        out: run(
+          ['connections', 'connect', 'google', '--permissions=gmail.send'],
+          {
+            connections: {
+              connect: rec('connect', REQUEST),
+              getRequest: seq('getRequest', [REQUEST, done]),
+              get: rec('get', CONNECTION),
+              list,
+            },
+          },
+          waitingSeam([]),
+        ),
+      };
+    };
+
+    test('their main says it is, and how to make this one main instead', async () => {
+      const filters: unknown[] = [];
+      const { out } = connectWith(async (...args: unknown[]) => {
+        filters.push(args[0]);
+        return { data: [CONNECTION, { ...work, main: true }, elsewhere], hasMore: false };
+      });
+      const said = await out;
+      expect(said.exitCode, said.stderr).toBe(0);
+      expect(filters).toEqual([{ app: 'google', owner: 'me' }]);
+      expect(said.stderr).toBe(
+        `work is your main connection at google, the one your agents use when no choice names another: \`kindgi connections update ${CONNECTION_ID} --main\` makes this one your main.\n`,
+      );
+    });
+
+    test('several and none main says their calls stop until one is, or a choice names one', async () => {
+      const { out } = connectWith(async () => ({
+        data: [CONNECTION, work, elsewhere],
+        hasMore: false,
+      }));
+      const said = await out;
+      expect(said.exitCode, said.stderr).toBe(0);
+      expect(said.stderr).toBe(
+        'You have 2 connections at google and none is your main, so a call of your agents that needs one stops with connection-not-chosen until you make one your main, or a choice names one: `kindgi connections update <connection> --main`.\n',
+      );
+    });
+
+    test('their first says nothing, and a list that fails adds nothing: the connect still succeeded', async () => {
+      for (const list of [
+        async () => ({ data: [CONNECTION, elsewhere], hasMore: false }),
+        async () => {
+          throw new Error('the list failed');
+        },
+      ]) {
+        const said = await connectWith(list).out;
+        expect(said.exitCode, said.stderr).toBe(0);
+        expect(said.stdout).toBe(
+          `Connected ana@acme.example at google (connection ${CONNECTION_ID}).\n`,
+        );
+        expect(said.stderr).toBe('');
+      }
+    });
   });
 
   test('a company connection says so', async () => {
@@ -912,15 +997,85 @@ describe('kindgi connections update', () => {
   });
 
   test.each([
-    [['support'], 'Missing required flag: --label=<name>'],
+    [['support'], 'Missing required flag: --label=<name> or --main'],
     [['support', '--label='], '--label takes a value'],
     [['support', '--label=  '], '--label takes a value'],
     [['--label=helpdesk'], 'connection'],
+    [['support', '--label=helpdesk', '--main'], '--label or --main, one change at a time'],
   ] as const)('%j is refused before any call', async (argv, said) => {
     const { out, calls } = await rename(argv, [SUPPORT]);
     expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain(said);
     expect(calls).toEqual([]);
+  });
+});
+
+describe('kindgi connections update --main', () => {
+  /** The person's own connections at google: work, their main, and school. */
+  const SCHOOL_ID = '7a8b9cad-7777-4a91-8ca3-000000000007';
+  const WORK = { ...CONNECTION, label: 'work', main: true };
+  const SCHOOL = {
+    ...CONNECTION,
+    connectionId: SCHOOL_ID,
+    label: 'school',
+    account: { id: '1078', label: 'ana@school.acme.example' },
+  };
+
+  test('by name: looked up among your own only, made your main, and said so', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(['connections', 'update', 'school', '--main'], {
+      connections: {
+        list: listing(rec, [WORK, SCHOOL]),
+        update: rec('update', { ...SCHOOL, main: true }),
+      },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['list', { owner: 'me' }],
+      ['update', SCHOOL_ID, { main: true }],
+    ]);
+    expect(out.stderr).toBe(
+      `Made school your main connection at google (connection ${SCHOOL_ID}).\n`,
+    );
+    expect(JSON.parse(out.stdout)).toMatchObject({ connectionId: SCHOOL_ID, main: true });
+  });
+
+  test('by id: read first; the main one already changes nothing, and says so', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(['connections', 'update', CONNECTION_ID, '--main'], {
+      connections: { get: rec('get', WORK), update: rec('update', WORK) },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['get', CONNECTION_ID],
+      ['update', CONNECTION_ID, { main: true }],
+    ]);
+    expect(out.stderr).toBe('work is already your main connection at google: nothing changed.\n');
+  });
+
+  test("the server's refusal, a company connection's here, is said as it gave it", async () => {
+    const out = await run(['connections', 'update', SUPPORT_ID, '--main'], {
+      connections: {
+        get: async () => SUPPORT,
+        update: async () => {
+          throw new KindgiApiError(
+            fromWire(
+              {
+                code: 'bad-input',
+                message:
+                  "The company has no main connection: its agents use the company's through their choices.",
+                details: { field: 'main' },
+              },
+              400,
+            ),
+          );
+        },
+      },
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      "The company has no main connection: its agents use the company's through their choices.",
+    );
   });
 });
 

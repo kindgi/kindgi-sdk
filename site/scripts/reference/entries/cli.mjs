@@ -717,7 +717,7 @@ export const CLI_DEFAULTS = {
     'allow-unattended': 'none (a tool that waits for a person still waits)',
     as: '`person` (your own mailbox)',
     connection:
-      "none: with `--as=company`, the project's only company connection at the app; required when it has several",
+      "none: with `--as=company`, the project's only company connection at the app; required when it has several. With `--as=person`, your main connection at the app, else your only one; required when you have several and none is your main",
     flow: 'none',
     'flow-version': 'required with `--flow`',
     folder: 'none (the inbox)',
@@ -735,7 +735,7 @@ export const CLI_DEFAULTS = {
       'unchanged; a trigger that has a list and moves to another flow, agent or mailbox must name it again, or `none`',
     as: 'unchanged (given with `--mailbox`)',
     connection:
-      "unchanged; with a new `--mailbox` and `--as=company`, the project's only company connection at the app",
+      "unchanged; with a new `--mailbox` and `--as=company`, the project's only company connection at the app, and with `--as=person`, your main connection there, else your only one",
     flow: 'unchanged',
     'flow-version': 'unchanged',
     folder: 'unchanged',
@@ -1112,13 +1112,16 @@ export const CLI_DEFAULTS = {
   },
   'connections update': {
     app: 'none',
-    label: 'required',
+    label: 'none (`--label` or `--main` is required)',
   },
   'connection-choices set': {
     agent: 'none (`--agent` or `--flow` is required)',
     app: 'none',
+    default: 'none (required with several connections)',
     flow: 'none (`--agent` or `--flow` is required)',
+    need: 'none (required when the tool uses the app twice)',
     project: "the workspace's default project",
+    tool: "none (the agent's or flow's own choice)",
   },
   'connection-choices list': {
     agent: 'none',
@@ -1127,6 +1130,7 @@ export const CLI_DEFAULTS = {
     flow: 'none',
     limit: '`25` (at most `100`)',
     project: "the workspace's default project",
+    tool: 'none',
   },
   'connection-apps list': {
     cursor: 'none',
@@ -2506,6 +2510,11 @@ export const CLI_EXAMPLES = {
         'Rename the Google connection named `support`, when another app has one named so too.',
       line: 'kindgi connections update support --app=google --label=helpdesk',
     },
+    {
+      purpose:
+        'Make your own connection named `home` your main one, which your agents use when no choice names another.',
+      line: 'kindgi connections update home --main',
+    },
   ],
   'connections disconnect': [
     {
@@ -2564,6 +2573,16 @@ export const CLI_EXAMPLES = {
       purpose: "Have a flow of a project use one of the project's company Google connections.",
       line: 'kindgi connection-choices set sales --flow=acme.triage --project=<project-id> --app=google',
     },
+    {
+      purpose:
+        "Have one tool of an agent use the company connection named `sales`, ahead of the agent's own choice.",
+      line: 'kindgi connection-choices set sales --agent=acme.order-desk --tool=acme.mail.send',
+    },
+    {
+      purpose:
+        'Give a tool that only reads three of your own connections, `work` by default: each call names the one it reads.',
+      line: 'kindgi connection-choices set work home school --agent=acme.assistant --tool=acme.calendar.events --default=work --mine',
+    },
   ],
   'connection-choices list': [
     {
@@ -2573,6 +2592,10 @@ export const CLI_EXAMPLES = {
     {
       purpose: "List an agent's choices, removed and replaced ones too.",
       line: 'kindgi connection-choices list --agent=acme.order-desk --include-removed --table',
+    },
+    {
+      purpose: 'List only your own choices, as a table.',
+      line: 'kindgi connection-choices list --mine --table',
     },
   ],
   'connection-choices unset': [

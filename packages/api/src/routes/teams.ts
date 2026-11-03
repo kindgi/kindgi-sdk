@@ -20,6 +20,7 @@ import type { Cursor, OrgId, TeamId, TenantId, UserId } from '@kindgi/types';
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { isReadMethod } from '../read-method.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 import {
@@ -127,9 +128,9 @@ export function teamsRouter(
     });
     r.use('/:teamId', async (c, next) => {
       const method = c.req.method;
-      if (method !== 'GET' && method !== 'PATCH' && method !== 'DELETE') return next();
+      if (!isReadMethod(method) && method !== 'PATCH' && method !== 'DELETE') return next();
       const teamId = c.req.param('teamId');
-      const action = method === 'GET' ? 'read' : 'admin';
+      const action = isReadMethod(method) ? 'read' : 'admin';
       const mw = authorizer.authorize(action, () => ref('team', teamId));
       return mw(c, next);
     });

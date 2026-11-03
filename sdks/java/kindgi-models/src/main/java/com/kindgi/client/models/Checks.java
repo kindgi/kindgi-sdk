@@ -128,14 +128,16 @@ public final class Checks {
   }
 
   /**
-   * The properties kept beside the known ones: never {@code null}.
+   * The record's own copy of the properties kept beside the known ones: never {@code null}. A
+   * reading Jackson adds to it before the record is handed out, and the record hands out only an
+   * unmodifiable view of it.
    *
    * @param <V> the value type
    * @param value the properties
-   * @return an unmodifiable copy, empty for {@code null}
+   * @return a copy, in their order, empty for {@code null}
    */
   public static <V> Map<String, V> extras(@Nullable Map<String, V> value) {
-    return value == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(value));
+    return value == null ? new LinkedHashMap<>() : new LinkedHashMap<>(value);
   }
 
   private static String owner(String where) {

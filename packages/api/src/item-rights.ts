@@ -52,6 +52,7 @@ import type {
   OrderItemKind,
 } from './item-projects-binding.js';
 import type { Authorizer } from './middleware/authorize.js';
+import { isReadMethod } from './read-method.js';
 import { deniedBy } from './routes/denied.js';
 import { noteReadItself, readableOrRun } from './routes/runner-reach.js';
 import type { AppEnv } from './types.js';
@@ -925,7 +926,7 @@ export function readCheck(under: readonly string[], alsoRun = false): ItemCheck 
  * these, and nothing else under it.
  */
 export function readsDefinition(c: Ctx): boolean {
-  if (c.req.method !== 'GET' && c.req.method !== 'HEAD') return false;
+  if (!isReadMethod(c.req.method)) return false;
   const under = underItem(c);
   return under.every((segment) => segment === '') || (under[0] === 'versions' && under.length <= 2);
 }
@@ -1282,7 +1283,7 @@ export async function shownLatest<T>(
  */
 export function itemPathCheck(c: Ctx): ItemCheck {
   const under = underItem(c);
-  if (c.req.method === 'GET') return readCheck(under);
+  if (isReadMethod(c.req.method)) return readCheck(under);
   const [first, version, verb] = under;
   if (
     under.length === 3 &&

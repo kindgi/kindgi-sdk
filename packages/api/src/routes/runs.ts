@@ -41,6 +41,7 @@ import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import type { MintPublicRunTokenResult } from '../public-run-token.js';
+import { isReadMethod } from '../read-method.js';
 import {
   type ReferenceScopeBinding,
   outOfScopeResponse,
@@ -239,9 +240,8 @@ export function runsRouter(
         );
         return refused ?? next();
       };
-    // HEAD is served by the GET handler (Hono), so it's checked as GET.
     r.use('/:runId', async (c, next) => {
-      if (c.req.method !== 'GET' && c.req.method !== 'HEAD') return next();
+      if (!isReadMethod(c.req.method)) return next();
       return onRunProjectOrOwn('read')(c, next);
     });
     r.use('/:runId/journal', onRunProjectOrOwn('read'));

@@ -27,6 +27,7 @@ import type {
   StepUsage,
   StepUsageByNodeId,
 } from '../provenance-binding.js';
+import { isReadMethod } from '../read-method.js';
 import {
   exportActor,
   parseSigningKeyId,
@@ -114,9 +115,8 @@ export function provenanceRouter(
       const refused = await actionOrRunRefusal(authorizer, c, 'read', ref('project', project), own);
       return refused ?? next();
     };
-    // HEAD is served by the GET handler (Hono), so it's checked as GET.
     r.use('/:runId', async (c, next) =>
-      c.req.method === 'GET' || c.req.method === 'HEAD' ? onRunProject(c, next) : next(),
+      isReadMethod(c.req.method) ? onRunProject(c, next) : next(),
     );
     r.use('/:runId/export', onRunProject);
   }

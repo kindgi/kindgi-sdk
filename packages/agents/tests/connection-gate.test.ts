@@ -20,6 +20,7 @@ import { WaitpointCancelledError } from '@kindgi/handler';
 import type { RunMailbox, RunStartedBy } from '@kindgi/runtime';
 import {
   type ConnectionAccount,
+  type ConnectionAccountChoices,
   type ConnectionNeed,
   type ConnectionPick,
   ConnectionRejectedError,
@@ -164,6 +165,12 @@ interface TurnOptions {
   readonly records?: Map<string, unknown>;
   /** The step's scope. */
   readonly stepScope?: string;
+  /** The sets the turn offers (`TurnContext.accountChoices`). */
+  readonly accountChoices?: ConnectionAccountChoices;
+  /** The call's arguments. Absent: `{to: 'someone'}`. */
+  readonly arguments?: Readonly<Record<string, unknown>>;
+  /** The tool's input schema. Absent: `{to}` alone. */
+  readonly input?: Record<string, unknown>;
 }
 
 /** Every string a value holds as its own (an error's message and stack too), down its causes. */
@@ -180,12 +187,17 @@ async function turn(o: TurnOptions = {}) {
   const enqueued: HitlEnqueueInput[] = [];
   const events: TurnEvent[] = [];
   const results: unknown[] = [];
+  const inputs: unknown[] = [];
   const needs = o.needs ?? { mail };
   const defined = defineTool<{ to: string }, { ok: boolean }>({
     id: 'pack.send' as ToolId,
     description: 'Sends a note.',
     version: '1.0.0',
-    input: { type: 'object', properties: { to: { type: 'string' } }, additionalProperties: false },
+    input: o.input ?? {
+      type: 'object',
+      properties: { to: { type: 'string' } },
+      additionalProperties: false,
+    },
     output: {
       type: 'object',
       properties: { ok: { type: 'boolean' } },
@@ -195,7 +207,8 @@ async function turn(o: TurnOptions = {}) {
     effects: [],
     ...(o.mutating !== undefined && { mutating: o.mutating }),
     needsSpec: { connections: needs },
-    handler: async (_input, ctx) => {
+    handler: async (input, ctx) => {
+      inputs.push(input);
       ran.push(ctx);
       if (o.run !== undefined) return (await o.run(ctx, ran.length)) as { ok: boolean };
       return { ok: true };
@@ -255,6 +268,7 @@ async function turn(o: TurnOptions = {}) {
       definitions: [],
       byName: new Map([[tool.id, { tool, resolvedVersion: '1.0.0', requestedRange: '^1.0.0' }]]),
     },
+    ...(o.accountChoices !== undefined && { accountChoices: o.accountChoices }),
     turnAbort: new AbortController(),
     appended: [],
     initialMessageCount: 1,
@@ -269,7 +283,7 @@ async function turn(o: TurnOptions = {}) {
       message: {
         role: 'assistant',
         content: '',
-        toolCalls: [{ id: CALL, name: 'pack.send', arguments: { to: 'someone' } }],
+        toolCalls: [{ id: CALL, name: 'pack.send', arguments: o.arguments ?? { to: 'someone' } }],
       },
       iterationUsage: { promptTokens: 0, completionTokens: 0 },
       provider: { id: 'p', model: 'm' },
@@ -293,8 +307,113 @@ async function turn(o: TurnOptions = {}) {
     thrown = e;
   });
   const failed = events.filter((e) => e.kind === 'tool.failed');
-  return { ran, asked, waits, enqueued, events, failed, results, records, thrown, ctx };
+  return { ran, inputs, asked, waits, enqueued, events, failed, results, records, thrown, ctx };
 }
+
+describe('a call that names its connections from a set', () => {
+  const offered: ConnectionAccountChoices = {
+    'pack.send': {
+      shared: {
+        appName: 'Acme',
+        members: [
+          { name: 'support', connectionId: 'conn-support' },
+          { name: 'sales', connectionId: 'conn-sales' },
+        ],
+        default: 'conn-support',
+      },
+    },
+  };
+  const registration = { id: 'reg-acme-1', name: 'Acme (reg-acme)' };
+
+  test('the name it gives is the connection it reads, and the tool never sees `accounts`', async () => {
+    const named: ConnectionPick = {
+      by: 'named',
+      choiceId: 'choice-1',
+      registration,
+      as: 'company',
+      setSize: 2,
+    };
+    const t = await turn({
+      needs: { shared },
+      mutating: false,
+      accountChoices: offered,
+      arguments: { to: 'someone', accounts: { shared: 'sales' } },
+      answers: [readyOn({ shared: sales }, { shared: named })],
+    });
+    expect(t.ran).toHaveLength(1);
+    expect(t.inputs).toEqual([{ to: 'someone' }]);
+    // Asked by id, recorded, and again for the run with the id the record holds.
+    expect(t.asked.map((a) => a.accounts)).toEqual([
+      { shared: 'conn-sales' },
+      { shared: 'conn-sales' },
+    ]);
+    expect(t.records.get(`connection-gate:${CALL}`)).toMatchObject({
+      kind: 'ready',
+      connections: { shared: { connectionId: 'conn-sales', pick: named } },
+    });
+  });
+
+  test('a call that names none asks with nothing named, so it reads the default', async () => {
+    const t = await turn({ needs: { shared }, mutating: false, accountChoices: offered });
+    expect(t.ran).toHaveLength(1);
+    expect(t.asked.map((a) => 'accounts' in a)).toEqual([false, false]);
+  });
+
+  test("with no set offered, `accounts` is the tool's own input: it reaches the tool, and names nothing", async () => {
+    const t = await turn({
+      needs: { shared },
+      mutating: false,
+      input: {
+        type: 'object',
+        properties: { to: { type: 'string' }, accounts: { type: 'object' } },
+        additionalProperties: false,
+      },
+      arguments: { to: 'someone', accounts: { shared: 'sales' } },
+    });
+    expect(t.ran).toHaveLength(1);
+    expect(t.inputs).toEqual([{ to: 'someone', accounts: { shared: 'sales' } }]);
+    expect(t.asked.map((a) => 'accounts' in a)).toEqual([false, false]);
+  });
+
+  test.each([
+    ['a name outside the set', { shared: 'billing' }],
+    ['a need with no set offered', { archive: 'support' }],
+  ])(
+    '%s fails the call as connection-missing, and the failure never repeats the name',
+    async (_, accounts) => {
+      const t = await turn({
+        needs: { shared },
+        mutating: false,
+        accountChoices: offered,
+        arguments: { to: 'someone', accounts },
+      });
+      const [need, name] = Object.entries(accounts)[0] as [string, string];
+      expect(t.ran).toEqual([]);
+      expect(t.asked).toEqual([]);
+      expect(t.thrown).toBeUndefined();
+      expect(t.failed[0]?.error).toMatchObject({
+        code: 'connection-missing',
+        message: `pack.send named a connection for "${need}" that it can't read from here, so it didn't run.`,
+      });
+      expect(JSON.stringify(t.failed)).not.toContain(name);
+    },
+  );
+
+  test("an `accounts` that isn't an object fails the call the same way", async () => {
+    const t = await turn({
+      needs: { shared },
+      mutating: false,
+      accountChoices: offered,
+      arguments: { to: 'someone', accounts: 'sales' },
+    });
+    expect(t.ran).toEqual([]);
+    expect(t.asked).toEqual([]);
+    expect(t.failed[0]?.error).toMatchObject({
+      code: 'connection-missing',
+      message: "pack.send's accounts names each connection it reads by its need, so it didn't run.",
+    });
+  });
+});
 
 describe('a call gets its connections before it runs', () => {
   test('ready: the tool gets its tokens, asked fresh; the record keeps none', async () => {
@@ -309,11 +428,12 @@ describe('a call gets its connections before it runs', () => {
     expect(t.records.get(`connection-gate:${CALL}`)).toEqual({
       kind: 'ready',
       connections: {
+        // A person's account by its id alone: the record never names it.
         mail: {
           connectionId: 'conn-mail',
           app: 'acme',
           appName: 'Acme',
-          account: { id: 'acct-mail', label: 'owner@acme.example' },
+          account: { id: 'acct-mail' },
         },
         shared: {
           connectionId: 'conn-shared',
@@ -909,12 +1029,10 @@ describe("a tool's own abort or timeout reaches the turn as the error it is", ()
 describe("a call that acts with a person's connection is theirs to approve", () => {
   const ask = { hitl: { tools: { overrides: { 'pack.send': 'always_ask' } } } };
 
-  test('the approval names its owner and the account it acts as', async () => {
+  test('the approval names its owner, and says the account it acts as is theirs, never naming it', async () => {
     const t = await turn({ policy: ask });
-    expect(t.enqueued[0]).toMatchObject({
-      approver: { kind: 'member', userId: OWNER },
-      connection: { app: 'acme', appName: 'Acme', account: 'owner@acme.example' },
-    });
+    expect(t.enqueued[0]).toMatchObject({ approver: { kind: 'member', userId: OWNER } });
+    expect(t.enqueued[0]?.connection).toEqual({ app: 'acme', appName: 'Acme', as: 'person' });
     expect(t.ran).toHaveLength(1);
   });
 
@@ -924,6 +1042,7 @@ describe("a call that acts with a person's connection is theirs to approve", () 
     expect(t.enqueued[0]?.connection).toEqual({
       app: 'acme',
       appName: 'Acme',
+      as: 'company',
       account: 'owner@acme.example',
     });
 
@@ -936,13 +1055,14 @@ describe("a call that acts with a person's connection is theirs to approve", () 
     expect(named.enqueued[0]?.connection).toEqual({
       app: 'acme',
       appName: 'Acme',
+      as: 'company',
       account: 'sales@acme.example',
       name: 'sales',
     });
     expect(named.ran).toHaveLength(1);
   });
 
-  test("with a person's connection and a company one, the approval is the person's, naming their account, never their name for it", async () => {
+  test("with a person's connection and a company one, the approval is the person's, naming neither their account nor their name for it", async () => {
     const t = await turn({
       policy: ask,
       needs: { mail, archive: shared },
@@ -950,11 +1070,7 @@ describe("a call that acts with a person's connection is theirs to approve", () 
     });
     expect(t.enqueued[0]).toMatchObject({ approver: { kind: 'member', userId: OWNER } });
     // Built from the run's record, which any project reader reads.
-    expect(t.enqueued[0]?.connection).toEqual({
-      app: 'acme',
-      appName: 'Acme',
-      account: 'support@acme.example',
-    });
+    expect(t.enqueued[0]?.connection).toEqual({ app: 'acme', appName: 'Acme', as: 'person' });
   });
 
   test('the connect comes before the approval', async () => {
@@ -1001,7 +1117,7 @@ describe("a call that acts with a person's connection is theirs to approve", () 
     expect(t.failed[0]?.error).toEqual({
       code: 'connection-approver-not-a-reviewer',
       message:
-        'Only user user-owner can approve pack.send, as it acts with their Acme account owner@acme.example, ' +
+        "Only user user-owner can approve pack.send, as it acts with this person's Acme account, " +
         'and they have no reviewer seat at senior or above, the rank the approval needs: ' +
         'a tenant admin adds them to the reviewers. ' +
         "The call didn't run.",
@@ -1044,8 +1160,9 @@ describe("in a run no person started, a read with a person's connection waits fo
       expect(t.enqueued).toHaveLength(1);
       expect(t.enqueued[0]).toMatchObject({
         approver: { kind: 'member', userId: OWNER },
-        connection: { app: 'acme', account: 'owner@acme.example' },
+        connection: { app: 'acme', as: 'person' },
       });
+      expect(t.enqueued[0]?.connection).not.toHaveProperty('account');
       // Approved, so it runs.
       expect(t.ran).toHaveLength(1);
     },
@@ -1154,7 +1271,7 @@ describe('which company connection a call uses', () => {
     expect(ready.ran[0]?.connections?.shared?.name).toBe('support');
   });
 
-  test("the record says how each was picked, and names a person's connection by its app and account only", async () => {
+  test("the record says how each was picked, and names a person's connection by its app and account id only", async () => {
     const registration = { id: 'reg-acme-1', name: 'Acme (reg-acme)' };
     const own = { by: 'own', registration, extra: 'not recorded' } as ConnectionPick;
     const t = await turn({
@@ -1173,7 +1290,7 @@ describe('which company connection a call uses', () => {
           connectionId: 'conn-support',
           app: 'acme',
           appName: 'Acme',
-          account: support.account,
+          account: { id: support.account.id },
           pick: { by: 'own', registration },
         },
         shared: {

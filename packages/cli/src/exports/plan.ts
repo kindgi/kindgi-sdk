@@ -711,6 +711,8 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/retention/scheduled': 'computed from the retention policies and the records',
   '/v1/deployments/{deploymentId}/pack-env': 'computed from deployments, env and secrets',
   '/v1/connection-choices/candidates': 'computed from connections and connection-apps',
+  '/v1/connection-choices/needs': 'computed from agents, flows and tools',
+  '/v1/connections/{connectionId}/choices': 'the same records as connection-choices',
   // Not listed by any route.
   '/v1/secrets/{name}/rotations/{rotationId}':
     "read by the id its rotation's request answered; no route lists rotations, and each rotation's versions are in secret-versions",

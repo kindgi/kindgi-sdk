@@ -751,6 +751,18 @@ person has that id. Each removal it finishes and each grant it takes away
 is named under the tenant's line. `--dry-run` shows what it would put back
 and take away, per tenant, and changes nothing.
 
+It also sets right the parents in the authorization store that a project's
+or a team's move into or out of an org, or an org's delete, left behind on
+an older runtime. That runtime changed only the row, so the old org's
+admins kept their way in, and the new org's had none. For each
+project, team and deleted org, it reads the parents the store has, and
+queues the changes the row calls for, which the server applies. The
+tenant's line counts them after the tuples added, only when there are any,
+such as
+`1 parent change queued for the server to apply`: a corrected parent is one
+change. `--dry-run` doesn't preview them. A runtime serving one tenant sets
+them right at each start.
+
 Run it again at will. `--tenant <id>` repairs one tenant.
 `--providers` redoes only sign-in's providers, after `KINDGI_PUBLIC_URL`
 changes. It exits 0 when every tenant is set up, and 1 when something is left

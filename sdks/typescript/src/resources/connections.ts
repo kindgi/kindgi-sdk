@@ -13,8 +13,9 @@
  * - `client.connectionApps`: the workspace's own registration of its client at
  *   an app (a tenant admin's; secrets are referenced by name, never sent).
  * - `client.connections`: the connected accounts, and the connect that makes one.
- * - `client.connectionChoices`: which company connection an agent or a flow
- *   uses for an app in a project (a project admin's to set).
+ * - `client.connectionChoices`: which connection an agent or a flow, or one
+ *   of its tools, uses for an app in a project: the company's (a project
+ *   admin's to set), or a person's own, for their runs (theirs alone).
  *
  * A connection's token never leaves the server. To connect, `connect()` makes
  * a request; send the person to its `connectUrl`, or call `startRequest()` for
@@ -35,6 +36,7 @@ import type {
   ConnectionCandidatePage as ConnectionCandidatePageWire,
   ConnectionCandidate as ConnectionCandidateWire,
   ConnectionChoiceDeleteResult,
+  ConnectionChoiceNeeds as ConnectionChoiceNeedsWire,
   ConnectionChoicePage as ConnectionChoicePageWire,
   ConnectionChoice as ConnectionChoiceWire,
   ConnectionEntryList,
@@ -68,6 +70,7 @@ export type ConnectFinish = ConnectFinishWire;
 export type ConnectionStartResult = ConnectStart;
 export type ConnectionChoice = ConnectionChoiceWire;
 export type ConnectionChoicePage = ConnectionChoicePageWire;
+export type ConnectionChoiceNeeds = ConnectionChoiceNeedsWire;
 export type SetConnectionChoiceInput = SetConnectionChoiceBody;
 export type RemoveConnectionChoiceResult = ConnectionChoiceDeleteResult;
 export type ConnectionCandidate = ConnectionCandidateWire;
@@ -100,6 +103,10 @@ export interface ListConnectionChoicesInput {
   readonly flowId?: string;
   /** An app's entry id: `'google'`. */
   readonly app?: string;
+  /** Only this tool's own choices. */
+  readonly toolId?: string;
+  /** `'me'`: only the caller's own, even for a tenant admin. */
+  readonly owner?: 'me';
   /** Removed choices too, with their `removedAt` and `removedBy`: a choice's history. */
   readonly includeRemoved?: boolean;
   readonly limit?: number;
@@ -110,6 +117,8 @@ export interface ListConnectionCandidatesInput {
   readonly projectId: string;
   /** An app's entry id: `'google'`. */
   readonly app?: string;
+  /** `'me'`: the caller's own instead, in full, with `main`. */
+  readonly owner?: 'me';
   readonly limit?: number;
   readonly cursor?: string;
 }
@@ -146,12 +155,23 @@ export interface ConnectionsClient {
   list(filter?: ListConnectionsFilter): Promise<ConnectionPage>;
   /** @wire GET /v1/connections/:connectionId */
   get(connectionId: string): Promise<Connection>;
-  /** @wire PATCH /v1/connections/:connectionId — renames it (`label`). */
+  /**
+   * @wire PATCH /v1/connections/:connectionId — one change: renames it
+   * (`label`), or makes it its owner's main connection of its app (`main: true`).
+   */
   update(
     connectionId: string,
     input: UpdateConnectionInput,
     options?: MutationOptions,
   ): Promise<Connection>;
+  /**
+   * @wire GET /v1/connections/:connectionId/choices — the live choices that
+   * name it, as their one or default or in a set; for its owner or a tenant admin.
+   */
+  choices(
+    connectionId: string,
+    filter?: { readonly limit?: number; readonly cursor?: string },
+  ): Promise<ConnectionChoicePage>;
   /** @wire DELETE /v1/connections/:connectionId — withdraws access at the app where it can. */
   disconnect(connectionId: string, options?: MutationOptions): Promise<Connection>;
   /**
@@ -181,25 +201,47 @@ export interface ConnectionsClient {
 export interface ConnectionChoicesClient {
   /**
    * @wire GET /v1/connection-choices — the project's live choices, and with
-   * `includeRemoved` the removed ones too; its members may read them. A
+   * `includeRemoved` the removed ones too; its members may read them: the
+   * company's and their own, and every person's for a tenant admin. A
    * choice of a connection removed since stays listed until it's set or removed.
    */
   list(input: ListConnectionChoicesInput): Promise<ConnectionChoicePage>;
   /**
-   * @wire PUT /v1/connection-choices — chooses a company connection for an
-   * agent or a flow, for the connection's app (a project admin's). The
-   * connection already chosen answers its choice as it is; another one
-   * replaces it with the next version.
+   * @wire PUT /v1/connection-choices — chooses a connection for an agent or
+   * a flow, or with `toolId` for one of its tools, for the connection's app.
+   * A tool's may be a set (`connectionIds`, `connectionId` its default). A
+   * company choice is a project admin's; a person's (`person`) is theirs
+   * alone. The connection already chosen answers its choice as it is;
+   * another one replaces it with the next version.
    */
   set(input: SetConnectionChoiceInput, options?: MutationOptions): Promise<ConnectionChoice>;
-  /** @wire DELETE /v1/connection-choices/{choiceId} — a project admin's. */
+  /**
+   * @wire DELETE /v1/connection-choices/{choiceId} — a company choice is a
+   * project admin's; a person's, theirs alone.
+   */
   remove(choiceId: string, options?: MutationOptions): Promise<RemoveConnectionChoiceResult>;
   /**
    * @wire GET /v1/connection-choices/candidates — the company connections a
    * choice in the project may name. A member who isn't an admin gets only
-   * `connectionId` and `name`.
+   * `connectionId` and `name`. With `owner: 'me'`, the caller's own instead.
    */
   candidates(input: ListConnectionCandidatesInput): Promise<ConnectionCandidatePage>;
+  /**
+   * @wire GET /v1/connection-choices/needs — each of an agent's or a flow's
+   * tools' connections, and whether a choice for it may be a set; the tools
+   * whose version couldn't be read are in `unread`. It reads an agent's or
+   * a flow's: one of them.
+   */
+  needs(
+    input: {
+      readonly projectId: string;
+      /** An app's entry id: `'google'`. */
+      readonly app?: string;
+    } & (
+      | { readonly agentId: string; readonly flowId?: never }
+      | { readonly flowId: string; readonly agentId?: never }
+    ),
+  ): Promise<ConnectionChoiceNeeds>;
 }
 
 interface MutationOptions {
@@ -301,6 +343,16 @@ export function makeConnectionsClient(transport: Transport): ConnectionsClient {
         ...idempotency(options),
       });
     },
+    async choices(connectionId, filter) {
+      return transport.request<ConnectionChoicePage>({
+        method: 'GET',
+        path: `/v1/connections/${encodeURIComponent(connectionId)}/choices`,
+        query: {
+          ...(filter?.limit !== undefined && { limit: filter.limit }),
+          ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+        },
+      });
+    },
     async disconnect(connectionId, options) {
       return transport.request<Connection>({
         method: 'DELETE',
@@ -352,6 +404,8 @@ export function makeConnectionChoicesClient(transport: Transport): ConnectionCho
           ...(input.agentId !== undefined && { agentId: input.agentId }),
           ...(input.flowId !== undefined && { flowId: input.flowId }),
           ...(input.app !== undefined && { app: input.app }),
+          ...(input.toolId !== undefined && { toolId: input.toolId }),
+          ...(input.owner !== undefined && { owner: input.owner }),
           ...(input.includeRemoved === true && { includeRemoved: true }),
           ...(input.limit !== undefined && { limit: input.limit }),
           ...(input.cursor !== undefined && { cursor: input.cursor }),
@@ -380,8 +434,21 @@ export function makeConnectionChoicesClient(transport: Transport): ConnectionCho
         query: {
           projectId: input.projectId,
           ...(input.app !== undefined && { app: input.app }),
+          ...(input.owner !== undefined && { owner: input.owner }),
           ...(input.limit !== undefined && { limit: input.limit }),
           ...(input.cursor !== undefined && { cursor: input.cursor }),
+        },
+      });
+    },
+    async needs(input) {
+      return transport.request<ConnectionChoiceNeeds>({
+        method: 'GET',
+        path: '/v1/connection-choices/needs',
+        query: {
+          projectId: input.projectId,
+          ...(input.agentId !== undefined && { agentId: input.agentId }),
+          ...(input.flowId !== undefined && { flowId: input.flowId }),
+          ...(input.app !== undefined && { app: input.app }),
         },
       });
     },

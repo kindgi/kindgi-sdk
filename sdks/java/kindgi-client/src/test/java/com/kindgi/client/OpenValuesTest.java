@@ -9,6 +9,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.annotation.JsonValue;
 import com.kindgi.client.models.Checks;
+import com.kindgi.client.models.FactScope;
 import com.kindgi.client.models.TestRunBaseline;
 import com.kindgi.client.models.AgentPinScope;
 import com.kindgi.client.models.Model;
@@ -24,13 +25,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
 /**
  * Every generated enum and union reads a value a newer runtime sends that this client doesn't know
  * yet, through the client's own codec: an enum as {@code UNRECOGNIZED}, keeping the text, and a
- * tagged or deduced union as its {@code Unrecognized} variant, keeping the object. The Python
+ * tagged or deduced union as its {@code Unrecognized} variant, keeping the object; an open record
+ * keeps the properties it doesn't know the same way. The Python
  * client is held to the same by its generator's open check, apart from the field Python code
  * tells a method's answers apart by ({@code secrets.rotate}'s {@code kind}), which stays closed
  * there.
@@ -113,13 +116,17 @@ class OpenValuesTest {
       }
       Class<?> unrecognized = nested(type, "Unrecognized");
       assertThat(info.defaultImpl()).as(type.getName()).isEqualTo(unrecognized);
+      // Beside a property it doesn't know: one spelled like the record's own map, and one whose value is null.
+      String others = "\"kindgiTestExtra\":1,\"properties\":{\"x\":1},\"kindgiTestNull\":null";
       String body =
           info.use() == JsonTypeInfo.Id.NAME
-              ? "{\"" + info.property() + "\":\"" + UNKNOWN + "\",\"kindgiTestExtra\":1}"
-              : "{\"kindgiTestExtra\":1}";
+              ? "{\"" + info.property() + "\":\"" + UNKNOWN + "\"," + others + "}"
+              : "{" + others + "}";
       Object read = KindgiJson.read(body, type);
       assertThat(read).as(type.getName()).isInstanceOf(unrecognized);
-      assertThat(KindgiJson.write(read)).as(type.getName()).isEqualTo(body);
+      assertThat(unrecognized.getMethod("properties").invoke(read)).as(type.getName()).isEqualTo(KindgiJson.read("{" + others + "}", Map.class));
+      // Compared as maps: Jackson 3 may write the property spelled like the map first.
+      assertThat(KindgiJson.read(KindgiJson.write(read), Map.class)).as(type.getName()).isEqualTo(KindgiJson.read(body, Map.class));
       if (info.use() == JsonTypeInfo.Id.NAME) {
         Method tag = tagOf(type);
         assertThat(tag.invoke(read)).as(type.getName()).isEqualTo(UNKNOWN);
@@ -127,6 +134,16 @@ class OpenValuesTest {
       unions.add(type.getName());
     }
     assertThat(unions).contains(AgentPinScope.class.getName()).hasSizeGreaterThan(10);
+  }
+
+  @Test
+  void anOpenRecordKeepsEveryPropertyItDoesntKnow() throws Exception {
+    String others = "\"kindgiTestExtra\":1,\"additionalProperties\":{\"x\":1},\"kindgiTestNull\":null";
+    String body = "{\"tenantId\":\"acme\"," + others + "}";
+    FactScope read = KindgiJson.read(body, FactScope.class);
+    assertThat(read.tenantId()).isEqualTo("acme");
+    assertThat(read.additionalProperties()).isEqualTo(KindgiJson.read("{" + others + "}", Map.class));
+    assertThat(KindgiJson.read(KindgiJson.write(read), Map.class)).isEqualTo(KindgiJson.read(body, Map.class));
   }
 
   /** A tagged union's own method for its tag: the one abstract method it declares that reads text. */

@@ -374,6 +374,7 @@ export type {
   ConnectionCandidate,
   ConnectionCandidatePage,
   ConnectionChoice,
+  ConnectionChoiceNeeds,
   ConnectionChoicePage,
   ConnectionChoicesClient,
   ConnectionEntriesClient,

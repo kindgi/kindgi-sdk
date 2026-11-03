@@ -274,7 +274,8 @@ function onTheRun(approval: Approval): WaitingForApproval {
       connection: {
         app: approval.connection.app,
         appName: approval.connection.appName,
-        account: approval.connection.account,
+        ...(approval.connection.as !== undefined && { as: approval.connection.as }),
+        ...(approval.connection.account !== undefined && { account: approval.connection.account }),
         ...(approval.connection.name !== undefined && { name: approval.connection.name }),
       },
     }),

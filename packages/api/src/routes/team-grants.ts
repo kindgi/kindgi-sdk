@@ -17,6 +17,7 @@ import type { Cursor, ProjectId, TeamId, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { isReadMethod } from '../read-method.js';
 import type { AppEnv } from '../types.js';
 import { membershipNotKeptInStepError } from './hierarchy-errors.js';
 import { clampLimit } from './pagination.js';
@@ -67,7 +68,7 @@ export function projectTeamGrantsRouter(deps: TeamGrantsDeps): Hono<AppEnv> {
 
   if (authorizer !== undefined) {
     r.use('/:projectId/team-grants', async (c, next) => {
-      const action = c.req.method === 'GET' ? 'write' : 'admin';
+      const action = isReadMethod(c.req.method) ? 'write' : 'admin';
       return authorizer.authorize(action, () => ref('project', c.req.param('projectId')))(c, next);
     });
     r.use('/:projectId/team-grants/:teamId', async (c, next) =>

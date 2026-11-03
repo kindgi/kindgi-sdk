@@ -16,6 +16,7 @@ import {
   shownLatest,
 } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { isReadMethod } from '../read-method.js';
 import {
   LISTED_TEST_SET_KINDS,
   TEST_SET_KINDS,
@@ -82,7 +83,7 @@ export function testSetsRouter(
       return mw(c, next);
     });
     r.use('/', async (c, next) => {
-      if (c.req.method !== 'GET') return next();
+      if (!isReadMethod(c.req.method)) return next();
       // A project filter needs read on that project. Parse it as the
       // handler does (`?scopeKind=project&scopeId=`).
       const s = parseScopeParams((n) => c.req.query(n), {
@@ -111,7 +112,7 @@ export function testSetsRouter(
           if (c.req.method === 'POST' && under.length === 1 && under[0] === 'runs') {
             return undefined;
           }
-          return c.req.method === 'GET' ? 'read' : 'admin';
+          return isReadMethod(c.req.method) ? 'read' : 'admin';
         },
         check: itemPathCheck,
         versionNotFound: testSetVersionNotFound,

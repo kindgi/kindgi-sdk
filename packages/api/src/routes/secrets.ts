@@ -10,6 +10,7 @@ import type { Cursor, EnvName, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { isReadMethod } from '../read-method.js';
 import type { RotationStatus, RotationStatusStore } from '../rotation-status-store.js';
 import type {
   SecretBinding,
@@ -121,7 +122,7 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
         });
         return mw(c, next);
       }
-      if (c.req.method === 'GET') {
+      if (isReadMethod(c.req.method)) {
         const mw = authorizer.authorize('admin', scopeFromQuery);
         return mw(c, next);
       }

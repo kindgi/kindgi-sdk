@@ -45,6 +45,8 @@ const ADA = randomUUID() as UserId;
 const WREN = randomUUID() as UserId;
 /** Another project writer. */
 const MILO = randomUUID() as UserId;
+/** A project admin who isn't a tenant admin. */
+const PIA = randomUUID() as UserId;
 const BOT = 'sa-support';
 const PROJECT = randomUUID() as ProjectId;
 
@@ -52,11 +54,15 @@ const TOKENS: Record<string, Awaited<ReturnType<TokenResolver>>> = {
   ada: { tenantId, userId: ADA, scopes: ['tenant-admin'] },
   wren: { tenantId, userId: WREN, scopes: [] },
   milo: { tenantId, userId: MILO, scopes: [] },
+  pia: { tenantId, userId: PIA, scopes: [] },
   bot: { tenantId, serviceAccountId: BOT as never },
 };
 const resolveToken: TokenResolver = async (token) => TOKENS[token] ?? null;
 
-/** Every right, but `admin` only for Ada; a project's `runners` hold only what a runner does. */
+/**
+ * Every right, but `admin` only for Ada, and for Pia below the tenant; a
+ * project's `runners` hold only what a runner does.
+ */
 function decision(
   principal: unknown,
   action: Action,
@@ -66,7 +72,8 @@ function decision(
   const actor = (principal as { actor?: { id?: string } }).actor?.id;
   const runs = ['read', 'run', 'execute', 'call'].includes(action);
   const allowed =
-    (action !== 'admin' || actor === ADA) && (actor === undefined || !runners.has(actor) || runs);
+    (action !== 'admin' || actor === ADA || (actor === PIA && resource.type !== 'tenant')) &&
+    (actor === undefined || !runners.has(actor) || runs);
   return {
     allowed,
     reason: allowed ? 'test: granted' : 'test: not an admin',
@@ -117,6 +124,8 @@ interface FakeConnection {
   readonly member?: UserId;
   /** The company's, live, but on a registration that doesn't allow the project. */
   readonly elsewhere?: boolean;
+  /** A member's main connection of the app. */
+  readonly main?: boolean;
 }
 
 /**
@@ -145,7 +154,7 @@ function fakeConnections(list: readonly FakeConnection[]): ConnectionBinding {
           input.tenantId === tenantId &&
           input.projectId === PROJECT &&
           input.envName === 'local' &&
-          c.member === undefined &&
+          c.member === input.person?.userId &&
           c.elsewhere !== true &&
           (input.app === undefined || c.app === input.app),
       );
@@ -157,6 +166,7 @@ function fakeConnections(list: readonly FakeConnection[]): ConnectionBinding {
           app: c.app,
           accountLabel: `${c.name}@acme.example`,
           state: 'working' as const,
+          ...(c.main === true && { main: true }),
         })),
         ...(at + 1 < all.length && { nextCursor: String(at + 1) as Cursor }),
       };
@@ -695,14 +705,12 @@ describe('the company connection it reads with', () => {
     expect((await h.call('GET', BASE)).body.data).toEqual([]);
   });
 
-  test("a person's mailbox names no connection, and an id is a UUID", async () => {
+  test("a person's mailbox may name its owner's own connection, and an id is a UUID", async () => {
     const h = harness({ connections: [WRENS_GMAIL] });
     const mailbox = { app: 'google', as: 'person', connectionId: WRENS_GMAIL.connectionId };
     const res = await h.call('POST', BASE, personal({ config: { mailbox } }), 'wren');
-    expect(res.status).toBe(400);
-    expect(res.body.error.message).toBe(
-      "A person's mailbox is read with its owner's own connection; `connectionId` is for the company's.",
-    );
+    expect(res.status).toBe(201);
+    expect(res.body.mailbox).toEqual(mailbox);
     const notAnId = await h.call('POST', BASE, companyGmail('support'));
     expect(notAnId.status).toBe(400);
     expect(notAnId.body.error.message).toMatch(/a UUID/);
@@ -919,6 +927,180 @@ describe('the company connection it reads with', () => {
       app: 'google',
       as: 'person',
     });
+  });
+});
+
+const WRENS_SCHOOL: FakeConnection = {
+  connectionId: randomUUID(),
+  app: 'google',
+  name: 'school',
+  member: WREN,
+};
+const MILOS_GMAIL: FakeConnection = {
+  connectionId: randomUUID(),
+  app: 'google',
+  name: 'milo',
+  member: MILO,
+};
+/** Wren's Gmail. */
+const wrensGmail = (connectionId?: string) => ({
+  app: 'google',
+  as: 'person',
+  ...(connectionId !== undefined && { connectionId }),
+});
+
+describe("the person's connection it reads their mailbox with", () => {
+  test('none named: their main is stored, else their only one, and with none, nothing is', async () => {
+    const cases: [readonly FakeConnection[], string | undefined][] = [
+      [[WRENS_GMAIL, MILOS_GMAIL, SUPPORT_GMAIL], WRENS_GMAIL.connectionId],
+      [[WRENS_GMAIL, { ...WRENS_SCHOOL, main: true }], WRENS_SCHOOL.connectionId],
+      [[MILOS_GMAIL, SUPPORT_GMAIL, WRENS_OUTLOOK], undefined],
+    ];
+    for (const [connections, stored] of cases) {
+      const h = harness({ connections });
+      const res = await h.call('POST', BASE, personal(), 'wren');
+      expect(res.status).toBe(201);
+      expect(res.body.mailbox).toEqual(wrensGmail(stored));
+    }
+  });
+
+  test('none named and several with no main is a 409 that counts them, names none, and registers nothing', async () => {
+    const h = harness({ connections: [WRENS_GMAIL, WRENS_SCHOOL, SUPPORT_GMAIL] });
+    const res = await h.call('POST', BASE, personal(), 'wren');
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'connection-not-chosen',
+      message: `The trigger's owner has 2 Google connections and none is their main: name one in ${FIELD}, or make one their main.`,
+      details: { field: FIELD },
+    });
+    expect(res.body.error.details).not.toHaveProperty('choices');
+    expect(JSON.stringify(res.body)).not.toMatch(/school|wren|support/);
+    expect((await h.call('GET', BASE)).body.data).toEqual([]);
+  });
+
+  test("a named one must be the owner's own live connection of the app; any other is a 404 naming the field", async () => {
+    const h = harness({ connections: [WRENS_GMAIL, WRENS_OUTLOOK, MILOS_GMAIL, SUPPORT_GMAIL] });
+    for (const named of [
+      MILOS_GMAIL.connectionId,
+      SUPPORT_GMAIL.connectionId,
+      WRENS_OUTLOOK.connectionId,
+      randomUUID(),
+    ]) {
+      const config = { mailbox: wrensGmail(named) };
+      const res = await h.call('POST', BASE, personal({ config }), 'wren');
+      expect(res.status, named).toBe(404);
+      expect(res.body.error).toMatchObject({
+        code: 'connection-not-found',
+        details: { connectionId: named, field: FIELD },
+      });
+    }
+    expect((await h.call('GET', BASE)).body.data).toEqual([]);
+  });
+
+  test('the same mailbox sent again keeps the one it reads with; another of theirs named is stored', async () => {
+    const h = harness({ connections: [WRENS_GMAIL, { ...WRENS_SCHOOL, main: true }] });
+    const id = await wrensTrigger(h, {
+      config: { mailbox: wrensGmail(WRENS_GMAIL.connectionId) },
+    });
+    const path = `${BASE}/${id}`;
+    const again = await h.call('PATCH', path, { config: { mailbox: wrensGmail() } }, 'wren');
+    expect(again.status).toBe(200);
+    expect(again.body.mailbox).toEqual(wrensGmail(WRENS_GMAIL.connectionId));
+    const other = await h.call(
+      'PATCH',
+      path,
+      { config: { mailbox: wrensGmail(WRENS_SCHOOL.connectionId) } },
+      'wren',
+    );
+    expect(other.status).toBe(200);
+    expect(other.body.mailbox).toEqual(wrensGmail(WRENS_SCHOOL.connectionId));
+  });
+
+  test("a take-over clears what the previous owner's looks left: the stored connection and the address", async () => {
+    const h = harness({ connections: [WRENS_GMAIL] });
+    const id = await wrensTrigger(h);
+    const triggerId = id as TriggerId;
+    const account = { id: 'acct-wren', label: 'wren@acme.example' };
+    h.triggerRegistry.recordPoll({ tenantId, triggerId, account });
+    const before = await h.call('GET', `${BASE}/${id}`, undefined, 'wren');
+    expect(before.body.mailbox).toEqual(wrensGmail(WRENS_GMAIL.connectionId));
+    expect(before.body.account).toEqual(account);
+
+    const taken = await h.call('POST', `${BASE}/${id}/owner`, {});
+    expect(taken.status).toBe(200);
+    expect(taken.body.owner).toMatchObject({ kind: 'user', id: ADA });
+    expect(taken.body.mailbox).toEqual(wrensGmail());
+    expect(taken.body).not.toHaveProperty('account');
+    const read = await h.call('GET', `${BASE}/${id}`);
+    expect(read.body).not.toHaveProperty('account');
+    expect(JSON.stringify(read.body)).not.toContain(account.label);
+    // The account's id stays, for the poller; its label waits for the next look.
+    const stored = await h.triggerRegistry.get({ tenantId, triggerId });
+    expect((stored as { account?: unknown } | null)?.account).toEqual({ id: account.id });
+  });
+
+  test("a take-over of a person's mailbox that names a service account is a 400: a person owns it", async () => {
+    const h = harness();
+    const id = await wrensTrigger(h);
+    const named = await h.call('POST', `${BASE}/${id}/owner`, { runAsServiceAccountId: BOT });
+    expect(named.status).toBe(400);
+    expect(named.body.error.message).toMatch(/a person owns it/);
+    expect((await h.call('GET', `${BASE}/${id}`)).body.owner).toMatchObject({
+      kind: 'user',
+      id: WREN,
+    });
+  });
+});
+
+describe("a person's mailbox address", () => {
+  test("is its owner's and a tenant admin's to read; anyone else reads the trigger without it", async () => {
+    const h = harness({ connections: [WRENS_GMAIL] });
+    const id = await wrensTrigger(h);
+    const account = { id: 'acct-wren', label: 'wren@acme.example' };
+    h.triggerRegistry.recordPoll({ tenantId, triggerId: id as TriggerId, account });
+    const path = `${BASE}/${id}`;
+    const listed = async (who: string) =>
+      (await h.call('GET', BASE, undefined, who)).body.data.find(
+        (t: Record<string, unknown>) => t.triggerId === id,
+      );
+
+    for (const who of ['wren', 'ada']) {
+      expect((await h.call('GET', path, undefined, who)).body.account, who).toEqual(account);
+      expect((await listed(who)).account, who).toEqual(account);
+    }
+    for (const who of ['milo', 'pia']) {
+      const read = await h.call('GET', path, undefined, who);
+      expect(read.status).toBe(200);
+      expect(read.body, who).not.toHaveProperty('account');
+      expect(await listed(who), who).not.toHaveProperty('account');
+    }
+    // A project admin's PATCH and pause answer the trigger without it too.
+    const patched = await h.call('PATCH', path, { label: 'Support inbox' }, 'pia');
+    expect(patched.status).toBe(200);
+    expect(patched.body).not.toHaveProperty('account');
+    const paused = await h.call('POST', `${path}/pause`, undefined, 'pia');
+    expect(paused.status).toBe(200);
+    expect(paused.body).not.toHaveProperty('account');
+    // A tenant admin's, and the owner's, carry it.
+    const resumed = await h.call('POST', `${path}/resume`, undefined, 'ada');
+    expect(resumed.status).toBe(200);
+    expect(resumed.body.account).toEqual(account);
+    const owners = await h.call('PATCH', path, { label: 'Mine' }, 'wren');
+    expect(owners.body.account).toEqual(account);
+  });
+
+  test("the company's mailbox address is for everyone who reads the trigger", async () => {
+    const h = harness({ connections: [SUPPORT_GMAIL] });
+    const made = await h.call('POST', BASE, companyGmail());
+    expect(made.status).toBe(201);
+    const triggerId = made.body.triggerId as TriggerId;
+    const account = { id: 'acct-support', label: 'support@acme.example' };
+    h.triggerRegistry.recordPoll({ tenantId, triggerId, account });
+    for (const who of ['ada', 'pia', 'milo', 'wren']) {
+      expect((await h.call('GET', `${BASE}/${triggerId}`, undefined, who)).body.account).toEqual(
+        account,
+      );
+    }
   });
 });
 
