@@ -27,14 +27,16 @@ const tenantId = '00000000-0000-4000-8000-0000000000a1' as TenantId;
 const RESOURCE_METADATA = 'https://kindgi.test/.well-known/oauth-protected-resource/mcp';
 const inAnHour = () => new Date(Date.now() + 3_600_000);
 
+const reading = (): TokenResolution => ({
+  tenantId,
+  userId: 'alice' as UserId,
+  expiresAt: inAnHour(),
+  scopes: ['kindgi:read'],
+});
+
 /** Chat tokens, as the deployment's chat sign-in would resolve them. */
 const CHAT: Record<string, () => TokenResolution> = {
-  'chat-read': () => ({
-    tenantId,
-    userId: 'alice' as UserId,
-    expiresAt: inAnHour(),
-    scopes: ['kindgi:read'],
-  }),
+  'chat-read': reading,
   'chat-run': () => ({
     tenantId,
     userId: 'alice' as UserId,
@@ -54,6 +56,12 @@ const CHAT: Record<string, () => TokenResolution> = {
     expiresAt: inAnHour(),
     scopes: ['kindgi:read'],
   }),
+  // A person, and something the tools' `/v1` calls can't carry.
+  'chat-for-a-machine': () => ({ ...reading(), serviceAccountId: 'ci' }),
+  'chat-keys-operator': () => ({ ...reading(), systemKeysOperator: { keyId: 'boot' } }),
+  'chat-one-project': () => ({ ...reading(), tokenProjectId: 'project-1' }),
+  'chat-reviewer': () => ({ ...reading(), reviewerRole: 'admin' }),
+  'chat-idle-limit': () => ({ ...reading(), lastActiveAt: new Date() }),
   'chat-no-scope': () => ({
     tenantId,
     userId: 'alice' as UserId,
@@ -184,12 +192,30 @@ describe('/mcp: signing in', () => {
     },
   );
 
-  test('a token that names no person: 403', async () => {
-    const { rpc } = harness();
-    const { res, body } = await rpc('chat-machine', 'tools/list');
-    expect(res.status).toBe(403);
-    expect(body.error).toBe('access_denied');
-  });
+  test.each(['chat-machine', 'chat-for-a-machine', 'chat-keys-operator'])(
+    '%s, a token for someone other than a person: 403',
+    async (token) => {
+      const { rpc, asked } = harness();
+      const { res, body } = await rpc(token, 'tools/list');
+      expect(res.status).toBe(403);
+      expect(body.error).toBe('access_denied');
+      expect(body.error_description).toBe('Only a person can use Kindgi from a chat app.');
+      expect(asked).toEqual([]);
+    },
+  );
+
+  // Served without its limit, the token would reach more than it was given.
+  test.each(['chat-one-project', 'chat-reviewer', 'chat-idle-limit'])(
+    '%s, a person with a limit the tools can not keep: 403',
+    async (token) => {
+      const { rpc, asked } = harness();
+      const { res, body } = await rpc(token, 'tools/call', { name: 'probe_tenant', arguments: {} });
+      expect(res.status).toBe(403);
+      expect(body.error).toBe('access_denied');
+      expect(body.error_description).toContain("can't keep this token's limits");
+      expect(asked).toEqual([]);
+    },
+  );
 
   test('a token with no Kindgi scope: 403 insufficient_scope, asking for kindgi:read', async () => {
     const { rpc } = harness();

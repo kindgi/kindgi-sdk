@@ -34,7 +34,11 @@ export interface McpServerInput {
    *
    * The resolution must name a person (`userId`) and carry `expiresAt` and
    * the token's granted `scopes` (`kindgi:read`, `kindgi:run`,
-   * `kindgi:schedule`). Anything else is refused.
+   * `kindgi:schedule`). The tools call `/v1` as that person, with their
+   * key's `tokenRole`, so a resolution that names someone else (a service
+   * account, a system principal) or narrows the person further
+   * (`tokenProjectId`, `reviewerRole`, `lastActiveAt`) is refused rather
+   * than served without it.
    */
   readonly resolveToken: TokenResolver;
   /**
@@ -146,12 +150,10 @@ export function mountMcpServer(
       return bearerAuthChallengeResponse(error, challenge);
     }
     const resolution = authInfo.extra?.resolution as TokenResolution;
-    if (resolution.userId === undefined || resolution.system !== undefined) {
+    const person = chatPerson(resolution);
+    if ('refusal' in person) {
       return Response.json(
-        {
-          error: 'access_denied',
-          error_description: 'Only a person can use Kindgi from a chat app.',
-        },
+        { error: 'access_denied', error_description: person.refusal },
         { status: 403 },
       );
     }
@@ -162,12 +164,12 @@ export function mountMcpServer(
         { ...challenge, requiredScopes: ['kindgi:read'] },
       );
     }
-    // The person, narrowed to what the chat scopes allow, and nothing
-    // else a resolution can carry (capabilities, a system principal).
+    // The person, narrowed to what the chat scopes allow, with none of the
+    // capabilities a resolution can carry.
     const caller: InProcessCaller = {
       resolution: {
         tenantId: resolution.tenantId,
-        userId: resolution.userId,
+        userId: person.userId,
         ...(resolution.tokenId !== undefined && { tokenId: resolution.tokenId }),
         ...(resolution.tokenRole !== undefined && { tokenRole: resolution.tokenRole }),
         ...(resolution.expiresAt !== undefined && { expiresAt: resolution.expiresAt }),
@@ -178,7 +180,7 @@ export function mountMcpServer(
     const routes = toolSets.filter((set) => served(set, scopes)).flatMap((set) => set.routes);
     const context: McpToolContext = {
       tenantId: resolution.tenantId,
-      userId: resolution.userId,
+      userId: person.userId,
       scopes,
       call: inProcessV1Call(
         app,
@@ -193,6 +195,37 @@ export function mountMcpServer(
       authInfo: { ...authInfo, extra: { [CONTEXT_KEY]: context } },
     });
   });
+}
+
+/**
+ * The person a chat token acts for, or why it's refused. The tools' `/v1`
+ * calls carry only the person, their key's role and the chat scopes, so a
+ * resolution for anyone else, or one that limits the person further, is
+ * refused: served without its limit, it would reach more than it was given.
+ */
+function chatPerson(
+  resolution: TokenResolution,
+): { readonly userId: UserId } | { readonly refusal: string } {
+  const { userId } = resolution;
+  if (
+    userId === undefined ||
+    resolution.serviceAccountId !== undefined ||
+    resolution.system !== undefined ||
+    resolution.systemKeysOperator !== undefined
+  ) {
+    return { refusal: 'Only a person can use Kindgi from a chat app.' };
+  }
+  if (
+    resolution.tokenProjectId !== undefined ||
+    resolution.reviewerRole !== undefined ||
+    resolution.lastActiveAt !== undefined
+  ) {
+    return {
+      refusal:
+        "A chat app can't keep this token's limits (one project, a reviewer role or an inactivity timeout).",
+    };
+  }
+  return { userId };
 }
 
 async function askedOf(request: Request): Promise<McpAsked> {
