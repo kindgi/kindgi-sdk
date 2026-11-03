@@ -10,6 +10,8 @@ candidates, and theirs are just below it.
 
 ## Unreleased
 
+## 0.4.0
+
 - `kindgi-models`, `kindgi-client`: **a comparison says why a case's answer wasn't checked.** A case result's `unchecked` is why its `expect` couldn't be graded, such as a version whose model settings name no model to judge with. The summary's `unchecked` (`CorrectedComparisonUnchecked`) counts those cases and lists their reasons, each once, at most five. So a `passRate` with no value says why. Both are optional.
 - `kindgi-models`, `kindgi-client`: **a comparison's `passRate` counts what each case expects.** Each part of a frozen case's graded `expect`, its decisions and its answer, is one check of weight 1 in `passRate`, beside the case's items, and its `n` counts the case. The case's entry in `corrections` has `parts`, whether each part passed on every repetition. So a test set of cases that expect only an answer has a `passRate` instead of `null`. `caseCoverage` and `weightedPrecisionAtK` stay items only.
 - `kindgi-client`: **the corrections export has no method here.** The API's `GET /v1/corrections/export` streams its body (`x-kindgi-streamed`), and this client leaves it out, as it does an outside sender's path. The TypeScript and Python clients have `corrections.export`.
