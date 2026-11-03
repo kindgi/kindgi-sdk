@@ -20,7 +20,7 @@ A flow with that agent as a step waits with it.
 - [Ask before a long conversation continues](ask-after-n-turns/): a gate on
   the number of turns.
 - [Set approval rules for every agent](approval-rules-for-every-agent/): a
-  tenant policy that agents can't loosen.
+  workspace policy that agents can't loosen.
 - [Ask and approve in WordPress](../../sites/wordpress/): a store's
   staff ask the project's agents and decide approvals in wp-admin, each as
   themselves.

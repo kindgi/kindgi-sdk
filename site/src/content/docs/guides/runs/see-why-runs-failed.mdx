@@ -337,7 +337,7 @@ gives it:
 What's counted:
 
 - **`from` and `to`** are when the runs failed, at most 90 days apart.
-- **Replays, the runs an eval run makes, and dry runs** aren't counted. A turn
+- **Replays, the runs a test run makes, and dry runs** aren't counted. A turn
   inside a flow counts under its agent, and the flow's run under the flow.
 - **Failed runs go with their retention,** so a window can hold fewer than
   failed then.
@@ -405,16 +405,21 @@ Each row opens its latest run and its failed runs.
 A failed run's page names its cause in the same words, then the runtime's
 own and the code. A turn a guardrail halted keeps the answer back: "Blocked
 by a guardrail, not sent: the answer the model wrote", with **Show what was
-blocked**. It names the guardrail:
+blocked**. It names the guardrail, and folds the guardrail's reason, since a
+reason can quote what the guardrail blocked, such as a card number:
 
 ```text
 A guardrail blocked the answer.
-Turn blocked by guardrail 'acme.no-secret': output contains forbidden pattern(s): SECRET
+Show why it was blocked
 Guardrail: acme.no-secret
 Code guardrail-violation
 ```
 
-![A halted turn's page: acme.refunds 1.1.0, Failed; "Blocked by a guardrail, not sent: the answer the model wrote" with Show what was blocked; then A guardrail blocked the answer., the runtime's message, Guardrail: acme.no-secret and Code guardrail-violation.](../../../../assets/runs/failures-run-halted.png)
+**Show why it was blocked** opens it: "Turn blocked by guardrail
+'acme.no-secret': output contains forbidden pattern(s): SECRET". A flow
+step's error folds it the same way.
+
+![A halted turn's page: acme.refunds 1.1.0, Failed; "Blocked by a guardrail, not sent: the answer the model wrote" with Show what was blocked and Which guardrail; then A guardrail blocked the answer., Show why it was blocked, Guardrail: acme.no-secret and Code guardrail-violation.](../../../../assets/runs/failures-run-halted.png)
 
 ## Next
 

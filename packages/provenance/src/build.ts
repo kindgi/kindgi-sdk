@@ -14,7 +14,7 @@ import type { KeyProvider, Provenance, ProvenanceEdge, ProvenanceNode } from './
  * `finalize(keyProvider)` produces a signed `Provenance` ready to hand to
  * a `ProvenanceEmitBinding`.
  *
- * Not tenant-scoped internally — the tenantId set at construction is
+ * Not workspace-scoped internally — the tenantId set at construction is
  * embedded in the final record. Not thread-safe; callers hold one builder
  * per run and don't share it across concurrent runs.
  */
@@ -36,7 +36,7 @@ export interface BuilderOptions {
   readonly tenantId: TenantId;
   /** Optional flow the run executed. Recorded on the final Provenance. */
   readonly flowRef?: { readonly id: FlowId; readonly version: string };
-  /** Provenance schema version. Defaults to '1.0.0'. */
+  /** Provenance schema version. Defaults to '1.1.0', which adds the `step` node kind. */
   readonly version?: string;
   /**
    * Override the createdAt timestamp. Rarely useful outside tests where
@@ -55,7 +55,7 @@ export function newBuilder(options: BuilderOptions): ProvenanceBuilder {
       id: options.id,
       runId: options.runId,
       tenantId: options.tenantId,
-      version: options.version ?? '1.0.0',
+      version: options.version ?? '1.1.0',
       createdAt,
       ...(options.flowRef !== undefined && { flowRef: options.flowRef }),
       nodes: [...nodes],

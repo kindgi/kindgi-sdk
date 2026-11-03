@@ -155,3 +155,68 @@ export type EnvError =
       readonly currentRevision: number;
     }
   | { readonly code: 'env-store-error'; readonly message: string; readonly cause?: unknown };
+
+/**
+ * Where env names set to a cloud secret are kept: a name at one scope and
+ * env given to a pack service as a version of a secret its cloud holds
+ * (`projects/<project>/secrets/<secret>/versions/<number>`, checked with
+ * `@kindgi/types`' `parseCloudSecretVersion`). The store keeps that name,
+ * never a value: the cloud reads it, as the pack service's own account.
+ * Only a system key sets one (`PUT /v1/system/tenants/{tenantId}/env/{name}`),
+ * since every pack service reads whatever that account can. A tenant reads
+ * them (`GET /v1/env/cloud-secrets`, without the path), and a pack's env check counts one as
+ * set (`pack-env.ts`). Kept apart from `EnvBinding`, whose entries each
+ * have a value.
+ */
+export interface EnvCloudSecretBinding {
+  /** The one set for a name at a scope and env. `null` when there's none. */
+  get(input: EnvGetInput): Promise<EnvCloudSecretRecord | null>;
+  /** The ones set at a scope and env, in name order, a page at a time. */
+  list(input: EnvCloudSecretListInput): Promise<EnvCloudSecretListPage>;
+  /** Set or change one. Each write bumps `revision`; `ifRevision` guards it. */
+  set(input: EnvCloudSecretSetInput): Promise<EnvCloudSecretSetOutcome>;
+  /** Remove one. `{ deleted: false }` when there's none. */
+  delete(input: EnvDeleteInput): Promise<EnvDeleteOutcome>;
+}
+
+export interface EnvCloudSecretRecord {
+  readonly scope: Scope;
+  readonly envName: EnvName;
+  readonly name: string;
+  /** `projects/<project>/secrets/<secret>/versions/<number>`: a name, never a value. */
+  readonly cloudSecret: string;
+  readonly revision: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  /**
+   * The store's own id for the row, never on the wire. One removed and set
+   * again is a new row, told from the old one as `EnvRecord.recordId` is.
+   */
+  readonly recordId?: string;
+}
+
+export interface EnvCloudSecretListInput {
+  readonly scope: Scope;
+  readonly envName: EnvName;
+  readonly limit: number;
+  readonly cursor?: Cursor;
+}
+
+export interface EnvCloudSecretListPage {
+  readonly data: readonly EnvCloudSecretRecord[];
+  readonly nextCursor?: Cursor;
+}
+
+export interface EnvCloudSecretSetInput {
+  readonly scope: Scope;
+  readonly envName: EnvName;
+  readonly name: string;
+  /** Already checked with `parseCloudSecretVersion`. */
+  readonly cloudSecret: string;
+  readonly ifRevision?: number;
+}
+
+export type EnvCloudSecretSetOutcome =
+  | { readonly kind: 'ok'; readonly record: EnvCloudSecretRecord }
+  | { readonly kind: 'revision-conflict'; readonly currentRevision: number }
+  | { readonly kind: 'error'; readonly code: string; readonly message: string };

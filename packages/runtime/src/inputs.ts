@@ -5,10 +5,12 @@ import type { Principal } from '@kindgi/authz';
 import type { Flow, FlowVersionOverrides } from '@kindgi/flow';
 import type { HandlerRegistry } from '@kindgi/handler';
 import type {
+  AgentPinScope,
   AgentVersionVia,
   ConversationId,
-  LiveScope,
+  FlowVersionVia,
   NodeId,
+  PinScope,
   ProjectId,
   Result,
   RunId,
@@ -26,7 +28,7 @@ import type { RunOptions } from './types.js';
  * Resolver contract for `subgraph` node dispatch. Structurally
  * satisfied by `FlowRegistryBinding.getVersion(...)` in `@kindgi/api`.
  * The runtime invokes the resolver with the PARENT run's tenantId; a
- * flow registered under a different tenant returns `null`, which is
+ * flow registered under a different workspace returns `null`, which is
  * the cross-tenant guarantee (rejection at dispatch with
  * `subgraph-flow-not-found` attribution).
  */
@@ -68,14 +70,16 @@ export interface RunAgentRef {
   readonly conversationId: ConversationId;
   /** Why this version ran (absent on runs from before it was recorded). */
   readonly via?: AgentVersionVia;
-  /** The pin that chose it, when `via` is `live`. */
-  readonly liveScope?: LiveScope;
+  /** The pin that chose it, when `via` is `pinned`. */
+  readonly pinnedScope?: AgentPinScope;
 }
 
-/** Marks a run as a replay: an eval run re-running a past run (`of`). */
+/** Marks a run as a replay: a test run re-running a past run (`of`). */
 export interface RunReplayRef {
   readonly of: RunId;
-  readonly evalRunId: string;
+  readonly testRunId: string;
+  /** The test case the replay ran, by its id in the test set; a test run sets it on each replay. */
+  readonly caseId?: string;
 }
 
 /** Every value of `RunTriggerRef.kind`. */
@@ -91,6 +95,12 @@ export interface RunTriggerRef {
   readonly fireId: string;
   /** A schedule's fire: the occurrence it ran for. */
   readonly scheduledFor?: Timestamp;
+  /**
+   * The trigger's version its fire's start used (`TriggerVersionRecord`),
+   * which the run keeps whatever later edits make. Only the runtime sets
+   * it. Absent on a run from before versions.
+   */
+  readonly version?: number;
 }
 
 /** Every value of `RunStartedBy`. */
@@ -116,14 +126,22 @@ export function runIsAttended(startedBy: RunStartedBy | undefined): boolean {
 /**
  * The mailbox a mail trigger's run started from: the app, and whose
  * connection the trigger reads it with, the company's or the trigger
- * owner's. Recorded with the run and never changed; a child run takes its
- * parent's. In such a run a further read of that mailbox is steered by the
+ * owner's. The run keeps it through the trigger version it started under
+ * (`RunTriggerRef.version`), whatever later edits make; a child run takes
+ * its parent's. In such a run a further read of that mailbox is steered by the
  * mail, so a call with a connection of this app and kind waits for a
  * person's yes, read-only or not (`needsPersonsYesUnattended`).
  */
 export interface RunMailbox {
   readonly app: 'google' | 'microsoft';
   readonly as: 'company' | 'person';
+  /**
+   * The company connection the run's mail was read with: the one its
+   * trigger version names, fixed when the fire starts the run, so a
+   * trigger pointed elsewhere later doesn't move the run. Only with
+   * `as: 'company'`; a run whose trigger version names none carries none.
+   */
+  readonly connectionId?: string;
 }
 
 /**
@@ -256,7 +274,7 @@ function connectionNeedsOf(
 
 /**
  * The idempotency key of a run start: a start with a key a run of the
- * tenant already has starts nothing and answers that run (`existing`), so
+ * workspace already has starts nothing and answers that run (`existing`), so
  * a retried or re-driven start never runs twice. A trigger's fire uses
  * `fire:<fireId>`. Keys are opaque, at most 255 characters.
  */
@@ -281,8 +299,8 @@ export interface RunFlowInput {
   readonly tenantId: TenantId;
   /**
    * Content-scope anchor. REQUIRED — every kernel run is bound to
-   * exactly one project inside the tenant. Callers without a natural
-   * project id resolve to the tenant's Default via
+   * exactly one project inside the workspace. Callers without a natural
+   * project id resolve to the workspace's default via
    * `projectBinding.getDefault(tenantId)` at the caller layer.
    */
   readonly projectId: ProjectId;
@@ -307,7 +325,7 @@ export interface RunFlowInput {
   readonly parent?: ParentRunRef;
   /** The agent this run is a turn of; see `RunAgentRef`. */
   readonly agent?: RunAgentRef;
-  /** Set when an eval run is replaying a past run; see `RunReplayRef`. */
+  /** Set when a test run is replaying a past run; see `RunReplayRef`. */
   readonly replay?: RunReplayRef;
   /**
    * Set when the run doesn't exist yet (no `runId`): start it at most once
@@ -326,14 +344,16 @@ export interface RunFlowInput {
    * The tools, by id, a call of which doesn't wait for a person's yes
    * though no person started the run (`needsPersonsYesUnattended`): the
    * `toolsAllowedUnattended` of the webhook, schedule or mail trigger that
-   * started it, as it was when the run started. Recorded with the run and
-   * never changed; a child run takes its parent's. Absent: none.
+   * started it, as the trigger version it started under has it
+   * (`RunTriggerRef.version`). The run keeps that version whatever later
+   * edits make; a child run takes its parent's. Absent: none.
    */
   readonly toolsAllowedUnattended?: readonly string[];
   /**
    * The mailbox the run's mail came from (`RunMailbox`), on a run a mail
-   * trigger started (`startedBy: 'mail'`). Recorded with the run and never
-   * changed; a child run takes its parent's. Absent on every other run.
+   * trigger started (`startedBy: 'mail'`), as the trigger version it
+   * started under has it, kept the same way as `toolsAllowedUnattended`.
+   * Absent on every other run.
    */
   readonly mailbox?: RunMailbox;
   /**
@@ -350,7 +370,15 @@ export interface RunFlowInput {
    */
   readonly versions?: FlowVersionOverrides;
   /**
-   * The run's segment path (ordered, coarse to fine), which picks live agent
+   * How the caller chose the run's flow version: named (`explicit`), the
+   * version pinned for the run's project (`pinned`, with the pin's scope
+   * in `flowPinnedScope`), or the newest the project reaches (`latest`).
+   * Recorded with the run and never changed. Absent: not recorded.
+   */
+  readonly flowVersionVia?: FlowVersionVia;
+  readonly flowPinnedScope?: PinScope;
+  /**
+   * The run's segment path (ordered, coarse to fine), which picks pinned agent
    * versions; a child run inherits its parent's.
    */
   readonly segments?: readonly ScopeSegment[];
@@ -428,7 +456,7 @@ export interface StartRunParams {
   readonly parent?: ParentRunRef;
   /** The agent this run is a turn of; see `RunAgentRef`. */
   readonly agent?: RunAgentRef;
-  /** Set when an eval run is replaying a past run; see `RunReplayRef`. */
+  /** Set when a test run is replaying a past run; see `RunReplayRef`. */
   readonly replay?: RunReplayRef;
   /** Start it at most once per key; see `RunIdempotencyKey`. */
   readonly idempotencyKey?: RunIdempotencyKey;
@@ -444,6 +472,9 @@ export interface StartRunParams {
   readonly traceId?: string;
   /** The versions the run swaps in over its flow version's pins; see `RunFlowInput.versions`. */
   readonly versions?: FlowVersionOverrides;
+  /** How the run's flow version was chosen; see `RunFlowInput.flowVersionVia`. */
+  readonly flowVersionVia?: FlowVersionVia;
+  readonly flowPinnedScope?: PinScope;
   /** The run's segment path; see `RunFlowInput.segments`. */
   readonly segments?: readonly ScopeSegment[];
   /** Who starts the run; stored with it, see `RunFlowInput.principal`. */

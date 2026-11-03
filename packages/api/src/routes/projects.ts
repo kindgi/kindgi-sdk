@@ -22,8 +22,10 @@ import { callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { isReadMethod } from '../read-method.js';
 import type { ServiceAccountBinding } from '../service-account-binding.js';
 import type { AppEnv } from '../types.js';
+import { deniedBy } from './denied.js';
 import {
   membershipExistsError,
   membershipNotKeptInStepError,
@@ -49,13 +51,15 @@ import { parseAssignableProjectRole } from './project-roles.js';
  *                                          the tenant's projects without one)
  *                                          has a project with that slug, or
  *                                          `project-default-already-exists`
- *                                          for a second Default.
- *   - `GET    /default`                  — returns the tenant's Default
+ *                                          for a second default.
+ *   - `GET    /default`                  — returns the tenant's default
  *                                          project or 404 `project-not-found`;
  *                                          read on it, as `GET /:projectId`.
  *                                          MUST be mounted BEFORE `/:projectId`.
  *   - `GET    /:projectId`               — get; 200 or 404 `project-not-found`.
- *   - `PATCH  /:projectId`               — partial update; 204, 404
+ *   - `PATCH  /:projectId`               — partial update (`name`, `slug`,
+ *                                          `description`, `orgId`,
+ *                                          `sortEndUserCorrections`); 204, 404
  *                                          `project-not-found` or 409
  *                                          `slug-conflict` (a new slug, or a
  *                                          move to an org that has it).
@@ -163,7 +167,7 @@ export function projectsRouter(
         kind: 'refused',
         error: {
           code: 'identity-user-not-found',
-          message: `User "${named.userId as unknown as string}" is not a member of this tenant`,
+          message: `User "${named.userId as unknown as string}" is not a member of this workspace`,
           userId: named.userId as unknown as string,
         },
       };
@@ -185,17 +189,17 @@ export function projectsRouter(
       kind: 'refused',
       error: {
         code: 'identity-user-not-found',
-        message: `No one with email "${named.email}" is a member of this tenant`,
+        message: `No one with email "${named.email}" is a member of this workspace`,
       },
     };
   }
 
   // ---------- GET /default (literal segment; must precede /:projectId) ----------
-  // Read on the Default project, as `GET /:projectId` checks it: someone
+  // Read on the default project, as `GET /:projectId` checks it: someone
   // with a role on another project only gets 403, not its settings.
   if (authorizer !== undefined) {
     r.use('/default', async (c, next) => {
-      if (c.req.method !== 'GET') return next();
+      if (!isReadMethod(c.req.method)) return next();
       const proj = await binding.getDefault(c.get('tenantId') as TenantId);
       // None: the handler answers 404.
       if (proj === undefined) return next();
@@ -213,7 +217,7 @@ export function projectsRouter(
         toWireError(
           {
             code: 'project-not-found',
-            message: 'Tenant has no Default project',
+            message: 'Workspace has no default project',
           },
           requestId,
         ),
@@ -255,6 +259,7 @@ export function projectsRouter(
   //   POST /                                     → admin on tenant
   //   GET /:projectId                            → read on project
   //   PATCH /:projectId                          → admin on project
+  //     and, naming `orgId`, admin on tenant     (the handler checks)
   //   DELETE /:projectId                         → delete on project
   //   GET /:projectId/memberships[/:userId]      → read on project
   //   other /:projectId/memberships[/:userId]    → admin on project
@@ -269,9 +274,9 @@ export function projectsRouter(
     });
     r.use('/:projectId', async (c, next) => {
       const method = c.req.method;
-      if (method !== 'GET' && method !== 'PATCH' && method !== 'DELETE') return next();
+      if (!isReadMethod(method) && method !== 'PATCH' && method !== 'DELETE') return next();
       const projectId = c.req.param('projectId');
-      const action = method === 'GET' ? 'read' : method === 'DELETE' ? 'delete' : 'admin';
+      const action = isReadMethod(method) ? 'read' : method === 'DELETE' ? 'delete' : 'admin';
       const mw = authorizer.authorize(action, () => ref('project', projectId));
       return mw(c, next);
     });
@@ -280,13 +285,13 @@ export function projectsRouter(
     // their own roles through their grants, not the other people here.
     r.use('/:projectId/memberships', async (c, next) => {
       const projectId = c.req.param('projectId');
-      const action = c.req.method === 'GET' ? 'write' : 'admin';
+      const action = isReadMethod(c.req.method) ? 'write' : 'admin';
       const mw = authorizer.authorize(action, () => ref('project', projectId));
       return mw(c, next);
     });
     r.use('/:projectId/memberships/:userId', async (c, next) => {
       const projectId = c.req.param('projectId');
-      const action = c.req.method === 'GET' ? 'write' : 'admin';
+      const action = isReadMethod(c.req.method) ? 'write' : 'admin';
       const mw = authorizer.authorize(action, () => ref('project', projectId));
       return mw(c, next);
     });
@@ -369,10 +374,12 @@ export function projectsRouter(
     if (authorizer !== undefined) {
       const principal = c.get('principal') as Principal | undefined;
       const creatorUserId =
-        principal?.actor.kind === 'user'
-          ? (principal.actor.id as UserId)
-          : ('00000000-0000-0000-0000-000000000000' as UserId);
-      const result = await tenantHierarchy.createProject({ tenantId, creatorUserId, spec });
+        principal?.actor.kind === 'user' ? (principal.actor.id as UserId) : undefined;
+      const result = await tenantHierarchy.createProject({
+        tenantId,
+        ...(creatorUserId !== undefined && { creatorUserId }),
+        spec,
+      });
       if (result.kind === 'err') {
         const error =
           result.error.code === 'slug-conflict'
@@ -738,6 +745,29 @@ export function projectsRouter(
         );
       }
     }
+    if (b.sortEndUserCorrections !== undefined) {
+      if (typeof b.sortEndUserCorrections !== 'boolean') {
+        c.status(statusFor('bad-input') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'bad-input',
+              message: '`sortEndUserCorrections` must be a boolean when present',
+            },
+            requestId,
+          ),
+        );
+      }
+      shaped.sortEndUserCorrections = b.sortEndUserCorrections;
+    }
+    // A move between orgs changes who administers the project, so it
+    // needs what making one in an org needs: admin on the workspace. A
+    // body naming `orgId` asks, even its current one.
+    if ('orgId' in shaped) {
+      const tenant = ref('tenant', tenantId as unknown as string);
+      const refused = await deniedBy(authorizer, c, 'admin', tenant);
+      if (refused !== undefined) return refused;
+    }
     const outcome = await binding.update(tenantId, projectId, shaped);
     if (outcome.kind === 'project-not-found') {
       c.status(statusFor('project-not-found') as never);
@@ -856,6 +886,8 @@ function serializeProject(p: Project): Record<string, unknown> {
     ...(p.productionSince !== undefined && {
       productionSince: p.productionSince as unknown as string,
     }),
+    sortEndUserCorrections: p.sortEndUserCorrections === true,
+    ...(p.repoConnectionId !== undefined && { repoConnectionId: p.repoConnectionId }),
     createdAt: p.createdAt as unknown as string,
     updatedAt: p.updatedAt as unknown as string,
   };

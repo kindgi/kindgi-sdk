@@ -1,12 +1,13 @@
 ---
 title: Use a built-in check
-description: Name one of Kindgi's built-in checks in a guardrail instead of writing your own, and give it the settings it reads.
+description: Name one of Kindgi's built-in checks in a guardrail instead of writing your own, give it the settings it reads, and see where in the turn each one runs.
 sidebar:
   order: 4
 ---
 
 This guide puts one of Kindgi's built-in checks on an agent, instead of a
-check you write, and lists the settings each one reads.
+check you write. It lists the settings each one reads, and where in the turn
+each one runs.
 
 Kindgi has seven built-in checks for common rules: words an answer must or
 mustn't contain, a pattern it must match, citations, and which tools a turn
@@ -79,6 +80,35 @@ Registering such a guardrail answers `422 guardrail-config-invalid`, with each
 problem in `details.issues`. Deploying a pack with one fails with
 `deployment-validation-failed`. If one
 reaches a turn anyway, its check can't run, so with `halt` the turn stops, as
+[When the check can't run](../halt-or-record/#when-the-check-cant-run)
+describes.
+
+## Where each check runs
+
+Every built-in runs at the final answer, and some at other points of the
+turn too. A guardrail that names one can set `at` to any of its points
+([Where in the turn it runs](../configure-a-guardrail/#where-in-the-turn-it-runs)):
+
+| Check | Runs at |
+| --- | --- |
+| `must-cite`, `required-substring` | `'final-answer'` |
+| `never-call-tool`, `max-tool-calls`, `tool-order` | `'before-tool'`, `'final-answer'` |
+| `output-matches`, `forbidden-substring` | `'model-step'`, `'after-tool'`, `'final-answer'` |
+
+- **Before a tool call,** `never-call-tool`, `max-tool-calls` and
+  `tool-order` judge that call against the turn's earlier calls. So with
+  `halt` or `retry`, a call they fail never runs: with `tool-order`, for
+  example, a refund before the order lookup.
+- **`output-matches` and `forbidden-substring`** read the answer at the
+  final answer, the reply's text on a model reply, and the call's result
+  after a tool call. A result that's a string is read as it is, anything
+  else as JSON, and an error as its message. A reply that only asks for
+  tool calls has no text, so it passes `output-matches`.
+
+Deploying or registering a guardrail at a point its built-in doesn't run at
+is refused, with the problem at `/at`. If one reaches a turn anyway, its
+check can't run there: it fails with `check-point-unsupported`, and its
+action handles it as
 [When the check can't run](../halt-or-record/#when-the-check-cant-run)
 describes.
 

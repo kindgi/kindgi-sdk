@@ -6,8 +6,11 @@ package com.kindgi.client.models;
 
 import com.fasterxml.jackson.annotation.JsonAnyGetter;
 import com.fasterxml.jackson.annotation.JsonAnySetter;
+import com.fasterxml.jackson.annotation.JsonAutoDetect;
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -18,11 +21,40 @@ import org.jspecify.annotations.Nullable;
  * @param additionalProperties properties this client doesn't know, kept as they came
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
+@JsonAutoDetect(
+        fieldVisibility = JsonAutoDetect.Visibility.NONE,
+        getterVisibility = JsonAutoDetect.Visibility.NONE,
+        isGetterVisibility = JsonAutoDetect.Visibility.NONE
+)
 public record Flow(@JsonProperty("id") String id,
-        @JsonAnySetter @JsonAnyGetter Map<String, Object> additionalProperties) implements Model {
+        Map<String, Object> additionalProperties) implements Model {
     public Flow {
         id = Checks.required(id, "Flow.id");
         additionalProperties = Checks.extras(additionalProperties);
+    }
+
+    /**
+     * How a reading Jackson builds it: the known properties here, every other one through {@code put}.
+     */
+    @JsonCreator(
+            mode = JsonCreator.Mode.PROPERTIES
+    )
+    private Flow(@JsonProperty("id") String id) {
+        this(id, null);
+    }
+
+    @Override
+    @JsonAnyGetter
+    public Map<String, Object> additionalProperties() {
+        return Collections.unmodifiableMap(additionalProperties);
+    }
+
+    /**
+     * Where a reading Jackson puts each property the record doesn't know.
+     */
+    @JsonAnySetter
+    private void put(String key, @Nullable Object value) {
+        additionalProperties.put(key, value);
     }
 
     @Override

@@ -3,7 +3,10 @@
 
 import type { FlowId, ProvenanceId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
-/** Closed set of node kinds — matches @kindgi/specs/provenance.schema.json. */
+/**
+ * Closed set of node kinds — matches @kindgi/specs/provenance.schema.json.
+ * `step` is one step of a flow run (`flowProvenanceBuilder`).
+ */
 export const NODE_KINDS = [
   'input',
   'prompt',
@@ -20,6 +23,7 @@ export const NODE_KINDS = [
   'memory-write',
   'wait',
   'resume',
+  'step',
 ] as const;
 
 export type NodeKind = (typeof NODE_KINDS)[number];
@@ -123,7 +127,7 @@ export interface KeyMaterial {
  * without the private material.
  */
 export interface KeyProvider {
-  /** Return the key to use for signing for this tenant. */
+  /** Return the key to use for signing for this workspace. */
   signingKey(tenantId: TenantId): KeyMaterial;
   /**
    * Return the key that matches a `keyId` from an existing signature. Used

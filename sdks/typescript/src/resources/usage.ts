@@ -9,7 +9,7 @@ export type UsagePage = UsagePageWire;
 /** One group: the dimensions grouped by, then `count`, `quantity`, `firstAt` and `lastAt`. */
 export type UsageGroup = UsagePageWire['data'][number];
 
-/** What a tenant's own read groups by. */
+/** What a workspace's own read groups by. */
 export type UsageGroupKey = 'project' | 'agent' | 'kind' | 'class' | 'state' | 'day';
 
 /** What to read: a window (`to` excluded, at most 92 days), how to group it, and filters. */

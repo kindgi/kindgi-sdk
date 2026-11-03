@@ -11,11 +11,11 @@ description: >
   "what does Kindgi remember about <customer>", "when does the report run
   next", "is Kindgi healthy", "who has access", "the answers I rated",
   "what did each answer cost". Guiding is read-only: approving, connecting
-  an app, erasing, adding people, making a version live and judging stay
+  an app, erasing, adding people, pinning a version and rating stay
   with the person.
 type: core
 library: "@kindgi/sdk"
-version: "0.1.1"
+version: "0.1.6"
 sdk_version: "0.0.0"
 pack_languages: [node, python, java, scala]
 ---
@@ -47,7 +47,7 @@ clicks, so they can see it for themselves.
    when asked: decide an approval (approve or reject), connect an app to
    their account, erase what Kindgi remembers about someone, add or
    remove people, grant or take away roles, create or revoke API keys,
-   make an agent version live, judge (rate) an answer. Don't run their
+   pin an agent version, correct an answer. Don't run their
    commands either, not even with a check or dry-run flag. Give the
    link and the clicks, then stop: they do it.
 4. **Only through the CLI and the console.** The `kindgi` CLI signs in by
@@ -70,13 +70,13 @@ Build every link from three CLI answers:
 | What | Command | Field |
 |---|---|---|
 | The console | `kindgi console --no-open` | the URL it prints, `<runtime>/console/` |
-| The tenant | `kindgi auth whoami` | `identity.tenantId` |
+| The workspace | `kindgi auth whoami` | `identity.tenantId` |
 | The project | `kindgi projects get-default` (or `kindgi projects list`) | `id` |
 
 A project page is `<console>tenants/<tenantId>/projects/<projectId>/<page>`;
-a tenant page is `<console>tenants/<tenantId>/<page>`. (The console itself
-writes the tenant's short name there; the id opens the same pages.) If the
-console asks the person to sign in first, they sign in and open the link
+a workspace page is `<console>tenants/<tenantId>/<page>`. (The console
+writes the workspace's short name there; the id opens the same pages.) If the
+console asks the person to sign in, they sign in and open the link
 again.
 
 An approval also has a short link, `<console>approvals/<approvalId>`: one
@@ -88,31 +88,32 @@ decided one opens its own page.
 | Page | `<page>` | Shows |
 |---|---|---|
 | Dashboard | *(empty)* | how the project is doing |
-| Agents | `agents`, one: `agents/<agentId>` | the agents, their versions, which one is live |
+| Agents | `agents`, one: `agents/<agentId>`, `…/runs`, `…/corrections` | the agents, their versions, which one is pinned |
 | Runs | `runs` | every answer and flow run, newest first, with its cost |
-| One run | `runs/<runId>`, with tabs `/journal`, `/provenance`, `/cost`, `/judgments` | the message, each tool it called with what it sent, the answer or what stopped it; then every step, what ran with what, what it cost, how it was rated |
+| One run | `agents/<agentId>/runs/<runId>` or `flows/<flowId>/runs/<runId>`, pages `/journal`, `/provenance`, `/cost`, `/corrections`; `runs/<runId>` alone finds either | the message, each tool it called with what it sent, the answer or what stopped it; then every step, what ran with what, what it cost, how it was rated |
 | What failed | `runs/failures` | failed runs, grouped by why |
 | Approvals | `approvals`, one: `approvals/<approvalId>` | what waits for a person's decision |
 | Tools | `tools`, one: `tools/<toolId>` | the tools, what each may do and change |
 | Guardrails | `guardrails`, one: `guardrails/<guardrailId>` | each rule's settings, the agents it checks, what it caught |
-| Flows | `flows`, one: `flows/<flowId>` | the flows and their steps |
+| Flows | `flows`, one: `flows/<flowId>`, `…/runs`, `…/corrections` | the flows and their steps |
 | Schedules | `schedules`, one: `schedules/<triggerId>` | when each runs next, and its past runs |
+| Mail triggers | `mail-triggers`, one: `mail-triggers/<triggerId>` | the mailbox each watches and what it starts; its latest mails, and the run each started |
 | Conversations | `conversations`, one: `conversations/<conversationId>` | each conversation's turns |
 | Cost | `cost` | what the project's model calls cost, by agent, model, flow or kind |
-| Quality | `quality` | answers waiting to be rated, rating rules, trends |
-| Test sets | `test-sets` | the saved cases agents are tested on |
+| Corrections | `corrections` | runs to review, corrections to fix, who corrects, rules, trends |
+| An agent's test set | `agents/<agentId>/test-set` | each correction on its runs as a case, and cases added by hand |
+| Suggested changes | `agents/<agentId>/suggested-changes`, one: `…/suggested-changes/<suggestedChangeId>` | changes to a prompt or settings for one project, each with its check |
+| Pinned versions | `agents/<agentId>/pinned` | where each version is pinned, and the pin history |
 | Evidence | `compliance` | the records kept for audits |
 | Members | `members` | who has a role on this project |
 
 The runs list filters by its URL: `agent=<agentId>`, `status=` one of
 `pending`, `running`, `suspended`, `completed`, `failed`, `cancelled`,
-and `since=` one of `1h`, `1d`, `7d`, `30d`. For example
-`runs?agent=<agentId>&status=completed&since=1d` is every answer that
-agent finished in the last day. The cost page takes `range=` one of `7d`,
-`30d`, `90d`, `12m`, `agent=<agentId>` and `by=` one of `agent`, `model`,
-`flow`, `kind`.
+and `since=` one of `1h`, `1d`, `7d`, `30d`. The cost page takes `range=`
+one of `7d`, `30d`, `90d`, `12m`, `agent=<agentId>` and `by=` one of
+`agent`, `model`, `flow`, `kind`.
 
-### Tenant pages
+### Workspace pages
 
 | Page | `<page>` | Shows |
 |---|---|---|
@@ -129,9 +130,9 @@ agent finished in the last day. The cost page takes `range=` one of `7d`,
 
 When Kindgi erased what it kept about a customer, their runs keep their
 record but not their words: a run with `contentErasedAt` has no message,
-tool calls or answer any more. A rating of such a run keeps its `verdict`
-and loses its `reason`, so a rating of an erased run shows no reason even
-when it had one. Say the words were erased with the customer's data; never
+tool calls or answer any more. A correction of such a run keeps `decisions`
+and `answer` and loses what it said (`why`, `shouldSay`, `shouldCall`,
+`mustNotCall`). Say the words were erased with the customer's data; never
 say there were none.
 
 ## Answering common questions
@@ -140,8 +141,8 @@ say there were none.
 - In the CLI: `kindgi console --no-open`, `kindgi auth whoami` and
   `kindgi projects get-default` give the address and the ids.
 - In the console: the project's dashboard link, then the sections they
-  will use: Runs, Approvals, Tools, Guardrails, Schedules, Cost, and the
-  tenant's People.
+  use: Runs, Approvals, Tools, Guardrails, Schedules, Cost, and the
+  workspace's People.
 
 **"Which tools are there, and what may each do?"**
 - In the CLI: `kindgi tools list`: each tool's `id`, `description`, and
@@ -154,8 +155,8 @@ say there were none.
   `output.appended` holds the turn in order: the agent's `toolCalls` (each
   tool's `name` and `arguments`) and the `tool` messages with what came
   back. Say which records it looked up, and what it found.
-- In the console: `runs/<runId>` shows each tool call and its arguments;
-  the `/journal` tab has every step.
+- In the console: `agents/<agentId>/runs/<runId>` shows each tool call and
+  its arguments; its `/journal` page has every step.
 
 **"Where do I see every answer it finished in the last day?"**
 - In the CLI: `kindgi runs list --agent <agentId> --limit 100`, keeping
@@ -230,8 +231,10 @@ say there were none.
   first, with its `outcome` (`started`, `pending`, `skipped`, `refused` or
   `failed`), a `detail` saying why, and the `runId` it started. A
   `refused` mail never runs: staff handle it in the mailbox.
-- In the console: no page shows mail triggers yet; the run is
-  `runs/<runId>`.
+- In the console: `mail-triggers/<triggerId>` lists its latest mails, up
+  to 50, what happened to each, and the run it started; an older one is
+  in the CLI's `fires`. `runs?trigger=<triggerId>` is every run it
+  started. The run is `runs/<runId>`.
 
 **"Is Kindgi healthy?"**
 - In the CLI: `kindgi health` (`"ok": true` when the server answers) and
@@ -242,16 +245,24 @@ say there were none.
 - In the CLI: `kindgi people list`, and `kindgi people grants <userId>`
   for what each may do; `kindgi service-accounts list`; `kindgi tokens
   list` for the API keys.
-- In the console: the tenant's `people`, `service-accounts` and
+- In the console: the workspace's `people`, `service-accounts` and
   `api-keys`, and a project's `members`.
 
 **"Show me the answers I rated."**
 - In the CLI: `kindgi auth whoami` gives `identity.principal`;
-  `kindgi judgments list` lists ratings, newest first: keep those whose
-  `assertedBy` is that principal (same `kind` and `id`), and say each
-  one's run, `verdict` and `reason`. In `kindgi dev`, the CLI and the
+  `kindgi corrections list` lists ratings, newest first: keep those whose
+  `madeBy` is that principal (same `kind` and `id`), and say each
+  one's run, `answer` and `why`. In `kindgi dev`, the CLI and the
   console's sign-in are the same seed user.
-- In the console: each run's `runs/<runId>/judgments`, and `quality`.
+- In the console: each run's `/corrections` page, and `corrections`.
+
+**"What are people correcting, and what's being fixed?"**
+- In the CLI: `kindgi corrections list --agent=<agentId> --status=not-fixed`
+  (each one's `status`, and its `link` once someone took it), and
+  `kindgi suggested-changes list --agent=<agentId>` (each change's
+  `status`: its check, then pinned or added as Latest).
+- In the console: `corrections` (To fix), and the agent's
+  `agents/<agentId>/corrections` and `…/test-set`.
 
 **"What did each answer cost this week?"**
 - In the CLI: one answer at a time: `kindgi runs get <runId>`, its
@@ -259,16 +270,17 @@ say there were none.
   week's total.
 - In the console: `runs?agent=<agentId>&since=7d` (each run's cost is a
   column), and `cost?range=7d&agent=<agentId>` for the total; one run's
-  breakdown is `runs/<runId>/cost`.
+  breakdown is its `/cost` page.
 
 ## More
 
-- Runs: https://docs.kindgi.com/v0.1/guides/runs/list-runs/ and
-  https://docs.kindgi.com/v0.1/guides/runs/read-the-journal/
-- Approvals: https://docs.kindgi.com/v0.1/guides/approvals/decide-an-approval/
-- Connections: https://docs.kindgi.com/v0.1/guides/connections/use-a-connection/
-- Memory: https://docs.kindgi.com/v0.1/guides/agents/give-an-agent-memory/
-- Schedules: https://docs.kindgi.com/v0.1/guides/runs/run-on-a-schedule/
-- People and keys: https://docs.kindgi.com/v0.1/deploy/people-and-keys/
-- Cost: https://docs.kindgi.com/v0.1/guides/observability/cost-per-run/
-- Rating answers: https://docs.kindgi.com/v0.1/guides/evals/judge-a-runs-output/
+- Runs: https://docs.kindgi.com/v0.4/guides/runs/list-runs/ and
+  https://docs.kindgi.com/v0.4/guides/runs/read-the-journal/
+- Approvals: https://docs.kindgi.com/v0.4/guides/approvals/decide-an-approval/
+- Connections: https://docs.kindgi.com/v0.4/guides/connections/use-a-connection/
+- Memory: https://docs.kindgi.com/v0.4/guides/agents/give-an-agent-memory/
+- Schedules: https://docs.kindgi.com/v0.4/guides/runs/run-on-a-schedule/
+- Mail triggers: https://docs.kindgi.com/v0.4/guides/runs/start-runs-from-new-mail/
+- People and keys: https://docs.kindgi.com/v0.4/deploy/people-and-keys/
+- Cost: https://docs.kindgi.com/v0.4/guides/observability/cost-per-run/
+- Rating answers: https://docs.kindgi.com/v0.4/guides/improve/correct-a-runs-output/

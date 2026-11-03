@@ -6,6 +6,7 @@ package com.kindgi.client.internal;
 import com.kindgi.client.EventStream;
 import com.kindgi.client.KindgiApiException;
 import com.kindgi.client.NetworkException;
+import com.kindgi.client.models.Checks;
 import com.kindgi.client.models.Model;
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -541,7 +542,11 @@ public final class Transport {
     byte[] body = null;
     if (r.json != null) {
       if (r.json instanceof Model) {
-        ((Model) r.json).validate();
+        // The API's constraints, and the values this client knows: one read from a newer runtime
+        // isn't sent back.
+        Checks checks = Checks.sending();
+        ((Model) r.json).validate(checks);
+        checks.throwIfAny(r.json.getClass());
       }
       body = mapper.writeValueAsBytes(r.json);
       headers.put("Content-Type", "application/json");

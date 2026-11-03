@@ -67,7 +67,7 @@ async function erasures(argv: readonly string[]) {
           erasures: {
             create: record('create', { ...ERASURE, status: 'pending', phase: 'seed' }),
             get: record('get', ERASURE),
-            list: record('list', { data: [ERASURE], hasMore: false, items: [ERASURE] }),
+            list: record('list', { data: [ERASURE], hasMore: false }),
             export: record('export', [ENTRY]),
             replay: record('replay', { replayed: [ENTRY.id], restored: [], unmatched: [] }),
             resume: record('resume', { ...ERASURE, forced: true }),

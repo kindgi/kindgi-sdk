@@ -186,9 +186,26 @@ public final class Guardrail<C> {
     }
 
     /**
-     * In 0.1 the runtime acts only on {@code halt}: the turn fails with
-     * {@code guardrail-violation}. Any other action is recorded on the turn's violations and the
-     * turn completes; nothing runs it again, escalates or calls a compensating tool.
+     * What an {@code llm-judge} guardrail's judge model is routed by, as a capability
+     * declaration ({@code Map.of("needs", List.of(Map.of("feature", "structured-output")))}). The
+     * runtime judges with the model it routes to, and the guardrail's {@code config} (its rubric);
+     * an {@code llm-judge} guardrail needs it.
+     *
+     * @param capabilities the judge's capability declaration
+     * @return this
+     */
+    public Builder<C> judgeCapabilities(Map<String, Object> capabilities) {
+      entry.put("judgeCapabilities", Map.copyOf(capabilities));
+      return this;
+    }
+
+    /**
+     * The runtime acts on {@code halt}: the turn fails with {@code guardrail-violation}. It acts
+     * on {@code retry} too: the answer goes back to the model with the check's reason, for a new
+     * one, until the guardrail has failed two answers ({@link #action(Map)} with {@code "retry":
+     * {"maxAttempts": n}} sets another count), and then the turn fails the same way. Any other action is recorded on the
+     * turn's violations and the turn completes; in 0.1 nothing escalates or calls a compensating
+     * tool.
      *
      * @param action what a failing check does: {@code halt}, {@code retry}, {@code escalate},
      *     {@code log-only}, …
@@ -265,12 +282,18 @@ public final class Guardrail<C> {
     /**
      * @param check the check
      * @return the guardrail
-     * @throws IllegalStateException when nothing says what a failing check does, or the check's id
-     *     ({@code checkId}, else the guardrail's) is a built-in check's ({@link Guardrail#RESERVED_CHECK_IDS})
+     * @throws IllegalStateException when nothing says what a failing check does, the check's id
+     *     ({@code checkId}, else the guardrail's) is a built-in check's ({@link Guardrail#RESERVED_CHECK_IDS}),
+     *     or an {@code llm-judge} guardrail names no {@link #judgeCapabilities(Map)}
      */
     public Guardrail<C> check(CheckHandler<C> check) {
       if (!entry.containsKey("action")) {
         throw new IllegalStateException("guardrail " + id + ": say what a failing check does (onViolation or action)");
+      }
+      if ("llm-judge".equals(entry.get("kind")) && !entry.containsKey("judgeCapabilities")) {
+        throw new IllegalStateException("guardrail " + id + " is kind llm-judge with no judgeCapabilities: name what"
+            + " its judge model is routed by (judgeCapabilities(Map.of(\"needs\", List.of(Map.of(\"feature\","
+            + " \"structured-output\")))))");
       }
       String resolved = checkId != null ? checkId : id;
       if (RESERVED_CHECK_IDS.contains(resolved)) {

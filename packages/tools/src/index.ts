@@ -22,6 +22,14 @@ export type {
 import './http.js';
 export { registerToolSpecSynthesizer, getToolSpecSynthesizer } from './spec-registry.js';
 export type { ToolSpecSynthesizer, ToolSpecSynthesizerOptions } from './spec-registry.js';
+export { MAX_STORED_FILES_PER_CALL, MAX_STORED_FILE_BYTES } from './files.js';
+export type {
+  FileNotStoredReason,
+  FileReadAnswer,
+  FileStore,
+  FileStoreAnswer,
+  FileToStore,
+} from './files.js';
 export { invokeTool, invokeToolOrPause, toolOutputIssues } from './invoke.js';
 export {
   DEFAULT_PAUSE_TIMEOUT_MS,
@@ -53,9 +61,15 @@ export {
 } from './connections.js';
 export type {
   ConnectionAccount,
+  ConnectionAccountChoices,
+  ConnectionAccountChoicesInput,
+  ConnectionChoiceOption,
   ConnectionNeed,
+  ConnectionPick,
   ConnectionRejection,
   ConnectionResolver,
+  ConnectionRunMailbox,
+  ConnectionTarget,
   ResolveConnectionsInput,
   ResolveConnectionsOutcome,
   ToolConnection,
@@ -67,7 +81,7 @@ export { TOOL_IDEMPOTENCY_NAMESPACE, toolIdempotencyKey } from './idempotency-ke
 export type { InvokeToolOptions, ToolOutcome } from './invoke.js';
 export { createToolRegistry } from './registry.js';
 export type { ToolRegisterOptions, ToolRegistry, ToolResolution } from './registry.js';
-export { latestVersion, nextVersion, pickVersion } from './versions.js';
+export { highestVersion, nextVersion, pickVersion } from './versions.js';
 export type { VersionPick } from './versions.js';
 export { toManifest, toMcpManifest } from './manifest.js';
 export { changedToolFields, sameToolDefinition, toolDefinition } from './definition.js';

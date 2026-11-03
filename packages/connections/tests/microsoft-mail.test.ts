@@ -579,7 +579,7 @@ describe('microsoftMail.read', () => {
     expect(calls[0]?.url.split('?')[0]).toBe(`${GRAPH}/me/messages/m3`);
     expect(queryOf(calls[0]?.url ?? '')).toEqual({
       $select: FIELDS,
-      $expand: 'attachments($select=name,contentType,size,isInline)',
+      $expand: 'attachments($select=id,name,contentType,size,isInline)',
     });
     expect(calls[0]?.headers.prefer).toBe('outlook.body-content-type="text", IdType="ImmutableId"');
     expect(queryOf(calls[1]?.url ?? '')).toEqual({
@@ -587,7 +587,7 @@ describe('microsoftMail.read', () => {
       $orderby: 'receivedDateTime desc',
       $top: '110',
       $select: FIELDS,
-      $expand: 'attachments($select=name,contentType,size,isInline)',
+      $expand: 'attachments($select=id,name,contentType,size,isInline)',
     });
   });
 

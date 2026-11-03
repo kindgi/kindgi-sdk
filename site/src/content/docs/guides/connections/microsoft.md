@@ -10,9 +10,9 @@ When you finish this page, people in your workspace can connect their
 Microsoft work, school or personal account. A tool, such as the ready-made
 [`outlookSend`](../use-a-connection/#ready-made-tools), can then send mail
 as them, after they approve it, and read their mail. A tenant admin can
-connect the company's mailbox too, such as a shop's support address, for
-the tools and
-[mail triggers](../../runs/start-runs-from-new-mail/) that use it. They
+connect the company's mailboxes too, such as a shop's support and sales
+addresses, for the tools and
+[mail triggers](../../runs/start-runs-from-new-mail/) that use them. They
 connect through an app registered in your organization's Microsoft Entra
 directory, which you register with Kindgi once.
 
@@ -75,7 +75,10 @@ In the [Microsoft Entra admin center](https://entra.microsoft.com):
 3. **API permissions → Add a permission → Microsoft Graph → Delegated
    permissions:** `offline_access`, `User.Read`, and the mail permissions
    your tools need, `Mail.Send` to send mail and `Mail.Read` to read it,
-   and both to reply. Then choose **Add permissions**. Kindgi asks for
+   and both to reply. For the [calendar tools](../calendar/), add
+   `Calendars.ReadBasic` to list events and calendars and for free/busy, and
+   `Calendars.ReadWrite` to add and change them. Then choose **Add
+   permissions**. Kindgi asks for
    `offline_access` to keep access between sign-ins, and for `User.Read` to
    learn whose account it is.
 4. **Certificates & secrets → Client secrets → New client secret.** Pick
@@ -154,12 +157,16 @@ accounts to use.
 The connection shows your Microsoft account, what it allows, and when it
 was last used. Reconnecting later needs the same Microsoft account.
 
-**The company's mailbox** is a tenant admin's to connect. In a project,
+**The company's mailboxes** are a tenant admin's to connect. In a project,
 open **Connections**, choose **Connect an app**, pick Microsoft, and under
 **For** choose **The company**. Then sign in to Microsoft as the mailbox
-itself, such as `support@acme.example`, not as yourself. Tools with
-`as: 'company'` use it, in every project the registration allows
-([The company's mailbox](../../runs/start-runs-from-new-mail/#the-companys-mailbox)).
+itself, such as `support@acme.example`, not as yourself. Connect each
+mailbox the same way, such as `sales@acme.example` as well: each is a
+connection of its own, with its own name. Tools with `as: 'company'` use
+them, in every project the registration allows, and the run or a project
+admin's choice says which one a call uses
+([Choose a connection](../choose-a-connection/),
+[The company's mailboxes](../../runs/start-runs-from-new-mail/#the-companys-mailboxes)).
 A shared mailbox, one people open from their own account, isn't
 supported yet.
 
@@ -232,8 +239,10 @@ mailbox:
   one mailbox
   ([Microsoft: Throttling limits](https://learn.microsoft.com/en-us/graph/throttling-limits)).
 
-The ready-made tools that read mail count only against the second. A call
-whose `toolId` the entry doesn't list takes 1 unit of each, so your own
+The ready-made tools that read mail or a calendar count only against
+the second. A calendar create or update counts against both, as it can
+send meeting requests. A call whose `toolId` the entry doesn't list takes
+1 unit of each, so your own
 tool's calls to Graph through
 [`appFetch`](../use-a-connection/#read-the-token) count as sends too.
 

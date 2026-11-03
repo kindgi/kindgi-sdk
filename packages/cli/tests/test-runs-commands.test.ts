@@ -1,0 +1,479 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+
+import { followTestRun } from '../src/commands/test-runs.js';
+import { runCli } from '../src/main.js';
+
+let home: string;
+let cwd: string;
+beforeEach(async () => {
+  home = await mkdtemp(join(tmpdir(), 'kindgi-cli-home-'));
+  cwd = await mkdtemp(join(tmpdir(), 'kindgi-cli-cwd-'));
+});
+afterEach(async () => {
+  await rm(home, { recursive: true, force: true });
+  await rm(cwd, { recursive: true, force: true });
+});
+
+/** Run the CLI against a stub client that records each call. */
+async function run(argv: readonly string[], client: Record<string, unknown>) {
+  return runCli({
+    argv: [...argv, '--url=https://x', '--token=t'],
+    env: {},
+    cwd,
+    home,
+    clientFactory: () => client as never,
+  });
+}
+
+function recorder() {
+  const calls: [string, ...unknown[]][] = [];
+  const rec =
+    (name: string, result: unknown = { ok: true }) =>
+    async (...args: unknown[]) => {
+      calls.push([name, ...args]);
+      return result;
+    };
+  return { calls, rec };
+}
+
+/** Start `acme.matches` with `extra` flags against a recording client. */
+async function start(extra: readonly string[]) {
+  const { calls, rec } = recorder();
+  const out = await run(['test-runs', 'start', 'acme.matches', '--project=p-1', ...extra], {
+    testRuns: { start: rec('start', { testRunId: 'er-1' }) },
+  });
+  return { out, calls };
+}
+
+describe('kindgi test-runs start', () => {
+  test('an agent with every comparison flag maps to one start call', async () => {
+    const { out, calls } = await start([
+      '--agent=acme.triage',
+      '--agent-version=2.0.0',
+      '--baseline=pinned',
+      '--baseline-project=p-2',
+      '--baseline-segment=tier:gold',
+      '--baseline-segment=region:eu',
+      '--reads=live',
+      '--repetitions=3',
+      '--k=5',
+      '--group-weights=experts-only',
+    ]);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(JSON.parse(out.stdout)).toEqual({ testRunId: 'er-1' });
+    expect(calls).toEqual([
+      [
+        'start',
+        'acme.matches',
+        {
+          agentRef: { agentId: 'acme.triage', version: '2.0.0' },
+          baseline: {
+            pinned: {
+              projectId: 'p-2',
+              // A path, in the order given: coarse to fine.
+              segments: [
+                { key: 'tier', value: 'gold' },
+                { key: 'region', value: 'eu' },
+              ],
+            },
+          },
+          reads: 'live',
+          repetitions: 3,
+          k: 5,
+          groupWeights: 'experts-only',
+        },
+        { projectId: 'p-1' },
+      ],
+    ]);
+  });
+
+  test('--group-weights takes as-recorded or experts-only', async () => {
+    const { out, calls } = await start(['--agent=acme.triage', '--group-weights=some']);
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain(
+      '--group-weights must be one of as-recorded, experts-only, got "some"',
+    );
+    expect(calls).toEqual([]);
+  });
+
+  test('a flow with a version, and only the fields given', async () => {
+    const { out, calls } = await start(['--flow=acme.intake', '--flow-version=1.0.0']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      [
+        'start',
+        'acme.matches',
+        { flowRef: { flowId: 'acme.intake', version: '1.0.0' } },
+        { projectId: 'p-1' },
+      ],
+    ]);
+  });
+
+  test('--with splits each id into the agents and tools of the flow version', async () => {
+    const { calls, rec } = recorder();
+    const flow = {
+      id: 'acme.intake',
+      version: '1.0.0',
+      nodes: [
+        { id: 'look', kind: 'tool', ref: 'acme.lookup' },
+        { id: 'draft', kind: 'agent', ref: 'acme.drafter' },
+        { id: 'check', kind: 'agent', ref: 'acme.checker', config: { version: '0.1.0' } },
+      ],
+      edges: [],
+    };
+    const out = await run(
+      [
+        'test-runs',
+        'start',
+        'acme.matches',
+        '--project=p-1',
+        '--flow=acme.intake',
+        '--flow-version=1.0.0',
+        '--with=acme.drafter@0.2.0',
+        '--with=acme.checker@0.3.0',
+        '--with=acme.lookup@2.0.0',
+      ],
+      {
+        testRuns: { start: rec('start', { testRunId: 'er-1' }) },
+        flows: { versions: { get: rec('getVersion', flow) } },
+      },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['getVersion', 'acme.intake', '1.0.0'],
+      [
+        'start',
+        'acme.matches',
+        {
+          flowRef: { flowId: 'acme.intake', version: '1.0.0' },
+          versions: {
+            agents: { 'acme.drafter': '0.2.0', 'acme.checker': '0.3.0' },
+            tools: { 'acme.lookup': '2.0.0' },
+          },
+        },
+        { projectId: 'p-1' },
+      ],
+    ]);
+  });
+
+  test('errors: --with that the flow does not use, names twice, is malformed, or has no flow version', async () => {
+    const flow = {
+      id: 'acme.intake',
+      version: '1.0.0',
+      nodes: [{ id: 'd', kind: 'agent', ref: 'acme.drafter' }],
+      edges: [],
+    };
+    for (const [flags, message] of [
+      [
+        ['--flow=acme.intake', '--flow-version=1.0.0', '--with=acme.x@1.0.0'],
+        "flow acme.intake 1.0.0 doesn't use acme.x",
+      ],
+      [
+        [
+          '--flow=acme.intake',
+          '--flow-version=1.0.0',
+          '--with=acme.drafter@1.0.0',
+          '--with=acme.drafter@2.0.0',
+        ],
+        '--with names acme.drafter twice',
+      ],
+      [
+        ['--flow=acme.intake', '--flow-version=1.0.0', '--with=acme.drafter'],
+        '--with must be <id>@<version>',
+      ],
+      [
+        ['--flow=acme.intake', '--with=acme.drafter@1.0.0'],
+        '--with needs --flow and --flow-version',
+      ],
+      [
+        ['--agent=acme.agent', '--with=acme.drafter@1.0.0'],
+        '--with needs --flow and --flow-version',
+      ],
+    ] as const) {
+      const { calls, rec } = recorder();
+      const out = await run(['test-runs', 'start', 'acme.matches', '--project=p-1', ...flags], {
+        testRuns: { start: rec('start', { testRunId: 'er-1' }) },
+        flows: { versions: { get: rec('getVersion', flow) } },
+      });
+      expect(out.exitCode).not.toBe(0);
+      expect(out.stderr).toContain(message);
+      expect(calls.filter((c) => c[0] === 'start')).toEqual([]);
+    }
+  });
+
+  test('--baseline=recorded', async () => {
+    const { calls } = await start(['--agent=a', '--baseline=recorded']);
+    expect(calls[0]?.[2]).toEqual({ agentRef: { agentId: 'a' }, baseline: 'recorded' });
+  });
+
+  test('--baseline=<agentId>@<version> splits on the last @', async () => {
+    const { calls } = await start(['--agent=a', '--baseline=acme.triage@1.4.0']);
+    expect(calls[0]?.[2]).toEqual({
+      agentRef: { agentId: 'a' },
+      baseline: { agentId: 'acme.triage', version: '1.4.0' },
+    });
+    const odd = await start(['--agent=a', '--baseline=acme@team.triage@1.4.0']);
+    expect(odd.calls[0]?.[2]).toMatchObject({
+      baseline: { agentId: 'acme@team.triage', version: '1.4.0' },
+    });
+  });
+
+  test('--baseline=pinned alone sends an empty pinned baseline', async () => {
+    const { calls } = await start(['--agent=a', '--baseline=pinned']);
+    expect(calls[0]?.[2]).toEqual({ agentRef: { agentId: 'a' }, baseline: { pinned: {} } });
+  });
+
+  test('--dry-run passes dryRun: true', async () => {
+    const { calls } = await start(['--agent=a', '--dry-run']);
+    expect(calls[0]?.[2]).toEqual({ agentRef: { agentId: 'a' }, dryRun: true });
+  });
+
+  test('errors: no project', async () => {
+    const out = await run(['test-runs', 'start', 'acme.matches', '--agent=a'], { testRuns: {} });
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain('--project=<id> is required');
+  });
+
+  test('errors: both or neither of agent and flow', async () => {
+    for (const extra of [['--agent=a', '--flow=f'], []]) {
+      const { out, calls } = await start(extra);
+      expect(out.exitCode).toBe(2);
+      expect(out.stderr).toContain('Give exactly one of --agent=<id> or --flow=<id>');
+      expect(calls).toEqual([]);
+    }
+  });
+
+  test('errors: a version without its agent or flow', async () => {
+    const out = await start(['--flow=f', '--agent-version=1.0.0']);
+    expect(out.out.stderr).toContain('--agent-version needs --agent');
+  });
+
+  test('errors: a bad --reads', async () => {
+    const { out } = await start(['--agent=a', '--reads=maybe']);
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain('--reads must be one of recorded, live');
+  });
+
+  test('errors: --baseline-segment or --baseline-project without --baseline=pinned', async () => {
+    for (const extra of [
+      ['--baseline-segment=region:eu'],
+      ['--baseline=recorded', '--baseline-segment=region:eu'],
+      ['--baseline-project=p-2'],
+    ]) {
+      const { out, calls } = await start(['--agent=a', ...extra]);
+      expect(out.exitCode).toBe(2);
+      expect(out.stderr).toContain('need --baseline=pinned');
+      expect(calls).toEqual([]);
+    }
+  });
+
+  test('errors: a malformed segment, or a segment without --baseline-project', async () => {
+    for (const bad of ['region', 'region:', ':eu']) {
+      const { out } = await start([
+        '--agent=a',
+        '--baseline=pinned',
+        '--baseline-project=p-2',
+        `--baseline-segment=${bad}`,
+      ]);
+      expect(out.exitCode).toBe(2);
+      expect(out.stderr).toContain('--baseline-segment must be key:value');
+    }
+    const { out, calls } = await start([
+      '--agent=a',
+      '--baseline=pinned',
+      '--baseline-segment=tier:gold',
+    ]);
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain(
+      '--baseline-segment is a segment path in a project: it needs --baseline-project',
+    );
+    expect(calls).toEqual([]);
+  });
+
+  test('errors: a malformed --baseline', async () => {
+    for (const bad of ['acme.triage', 'acme.triage@', '@1.0.0']) {
+      const { out } = await start(['--agent=a', `--baseline=${bad}`]);
+      expect(out.exitCode).toBe(2);
+      expect(out.stderr).toContain('--baseline must be recorded, pinned or <agentId>@<version>');
+    }
+  });
+});
+
+describe('kindgi test-runs start --wait', () => {
+  test('reads the run after starting it, and prints it once it is done', async () => {
+    // One real pause (1 s) before the first read; followTestRun's own tests
+    // cover the polling with no real time passing.
+    const { calls, rec } = recorder();
+    const out = await run(
+      ['test-runs', 'start', 'acme.matches', '--project=p-1', '--agent=a', '--wait'],
+      {
+        testRuns: {
+          start: rec('start', { testRunId: 'er-1' }),
+          get: async (id: string) => {
+            calls.push(['get', id]);
+            return { id, status: 'completed' };
+          },
+        },
+      },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(JSON.parse(out.stdout)).toEqual({ id: 'er-1', status: 'completed' });
+    expect(calls.map((c) => c[0])).toEqual(['start', 'get']);
+  });
+
+  test.each(['failed', 'cancelled'])(
+    'a run that ends %s is printed, and the answer is no: exit 3',
+    async (status) => {
+      const { rec } = recorder();
+      const out = await run(
+        ['test-runs', 'start', 'acme.matches', '--project=p-1', '--agent=a', '--wait'],
+        {
+          testRuns: {
+            start: rec('start', { testRunId: 'er-1' }),
+            get: async (id: string) => ({ id, status }),
+          },
+        },
+      );
+      expect(out.exitCode).toBe(3);
+      expect(JSON.parse(out.stdout)).toEqual({ id: 'er-1', status });
+    },
+  );
+
+  test('without --wait, a started run exits 0 whatever comes of it', async () => {
+    const { rec } = recorder();
+    const out = await run(['test-runs', 'start', 'acme.matches', '--project=p-1', '--agent=a'], {
+      testRuns: { start: rec('start', { testRunId: 'er-1', status: 'pending' }) },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(JSON.parse(out.stdout)).toEqual({ testRunId: 'er-1', status: 'pending' });
+  });
+});
+
+describe('kindgi test-runs rescore --wait', () => {
+  test('a rescore that fails is printed: exit 3', async () => {
+    const { rec } = recorder();
+    const out = await run(['test-runs', 'rescore', 'er-1', '--wait'], {
+      testRuns: {
+        rescore: rec('rescore', { testRunId: 'er-2' }),
+        get: async (id: string) => ({ id, status: 'failed' }),
+      },
+    });
+    expect(out.exitCode).toBe(3);
+    expect(JSON.parse(out.stdout)).toEqual({ id: 'er-2', status: 'failed' });
+  });
+});
+
+describe('kindgi test-runs rescore', () => {
+  test('rescores a run; --project only when given; --wait reads it until done', async () => {
+    const { calls, rec } = recorder();
+    const plain = await run(['test-runs', 'rescore', 'er-1'], {
+      testRuns: { rescore: rec('rescore', { testRunId: 'er-2' }) },
+    });
+    expect(plain.exitCode, plain.stderr).toBe(0);
+    expect(JSON.parse(plain.stdout)).toEqual({ testRunId: 'er-2' });
+    const withProject = await run(['test-runs', 'rescore', 'er-1', '--project=p-1'], {
+      testRuns: { rescore: rec('rescore', { testRunId: 'er-3' }) },
+    });
+    expect(withProject.exitCode, withProject.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['rescore', 'er-1', undefined],
+      ['rescore', 'er-1', { projectId: 'p-1' }],
+    ]);
+    const waited = await run(['test-runs', 'rescore', 'er-1', '--wait'], {
+      testRuns: {
+        rescore: rec('rescore', { testRunId: 'er-4' }),
+        get: async (id: string) => ({ id, status: 'completed' }),
+      },
+    });
+    expect(waited.exitCode, waited.stderr).toBe(0);
+    expect(JSON.parse(waited.stdout)).toEqual({ id: 'er-4', status: 'completed' });
+  });
+
+  test('errors: no run id', async () => {
+    const out = await run(['test-runs', 'rescore'], { testRuns: {} });
+    expect(out.exitCode).toBe(2);
+  });
+});
+
+describe('followTestRun', () => {
+  test('reads after each pause until the run leaves pending and running', async () => {
+    const slept: number[] = [];
+    const statuses = ['pending', 'running', 'failed'];
+    const run = await followTestRun('er-1', {
+      get: async () => ({ status: statuses.shift() ?? 'failed' }),
+      sleep: async (ms) => {
+        slept.push(ms);
+      },
+    });
+    expect(run).toEqual({ status: 'failed' });
+    expect(slept).toEqual([1_000, 1_000, 1_000]);
+  });
+
+  test('gives up after the longest wait, naming the command that shows the run', async () => {
+    await expect(
+      followTestRun('er-1', {
+        get: async () => ({ status: 'running' }),
+        sleep: async () => {},
+        maxMs: 30 * 60 * 1_000,
+      }),
+    ).rejects.toThrow('Still running after 30 minutes: kindgi test-runs show er-1');
+  });
+});
+
+describe('kindgi test-runs show / list / cancel', () => {
+  test('show gets the run', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(['test-runs', 'show', 'er-1'], { testRuns: { get: rec('get') } });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['get', 'er-1']]);
+  });
+
+  test('list narrows by test set, status and agent', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      [
+        'test-runs',
+        'list',
+        '--test-set=acme.matches',
+        '--status=completed',
+        '--agent=acme.triage',
+        '--limit=5',
+        '--cursor=c1',
+      ],
+      { testRuns: { list: rec('list', { data: [], hasMore: false }) } },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      [
+        'list',
+        {
+          testSetId: 'acme.matches',
+          status: 'completed',
+          agentId: 'acme.triage',
+          limit: 5,
+          cursor: 'c1',
+        },
+      ],
+    ]);
+  });
+
+  test('list rejects an unknown status', async () => {
+    const out = await run(['test-runs', 'list', '--status=bogus'], { testRuns: {} });
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain('--status must be one of');
+  });
+
+  test('cancel cancels the run', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(['test-runs', 'cancel', 'er-1'], { testRuns: { cancel: rec('cancel') } });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['cancel', 'er-1']]);
+  });
+});

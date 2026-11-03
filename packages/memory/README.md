@@ -4,14 +4,14 @@ Type contract for Kindgi memory: typed, versioned facts, the hash-chained run lo
 
 ## Purpose
 
-Give agent code, tools, and storage backends one shared vocabulary for memory, so that code that reads facts (for example the retrieval step in [`@kindgi/agents`](../agents/)) depends only on an interface and never on a database client. Every operation is tenant-scoped: callers pass `tenantId` on each call, and the binding implementation enforces isolation.
+Give agent code, tools, and storage backends one shared vocabulary for memory, so that code that reads facts (for example the retrieval step in [`@kindgi/agents`](../agents/)) depends only on an interface and never on a database client. Every operation is workspace-scoped: callers pass `tenantId` on each call, and the binding implementation enforces isolation.
 
 ## Exports
 
 - **Facts**
   - **`Fact<TContent>`** — a typed, versioned record: `id`, `type`, `scope`, `version` (monotonic within `(scope, id)`), `createdAt`, and optional `updatedAt`, `content`, `contentRef` (`blob://<provider>/<bucket>/<key>` for payloads stored externally), `contentHash`, `size`, `embeddingModel`, `retention`, `source`, `causedByLogId`, `supersedes`. A fact without `source` is immutable output ("Kind A"); a fact with `source` is a cached view of external state ("Kind B").
   - **`MemoryScope`** — where a fact or log entry lives: `tenantId` plus optional `userId`, `orgId`, `projectId`, `threadId`, `sessionId`.
-  - **`Retention`** — fact-level override of the tenant's retention defaults: `keepUntil`, `keepDays`, `legalHold`.
+  - **`Retention`** — fact-level override of the workspace's retention defaults: `keepUntil`, `keepDays`, `legalHold`.
   - **`Source`**, **`SourceFreshness`**, **`SourceRefresh`** — external-source metadata for Kind B facts: the source `kind` (`http-api`, `blob`, `mcp-tool`, `external-db`, `user-input`) and `uri`, freshness data (`ttlSeconds`, `lastVerifiedAt`, `etag`, `sourceVersion`), and the refresh `strategy` (`on-read`, `background`, `manual`) with an optional registered `handler` id.
 - **Log**
   - **`LogEntry`** — one immutable entry in a run's append-only log, ordered by `sequence` within `(tenantId, runId)`. Each entry stores `prevHash` and `entryHash`, so changing an earlier entry breaks every later link in the chain.

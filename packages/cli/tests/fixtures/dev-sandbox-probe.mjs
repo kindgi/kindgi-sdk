@@ -48,6 +48,8 @@ const service = createPackServiceReal({
   sandbox,
   onLog: () => undefined,
   onEvent: () => undefined,
+  // The probe pins nothing in the console, so no block is written.
+  blocks: { pattern: 'blocks/**/*.json', onWritten: () => undefined },
 });
 try {
   const { url } = await service.listen();

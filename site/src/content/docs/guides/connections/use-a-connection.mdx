@@ -30,13 +30,30 @@ pack can include instead of writing its own:
 - **`gmailSend`, `gmailMessagesList`, `gmailMessageGet` and `gmailReply`,**
   from `@kindgi/connections/google/tools`, send a plain-text mail from the
   Gmail account of the person the run acts as, list its messages, newest
-  first or by a search, read one, and answer one in its thread. The two
-  reads need only `gmail.readonly`, and a reply needs `gmail.send` and
+  first or by a search, read one, and answer one in its thread. The reads
+  need only `gmail.readonly`, and a reply needs `gmail.send` and
   `gmail.readonly`.
 - **`outlookSend`, `outlookMessagesList`, `outlookMessageGet` and
   `outlookReply`,** from `@kindgi/connections/microsoft/tools`, do the same
   in the Outlook mailbox of the person the run acts as. A reply needs
   `Mail.Send` and `Mail.Read`.
+- **`gmailAttachmentGet` and `outlookAttachmentGet`,** from the same
+  entries, store one of a mail's attachments as a file the run owns, by the
+  message's id and the attachment's number in its list (1 for the first),
+  and the agent is shown it: a JPEG, PNG or WebP image (at most 5 MB), a
+  PDF (at most 10 MB), or a text, Markdown or CSV file (at most 1 MB). An
+  image or a PDF is shown to an agent that needs `vision`. Any other
+  attachment answers `notShown`, with its name and why. They read with
+  `gmail.readonly` and `Mail.Read`, as the reads do, and change nothing in
+  the mailbox.
+- **`googleCalendarCalendarsList`, `googleCalendarEventsList`,
+  `googleCalendarFreeBusy`, `googleCalendarEventCreate` and
+  `googleCalendarEventUpdate`,** from `@kindgi/connections/google/tools`,
+  and the five `outlookCalendar…` tools, from
+  `@kindgi/connections/microsoft/tools`, list the calendars of the person
+  the run acts as, list the events on them, say when they're busy, and add
+  or change an event on the main one, inviting the people it names
+  ([Calendars](../calendar/)).
 - **`githubIssuesList`, `githubLabelsList` and `githubIssuesAddLabels`,**
   from `@kindgi/connections/github/tools`, list a repository's issues and
   its labels, and add labels it already has to an issue, through your
@@ -55,15 +72,15 @@ import { gmailSend } from '@kindgi/connections/google/tools';
 export default gmailSend({ id: 'acme.gmail.send' });
 ```
 
-There's no default id: a tool id is your tenant's, filed under the first
+There's no default id: a tool id is your workspace's, filed under the first
 project that publishes it, so each pack picks one under its own name. An
 agent lists the tool by that id, as `{ id: 'acme.gmail.send', version:
 '^1.0.0' }`, and its approval settings name it the same way.
 
-- **The mail tools take `as: 'company'`** to use the company's mailbox
-  instead of the person's own, such as a shop's support address. A tenant
-  admin connects it by signing in as that mailbox
-  ([The company's mailbox](../../runs/start-runs-from-new-mail/#the-companys-mailbox)).
+- **The mail tools take `as: 'company'`** to use one of the company's
+  mailboxes instead of the person's own, such as a shop's support address.
+  A tenant admin connects each by signing in as that mailbox
+  ([The company's mailboxes](../../runs/start-runs-from-new-mail/#the-companys-mailboxes)).
   `as` is part of what a tool declares, so a tool id you've published keeps
   its `as`: give the company's mailbox its own id, as in
   `gmailMessagesList({ id: 'acme.store-mail.list', as: 'company' })`.
@@ -142,7 +159,8 @@ needs_spec={
   - `'person'`: the connection of the person the run acts as. That's whoever
     started the run, or the owner of the schedule or webhook that started
     it.
-  - `'company'`: the company's connection for the project.
+  - `'company'`: one of the company's connections the project can use
+    ([Which connection a call uses](../choose-a-connection/#which-connection-a-call-uses)).
 
 ## Read the token
 
@@ -218,6 +236,11 @@ def send_mail(message: Message, ctx: ToolContext) -> Sent:
   shortly before it expires, and each call gets the one that's current.
 - **`account`** is whose account it is: its `label` is what people see,
   such as `ana@acme.com`, and its `id` is its stable id at the app.
+- **`name`** (runtime 0.5.0 or later) is the connection's name: the one
+  it was given, else its account's `label`
+  ([Name a connection](../choose-a-connection/#name-a-connection)). From
+  an older runtime it's absent in TypeScript, `None` in Python and `null`
+  in Java and Scala.
 - **In TypeScript, `ctx.connections` is optional in the type,** because a
   unit test builds its own context ([Test it](#test-it)). In Python, Java
   and Scala, it's a map, empty when the tool declares none. In a call the
@@ -356,11 +379,11 @@ ctx = ToolContext.for_test(
 
 ```java excerpt
 ToolContext ctx = ToolContext.forTest(Map.of("mail", new ToolConnection("c-1", "google", "Google",
-    "test-token", new ConnectionAccount("g-1", "ana@acme.com"), null)));
+    "test-token", new ConnectionAccount("g-1", "ana@acme.com"), null, null)));
 ```
 
-The last argument is when the token expires, which a test can leave
-`null`.
+The last two arguments are the connection's name and when the token
+expires, which a test can leave `null`.
 
 </TabItem>
 <TabItem label="Scala">
@@ -370,11 +393,11 @@ import com.kindgi.pack.{ConnectionAccount, ToolConnection, ToolContext}
 import java.util.Map as JMap
 
 val ctx = ToolContext.forTest(JMap.of("mail", new ToolConnection("c-1", "google", "Google",
-  "test-token", new ConnectionAccount("g-1", "ana@acme.com"), null)))
+  "test-token", new ConnectionAccount("g-1", "ana@acme.com"), null, null)))
 ```
 
-The last argument is when the token expires, which a test can leave
-`null`.
+The last two arguments are the connection's name and when the token
+expires, which a test can leave `null`.
 
 </TabItem>
 </Tabs>
@@ -384,7 +407,10 @@ The last argument is when the token expires, which a test can leave
 Kindgi picks the connection from the run, never from the model or the
 input:
 
-- **`as: 'person'`** uses the connection of the person the run acts as:
+- **`as: 'person'`** uses the connection of the person the run acts as,
+  their main one when they have several of the app, unless a choice of
+  theirs names another
+  ([A person's accounts](../choose-a-connection/#a-persons-accounts)):
   - in a run you start, from the console, the CLI, or your own API key:
     yours;
   - in a run of a schedule or a webhook: its owner's. A schedule or webhook
@@ -393,8 +419,10 @@ input:
   - in a run a service account started, an event's run, or a run of a
     schedule or webhook a service account owns: none. The call fails with
     `connection-needs-a-person`.
-- **`as: 'company'`** uses the company's connection, in any run in a
-  project the registration allows.
+- **`as: 'company'`** uses one of the company's connections, in any run in
+  a project the registration allows: the one the run's mail came to, else
+  the agent's or flow's choice, else the only one
+  ([Which connection a call uses](../choose-a-connection/#which-connection-a-call-uses)).
 
 ## When the connection is missing
 
@@ -412,6 +440,11 @@ input:
   connects it.
 - **A flow's tool step can't wait,** so it fails with `connection-missing`
   the same way.
+- **Several of the company's connections of the app, and no choice,** fail
+  the run with `connection-not-chosen`, naming them. So do several of a
+  person's, with none of them main and no choice of theirs, counted and
+  not named
+  ([When none is chosen](../choose-a-connection/#when-none-is-chosen)).
 
 An agent's call stopped this way runs nothing. The run records
 `tool.failed` with the code, and the model reads that as the call's result
@@ -430,7 +463,8 @@ your app, `runs.get` answers it under `waitingFor.connections`
 ## Approvals
 
 A call that uses a connection is approved as any other call is, and the
-approval shows the account it acts as.
+approval says whose connection it acts with: the company's by its account,
+a person's as "this person's Google account".
 
 - **In a run you started,** the agent's own approval settings decide
   ([Ask before a tool runs](../../approvals/ask-before-a-tool-runs/)).
@@ -451,11 +485,11 @@ reviewer seat at the approval's rank
 ([The Reviewers page](../../approvals/approvals-reference/#the-reviewers-page)).
 Without one, the call fails at once with
 `connection-approver-not-a-reviewer`, rather than waiting for nobody. A
-workspace admin sees such an approval but can't decide it
+tenant admin sees such an approval but can't decide it
 (`named-approver-required`). It never escalates: if that person doesn't
 decide by its deadline, it expires.
-The approval names them as its `approver`, and the account as its
-`connection`
+The approval names them as its `approver`, and its `connection` says
+it's a person's, without the account
 ([An approval's fields](../../approvals/approvals-reference/#an-approvals-fields)).
 With reviewer email on, only they're emailed about it
 ([Reviewer email](../../approvals/decide-an-approval/#reviewer-email)).

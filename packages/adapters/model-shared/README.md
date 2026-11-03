@@ -32,7 +32,11 @@ Today's engine for sending the requests is the [AI SDK](https://ai-sdk.dev)'s pr
   - When the trail's text no longer matches the answer's (a caller trimmed or redacted it), the trail's text goes back alone, where the first text part was, without the state that was about other words.
 - **Tool names:** `.` → `__` on send and back on receive, since vendors refuse dots. The system prompt names them as sent.
 - **Usage onto Kindgi's counters:** prompt (cache reads and writes included), completion, cache read and write, and reasoning tokens. The adapter's own cost formula prices them, and `rawUsage` is the vendor's usage as sent.
-- **Settings a model refuses are dropped, with a warning:** a temperature on a model registered `sampling: false` gives `sampling-unsupported`, never a 400. Lowest thinking is the engine's portable reasoning level.
+- **Settings a model refuses are dropped, with a warning:** a temperature on a model registered `sampling: false` gives `sampling-unsupported`, never a 400.
+- **How much it thinks** goes as the AI SDK's portable `reasoning`. A call's `thinking`, or the model's `metadata.models[].thinking.default` when the call asks none, goes by its own name; `lowest` goes as the model's `thinking.lowest` (`disabled` as `none`, `between_tools` as `low`). A level the model doesn't take is rounded to one it does, with a `thinking-level-adjusted` warning, and a model with no `thinking` is sent none, with `thinking-unsupported`.
+  - The result's `thinking` says the level and the value handed over (`{ reasoning: 'low' }`).
+  - When the AI SDK maps it to another effort for the vendor, its own `sdk-compatibility` warning says so.
+  - When the AI SDK drops it (an `unsupported` warning on `reasoning` or `reasoningEffort`), the result reports no level, and a `thinking-unsupported` warning says the call sent none.
 - **`traceparent`** is sent as a header only when the call has one.
 - **For audit:** the served model (`servedModel`) and the vendor's request id (`providerRequestId`).
 

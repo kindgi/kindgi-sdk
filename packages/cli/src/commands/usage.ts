@@ -98,7 +98,7 @@ export const usageCommand: LeafCommand = {
   kind: 'leaf',
   name: 'usage',
   description:
-    "Your tenant's usage, aggregated, over the projects you may read: a month's (or a window's) counts and sums by project, agent, kind, class, state or day.",
+    "Your workspace's usage, aggregated, over the projects you may read: a month's (or a window's) counts and sums by project, agent, kind, class, state or day.",
   usage:
     'kindgi usage [--month=<YYYY-MM> | --from=<time> --to=<time>] [--project=<id>] [--group-by=<keys>] [--kind=<kinds>] [--class=<classes>] [--state=<states>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {

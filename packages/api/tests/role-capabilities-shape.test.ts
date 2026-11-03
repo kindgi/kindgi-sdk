@@ -38,7 +38,7 @@ const PROJECT_SCOPED = [
   'flow',
   'tool',
   'guardrail',
-  'eval_suite',
+  'test_set',
   'trigger',
   'conversation',
   'secret',

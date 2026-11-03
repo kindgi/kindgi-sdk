@@ -4,7 +4,7 @@
 import type { ProjectId, TenantId } from '@kindgi/types';
 
 /** The kinds of item an environment order carries from project to project. */
-export type OrderItemKind = 'agent' | 'flow' | 'eval_suite' | 'tool' | 'guardrail' | 'block';
+export type OrderItemKind = 'agent' | 'flow' | 'test_set' | 'tool' | 'guardrail' | 'block';
 
 export interface ItemProjectsInput {
   readonly tenantId: TenantId;
@@ -75,7 +75,7 @@ export interface NewestVisibleOfManyInput {
  * Where a version can run, by kind:
  * - an agent or a flow version: the project it was made in, and each
  *   project with a deployment that ships it and isn't retired;
- * - an eval suite version: the project it was made in, and every later
+ * - a test set version: the project it was made in, and every later
  *   environment of that project's order;
  * - a tool, guardrail or block, which agents pin: every project of the
  *   order of the project that owns it, and each version's own project.
@@ -117,7 +117,7 @@ export interface ItemProjectsBinding {
   versionProjectsOf(input: VersionProjectsInput): Promise<readonly ProjectId[] | undefined>;
   /**
    * `versionProjectsOf` for some of one item's versions (a page of its
-   * versions, its live entries, its promotions), in one query. A version
+   * versions, its pinned entries, its pin history), in one query. A version
    * missing from the map is no version of the item.
    */
   versionProjectsOfMany(

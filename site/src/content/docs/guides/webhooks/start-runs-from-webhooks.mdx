@@ -289,7 +289,7 @@ preset, where to paste them. With the WooCommerce preset, the secret left out:
   `--secret`. To use a secret you already stored with
   [`kindgi secrets set`](../../secrets/), leave out `--generate-secret`. The
   trigger records where the secret is (`hmacSecretScope`): the first of its
-  project, that project's org and the tenant that has it, among the scopes
+  project, that project's org and the workspace that has it, among the scopes
   you administer. The receiver reads it there only, so store the secret
   before you register the trigger. To move it, name the secret again:
   `kindgi webhooks update <trigger-id> --secret=<name>`. A model provider's
@@ -300,7 +300,7 @@ preset, where to paste them. With the WooCommerce preset, the secret left out:
   it's set. The URL isn't a secret: the signature is what each request is
   checked by.
 - **`--project=<id>`** puts the trigger and its runs in a project (by default,
-  the tenant's Default project). Registering needs `write` on the project and
+  the workspace's default project). Registering needs `write` on the project and
   `execute` on the flow.
 - **`--run-as=project`** makes the trigger shared: its runs act as the
   project's own service account, made when a trigger is first set to run
@@ -323,7 +323,7 @@ preset, where to paste them. With the WooCommerce preset, the secret left out:
   has the steps). Naming it needs `act_as` on it, which tenant admins hold.
   Anyone else is answered `403 permission-denied`, "You can't name that
   service account as the trigger's owner.", whether or not the account
-  exists. A tenant admin is told when no service account in the tenant has
+  exists. A tenant admin is told when no service account in the workspace has
   that id (`404 service-account-not-found`), it was unregistered (`409
   service-account-unregistered`), or it's a project's own account (`409
   service-account-project-owned`). With an authorization store, the account
@@ -546,9 +546,10 @@ A run an event trigger starts reads the same, with `startedBy: "event"`.
   resuming doesn't bring them back.
 - **`kindgi webhooks update <trigger-id>`** changes the flow version with
   `--flow-version`, which needs `execute` on the flow. It also changes the
-  secret with `--secret`, the scheme, the delivery-id header, the limits and
-  the tools allowed unattended (`--allow-unattended`, which replaces the
-  list, or `none` to clear it).
+  secret with `--secret`, the scheme, the delivery-id header, the limits,
+  the label (`--label`, or `--clear-label` to take it off) and the tools
+  allowed unattended (`--allow-unattended`, which replaces the list, or
+  `none` to clear it).
   A delivery-id header of `none` stops deduping. The flow itself stays:
   register another trigger for another flow. To rotate the secret's value, use `kindgi secrets rotate`, then paste
   the new value into the sender. Deliveries in between are refused (`401`),
@@ -561,7 +562,7 @@ A run an event trigger starts reads the same, with `startedBy: "event"`.
 - **`kindgi webhooks take-ownership <trigger-id>`:** for a trigger whose owner
   left, or to make a trigger shared or yours
   ([Shared or personal](#shared-or-personal)). Once its owner is removed
-  from the tenant, or the service account it runs as is unregistered, its
+  from the workspace, or the service account it runs as is unregistered, its
   deliveries are refused (runtime 0.1.9 or later).
   After 5 deliveries in a row whose run was refused or failed to start, a
   trigger pauses itself, with the reason in its `statusReason`. A run refused
@@ -585,6 +586,64 @@ A run an event trigger starts reads the same, with `startedBy: "event"`.
 From your app, the clients have the same calls on `webhooks`: `register`,
 `list`, `get`, `update`, `pause`, `resume`, `fires`, `takeOwnership` and
 `unregister`. The receive URL itself is the sender's: no Kindgi client calls
+it.
+
+## Its versions
+
+Each change to a trigger makes a **version** of it, which never changes
+after (runtime 0.3.0 or later). Registering it makes version 1. An `update`
+that changes something makes the next, and so does a take-over to another
+owner. An `update` that changes nothing makes none, nor do pausing,
+resuming or removing it. A trigger from before versions has none until its
+next change or its first delivery.
+
+A delivery's run uses the newest version when it starts, and keeps it
+whatever later changes make: the run's `trigger.version` names it. So a
+change or a take-over reaches the next run that starts, never a run already
+going.
+
+From your app, newest first:
+
+- `GET /v1/webhooks/{triggerId}/versions` pages them (`webhooks.versions`
+  in TypeScript, `list_versions` in Python);
+- `GET /v1/webhooks/{triggerId}/versions/{version}` reads one
+  (`getVersion`, `get_version`). A version the trigger doesn't have is
+  `404 trigger-version-not-found`.
+
+From the CLI:
+
+```sh
+pnpm exec kindgi webhooks versions <trigger-id> --table
+pnpm exec kindgi webhooks get <trigger-id> <version>
+```
+
+- `versions` pages them, with `--limit` and `--cursor`. Its table shows
+  each one's number, when it was made, by whom, and why. `Kindgi` stands
+  in the `BY` column for a version the runtime made itself.
+- `get <trigger-id> <version>` reads one, without the receive URL. Without
+  a version, `get` is the trigger as it is now, and its `version` is the
+  newest. The `VERSION` column of `list --table` shows it, empty for a
+  trigger that has none yet.
+
+Whoever can read the trigger can read its versions. Each one says when it
+was made (`createdAt`), by whom (`createdBy`), and why (`cause`:
+`register`, `edit` or `owner` for a take-over to another owner). Two causes
+name no one, since the runtime made the version itself: `first-fire`, at
+the first delivery to a trigger from before versions, and
+`unversioned-edit`, at its next delivery or just before an edit or
+take-over, after a release from before versions changed the trigger during
+an upgrade. Its `definition` is what it ran,
+with which input and as whom, how it checked and limited a delivery (its
+secret by name, never its value), its label and its tools allowed
+unattended: never its status.
+
+The evidence of a change names the version it made (`version`), on
+`trigger-changed-for-owner`, `trigger-owner-set` and
+`trigger-tools-allowed-unattended-set`, and that version has what the
+entry leaves out, such as an input's value.
+
+The versions keep every input the trigger has had, so a secret pasted
+into its input stays in an earlier version after you edit it out: rotate
 it.
 
 ## Shared or personal
@@ -658,7 +717,7 @@ call them, with the new owner's access. The webhook's page lists them
 under **Tools allowed unattended**.
 
 A tenant admin gets **Change owner…** instead (runtime 0.1.9 or later),
-whenever the tenant has a registered service account the webhook doesn't
+whenever the workspace has a registered service account the webhook doesn't
 already run as. Its **Runs
 as** list has "You — with your access", which takes it over, and each
 registered service account, such as "nightly-bot — a service account, with

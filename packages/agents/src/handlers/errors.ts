@@ -39,10 +39,11 @@ export type InvokeAgentError =
   | RunJournalUnavailableError
   | SemanticUnavailableError
   | ApprovalsPendingLimitError
-  | TurnMemoryLimitReachedError;
+  | TurnMemoryLimitReachedError
+  | ConnectionNotChosenError;
 
 /**
- * A gate asked for an approval past the tenant's limit on approvals waiting
+ * A gate asked for an approval past the workspace's limit on approvals waiting
  * for a decision: the HITL binding's `enqueue` refused it (an error with
  * `code: 'approvals-pending-limit'`). The step fails, naming the limit,
  * rather than wait for an approval nobody can see.
@@ -50,7 +51,7 @@ export type InvokeAgentError =
 export interface ApprovalsPendingLimitError {
   readonly code: 'approvals-pending-limit';
   readonly message: string;
-  /** The tenant's limit, when the binding names it. */
+  /** The workspace's limit, when the binding names it. */
   readonly approvalsPending?: number;
 }
 
@@ -68,15 +69,33 @@ export function approvalsPendingLimitOf(cause: unknown): ApprovalsPendingLimitEr
     message:
       typeof message === 'string' && message !== ''
         ? message
-        : "This tenant's limit on approvals waiting for a decision is reached.",
+        : "This workspace's limit on approvals waiting for a decision is reached.",
     ...(typeof approvalsPending === 'number' && { approvalsPending }),
   };
 }
 
 /**
+ * A tool call needs a company connection of an app, the project has
+ * several, and the agent has no choice of one. A setup no model can fix,
+ * so the turn fails rather than hand the call back: a project admin
+ * chooses the connection, and the turn runs again.
+ */
+export interface ConnectionNotChosenError {
+  readonly code: 'connection-not-chosen';
+  readonly message: string;
+  /** The tool's name for the connection. */
+  readonly connection: string;
+  /**
+   * The names of the company's connections to choose from, sorted. A
+   * person's aren't listed: the message counts them.
+   */
+  readonly choices?: readonly string[];
+}
+
+/**
  * The turn holds more memory than the runtime's limit leaves it (a
  * runtime's limit on turn memory, charged by size before each model call;
- * Kindgi Cloud sets one). `limit` names which: the tenant's share, or the
+ * Kindgi Cloud sets one). `limit` names which: the workspace's share, or the
  * runtime's whole. Retried later, or with a smaller conversation, it can go
  * through.
  */
@@ -125,9 +144,9 @@ export interface RunJournalUnavailableError {
 }
 
 /**
- * A tenant policy the turn must apply couldn't be: its spec doesn't
+ * A workspace policy the turn must apply couldn't be: its spec doesn't
  * validate, or the policy registry failed. The turn doesn't run without
- * it: skipping a tenant's `hitl` policy would skip its approvals, and its
+ * it: skipping a workspace's `hitl` policy would skip its approvals, and its
  * `model-routing` or `tool-errors` policy, its limits.
  */
 export interface TenantPolicyUnavailableError {
@@ -226,10 +245,10 @@ export interface BudgetExceededError {
 }
 
 /**
- * Work the turn needed was refused by a budget kept per tenant (its
- * template renders, its schema compiles): the tenant spent `budgetMs` of
+ * Work the turn needed was refused by a budget kept per workspace (its
+ * template renders, its schema compiles): the workspace spent `budgetMs` of
  * that work (`limit`) in the last 60 seconds. Not the turn's own failure:
- * the same turn may run once the tenant is under the budget again, after
+ * the same turn may run once the workspace is under the budget again, after
  * `retryAfterMs`. Over HTTP it answers as the API's own refusal by that
  * budget does: `429`, with `details.limit` and `details.budgetMs`, and
  * the wait in `Retry-After`.

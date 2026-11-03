@@ -349,11 +349,11 @@ answers:
 | `400 bad-input` | The body isn't JSON, or nests too deep. | Send JSON. |
 | `404 wait-token-not-found` | No wait has this link. A wrong link and an unknown one answer the same. | Check the link. |
 | `409 wait-token-closed` | The wait is over, or holds another answer. `details.state` says which: `completed`, `timed-out`, `cancelled`, `unused` for a wait the run never reached, or `answered` for a different answer held before the run reached it. | Nothing: it takes no other answer. |
-| `409 tenant-closing`, `409 tenant-suspended`, `409 project-suspended` | Nothing runs where the run is: its tenant is closing or suspended, or its project is suspended. That cancels its runs, paused ones included. | Nothing: after a restore, the link answers `409 wait-token-closed`, `cancelled`. |
+| `409 tenant-closing`, `409 tenant-suspended`, `409 project-suspended` | Nothing runs where the run is: its workspace is closing or suspended, or its project is suspended. That cancels its runs, paused ones included. | Nothing: after a restore, the link answers `409 wait-token-closed`, `cancelled`. |
 | `413 request-too-large` | The body is over 1 MiB. | Send less. |
 | `415 unsupported-media-type` | The body isn't sent as JSON. | Send it with `Content-Type: application/json`. |
 | `429 rate-limit-exceeded` | More than 600 requests in a minute from this client. Nothing was taken. | Send it again after `Retry-After`. |
-| `503 tenant-state-unavailable` | The runtime couldn't read the tenant's state. Nothing was taken. | Send it again after `Retry-After`. |
+| `503 tenant-state-unavailable` | The runtime couldn't read the workspace's state. Nothing was taken. | Send it again after `Retry-After`. |
 
 **An answer that comes before the run reaches its wait** is held for it, and
 the link answers `200`. If the run never waits on it, the answer is dropped:
@@ -430,7 +430,7 @@ Its refusals:
 - `404 run-not-found`, or `404 wait-token-not-found` when the run has no
   such wait.
 - `409 wait-token-closed` (`details.state`), as at the link, and
-  `409 project-suspended`. A closing or suspended tenant's refusals
+  `409 project-suspended`. A closing or suspended workspace's refusals
   (`409 tenant-closing`, `409 tenant-suspended`,
   `503 tenant-state-unavailable`) come back too, as for any write.
 - `422 run-resume-not-supported`: the wait isn't a pause. A run that waits

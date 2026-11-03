@@ -3,7 +3,8 @@
 
 /**
  * Outbound webhook endpoints: URLs Kindgi sends signed events to, such as
- * `run.finished` when a top-level run completes, fails or is cancelled.
+ * `run.finished` when a top-level run, not a replay, completes, fails or
+ * is cancelled.
  *
  * @wire /v1/webhook-endpoints/*  (packages/api/src/routes/webhook-endpoints.ts)
  * @generated Wire shapes imported from `../generated/api.js`.
@@ -27,7 +28,7 @@ import type {
   CreateWebhookEndpointBody,
   FinishedRun as FinishedRunWire,
   GeneratedWebhookSecret as GeneratedWebhookSecretWire,
-  ImprovementPassFinishedEvent as ImprovementPassFinishedEventWire,
+  ImproveRunFinishedEvent as ImproveRunFinishedEventWire,
   PatchWebhookEndpointBody,
   RequestedApproval as RequestedApprovalWire,
   RunFinishedEvent as RunFinishedEventWire,
@@ -61,8 +62,8 @@ export type FinishedRun = Omit<FinishedRunWire, 'id'> & { readonly id: RunId };
 export type RunFinishedEvent = Omit<RunFinishedEventWire, 'data'> & {
   readonly data: { readonly run: FinishedRun };
 };
-/** An improvement pass ended; `data.pass` is as `client.improvementPasses.get` shows it. */
-export type ImprovementPassFinishedEvent = ImprovementPassFinishedEventWire;
+/** An Improve run ended; `data.improveRun` is as `client.improveRuns.get` shows it. */
+export type ImproveRunFinishedEvent = ImproveRunFinishedEventWire;
 /**
  * The approval an `approval.requested` event names. `approvalId` is an `ApprovalId`, so
  * `client.approvals.get(approval.approvalId)` reads the rest (what it's about stays behind sign-in).
@@ -82,7 +83,7 @@ export type WebhookTestEvent = WebhookTestEventWire;
  */
 export type WebhookEvent =
   | RunFinishedEvent
-  | ImprovementPassFinishedEvent
+  | ImproveRunFinishedEvent
   | ApprovalRequestedEvent
   | WebhookTestEvent;
 

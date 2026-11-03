@@ -6,11 +6,13 @@ import type { Context } from 'hono';
 
 import type { Cursor, TenantId, TriggerId } from '@kindgi/types';
 
+import { callerIdentity } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { ItemRights } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type {
   EventTriggerRecord,
+  EventTriggerVersionRecord,
   RegisterEventTriggerInput,
   TriggerRegistryBinding,
   UpdateEventTriggerInput,
@@ -18,12 +20,13 @@ import type {
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 import { triggerAccess } from './trigger-access.js';
+import { versionFields, versionOne, versionsPage } from './trigger-versions.js';
 
 /**
  * Event triggers — fire a flow run when a matching event arrives on
  * the framework event bus.
  *
- * Seven routes, mirroring the schedules surface. This surface registers
+ * Nine routes, mirroring the schedules surface. This surface registers
  * triggers; it does not publish events.
  *
  * With an authorizer (T243 A), the trigger's flow decides who may see or
@@ -62,6 +65,7 @@ export function eventTriggersRouter(
     const registerInput: RegisterEventTriggerInput = {
       kind: 'event',
       tenantId,
+      by: callerIdentity(c),
       flowId: flowId.value,
       flowVersion: flowVersion.value,
       config: {
@@ -121,6 +125,33 @@ export function eventTriggersRouter(
     return c.json(serializeEventTrigger(rec));
   });
 
+  /** The event trigger, when the caller may read it; else the answer. */
+  async function readable(c: Context<AppEnv>): Promise<TriggerId | Response> {
+    const triggerId = c.req.param('triggerId') as TriggerId;
+    const refused = await access.onTrigger(c, triggerId, ['read']);
+    if (refused !== undefined) return refused;
+    const rec = await binding.get({ tenantId: c.get('tenantId') as TenantId, triggerId });
+    if (rec === null || rec.kind !== 'event') return notFound(c, c.get('requestId'), triggerId);
+    return triggerId;
+  }
+
+  const versionsJson = async (versions: readonly EventTriggerVersionRecord[]) =>
+    versions.map(serializeEventTriggerVersion);
+
+  // ---------- GET /:triggerId/versions (newest first) ----------
+  r.get('/:triggerId/versions', async (c) => {
+    const found = await readable(c);
+    if (found instanceof Response) return found;
+    return versionsPage(c, binding, found, 'event', versionsJson);
+  });
+
+  // ---------- GET /:triggerId/versions/:version ----------
+  r.get('/:triggerId/versions/:version', async (c) => {
+    const found = await readable(c);
+    if (found instanceof Response) return found;
+    return versionOne(c, binding, found, 'event', versionsJson);
+  });
+
   // ---------- PATCH /:triggerId (update) ----------
   r.patch('/:triggerId', async (c) => {
     const requestId = c.get('requestId');
@@ -144,6 +175,7 @@ export function eventTriggersRouter(
       kind: 'event',
       tenantId,
       triggerId,
+      by: callerIdentity(c),
       ...(Object.keys(cfg).length > 0 && { config: cfg }),
       ...('label' in body && { label: body.label === null ? null : (body.label as string) }),
       ...(typeof body.flowVersion === 'string' && { flowVersion: body.flowVersion }),
@@ -216,9 +248,27 @@ function serializeEventTrigger(r: EventTriggerRecord): Record<string, unknown> {
     ...(r.config.input !== undefined && { input: r.config.input }),
     label: r.label,
     status: r.status,
+    ...(r.version !== undefined && { version: r.version }),
     lastFiredAt: r.lastFiredAt,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
+  };
+}
+
+/** A version, its definition named as the trigger's own fields are. */
+function serializeEventTriggerVersion(v: EventTriggerVersionRecord): Record<string, unknown> {
+  const d = v.definition;
+  return {
+    eventTriggerId: v.triggerId as unknown as string,
+    triggerId: v.triggerId as unknown as string,
+    ...versionFields(v),
+    definition: {
+      flowId: d.flowId,
+      flowVersion: d.flowVersion,
+      eventKind: d.config.eventKind,
+      ...(d.config.input !== undefined && { input: d.config.input }),
+      label: d.label,
+    },
   };
 }
 

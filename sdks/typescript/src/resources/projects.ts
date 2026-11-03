@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Projects — org-optional sub-tenants (workstreams within a tenant).
+ * Projects — org-optional sub-tenants (workstreams within a workspace).
  *
  * @wire /v1/projects/*  (packages/api/src/routes/projects.ts)
  * @generated Wire shapes from `../generated/api.js`.
@@ -18,7 +18,9 @@ import type {
   ProjectCollectionPage,
   ProjectMembershipCollectionPage,
   ProjectPatch as ProjectPatchBody,
+  ProjectPinnedVersionPage as ProjectPinnedVersionPageWire,
   ProjectProduction as ProjectProductionWire,
+  ProjectRepoConnection as ProjectRepoConnectionWire,
   ProjectRole as ProjectRoleWire,
   ProjectSpec as ProjectSpecBody,
   Project as ProjectWire,
@@ -28,11 +30,11 @@ import type {
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
 import {
-  type JudgingQueueClient,
-  type JudgingRulesClient,
-  makeJudgingQueueClient,
-  makeJudgingRulesClient,
-} from './judging.js';
+  type ExpertQueueClient,
+  type QueueRulesClient,
+  makeExpertQueueClient,
+  makeQueueRulesClient,
+} from './expert-queue.js';
 import { type SitesClient, makeSitesClient } from './sites.js';
 
 export type ProjectShape = ProjectWire;
@@ -46,6 +48,8 @@ export type AddProjectMembershipOutcome = AddProjectMembershipResult;
 /** A role on a project, as read: `member` only on one given before it was retired. */
 /** A project's production state: `productionSince` is `null` while it isn't in production. */
 export type ProjectProductionShape = ProjectProductionWire;
+/** A project's repo connection: `repoConnectionId` is `null` once cleared. */
+export type ProjectRepoConnectionShape = ProjectRepoConnectionWire;
 export type ProjectRoleValue = ProjectRoleWire;
 /** A role to give on a project: `member` is refused, give `viewer`. */
 export type AssignableProjectRoleValue = AssignableProjectRoleWire;
@@ -78,6 +82,29 @@ export interface ListProjectAccessFilter {
 export interface ProjectAccessClient {
   /** @wire GET /v1/projects/:projectId/access */
   list(projectId: string, filter?: ListProjectAccessFilter): Promise<ProjectAccessPage>;
+}
+
+export type ProjectPinnedVersionPage = ProjectPinnedVersionPageWire;
+
+export interface ListProjectPinnedVersionsFilter {
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+/**
+ * Every agent's pinned versions that cover a project: the workspace's, the
+ * project's org's, the project's own and its segments', ordered by agent
+ * id, then scope. Takes `read` on the project, and shows only the pins of
+ * agents and versions the caller can read, so a page can hold fewer than
+ * `limit`, or none, with `hasMore`: page on `nextCursor`. `501
+ * pinned-versions-not-supported` from a runtime that can't list them.
+ */
+export interface ProjectPinnedVersionsClient {
+  /** @wire GET /v1/projects/:projectId/pinned-versions */
+  list(
+    projectId: string,
+    filter?: ListProjectPinnedVersionsFilter,
+  ): Promise<ProjectPinnedVersionPage>;
 }
 
 /** A team's role on a project, with the team's and the project's names. */
@@ -134,7 +161,7 @@ export interface ProjectsClient {
   ): Promise<CreateResourceResult>;
   /** @wire GET /v1/projects */
   list(filter?: ListProjectsFilter): Promise<ProjectPage>;
-  /** @wire GET /v1/projects/default — the tenant's default project */
+  /** @wire GET /v1/projects/default — the workspace's default project */
   getDefault(): Promise<ProjectShape>;
   /** @wire GET /v1/projects/:projectId */
   get(projectId: string): Promise<ProjectShape>;
@@ -150,11 +177,11 @@ export interface ProjectsClient {
    * Put the project in production (`true`), or take it out (`false`). A run
    * in a project in production is a production run; a run anywhere else is
    * staging. For tenant admins. Setting what's already set changes
-   * nothing. With the runtime's production gate on, a tenant that isn't
+   * nothing. With the runtime's production gate on, a workspace that isn't
    * allowed is refused with `403 production-not-allowed`, whose
    * `details.next` says where to go when the runtime names it. With the
-   * tenant's `projectsInProduction` limit set, another project is refused
-   * with `403 production-limit-reached` while the tenant has that many in
+   * workspace's `projectsInProduction` limit set, another project is refused
+   * with `403 production-limit-reached` while the workspace has that many in
    * production (`details.projectsInProduction`, `details.inProduction`);
    * taking one out is never refused.
    *
@@ -165,22 +192,47 @@ export interface ProjectsClient {
     production: boolean,
     options?: { readonly idempotencyKey?: string },
   ): Promise<ProjectProductionShape>;
+  /**
+   * Set the company-wide GitHub connection the project opens its block
+   * changes' pull requests through. Needs `admin` on the project. A
+   * connection that isn't there is `404 connection-not-found`; one that
+   * isn't the company's, or isn't GitHub's, is
+   * `400 repo-connection-not-company-github`.
+   *
+   * @wire PUT /v1/projects/:projectId/repo-connection
+   */
+  setRepoConnection(
+    projectId: string,
+    connectionId: string,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<ProjectRepoConnectionShape>;
+  /**
+   * Clear the project's repo connection: its block changes open no pull
+   * request after this. Needs `admin` on the project.
+   *
+   * @wire DELETE /v1/projects/:projectId/repo-connection
+   */
+  clearRepoConnection(
+    projectId: string,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<ProjectRepoConnectionShape>;
   readonly memberships: ProjectMembershipsClient;
-  /** Which of the project's runs to queue for a person's judgment. */
-  readonly judgingRules: JudgingRulesClient;
-  /** The runs queued for a person's judgment. */
-  readonly judgingQueue: JudgingQueueClient;
+  /** Which of the project's runs to queue for a person's correction. */
+  readonly queueRules: QueueRulesClient;
+  /** The runs queued for a person's correction. */
+  readonly expertQueue: ExpertQueueClient;
   readonly teamGrants: ProjectTeamGrantsClient;
   /** The sites that sign their own people in to the project (tenant admins). */
   readonly sites: SitesClient;
   readonly access: ProjectAccessClient;
+  readonly pinnedVersions: ProjectPinnedVersionsClient;
 }
 
 export interface ProjectMembershipsClient {
   /** @wire GET /v1/projects/:projectId/memberships */
   list(projectId: string, filter?: ListProjectMembershipsFilter): Promise<ProjectMembershipPage>;
   /**
-   * Add a person of the tenant, named by exactly one of `userId` and
+   * Add a person of the workspace, named by exactly one of `userId` and
    * `email`; someone who isn't one is `404 identity-user-not-found`. The
    * outcome has their `userId`.
    *
@@ -262,8 +314,23 @@ export function makeProjectsClient(transport: Transport): ProjectsClient {
         ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
       });
     },
-    judgingRules: makeJudgingRulesClient(transport),
-    judgingQueue: makeJudgingQueueClient(transport),
+    async setRepoConnection(projectId, connectionId, options) {
+      return transport.request<ProjectRepoConnectionShape>({
+        method: 'PUT',
+        path: `/v1/projects/${seg(projectId)}/repo-connection`,
+        body: { connectionId },
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+    async clearRepoConnection(projectId, options) {
+      return transport.request<ProjectRepoConnectionShape>({
+        method: 'DELETE',
+        path: `/v1/projects/${seg(projectId)}/repo-connection`,
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+    queueRules: makeQueueRulesClient(transport),
+    expertQueue: makeExpertQueueClient(transport),
     sites: makeSitesClient(transport),
     memberships: {
       async list(projectId, filter) {
@@ -307,6 +374,18 @@ export function makeProjectsClient(transport: Transport): ProjectsClient {
         return transport.request<ProjectAccessPage>({
           method: 'GET',
           path: `/v1/projects/${seg(projectId)}/access`,
+          query: {
+            ...(filter?.limit !== undefined && { limit: filter.limit }),
+            ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+          },
+        });
+      },
+    },
+    pinnedVersions: {
+      async list(projectId, filter) {
+        return transport.request<ProjectPinnedVersionPage>({
+          method: 'GET',
+          path: `/v1/projects/${seg(projectId)}/pinned-versions`,
           query: {
             ...(filter?.limit !== undefined && { limit: filter.limit }),
             ...(filter?.cursor !== undefined && { cursor: filter.cursor }),

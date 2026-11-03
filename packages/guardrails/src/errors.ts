@@ -3,6 +3,8 @@
 
 import type { GuardrailId } from '@kindgi/types';
 
+import type { GuardrailPoint } from './types.js';
+
 /**
  * Errors emitted by @kindgi/guardrails. Every variant carries a `code`
  * for pattern matching; messages are human-readable, not API contract.
@@ -17,7 +19,9 @@ export type GuardrailError =
   | JudgeUsageError
   | ScopeMismatchError
   | UnknownActionError
-  | CheckFailedError;
+  | CheckFailedError
+  | CheckTimedOutError
+  | CheckPointUnsupportedError;
 
 /**
  * The judge model couldn't be routed via `@kindgi/capabilities`. Wraps
@@ -45,8 +49,8 @@ export interface JudgeUsageError {
 }
 
 /**
- * The declaration is invalid. From `defineGuardrail` /
- * `validateGuardrailSpec`: it fails the schema, or (`defineGuardrail`)
+ * The declaration is invalid. From `validateGuardrail` /
+ * `validateGuardrailSpec`: it fails the schema, or (`validateGuardrail`)
  * its registered check has another kind. From the engine: its kind has
  * no registered strategy, it is `llm-judge` without `judgeCapabilities`,
  * or it is `external` and only the built-in `external` strategy is
@@ -67,6 +71,30 @@ export interface CheckFailedError {
   readonly code: 'check-failed';
   readonly message: string;
   readonly guardrailId: GuardrailId;
+}
+
+/**
+ * The check ran past its time (`budget.maxLatencyMs`, or its kind's
+ * default): the loop stopped waiting for it and cancelled it.
+ */
+export interface CheckTimedOutError {
+  readonly code: 'check-timed-out';
+  readonly message: string;
+  readonly guardrailId: GuardrailId;
+  readonly limitMs: number;
+}
+
+/**
+ * The guardrail runs at a point its check, as the turn resolved it,
+ * doesn't run at (`RegisteredCheck.points`), so it wasn't called. A check
+ * the turn couldn't resolve counts as the final answer only.
+ */
+export interface CheckPointUnsupportedError {
+  readonly code: 'check-point-unsupported';
+  readonly message: string;
+  readonly guardrailId: GuardrailId;
+  readonly checkId: string;
+  readonly point: GuardrailPoint;
 }
 
 /** The guardrail references a check id that isn't registered. */

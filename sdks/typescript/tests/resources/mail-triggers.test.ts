@@ -131,4 +131,38 @@ describe('mail triggers — wire round-trips', () => {
     expect(url).toMatch(/limit=20/);
     expect(url).toMatch(/cursor=c1/);
   });
+
+  it('versions / getVersion: GET /v1/mail-triggers/:triggerId/versions, paged, and one by number', async () => {
+    const v2 = {
+      triggerId: TRIGGER,
+      version: 2,
+      createdAt: '2026-10-10T10:00:00Z',
+      createdBy: 'user:u-1',
+      cause: 'edit',
+      definition: {
+        agentId: 'acme.support',
+        projectId: '33333333-3333-4333-8333-333333333333',
+        owner: { kind: 'user', id: 'u-1' },
+        mailbox: { app: 'google', as: 'person' },
+        pollSeconds: 120,
+        runsPerHour: 60,
+        label: null,
+      },
+    };
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify({ data: [v2], hasMore: true, nextCursor: 'c2' }) },
+      { status: 200, body: JSON.stringify(v2) },
+    ]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    const page = await client.mailTriggers.versions(TRIGGER, { limit: 1, cursor: 'c1' });
+    expect(page.data[0]?.cause).toBe('edit');
+    expect(page.nextCursor).toBe('c2');
+    expect((await client.mailTriggers.getVersion(TRIGGER, 2)).version).toBe(2);
+    expect(
+      stub.calls.map((c) => `${c.method} ${new URL(c.url).pathname}${new URL(c.url).search}`),
+    ).toEqual([
+      `GET /v1/mail-triggers/${TRIGGER}/versions?limit=1&cursor=c1`,
+      `GET /v1/mail-triggers/${TRIGGER}/versions/2`,
+    ]);
+  });
 });

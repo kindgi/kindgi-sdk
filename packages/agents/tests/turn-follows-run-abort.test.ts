@@ -69,7 +69,7 @@ function turnWithSlowModel(): { ctx: TurnContext; aborted: Promise<void> } {
     usage: { steps: 0, promptTokens: 0, completionTokens: 0, totalCostUsd: 0 },
     abortReason: undefined,
     provider,
-    model: { name: 'acme-1' } as ModelInfo,
+    model: { name: 'acme-1', features: [], contextWindow: 200_000 } as unknown as ModelInfo,
     tools: { definitions: [], byName: new Map() },
   };
   return { ctx, aborted };

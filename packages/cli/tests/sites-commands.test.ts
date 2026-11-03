@@ -98,7 +98,7 @@ async function sites(argv: readonly string[]) {
 const REQUIRED = ['--name=Acme store', `--origin=${ORIGIN}`, `--approvals-url=${APPROVALS_URL}`];
 
 describe('kindgi sites register', () => {
-  test("in the Default project: the site's settings as given, and its code once, with where to paste it", async () => {
+  test("in the default project: the site's settings as given, and its code once, with where to paste it", async () => {
     const { out, calls } = await sites(['register', ...REQUIRED]);
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
@@ -249,7 +249,7 @@ describe('kindgi sites: the rest of the group', () => {
     expect(revoked.calls).toEqual([['revokeKey', PROJECT, SITE_ID, 'k1']]);
   });
 
-  test('restore-person: the site and the person by id, in the project given or the Default one', async () => {
+  test('restore-person: the site and the person by id, in the project given or the default one', async () => {
     const restored = await sites(['restore-person', SITE_ID, PERSON_ID, `--project=${PROJECT}`]);
     expect(restored.out.exitCode, restored.out.stderr).toBe(0);
     expect(restored.calls).toEqual([['restorePerson', PROJECT, SITE_ID, PERSON_ID]]);

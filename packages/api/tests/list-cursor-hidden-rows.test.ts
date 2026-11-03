@@ -112,12 +112,12 @@ interface Entry {
   readonly byTime?: true;
 }
 
-/** The bindings the supervisor's lists need to mount (improvement passes, proposals). */
+/** The bindings the supervisor's lists need to mount (Improve runs, suggested changes). */
 const supervised = () => ({
   agentRegistry: absent(),
   blockRegistry: absent(),
-  evalRunBinding: absent(),
-  agentReleases: { gatePolicies: absent(), live: absent(), promotions: absent() },
+  testRunBinding: absent(),
+  agentPins: { releaseGates: absent(), pinned: absent(), changes: absent() },
 });
 
 /** A `{ data, nextCursor }` page of two hidden rows, then an empty one. */
@@ -195,19 +195,19 @@ const ENTRIES: readonly Entry[] = [
     },
   },
   {
-    name: 'eval runs',
-    path: '/v1/eval-runs',
+    name: 'test runs',
+    path: '/v1/test-runs',
     bindings: () => {
-      const l = page('list', () => ({ suiteId: 'hid-suite' }));
-      return { bindings: { evalRunBinding: l.binding }, received: l.received };
+      const l = page('list', () => ({ testSetId: 'hid-testSet' }));
+      return { bindings: { testRunBinding: l.binding }, received: l.received };
     },
   },
   {
-    name: 'eval suites',
-    path: '/v1/eval-suites',
+    name: 'test sets',
+    path: '/v1/test-sets',
     bindings: () => {
       const l = page('list', (id) => ({ id }));
-      return { bindings: { evalSuiteRegistry: l.binding }, received: l.received };
+      return { bindings: { testSetRegistry: l.binding }, received: l.received };
     },
   },
   {
@@ -227,13 +227,13 @@ const ENTRIES: readonly Entry[] = [
     },
   },
   {
-    name: 'gate policies',
-    path: '/v1/gate-policies',
+    name: 'release gates',
+    path: '/v1/release-gates',
     bindings: () => {
       const l = page('list', () => ({ scope: { kind: 'project', projectId: 'hid-project' } }));
       return {
         bindings: {
-          agentReleases: { gatePolicies: l.binding, live: absent(), promotions: absent() },
+          agentPins: { releaseGates: l.binding, pinned: absent(), changes: absent() },
         },
         received: l.received,
       };
@@ -248,19 +248,19 @@ const ENTRIES: readonly Entry[] = [
     },
   },
   {
-    name: 'improvement passes',
-    path: '/v1/improvement-passes',
+    name: 'Improve runs',
+    path: '/v1/improve-runs',
     bindings: () => {
       const l = page('list', () => ({ agentId: 'hid-agent' }));
       return {
-        bindings: { ...supervised(), supervisor: absent(), improvementPasses: l.binding },
+        bindings: { ...supervised(), supervisor: absent(), improveRuns: l.binding },
         received: l.received,
       };
     },
   },
   {
-    name: 'judgments',
-    path: '/v1/judgments',
+    name: 'corrections',
+    path: '/v1/corrections',
     bindings: () => {
       const l = lister(
         'list',
@@ -268,15 +268,15 @@ const ENTRIES: readonly Entry[] = [
         { data: [], hasMore: false },
         arg0,
       );
-      return { bindings: { judgmentRegistry: l.binding }, received: l.received };
+      return { bindings: { correctionRegistry: l.binding }, received: l.received };
     },
   },
   {
-    name: 'judge classes',
-    path: '/v1/judge-classes',
+    name: 'corrector groups',
+    path: '/v1/corrector-groups',
     bindings: () => {
       const l = lister(
-        'listClasses',
+        'listGroups',
         {
           data: two(() => ({ scope: { kind: 'project', projectId: 'hid-project' } })),
           hasMore: true,
@@ -285,7 +285,7 @@ const ENTRIES: readonly Entry[] = [
         { data: [], hasMore: false },
         arg0,
       );
-      return { bindings: { judgmentRegistry: l.binding }, received: l.received };
+      return { bindings: { correctionRegistry: l.binding }, received: l.received };
     },
   },
   {
@@ -346,10 +346,10 @@ const ENTRIES: readonly Entry[] = [
     },
   },
   {
-    name: 'proposals',
-    path: '/v1/proposals',
+    name: 'suggested-changes',
+    path: '/v1/suggested-changes',
     bindings: () => {
-      const l = page('listProposals', () => ({ agentId: 'hid-agent' }));
+      const l = page('listSuggestedChanges', () => ({ agentId: 'hid-agent' }));
       return { bindings: { ...supervised(), supervisor: l.binding }, received: l.received };
     },
   },

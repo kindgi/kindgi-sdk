@@ -7,8 +7,10 @@ import type { CommandContext } from '../context.js';
 import { type Rendered, renderJson, successNote } from '../output.js';
 import { type SaidLine, note, renderLines, warning } from '../progress-lines.js';
 import {
+  TRIGGER_VERSIONS_TABLE,
   type TableSpec,
   allowUnattendedField,
+  clearableFlag,
   integerFlag,
   readJsonInput,
   requiredPositional,
@@ -17,6 +19,7 @@ import {
   runSdkRendered,
   runsAsCell,
   stringFlag,
+  triggerVersionPositional,
 } from './helpers.js';
 import type { Command, LeafCommand, ParseArgsOption } from './types.js';
 
@@ -112,6 +115,7 @@ const TRIGGERS_TABLE: TableSpec<TriggerPage, Trigger> = {
   rows: (p) => p.data,
   columns: [
     { header: 'ID', get: (t) => t.triggerId },
+    { header: 'VERSION', get: (t) => (t.version !== undefined ? String(t.version) : '') },
     { header: 'FLOW', get: (t) => `${t.flowId}@${t.flowVersion}` },
     { header: 'SIGNED', get: signedCell },
     { header: 'STATUS', get: (t) => t.status },
@@ -188,7 +192,7 @@ function allowUnattendedFlag(on: 'register' | 'update'): Record<string, ParseArg
     'allow-unattended': {
       type: 'string',
       multiple: true,
-      description: `A tool, by id, whose calls in this trigger's runs needn't wait for a person's yes, though the tool asks for one when no person started the run (repeatable; only tools its flow calls, no wildcard). Needs \`admin\` on the trigger's project. The tenant's and the agent's approval rules still apply.${on === 'update' ? ' Replaces the list; `none` clears it; left out, the list is kept.' : ''}`,
+      description: `A tool, by id, whose calls in this trigger's runs needn't wait for a person's yes, though the tool asks for one when no person started the run (repeatable; only tools its flow calls, no wildcard). Needs \`admin\` on the trigger's project. The workspace's and the agent's approval rules still apply.${on === 'update' ? ' Replaces the list; `none` clears it; left out, the list is kept.' : ''}`,
     },
   };
 }
@@ -280,7 +284,7 @@ const register: LeafCommand = {
     secret: {
       type: 'string',
       description:
-        "The signing secret's name: one written with `kindgi secrets set` in the env the runtime serves (it's read at the trigger's project, its org or the tenant, whichever you administer that has it), or the name --generate-secret stores it under. Never a model provider's key. Under `kindgi dev`, --generate-secret writes it to an env file, so the name is capital letters, digits and underscores, not starting with a digit (`ACME_WOO_ORDERS`).",
+        "The signing secret's name: one written with `kindgi secrets set` in the env the runtime serves (it's read at the trigger's project, its org or the workspace, whichever you administer that has it), or the name --generate-secret stores it under. Never a model provider's key. Under `kindgi dev`, --generate-secret writes it to an env file, so the name is capital letters, digits and underscores, not starting with a digit (`ACME_WOO_ORDERS`).",
     },
     'generate-secret': {
       type: 'boolean',
@@ -294,7 +298,7 @@ const register: LeafCommand = {
     },
     project: {
       type: 'string',
-      description: "The trigger's project, by id (default: the tenant's Default project).",
+      description: "The trigger's project, by id (default: the workspace's default project).",
     },
     ...SIGNATURE_FLAGS,
     ...RUN_AS_FLAG,
@@ -415,11 +419,17 @@ const list: LeafCommand = {
 const get: LeafCommand = {
   kind: 'leaf',
   name: 'get',
-  description: 'Fetch a webhook trigger, with its receive URL.',
-  usage: 'kindgi webhooks get <trigger-id>',
+  description: 'Fetch a webhook trigger as it is now, with its receive URL, or the version given.',
+  usage: 'kindgi webhooks get <trigger-id> [<version>]',
   run: (ctx) =>
     runSdkRendered(ctx, 'webhooks get', async () => {
-      const trigger = await ctx.client().webhooks.get(requiredPositional(ctx, 0, 'trigger-id'));
+      const id = requiredPositional(ctx, 0, 'trigger-id');
+      const version = triggerVersionPositional(ctx, 1);
+      const webhooksClient = ctx.client().webhooks;
+      if (version !== undefined) {
+        return renderJson(await webhooksClient.getVersion(id, version), ctx.globals.format);
+      }
+      const trigger = await webhooksClient.get(id);
       const rendered = renderJson(trigger, ctx.globals.format);
       return {
         stdout: rendered.stdout,
@@ -435,8 +445,8 @@ const update: LeafCommand = {
   kind: 'leaf',
   name: 'update',
   description:
-    'Change a webhook trigger: its flow version, input, secret, scheme, delivery-id header, limits or the tools its runs may call unattended. Its flow stays: register another trigger for another flow.',
-  usage: `kindgi webhooks update <trigger-id> [--flow-version=<v>] [--input=<json-or-@file>] [--secret=<name>] [--preset=${PRESET_NAMES} | --signature-header=<h> --signature-encoding=hex|base64 [--signature-prefix=<p>]] [--delivery-id-header=<h>|none] [--body-limit=<bytes>] [--rate-limit=<per-minute>] [--label=<text>] [--allow-unattended=<tool-id>|none]…`,
+    'Change a webhook trigger: its flow version, input, secret, scheme, delivery-id header, limits, label or the tools its runs may call unattended. Its flow stays: register another trigger for another flow.',
+  usage: `kindgi webhooks update <trigger-id> [--flow-version=<v>] [--input=<json-or-@file>] [--secret=<name>] [--preset=${PRESET_NAMES} | --signature-header=<h> --signature-encoding=hex|base64 [--signature-prefix=<p>]] [--delivery-id-header=<h>|none] [--body-limit=<bytes>] [--rate-limit=<per-minute>] [--label=<text>|--clear-label] [--allow-unattended=<tool-id>|none]…`,
   optionSpec: {
     'flow-version': { type: 'string', description: 'Start this flow version instead.' },
     input: {
@@ -449,6 +459,8 @@ const update: LeafCommand = {
         "Verify with another secret, by name. To change a secret's value, use `kindgi secrets rotate`.",
     },
     ...SIGNATURE_FLAGS,
+    label: { type: 'string', description: 'A new short label (`--clear-label` takes it off).' },
+    'clear-label': { type: 'boolean', description: 'Take the label off.' },
     ...allowUnattendedFlag('update'),
   },
   run: (ctx) =>
@@ -457,7 +469,7 @@ const update: LeafCommand = {
       const flowVersion = stringFlag(ctx, 'flow-version');
       const input = stringFlag(ctx, 'input');
       const secret = stringFlag(ctx, 'secret');
-      const label = stringFlag(ctx, 'label');
+      const label = clearableFlag(ctx, 'label');
       return await ctx.client().webhooks.update(id, {
         ...(flowVersion !== undefined && { flowVersion }),
         ...(input !== undefined && { config: { input: await readJsonInput(input) } }),
@@ -524,6 +536,23 @@ const fires: LeafCommand = {
     ),
 };
 
+const versions: LeafCommand = {
+  kind: 'leaf',
+  name: 'versions',
+  description:
+    "List a webhook trigger's versions, newest first: when each was made, by whom, and why. `kindgi webhooks get <trigger-id> <version>` shows one.",
+  usage: 'kindgi webhooks versions <trigger-id> [--limit=<n>] [--cursor=<c>]',
+  optionSpec: PAGE_FLAGS,
+  run: (ctx) =>
+    runSdk(
+      ctx,
+      'webhooks versions',
+      async () =>
+        await ctx.client().webhooks.versions(requiredPositional(ctx, 0, 'trigger-id'), page(ctx)),
+      TRIGGER_VERSIONS_TABLE,
+    ),
+};
+
 const takeOwnership: LeafCommand = {
   kind: 'leaf',
   name: 'take-ownership',
@@ -562,7 +591,7 @@ export const webhooksCommand: Command = {
   kind: 'group',
   name: 'webhooks',
   description:
-    'Start flow runs from signed webhooks (WooCommerce, Drupal, GitHub, Shopify, Standard Webhooks): register, list, get, update, pause, resume, fires, take-ownership, unregister.',
+    'Start flow runs from signed webhooks (WooCommerce, Drupal, GitHub, Shopify, Standard Webhooks): register, list, get, update, pause, resume, fires, versions, take-ownership, unregister.',
   subcommands: [
     register,
     list,
@@ -573,6 +602,7 @@ export const webhooksCommand: Command = {
       w.resume(id),
     ),
     fires,
+    versions,
     takeOwnership,
     byId(
       'unregister',

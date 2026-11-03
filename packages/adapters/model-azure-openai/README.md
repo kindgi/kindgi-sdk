@@ -45,11 +45,13 @@ It's built on [`@kindgi/adapter-model-shared`](../model-shared/): the retries, t
 `checkConfig` reports each problem with a registration at the setting at fault, without the network or the secret:
 - `resourceName` and `baseURL` together, or neither;
 - a `resourceName` that isn't one DNS label, or a `baseURL` that isn't https;
-- an unknown `api`, `auth` or `adapter_config` key;
+- an unknown `api` or `auth`;
 - `api-key` without `secret_ref`, or `entra` with one;
 - `entra` on a host that isn't Azure OpenAI's, naming the host;
 - a `baseURL` with credentials, a query or a fragment, ending in more than one `/`, or an Azure OpenAI host's `baseURL` without `/openai/v1`;
 - a malformed `deployments` entry, a model named twice or not listed, a deployment name Azure wouldn't take, or a model with no deployment.
+
+Its entry declares the keys it takes (`configKeys`: `resourceName`, `baseURL`, `deployments`, `api`, `auth`), so a registration with any other `adapter_config` key is refused, naming it. A stored one builds without it being read.
 
 ## How it signs in
 
@@ -73,6 +75,7 @@ Each of these has a test. It signs in before each attempt, with the call's abort
 - **Responses** (the default): `POST …/openai/v1/responses?api-version=v1`, with the deployment as `model` and `store: false`, so Azure keeps no conversation state for it: Kindgi's journal is the record.
 - **Chat Completions:** `POST …/openai/v1/chat/completions`, with the deployment as `model`.
 - **Whether a model reasons** is the registration's to say: one registered with `thinking` or `sampling: false` reasons, one with `sampling: true` doesn't, whatever its deployment is called. A reasoning model keeps its encrypted reasoning between tool turns on Responses, and gets `max_completion_tokens` on Chat Completions. When the registration says neither, the AI SDK decides from the deployment's name, so register one or the other when the name doesn't say.
+- **How much a model thinks:** a call's level goes as the reasoning effort, through the AI SDK (see [`@kindgi/adapter-model-shared`](../model-shared/)). The AI SDK reads the deployment's name for the efforts it takes, and drops one it thinks the model doesn't (`none` on a GPT-6 name), with a `thinking-unsupported` warning.
 - Every attempt goes through the runtime's `fetch` (`AdapterFactoryInput.fetch`), which refuses the hosts its deployment forbids.
 
 ## Cost
@@ -81,7 +84,7 @@ Each of these has a test. It signs in before each attempt, with the call's abort
 
 ## Exports
 
-- **`azureOpenAIAdapterEntry`**: the `AdapterFactoryEntry` a runtime registers, with `azureOpenAIAdapterFactory` and `azureOpenAICheckConfig`.
+- **`azureOpenAIAdapterEntry`**: the `AdapterFactoryEntry` a runtime registers, with `azureOpenAIAdapterFactory`, `azureOpenAICheckConfig` and its `configKeys`.
 - `readAzureOpenAIConfig(input)`: a registration read and checked, or every problem with it.
 - `AZURE_OPENAI_CLOUDS` and `azureCloudOf(hostname)`: the hosts Entra may go to, by cloud, with each scope.
 - `AZURE_OPENAI_ADAPTER_ID`, `AZURE_OPENAI_APIS`, `AZURE_OPENAI_AUTHS`, `AZURE_OPENAI_SCOPE` (the public cloud's), `IDENTITY_TIMEOUT_MS`, and the `AzureOpenAIConfig`, `AzureOpenAIApi` and `AzureOpenAIAuth` types.

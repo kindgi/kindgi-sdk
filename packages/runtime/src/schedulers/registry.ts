@@ -7,7 +7,6 @@
 
 import type {
   Cursor,
-  LiveScope,
   ProjectId,
   RecordedSecretScope,
   Result,
@@ -41,10 +40,33 @@ export interface TriggerRegistryBinding {
   ): Promise<{ readonly triggerId: TriggerId; readonly unregistered: boolean }>;
 
   /**
+   * A trigger's versions, newest first: one for each definition it has
+   * had ({@link TriggerVersionRecord}). Empty for a trigger with none yet
+   * (registered before versions, until its first edit or fire), and for
+   * an id the workspace has no trigger with.
+   */
+  listVersions(input: ListTriggerVersionsInput): Promise<TriggerVersionPage>;
+
+  /** One of a trigger's versions; `null` when the workspace's trigger has no such version. */
+  getVersion(input: GetTriggerVersionInput): Promise<TriggerVersionRecord | null>;
+
+  /**
+   * The agent and project's `improve` schedule, active or paused; `null`
+   * when they have none. A second one is refused (`409 schedule-exists`).
+   * Optional: without it, the route pages through the project's schedules
+   * (`list`) to find it.
+   */
+  findImproveSchedule?(input: {
+    readonly tenantId: TenantId;
+    readonly agentId: string;
+    readonly projectId: ProjectId;
+  }): Promise<CronTriggerRecord | null>;
+
+  /**
    * The receiver's lookup: the webhook trigger with this routable id,
    * paused or unregistered too (`unregistered`), so the receiver verifies
    * a request with the trigger's own secret before it answers that the
-   * trigger is gone. `null` when the tenant has none. Optional: without
+   * trigger is gone. `null` when the workspace has none. Optional: without
    * it, `POST /v1/hooks/…` answers every request as an unknown trigger.
    */
   findWebhook?(input: {
@@ -89,11 +111,20 @@ export interface TriggerRegistryBinding {
 
   /**
    * Make `owner` the principal a schedule's runs act as (an admin re-owns
-   * a schedule whose owner left). Optional: without it, the route answers
-   * `501`.
+   * a schedule whose owner left). A new owner makes the trigger's next
+   * version (cause `owner`); the owner it already has makes none. On a
+   * mail trigger that reads a person's mailbox, a new owner clears the
+   * stored `mailbox.connectionId` and the label of the account it last
+   * read, both the previous owner's: `account` keeps only its id until the
+   * next poll stores the new owner's.
+   * Optional: without it, the route answers `501`.
    */
   setOwner?(
-    input: TriggerLifecycleInput & { readonly owner: TriggerOwner },
+    input: TriggerLifecycleInput & {
+      readonly owner: TriggerOwner;
+      /** Who made the change, as `UpdateBase.by`. */
+      readonly by: string;
+    },
   ): Promise<Result<TriggerRecord, TriggerLifecycleError>>;
 }
 
@@ -101,16 +132,27 @@ export interface TriggerRegistryBinding {
 
 /**
  * What a schedule runs: a flow at an exact version, or an agent. An agent
- * that names no version runs its live version for the schedule's project,
+ * that names no version runs its pinned version for the schedule's project,
  * as a run that names none does. `improve` starts an Improve run on an
- * agent for a live scope when enough answers have been marked wrong since
- * its last one (its input says how many, and the Improve options);
- * otherwise its fire is `skipped`.
+ * agent in a project (the schedule's) when the project has enough open
+ * corrections sorted to improve (its input says how many, and what a run
+ * and the month may cost); otherwise its fire is `skipped`. An agent and
+ * project have one `improve` schedule at most.
  */
 export type TriggerTarget =
   | { readonly kind: 'flow'; readonly flowId: string; readonly flowVersion: string }
   | { readonly kind: 'agent'; readonly agentId: string; readonly agentVersion?: string }
-  | { readonly kind: 'improve'; readonly agentId: string; readonly scope: LiveScope };
+  | {
+      readonly kind: 'improve';
+      readonly agentId: string;
+      /**
+       * The project its Improve runs work in, the schedule's own;
+       * registering one names it. Absent on a schedule registered for a
+       * workspace or an org before Improve schedules worked in a project: its
+       * fires are refused until its target is saved with the project.
+       */
+      readonly projectId?: ProjectId;
+    };
 
 /**
  * The principal a trigger's runs act as: whoever registered it, until an
@@ -260,10 +302,10 @@ export interface TriggerFire {
    * run start answered `erasure-in-progress`). Skipped fires never count
    * toward the auto-pause; refused and failed ones do.
    * `skipped`, as `detail` says: a webhook trigger was paused; what the
-   * target waits for wasn't there (an `improve` schedule's threshold, or its
-   * monthly cap); its project is suspended (`project-suspended`); its run or
-   * pass hadn't started when its tenant was suspended, and the restore
-   * concluded it (`tenant-suspended`); or its tenant was suspended or closing
+   * target waits for wasn't there (an `improve` schedule's open corrections,
+   * or room under its month's cap); its project is suspended (`project-suspended`); its run or
+   * Improve run hadn't started when its workspace was suspended, and the restore
+   * concluded it (`tenant-suspended`); or its workspace was suspended or closing
    * as its run started (`tenant-suspended`, `tenant-closing`). A skip for a
    * suspension or a close doesn't reset the count of refusals and failures
    * in a row either. A mail trigger's mail is `skipped` when it's from the
@@ -291,13 +333,18 @@ export interface TriggerFire {
     | 'failed';
   /** The run it started, when it started one. */
   readonly runId?: string;
-  /** The improvement pass it started, for an `improve` schedule. */
-  readonly passId?: string;
+  /**
+   * The trigger's version its start used: the newest when it started.
+   * Absent until it starts, and on a fire from before versions.
+   */
+  readonly version?: number;
+  /** The Improve run it started, for an `improve` schedule. */
+  readonly improveRunId?: string;
   /** Why it was refused, skipped or failed, or why a `pending` mail fire waits (`thread-busy:`). */
   readonly detail?: string;
   /**
    * Whether it counted toward the trigger's auto-pause (5 in a row by
-   * default). `false` for a refusal for a limit, such as the tenant's runs
+   * default). `false` for a refusal for a limit, such as the workspace's runs
    * pending (`detail` starts `rate-limited:`), or a mail trigger's
    * `runsPerHour` (`over-limit:`): the limit passes, and the
    * trigger isn't at fault. `false` too for a mail trigger's
@@ -340,8 +387,14 @@ export type RegisterTriggerInput =
 export interface RegisterCronTriggerInput {
   readonly kind: 'cron';
   readonly tenantId: TenantId;
+  /**
+   * Who registers it: the authenticated caller, as audit records name an
+   * actor (`user:<id>`, `service_account:<id>`, …). Its version 1 names
+   * them (`TriggerVersionRecord.createdBy`). The route sets it, never a body.
+   */
+  readonly by: string;
   readonly target: TriggerTarget;
-  /** The schedule's project; absent → the tenant's default project. */
+  /** The schedule's project; absent → the workspace's default project. */
   readonly projectId?: ProjectId;
   /** Who its runs act as: the principal registering it. */
   readonly owner: TriggerOwner;
@@ -364,6 +417,8 @@ export interface RegisterCronTriggerInput {
 export interface RegisterEventTriggerInput {
   readonly kind: 'event';
   readonly tenantId: TenantId;
+  /** As `RegisterCronTriggerInput.by`. */
+  readonly by: string;
   readonly flowId: string;
   readonly flowVersion: string;
   readonly config: EventTriggerConfig;
@@ -373,10 +428,12 @@ export interface RegisterEventTriggerInput {
 export interface RegisterWebhookTriggerInput {
   readonly kind: 'webhook';
   readonly tenantId: TenantId;
+  /** As `RegisterCronTriggerInput.by`. */
+  readonly by: string;
   /** The flow it starts, at an exact version. */
   readonly flowId: string;
   readonly flowVersion: string;
-  /** The trigger's project; absent → the tenant's default project. */
+  /** The trigger's project; absent → the workspace's default project. */
   readonly projectId?: ProjectId;
   /** Who its runs act as: the principal registering it. */
   readonly owner: TriggerOwner;
@@ -419,14 +476,31 @@ export interface RegisterWebhookTriggerInput {
 export interface RegisterMailTriggerInput {
   readonly kind: 'mail';
   readonly tenantId: TenantId;
+  /** As `RegisterCronTriggerInput.by`. */
+  readonly by: string;
   readonly target: MailTriggerTarget;
-  /** The trigger's project; absent → the tenant's default project. */
+  /** The trigger's project; absent → the workspace's default project. */
   readonly projectId?: ProjectId;
   /**
    * Who its runs act as: the principal registering it, or a service
    * account the route allowed. A `person` mailbox's owner is a person.
    */
   readonly owner: TriggerOwner;
+  /**
+   * Stored as given. The route has decided `mailbox.connectionId`. On the
+   * company's mailbox: one of the project's company connections of the
+   * app, the only one when none was named, or none when the project has
+   * none. On a person's: the owner's own live connection of the app, their
+   * main when none was named, else their only one, or none when they have
+   * none. A stored id is the connection the poller reads with. With none
+   * stored, its next read stores the one those rules give (a version,
+   * cause `pin`) and reads with it from then on; with several and none to
+   * pick, the trigger's `statusReason` is `connection-not-chosen` (on the
+   * company's the reason names them, on a person's it counts them), and it
+   * doesn't poll until someone points it at one, or on a person's, its
+   * owner makes one their main. A run's `mailbox.connectionId` is its
+   * trigger version's, fixed when the fire starts it.
+   */
   readonly config: MailTriggerConfig;
   readonly label?: string;
   /**
@@ -445,9 +519,15 @@ export type UpdateTriggerInput =
   | UpdateWebhookTriggerInput
   | UpdateMailTriggerInput;
 
+/**
+ * An update that changes the trigger's definition makes its next version
+ * (cause `edit`); one that changes nothing makes none.
+ */
 interface UpdateBase {
   readonly tenantId: TenantId;
   readonly triggerId: TriggerId;
+  /** Who made the change, as `RegisterCronTriggerInput.by`: the version it makes names them. */
+  readonly by: string;
   /** `null` clears the label; omitted leaves it unchanged. */
   readonly label?: string | null;
   /** Pin the trigger to a different flow version. */
@@ -491,7 +571,13 @@ export interface UpdateWebhookTriggerInput extends UpdateBase {
 
 export interface UpdateMailTriggerInput extends Omit<UpdateBase, 'flowVersion'> {
   readonly kind: 'mail';
-  /** The fields given replace the trigger's; `mailbox` is replaced whole. */
+  /**
+   * The fields given replace the trigger's; `mailbox` is replaced whole,
+   * its `connectionId` as the route decided it (as at registration).
+   * Another mailbox (the other app, the other `as`, or another
+   * `connectionId`, one where there was none too) with no `folder` drops
+   * the trigger's folder, so it watches the new mailbox's inbox.
+   */
   readonly config?: Partial<MailTriggerConfig>;
   /** Run something else: another agent or agent version, another flow version. */
   readonly target?: MailTriggerTarget;
@@ -509,6 +595,12 @@ interface TriggerRecordBase {
   readonly lastFiredAt: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
+  /**
+   * Its current version: the newest of its {@link TriggerVersionRecord}s,
+   * whose definition is this record's. Absent until its first (a trigger
+   * registered before versions has none until its first edit or fire).
+   */
+  readonly version?: number;
 }
 
 /** An event trigger or an inbound webhook starts a flow at an exact version. */
@@ -527,8 +619,21 @@ export interface CronTriggerRecord extends TriggerRecordBase {
   readonly overlap: ScheduleOverlap;
   readonly startingDeadlineSeconds: number;
   readonly nextFireAt: string | null;
-  /** Why the runtime paused it (repeated refused or failed fires; skipped ones never count), when it did. */
+  /**
+   * Why the runtime paused it, when it did: repeated refused or failed fires
+   * (skipped ones never count), or, for an `improve` schedule, at once
+   * `owner-lost-publish` (its owner no longer has `publish` on the agent;
+   * saving it with a new owner resumes it).
+   */
   readonly statusReason?: string;
+  /**
+   * For an `improve` schedule whose month's Improve runs have reached its
+   * monthly cap: when it starts again by itself (the 1st of next month, UTC).
+   * It stays `active`; its fires until then are `skipped`. Derived on read.
+   */
+  readonly pausedUntil?: string;
+  /** Why it waits until `pausedUntil`: its month's cap (`month-cap`). */
+  readonly pausedReason?: 'month-cap';
   /** The next occurrences, when the read asked for them (`GetTriggerInput.upcoming`). */
   readonly upcoming?: readonly string[];
   /**
@@ -580,13 +685,21 @@ export interface MailTriggerRecord extends TriggerRecordBase {
   /**
    * Why it isn't polling as it should: `connection-missing` (the mailbox's
    * connection is gone or lapsed; polls go on, and work again once it's
-   * back), `owner-refused` (its owner was removed or may no longer run the
-   * target; polls go on and read nothing until that changes or an admin
-   * takes it over), or why the runtime paused it.
+   * back), `connection-not-chosen` (it names no connection, and the
+   * project has several company connections of the app, which the reason
+   * names, or its owner has several and no main, which it counts; it
+   * doesn't poll until someone points it at one), `owner-refused` (its owner was
+   * removed or may no longer run the target; polls go on and read nothing
+   * until that changes or an admin takes it over), or why the runtime
+   * paused it.
    */
   readonly statusReason?: string;
-  /** The mailbox's account at its last poll. Absent before its first. */
-  readonly account?: { readonly id: string; readonly label: string };
+  /**
+   * The mailbox's account at its last poll. Absent before its first. On a
+   * person's mailbox that was taken over, only its `id`, until the next
+   * poll.
+   */
+  readonly account?: { readonly id: string; readonly label?: string };
   /** When it last polled the mailbox and got an answer. */
   readonly lastPolledAt?: string;
   /** As `CronTriggerRecord.toolsAllowedUnattended`. */
@@ -630,6 +743,141 @@ export interface GetTriggerInput {
 export interface TriggerLifecycleInput {
   readonly tenantId: TenantId;
   readonly triggerId: TriggerId;
+}
+
+// ---------- versions (discriminated on kind) ----------
+
+/**
+ * What made a version: `register` (version 1), `edit` (an update that
+ * changed the definition), `owner` (a take-ownership to another owner),
+ * `first-fire` (a trigger registered before versions, at its first fire or
+ * poll: its definition as it was), `unversioned-edit` (at a fire or poll,
+ * or just before an edit or take-ownership, a definition its newest version
+ * doesn't hold, as when a release from before versions changed it during
+ * an upgrade: the definition as it is), or `pin` (the runtime pinned a
+ * company mailbox to its only connection).
+ */
+export const TRIGGER_VERSION_CAUSES = [
+  'register',
+  'edit',
+  'owner',
+  'first-fire',
+  'unversioned-edit',
+  'pin',
+] as const;
+export type TriggerVersionCause = (typeof TRIGGER_VERSION_CAUSES)[number];
+
+/**
+ * A schedule's definition: the fields whose change makes a new version.
+ * Never its state (status, claims, next and last fire, counters).
+ */
+export type CronTriggerDefinition = Pick<
+  CronTriggerRecord,
+  | 'target'
+  | 'projectId'
+  | 'owner'
+  | 'config'
+  | 'catchUp'
+  | 'overlap'
+  | 'startingDeadlineSeconds'
+  | 'label'
+  | 'toolsAllowedUnattended'
+>;
+
+/** An event trigger's definition, as {@link CronTriggerDefinition}. */
+export type EventTriggerDefinition = Pick<
+  EventTriggerRecord,
+  'flowId' | 'flowVersion' | 'config' | 'label'
+>;
+
+/**
+ * A webhook trigger's definition, as {@link CronTriggerDefinition}: its
+ * secret by name only. Its `webhookId` is who it is, never edited.
+ */
+export type WebhookTriggerDefinition = Pick<
+  WebhookTriggerRecord,
+  | 'flowId'
+  | 'flowVersion'
+  | 'projectId'
+  | 'owner'
+  | 'config'
+  | 'hmacSecretName'
+  | 'hmacSecretScope'
+  | 'signature'
+  | 'deliveryIdHeader'
+  | 'bodyLimitBytes'
+  | 'rateLimitPerMinute'
+  | 'label'
+  | 'toolsAllowedUnattended'
+>;
+
+/** A mail trigger's definition, as {@link CronTriggerDefinition}. */
+export type MailTriggerDefinition = Pick<
+  MailTriggerRecord,
+  'target' | 'projectId' | 'owner' | 'config' | 'label' | 'toolsAllowedUnattended'
+>;
+
+interface TriggerVersionBase {
+  readonly triggerId: TriggerId;
+  /** From 1, one more for each version of the trigger. */
+  readonly version: number;
+  readonly createdAt: string;
+  /**
+   * Who made it: the `by` of the register, update or take-ownership.
+   * Absent only when the runtime made it (`first-fire`, `unversioned-edit`, `pin`).
+   */
+  readonly createdBy?: string;
+  readonly cause: TriggerVersionCause;
+}
+
+export interface CronTriggerVersionRecord extends TriggerVersionBase {
+  readonly kind: 'cron';
+  readonly definition: CronTriggerDefinition;
+}
+
+export interface EventTriggerVersionRecord extends TriggerVersionBase {
+  readonly kind: 'event';
+  readonly definition: EventTriggerDefinition;
+}
+
+export interface WebhookTriggerVersionRecord extends TriggerVersionBase {
+  readonly kind: 'webhook';
+  readonly definition: WebhookTriggerDefinition;
+}
+
+export interface MailTriggerVersionRecord extends TriggerVersionBase {
+  readonly kind: 'mail';
+  readonly definition: MailTriggerDefinition;
+}
+
+/**
+ * One version of a trigger: its definition as it was, who made it and
+ * why. Never changed once made, and kept with every input it had. A
+ * fire's start uses the newest (`TriggerFire.version`), and its run keeps
+ * that one (`RunTriggerRef.version`).
+ */
+export type TriggerVersionRecord =
+  | CronTriggerVersionRecord
+  | EventTriggerVersionRecord
+  | WebhookTriggerVersionRecord
+  | MailTriggerVersionRecord;
+
+export interface ListTriggerVersionsInput {
+  readonly tenantId: TenantId;
+  readonly triggerId: TriggerId;
+  readonly limit?: number;
+  readonly cursor?: Cursor;
+}
+
+export interface TriggerVersionPage {
+  readonly data: readonly TriggerVersionRecord[];
+  readonly nextCursor?: Cursor;
+}
+
+export interface GetTriggerVersionInput {
+  readonly tenantId: TenantId;
+  readonly triggerId: TriggerId;
+  readonly version: number;
 }
 
 // ---------- errors ----------

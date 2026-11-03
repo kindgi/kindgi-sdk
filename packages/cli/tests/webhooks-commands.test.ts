@@ -52,6 +52,27 @@ const FIRE = {
   outcome: 'refused',
   detail: 'signature-invalid',
 };
+const VERSIONS = {
+  data: [
+    {
+      triggerId: ID,
+      version: 2,
+      createdAt: '2026-10-11T00:00:00.000Z',
+      createdBy: 'u-1',
+      cause: 'edit',
+      definition: { flowId: 'acme.refund-review', flowVersion: '1.1.0' },
+    },
+    {
+      triggerId: ID,
+      version: 1,
+      createdAt: '2026-10-10T10:00:00.000Z',
+      cause: 'first-fire',
+      definition: { flowId: 'acme.refund-review', flowVersion: '1.0.0' },
+    },
+  ],
+  hasMore: true,
+  nextCursor: 'c-2',
+};
 
 async function webhooks(
   argv: readonly string[],
@@ -81,6 +102,8 @@ async function webhooks(
         webhooks: {
           list: record('list', { data: [trigger], hasMore: false }),
           get: record('get', trigger),
+          getVersion: record('getVersion', VERSIONS.data[0]),
+          versions: record('versions', VERSIONS),
           register: record('register', trigger),
           update: record('update', trigger),
           pause: record('pause', { ...trigger, status: 'paused' }),
@@ -443,6 +466,33 @@ describe('kindgi webhooks: the rest of the group', () => {
     expect(noneWithIds.calls).toEqual([]);
   });
 
+  test('update --clear-label takes the label off; an empty --label names it, and a label is saved trimmed', async () => {
+    const cleared = await webhooks(['update', ID, '--clear-label']);
+    expect(cleared.out.exitCode, cleared.out.stderr).toBe(0);
+    expect(cleared.calls).toEqual([['update', ID, { label: null }]]);
+    for (const empty of ['--label=', '--label= ']) {
+      const run = await webhooks(['update', ID, empty]);
+      expect(run.out.exitCode).toBe(2);
+      expect(run.out.stderr).toContain('--label takes a value: --clear-label clears it');
+      expect(run.calls).toEqual([]);
+    }
+    const both = await webhooks(['update', ID, '--label=x', '--clear-label']);
+    expect(both.out.exitCode).toBe(2);
+    expect(both.out.stderr).toContain('Give --label or --clear-label, not both');
+    expect(both.calls).toEqual([]);
+    const trimmed = await webhooks(['update', ID, '--label= x ']);
+    expect(trimmed.calls).toEqual([['update', ID, { label: 'x' }]]);
+    const help = (await webhooks(['update', '--help'])).out;
+    expect(help.stdout).toContain('--clear-label');
+    expect(help.stdout).toContain('Take the label off.');
+    // update's own --label help comes after the shared signature flags, so it wins there only.
+    expect(help.stdout).toContain('takes it off');
+    expect(help.stdout).not.toContain('A short label.');
+    const register = (await webhooks(['register', '--help'])).out;
+    expect(register.stdout).toContain('A short label.');
+    expect(register.stdout).not.toContain('takes it off');
+  });
+
   test('take-ownership names the tools the trigger keeps allowed unattended, when it lists any', async () => {
     const listed = await webhooks(['take-ownership', ID], {
       trigger: { ...TRIGGER, toolsAllowedUnattended: ['acme.refund'] },
@@ -477,5 +527,56 @@ describe('kindgi webhooks: the rest of the group', () => {
     });
     expect(taken.out.stderr).toContain('It keeps its tools allowed unattended (acme.refund)');
     expect(taken.out.stderr).not.toContain('now runs as');
+  });
+});
+
+describe('kindgi webhooks: versions', () => {
+  test("versions: a trigger's versions, paged; the table names who made each, or Kindgi", async () => {
+    const { out, calls } = await webhooks(['versions', ID, '--limit=2', '--cursor=c-1']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['versions', ID, { limit: 2, cursor: 'c-1' }]]);
+    expect(JSON.parse(out.stdout)).toEqual(VERSIONS);
+    const table = await webhooks(['versions', ID, '--table']);
+    expect(table.out.exitCode, table.out.stderr).toBe(0);
+    expect(table.out.stdout).toMatch(/^VERSION\s+CREATED\s+BY\s+CAUSE/);
+    expect(table.out.stdout).toMatch(/2\s+2026-10-11T00:00:00\.000Z\s+u-1\s+edit/);
+    expect(table.out.stdout).toMatch(/1\s+2026-10-10T10:00:00\.000Z\s+Kindgi\s+first-fire/);
+    expect(table.out.stderr).toContain('c-2');
+  });
+
+  test('get <trigger-id> <version> reads that version, without the receive URL', async () => {
+    const { out, calls } = await webhooks(['get', ID, '2']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['getVersion', ID, 2]]);
+    expect(JSON.parse(out.stdout)).toEqual(VERSIONS.data[0]);
+    expect(out.stderr).not.toContain(RECEIVE_URL);
+    const quiet = await webhooks(['get', ID, '2', '--quiet']);
+    expect([quiet.out.stdout, quiet.out.stderr]).toEqual(['', '']);
+    expect((await webhooks(['get', ID])).calls).toEqual([['get', ID]]);
+  });
+
+  test('get: a <version> that is not a whole number from 1 is refused before any call', async () => {
+    for (const bad of ['0', '01', '1.0.0', 'abc', '9007199254740993']) {
+      const { out, calls } = await webhooks(['get', ID, bad]);
+      expect(out.exitCode, bad).not.toBe(0);
+      expect(out.stderr).toContain(`<version> must be a whole number from 1, got "${bad}"`);
+      expect(calls).toEqual([]);
+    }
+  });
+
+  test("list --table: the VERSION column is the trigger's current version, empty before its first", async () => {
+    const versioned = await webhooks(['list', '--table'], { trigger: { ...TRIGGER, version: 3 } });
+    expect(versioned.out.exitCode, versioned.out.stderr).toBe(0);
+    expect(versioned.out.stdout).toMatch(/^ID\s+VERSION\s+FLOW/);
+    expect(versioned.out.stdout).toMatch(
+      new RegExp(`${ID}\\s+3\\s+acme\\.refund-review@1\\.0\\.0`),
+    );
+    const before = await webhooks(['list', '--table']);
+    expect(before.out.stdout).toMatch(new RegExp(`${ID}\\s+acme\\.refund-review@1\\.0\\.0`));
+  });
+
+  test('help lists versions', async () => {
+    const { out } = await webhooks(['--help']);
+    expect(out.stdout).toMatch(/^ {2}versions /m);
   });
 });

@@ -55,6 +55,11 @@ export type {
 } from './errors.js';
 
 // ============ Agent memory writes (the `remember` tool) ============
+export {
+  FACT_APPROVAL_SUBJECT,
+  MAX_REMEMBERED_TEXT,
+  rememberedTextProblem,
+} from './remember.js';
 export type {
   MemoryRememberBinding,
   RememberFactInput,

@@ -22,6 +22,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { RetentionLimits } from '../retention-binding.js';
 import type { AppEnv } from '../types.js';
+import { includeRetiredOf } from './include-retired.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { tenantResourceAccess } from './tenant-access.js';
@@ -90,9 +91,10 @@ export function policiesRouter(
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
       ...(kindRaw !== undefined && kindRaw.length > 0 && { policyKind: kindRaw as PolicyKind }),
       ...(nameRaw !== undefined && nameRaw.length > 0 && { nameFilter: nameRaw }),
+      ...includeRetiredOf(c),
     });
     return c.json({
-      data: page.data.map(serializePolicy),
+      data: page.data.map(serializePolicyVersionRow),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -460,8 +462,8 @@ function scopeError(
     const message = !retention
       ? `Policy "${heldBy}" already holds "${scope}" for ${policyKind} policies.`
       : action === 'publish'
-        ? `Retention domain "${scope}" is already covered by policy "${heldBy}": a tenant has one retention policy per domain, and one for "*". Publish a new version of "${heldBy}" instead, or unregister it first.`
-        : `Retention domain "${scope}" is now covered by policy "${heldBy}", so reinstating "${policyId}" ${version} would make two: a tenant has one retention policy per domain, and one for "*". Unregister "${heldBy}" first.`;
+        ? `Retention domain "${scope}" is already covered by policy "${heldBy}": a workspace has one retention policy per domain, and one for "*". Publish a new version of "${heldBy}" instead, or unregister it first.`
+        : `Retention domain "${scope}" is now covered by policy "${heldBy}", so reinstating "${policyId}" ${version} would make two: a workspace has one retention policy per domain, and one for "*". Unregister "${heldBy}" first.`;
     return {
       code: 'policy-scope-taken',
       message,

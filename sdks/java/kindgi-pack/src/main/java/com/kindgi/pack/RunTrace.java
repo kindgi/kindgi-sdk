@@ -31,7 +31,7 @@ public final class RunTrace {
     return text("runId");
   }
 
-  /** @return the tenant's id */
+  /** @return the workspace's id */
   public @Nullable String tenantId() {
     return text("tenantId");
   }

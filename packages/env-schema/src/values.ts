@@ -100,7 +100,7 @@ export const CONSOLE_LINKS_VAR = 'KINDGI_CONSOLE_LINKS';
 /** Which hops in front of the runtime to trust for the client's address: a hop count, or IPs/CIDRs. */
 export const TRUSTED_PROXIES_VAR = 'KINDGI_TRUSTED_PROXIES';
 
-/** Whether a tenant's admins may change its identity providers (`on` / `off`). */
+/** Whether a workspace's admins may change its identity providers (`on` / `off`). */
 export const AUTH_TENANT_PROVIDERS_VAR = 'KINDGI_AUTH_TENANT_PROVIDERS';
 
 /** A browser session's absolute lifetime, in milliseconds. */
@@ -135,7 +135,7 @@ export function parsePackServiceToken(raw: string | undefined): string | undefin
   return token;
 }
 
-/** The tenant a pack service serves: it refuses calls for any other (`KINDGI_PACK_TENANT_ID`). */
+/** The workspace a pack service serves: it refuses calls for any other (`KINDGI_PACK_TENANT_ID`). */
 export const PACK_TENANT_ID_VAR = 'KINDGI_PACK_TENANT_ID';
 
 const TENANT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -159,12 +159,12 @@ export function parsePackTenantId(raw: string | undefined): string | undefined {
   if (id === undefined || id === '') return undefined;
   if (!TENANT_UUID.test(id)) {
     throw new Error(
-      `${PACK_TENANT_ID_VAR} must be the tenant's id, a UUID such as 3f2b8c1e-4a5d-4e6f-9a0b-1c2d3e4f5a6b. Got a value that isn't one.`,
+      `${PACK_TENANT_ID_VAR} must be the workspace's id, a UUID such as 3f2b8c1e-4a5d-4e6f-9a0b-1c2d3e4f5a6b. Got a value that isn't one.`,
     );
   }
   if (id.toLowerCase() === NO_TENANT_ID) {
     throw new Error(
-      `${PACK_TENANT_ID_VAR} is ${NO_TENANT_ID}, the id no tenant has: no pack call carries it. Set the tenant's own id.`,
+      `${PACK_TENANT_ID_VAR} is ${NO_TENANT_ID}, the id no workspace has: no pack call carries it. Set the workspace's own id.`,
     );
   }
   return id;
@@ -291,6 +291,63 @@ export function packEndpointHostAllowed(
 }
 
 /**
+ * The key a deployment's pack endpoint token is sealed under, with
+ * `KINDGI_PACK_ROUTING=per-deployment` (`KINDGI_PACK_ENDPOINT_KMS_KEY`).
+ */
+export const PACK_ENDPOINT_KMS_KEY_VAR = 'KINDGI_PACK_ENDPOINT_KMS_KEY';
+
+/** The key `KINDGI_PACK_ENDPOINT_KMS_KEY` names: a Cloud KMS key, or a Key Vault key. */
+export type PackEndpointKmsKey =
+  | {
+      readonly provider: 'gcp';
+      readonly projectId: string;
+      readonly locationId: string;
+      readonly keyRingId: string;
+      readonly cryptoKeyId: string;
+    }
+  | { readonly provider: 'azure'; readonly keyUrl: string };
+
+const CLOUD_KMS_KEY =
+  /^projects\/([^/\s]+)\/locations\/([^/\s]+)\/keyRings\/([\w-]{1,63})\/cryptoKeys\/([\w-]{1,63})(?:\/cryptoKeyVersions\/([^/\s]*))?\/?$/;
+
+/**
+ * Parse `KINDGI_PACK_ENDPOINT_KMS_KEY`: a Cloud KMS key's full name
+ * (`projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>`) or a Key Vault
+ * key's URL (`https://<vault>.vault.azure.net/keys/<name>`), each without a
+ * version: a token is sealed with the key's current version, and records
+ * the one it used, so a pinned version would outlive the key's rotation.
+ * Its form picks the provider. Unset or blank: `undefined`. Throws on any
+ * other value, naming both forms.
+ */
+export function parsePackEndpointKmsKey(raw: string | undefined): PackEndpointKmsKey | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const value = raw.trim();
+  if (value.startsWith('https://')) {
+    const key = keyVaultKey(
+      value,
+      PACK_ENDPOINT_KMS_KEY_VAR,
+      'kindgi-pack-endpoints',
+      'new tokens are sealed',
+    );
+    return { provider: 'azure', keyUrl: key.keyUrl };
+  }
+  const gcp = CLOUD_KMS_KEY.exec(value);
+  if (gcp === null) {
+    throw new Error(
+      `${PACK_ENDPOINT_KMS_KEY_VAR} must be a Cloud KMS key's full name (projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>) or a Key Vault key's URL (https://<vault>.vault.azure.net/keys/<name>), without a version. Got: ${value}.`,
+    );
+  }
+  // Groups 1-4 are always there when it matches.
+  const [, projectId = '', locationId = '', keyRingId = '', cryptoKeyId = '', version] = gcp;
+  if (version !== undefined) {
+    throw new Error(
+      `${PACK_ENDPOINT_KMS_KEY_VAR} names one version of the key (${version}). Give the key without it, projects/${projectId}/locations/${locationId}/keyRings/${keyRingId}/cryptoKeys/${cryptoKeyId}: new tokens are sealed with the key's current version, so a pinned version would outlive the key's rotation.`,
+    );
+  }
+  return { provider: 'gcp', projectId, locationId, keyRingId, cryptoKeyId };
+}
+
+/**
  * Parse `KINDGI_CORS_ORIGINS`: comma-separated exact origins
  * (`https://app.example.com`, `http://localhost:3000`): a scheme, a host
  * and an optional port; no path, no trailing slash, no wildcard. Unset or
@@ -363,7 +420,15 @@ export interface AzureKeyId {
  */
 export function parseAzureKeyId(raw: string | undefined): AzureKeyId | undefined {
   if (raw === undefined || raw.trim() === '') return undefined;
-  const value = raw.trim();
+  return keyVaultKey(raw.trim(), AZURE_KEY_ID_VAR, 'kindgi-secrets', 'new secrets are wrapped');
+}
+
+/**
+ * A Key Vault key's URL without a version, as `name` gives it, or an
+ * error naming `name`. `example` is the key name the error shows, and
+ * `uses` says what the key's current version does.
+ */
+function keyVaultKey(value: string, name: string, example: string, uses: string): AzureKeyId {
   let url: URL | undefined;
   try {
     url = new URL(value);
@@ -383,13 +448,13 @@ export function parseAzureKeyId(raw: string | undefined): AzureKeyId | undefined
     !/^[0-9A-Za-z-]{1,127}$/.test(path[1] ?? '')
   ) {
     throw new Error(
-      `${AZURE_KEY_ID_VAR} must be a Key Vault key's URL without a version, like https://my-vault.vault.azure.net/keys/kindgi-secrets. Got: ${value}.`,
+      `${name} must be a Key Vault key's URL without a version, like https://my-vault.vault.azure.net/keys/${example}. Got: ${value}.`,
     );
   }
   const version = path[2];
   if (version !== undefined && version !== '') {
     throw new Error(
-      `${AZURE_KEY_ID_VAR} names one version of the key (${version}). Give the key without it, ${url.origin}/keys/${path[1]}: new secrets are wrapped with the key's current version, so a pinned version would outlive the key's rotation.`,
+      `${name} names one version of the key (${version}). Give the key without it, ${url.origin}/keys/${path[1]}: ${uses} with the key's current version, so a pinned version would outlive the key's rotation.`,
     );
   }
   const keyName = path[1] as string;

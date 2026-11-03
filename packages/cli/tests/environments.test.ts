@@ -33,7 +33,7 @@ const PROJECTS = [
   { id: 'p-default', name: 'Default', slug: 'default', isDefault: true },
 ];
 
-/** prod maps to the Default's slug — the Default is ordered like any project. */
+/** prod maps to the default's slug — the default is ordered like any project. */
 const CONFIG = {
   environments: {
     staging: { project: 'staging' },
@@ -95,7 +95,7 @@ async function run(
 }
 
 describe('projectOfEnv', () => {
-  test("reads environments.<name>.project, the Default's slug like any other", () => {
+  test("reads environments.<name>.project, the default's slug like any other", () => {
     expect(projectOfEnv(CONFIG, 'prod')).toBe('default');
     expect(projectOfEnv(CONFIG, 'staging')).toBe('staging');
   });
@@ -108,7 +108,7 @@ describe('projectOfEnv', () => {
 });
 
 describe('kindgi environments set', () => {
-  test('resolves environment names through the pack config; the Default can be last', async () => {
+  test('resolves environment names through the pack config; the default can be last', async () => {
     const { out, calls } = await run(['environments', 'set', 'staging', 'prod'], {
       projects: PROJECTS,
       config: CONFIG,

@@ -106,7 +106,7 @@ describe("a tenant policy the turn can't evaluate as it sets up", () => {
       expect(error).toBeInstanceOf(AgentTurnFailure);
       expect((error as AgentTurnFailure).payload).toEqual({
         code: 'tenant-policy-unavailable',
-        message: `The tenant's ${kind} policy could not be applied: policy store unreachable`,
+        message: `The workspace's ${kind} policy could not be applied: policy store unreachable`,
         policyKind: kind,
       });
       expect(hydrated()).toBe(0);
