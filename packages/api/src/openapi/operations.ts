@@ -12571,22 +12571,42 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/connections/:connectionId/choices',
+    openapiPath: '/v1/connections/{connectionId}/choices',
+    operationId: 'connections.choices',
+    summary: "List a connection's choices",
+    description:
+      "The live choices that name the connection, in every project of this server's environment: as `connectionId`, or in a set. Whoever the connection reaches: its owner or a tenant admin. Anyone else gets the `404` of a connection that doesn't exist.",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [ConnectionIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of choices.', schema: ref('ConnectionChoicePage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('`connectionId` is not a UUID (`bad-input`).'),
+      '404': ErrorResponse(
+        "No connection with that id, or not the caller's (`connection-not-found`).",
+      ),
+    },
+  },
+  {
     method: 'patch',
     honoPath: '/v1/connections/:connectionId',
     openapiPath: '/v1/connections/{connectionId}',
     operationId: 'connections.update',
-    summary: 'Rename a connection',
+    summary: 'Rename a connection, or make it your main',
     description:
-      "Changes its `label`, the name people know it by. Whoever may disconnect it: its owner or a tenant admin. Anyone else gets the `404` of a connection that doesn't exist.",
+      "One change. `label` renames it, the name people know it by: whoever may disconnect it, its owner or a tenant admin. `main: true` makes it its owner's main connection of its app through its registration and env, in place of the one that was, audited as `connection-main-set`: its owner alone, and only a person's. Making the main main again answers it as it is. A main never moves a mail trigger's stored connection. Anyone else gets the `404` of a connection that doesn't exist.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [ConnectionIdPathParam, IdempotencyKeyParam],
     requestBody: { required: true, schema: ref('UpdateConnectionBody') },
     responses: {
-      '200': { description: 'The connection, renamed.', schema: ref('Connection') },
+      '200': { description: 'The connection, renamed or made main.', schema: ref('Connection') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "`connectionId` is not a UUID, or a malformed body, unknown field or a `label` that isn't 1 to 100 characters with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators) (`bad-input`, `details.field`).",
+        "`connectionId` is not a UUID, or a malformed body, unknown field, both `label` and `main`, or a `label` that isn't 1 to 100 characters with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators) (`bad-input`, `details.field`). With `main` (`details.field` `main`): `false`, since a main moves only by making another connection main; the company's connection, which has no main; or a caller who isn't its owner, a tenant admin too.",
       ),
       '404': ErrorResponse(
         "No connection with that id, it was disconnected, or it's not the caller's (`connection-not-found`).",
@@ -12629,7 +12649,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connectionChoices.list',
     summary: 'List connection choices',
     description:
-      "The project's live choices in this server's environment: which company connection each agent or flow uses for an app. The project's members may read them (`read` on the project). Removed choices, a choice's history, are listed only with `includeRemoved=true`. A choice of a connection that's since been disconnected stays listed until it's set again or removed.",
+      "The project's live choices in this server's environment: which connection each agent or flow, or one of its tools, uses for an app. The project's members may read them (`read` on the project): the company's, and their own. A tenant admin reads every person's too; with `owner=me`, anyone reads their own alone. Removed choices, a choice's history, are listed only with `includeRemoved=true`. A choice of a connection that's since been disconnected stays listed until it's set again or removed.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [
@@ -12662,6 +12682,20 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: { type: 'string' },
       },
       {
+        name: 'toolId',
+        in: 'query',
+        required: false,
+        description: "Only this tool's own choices.",
+        schema: { type: 'string' },
+      },
+      {
+        name: 'owner',
+        in: 'query',
+        required: false,
+        description: "`me`: only the caller's own, even for a tenant admin.",
+        schema: { type: 'string', enum: ['me'] },
+      },
+      {
         name: 'includeRemoved',
         in: 'query',
         required: false,
@@ -12675,7 +12709,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Page of choices.', schema: ref('ConnectionChoicePage') },
       ...CommonAuthErrors,
       '400': ErrorResponse(
-        'No `projectId`, or one that is not a UUID; an `app` that is not an entry id; both `agentId` and `flowId`; or an `includeRemoved` other than `true` or `false` (`bad-input`).',
+        'No `projectId`, or one that is not a UUID; an `app` that is not an entry id; both `agentId` and `flowId`; an `owner` other than `me`; or an `includeRemoved` other than `true` or `false` (`bad-input`).',
       ),
       '403': ErrorResponse('Not a member of the project (`permission-denied`).'),
     },
@@ -12687,7 +12721,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connectionChoices.set',
     summary: 'Choose a connection',
     description:
-      "Chooses which company connection an agent or a flow uses, in the project and this server's environment, for the connection's app. The project's admins only (`admin` on the project). The connection must be one of the project's candidates (`GET /v1/connection-choices/candidates`). Choosing the connection already chosen answers that choice as it is. Choosing another removes that choice and makes a new one at the next `version`, in one step.",
+      "Chooses which connection an agent or a flow uses, in the project and this server's environment, for the connection's app; with `toolId`, which one that tool uses, ahead of the agent's or flow's. A tool's choice may be a set (`connectionIds`): a call of a tool that changes nothing names one of them, by name, else uses `connectionId`. A company choice is the project's admins' (`admin` on the project). A person's (`person`) is that person's alone, for their own runs, and needs only what running the agent or flow does. The connection must be a candidate (`GET /v1/connection-choices/candidates`, with `owner=me` for your own). Choosing the connection already chosen answers that choice as it is. Choosing another removes that choice and makes a new one at the next `version`, in one step.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -12696,11 +12730,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The choice.', schema: ref('ConnectionChoice') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "A malformed body or unknown field; a `projectId` or `connectionId` that is not a UUID; both `agentId` and `flowId`, or neither; or a person's own live connection in this environment, which is used for them (`bad-input`, `details.field`).",
+        "A malformed body or unknown field; a `projectId` or `connectionId` that is not a UUID; both `agentId` and `flowId`, or neither; a person's own connection in a company choice; a `person` who isn't the caller; a `toolId` the agent or flow has no tool of the app by; a `need` that's missing for a tool that uses the app twice, or one the tool doesn't have; or a set that isn't for one tool, isn't 2 to 10 different connections with the default among them, is for a tool that changes things, may send what it reads elsewhere (`sensitive-data-egress`) or has its own `accounts` input, or has a member with no name (`bad-input`, `details.field`).",
       ),
-      '403': ErrorResponse('Not an admin of the project (`permission-denied`).'),
+      '403': ErrorResponse(
+        "A company choice by a caller who isn't an admin of the project, or a person's by one who may not run its agent or flow (`permission-denied`).",
+      ),
       '404': ErrorResponse(
-        "No such project (`project-not-found`); the agent or flow isn't one of the project's (`agent-not-found`, `flow-not-found`); or the connection isn't one of the project's candidates, the same answer as for one that doesn't exist (`connection-not-found`, `details.field` `connectionId`).",
+        "No such project (`project-not-found`); the agent or flow isn't one of the project's (`agent-not-found`, `flow-not-found`); or a connection isn't a candidate, the same answer as for one that doesn't exist (`connection-not-found`, `details.field` `connectionId` or `connectionIds`).",
       ),
       '503': ErrorResponse(
         "The choice couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
@@ -12714,7 +12750,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connectionChoices.remove',
     summary: 'Remove a connection choice',
     description:
-      "Removes a live choice. It's kept, with `removedAt` and `removedBy`: `GET /v1/connection-choices?includeRemoved=true` lists it. The admins of its project only (`admin` on the project).",
+      "Removes a live choice. It's kept, with `removedAt` and `removedBy`: `GET /v1/connection-choices?includeRemoved=true` lists it. A company choice: the admins of its project only (`admin` on the project). A person's: that person alone; to anyone else it's not found.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [
@@ -12733,7 +12769,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse('`choiceId` is not a UUID (`bad-input`).'),
       '403': ErrorResponse("Reads its project, but isn't an admin of it (`permission-denied`)."),
       '404': ErrorResponse(
-        "No live choice with that id in this environment: unknown, already removed, or in a project the caller can't read (`connection-choice-not-found`).",
+        "No live choice with that id in this environment: unknown, already removed, in a project the caller can't read, or another person's (`connection-choice-not-found`).",
       ),
       '503': ErrorResponse(
         "The removal couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
@@ -12747,7 +12783,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connectionChoices.candidates',
     summary: 'List connection candidates',
     description:
-      "The company connections a choice in the project may name: live ones, working or needing a reconnect, in this server's environment, on a live registration that allows the project. The project's admins read each in full; its members read `connectionId` and `name` only (`read` on the project).",
+      "The connections a choice in the project may name: live ones, working or needing a reconnect, in this server's environment, on a live registration that allows the project. The company's: the project's admins read each in full, and its members read `connectionId` and `name` only (`read` on the project). With `owner=me`, the caller's own instead, in full, with `main`.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [
@@ -12765,6 +12801,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
         description: "Only this app's (its entry id).",
         schema: { type: 'string' },
       },
+      {
+        name: 'owner',
+        in: 'query',
+        required: false,
+        description: "`me`: only the caller's own, even for a tenant admin.",
+        schema: { type: 'string', enum: ['me'] },
+      },
       LimitQueryParam,
       CursorQueryParam,
     ],
@@ -12772,9 +12815,61 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Page of candidates.', schema: ref('ConnectionCandidatePage') },
       ...CommonAuthErrors,
       '400': ErrorResponse(
-        'No `projectId`, or one that is not a UUID; or an `app` that is not an entry id (`bad-input`).',
+        'No `projectId`, or one that is not a UUID; an `app` that is not an entry id; or an `owner` other than `me` (`bad-input`).',
       ),
       '403': ErrorResponse('Not a member of the project (`permission-denied`).'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/connection-choices/needs',
+    openapiPath: '/v1/connection-choices/needs',
+    operationId: 'connectionChoices.needs',
+    summary: 'List what a choice may be for',
+    description:
+      "Each of an agent's or flow's tools' connections, at the version it resolves now: the tool, its name for the connection (`need`), the app and whose (`as`), and whether a choice for it may be a set (`set.allowed`, else `set.reason`: `changes`, `sensitive-data-egress` or `accounts-input`). A tool whose version couldn't be read is listed in `unread`. The project's members (`read` on the project).",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'projectId',
+        in: 'query',
+        required: true,
+        description: 'The project.',
+        schema: { type: 'string', format: 'uuid' },
+      },
+      {
+        name: 'agentId',
+        in: 'query',
+        required: false,
+        description: 'The agent; or `flowId`, one of them.',
+        schema: { type: 'string' },
+      },
+      {
+        name: 'flowId',
+        in: 'query',
+        required: false,
+        description: 'The flow; or `agentId`, one of them.',
+        schema: { type: 'string' },
+      },
+      {
+        name: 'app',
+        in: 'query',
+        required: false,
+        description: "Only this app's (its entry id).",
+        schema: { type: 'string' },
+      },
+    ],
+    responses: {
+      '200': { description: 'The needs.', schema: ref('ConnectionChoiceNeeds') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        'No `projectId`, or one that is not a UUID; an `app` that is not an entry id; or both or neither of `agentId` and `flowId` (`bad-input`).',
+      ),
+      '403': ErrorResponse('Not a member of the project (`permission-denied`).'),
+      '404': ErrorResponse(
+        "The agent or flow isn't one of the project's (`agent-not-found`, `flow-not-found`).",
+      ),
     },
   },
   {

@@ -112,7 +112,11 @@ export interface TriggerRegistryBinding {
   /**
    * Make `owner` the principal a schedule's runs act as (an admin re-owns
    * a schedule whose owner left). A new owner makes the trigger's next
-   * version (cause `owner`); the owner it already has makes none.
+   * version (cause `owner`); the owner it already has makes none. On a
+   * mail trigger that reads a person's mailbox, a new owner clears the
+   * stored `mailbox.connectionId` and the label of the account it last
+   * read, both the previous owner's: `account` keeps only its id until the
+   * next poll stores the new owner's.
    * Optional: without it, the route answers `501`.
    */
   setOwner?(
@@ -483,16 +487,19 @@ export interface RegisterMailTriggerInput {
    */
   readonly owner: TriggerOwner;
   /**
-   * Stored as given. On the company's mailbox the route has decided
-   * `mailbox.connectionId`: one of the project's company connections of
-   * the app, the only one when none was named, or none when the project
-   * has none. A stored id is the connection the poller reads with. With
-   * none stored, its next read stores the project's one company connection
-   * of the app (a version, cause `pin`) and reads with it from then on;
-   * with several, the trigger's `statusReason` is `connection-not-chosen`
-   * (the reason names them), and it doesn't poll until someone points it
-   * at one. A run's `mailbox.connectionId` is its trigger version's, fixed
-   * when the fire starts it.
+   * Stored as given. The route has decided `mailbox.connectionId`. On the
+   * company's mailbox: one of the project's company connections of the
+   * app, the only one when none was named, or none when the project has
+   * none. On a person's: the owner's own live connection of the app, their
+   * main when none was named, else their only one, or none when they have
+   * none. A stored id is the connection the poller reads with. With none
+   * stored, its next read stores the one those rules give (a version,
+   * cause `pin`) and reads with it from then on; with several and none to
+   * pick, the trigger's `statusReason` is `connection-not-chosen` (on the
+   * company's the reason names them, on a person's it counts them), and it
+   * doesn't poll until someone points it at one, or on a person's, its
+   * owner makes one their main. A run's `mailbox.connectionId` is its
+   * trigger version's, fixed when the fire starts it.
    */
   readonly config: MailTriggerConfig;
   readonly label?: string;
@@ -678,16 +685,21 @@ export interface MailTriggerRecord extends TriggerRecordBase {
   /**
    * Why it isn't polling as it should: `connection-missing` (the mailbox's
    * connection is gone or lapsed; polls go on, and work again once it's
-   * back), `connection-not-chosen` (it names no company connection and the
-   * project has several of the app, which the reason names; it doesn't
-   * poll until someone points it at one), `owner-refused` (its owner was
+   * back), `connection-not-chosen` (it names no connection, and the
+   * project has several company connections of the app, which the reason
+   * names, or its owner has several and no main, which it counts; it
+   * doesn't poll until someone points it at one), `owner-refused` (its owner was
    * removed or may no longer run the target; polls go on and read nothing
    * until that changes or an admin takes it over), or why the runtime
    * paused it.
    */
   readonly statusReason?: string;
-  /** The mailbox's account at its last poll. Absent before its first. */
-  readonly account?: { readonly id: string; readonly label: string };
+  /**
+   * The mailbox's account at its last poll. Absent before its first. On a
+   * person's mailbox that was taken over, only its `id`, until the next
+   * poll.
+   */
+  readonly account?: { readonly id: string; readonly label?: string };
   /** When it last polled the mailbox and got an answer. */
   readonly lastPolledAt?: string;
   /** As `CronTriggerRecord.toolsAllowedUnattended`. */

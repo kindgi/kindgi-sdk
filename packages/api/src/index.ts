@@ -1053,6 +1053,7 @@ export type {
 } from './cost-binding.js';
 export type {
   ConnectFinishInput,
+  ConnectFinishMain,
   ConnectFinishOutcome,
   ConnectRequestCreateInput,
   ConnectRequestInstallation,
@@ -1065,6 +1066,8 @@ export type {
   ConnectionCandidateListInput,
   ConnectionCandidateRecord,
   ConnectionChoiceListInput,
+  ConnectionChoiceNeedRecord,
+  ConnectionChoiceNeeds,
   ConnectionChoiceRecord,
   ConnectionChoiceSetInput,
   ConnectionChoiceTarget,
@@ -1075,6 +1078,7 @@ export type {
   ConnectionPage,
   ConnectionRecord,
   ConnectionRemovedReason,
+  ConnectionSetRefusal,
   ConnectionState,
   ConnectionWithdrawn,
   SecretRefInput,

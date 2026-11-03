@@ -28,6 +28,8 @@ export interface ConnectionRow {
   readonly account?: string;
   /** `company`, or the person's user id. */
   readonly whose?: string;
+  /** The person's main connection at its app. */
+  readonly main?: boolean;
 }
 
 export type ConnectionResolution =
@@ -154,22 +156,26 @@ export async function listConnectionRows(
     app: c.app,
     account: c.account.label,
     whose: c.owner.kind === 'company' ? 'company' : (c.owner.userId ?? 'member'),
+    ...(c.main === true && { main: true }),
   }));
 }
 
 /**
  * Every company connection a choice in the project may name (at `app`). A
- * project member who isn't an admin gets only each one's id and name.
+ * project member who isn't an admin gets only each one's id and name. With
+ * `owner: 'me'`, the caller's own instead, in full.
  */
 export async function listCandidateRows(
   client: KindgiClient,
   projectId: string,
   app?: string,
+  owner?: 'me',
 ): Promise<ConnectionRow[]> {
   const all = await everyPage((cursor) =>
     client.connectionChoices.candidates({
       projectId,
       ...(app !== undefined && { app }),
+      ...(owner !== undefined && { owner }),
       ...(cursor !== undefined && { cursor }),
     }),
   );
@@ -178,7 +184,8 @@ export async function listCandidateRows(
     name: c.name,
     ...(c.app !== undefined && { app: c.app }),
     ...(c.accountLabel !== undefined && { account: c.accountLabel }),
-    whose: 'company',
+    ...(owner === undefined && { whose: 'company' }),
+    ...(c.main === true && { main: true }),
   }));
 }
 
@@ -192,6 +199,12 @@ export function connectionsListed(app: string | undefined): () => string {
 export function candidatesListed(rows: readonly ConnectionRow[]): string {
   if (rows.length === 0) return 'This project has no company connection a choice can name.';
   return `This project's company connections: ${rows.map((r) => r.name).join(', ')}.`;
+}
+
+/** A name that matches none of the caller's own candidates in the project: they're named here. */
+export function ownCandidatesListed(rows: readonly ConnectionRow[]): string {
+  if (rows.length === 0) return 'You have no connection of your own this project can use.';
+  return `Your own connections: ${rows.map((r) => r.name).join(', ')}.`;
 }
 
 /**

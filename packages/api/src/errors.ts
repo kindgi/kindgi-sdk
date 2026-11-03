@@ -734,13 +734,16 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
    */
   'connection-label-taken': 409,
   /**
-   * A call needs a company connection of an app, the project has several
-   * in the env, and the agent or flow has no choice of one: the turn
-   * fails. `details.choices` names them. Or a mail trigger's create or
-   * patch puts it on the company's mailbox with no
-   * `config.mailbox.connectionId` and the project has several of the app:
-   * `details.choices` lists them (`{connectionId, name}`, sorted by name),
-   * `details.field` is `config.mailbox.connectionId`, and nothing changes.
+   * A call needs a connection of an app, there are several in the env,
+   * and nothing picks one: the turn fails. A company need's names them in
+   * `details.choices`; a person's counts them in the message and lists
+   * none. Or a mail trigger's create or patch names no
+   * `config.mailbox.connectionId`, and on the company's mailbox the
+   * project has several of the app: `details.choices` lists them
+   * (`{connectionId, name}`, sorted by name). On a person's, its owner has
+   * several and no main: the message counts them, and lists none. Either
+   * way `details.field` is `config.mailbox.connectionId`, and nothing
+   * changes.
    */
   'connection-not-chosen': 409,
   /**

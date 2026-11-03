@@ -111,6 +111,14 @@ export interface ConnectionRecord {
    * names; show `account.label` then.
    */
   readonly label?: string;
+  /**
+   * A person's connection that is their main one through its registration
+   * in its env: their agents use it when nothing chooses another. Only ever
+   * `true`; absent on every other connection, the company's too. A person's
+   * first connection gets no main; their second connect makes the first
+   * one main.
+   */
+  readonly main?: boolean;
   /** The entry's permission keys the app granted. */
   readonly permissions: readonly string[];
   readonly state: ConnectionState;
@@ -211,9 +219,11 @@ export type ConnectionChoiceTarget =
   | { readonly flowId: string; readonly agentId?: never };
 
 /**
- * Which company connection an agent (or a flow) uses for an app in a
- * project, in one env. Never changed: a change removes it and makes a new
- * one at the next version.
+ * Which connection an agent (or a flow) uses for an app in a project, in
+ * one env: the company's choice, or a person's own (`person`) for the runs
+ * that act for them. With `toolId`, it's for that tool's need alone and
+ * comes before the agent's own choice. Never changed: a change removes it
+ * and makes a new one at the next version.
  */
 export type ConnectionChoiceRecord = ConnectionChoiceTarget & {
   readonly choiceId: string;
@@ -222,8 +232,21 @@ export type ConnectionChoiceRecord = ConnectionChoiceTarget & {
   readonly envName: EnvName;
   /** The app's entry id (`google`): the connection's. */
   readonly app: string;
+  /** The tool it's for, with `need`; absent: every tool of the agent or flow that uses the app. */
+  readonly toolId?: string;
+  /** The tool's name for the connection (a key of its `needs.connections`), with `toolId`. */
+  readonly need?: string;
+  /** The chosen connection; with `connectionIds`, the set's default. */
   readonly connectionId: string;
-  /** From 1, per project, env, agent or flow, and app. */
+  /**
+   * A set (2 to 10, `connectionId` among them) for a read tool: each call
+   * names the one it reads (the model's `accounts` input), and one that
+   * names none reads `connectionId`.
+   */
+  readonly connectionIds?: readonly string[];
+  /** A person's own choice: it names their connections, and only their runs read it. Absent: the company's. */
+  readonly person?: { readonly userId: string };
+  /** From 1, per project, env, agent or flow, app, tool and need, and person. */
   readonly version: number;
   readonly createdAt: string;
   readonly createdBy: string;
@@ -231,7 +254,7 @@ export type ConnectionChoiceRecord = ConnectionChoiceTarget & {
   readonly removedBy?: string;
 };
 
-/** A company connection a choice in a project may name. */
+/** A connection a choice in a project may name: a company one, or a person's own for their choices. */
 export interface ConnectionCandidateRecord {
   readonly connectionId: string;
   /** Its label, else its account's label. */
@@ -239,6 +262,38 @@ export interface ConnectionCandidateRecord {
   readonly app: string;
   readonly accountLabel: string;
   readonly state: ConnectionState;
+  /** A person's main one (`ConnectionRecord.main`). */
+  readonly main?: boolean;
+}
+
+/** Why a tool's need can't take a set of connections. */
+export type ConnectionSetRefusal = 'changes' | 'sensitive-data-egress' | 'accounts-input';
+
+/**
+ * A need of one of an agent's or flow's tools, at the version it resolves
+ * to now: what a choice for the tool names, and whether it may be a set.
+ */
+export interface ConnectionChoiceNeedRecord {
+  readonly toolId: string;
+  /** The tool's name for the connection. */
+  readonly need: string;
+  readonly app: string;
+  /** Whose account the need uses: a person's own, or the company's. */
+  readonly as: 'company' | 'person';
+  /**
+   * Whether a choice for it may hold several connections: only a read
+   * tool's (`mutating: false` and no changing effect), that doesn't
+   * declare `sensitive-data-egress` and has no `accounts` input of its own.
+   */
+  readonly set:
+    | { readonly allowed: true }
+    | { readonly allowed: false; readonly reason: ConnectionSetRefusal };
+}
+
+/** An agent's or flow's needs; `unread` names its tools whose version couldn't be read. */
+export interface ConnectionChoiceNeeds {
+  readonly data: readonly ConnectionChoiceNeedRecord[];
+  readonly unread?: readonly string[];
 }
 
 /** The codes a `ConnectionBinding` refuses with. The routes answer them in the error body's `code`. */
@@ -323,6 +378,17 @@ export interface ConnectionChoiceListInput {
   readonly agentId?: string;
   readonly flowId?: string;
   readonly app?: string;
+  /** Only the choices for this tool. */
+  readonly toolId?: string;
+  /**
+   * Whose choices: the company's (`company`), and a person's own
+   * (`person: {userId}`) or every person's (`person: 'every'`). Absent:
+   * the company's only.
+   */
+  readonly owners?: {
+    readonly company: boolean;
+    readonly person?: { readonly userId: string } | 'every';
+  };
   /** Removed choices too: a choice's history. */
   readonly includeRemoved?: boolean;
   readonly limit: number;
@@ -333,7 +399,16 @@ export type ConnectionChoiceSetInput = ConnectionChoiceTarget & {
   readonly tenantId: TenantId;
   readonly projectId: ProjectId;
   readonly envName: EnvName;
+  /** The choice's connection; with `connectionIds`, the set's default, one of them. */
   readonly connectionId: string;
+  /** For this tool's need alone. */
+  readonly toolId?: string;
+  /** The tool's name for the connection; may be left out when the tool has one need of the app. */
+  readonly need?: string;
+  /** A set, 2 to 10, for a read tool's need (`toolId`). */
+  readonly connectionIds?: readonly string[];
+  /** A person's own choice, made by that person: their connections only. */
+  readonly person?: { readonly userId: string };
   readonly by: PrincipalRef;
 };
 
@@ -342,6 +417,8 @@ export interface ConnectionCandidateListInput {
   readonly projectId: ProjectId;
   readonly envName: EnvName;
   readonly app?: string;
+  /** That person's own connections instead of the company's. */
+  readonly person?: { readonly userId: string };
   readonly limit: number;
   readonly cursor?: Cursor;
 }
@@ -383,6 +460,11 @@ export interface ConnectFinishInput {
   readonly errorDescription?: string;
 }
 
+/** What a person's connect of another account did to their main one. */
+export type ConnectFinishMain =
+  | { readonly state: 'set' | 'kept'; readonly connectionId: string }
+  | { readonly state: 'missing' };
+
 export type ConnectFinishOutcome =
   | {
       readonly kind: 'connected';
@@ -400,6 +482,14 @@ export type ConnectFinishOutcome =
        * named the first free `<name> 2`, `<name> 3`, and so on instead.
        */
       readonly labelTaken?: string;
+      /**
+       * A person's new connection of another account, when they already
+       * had one through the registration: `set`, the one they had
+       * (`connectionId`) is now their main; `kept`, `connectionId` stays
+       * their main; `missing`, none of theirs is main, so they make one.
+       * Absent for their first connection, a reconnect, and the company's.
+       */
+      readonly main?: ConnectFinishMain;
     }
   /** The person declined, or granted less than asked (`request.missing`). */
   | { readonly kind: 'declined'; readonly request: ConnectRequestRecord }
@@ -467,16 +557,22 @@ export interface ConnectionBinding {
     readonly by: PrincipalRef;
   }): Promise<Result<ConnectionRecord, ConnectionError>>;
   /**
-   * Renames it. A label another live connection of the same app, owner and
-   * env has, by `comparableName` (names that look the same), is
+   * Renames it (`label`), or makes a person's connection their main one
+   * (`main`), or both. A label another live connection of the same app,
+   * owner and env has, by `comparableName` (names that look the same), is
    * `connection-label-taken`; a removed connection is
-   * `connection-not-found`.
+   * `connection-not-found`. `main` on a company connection is `bad-input`
+   * (`main`); on a person's, their main one through the registration in
+   * the env moves to it, in one step: the main already is answered as it
+   * is. The route has already checked the caller is the person. A main
+   * never moves a mail trigger: one stores its own connection.
    */
   update(input: {
     readonly tenantId: TenantId;
     readonly connectionId: string;
     /** Trimmed, 1 to 100 characters. */
-    readonly label: string;
+    readonly label?: string;
+    readonly main?: true;
     readonly by: PrincipalRef;
   }): Promise<Result<ConnectionRecord, ConnectionError>>;
 
@@ -493,16 +589,26 @@ export interface ConnectionBinding {
     readonly choiceId: string;
   }): Promise<ConnectionChoiceRecord | null>;
   /**
-   * Chooses a company connection for the agent or flow, for the
-   * connection's app, in the project and env. The agent or flow must be
-   * one of the project's (`agent-not-found`, `flow-not-found`). The
-   * connection must be a candidate (`listCandidates`): a person's is
-   * `bad-input`, and anything else that isn't one is
-   * `connection-not-found`, the same answer as for an id that doesn't
-   * exist. One that needs reconnecting may be chosen. The connection
-   * already chosen answers the live choice as it
-   * is. Another removes the live choice and makes a new one at the next
-   * version, in one step.
+   * Chooses a connection for the agent or flow, for the connection's app,
+   * in the project and env: the company's choice, or with `person` that
+   * person's own (the route has already checked the caller is the
+   * person). The agent or flow must be one of the project's
+   * (`agent-not-found`, `flow-not-found`). Each connection must be a
+   * candidate (`listCandidates`, with `person` for a person's): a person's
+   * in the company's choice is `bad-input`, and anything else that isn't
+   * one is `connection-not-found`, the same answer as for an id that
+   * doesn't exist. One that needs reconnecting may be chosen.
+   *
+   * With `toolId`, the choice is for that tool's need of the app
+   * (`needs`): a tool the target has no need of the app for, an unknown
+   * `need`, or one left out when the tool has two needs of the app, is
+   * `bad-input`. `connectionIds` makes a set, only for a tool's need whose
+   * `set.allowed` is true, with 2 to 10 different connections, every one
+   * named (a label), `connectionId` among them: anything else is
+   * `bad-input` (`connectionIds`).
+   *
+   * The same choice already live is answered as it is. Another removes
+   * the live choice and makes a new one at the next version, in one step.
    */
   setChoice(
     input: ConnectionChoiceSetInput,
@@ -519,18 +625,48 @@ export interface ConnectionBinding {
   /**
    * The company connections a choice in the project may name: live
    * (working, or needing a reconnect), in the env, on a live registration
-   * that allows the project. `app` narrows it.
+   * that allows the project. `app` narrows it. With `person`, that
+   * person's own live connections through the registration the project
+   * uses instead, with `main`.
    */
   listCandidates(
     input: ConnectionCandidateListInput,
   ): Promise<ConnectionPage<ConnectionCandidateRecord>>;
+  /**
+   * The agent's or flow's tools' needs of connections, at the versions
+   * they resolve to now, each with whether a choice for it may be a set.
+   * `app` narrows it. An agent or flow that isn't the project's is
+   * `agent-not-found` or `flow-not-found`.
+   */
+  choiceNeeds(
+    input: ConnectionChoiceTarget & {
+      readonly tenantId: TenantId;
+      readonly projectId: ProjectId;
+      readonly envName: EnvName;
+      readonly app?: string;
+    },
+  ): Promise<Result<ConnectionChoiceNeeds, ConnectionError>>;
+  /**
+   * The live choices in the env that name the connection: as their one
+   * connection or a set's default (`connectionId`), or in a set
+   * (`connectionIds`). Every project's, oldest first. A company
+   * connection's are the company's choices; a person's, theirs.
+   */
+  listChoicesForConnection(input: {
+    readonly tenantId: TenantId;
+    readonly envName: EnvName;
+    readonly connectionId: string;
+    readonly limit: number;
+    readonly cursor?: Cursor;
+  }): Promise<ConnectionPage<ConnectionChoiceRecord>>;
 
   /**
    * A connect from outside a run (a Connect button, the CLI). A run's
-   * connects are the resolver's. A person keeps one live connection per
-   * registration and env, and their connect reconnects it when there is
-   * one; the company keeps one per account, known only at the finish.
-   * `reconnects` naming anything but a live connection of the connect's own
+   * connects are the resolver's. A person, like the company, keeps one
+   * live connection per account on a registration and env, known only at
+   * the finish: a connect that names none to reconnect connects the
+   * account signed in to, another one too, or reconnects their connection
+   * of that account. `reconnects` naming anything but a live connection of the connect's own
    * owner on that registration and env is `connection-not-found`, the same
    * answer as for an id that doesn't exist. A `label` another live
    * connection of the same app, owner and env has, by `comparableName`, is
@@ -579,12 +715,15 @@ export interface ConnectionBinding {
    * A reconnect's connection is looked up again: while it's live, the same
    * account is required (`connection-account-mismatch`); one removed since
    * the request isn't reconnected, and the finish lands as a connect that
-   * names none would. A person's request that isn't a reconnect, whose
-   * key gained a live connection after it was made, finishes as a
-   * reconnect of that connection, the same account required too. The company's that isn't lands on the company's live
+   * names none would. One that isn't a reconnect lands on the owner's live
    * connection of the account signed in to, when there is one, else makes
    * a new one: one account never has two. A reconnect's permissions are
    * both sets, and the outcome says `reconnected`.
+   *
+   * A person's new connection, when they already have one through the
+   * registration in the env, keeps their main one (`main`): their first
+   * becomes their main if none is, and with several and none main, none
+   * is set and the outcome says so. Their first connection gets no main.
    *
    * A new connection's `label` is the request's, else the account's label
    * made to fit in 100 characters by `fitName`: its hidden characters

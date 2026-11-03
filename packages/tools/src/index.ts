@@ -61,6 +61,8 @@ export {
 } from './connections.js';
 export type {
   ConnectionAccount,
+  ConnectionAccountChoices,
+  ConnectionAccountChoicesInput,
   ConnectionChoiceOption,
   ConnectionNeed,
   ConnectionPick,

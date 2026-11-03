@@ -192,7 +192,7 @@ export interface KindgiClient {
   readonly connectionEntries: ConnectionEntriesClient;
   readonly connectionApps: ConnectionAppsClient;
   readonly connections: ConnectionsClient;
-  /** Which company connection an agent or a flow uses for an app in a project. */
+  /** Which connection an agent or a flow, or one of its tools, uses for an app in a project. */
   readonly connectionChoices: ConnectionChoicesClient;
   /** Inbound webhook triggers: a signed request starts a flow run. */
   readonly webhooks: WebhooksClient;

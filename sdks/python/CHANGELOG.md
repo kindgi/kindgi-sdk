@@ -13,6 +13,7 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **one agent can use several accounts of one app: the company's, or a person's own.** `Connection.main` and `ConnectionCandidate.main` mark a person's main connection of an app, the one their agents use when no choice names another, and `client.connections.update(connection_id, main=True)` makes a connection its owner's main. `ConnectFinish.main` says what a person's second connect did to it. `client.connection_choices.set(...)` takes `tool_id` and `need` for one tool's connection, `person` for a person's own choice, and `connection_ids` for a set a read-only tool's calls may pick from by name. `list(...)` takes `tool_id` and `owner="me"`, and `candidates(...)` takes `owner="me"`. `client.connection_choices.needs(project_id=..., agent_id=...)` (or `flow_id=`) lists the tools' connections and whether each may take a set, and `client.connections.choices(connection_id)` lists the choices that name a connection, each with their async twins. `ApprovalConnection` gains `as_`, and its `account` is optional: a person's account isn't named. A mail trigger on a person's mailbox can name its owner's own connection, and only its owner and a tenant admin read that mailbox's `account`.
 - `kindgi`: **the client's docstrings call the place a workspace**, as the
   API reference does. What you pass or read keeps `tenant`: `tenant_id`, the
   scope value `tenant`, the model names (`ScopeTenant`) and the paths. So do

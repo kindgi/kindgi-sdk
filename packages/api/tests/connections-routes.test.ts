@@ -21,6 +21,8 @@ import type {
   ConnectRequestRecord,
   ConnectionAppRecord,
   ConnectionBinding,
+  ConnectionChoiceListInput,
+  ConnectionChoiceNeeds,
   ConnectionChoiceRecord,
   ConnectionRecord,
 } from '../src/connection-binding.js';
@@ -28,6 +30,7 @@ import type { HitlBinding } from '../src/hitl-binding.js';
 import { createApp } from '../src/index.js';
 import type { ReviewerBinding, RunHandlerBinding, TokenResolver } from '../src/index.js';
 import { createStubAppBindings } from '../src/testing/index.js';
+import { validateAgainst } from './support/openapi-schema.js';
 
 const tenantA = randomUUID() as TenantId;
 const tenantB = randomUUID() as TenantId;
@@ -51,6 +54,8 @@ const TOKENS: Record<string, Awaited<ReturnType<TokenResolver>>> = {
 const resolveToken: TokenResolver = async (token) => TOKENS[token] ?? null;
 const SECRET = { envName: 'local', name: 'ACME_GOOGLE_CLIENT_SECRET' };
 const at = '2026-10-22T12:00:00.000Z';
+/** The connection a second connect made its owner's main. */
+const FIRST_CONNECTION = randomUUID();
 
 /** A binding that keeps everything in maps, and records what the routes pass it. */
 function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
@@ -68,6 +73,18 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
   });
   const ownerKey = (owner: ConnectionRecord['owner']) =>
     owner.kind === 'member' ? `member:${owner.userId}` : 'company';
+  /** The same owner's, through the same registration in the same env. */
+  const sameRegistration = (a: ConnectionRecord, b: ConnectionRecord) =>
+    a.tenantId === b.tenantId &&
+    a.appId === b.appId &&
+    a.envName === b.envName &&
+    ownerKey(a.owner) === ownerKey(b.owner);
+  /** Whether a choice is one of those a read asks for: the company's, by default. */
+  const ownedBy = (choice: ConnectionChoiceRecord, owners: ConnectionChoiceListInput['owners']) => {
+    if (choice.person === undefined) return owners?.company ?? true;
+    const person = owners?.person;
+    return person === 'every' || person?.userId === choice.person.userId;
+  };
   /** Another live connection of the app, owner and env has `label`, ignoring case. */
   const labelTaken = (
     of: Pick<ConnectionRecord, 'tenantId' | 'app' | 'owner' | 'envName'>,
@@ -165,10 +182,23 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
     async update(input) {
       seen('update', input);
       const connection = connections.get(input.connectionId) as ConnectionRecord;
-      if (labelTaken(connection, input.label, input.connectionId)) {
+      if (input.main === true) {
+        // Their main through the registration in the env moves to it.
+        for (const other of connections.values()) {
+          if (other.main === true && sameRegistration(other, connection)) {
+            const { main: _moved, ...rest } = other;
+            connections.set(other.connectionId, rest);
+          }
+        }
+        const made: ConnectionRecord = { ...connection, main: true, updatedAt: at };
+        connections.set(input.connectionId, made);
+        return { kind: 'ok', value: made };
+      }
+      const label = input.label as string;
+      if (labelTaken(connection, label, input.connectionId)) {
         return refuse('connection-label-taken', 'Another connection has that name', 'label');
       }
-      const renamed: ConnectionRecord = { ...connection, label: input.label, updatedAt: at };
+      const renamed: ConnectionRecord = { ...connection, label, updatedAt: at };
       connections.set(input.connectionId, renamed);
       return { kind: 'ok', value: renamed };
     },
@@ -179,6 +209,8 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
           choice.tenantId === input.tenantId &&
           choice.projectId === input.projectId &&
           choice.envName === input.envName &&
+          (input.toolId === undefined || choice.toolId === input.toolId) &&
+          ownedBy(choice, input.owners) &&
           (input.includeRemoved === true || choice.removedAt === undefined),
       );
       return { data };
@@ -193,10 +225,14 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
       if (connection === undefined) {
         return refuse('connection-not-found', 'No such candidate', 'connectionId');
       }
-      if (connection.owner.kind === 'member') {
+      if (input.person !== undefined) {
+        const theirs =
+          connection.owner.kind === 'member' && connection.owner.userId === input.person.userId;
+        if (!theirs) return refuse('connection-not-found', 'No such candidate', 'connectionId');
+      } else if (connection.owner.kind === 'member') {
         return refuse(
           'bad-input',
-          "A person's own connection is used for them; choices are for the company's.",
+          "This is a person's connection: a person chooses their own (person, or --mine).",
           'connectionId',
         );
       }
@@ -211,7 +247,10 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
         envName: input.envName,
         ...(agentId !== undefined ? { agentId } : { flowId }),
         app: connection.app,
+        ...(input.toolId !== undefined && { toolId: input.toolId, need: input.need ?? 'mail' }),
         connectionId: connection.connectionId,
+        ...(input.connectionIds !== undefined && { connectionIds: input.connectionIds }),
+        ...(input.person !== undefined && { person: input.person }),
         version: 1,
         createdAt: at,
         createdBy: `${input.by.kind}:${input.by.id}`,
@@ -232,7 +271,9 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
         .filter(
           (c) =>
             c.tenantId === input.tenantId &&
-            c.owner.kind === 'company' &&
+            (input.person === undefined
+              ? c.owner.kind === 'company'
+              : c.owner.kind === 'member' && c.owner.userId === input.person.userId) &&
             (c.state === 'working' || c.state === 'needs-reconnecting'),
         )
         .map((c) => ({
@@ -241,7 +282,56 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
           app: c.app,
           accountLabel: c.account.label,
           state: c.state,
+          ...(c.main === true && { main: true }),
         }));
+      return { data };
+    },
+    async choiceNeeds(input) {
+      seen('choiceNeeds', input);
+      if (input.agentId !== 'acme.support') {
+        return refuse('agent-not-found', 'No such agent in the project');
+      }
+      const data: ConnectionChoiceNeeds['data'] = [
+        {
+          toolId: 'acme.read-mail',
+          need: 'mail',
+          app: 'google',
+          as: 'company',
+          set: { allowed: true },
+        },
+        {
+          toolId: 'acme.send-mail',
+          need: 'mail',
+          app: 'google',
+          as: 'person',
+          set: { allowed: false, reason: 'changes' },
+        },
+        {
+          toolId: 'acme.issues',
+          need: 'repo',
+          app: 'github',
+          as: 'company',
+          set: { allowed: false, reason: 'accounts-input' },
+        },
+      ];
+      return {
+        kind: 'ok',
+        value: {
+          data: data.filter((n) => input.app === undefined || n.app === input.app),
+          unread: ['acme.gone'],
+        },
+      };
+    },
+    async listChoicesForConnection(input) {
+      seen('listChoicesForConnection', input);
+      const data = [...choices.values()].filter(
+        (choice) =>
+          choice.tenantId === input.tenantId &&
+          choice.envName === input.envName &&
+          choice.removedAt === undefined &&
+          (choice.connectionId === input.connectionId ||
+            (choice.connectionIds ?? []).includes(input.connectionId)),
+      );
       return { data };
     },
     async createRequest(input) {
@@ -334,6 +424,12 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
           request: { ...request, state: 'connected', connectionId: connection.connectionId },
           connection,
           ...(input.code === 'taken' && { reconnected: false, labelTaken: 'Work mail' }),
+          // `another`: a second account; `none-main`: another, with no main.
+          ...(input.code === 'another' && {
+            reconnected: false,
+            main: { state: 'set', connectionId: FIRST_CONNECTION },
+          }),
+          ...(input.code === 'none-main' && { reconnected: false, main: { state: 'missing' } }),
         },
       };
     },
@@ -1576,6 +1672,8 @@ describe('/v1/connection-choices', () => {
         envName: 'local',
         flowId: 'acme.triage',
         app: 'google',
+        // A member reads the company's choices and their own.
+        owners: { company: true, person: { userId: BEN } },
         includeRemoved: true,
         limit: 5,
       },
@@ -1643,7 +1741,7 @@ describe('/v1/connection-choices', () => {
     expect(person.status).toBe(400);
     expect(person.json.error).toMatchObject({
       code: 'bad-input',
-      message: "A person's own connection is used for them; choices are for the company's.",
+      message: "This is a person's connection: a person chooses their own (person, or --mine).",
       details: { field: 'connectionId' },
     });
 
@@ -1736,6 +1834,427 @@ describe('/v1/connection-choices', () => {
     );
     expect(res.json.error).toMatchObject({ code: 'bad-input', details: { field: 'app' } });
     expect(calls.listCandidates).toBeUndefined();
+  });
+});
+
+describe('several connections of an app', () => {
+  const project = randomUUID();
+  const choices = '/v1/connection-choices';
+
+  /** Ana admins the project; Ben reads it and runs acme.support; the admin admins the tenant. */
+  function runnerRoles(): AuthzCheckBinding {
+    const decide = (principal: unknown, action: Action, r: ResourceRef): Decision => {
+      const actor = (principal as { actor?: { id?: string } }).actor?.id ?? '';
+      const allowed =
+        (r.type === 'tenant' && actor === ADMIN && action === 'admin') ||
+        (r.type === 'project' &&
+          r.id === project &&
+          (actor === ANA || (actor === BEN && action === 'read'))) ||
+        (r.type === 'agent' &&
+          r.id === 'acme.support' &&
+          action === 'execute' &&
+          (actor === ANA || actor === BEN));
+      return {
+        allowed,
+        reason: allowed ? 'test: granted' : 'test: not granted',
+        evidence: { action, relation: '', resource: `${r.type}:${r.id}`, actorSubject: '' },
+      };
+    };
+    return {
+      check: async (p, action, r) => decide(p, action, r),
+      checkBatch: async (p, action, rs) => rs.map((r) => decide(p, action, r)),
+      recordDecision: () => {},
+    };
+  }
+
+  function severalApp() {
+    const made = makeApp({ authzCheckBinding: runnerRoles() });
+    const company = made.connected({ kind: 'company' }, tenantA, { label: 'Support' });
+    const work = made.connected({ kind: 'member', userId: BEN as UserId }, tenantA, {
+      label: 'Work',
+      main: true,
+    });
+    const school = made.connected({ kind: 'member', userId: BEN as UserId }, tenantA, {
+      label: 'School',
+      appId: work.appId,
+    });
+    return { ...made, company, work, school };
+  }
+
+  test("PATCH main: only `true`, one change at a time, the person's own, never the company's", async () => {
+    const { app, calls, connected } = makeApp();
+    const work = connected({ kind: 'member', userId: ANA as UserId }, tenantA, {
+      label: 'Work',
+      main: true,
+    });
+    const school = connected({ kind: 'member', userId: ANA as UserId }, tenantA, {
+      label: 'School',
+      appId: work.appId,
+    });
+    const company = connected({ kind: 'company' });
+    const path = (id: string) => `/v1/connections/${id}`;
+
+    const off = await call(app, 'ana', 'PATCH', path(work.connectionId), { main: false });
+    expect(off.status).toBe(400);
+    expect(off.json.error).toMatchObject({
+      code: 'bad-input',
+      message: 'A main moves only by making another connection main.',
+      details: { field: 'main' },
+    });
+    const both = await call(app, 'ana', 'PATCH', path(school.connectionId), {
+      main: true,
+      label: 'School mail',
+    });
+    expect(both.status).toBe(400);
+    expect(both.json.error.message).toBe('`label` or `main`, one change at a time');
+    const notTrue = await call(app, 'ana', 'PATCH', path(school.connectionId), { main: 'yes' });
+    expect(notTrue.status).toBe(400);
+    expect(notTrue.json.error).toMatchObject({ details: { field: 'main' } });
+
+    const ours = await call(app, 'admin', 'PATCH', path(company.connectionId), { main: true });
+    expect(ours.status).toBe(400);
+    expect(ours.json.error).toMatchObject({
+      code: 'bad-input',
+      message:
+        "The company has no main connection: its agents use the company's through their choices.",
+      details: { field: 'main' },
+    });
+    // A tenant admin reaches Ana's connection, and still can't make it Ana's main.
+    const byAdmin = await call(app, 'admin', 'PATCH', path(school.connectionId), { main: true });
+    expect(byAdmin.status).toBe(400);
+    expect(byAdmin.json.error).toMatchObject({
+      code: 'bad-input',
+      message: 'Only the person whose connection it is makes it their main.',
+      details: { field: 'main' },
+    });
+    // Anyone it doesn't reach hears what an unknown id gets.
+    const byBen = await call(app, 'ben', 'PATCH', path(school.connectionId), { main: true });
+    expect(byBen.status).toBe(404);
+    expect(calls.update).toBeUndefined();
+
+    const made = await call(app, 'ana', 'PATCH', path(school.connectionId), { main: true });
+    expect(made.status).toBe(200);
+    expect(made.json).toMatchObject({ connectionId: school.connectionId, main: true });
+    expect(calls.update).toEqual([
+      {
+        tenantId: tenantA,
+        connectionId: school.connectionId,
+        main: true,
+        by: { kind: 'user', id: ANA, tenantId: tenantA },
+      },
+    ]);
+    // `main` is only ever `true`: the one that was main has none now.
+    const was = await call(app, 'ana', 'GET', path(work.connectionId));
+    expect(was.status).toBe(200);
+    expect(was.json).not.toHaveProperty('main');
+  });
+
+  test("a second connect's finish says which connection is their main", async () => {
+    const { app } = makeApp();
+    for (const [code, main] of [
+      ['another', { state: 'set', connectionId: FIRST_CONNECTION }],
+      ['none-main', { state: 'missing' }],
+    ] as const) {
+      const requested = await call(app, 'ana', 'POST', '/v1/connections', {
+        app: 'google',
+        permissions: ['gmail.send'],
+        for: 'me',
+      });
+      const requestId = requested.json.requestId as string;
+      await call(app, 'ana', 'POST', `/v1/connections/requests/${requestId}/start`);
+      const res = await call(app, 'ana', 'POST', '/v1/connections/finish', { state: 's-1', code });
+      expect(res.status).toBe(200);
+      expect(res.json).toMatchObject({ kind: 'connected', reconnected: false, main });
+      expect(res.json.main).toEqual(main);
+    }
+    // A first connection's finish says nothing of a main.
+    const { app: fresh } = makeApp();
+    const first = await call(fresh, 'ana', 'POST', '/v1/connections', {
+      app: 'google',
+      permissions: ['gmail.send'],
+      for: 'me',
+    });
+    await call(fresh, 'ana', 'POST', `/v1/connections/requests/${first.json.requestId}/start`);
+    const only = await call(fresh, 'ana', 'POST', '/v1/connections/finish', {
+      state: 's-1',
+      code: 'c-1',
+    });
+    expect(only.status).toBe(200);
+    expect(only.json).not.toHaveProperty('main');
+  });
+
+  test("a choices read is the company's and the caller's own; owner=me, only theirs", async () => {
+    const { app, calls } = severalApp();
+    const list = `${choices}?projectId=${project}`;
+    expect((await call(app, 'ben', 'GET', list)).status).toBe(200);
+    expect((await call(app, 'ben', 'GET', `${list}&owner=me`)).status).toBe(200);
+    expect((await call(app, 'admin', 'GET', list)).status).toBe(403);
+    const narrowed = `${list}&agentId=acme.support&toolId=acme.read-mail`;
+    expect((await call(app, 'ana', 'GET', narrowed)).status).toBe(200);
+    expect(calls.listChoices?.map((input) => (input as ConnectionChoiceListInput).owners)).toEqual([
+      { company: true, person: { userId: BEN } },
+      { company: false, person: { userId: BEN } },
+      { company: true, person: { userId: ANA } },
+    ]);
+    expect(calls.listChoices?.[2]).toMatchObject({
+      agentId: 'acme.support',
+      toolId: 'acme.read-mail',
+    });
+
+    const other = await call(app, 'ben', 'GET', `${list}&owner=someone`);
+    expect(other.status).toBe(400);
+    expect(other.json.error).toMatchObject({
+      code: 'bad-input',
+      message: "`owner` takes only `'me'`",
+      details: { field: 'owner' },
+    });
+  });
+
+  test("a tenant admin's choices read has every person's in it", async () => {
+    const { app, calls } = makeApp();
+    expect((await call(app, 'admin', 'GET', `${choices}?projectId=${project}`)).status).toBe(200);
+    expect((calls.listChoices?.[0] as ConnectionChoiceListInput).owners).toEqual({
+      company: true,
+      person: 'every',
+    });
+  });
+
+  test('candidates with owner=me: your own, in full, with your main; a service account has none', async () => {
+    const { app, calls, work, school } = severalApp();
+    const path = `${choices}/candidates?projectId=${project}&app=google&owner=me`;
+    const mine = await call(app, 'ben', 'GET', path);
+    expect(mine.status).toBe(200);
+    expect(mine.json.data).toEqual([
+      {
+        connectionId: work.connectionId,
+        name: 'Work',
+        app: 'google',
+        accountLabel: `${BEN}@acme.example`,
+        state: 'working',
+        main: true,
+      },
+      {
+        connectionId: school.connectionId,
+        name: 'School',
+        app: 'google',
+        accountLabel: `${BEN}@acme.example`,
+        state: 'working',
+      },
+    ]);
+    expect(calls.listCandidates?.[0]).toMatchObject({ person: { userId: BEN } });
+    // Without it, today's company read: a member sees a candidate's id and name.
+    const company = await call(app, 'ben', 'GET', path.replace('&owner=me', ''));
+    expect(company.json.data).toEqual([{ connectionId: expect.any(String), name: 'Support' }]);
+    expect(calls.listCandidates?.[1]).not.toHaveProperty('person');
+  });
+
+  test("a person's choice is theirs alone, and needs only what running the agent takes", async () => {
+    const { app, calls, work, school } = severalApp();
+    const body = {
+      projectId: project,
+      agentId: 'acme.support',
+      toolId: 'acme.read-mail',
+      need: 'mail',
+      connectionId: work.connectionId,
+      connectionIds: [work.connectionId, school.connectionId],
+      person: { userId: BEN },
+    };
+    const forBen = await call(app, 'ana', 'PUT', choices, body);
+    expect(forBen.status).toBe(400);
+    expect(forBen.json.error).toMatchObject({
+      code: 'bad-input',
+      message: 'A person makes their own choices.',
+      details: { field: 'person' },
+    });
+    const elsewhere = await call(app, 'ben', 'PUT', choices, { ...body, agentId: 'acme.other' });
+    expect(elsewhere.status).toBe(403);
+
+    const set = await call(app, 'ben', 'PUT', choices, body);
+    expect(set.status).toBe(200);
+    expect(set.json).toEqual({
+      choiceId: expect.any(String),
+      projectId: project,
+      envName: 'local',
+      agentId: 'acme.support',
+      app: 'google',
+      toolId: 'acme.read-mail',
+      need: 'mail',
+      connectionId: work.connectionId,
+      connectionIds: [work.connectionId, school.connectionId],
+      person: { userId: BEN },
+      version: 1,
+      createdAt: at,
+      createdBy: `user:${BEN}`,
+    });
+    expect(calls.setChoice?.[0]).toMatchObject({
+      toolId: 'acme.read-mail',
+      need: 'mail',
+      connectionIds: [work.connectionId, school.connectionId],
+      person: { userId: BEN },
+    });
+
+    // Removing it is theirs too: to anyone else, an admin as well, it isn't there.
+    const path = `${choices}/${set.json.choiceId}`;
+    for (const who of ['ana', 'admin']) {
+      const refused = await call(app, who, 'DELETE', path);
+      expect(refused.status).toBe(404);
+      expect(refused.json.error.code).toBe('connection-choice-not-found');
+    }
+    const removed = await call(app, 'ben', 'DELETE', path);
+    expect(removed.status).toBe(200);
+    expect(removed.json).toEqual({ deleted: true });
+  });
+
+  test("a choice body's tool, need and set are checked before the binding", async () => {
+    const { app, calls, company } = severalApp();
+    const base = {
+      projectId: project,
+      agentId: 'acme.support',
+      connectionId: company.connectionId,
+    };
+    const other = randomUUID();
+    const cases: [Record<string, unknown>, string, string][] = [
+      [{ need: 'mail' }, "`need` is a tool's: name the tool (`toolId`)", 'need'],
+      [
+        { connectionIds: [company.connectionId, other] },
+        'A set of connections is for one tool: name it.',
+        'connectionIds',
+      ],
+      [
+        { toolId: 'acme.read-mail', connectionIds: [company.connectionId] },
+        'A set holds 2 to 10 different connections.',
+        'connectionIds',
+      ],
+      [
+        { toolId: 'acme.read-mail', connectionIds: [company.connectionId, company.connectionId] },
+        'A set holds 2 to 10 different connections.',
+        'connectionIds',
+      ],
+      [
+        {
+          toolId: 'acme.read-mail',
+          connectionIds: [company.connectionId, ...Array.from({ length: 10 }, () => randomUUID())],
+        },
+        'A set holds 2 to 10 different connections.',
+        'connectionIds',
+      ],
+      [
+        { toolId: 'acme.read-mail', connectionIds: [other, randomUUID()] },
+        'The default must be one of the set.',
+        'connectionIds',
+      ],
+      [{ toolId: '' }, '`toolId` must be a non-empty string', 'toolId'],
+      [{ person: { id: BEN } }, '`person` must be `{userId}`: you', 'person'],
+    ];
+    for (const [more, message, field] of cases) {
+      const res = await call(app, 'ana', 'PUT', choices, { ...base, ...more });
+      expect(res.status, message).toBe(400);
+      expect(res.json.error).toMatchObject({ code: 'bad-input', message, details: { field } });
+    }
+    expect(calls.setChoice).toBeUndefined();
+  });
+
+  test("needs: each tool's need of an app, whether it may take a set, and the tools it couldn't read", async () => {
+    const { app, calls } = severalApp();
+    const path = `${choices}/needs?projectId=${project}&agentId=acme.support`;
+    const res = await call(app, 'ben', 'GET', `${path}&app=google`);
+    expect(res.status).toBe(200);
+    expect(res.json).toEqual({
+      data: [
+        {
+          toolId: 'acme.read-mail',
+          need: 'mail',
+          app: 'google',
+          as: 'company',
+          set: { allowed: true },
+        },
+        {
+          toolId: 'acme.send-mail',
+          need: 'mail',
+          app: 'google',
+          as: 'person',
+          set: { allowed: false, reason: 'changes' },
+        },
+      ],
+      unread: ['acme.gone'],
+    });
+    expect(calls.choiceNeeds?.[0]).toMatchObject({
+      agentId: 'acme.support',
+      projectId: project,
+      envName: 'local',
+      app: 'google',
+    });
+
+    const noTarget = await call(app, 'ben', 'GET', `${choices}/needs?projectId=${project}`);
+    expect(noTarget.status).toBe(400);
+    expect(noTarget.json.error.message).toBe(
+      'Name whose tools to read: `agentId` or `flowId`, one of them',
+    );
+    const unknown = await call(
+      app,
+      'ben',
+      'GET',
+      `${choices}/needs?projectId=${project}&agentId=acme.elsewhere`,
+    );
+    expect(unknown.status).toBe(404);
+    expect(unknown.json.error).toMatchObject({
+      code: 'agent-not-found',
+      details: { agentId: 'acme.elsewhere' },
+    });
+    expect((await call(app, 'bot', 'GET', path)).status).toBe(403);
+  });
+
+  test("an approval's connection reads three ways: the company's, a person's, and one from before `as`", () => {
+    const shapes = [
+      {
+        app: 'google',
+        appName: 'Google',
+        as: 'company',
+        account: 'support@acme.example',
+        name: 'Support',
+      },
+      { app: 'google', appName: 'Google', as: 'person' },
+      { app: 'google', appName: 'Google', account: 'ana@acme.example' },
+    ];
+    for (const shape of shapes) {
+      expect(validateAgainst('ApprovalConnection', shape), shape.as ?? 'before').toEqual([]);
+    }
+    const other = { app: 'google', appName: 'Google', as: 'team' };
+    expect(validateAgainst('ApprovalConnection', other)).not.toEqual([]);
+  });
+
+  test("a connection's choices: its owner's and a tenant admin's to read; anyone else gets the same 404", async () => {
+    const { app, calls, work, school } = severalApp();
+    const set = await call(app, 'ben', 'PUT', choices, {
+      projectId: project,
+      agentId: 'acme.support',
+      toolId: 'acme.read-mail',
+      connectionId: work.connectionId,
+      connectionIds: [work.connectionId, school.connectionId],
+      person: { userId: BEN },
+    });
+    expect(set.status).toBe(200);
+    // A set's member is named by it, as its default is.
+    for (const connection of [work, school]) {
+      const path = `/v1/connections/${connection.connectionId}/choices`;
+      for (const who of ['ben', 'admin']) {
+        const res = await call(app, who, 'GET', path);
+        expect(res.status).toBe(200);
+        expect(res.json).toEqual({ data: [set.json], hasMore: false });
+      }
+      for (const who of ['ana', 'bot', 'other']) {
+        const refused = await call(app, who, 'GET', path);
+        expect(refused.status).toBe(404);
+        expect(refused.json.error.code).toBe('connection-not-found');
+      }
+    }
+    expect(calls.listChoicesForConnection?.[0]).toMatchObject({
+      tenantId: tenantA,
+      envName: 'local',
+      connectionId: work.connectionId,
+    });
+    const notAnId = await call(app, 'ben', 'GET', '/v1/connections/not-an-id/choices');
+    expect(notAnId.status).toBe(400);
   });
 });
 

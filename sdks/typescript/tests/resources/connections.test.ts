@@ -85,6 +85,34 @@ describe('connections.update', () => {
     expect(JSON.parse(req?.body ?? '{}')).toEqual({ label: 'Work mail' });
     expect(req?.headers['idempotency-key']).toBe('idem-r');
   });
+
+  it("PATCHes `main: true` alone, which makes it its owner's main connection", async () => {
+    const connection = { connectionId: 'c-1', main: true };
+    const stub = jsonFetch(connection);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    expect(await client.connections.update('c-1', { main: true })).toEqual(connection);
+    const [req] = stub.calls;
+    expect(req?.method).toBe('PATCH');
+    expect(new URL(req?.url ?? '').pathname).toBe('/v1/connections/c-1');
+    expect(JSON.parse(req?.body ?? '{}')).toEqual({ main: true });
+  });
+});
+
+describe('connections.choices', () => {
+  it('GETs /v1/connections/{connectionId}/choices, paged', async () => {
+    const { stub, client } = clientFor(2);
+    await client.connections.choices('c 1', { limit: 10, cursor: 'c-2' });
+    await client.connections.choices('c-1');
+    const [paged, plain] = urls(stub);
+    expect(paged?.pathname).toBe('/v1/connections/c%201/choices');
+    expect(Object.fromEntries(paged?.searchParams ?? [])).toEqual({ limit: '10', cursor: 'c-2' });
+    expect(plain?.pathname).toBe('/v1/connections/c-1/choices');
+    expect(plain?.search).toBe('');
+  });
 });
 
 describe('connections.connect and finish', () => {
@@ -165,6 +193,17 @@ describe('connectionChoices', () => {
     });
   });
 
+  it("list asks for one tool's choices, and the caller's own only", async () => {
+    const { stub, client } = clientFor(1);
+    await client.connectionChoices.list({ projectId: 'p-1', toolId: 'acme.mail', owner: 'me' });
+    const [asked] = urls(stub);
+    expect(Object.fromEntries(asked?.searchParams ?? [])).toEqual({
+      projectId: 'p-1',
+      toolId: 'acme.mail',
+      owner: 'me',
+    });
+  });
+
   it('set PUTs the choice, with the Idempotency-Key, and answers it', async () => {
     const choice = { choiceId: 'ch-1', connectionId: 'c-1', version: 2 };
     const stub = jsonFetch(choice);
@@ -177,6 +216,21 @@ describe('connectionChoices', () => {
     expect(new URL(req?.url ?? '').pathname).toBe('/v1/connection-choices');
     expect(JSON.parse(req?.body ?? '{}')).toEqual(input);
     expect(req?.headers['idempotency-key']).toBe('idem-s');
+  });
+
+  it("set PUTs a tool's set of a person's own connections as it is", async () => {
+    const stub = jsonFetch({ choiceId: 'ch-2', connectionId: 'c-1', version: 1 });
+    const input = {
+      projectId: 'p-1',
+      agentId: 'acme.triage',
+      toolId: 'acme.mail',
+      need: 'inbox',
+      connectionId: 'c-1',
+      connectionIds: ['c-1', 'c-2'],
+      person: { userId: 'user-ana' },
+    };
+    await clientOf(stub).connectionChoices.set(input);
+    expect(JSON.parse(stub.calls[0]?.body ?? '{}')).toEqual(input);
   });
 
   it('remove DELETEs /v1/connection-choices/{choiceId}, with the Idempotency-Key', async () => {
@@ -214,6 +268,53 @@ describe('connectionChoices', () => {
       projectId: 'p-1',
       app: 'google',
       limit: '5',
+    });
+  });
+
+  it("candidates with owner 'me' asks for the caller's own", async () => {
+    const { stub, client } = clientFor(1);
+    await client.connectionChoices.candidates({ projectId: 'p-1', app: 'google', owner: 'me' });
+    const [asked] = urls(stub);
+    expect(Object.fromEntries(asked?.searchParams ?? [])).toEqual({
+      projectId: 'p-1',
+      app: 'google',
+      owner: 'me',
+    });
+  });
+
+  it("needs GETs /v1/connection-choices/needs for an agent's or a flow's tools", async () => {
+    const needs = {
+      data: [
+        {
+          toolId: 'acme.mail',
+          need: 'inbox',
+          app: 'google',
+          as: 'person',
+          set: { allowed: false, reason: 'changes' },
+        },
+      ],
+      unread: ['acme.calendar'],
+    };
+    const stub = jsonFetch(needs);
+    const answered = await clientOf(stub).connectionChoices.needs({
+      projectId: 'p-1',
+      agentId: 'acme.triage',
+      app: 'google',
+    });
+    expect(answered).toEqual(needs);
+    const [asked] = urls(stub);
+    expect(asked?.pathname).toBe('/v1/connection-choices/needs');
+    expect(Object.fromEntries(asked?.searchParams ?? [])).toEqual({
+      projectId: 'p-1',
+      agentId: 'acme.triage',
+      app: 'google',
+    });
+
+    const { stub: flowStub, client } = clientFor(1);
+    await client.connectionChoices.needs({ projectId: 'p-1', flowId: 'acme.intake' });
+    expect(Object.fromEntries(urls(flowStub)[0]?.searchParams ?? [])).toEqual({
+      projectId: 'p-1',
+      flowId: 'acme.intake',
     });
   });
 });

@@ -6,8 +6,10 @@ import { createInterface } from 'node:readline';
 import type { ConnectRequest, Connection, ConnectionEntry, ConnectionPage } from '@kindgi/client';
 
 import {
+  type ConnectionRow,
   connectionName,
   connectionsListed,
+  everyPage,
   listConnectionRows,
   namedBy,
   resolveConnectionRef,
@@ -118,7 +120,7 @@ function ownerWords(c: Pick<Connection, 'owner'>): string {
 const TABLE: TableSpec<ConnectionPage, Connection> = {
   rows: (page) => page.data,
   columns: [
-    { header: 'LABEL', get: connectionName },
+    { header: 'LABEL', get: (c) => `${connectionName(c)}${c.main === true ? ' (main)' : ''}` },
     { header: 'ID', get: (c) => c.connectionId },
     { header: 'APP', get: (c) => c.app },
     { header: 'ACCOUNT', get: (c) => c.account.label },
@@ -292,7 +294,38 @@ async function connected(
   const id = request.connectionId;
   if (id === undefined) return { stdout: `Connected ${request.app}.\n`, stderr: '' };
   const c = await ctx.client().connections.get(id);
-  return { stdout: `Connected ${accountWords(c)} (connection ${c.connectionId}).\n`, stderr: '' };
+  return {
+    stdout: `Connected ${accountWords(c)} (connection ${c.connectionId}).\n`,
+    stderr: successNote(ctx.globals.format, await mainWords(ctx, request, c)),
+  };
+}
+
+/**
+ * After a person's new connection, when they have several through its
+ * registration: which one their agents use, their main, or that none is.
+ * Their first, a reconnect and the company's say nothing. Best-effort: a
+ * list that fails says nothing either, and the connect still succeeded.
+ */
+async function mainWords(
+  ctx: CommandContext,
+  request: ConnectRequest,
+  c: Connection,
+): Promise<string> {
+  if (request.reconnects !== undefined || c.owner.kind !== 'member' || c.main === true) return '';
+  const client = ctx.client();
+  const theirs = await everyPage((cursor) =>
+    client.connections.list({ app: c.app, owner: 'me', ...(cursor !== undefined && { cursor }) }),
+  ).then(
+    (all) => all.filter((x) => x.appId === c.appId && x.envName === c.envName),
+    () => undefined,
+  );
+  if (theirs === undefined || theirs.length < 2) return '';
+  const main = theirs.find((x) => x.main === true);
+  const update = `\`kindgi connections update ${c.connectionId} --main\``;
+  if (main !== undefined) {
+    return `${connectionName(main)} is your main connection at ${c.app}, the one your agents use when no choice names another: ${update} makes this one your main.\n`;
+  }
+  return `You have ${theirs.length} connections at ${c.app} and none is your main, so a call of your agents that needs one stops with connection-not-chosen until you make one your main, or a choice names one: \`kindgi connections update <connection> --main\`.\n`;
 }
 
 /**
@@ -312,7 +345,7 @@ async function connectedWithLess(
       : '';
   return {
     stdout: `Connected ${accountWords(c)} (connection ${c.connectionId}), with less than asked.\n`,
-    stderr: `The app granted less than asked${not}. Tools that need those ask to connect again.\n`,
+    stderr: `The app granted less than asked${not}. Tools that need those ask to connect again.\n${successNote(ctx.globals.format, await mainWords(ctx, request, c))}`,
     exitCode: 1,
   };
 }
@@ -495,12 +528,17 @@ const update: LeafCommand = {
   kind: 'leaf',
   name: 'update',
   description:
-    "Rename a connection: its label, which `--connection`, `kindgi connection-choices set` and the console name it by. Whoever may disconnect it renames it: its owner or a tenant admin, and only a tenant admin the company's.",
-  usage: 'kindgi connections update <connection> --label=<name> [--app=<app>]',
+    "Rename a connection: its label, which `--connection`, `kindgi connection-choices set` and the console name it by. Whoever may disconnect it renames it: its owner or a tenant admin, and only a tenant admin the company's. Or make your own connection your main one at its app (--main). One change at a time.",
+  usage: 'kindgi connections update <connection> (--label=<name> | --main) [--app=<app>]',
   optionSpec: {
     label: {
       type: 'string',
       description: "Its new name; another of the owner's connections at the app can't have it.",
+    },
+    main: {
+      type: 'boolean',
+      description:
+        'Make it your main connection at its app, in place of the one that was: your agents use it when no choice names another. Your own only; a mail trigger keeps the connection it stored.',
     },
     app: {
       type: 'string',
@@ -511,15 +549,27 @@ const update: LeafCommand = {
     runSdkRendered(ctx, 'connections update', async () => {
       const ref = requiredPositional(ctx, 0, 'connection');
       const label = givenFlag(ctx, 'label');
-      if (label === undefined) throw new UsageError('Missing required flag: --label=<name>');
+      const main = ctx.options.main === true;
+      if (label !== undefined && main) {
+        throw new UsageError('--label or --main, one change at a time');
+      }
+      if (label === undefined && !main) {
+        throw new UsageError('Missing required flag: --label=<name> or --main');
+      }
       const app = givenFlag(ctx, 'app');
       const client = ctx.client();
       const found = await resolveConnectionRef(ref, {
-        rows: () => listConnectionRows(client, app !== undefined ? { app } : {}),
+        // Only its owner makes a connection their main: a name is one of your own.
+        rows: () =>
+          listConnectionRows(client, {
+            ...(app !== undefined && { app }),
+            ...(main && { owner: 'me' as const }),
+          }),
         ...(app !== undefined && { app }),
         appNarrows: app === undefined,
         listed: connectionsListed(app),
       });
+      if (label === undefined) return await madeMain(ctx, found);
       const before = found.row?.name ?? connectionName(await client.connections.get(found.id));
       const c = await client.connections.update(found.id, { label });
       return {
@@ -531,6 +581,26 @@ const update: LeafCommand = {
       };
     }),
 };
+
+/** `update --main`: it's your main one at its app now, or it was already. */
+async function madeMain(
+  ctx: CommandContext,
+  found: { readonly id: string; readonly row?: ConnectionRow },
+): Promise<Rendered> {
+  const client = ctx.client();
+  const already =
+    found.row !== undefined
+      ? found.row.main === true
+      : (await client.connections.get(found.id)).main === true;
+  const c = await client.connections.update(found.id, { main: true });
+  const said = already
+    ? `${connectionName(c)} is already your main connection at ${c.app}: nothing changed.\n`
+    : `Made ${connectionName(c)} your main connection at ${c.app} (connection ${c.connectionId}).\n`;
+  return {
+    stdout: renderJson(c, ctx.globals.format).stdout,
+    stderr: successNote(ctx.globals.format, said),
+  };
+}
 
 /** What a removal did at the app, in words. */
 export function withdrawnWords(withdrawn: Connection['withdrawn']): string {

@@ -354,6 +354,38 @@ describe('kindgi mail-triggers', () => {
     expect(bad.calls).toEqual([]);
   });
 
+  test("list --table: a person's mailbox with no account to show yet says whose it is", async () => {
+    const unpolled = { ...TRIGGER, account: undefined };
+    const company = { ...unpolled, triggerId: BOT, mailbox: { app: 'google', as: 'company' } };
+    const page = { data: [unpolled, company], hasMore: false };
+    const listed = await mailTriggers(['list', '--table'], TRIGGER, (record) => ({
+      connectionEntries: { list: record('entries', { data: [{ id: 'google', name: 'Google' }] }) },
+      mailTriggers: { list: record('list', page) },
+    }));
+    expect(listed.out.exitCode, listed.out.stderr).toBe(0);
+    expect(listed.calls).toEqual([['list', {}], ['entries']]);
+    expect(listed.out.stdout).toMatch(/google person\s+this person's Google account\s/);
+    expect(listed.out.stdout).not.toMatch(/google company\s+this person's/);
+
+    // Unread, the app is named by its id.
+    const unread = await mailTriggers(['list', '--table'], TRIGGER, (record) => ({
+      connectionEntries: {
+        list: async () => {
+          throw new Error('not allowed');
+        },
+      },
+      mailTriggers: { list: record('list', { data: [unpolled], hasMore: false }) },
+    }));
+    expect(unread.out.exitCode, unread.out.stderr).toBe(0);
+    expect(unread.out.stdout).toContain("this person's google account");
+
+    // Every account shown: nothing more is read.
+    const polled = await mailTriggers(['list', '--table'], TRIGGER, (record) => ({
+      connectionEntries: { list: record('entries', { data: [] }) },
+    }));
+    expect(polled.calls).toEqual([['list', {}]]);
+  });
+
   test('fires as a table: when, outcome, run, and why a mail waits', async () => {
     const { out, calls } = await mailTriggers(['fires', ID, '--limit=5', '--table']);
     expect(out.exitCode, out.stderr).toBe(0);
@@ -519,19 +551,77 @@ describe('kindgi mail-triggers --connection', () => {
     expect(twice.calls.map(([name]) => name)).toEqual(['candidates']);
   });
 
-  test("a person's mailbox is refused before any call, in the wire's words", async () => {
-    for (const argv of [
-      ['create', '--agent=acme.support', '--mailbox=google', '--connection=support'],
-      ['create', '--agent=acme.support', '--mailbox=google', '--as=person', '--connection=support'],
-      ['update', ID, '--mailbox=google', '--as=person', '--connection=support'],
-    ]) {
-      const { out, calls } = await mailTriggers(argv, TRIGGER, lookups);
-      expect(out.exitCode, argv.join(' ')).toBe(2);
-      expect(out.stderr).toContain(
-        "A person's mailbox is read with its owner's own connection; --connection is for the company's (--as=company)",
-      );
-      expect(calls).toEqual([]);
-    }
+  const WORK_ID = '7a8b9cad-6666-4a91-8ca3-000000000006';
+  const SCHOOL_ID = '7a8b9cad-7777-4a91-8ca3-000000000007';
+  /** Your own connections at google: work, your main one, and school. */
+  const OWN = [
+    { connectionId: WORK_ID, name: 'work', app: 'google', main: true },
+    { connectionId: SCHOOL_ID, name: 'school', app: 'google' },
+  ];
+  const mine = (record: Record_) => ({
+    projects: { getDefault: record('getDefault', { id: 'p-default' }) },
+    connectionChoices: { candidates: record('candidates', { data: OWN, hasMore: false }) },
+  });
+  const person = ['--agent=acme.support', '--mailbox=google'];
+  const atSchool = { app: 'google', as: 'person', connectionId: SCHOOL_ID };
+  const atWork = { app: 'google', as: 'person', connectionId: WORK_ID };
+
+  test("a person's mailbox: a name is one of your own connections at the mailbox's app", async () => {
+    const created = await mailTriggers(['create', ...person, '--connection=school'], TRIGGER, mine);
+    expect(created.out.exitCode, created.out.stderr).toBe(0);
+    expect(created.calls).toEqual([
+      ['getDefault'],
+      ['candidates', { projectId: 'p-default', app: 'google', owner: 'me' }],
+      ['register', { agentId: 'acme.support', config: { mailbox: atSchool } }],
+    ]);
+
+    const updated = await mailTriggers(
+      ['update', ID, '--mailbox=google', '--as=person', '--connection=work'],
+      TRIGGER,
+      mine,
+    );
+    expect(updated.out.exitCode, updated.out.stderr).toBe(0);
+    expect(updated.calls).toEqual([
+      ['get', ID],
+      ['candidates', { projectId: 'p-1', app: 'google', owner: 'me' }],
+      ['update', ID, { config: { mailbox: atWork } }],
+    ]);
+
+    // An id passes as it is: the server checks that it is yours.
+    const byId = await mailTriggers(
+      ['create', ...person, '--as=person', `--connection=${SCHOOL_ID}`],
+      TRIGGER,
+      mine,
+    );
+    expect(byId.calls).toEqual([
+      ['register', { agentId: 'acme.support', config: { mailbox: atSchool } }],
+    ]);
+  });
+
+  test("a person's mailbox: a name none of your own connections has is refused before the create", async () => {
+    const theirs = await mailTriggers(
+      ['create', ...person, '--project=p-1', '--connection=support'],
+      TRIGGER,
+      mine,
+    );
+    expect(theirs.out.exitCode).toBe(2);
+    expect(theirs.out.stderr).toContain(
+      'No connection at google is named "support". Your own connections: work, school.',
+    );
+    expect(theirs.calls.map(([name]) => name)).toEqual(['candidates']);
+
+    const none = await mailTriggers(
+      ['create', ...person, '--project=p-1', '--connection=work'],
+      TRIGGER,
+      (record) => ({
+        connectionChoices: { candidates: record('candidates', { data: [], hasMore: false }) },
+      }),
+    );
+    expect(none.out.exitCode).toBe(2);
+    expect(none.out.stderr).toContain(
+      'No connection at google is named "work". You have no connection of your own this project can use.',
+    );
+    expect(none.calls.map(([name]) => name)).toEqual(['candidates']);
   });
 
   test('update: --connection goes with --mailbox and --as, since the mailbox is replaced whole', async () => {
@@ -558,6 +648,37 @@ describe('kindgi mail-triggers --connection', () => {
       ),
     );
   };
+
+  test("a person's connection-not-chosen lists none: it says how to name one, or make one main", async () => {
+    const create = await mailTriggers(
+      ['create', '--agent=acme.support', '--mailbox=google', '--as=person'],
+      TRIGGER,
+      (record) => ({
+        ...lookups(record),
+        mailTriggers: {
+          register: async () => {
+            throw new KindgiApiError(
+              fromWire(
+                {
+                  code: 'connection-not-chosen',
+                  message:
+                    "The trigger's owner has 2 Google connections and none is their main: name one in config.mailbox.connectionId, or make one their main.",
+                  details: { field: 'config.mailbox.connectionId' },
+                },
+                409,
+              ),
+            );
+          },
+        },
+      }),
+    );
+    expect(create.out.exitCode).toBe(1);
+    expect(create.out.stderr).toContain(
+      "The trigger's owner has 2 Google connections and none is their main: name one in config.mailbox.connectionId, or make one their main.\n" +
+        'Name one with --connection=<connection>, or its owner makes one their main: kindgi connections update <connection> --main\n',
+    );
+    expect(create.out.stderr).not.toContain('Its company connections there');
+  });
 
   test('a connection-not-chosen names the choices and the command again with each', async () => {
     const create = await mailTriggers(
@@ -674,5 +795,26 @@ describe('kindgi mail-triggers --connection', () => {
       mailTriggers: { list: record('list', page) },
     }));
     expect(json.calls).toEqual([['list', {}]]);
+
+    // A person's mailbox is named from your own connections: another person's shows its account.
+    const people = await mailTriggers(['list', '--table'], TRIGGER, (record) => ({
+      ...mine(record),
+      mailTriggers: {
+        list: record('list', {
+          data: [
+            { ...TRIGGER, mailbox: atSchool },
+            { ...TRIGGER, triggerId: BOT, mailbox: { ...atSchool, connectionId: SALES_ID } },
+          ],
+          hasMore: false,
+        }),
+      },
+    }));
+    expect(people.out.exitCode, people.out.stderr).toBe(0);
+    expect(people.calls).toEqual([
+      ['list', {}],
+      ['candidates', { projectId: 'p-1', app: 'google', owner: 'me' }],
+    ]);
+    expect(people.out.stdout).toMatch(/google person school\s/);
+    expect(people.out.stdout).toMatch(/google person support@acme\.example\s/);
   });
 });
