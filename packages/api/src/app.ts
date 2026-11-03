@@ -1737,6 +1737,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(input.waitTokens !== undefined && { waitTokens: input.waitTokens }),
         ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
         ...(itemRights !== undefined && { itemRights }),
+        ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
         ...(input.agentRegistry !== undefined &&
           input.flowRegistry !== undefined && {
             targetExists: async (tenantId, target) =>
