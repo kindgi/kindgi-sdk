@@ -192,8 +192,8 @@ export interface FlowSchemaProblem {
  * it (`compileInlineSchema`, bounded): each loop's, fanout branch's and
  * subgraph node's `outputSchema`, at any depth of loop bodies, which a
  * run compiles whether or not one is there, and the flow's
- * `output.schema` when it has one. These are `loadFlow`'s checks 10, 12,
- * 13 and 15, over every schema rather than to the first, and nothing
+ * `output.schema` when it has one. These are `loadFlow`'s checks 10, 13,
+ * 14 and 16, over every schema rather than to the first, and nothing
  * else `loadFlow` checks. For a flow that never went through `loadFlow`
  * (a deployment's index, which a workspace can write by hand), so a schema
  * every run would refuse is refused where the flow arrives. A node or
