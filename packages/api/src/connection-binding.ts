@@ -673,12 +673,14 @@ export interface ConnectionBinding {
    * live connection per account on a registration and env, known only at
    * the finish: a connect that names none to reconnect connects the
    * account signed in to, another one too, or reconnects their connection
-   * of that account. `reconnects` naming anything but a live connection of the connect's own
-   * owner on that registration and env is `connection-not-found`, the same
-   * answer as for an id that doesn't exist. A `label` another live
-   * connection of the same app, owner and env has, by `comparableName`, is
-   * `connection-label-taken`, unless the request reconnects: a reconnect
-   * keeps the connection's label and doesn't check the one asked.
+   * of that account when the grant keeps every permission the connection
+   * holds. `reconnects` naming anything but a live connection of the
+   * connect's own owner on that registration and env is
+   * `connection-not-found`, the same answer as for an id that doesn't
+   * exist. A `label` another live connection of the same app, owner and
+   * env has, by `comparableName`, is `connection-label-taken`, unless the
+   * request reconnects: a reconnect keeps the connection's label and
+   * doesn't check the one asked.
    */
   createRequest(
     input: ConnectRequestCreateInput,
