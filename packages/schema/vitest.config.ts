@@ -14,7 +14,7 @@ export default defineConfig({
     // suite when any of them changes.
     forceRerunTriggers: [
       ...configDefaults.forceRerunTriggers,
-      '**/packages/*/src/**',
+      '**/packages/**/src/**',
       '**/packages/specs/schemas/**',
     ],
   },
