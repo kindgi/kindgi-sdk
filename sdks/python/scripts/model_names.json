@@ -610,6 +610,7 @@
   "MailTriggerRecord": ["MailTriggerRecord"],
   "MailTriggerVersion": ["MailTriggerVersion"],
   "MailTriggerVersionPage": ["MailTriggerVersionPage"],
+  "McpExposure": ["McpExposure"],
   "MemoryErasure": ["MemoryErasure"],
   "MemoryErasureConversationSelector": ["MemoryErasureConversationSelector"],
   "MemoryErasureCreated": ["MemoryErasureCreated"],

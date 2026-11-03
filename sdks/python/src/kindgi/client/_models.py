@@ -3024,6 +3024,29 @@ class AgentMemoryPolicy(BaseModel):
     """
 
 
+class McpExposure(BaseModel):
+    """
+    Whether an agent or a flow is a tool in a person's chat app, through the API's MCP server (`/mcp`). An agent's tool is named by its id, a flow's by `flow.` and its id. The chat app lists it only to people who can see it. Absent, or `expose: false`: it isn't one.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    expose: bool
+    """
+    Offer it as a tool to the people who can see it.
+    """
+    read_only: Annotated[bool | None, Field(alias="readOnly")] = None
+    """
+    Tells the chat app that a run changes nothing (the tool's `readOnlyHint`). Absent: no hint, so the chat app applies the protocol's default.
+    """
+    destructive: bool | None = None
+    """
+    Tells the chat app that a run may change or remove things in a way that can't be undone (the tool's `destructiveHint`). Absent: no hint, so the chat app applies the protocol's default.
+    """
+
+
 class ConversationPolicy(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -3321,6 +3344,7 @@ class PublishAgentBody(BaseModel):
     """
     Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default `true`. `false`: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for.
     """
+    mcp: McpExposure | None = None
 
 
 class Warning(BaseModel):
@@ -3465,6 +3489,7 @@ class Flow(BaseModel):
     edges: list[FlowEdge]
     max_parallelism: Annotated[int | None, Field(alias="maxParallelism", ge=1)] = None
     metadata: dict[str, Any] | None = None
+    mcp: McpExposure | None = None
     pins: FlowPins | None = None
     pins_digest: Annotated[
         str | None, Field(alias="pinsDigest", pattern="^sha256:[0-9a-f]{64}$")
@@ -3500,6 +3525,7 @@ class PublishFlowBody(BaseModel):
     edges: list[FlowEdge]
     max_parallelism: Annotated[int | None, Field(alias="maxParallelism", ge=1)] = None
     metadata: dict[str, Any] | None = None
+    mcp: McpExposure | None = None
 
 
 class PublishFlowResult(BaseModel):
@@ -12626,7 +12652,7 @@ class ApprovalApprover(BaseModel):
 
 class ApprovalConnection(BaseModel):
     """
-    The connection the call would use: the person's own, or else the company's connection the call was gated on, which it then runs with or doesn't run (`connection-changed`). A person's account isn't named: show "this person's <appName> account".
+    The connection the call would use: the person's own, or else the company's connection the call was gated on, which it then runs with or doesn't run (`connection-changed`). A person's account isn't named: show "this person's <appName> account", and, to whoever may read the connection (`GET /v1/connections/{connectionId}`), its account.
     """
 
     model_config = ConfigDict(
@@ -12651,6 +12677,10 @@ class ApprovalConnection(BaseModel):
     name: str | None = None
     """
     The company connection's name: its label, else the account's label. A person's own connection has none.
+    """
+    connection_id: Annotated[UUID | None, Field(alias="connectionId")] = None
+    """
+    The connection's id. Whoever may read the connection (its person, a tenant admin) looks its account up by it: `GET /v1/connections/{connectionId}`. Absent from older approvals.
     """
 
 
@@ -16140,6 +16170,7 @@ class Agent(BaseModel):
     """
     Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default `true`. `false`: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for.
     """
+    mcp: McpExposure | None = None
     pins: AgentPins | None = None
     derived_from: Annotated[VersionDerivation | None, Field(alias="derivedFrom")] = None
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None

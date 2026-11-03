@@ -2818,7 +2818,7 @@ describe('kindgi dev — a database per project', () => {
     expect(second.log).not.toContain(NOT_OWN);
   });
 
-  test("a 0.1.3 record (keyed on the bundled Postgres's port) is adopted: the provider is still this pack's", async () => {
+  test("a 0.1.3 record (keyed on the bundled Postgres's port) is left as it is: the provider reads as not this pack's", async () => {
     await writeFile(join(packDir, 'kindgi.config.ts'), GEMINI_CONFIG, 'utf8');
     const base = makeFixtures();
     await boot(withProjectDatabase({ base }).fixtures);
@@ -2839,10 +2839,10 @@ describe('kindgi dev — a database per project', () => {
     );
 
     const next = await boot(withProjectDatabase({ base, ensure: { kind: 'exists' } }).fixtures);
-    expect(next.log).toContain(OWN);
-    expect(next.log).not.toContain(NOT_OWN);
+    expect(next.log).toContain(NOT_OWN);
+    expect(next.log).not.toContain(OWN);
     expect(Object.keys(JSON.parse(await readFile(recordPath, 'utf8')).runtimes)).toEqual([
-      `bundled kindgi_acme tenant ${tenant}`,
+      `127.0.0.1:58091/kindgi_acme tenant ${tenant}`,
     ]);
   });
 
@@ -2851,21 +2851,7 @@ describe('kindgi dev — a database per project', () => {
     const base = makeFixtures();
     await boot(withProjectDatabase({ base }).fixtures);
     const recordDir = join(packDir, '.kindgi', 'dev');
-    const recordPath = join(recordDir, 'providers.json');
-    const record = JSON.parse(await readFile(recordPath, 'utf8')) as {
-      readonly runtimes: Record<string, unknown>;
-    };
-    // A 0.1.3 record, which the next boot would move to the new key; and
-    // a directory where the file is written first, so no write can land.
-    await writeFile(
-      recordPath,
-      JSON.stringify({
-        v: 1,
-        runtimes: {
-          'localhost:58091/kindgi_acme tenant tenant-abc': Object.values(record.runtimes)[0],
-        },
-      }),
-    );
+    // A directory where the file is written first, so no write can land.
     await mkdir(join(recordDir, `providers.json.${process.pid}.tmp`));
 
     for (const flags of LOUD_AND_QUIET) {
@@ -2874,9 +2860,7 @@ describe('kindgi dev — a database per project', () => {
         flags,
       );
       expect(out.exitCode).toBe(0);
-      expect(log.split('\n').filter((l) => l.includes('could not update'))).toEqual([
-        expect.stringContaining('  ⚠ could not update .kindgi/dev/providers.json: EISDIR'),
-      ]);
+      expect(log.split('\n').filter((l) => l.includes('could not update'))).toEqual([]);
       expect(log.split('\n').filter((l) => l.includes('could not write'))).toEqual([
         expect.stringContaining('  ⚠ could not write .kindgi/dev/providers.json: EISDIR'),
       ]);

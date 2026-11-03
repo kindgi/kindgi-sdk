@@ -54,6 +54,8 @@ import type { ImproveRunBinding } from './improve-run-binding.js';
 import type { ItemProjectsBinding } from './item-projects-binding.js';
 import { itemRightsOf, itemServingOf } from './item-rights.js';
 import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-endpoint-binding.js';
+import { type McpServerInput, mountMcpServer } from './mcp-server/endpoint.js';
+import { MCP_TOOL_SETS } from './mcp-server/tool-sets.js';
 import type { MemoryBinding } from './memory-binding.js';
 import type { MemoryErasureBinding } from './memory-erasure-binding.js';
 import {
@@ -822,6 +824,15 @@ export interface CreateAppInput {
    * them into the tool registry under the same tenant.
    */
   readonly mcpEndpointRegistry?: MCPEndpointRegistryBinding;
+  /**
+   * Serves Kindgi itself as an MCP server at `/mcp`, outside the `/v1`
+   * chain, for chat apps signed in as a person with OAuth (the other way
+   * round from `mcpEndpointRegistry`, the servers Kindgi's agents use). Each
+   * tool is a `/v1` request in this process as that person, narrowed to
+   * what the token's scopes allow, so every route's own checks apply.
+   * Absent: `/mcp` isn't mounted (404).
+   */
+  readonly mcpServer?: McpServerInput;
   /**
    * How far tenant configuration may reach into the server's host
    * (`KINDGI_TENANT_HOST_ACCESS`, see `tenant-host-access.ts`): under
@@ -1621,6 +1632,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         }),
       }),
     );
+  }
+
+  // Kindgi as an MCP server: its own token check (a 401 that says where to
+  // sign in), then each tool a `/v1` request in this process as the person.
+  if (input.mcpServer !== undefined) {
+    mountMcpServer(app, input.mcpServer, MCP_TOOL_SETS);
   }
 
   // ---------- authenticated `/v1/*` routes ----------

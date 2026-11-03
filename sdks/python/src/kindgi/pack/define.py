@@ -635,6 +635,12 @@ class Agent:
     verified fact of those types an instruction (in the system message); default: every
     retrieved fact is data. `{"remember": {"types": ["preference"], "scope": "same-user",
     "keepDays": 30}}` lets it remember through the built-in `kindgi_remember` tool."""
+    mcp: Mapping[str, Any] | None = None
+    """Whether the agent is a tool in a person's chat app, through the API's MCP server,
+    named by its id (which then can't start with `kindgi.` or
+    `flow.`): `{"expose": True}`. `"readOnly"` and `"destructive"` (True or False)
+    become the tool's hints; absent, no hint is sent and the chat app applies the protocol's
+    defaults. Absent, or `"expose": False`: it isn't a tool."""
     module: str = field(default="", repr=False)
 
     def __post_init__(self) -> None:
@@ -654,6 +660,7 @@ class Agent:
         parallel = cast("object", self.parallel_tool_calls)  # a caller may pass any value
         if parallel is not None and not isinstance(parallel, bool):
             raise DefinitionError(f"{where}: parallel_tool_calls must be True or False")
+        _check_mcp(self.mcp, self.id, "agent", where)
 
 
 @dataclass(eq=False)
@@ -668,13 +675,20 @@ class Flow:
     description: str | None = None
     max_parallelism: int | None = None
     metadata: Mapping[str, Any] | None = None
+    mcp: Mapping[str, Any] | None = None
+    """Whether the flow is a tool in a person's chat app, through the API's MCP server,
+    named `flow.<id>`: `{"expose": True}`. `"readOnly"` and `"destructive"` (True or False)
+    become the tool's hints; absent, no hint is sent and the chat app applies the protocol's
+    defaults. Absent, or `"expose": False`: it isn't a tool."""
     output: Mapping[str, Any] | None = None
     module: str = field(default="", repr=False)
 
     def __post_init__(self) -> None:
         if not self.module:
             self.module = _defined_in(2)
-        _require_id(self.id, f'Flow "{self.id}"')
+        where = f'Flow "{self.id}"'
+        _require_id(self.id, where)
+        _check_mcp(self.mcp, self.id, "flow", where)
 
 
 Primitive = Tool[..., Any] | Guardrail | Agent | Flow
@@ -695,6 +709,42 @@ def _check_version(version: str | None, where: str) -> None:
 def _require_id(value: Any, where: str) -> None:
     if not isinstance(value, str) or value.strip() == "":
         raise DefinitionError(f"{where}: id must be a non-empty string")
+
+
+_TOOL_NAME = re.compile(r"[A-Za-z0-9_.-]{1,128}")
+_MCP_RESERVED_PREFIXES = ("kindgi.", "flow.")
+
+
+def _check_mcp(value: object, id_: str, kind: str, where: str) -> None:
+    """The same rules as the TypeScript SDK's `mcpExposureIssues`."""
+    if value is None:
+        return
+    if not isinstance(value, Mapping):
+        raise DefinitionError(f"{where}: mcp must be a mapping")
+    mcp = cast("Mapping[str, object]", value)
+    unknown = sorted(set(mcp) - {"expose", "readOnly", "destructive"})
+    if unknown:
+        raise DefinitionError(
+            f"{where}: mcp takes only expose, readOnly and destructive, not {', '.join(unknown)}"
+        )
+    if not isinstance(mcp.get("expose"), bool):
+        raise DefinitionError(f"{where}: mcp.expose must be True or False")
+    for key in ("readOnly", "destructive"):
+        if key in mcp and not isinstance(mcp[key], bool):
+            raise DefinitionError(f"{where}: mcp.{key} must be True or False")
+    if mcp["expose"] is not True:
+        return
+    name = f"flow.{id_}" if kind == "flow" else id_
+    if not _TOOL_NAME.fullmatch(name):
+        longest = 123 if kind == "flow" else 128
+        raise DefinitionError(
+            f'{where}: id "{id_}" can\'t be a tool\'s name: use letters, digits, "_", "-" '
+            f'and ".", at most {longest} characters'
+        )
+    reserved = next((p for p in _MCP_RESERVED_PREFIXES if id_.startswith(p)), None)
+    if kind == "agent" and reserved is not None:
+        kept_for = "flows' tools" if reserved == "flow." else "Kindgi's own tools"
+        raise DefinitionError(f'{where}: id starts with "{reserved}", a prefix kept for {kept_for}')
 
 
 def _positional_params(fn: Callable[..., Any], where: str) -> list[inspect.Parameter]:

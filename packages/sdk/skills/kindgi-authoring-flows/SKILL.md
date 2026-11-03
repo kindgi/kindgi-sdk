@@ -133,6 +133,12 @@ edges between nodes that exist, `$start` / `$end`, no cycles, paths
 rooted where they may be. It doesn't check that `acme.parse-ticket`
 exists. That is checked when a run starts (see "Running a flow").
 
+**In a chat app:** `mcp: { expose: true }` makes the flow a tool, named
+`flow.<id>`, in the chat apps (Claude, say) people connect to the workspace;
+each person sees it only if they can see the flow. Its id then takes letters,
+digits, `_`, `-` and `.`, at most 123. `readOnly` and `destructive` become
+the tool's hints; left out, none is sent.
+
 ## Nodes
 
 - **`kind: 'tool'`** runs the tool `ref` (its id). The tool's input is

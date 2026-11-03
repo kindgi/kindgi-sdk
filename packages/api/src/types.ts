@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Principal, ReviewerRole } from '@kindgi/authz';
+import type { Action, Principal, ReviewerRole } from '@kindgi/authz';
 import type { Logger, TraceContext } from '@kindgi/log';
 import type { ApiTokenId, RunId, SessionId, TenantId, UserId } from '@kindgi/types';
 
@@ -79,6 +79,12 @@ export interface AppEnv {
     s3AccessKeyId?: string;
     /** OAuth scopes granted to a session token. Absent for bearer. */
     scopes?: readonly string[];
+    /**
+     * Set by `bearerAuthMiddleware` on a `/mcp` tool's request: the only
+     * actions the caller may take, whatever its grants allow (its chat
+     * token's scopes). `principalMiddleware` puts them on the principal.
+     */
+    allowedActions?: readonly Action[];
     /**
      * Framework capabilities granted to the bearer. Route handlers
      * call `hasCapability(c, '<name>')` to gate

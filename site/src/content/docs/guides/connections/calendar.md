@@ -8,7 +8,7 @@ sidebar:
 
 The calendar tools work on the calendar of the account someone connected:
 their own, or, with `as: 'company'`, the company's calendar that a tenant
-admin connected. There are five for Google Calendar and five for Outlook.
+admin connected. There are six for Google Calendar and six for Outlook.
 Each one asks for the least access its call takes.
 
 They use the same Google or Microsoft connection as the mail tools. Turn
@@ -21,8 +21,9 @@ or [Microsoft](../microsoft/#2-register-the-app-in-microsoft-entra), step 3.
 | What it does | Google | Outlook | What it asks for |
 | --- | --- | --- | --- |
 | Lists the events in a window | `googleCalendarEventsList` | `outlookCalendarEventsList` | Google: see the events on your calendars. Outlook: see your calendar's events, without their details. |
-| Says when the calendar is busy | `googleCalendarFreeBusy` | `outlookCalendarFreeBusy` | Google: see when you're free or busy. Outlook: the same as a list. |
-| Lists the calendars | `googleCalendarCalendarsList` | `outlookCalendarCalendarsList` | Google: see the list of your calendars. Outlook: the same as a list. |
+| Lists the events in a window, on calendars others share too | `googleCalendarSharedEventsList` | `outlookCalendarSharedEventsList` | Google: see the events on all your calendars. Outlook: see the events on your calendars, with their details. |
+| Says when the calendar is busy | `googleCalendarFreeBusy` | `outlookCalendarFreeBusy` | Google: see when you're free or busy. Outlook: the same as the events list. |
+| Lists the calendars | `googleCalendarCalendarsList` | `outlookCalendarCalendarsList` | Google: see the list of your calendars. Outlook: the same as the events list. |
 | Adds an event | `googleCalendarEventCreate` | `outlookCalendarEventCreate` | Add and change events (Google), or read, add and change them (Outlook). |
 | Changes an event | `googleCalendarEventUpdate` | `outlookCalendarEventUpdate` | The same as adding one. |
 
@@ -79,11 +80,20 @@ with its window:
   with its `calendarId`. `top` counts across them, and an event on two of
   them comes once from each.
 - **A free/busy** joins their busy times.
-- **What a list can read:** Google reads only a calendar the account owns,
-  one whose entry shows `access: "owner"` and no `owner`, since its event
-  permission reaches no other. Outlook reads each with the same permission
-  as the main one. When Google or Microsoft refuses a calendar, the call
-  fails and names it.
+- **What a list can read:** Google's events list reads only a calendar the
+  account owns, one whose entry shows `access: "owner"` and no `owner`,
+  since its event permission reaches no other. Outlook reads with
+  `Calendars.ReadBasic`, and Microsoft's pages name a wider permission for a
+  calendar someone else shares with the account, which the shared list asks
+  for. When Google or Microsoft refuses a calendar, the call fails and names
+  it.
+- **Calendars others share:** `googleCalendarSharedEventsList` and
+  `outlookCalendarSharedEventsList` take the same input as the events lists
+  and give the same list, and they also read a calendar someone else owns
+  that the account has, such as a colleague's or a family calendar. They ask
+  for a wider permission ([below](#permissions-and-review)), so include one
+  only in a pack that needs it. Google and Microsoft decide what each
+  calendar shows.
 - **Outlook's free/busy** reads at most 1000 events across the calendars.
   Past that, it fails: ask for a shorter window or fewer calendars.
 
@@ -137,19 +147,22 @@ Your own client or app asks for these permissions, so Google and Microsoft
 review your registration, not Kindgi's.
 
 - **Google:** `calendar.events.owned.readonly` to list,
-  `calendar.freebusy` for free/busy, `calendar.calendarlist.readonly` to
-  list the calendars, and `calendar.events.owned` to add and change. The two
-  event permissions reach only calendars the account owns,
-  `calendar.freebusy` shows only when it's free or busy, and
-  `calendar.calendarlist.readonly` shows the calendars, not their events.
+  `calendar.events.readonly` for the shared list, `calendar.freebusy` for
+  free/busy, `calendar.calendarlist.readonly` to list the calendars, and
+  `calendar.events.owned` to add and change.
+  `calendar.events.owned.readonly` and `calendar.events.owned` reach only
+  calendars the account owns, `calendar.events.readonly` reads the events on
+  every calendar the account has, `calendar.freebusy` shows only when it's
+  free or busy, and `calendar.calendarlist.readonly` shows the calendars,
+  not their events.
   Google counts calendar permissions as sensitive.
   - With **Audience: Internal**, there's no review.
   - With **External**, an app Google hasn't verified shows its "unverified
     app" screen and takes at most 100 accounts, as for Gmail
     ([Google](../google/#1-create-the-client-in-the-google-cloud-console)).
 - **Microsoft:** `Calendars.ReadBasic` to list events and calendars and for
-  free/busy, and
-  `Calendars.ReadWrite` to add and change. Neither needs an admin's consent
+  free/busy, `Calendars.Read` for the shared list, and
+  `Calendars.ReadWrite` to add and change. None needs an admin's consent
   by default. Your directory may still ask for it
   ([Admin consent](../microsoft/#admin-consent)).
 
@@ -167,7 +180,9 @@ so their mail keeps working, with Google and with Microsoft.
 The same goes for Google's calendars list on a connection made before it
 came: the connection lacks `calendar.calendarlist.readonly` until the
 person allows it. A list or a free/busy with `calendarIds` needs nothing
-new, and neither does Outlook's calendars list.
+new, and neither does Outlook's calendars list. A shared list needs its own
+permission, `calendar.events.readonly` or `Calendars.Read`, which a
+connection lacks until the person allows it.
 
 ## Limits
 
@@ -184,7 +199,6 @@ new, and neither does Outlook's calendars list.
 ## Not here yet
 
 - Starting a run when an event is booked, changed or about to start.
-- Events on a Google calendar the account doesn't own, delegated
-  calendars, and free/busy for colleagues.
+- Delegated calendars, and free/busy for colleagues.
 - Adding or changing events on a calendar other than the main one.
 - Deleting an event, and making or changing a repeating series.

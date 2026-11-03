@@ -391,44 +391,6 @@ function databaseOf(databaseUrl: string | undefined): string {
   }
 }
 
-/**
- * Up to 0.1.3 the bundled Postgres's entries were keyed on its host and
- * port (`127.0.0.1:<port>/<database> tenant <id>`, a loopback host), and the port changes
- * when the container comes back. Moves such entries for this database and
- * tenant to the `bundled` key, once: else the providers this pack
- * registered would read as someone else's. A one-time migration of a
- * local file: remove it after 0.1.5.
- */
-export async function adoptLegacyBundledEntries(
-  path: string,
-  database: string,
-  tenantId: string,
-): Promise<void> {
-  const file = await readRecordFile(path);
-  if (file === undefined) return;
-  const key = devProvidersKey({ kind: 'bundled', database }, tenantId);
-  if (file.runtimes[key] !== undefined) return;
-  const legacy = Object.keys(file.runtimes).filter((k) =>
-    isLegacyBundledKey(k, database, tenantId),
-  );
-  if (legacy.length === 0) return;
-  const runtimes: Record<string, OwnedProviders> = { ...file.runtimes };
-  const adopted: Record<string, OwnedProvider> = {};
-  for (const k of legacy) {
-    Object.assign(adopted, runtimes[k]);
-    delete runtimes[k];
-  }
-  runtimes[key] = adopted;
-  await writeRecordFile(path, { v: 1, runtimes });
-}
-
-function isLegacyBundledKey(key: string, database: string, tenantId: string): boolean {
-  const suffix = `/${database} tenant ${tenantId}`;
-  if (!key.endsWith(suffix)) return false;
-  // The bundled Postgres is on this machine; a database elsewhere was named.
-  return /^(127\.0\.0\.1|localhost|\[::1\]):\d+$/.test(key.slice(0, -suffix.length));
-}
-
 /** This pack's providers in that runtime and tenant; nothing when the record is missing or unreadable. */
 export async function readOwnedProviders(path: string, key: string): Promise<OwnedProviders> {
   const file = await readRecordFile(path);

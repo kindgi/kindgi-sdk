@@ -76,7 +76,8 @@ In the [Microsoft Entra admin center](https://entra.microsoft.com):
    permissions:** `offline_access`, `User.Read`, and the mail permissions
    your tools need, `Mail.Send` to send mail and `Mail.Read` to read it,
    and both to reply. For the [calendar tools](../calendar/), add
-   `Calendars.ReadBasic` to list events and calendars and for free/busy, and
+   `Calendars.ReadBasic` to list events and calendars and for free/busy,
+   `Calendars.Read` to list events on calendars others share, and
    `Calendars.ReadWrite` to add and change them. Then choose **Add
    permissions**. Kindgi asks for
    `offline_access` to keep access between sign-ins, and for `User.Read` to

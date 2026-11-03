@@ -137,6 +137,10 @@ triage_ticket = Flow(
 - **The dicts are the wire shape**, so their keys are camelCase
   (`inputMapping`, `loopKind`, `maxIterations`); `Flow`'s own keywords
   are snake_case (`max_parallelism`).
+- **`mcp={"expose": True}`** makes the flow a tool, named `flow.<id>`, in the chat apps (Claude, say) people
+  connect to the workspace; each person sees it only if they can see the
+  flow. Its id then takes letters, digits, `_`, `-` and `.`, at most 123.
+  `readOnly` and `destructive` become the tool's hints; left out, none is sent.
 - **Where it's checked:** `Flow(...)` checks the id when the module
   loads. The indexer checks the rest against `flow.schema.json` —
   version, node and edge shapes, `$start` / `$end` — and `kindgi dev`

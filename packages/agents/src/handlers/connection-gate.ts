@@ -287,10 +287,11 @@ function declaredRejectionOf(error: unknown, tool: Tool): ConnectionRejection | 
 /**
  * Whom the call's approval is for, and the connection it acts with. With
  * a person's connection: its owner (of the first, by the tool's names for
- * them, sorted), and its app and account, never their name for it (the
- * run's record has none). Only they decide it. Otherwise, with a company
- * connection: the first company one, with its name, and today's
- * reviewers decide. `undefined` when the call uses neither.
+ * them, sorted), and its app and id, never its account or their name for
+ * it (the run's record has neither). Only they decide it. Otherwise, with
+ * a company connection: the first company one, with its account and
+ * name, and today's reviewers decide. `undefined` when the call uses
+ * neither.
  */
 export function connectionApprovalOf(
   tool: Tool,
@@ -312,20 +313,25 @@ export function connectionApprovalOf(
 }
 
 /**
- * A connection as the approval shows it: a person's by its app alone
- * ("this person's Google account"), the company's by its account and name.
+ * A connection as the approval keeps it: a person's by its app and id
+ * ("this person's Google account", and its account only to whoever may
+ * read the connection by that id), the company's by its account and name
+ * too.
  */
 function approvalConnection(
   seen: RecordedConnection,
   as: 'company' | 'person',
 ): NonNullable<HitlEnqueueInput['connection']> {
-  if (as === 'person') return { app: seen.app, appName: seen.appName, as };
+  if (as === 'person') {
+    return { app: seen.app, appName: seen.appName, as, connectionId: seen.connectionId };
+  }
   return {
     app: seen.app,
     appName: seen.appName,
     as,
     ...(seen.account.label !== undefined && { account: seen.account.label }),
     ...(seen.name !== undefined && { name: seen.name }),
+    connectionId: seen.connectionId,
   };
 }
 

@@ -1037,7 +1037,13 @@ describe("a call that acts with a person's connection is theirs to approve", () 
   test('the approval names its owner, and says the account it acts as is theirs, never naming it', async () => {
     const t = await turn({ policy: ask });
     expect(t.enqueued[0]).toMatchObject({ approver: { kind: 'member', userId: OWNER } });
-    expect(t.enqueued[0]?.connection).toEqual({ app: 'acme', appName: 'Acme', as: 'person' });
+    // Its id, for whoever may read the connection to look the account up.
+    expect(t.enqueued[0]?.connection).toEqual({
+      app: 'acme',
+      appName: 'Acme',
+      as: 'person',
+      connectionId: 'conn-mail',
+    });
     expect(t.ran).toHaveLength(1);
   });
 
@@ -1049,6 +1055,7 @@ describe("a call that acts with a person's connection is theirs to approve", () 
       appName: 'Acme',
       as: 'company',
       account: 'owner@acme.example',
+      connectionId: 'conn-shared',
     });
 
     const named = await turn({
@@ -1063,6 +1070,7 @@ describe("a call that acts with a person's connection is theirs to approve", () 
       as: 'company',
       account: 'sales@acme.example',
       name: 'sales',
+      connectionId: 'conn-sales',
     });
     expect(named.ran).toHaveLength(1);
   });
@@ -1074,8 +1082,14 @@ describe("a call that acts with a person's connection is theirs to approve", () 
       answers: [readyOn({ mail: { ...support, name: 'mine' }, archive: sales })],
     });
     expect(t.enqueued[0]).toMatchObject({ approver: { kind: 'member', userId: OWNER } });
-    // Built from the run's record, which any project reader reads.
-    expect(t.enqueued[0]?.connection).toEqual({ app: 'acme', appName: 'Acme', as: 'person' });
+    // Built from the run's record, which any project reader reads: the id
+    // is there already, the account and name never are.
+    expect(t.enqueued[0]?.connection).toEqual({
+      app: 'acme',
+      appName: 'Acme',
+      as: 'person',
+      connectionId: 'conn-support',
+    });
   });
 
   test('the connect comes before the approval', async () => {
