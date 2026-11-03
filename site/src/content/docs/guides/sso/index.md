@@ -242,7 +242,7 @@ A tenant admin does the same steps on the console's **Sign-in** page:
   edits it in place, and warns you before a change that signs its people
   out. **Remove** takes it out of sign-in.
 
-  ![The Sign-in page: Acme Keycloak, OpenID Connect, at acme.test, with Try, Change and Remove](../../../../assets/sso/console-providers.png)
+  ![The Sign-in page: Acme Keycloak, OpenID Connect, at acme.test, letting in people added to this workspace, with Try, Change and Remove icons; below it, the Second factor box, not required, with Require a second factor](../../../../assets/sso/console-providers.png)
 
 Whoever runs Kindgi can manage sign-in for every workspace themselves, with
 `KINDGI_AUTH_TENANT_PROVIDERS=off`
