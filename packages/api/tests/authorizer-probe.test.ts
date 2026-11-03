@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: packages/api/src/**
 
 /**
  * `Authorizer.probe` answers what `can` answers, and records nothing: the
