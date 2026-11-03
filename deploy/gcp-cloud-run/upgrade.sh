@@ -1251,19 +1251,19 @@ EOT
    - STEPS-PENDING: this copy's 0.5.0 runtime steps below aren't final yet.
      Don't upgrade a deployment you keep with it: read the 0.5.0 release
      notes' Upgrade steps.
-   - One new migration: two new tables (connection_choices and
-     connection_choice_uses), and new columns on connections and
-     connection_requests that are empty, with nothing rewritten. The first
-     start runs it. It keeps connections locked while it reads every
-     connection to build three new indexes: meanwhile a call that needs a
-     connection waits, on the old revision too. That's short unless there
-     are very many:
+   - Two new migrations: three new tables (connection_choices,
+     connection_choice_uses and connection_choice_members), and new columns
+     on connections and connection_requests that are empty, with nothing
+     rewritten. The first start runs them. Each keeps connections locked
+     while it reads every connection to build new indexes or check a new
+     rule: meanwhile a call that needs a connection waits, on the old
+     revision too. That's short unless there are very many:
        SELECT count(*) FROM connections;
      A long transaction holding connections or connection_requests makes
      the new revision fail after about a minute, naming the session that
      holds it (end it with pg_terminate_backend, or let it finish). The old
      revision keeps serving meanwhile.
-   - The migration fills nothing in: each connection keeps working, with
+   - The migrations fill nothing in: each connection keeps working, with
      no name, and no agent or flow has a choice of one. Name them when you
      like.
    - Before you upgrade, check your console links' labels. A runtime whose
