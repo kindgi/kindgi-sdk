@@ -587,7 +587,7 @@ without a user or a service token. A `401`, for an unknown caller, never is.
 
 On runtime 0.6.0 or later, what a caller is shown about its own access isn't
 kept either, allowed or not: whoami's `tenantAdmin`
-(`GET /v1/identity/whoami`), `GET /v1/identity/me/permissions`, and a
+(`GET /v1/identity/whoami`), `GET /v1/identity/me/permissions`, and an
 expert queue item's `can` (whether you may dismiss or reopen it). A console
 reads them often, to choose which pages and buttons to show, and none of
 them lets the caller do anything. Each request it then makes is checked, and
