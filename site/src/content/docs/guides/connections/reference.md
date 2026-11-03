@@ -70,9 +70,10 @@ connection and account a call used
 
 ## What a run records
 
-Each call that runs on a connection records it in the run's journal,
-under the tool's name for the connection: its `connectionId`, `app`,
-`appName` and `account`, and for the company's connection, its `name`.
+Each call that runs on a connection records it in the run's journal, as
+`"kind": "ready"` with its `connections`, each under the tool's name for
+the connection: its `connectionId`, `app`, `appName` and `account`, and
+for the company's connection, its `name`.
 The company's `account` is `{ "id", "label" }`. A person's is `{ "id" }`
 only: the runtime keeps a person's account by its id, never its label. The
 record also says how the connection was picked, as `pick`:
@@ -137,6 +138,14 @@ set ([Read several accounts with one tool](../choose-a-connection/#read-several-
 `pick` names registrations only, never a person's connection names or
 accounts. Records from older runtimes have no `pick`, or a `pick` without
 `as` and `setSize`, and keep a person's account label as it was recorded.
+
+A call that its connections stopped before it ran records why instead, as
+`"kind": "refused"`: its [`code`](#errors-when-a-call-uses-a-connection),
+the tool's name for the connection (`name`), the `app`, whose connection
+the call needed (`as`), any permissions the connection lacks (`missing`),
+and the `message`. The company's `connection-not-chosen` also lists the
+connections to choose from (`choices`, each `{ "connectionId", "name" }`);
+a person's lists none. Records from older runtimes have no `as`.
 
 In the console, a run's page words this record under **What happened**,
 below each tool call that ran, in an agent's turn or a flow's tool step:
