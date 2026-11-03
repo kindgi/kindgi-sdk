@@ -91,4 +91,7 @@ Anything these agents return may appear in your Claude chat.
 In the console, open **My access**. Under **Chat apps**, choose
 **Disconnect** next to Claude.
 
-<!-- To confirm: how the Chat apps list names Claude, and what Disconnect ends at once. Kindgi doesn't offer chat apps a revoke endpoint, so removing the connector in claude.ai likely leaves the grant in place; once confirmed, say so here and point to Disconnect. -->
+Removing the connector in claude.ai doesn't end what you allowed in Kindgi,
+so disconnect in Kindgi too.
+
+<!-- To confirm: how the Chat apps list names Claude, and what Disconnect ends at once. -->

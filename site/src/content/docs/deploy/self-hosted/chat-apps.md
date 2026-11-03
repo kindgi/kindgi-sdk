@@ -26,8 +26,10 @@ person's side. This needs runtime 0.6.0 or later.
 - **The runtime's settings:** `kindgi.env` for
   [Self-host Kindgi](../self-host/), or the module's `server_env` on
   [Cloud Run](../cloud-run/).
-
-<!-- To confirm: whether the runtime must reach claude.ai's client metadata document (https://claude.ai/oauth/mcp-oauth-client-metadata) on the way out. If so, it's a fourth bullet here. -->
+- **A way out to claude.ai.** claude.ai names itself with a client metadata
+  document, so the runtime fetches
+  `https://claude.ai/oauth/mcp-oauth-client-metadata` when someone connects.
+  If your runtime's outbound traffic is limited, allow that address.
 
 ## Turn it on
 
@@ -39,7 +41,12 @@ KINDGI_MCP_SERVER=on
 KINDGI_PUBLIC_URL=https://kindgi.example.com
 ```
 
-<!-- To confirm: KINDGI_MCP_SERVER's final name and values, then a link to its entry in the environment variables reference; which setting the console links in chat answers are built from; and the start output line below, word for word. -->
+`KINDGI_MCP_SERVER` is `off` unless you set it. With it `on`, the runtime
+doesn't start without `KINDGI_PUBLIC_URL`, with a public address that has a
+path (`https://example.com/kindgi`), or without sign-in. It doesn't need an
+authorization store.
+
+<!-- To confirm: a link to KINDGI_MCP_SERVER's entry in the environment variables reference, once it's there. -->
 
 Restart the runtime. Its start output says the endpoint is on:
 
@@ -52,7 +59,6 @@ line adds `(no per-project permissions)`. Anyone signed in can then see and
 run every agent, and Claude gets the same access.
 
 <!-- To confirm: whether the consent page tells each person so before they allow it. -->
-
 
 Only agents their builders offer in chat show up there, and each person
 gets a tool only for those of them they may run in Kindgi.
@@ -69,6 +75,10 @@ https://kindgi.example.com/mcp
 ```
 
 Send it with a link to [Use Kindgi from Claude](../../../guides/chat/).
+
+Chat answers link to runs and waits in the console at your public address
+with `/console` after it, when the runtime serves the console itself. When
+your console runs elsewhere, chat answers carry no console links.
 
 ## Choose what chat answers carry
 
@@ -107,7 +117,9 @@ before new connections.
 Claude's servers call these paths, from `160.79.104.0/21`:
 
 - `/mcp`
-- `/.well-known/oauth-*`
+- `/.well-known/oauth-protected-resource`,
+  `/.well-known/oauth-protected-resource/mcp` and
+  `/.well-known/oauth-authorization-server/auth`
 - `/auth/oauth2/token` and `/auth/oauth2/register`
 - `/auth/jwks`
 
@@ -119,8 +131,6 @@ Anthropic can change the range. Check
 [Anthropic's page](https://claude.com/docs/connectors/building/authentication.md)
 for the current one.
 
-<!-- To confirm: the paths. /.well-known/oauth-* doesn't cover /.well-known/openid-configuration; /auth/oauth2/introspect and /auth/oauth2/revoke stay closed. -->
-
 **With nginx** in front, one `location` per path, each admitting only
 Claude's range:
 
@@ -130,7 +140,7 @@ location = /mcp {
     deny all;
     proxy_pass http://kindgi;
 }
-location ^~ /.well-known/oauth- {
+location ~ ^/\.well-known/oauth-(protected-resource(/mcp)?|authorization-server/auth)$ {
     allow 160.79.104.0/21;
     deny all;
     proxy_pass http://kindgi;
@@ -169,7 +179,7 @@ first:
 gcloud compute security-policies rules create 900 \
   --security-policy=kindgi-front \
   --action=allow \
-  --expression="inIpRange(origin.ip, '160.79.104.0/21') && (request.path.startsWith('/.well-known/oauth-') || request.path.matches('^/(mcp|auth/jwks|auth/oauth2/(token|register))$'))"
+  --expression="inIpRange(origin.ip, '160.79.104.0/21') && request.path.matches('^/(mcp|auth/jwks|auth/oauth2/(token|register)|[.]well-known/oauth-(protected-resource(/mcp)?|authorization-server/auth))$')"
 ```
 
 `kindgi-front` is your policy's name. Keep the rules that admit your own
