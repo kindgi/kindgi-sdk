@@ -11,6 +11,7 @@ import type { SigningKeyBinding } from '@kindgi/crypto';
 import type { Logger } from '@kindgi/log';
 
 import { statusFor, toWireError } from '../errors.js';
+import { type InProcessCaller, inProcessCallerOf } from '../mcp-server/in-process.js';
 import type { PersonCapabilitiesBinding } from '../person-capabilities-binding.js';
 import { PUBLIC_RUN_TOKEN_PREFIX, verifyPublicRunToken } from '../public-run-token.js';
 import type { SessionStoreBinding } from '../session-store-binding.js';
@@ -418,48 +419,14 @@ export function bearerAuthMiddleware(
       return c.json(body, statusFor('auth-revoked') as never);
     }
 
-    if (resolution.system !== undefined) {
-      c.set('systemPrincipal', resolution.system);
-      c.set('tenantId', SYSTEM_TENANT_ID);
-    } else {
-      c.set('tenantId', resolution.tenantId);
-    }
-    if (resolution.reviewerRole !== undefined) {
-      c.set('reviewerRole', resolution.reviewerRole);
-    }
-    if (resolution.userId !== undefined) {
-      c.set('userId', resolution.userId);
-    }
-    if (resolution.tokenId !== undefined) {
-      c.set('tokenId', resolution.tokenId);
-    }
-    if (resolution.serviceAccountId !== undefined) {
-      c.set('serviceAccountId', resolution.serviceAccountId);
-    }
-    if (resolution.tokenRole !== undefined) {
-      c.set('tokenRole', resolution.tokenRole);
-    }
-    if (resolution.tokenProjectId !== undefined) {
-      c.set('tokenProjectId', resolution.tokenProjectId);
-    }
-    if (resolution.expiresAt !== undefined && !isSessionToken) {
-      c.set('tokenExpiresAt', resolution.expiresAt);
-    }
-    if (resolution.sessionId !== undefined) {
-      c.set('sessionId', resolution.sessionId);
-    }
-    if (resolution.providerId !== undefined) {
-      c.set('providerId', resolution.providerId);
-    }
-    if (resolution.scopes !== undefined) {
-      c.set('scopes', resolution.scopes);
-    }
-    const capabilities = isSessionToken
-      ? await sessionCapabilities(options.personCapabilities, resolution)
-      : resolution.capabilities;
-    if (capabilities !== undefined) {
-      c.set('capabilities', capabilities);
-    }
+    setCaller(
+      c,
+      resolution,
+      isSessionToken
+        ? await sessionCapabilities(options.personCapabilities, resolution)
+        : resolution.capabilities,
+      isSessionToken,
+    );
 
     // Bump `lastActiveAt` (throttled) so the inactivity timeout has
     // a fresh signal to compare against. Only meaningful for session
@@ -495,7 +462,7 @@ export function bearerAuthMiddleware(
     await next();
     return;
   };
-  return async (c, next) => {
+  const fromRequest: MiddlewareHandler = async (c, next) => {
     const requestId = c.get('requestId') as string;
     const header = c.req.header('authorization');
     if (header === undefined || header.length === 0) {
@@ -536,6 +503,85 @@ export function bearerAuthMiddleware(
 
     return authenticate(c, next, token, requestId);
   };
+  return async (c, next) => {
+    const inProcess = inProcessCallerOf(c.env);
+    return inProcess === undefined
+      ? fromRequest(c, next)
+      : admitInProcess(c, next, inProcess, c.get('requestId') as string);
+  };
+}
+
+/**
+ * A `/mcp` tool's request, made in this process: its caller was checked at
+ * `/mcp` and comes in the request's bindings, never in a header. It holds
+ * no capabilities, and only the actions its chat scopes allow.
+ */
+async function admitInProcess(
+  c: Context,
+  next: Next,
+  caller: InProcessCaller,
+  requestId: string,
+): Promise<Response | undefined> {
+  const { resolution } = caller;
+  if (resolution.expiresAt !== undefined && resolution.expiresAt.getTime() < Date.now()) {
+    const body = toWireError(
+      { code: 'auth-expired', message: 'Bearer token has expired' },
+      requestId,
+    );
+    return c.json(body, statusFor('auth-expired') as never);
+  }
+  setCaller(c, resolution, undefined, false);
+  c.set('allowedActions', caller.allowedActions);
+  await next();
+  return undefined;
+}
+
+/** Who the request is from, as the routes read it: what `resolution` names. */
+function setCaller(
+  c: Context,
+  resolution: TokenResolution,
+  capabilities: readonly string[] | undefined,
+  isSessionToken: boolean,
+): void {
+  if (resolution.system !== undefined) {
+    c.set('systemPrincipal', resolution.system);
+    c.set('tenantId', SYSTEM_TENANT_ID);
+  } else {
+    c.set('tenantId', resolution.tenantId);
+  }
+  if (resolution.reviewerRole !== undefined) {
+    c.set('reviewerRole', resolution.reviewerRole);
+  }
+  if (resolution.userId !== undefined) {
+    c.set('userId', resolution.userId);
+  }
+  if (resolution.tokenId !== undefined) {
+    c.set('tokenId', resolution.tokenId);
+  }
+  if (resolution.serviceAccountId !== undefined) {
+    c.set('serviceAccountId', resolution.serviceAccountId);
+  }
+  if (resolution.tokenRole !== undefined) {
+    c.set('tokenRole', resolution.tokenRole);
+  }
+  if (resolution.tokenProjectId !== undefined) {
+    c.set('tokenProjectId', resolution.tokenProjectId);
+  }
+  if (resolution.expiresAt !== undefined && !isSessionToken) {
+    c.set('tokenExpiresAt', resolution.expiresAt);
+  }
+  if (resolution.sessionId !== undefined) {
+    c.set('sessionId', resolution.sessionId);
+  }
+  if (resolution.providerId !== undefined) {
+    c.set('providerId', resolution.providerId);
+  }
+  if (resolution.scopes !== undefined) {
+    c.set('scopes', resolution.scopes);
+  }
+  if (capabilities !== undefined) {
+    c.set('capabilities', capabilities);
+  }
 }
 
 /**
