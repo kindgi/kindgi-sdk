@@ -1,7 +1,7 @@
 {
   "name": "@kindgi/bounds",
   "version": "0.3.1",
-  "description": "The limits a Kindgi server puts on what a tenant sends it: pattern length and engine (V8, or linear-time RE2 when hosted), schema size and depth, template limits, and the size and idle time of bodies read from tenant-named endpoints. Set once at boot; read by the packages that compile or read tenant input.",
+  "description": "The limits a Kindgi server puts on what a workspace sends it: pattern length and engine (V8, or linear-time RE2 when hosted), schema size and depth, template limits, and the size and idle time of bodies read from workspace-named endpoints. Set once at boot; read by the packages that compile or read workspace input.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

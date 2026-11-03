@@ -38,7 +38,7 @@ function nextOrgId(): OrgId {
  * - `environmentOrderOf`: the id of the environment order the org is the
  *   parent of, or `undefined` for none. Given, `delete` refuses an org that
  *   is the parent of an order (`org-has-environment-order`), as the durable
- *   binding does under its per-tenant lock; absent, no org holds one. Compose
+ *   binding does under its per-workspace lock; absent, no org holds one. Compose
  *   this to the environment-order binding wherever both share a store so the
  *   guard is never silently unset.
  */
