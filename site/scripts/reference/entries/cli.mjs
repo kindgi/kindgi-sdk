@@ -2574,7 +2574,8 @@ export const CLI_EXAMPLES = {
       line: 'kindgi connection-choices set sales --flow=acme.triage --project=<project-id> --app=google',
     },
     {
-      purpose: "Have one tool of an agent use the company connection named `sales`, ahead of the agent's own choice.",
+      purpose:
+        "Have one tool of an agent use the company connection named `sales`, ahead of the agent's own choice.",
       line: 'kindgi connection-choices set sales --agent=acme.order-desk --tool=acme.mail.send',
     },
     {
