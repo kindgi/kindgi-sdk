@@ -530,6 +530,7 @@
           "site-not-found": 404,
           "site-invalid": 400,
           "site-enrollment-refused": 401,
+          "site-enrollment-key-retired": 409,
           "site-key-invalid": 400,
           "site-sign-in-refused": 401,
           "site-request-too-large": 413,
@@ -77544,7 +77545,7 @@
             }
           }
         },
-        "description": "Statements signed with it are refused from now on, and the site's live sessions end. Tenant admins only.",
+        "description": "Statements signed with it are refused from now on, and Kindgi won't enroll it again, for this site or another site in the tenant at the same address. The site's live sessions end. Tenant admins only.",
         "parameters": [
           {
             "name": "projectId",
@@ -77766,6 +77767,16 @@
               }
             }
           },
+          "409": {
+            "description": "The key was retired at this site, or at another site in the tenant at the same address, and it isn't live on this site (`site-enrollment-key-retired`). The code isn't used up.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "413": {
             "description": "The body is over 4096 bytes (`site-request-too-large`).",
             "content": {
@@ -77787,7 +77798,7 @@
             }
           }
         },
-        "description": "Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.",
+        "description": "Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Once the code checks out, a key this site retired, or another site in the tenant at the same address retired, is refused unless it's live on this site now (`409 site-enrollment-key-retired`), and the code isn't used up. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.",
         "requestBody": {
           "required": true,
           "content": {
