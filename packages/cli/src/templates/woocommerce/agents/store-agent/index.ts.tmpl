@@ -26,7 +26,7 @@ const defined = defineAgent({
     'Looks up orders, refunds them within policy and changes the store, with a person approving refunds over 100, price changes and publishing.',
   // Its instructions are a prompt block the pack brings: `blocks/store-agent-prompt.json`,
   // with its text in `blocks/store-agent-prompt.liquid`. `kindgi deploy` publishes it with
-  // the agent, and an improvement pass can draft new instructions from it. The model never
+  // the agent, and an Improve run can draft new instructions from it. The model never
   // sees an approval: a call that waited comes back with its result once a person decided,
   // so the instructions say what a result means. Without that it said a refund still
   // waited after it was made.

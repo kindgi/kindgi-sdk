@@ -9,6 +9,7 @@
 
 import { AppRefused, type AppSend } from './app-request.js';
 import { google } from './google.js';
+import { bodyBytes, decodedUpTo } from './mail-attachment.js';
 
 /** The connected mailbox's API: `me` is whoever signed in, the person or the company's mailbox. */
 export const GMAIL = 'https://gmail.googleapis.com/gmail/v1/users/me';
@@ -28,15 +29,58 @@ export class GmailNotFound extends AppRefused {}
 export async function gmailJson(send: AppSend, toolId: string, path: string): Promise<unknown> {
   const res = await send({ entry: google, connection: 'mail', toolId, url: `${GMAIL}${path}` });
   if (res.ok) return res.json();
+  throw await gmailRefusal(res, path.split('?')[0] ?? path);
+}
+
+/**
+ * An attachment's bytes, from `users.messages.attachments.get`'s answer
+ * (its `data`, in base64url), at most `max`: `undefined` past them, the
+ * answer read no further than they take. An error names the message's
+ * attachments, never the attachment's id.
+ */
+export async function gmailAttachmentBytes(
+  send: AppSend,
+  messageId: string,
+  attachmentId: string,
+  max: number,
+): Promise<Uint8Array | undefined> {
+  const path = `/messages/${messageId}/attachments`;
+  const res = await send({
+    entry: google,
+    connection: 'mail',
+    toolId: 'gmail.attachments.get',
+    url: `${GMAIL}${path}/${encodeURIComponent(attachmentId)}`,
+  });
+  if (!res.ok) throw await gmailRefusal(res, path);
+  // Base64 takes 4 characters for each 3 bytes; the answer adds its size and quotes.
+  const json = await bodyBytes(res, Math.ceil(max / 3) * 4 + 1024);
+  if (json === undefined) return undefined;
+  const data = attachmentData(new TextDecoder().decode(json));
+  if (data === undefined) throw new Error('Gmail gave the attachment without its content.');
+  return decodedUpTo(data, max);
+}
+
+/** The `data` of an attachment's answer, else `undefined`: a parse error would quote the answer. */
+function attachmentData(text: string): string | undefined {
+  try {
+    const data = (JSON.parse(text) as { data?: unknown } | null)?.data;
+    return typeof data === 'string' ? data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Gmail's refusal of a call at `path`, in Google's words: a 404 as `GmailNotFound`. */
+async function gmailRefusal(res: Response, path: string): Promise<AppRefused> {
   const { reason, says } = googleErrorOf(await res.text(), res.status);
   if (res.status === 404) {
-    throw new GmailNotFound(
+    return new GmailNotFound(
       404,
       reason,
-      `Gmail found nothing at ${path.split('?')[0]} in the mailbox. (${says})`,
+      `Gmail found nothing at ${path} in the mailbox. (${says})`,
     );
   }
-  throw new AppRefused(res.status, reason, `Gmail refused the call (HTTP ${res.status}): ${says}`);
+  return new AppRefused(res.status, reason, `Gmail refused the call (HTTP ${res.status}): ${says}`);
 }
 
 /** What Google's error says (its status and message), else the HTTP status. */

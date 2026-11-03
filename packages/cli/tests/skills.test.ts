@@ -15,11 +15,13 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import {
+  type SkillSyncOutcome,
   type SkillSyncReport,
   describeDevSkillsRefresh,
   describeSkillDrift,
   detectSkillDrift,
   refreshSkillsForDev,
+  skillCopyPaths,
   skillPackLanguages,
   syncSkills,
 } from '../src/commands/skills.js';
@@ -245,6 +247,208 @@ describe('syncSkills — both folders, one manifest', () => {
       ['.agents/skills', 'added'],
     ]);
     expect(await drift()).toEqual({ missing: [], outdated: [] });
+  });
+});
+
+describe("syncSkills — a skill's folder", () => {
+  /** A file's name, built so check-refs doesn't read it as a document reference. */
+  const md = (name: string) => `${name}.md`;
+  const [A, B, NOTES, OUTSIDE] = [md('path-a'), md('path-b'), md('notes'), md('outside')];
+  const sync = (force = false, dryRun = false): Promise<SkillSyncReport> =>
+    syncSkills({ skillsRoot, targetDir: packDir, language: 'node', force, dryRun });
+  const local = (folder: string, file: string) => join(packDir, folder, 'two', file);
+  const read = (folder: string, file: string) => readFile(local(folder, file), 'utf8');
+  const exists = (path: string) =>
+    stat(path).then(
+      () => true,
+      () => false,
+    );
+  const manifestPath = () => join(packDir, '.claude', 'skills', '.kindgi-manifest.json');
+  const manifest = async () => JSON.parse(await readFile(manifestPath(), 'utf8'));
+  const statuses = (report: SkillSyncReport) => report.outcomes.map((o) => [o.folder, o.status]);
+
+  /** A file beside the bundled skill's entry. */
+  const topic = (file: string, text: string) => writeFile(join(skillsRoot, 'two', file), text);
+
+  beforeEach(async () => {
+    await bundle('two', '');
+    await topic(A, '# path a\n');
+    await topic(B, '# path b\n');
+  });
+
+  test('copies every file of the folder into both, and records each one', async () => {
+    const report = await sync();
+    expect(report.outcomes.map((o) => [o.folder, o.status, o.files])).toEqual([
+      ['.claude/skills', 'added', ['SKILL.md', A, B]],
+      ['.agents/skills', 'added', ['SKILL.md', A, B]],
+    ]);
+    for (const folder of ['.claude/skills', '.agents/skills']) {
+      expect(await read(folder, A)).toBe('# path a\n');
+      expect(await read(folder, B)).toBe('# path b\n');
+    }
+    const entry = (await manifest()).skills.two;
+    expect(Object.keys(entry.installedFiles)).toEqual(['SKILL.md', A, B]);
+    expect(entry.installedFiles['SKILL.md']).toBe(entry.installedHash);
+    expect(report.outcomes.map((o) => o.written)).toEqual([
+      ['SKILL.md', A, B],
+      ['SKILL.md', A, B],
+    ]);
+    expect(skillCopyPaths(packDir, report.outcomes[0] as SkillSyncOutcome, 'files')).toEqual([
+      local('.claude/skills', 'SKILL.md'),
+      local('.claude/skills', A),
+      local('.claude/skills', B),
+    ]);
+    expect(statuses(await sync())).toEqual([
+      ['.claude/skills', 'unchanged'],
+      ['.agents/skills', 'unchanged'],
+    ]);
+  });
+
+  test('a file the bundle changed is written, and the only one named as written; the rest are left as they are', async () => {
+    await sync();
+    await topic(B, '# path b, again\n');
+    await utimes(local('.claude/skills', A), 0, 0);
+    const report = await sync();
+    expect(statuses(report)).toEqual([
+      ['.claude/skills', 'updated'],
+      ['.agents/skills', 'updated'],
+    ]);
+    expect(report.outcomes.map((o) => o.written)).toEqual([[B], [B]]);
+    expect(skillCopyPaths(packDir, report.outcomes[0] as SkillSyncOutcome, 'written')).toEqual([
+      local('.claude/skills', B),
+    ]);
+    expect(await read('.claude/skills', B)).toBe('# path b, again\n');
+    expect((await stat(local('.claude/skills', A))).mtimeMs).toBe(0);
+  });
+
+  test('an edited file keeps the whole copy as it is; --force overwrites it', async () => {
+    await sync();
+    await writeFile(local('.agents/skills', A), '# mine\n');
+    await topic(B, '# path b, again\n');
+    expect(statuses(await sync())).toEqual([
+      ['.claude/skills', 'updated'],
+      ['.agents/skills', 'skipped-modified'],
+    ]);
+    expect(await read('.agents/skills', A)).toBe('# mine\n');
+    expect(await read('.agents/skills', B)).toBe('# path b\n');
+    const forced = await sync(true);
+    expect(forced.outcomes.find((o) => o.folder === '.agents/skills')).toMatchObject({
+      status: 'updated',
+      reason: 'Overwrote local edits (--force)',
+    });
+    expect(await read('.agents/skills', A)).toBe('# path a\n');
+    expect(await read('.agents/skills', B)).toBe('# path b, again\n');
+  });
+
+  test("a file that's gone comes back, as a deleted skill does", async () => {
+    await sync();
+    await rm(local('.claude/skills', A));
+    const report = await sync();
+    expect(statuses(report)).toEqual([
+      ['.claude/skills', 'updated'],
+      ['.agents/skills', 'unchanged'],
+    ]);
+    expect(report.outcomes.map((o) => o.written)).toEqual([[A], undefined]);
+    expect(await read('.claude/skills', A)).toBe('# path a\n');
+  });
+
+  test('a file the bundle no longer ships is removed, unless it was edited', async () => {
+    await sync();
+    await writeFile(local('.agents/skills', B), '# mine\n');
+    await rm(join(skillsRoot, 'two', B));
+    const report = await sync();
+    expect(report.outcomes.map((o) => [o.folder, o.status, o.removed])).toEqual([
+      ['.claude/skills', 'updated', [B]],
+      ['.agents/skills', 'skipped-modified', undefined],
+    ]);
+    expect(await exists(local('.claude/skills', B))).toBe(false);
+    expect(await read('.agents/skills', B)).toBe('# mine\n');
+    expect(Object.keys((await manifest()).skills.two.installedFiles)).toEqual(['SKILL.md', A]);
+    // Still recorded as installed there, so --force removes it too.
+    expect(Object.keys((await manifest()).agentsSkills.two.installedFiles)).toContain(B);
+    expect((await sync(true)).outcomes.find((o) => o.folder === '.agents/skills')?.removed).toEqual(
+      [B],
+    );
+    expect(await exists(local('.agents/skills', B))).toBe(false);
+  });
+
+  test('a dry run writes and removes nothing, and says what it would do', async () => {
+    await sync();
+    await rm(join(skillsRoot, 'two', B));
+    await topic(A, '# path a, again\n');
+    const report = await sync(false, true);
+    expect(report.outcomes.map((o) => [o.status, o.removed])).toEqual([
+      ['updated', [B]],
+      ['updated', [B]],
+    ]);
+    expect(await read('.claude/skills', A)).toBe('# path a\n');
+    expect(await exists(local('.claude/skills', B))).toBe(true);
+  });
+
+  test('a file you added to the folder is yours: never counted, written or removed', async () => {
+    await sync();
+    await writeFile(local('.claude/skills', NOTES), '# my notes\n');
+    expect(statuses(await sync())).toEqual([
+      ['.claude/skills', 'unchanged'],
+      ['.agents/skills', 'unchanged'],
+    ]);
+    await topic(A, '# path a, again\n');
+    expect(statuses(await sync(true))).toEqual([
+      ['.claude/skills', 'updated'],
+      ['.agents/skills', 'updated'],
+    ]);
+    expect(await read('.claude/skills', NOTES)).toBe('# my notes\n');
+    expect(Object.keys((await manifest()).skills.two.installedFiles)).not.toContain(NOTES);
+    // A file of yours the bundle starts shipping under the same name is an edit.
+    await topic(NOTES, '# the bundle notes\n');
+    expect(statuses(await sync())).toEqual([
+      ['.claude/skills', 'skipped-modified'],
+      ['.agents/skills', 'updated'],
+    ]);
+    expect(await read('.claude/skills', NOTES)).toBe('# my notes\n');
+  });
+
+  test('an entry from before skills had more files reads as its SKILL.md alone', async () => {
+    await rm(join(skillsRoot, 'two', A));
+    await rm(join(skillsRoot, 'two', B));
+    await sync();
+    // An older CLI rewrites the manifest without the field it doesn't know.
+    const { skills } = await manifest();
+    const { installedFiles: _, ...older } = skills.two;
+    await writeFile(manifestPath(), JSON.stringify({ v: 2, skills: { two: older } }));
+    await topic(A, '# path a\n');
+    expect(statuses(await sync())).toEqual([
+      ['.claude/skills', 'updated'],
+      ['.agents/skills', 'updated'],
+    ]);
+    expect(await read('.claude/skills', A)).toBe('# path a\n');
+    // An edited SKILL.md is still an edit under the older entry.
+    await writeFile(manifestPath(), JSON.stringify({ v: 2, skills: { two: older } }));
+    await writeFile(local('.claude/skills', 'SKILL.md'), '# mine\n');
+    expect(statuses(await sync())).toEqual([
+      ['.claude/skills', 'skipped-modified'],
+      ['.agents/skills', 'unchanged'],
+    ]);
+  });
+
+  test("a manifest can't point the sync outside the copy", async () => {
+    await sync();
+    const outside = join(packDir, OUTSIDE);
+    await writeFile(outside, '# not a skill\n');
+    const recorded = await manifest();
+    const hash = recorded.skills.two.installedFiles[A];
+    await writeFile(outside, '# path a\n');
+    for (const folder of ['skills', 'agentsSkills']) {
+      recorded[folder].two.installedFiles[`../../../${OUTSIDE}`] = hash;
+      recorded[folder].two.installedFiles['.hidden'] = hash;
+    }
+    await writeFile(manifestPath(), JSON.stringify(recorded));
+    expect(statuses(await sync())).toEqual([
+      ['.claude/skills', 'unchanged'],
+      ['.agents/skills', 'unchanged'],
+    ]);
+    expect(await readFile(outside, 'utf8')).toBe('# path a\n');
+    expect(Object.keys((await manifest()).skills.two.installedFiles)).toEqual(['SKILL.md', A, B]);
   });
 });
 

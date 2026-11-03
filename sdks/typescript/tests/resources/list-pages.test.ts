@@ -3,7 +3,7 @@
 
 /**
  * What a list call answers: the wire's page, `data`, `hasMore` and
- * `nextCursor`. The calls that answered `items` still do, deprecated.
+ * `nextCursor`, and no `items`.
  * Against an older server that doesn't send `hasMore`, the env and
  * secrets lists derive it from `nextCursor`, and the identity-provider
  * list (never paged) says `false`.
@@ -29,19 +29,19 @@ const TENANT = { kind: 'tenant' } as const;
 const ENTRY = { name: 'REGION', value: 'eu' };
 
 describe('a list call that answered items', () => {
-  it('answers data, hasMore and nextCursor, with items the same as data', async () => {
+  it('answers data, hasMore and nextCursor alone', async () => {
     const conversation = { id: 'conv-1' };
     const page = await answer({ data: [conversation], hasMore: true, nextCursor: 'c2' }, (c) =>
       c.conversations.list(),
     );
     expect(page).toEqual({ data: [conversation], hasMore: true, nextCursor: 'c2' });
-    expect(page.items).toEqual([conversation]);
+    expect('items' in page).toBe(false);
   });
 
   it('leaves nextCursor out on the last page', async () => {
     const page = await answer({ data: [], hasMore: false }, (c) => c.adapters.list());
     expect(page).toEqual({ data: [], hasMore: false });
-    expect(page.items).toEqual([]);
+    expect('items' in page).toBe(false);
   });
 });
 

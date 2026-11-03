@@ -1,5 +1,81 @@
 # @kindgi/schema
 
+## 0.4.0
+
+### Patch Changes
+
+- Updated dependencies [b25b82f]
+- Updated dependencies [d92355b]
+- Updated dependencies [d6c9279]
+- Updated dependencies [f2adcc2]
+- Updated dependencies [9b015f7]
+- Updated dependencies [9a8a294]
+- Updated dependencies [1bd877d]
+- Updated dependencies [dff9515]
+- Updated dependencies [d576ff4]
+  - @kindgi/types@0.4.0
+  - @kindgi/bounds@0.4.0
+
+## 0.3.1
+
+### Patch Changes
+
+- @kindgi/bounds@0.3.1
+  - @kindgi/types@0.3.1
+
+## 0.3.1-rc.1
+
+### Patch Changes
+
+- @kindgi/bounds@0.3.1-rc.1
+  - @kindgi/types@0.3.1-rc.1
+
+## 0.3.1-rc.0
+
+### Patch Changes
+
+- @kindgi/bounds@0.3.1-rc.0
+  - @kindgi/types@0.3.1-rc.0
+
+## 0.3.0
+
+### Patch Changes
+
+- Updated dependencies [8dd91b0]
+  - @kindgi/types@0.3.0
+  - @kindgi/bounds@0.3.0
+
+## 0.3.0-rc.0
+
+### Patch Changes
+
+- Updated dependencies [8dd91b0]
+  - @kindgi/types@0.3.0-rc.0
+  - @kindgi/bounds@0.3.0-rc.0
+
+## 0.2.0
+
+### Patch Changes
+
+- d70c2a5: **Under `HOSTED_BOUNDS`, a schema with a format bound compiles and is checked, as under `SELF_HOSTED_BOUNDS`.** The Ajv that `compileJsonSchema`, `compileInlineSchema` and `createSpecRegistry` make on RE2 left out `formatMinimum`, `formatMaximum`, `formatExclusiveMinimum` and `formatExclusiveMaximum`. So in strict mode a schema such as `{ "type": "string", "format": "date", "formatMinimum": "2020-01-01" }` was refused for an unknown keyword, and without strict mode its bound was ignored. The four are there now. They compare `date`, `time`, `date-time`, `iso-time` and `iso-date-time` values as under `SELF_HOSTED_BOUNDS`, in time linear in the value.
+- @kindgi/bounds@0.2.0
+  - @kindgi/types@0.2.0
+
+## 0.2.0-rc.1
+
+### Patch Changes
+
+- @kindgi/bounds@0.2.0-rc.1
+  - @kindgi/types@0.2.0-rc.1
+
+## 0.2.0-rc.0
+
+### Patch Changes
+
+- d70c2a5: **Under `HOSTED_BOUNDS`, a schema with a format bound compiles and is checked, as under `SELF_HOSTED_BOUNDS`.** The Ajv that `compileJsonSchema`, `compileInlineSchema` and `createSpecRegistry` make on RE2 left out `formatMinimum`, `formatMaximum`, `formatExclusiveMinimum` and `formatExclusiveMaximum`. So in strict mode a schema such as `{ "type": "string", "format": "date", "formatMinimum": "2020-01-01" }` was refused for an unknown keyword, and without strict mode its bound was ignored. The four are there now. They compare `date`, `time`, `date-time`, `iso-time` and `iso-date-time` values as under `SELF_HOSTED_BOUNDS`, in time linear in the value.
+- @kindgi/bounds@0.2.0-rc.0
+  - @kindgi/types@0.2.0-rc.0
+
 ## 0.1.10
 
 ### Patch Changes

@@ -83,11 +83,11 @@ describe('the helpers', () => {
     expect(refused?.code).toBe('reference-out-of-scope');
     expect(refused?.issues.map((i) => i.path)).toEqual(['/nodes/a', '/nodes/b']);
     expect(refused?.issues[0]?.message).toBe(
-      `tool "acme.other-tool" isn't registered in this project, its org or the tenant`,
+      `tool "acme.other-tool" isn't registered in this project, its org or the workspace`,
     );
     // With no version named, the refusal says nothing about deploying one.
     expect(refused?.message).toBe(
-      `This project can't reference 2 of the items named (tool "acme.other-tool", tool "acme.other-tool"): none is registered in this project, its org or the tenant`,
+      `This project can't reference 2 of the items named (tool "acme.other-tool", tool "acme.other-tool"): none is registered in this project, its org or the workspace`,
     );
   });
 
@@ -113,10 +113,10 @@ describe('the helpers', () => {
     expect(refused?.issues.map((i) => i.path)).toEqual(['/pins/1', '/pins/2']);
     // The refusal names the version: the item may be in reach at another.
     expect(refused?.issues[0]?.message).toBe(
-      `agent "acme.agent" 1.1.0 isn't a version this project runs (not registered in this project, its org or the tenant, nor deployed to it)`,
+      `agent "acme.agent" 1.1.0 isn't a version this project runs (not registered in this project, its org or the workspace, nor deployed to it)`,
     );
     expect(refused?.message).toBe(
-      `This project can't reference 2 of the items named (agent "acme.agent" 1.1.0, agent "acme.agent" 1.1.0): none is registered in this project, its org or the tenant, and no version named is deployed to it`,
+      `This project can't reference 2 of the items named (agent "acme.agent" 1.1.0, agent "acme.agent" 1.1.0): none is registered in this project, its org or the workspace, and no version named is deployed to it`,
     );
   });
 
@@ -308,18 +308,18 @@ const ROUTES: readonly RouteCase[] = [
     kind: 'flow',
   },
   {
-    name: 'POST /v1/eval-suites/{suiteId}/runs: its agent',
-    path: () => '/v1/eval-suites/acme.suite/runs',
+    name: 'POST /v1/test-sets/{testSetId}/runs: its agent',
+    path: () => '/v1/test-sets/acme.testSet/runs',
     body: (projectId, id) => ({ projectId, agentRef: { agentId: id, version: '1.0.0' } }),
     issuePath: '/agentRef/agentId',
     kind: 'agent',
   },
   {
-    name: 'POST /v1/eval-suites/{suiteId}/runs: its suite',
-    path: (id) => `/v1/eval-suites/${id}/runs`,
+    name: 'POST /v1/test-sets/{testSetId}/runs: its test set',
+    path: (id) => `/v1/test-sets/${id}/runs`,
     body: (projectId) => ({ projectId, agentRef: { agentId: 'acme.own-agent', version: '1.0.0' } }),
-    issuePath: '/suiteId',
-    kind: 'suite',
+    issuePath: '/testSetId',
+    kind: 'test-set',
   },
   {
     name: 'POST /v1/guardrails: a pack check',
@@ -342,15 +342,15 @@ const ROUTES: readonly RouteCase[] = [
     kind: 'agent',
   },
   {
-    name: 'POST /v1/agents/{agentId}/promotions: a project scope',
-    path: (id) => `/v1/agents/${id}/promotions`,
+    name: 'POST /v1/agents/{agentId}/pinned/pin: a project scope',
+    path: (id) => `/v1/agents/${id}/pinned/pin`,
     body: (projectId) => ({ version: '1.0.0', scope: { kind: 'project', projectId } }),
     issuePath: '/scope',
     kind: 'agent',
   },
   {
-    name: 'POST /v1/agents/{agentId}/promotions: a segment scope',
-    path: (id) => `/v1/agents/${id}/promotions`,
+    name: 'POST /v1/agents/{agentId}/pinned/pin: a segment scope',
+    path: (id) => `/v1/agents/${id}/pinned/pin`,
     body: (projectId) => ({
       version: '1.0.0',
       scope: { kind: 'segment', projectId, path: [{ key: 'company', value: 'acme' }] },
@@ -529,7 +529,7 @@ describe('a version named at open or registration: refused there when the projec
   /** 400 `reference-out-of-scope`, one issue at `path`, each message naming the version. */
   function expectRefused(res: Answer, path: string, kind: string, id: string, version: string) {
     const named = `${kind} "${id}" ${version}`;
-    const why = `isn't a version this project runs (not registered in this project, its org or the tenant, nor deployed to it)`;
+    const why = `isn't a version this project runs (not registered in this project, its org or the workspace, nor deployed to it)`;
     expect(res.status).toBe(400);
     expect(res.body.error?.code).toBe('reference-out-of-scope');
     expect(res.body.error?.message).toBe(`This project can't reference ${named}: it ${why}`);
@@ -649,11 +649,11 @@ describe('a version named at open or registration: refused there when the projec
   });
 });
 
-describe('POST /v1/agents/{agentId}/promotions: a tenant scope', () => {
+describe('POST /v1/agents/{agentId}/pinned/pin: a tenant scope', () => {
   test("isn't asked: no other project can name the agent anyway", async () => {
     const asked: Parameters<ReferenceScopeBinding['reachable']>[0][] = [];
     const a = app(scope(asked));
-    const res = await a.request('/v1/agents/acme.other-item/promotions', {
+    const res = await a.request('/v1/agents/acme.other-item/pinned/pin', {
       method: 'POST',
       headers: auth,
       body: JSON.stringify({ version: '1.0.0', scope: { kind: 'tenant' } }),

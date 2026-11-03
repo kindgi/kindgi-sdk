@@ -76,6 +76,7 @@ function turn(tool: AnyTool, policy?: ToolErrorPolicy) {
     },
     turnAbort: new AbortController(),
     appended: [],
+    initialMessageCount: 1,
     hitlPolicy: resolveEffectiveHitlPolicy({ tenant: undefined, agent }),
     ...(policy !== undefined && { toolErrorPolicy: policy }),
   } as unknown as TurnContext;

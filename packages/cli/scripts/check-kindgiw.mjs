@@ -18,7 +18,15 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,9 +58,39 @@ function fake(dir, name) {
   }
 }
 
-/** The system directories the wrapper itself needs (cmd's where and PowerShell; sh's sed). */
+/**
+ * sh's side: a folder linking just the programs the wrapper runs (sh, sed,
+ * dirname, head), each from wherever this machine has it. A system folder on
+ * the PATH would bring whatever else is in it: where Node sits in /usr/bin,
+ * the runs without Node would find it there.
+ */
+function linkTools() {
+  const dir = mkdtempSync(join(tmpdir(), 'kindgiw-tools-'));
+  const names = ['sh', 'sed', 'dirname', 'head'];
+  const found = spawnSync(
+    'sh',
+    ['-c', 'for c; do command -v "$c" || exit 1; done', 'sh', ...names],
+    { encoding: 'utf8' },
+  );
+  const paths = found.stdout.trim().split('\n');
+  if (
+    found.status !== 0 ||
+    paths.length !== names.length ||
+    !paths.every((p) => p.startsWith('/'))
+  ) {
+    console.error(
+      `check-kindgiw: ${names.join(', ')} aren't all on this machine's PATH:\n${found.stdout}`,
+    );
+    process.exit(1);
+  }
+  names.forEach((name, i) => symlinkSync(paths[i], join(dir, name)));
+  return dir;
+}
+const tools = windows ? undefined : linkTools();
+
+/** The system directories the wrapper needs (cmd's where and PowerShell; sh's linked tools). */
 function systemPath() {
-  if (!windows) return ['/usr/bin', '/bin'];
+  if (!windows) return [tools];
   const root = process.env.SystemRoot ?? 'C:\\Windows';
   return [join(root, 'System32'), join(root, 'System32', 'WindowsPowerShell', 'v1.0')];
 }
@@ -78,6 +116,21 @@ function check(name, ok, detail) {
     failures.push(name);
     console.error(`check-kindgiw: ✗ ${name}\n${detail}`);
   }
+}
+
+// 0. The runs below choose which of Node and uv the wrapper finds; the PATH
+//    brings none of its own.
+if (!windows) {
+  const out = spawnSync(
+    'sh',
+    ['-c', 'for c in node npm npx uv uvx; do command -v "$c"; done; true'],
+    { env: { PATH: tools }, encoding: 'utf8' },
+  );
+  check(
+    'the PATH brings no Node, npm or uv',
+    out.status === 0 && out.stdout === '',
+    `${out.status}\n${out.stdout}${out.stderr}`,
+  );
 }
 
 // 1. Node present: npx, the exact pin, the arguments passed through.
@@ -141,4 +194,5 @@ if (!process.argv.includes('--no-real')) {
   rmSync(dir, { recursive: true, force: true });
 }
 
+if (tools) rmSync(tools, { recursive: true, force: true });
 process.exit(failures.length > 0 ? 1 : 0);

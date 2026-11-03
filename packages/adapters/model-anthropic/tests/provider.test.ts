@@ -4,7 +4,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { describe, expect, test, vi } from 'vitest';
 
-import type { ModelCallInput } from '@kindgi/capabilities';
+import { ModelProviderError } from '@kindgi/adapter-model-shared';
+import type { ModelCallInput, ModelThinking, ThinkingLevel } from '@kindgi/capabilities';
 import { attemptsOf } from '@kindgi/capabilities/attempts';
 
 import { type AnthropicModelInfo, createAnthropicProvider } from '../src/provider.js';
@@ -459,7 +460,7 @@ describe('createAnthropicProvider — lazy apiKey resolver', () => {
 });
 
 describe('createAnthropicProvider — what the vendor says about the call', () => {
-  test('a call the vendor refuses on every attempt throws its own error; attemptsOf counts them', async () => {
+  test('a call the vendor refuses on every attempt throws the shared typed failure; attemptsOf counts them', async () => {
     let sent = 0;
     const fetch: typeof globalThis.fetch = async () => {
       sent += 1;
@@ -479,9 +480,10 @@ describe('createAnthropicProvider — what the vendor says about the call', () =
         messages: [{ role: 'user', content: 'hi' }],
       } as ModelCallInput)
       .catch((error: unknown) => error);
-    // The SDK's own error, unchanged: callers can still read its status.
-    expect(thrown).toBeInstanceOf(Anthropic.APIError);
-    expect((thrown as InstanceType<typeof Anthropic.APIError>).status).toBe(529);
+    // The shared typed failure, with the status; the SDK's own error is its cause.
+    expect(thrown).toBeInstanceOf(ModelProviderError);
+    expect(thrown).toMatchObject({ kind: 'unavailable', status: 529 });
+    expect((thrown as ModelProviderError).cause).toBeInstanceOf(Anthropic.APIError);
     expect(sent).toBe(3);
     expect(attemptsOf(thrown)).toBe(3);
   });
@@ -664,6 +666,136 @@ describe("createAnthropicProvider — thinking: 'lowest'", () => {
     expect(result.message.content).toBe('PASS\nOn topic.');
     expect(result.finishReason).toBe('stop');
     expect(result.usage.completionTokens).toBe(90);
+  });
+});
+
+describe('createAnthropicProvider — thinking levels', () => {
+  // Effort alone moves how much the 5.5 models think; the thinking type
+  // stays the default (adaptive) except for `lowest`.
+  const NAME = 'claude-sonnet-5-5';
+  const call = async (thinking: ModelThinking | undefined, asked?: ThinkingLevel) => {
+    const { client, create } = fakeClient();
+    const result = await createAnthropicProvider({
+      apiKey: 'sk-unused',
+      metadata: {
+        id: 'anthropic',
+        region: 'us-east-1',
+        models: [{ ...OPUS_MODEL, name: NAME, ...(thinking !== undefined && { thinking }) }],
+      },
+      client,
+    }).invoke({
+      model: NAME,
+      messages: [{ role: 'user', content: 'Hi' }],
+      ...(asked !== undefined && { thinking: asked }),
+    });
+    const body = create.mock.calls[0]?.[0] as Record<string, unknown>;
+    return {
+      thinking: body.thinking,
+      output_config: body.output_config,
+      result: result.thinking,
+      warnings: result.warnings,
+    };
+  };
+  const effort = (level: ThinkingLevel, value: string = level) => ({
+    thinking: undefined,
+    output_config: { effort: value },
+    result: { level, sent: { 'output_config.effort': value } },
+  });
+  const adjusted = (asked: string, level: string) => [
+    {
+      code: 'thinking-level-adjusted',
+      message: `${NAME} doesn't take thinking level ${asked}, so the call sent ${level}.`,
+    },
+  ];
+  const EVERY: ModelThinking = {
+    mode: 'always',
+    lowest: 'low',
+    levels: ['low', 'medium', 'high', 'xhigh', 'max'],
+  };
+
+  test.each(['low', 'medium', 'high', 'xhigh', 'max'] as const)(
+    '%s is sent as output_config.effort alone, and reported',
+    async (level) => {
+      expect(await call(EVERY, level)).toEqual({ ...effort(level), warnings: undefined });
+    },
+  );
+
+  test('lowest: a model that always thinks gets its lowest effort', async () => {
+    expect(await call(EVERY, 'lowest')).toEqual({
+      ...effort('lowest', 'low'),
+      warnings: undefined,
+    });
+  });
+
+  test('lowest: a thinking type that turns it off is sent with effort low, and reported', async () => {
+    expect(await call({ mode: 'adaptive', lowest: 'between_tools' }, 'lowest')).toEqual({
+      thinking: { type: 'between_tools' },
+      output_config: { effort: 'low' },
+      result: {
+        level: 'lowest',
+        sent: { 'thinking.type': 'between_tools', 'output_config.effort': 'low' },
+      },
+      warnings: undefined,
+    });
+  });
+
+  test("minimal, which no Anthropic model takes, goes as the model's next level up", async () => {
+    expect(await call(EVERY, 'minimal')).toEqual({
+      ...effort('low'),
+      warnings: adjusted('minimal', 'low'),
+    });
+  });
+
+  test.each([
+    ['at the floor, no levels', { lowest: 'disabled' }, 'minimal', 'low'],
+    ['above the ceiling, no levels', { lowest: 'between_tools' }, 'xhigh', 'high'],
+    ['above the ceiling, no levels', { lowest: 'between_tools' }, 'max', 'high'],
+    ['a lowest of medium, no levels', { lowest: 'medium' }, 'low', 'medium'],
+    ['at the floor, levels', { lowest: 'low', levels: ['medium', 'high'] }, 'low', 'medium'],
+    ['in a gap, levels', { lowest: 'low', levels: ['low', 'high', 'max'] }, 'xhigh', 'max'],
+    ['above the ceiling, levels', { lowest: 'low', levels: ['low', 'high'] }, 'max', 'high'],
+  ] as const)('rounding %s: asked %s, it sends %s', async (_name, t, asked, level) => {
+    expect(await call({ mode: 'adaptive', ...t }, asked)).toEqual({
+      ...effort(level),
+      warnings: adjusted(asked, level),
+    });
+  });
+
+  test("a call that asks none is sent the model's default, as registered, with no warning", async () => {
+    expect(await call({ mode: 'adaptive', lowest: 'between_tools', default: 'high' })).toEqual({
+      ...effort('high'),
+      warnings: undefined,
+    });
+    expect(
+      (await call({ mode: 'adaptive', lowest: 'between_tools', default: 'lowest' })).thinking,
+    ).toEqual({ type: 'between_tools' });
+  });
+
+  test("the call's level beats the default", async () => {
+    expect(await call({ mode: 'adaptive', lowest: 'disabled', default: 'low' }, 'medium')).toEqual({
+      ...effort('medium'),
+      warnings: undefined,
+    });
+  });
+
+  test('a model with no thinking is sent no level, with a warning; none asked, no warning', async () => {
+    expect(await call(undefined, 'high')).toEqual({
+      thinking: undefined,
+      output_config: undefined,
+      result: undefined,
+      warnings: [
+        {
+          code: 'thinking-unsupported',
+          message: `${NAME} doesn't think, or how it thinks isn't known, so the call sent no level (it asked for high).`,
+        },
+      ],
+    });
+    expect(await call(undefined)).toEqual({
+      thinking: undefined,
+      output_config: undefined,
+      result: undefined,
+      warnings: undefined,
+    });
   });
 });
 

@@ -20,8 +20,14 @@ const SHIPPED = /^(?:packages\/[\w-]+|sdks\/(?:[\w-]+\/)*?[\w-]+)\/src\/(?!test\
 export const docsLineOf = (version) =>
   `https://docs.kindgi.com/v${version.split('.').slice(0, 2).join('.')}/`;
 
-/** Whether a skill's file: its links name the release line's docs. */
-export const isSkill = (file) => basename(file) === 'SKILL.md';
+/** A file beside a shipped skill's `SKILL.md`: `packages/sdk/skills/<name>/<file>` in markdown. */
+const SKILL_FOLDER_FILE = /^packages\/sdk\/skills\/[\w-]+\/[\w.-]+\.md$/;
+
+/**
+ * Whether a skill's file, any `SKILL.md` or a markdown file beside a shipped
+ * skill's: its links name the release line's docs.
+ */
+export const isSkill = (file) => basename(file) === 'SKILL.md' || SKILL_FOLDER_FILE.test(file);
 
 /** Whether a package or SDK ships the file from its `src/` (a test doesn't). */
 export const isShipped = (file) => SHIPPED.test(file);

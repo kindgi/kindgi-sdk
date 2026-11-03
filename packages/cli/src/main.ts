@@ -9,6 +9,7 @@ import { type HostedScope, devRuntimeHint, hostedNoAddress, hostedScope } from '
 import { HOSTED_BUILD } from './build/hosted.js';
 import type { BuildRunners } from './build/runners.js';
 import { cliPinWarning, readCliPin } from './cli-pin.js';
+import type { ApprovalWaitSeam } from './commands/approval-wait.js';
 import type { RegistryAuthSeam } from './commands/auth.js';
 import type { ConnectionsSeam } from './commands/connections.js';
 import type { DoctorSeam } from './commands/doctor.js';
@@ -149,6 +150,8 @@ export interface RunCliInputs {
   readonly exportsSeam?: ExportsSeam;
   /** `kindgi connections connect`'s terminal, clock and pauses, and the removals' question. */
   readonly connectionsSeam?: ConnectionsSeam;
+  /** The clock and pauses of `--wait` on a promotion that waits for an approval. */
+  readonly approvalWaitSeam?: ApprovalWaitSeam;
 }
 
 /**
@@ -337,6 +340,7 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     ...(inputs.rateLimitWaits !== undefined ? { rateLimitWaits: inputs.rateLimitWaits } : {}),
     ...(inputs.exportsSeam !== undefined ? { exportsSeam: inputs.exportsSeam } : {}),
     ...(inputs.connectionsSeam !== undefined ? { connectionsSeam: inputs.connectionsSeam } : {}),
+    ...(inputs.approvalWaitSeam !== undefined ? { approvalWaitSeam: inputs.approvalWaitSeam } : {}),
   });
 
   // A Java pack pins the CLI it runs with (`cli-pin.ts`): say when this isn't it.

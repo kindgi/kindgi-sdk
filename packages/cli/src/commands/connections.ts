@@ -5,6 +5,15 @@ import { createInterface } from 'node:readline';
 
 import type { ConnectRequest, Connection, ConnectionEntry, ConnectionPage } from '@kindgi/client';
 
+import {
+  type ConnectionRow,
+  connectionName,
+  connectionsListed,
+  everyPage,
+  listConnectionRows,
+  namedBy,
+  resolveConnectionRef,
+} from '../connection-ref.js';
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
 import { type Rendered, renderJson, successNote } from '../output.js';
@@ -111,6 +120,7 @@ function ownerWords(c: Pick<Connection, 'owner'>): string {
 const TABLE: TableSpec<ConnectionPage, Connection> = {
   rows: (page) => page.data,
   columns: [
+    { header: 'LABEL', get: (c) => `${connectionName(c)}${c.main === true ? ' (main)' : ''}` },
     { header: 'ID', get: (c) => c.connectionId },
     { header: 'APP', get: (c) => c.app },
     { header: 'ACCOUNT', get: (c) => c.account.label },
@@ -262,8 +272,16 @@ async function waitForConnect(ctx: CommandContext, request: ConnectRequest): Pro
   }
 }
 
-/** Whose account a connection is, in words: `<label> at <app>`, and whether it's the company's. */
+/**
+ * Which connection it is, in words: its label, then whose account at which
+ * app (`support (sales@acme.example at google, company)`). A label that is
+ * its account's own says it once: `sales@acme.example at google`.
+ */
 function accountWords(c: Connection): string {
+  if (c.label !== undefined && c.label !== c.account.label) {
+    const whose = c.owner.kind === 'company' ? ', company' : '';
+    return `${c.label} (${c.account.label} at ${c.app}${whose})`;
+  }
   const whose = c.owner.kind === 'company' ? ", the company's account" : '';
   return `${c.account.label} at ${c.app}${whose}`;
 }
@@ -276,7 +294,38 @@ async function connected(
   const id = request.connectionId;
   if (id === undefined) return { stdout: `Connected ${request.app}.\n`, stderr: '' };
   const c = await ctx.client().connections.get(id);
-  return { stdout: `Connected ${accountWords(c)} (connection ${c.connectionId}).\n`, stderr: '' };
+  return {
+    stdout: `Connected ${accountWords(c)} (connection ${c.connectionId}).\n`,
+    stderr: successNote(ctx.globals.format, await mainWords(ctx, request, c)),
+  };
+}
+
+/**
+ * After a person's new connection, when they have several through its
+ * registration: which one their agents use, their main, or that none is.
+ * Their first, a reconnect and the company's say nothing. Best-effort: a
+ * list that fails says nothing either, and the connect still succeeded.
+ */
+async function mainWords(
+  ctx: CommandContext,
+  request: ConnectRequest,
+  c: Connection,
+): Promise<string> {
+  if (request.reconnects !== undefined || c.owner.kind !== 'member' || c.main === true) return '';
+  const client = ctx.client();
+  const theirs = await everyPage((cursor) =>
+    client.connections.list({ app: c.app, owner: 'me', ...(cursor !== undefined && { cursor }) }),
+  ).then(
+    (all) => all.filter((x) => x.appId === c.appId && x.envName === c.envName),
+    () => undefined,
+  );
+  if (theirs === undefined || theirs.length < 2) return '';
+  const main = theirs.find((x) => x.main === true);
+  const update = `\`kindgi connections update ${c.connectionId} --main\``;
+  if (main !== undefined) {
+    return `${connectionName(main)} is your main connection at ${c.app}, the one your agents use when no choice names another: ${update} makes this one your main.\n`;
+  }
+  return `You have ${theirs.length} connections at ${c.app} and none is your main, so a call of your agents that needs one stops with connection-not-chosen until you make one your main, or a choice names one: \`kindgi connections update <connection> --main\`.\n`;
 }
 
 /**
@@ -296,7 +345,7 @@ async function connectedWithLess(
       : '';
   return {
     stdout: `Connected ${accountWords(c)} (connection ${c.connectionId}), with less than asked.\n`,
-    stderr: `The app granted less than asked${not}. Tools that need those ask to connect again.\n`,
+    stderr: `The app granted less than asked${not}. Tools that need those ask to connect again.\n${successNote(ctx.globals.format, await mainWords(ctx, request, c))}`,
     exitCode: 1,
   };
 }
@@ -354,11 +403,11 @@ const connect: LeafCommand = {
   description:
     "Connect your account at an app (the company's with --for-company): prints the link to open, and at a terminal waits until the connect finishes and says whose account it is. --quiet prints the link alone, and still waits.",
   usage:
-    'kindgi connections connect <app> [--app-id=<registration-id>] [--project=<project-id>] [--permissions=<key>,…] [--for-company]',
+    'kindgi connections connect <app> [--label=<name>] [--reconnect=<connection>] [--app-id=<registration-id>] [--project=<project-id>] [--permissions=<key>,…] [--for-company]',
   optionSpec: {
     'app-id': {
       type: 'string',
-      description: 'Which registration, when the tenant has more than one for the app.',
+      description: 'Which registration, when the workspace has more than one for the app.',
     },
     project: {
       type: 'string',
@@ -373,12 +422,45 @@ const connect: LeafCommand = {
       type: 'boolean',
       description: "Connect the company's account, not your own. Tenant admins only.",
     },
+    label: {
+      type: 'string',
+      description:
+        "The new connection's name, which `--connection` and `kindgi connection-choices set` name it by (default: its account's label); another of the owner's connections at the app can't have it. A reconnect keeps the name it has.",
+    },
+    reconnect: {
+      type: 'string',
+      description:
+        "Connect this connection again, by id or name, so it's granted more or works again: the same account is required. Its owner's own (the company's with --for-company), at <app>.",
+    },
   },
   run: (ctx) =>
     runSdkRendered(ctx, 'connections connect', async () => {
       const app = requiredPositional(ctx, 0, 'app');
       const appId = givenFlag(ctx, 'app-id');
       const projectId = givenFlag(ctx, 'project');
+      const label = givenFlag(ctx, 'label');
+      const again = givenFlag(ctx, 'reconnect');
+      const forCompany = ctx.options['for-company'] === true;
+      if (label !== undefined && again !== undefined) {
+        throw new UsageError(
+          '--label names a new connection; a reconnect keeps its name (`kindgi connections update` renames it)',
+        );
+      }
+      const reconnects =
+        again === undefined
+          ? undefined
+          : (
+              await resolveConnectionRef(again, {
+                rows: () =>
+                  listConnectionRows(ctx.client(), {
+                    app,
+                    ...(forCompany ? { ownerKind: 'company' as const } : { owner: 'me' as const }),
+                  }),
+                app,
+                appNarrows: false,
+                listed: connectionsListed(app),
+              })
+            ).id;
       const permissions = await permissionsFor(ctx, app);
       if (permissions === undefined) {
         return {
@@ -387,13 +469,20 @@ const connect: LeafCommand = {
           exitCode: 1,
         };
       }
-      const request = await ctx.client().connections.connect({
-        app,
-        permissions,
-        ...(appId !== undefined && { appId }),
-        ...(projectId !== undefined && { projectId }),
-        ...(ctx.options['for-company'] === true && { for: 'company' as const }),
-      });
+      const request = await ctx
+        .client()
+        .connections.connect({
+          app,
+          permissions,
+          ...(appId !== undefined && { appId }),
+          ...(projectId !== undefined && { projectId }),
+          ...(forCompany && { for: 'company' as const }),
+          ...(label !== undefined && { label }),
+          ...(reconnects !== undefined && { reconnects }),
+        })
+        .catch((err: unknown) => {
+          throw namedBy(err, 'reconnect');
+        });
       if (ctx.globals.formatRequested && ctx.globals.format !== 'quiet') {
         return renderJson(request, ctx.globals.format);
       }
@@ -433,6 +522,84 @@ async function linkThenWait(
     `${link}Waiting for the connect to finish (Ctrl-C stops waiting; the link works until ${String(request.expiresAt)})…\n`,
   );
   return await afterWaiting(ctx, request, await waitForConnect(ctx, request));
+}
+
+const update: LeafCommand = {
+  kind: 'leaf',
+  name: 'update',
+  description:
+    "Rename a connection: its label, which `--connection`, `kindgi connection-choices set` and the console name it by. Whoever may disconnect it renames it: its owner or a tenant admin, and only a tenant admin the company's. Or make your own connection your main one at its app (--main). One change at a time.",
+  usage: 'kindgi connections update <connection> (--label=<name> | --main) [--app=<app>]',
+  optionSpec: {
+    label: {
+      type: 'string',
+      description: "Its new name; another of the owner's connections at the app can't have it.",
+    },
+    main: {
+      type: 'boolean',
+      description:
+        'Make it your main connection at its app, in place of the one that was: your agents use it when no choice names another. Your own only; a mail trigger keeps the connection it stored.',
+    },
+    app: {
+      type: 'string',
+      description: 'With a name: only connections at this app, by its entry id (`google`).',
+    },
+  },
+  run: (ctx) =>
+    runSdkRendered(ctx, 'connections update', async () => {
+      const ref = requiredPositional(ctx, 0, 'connection');
+      const label = givenFlag(ctx, 'label');
+      const main = ctx.options.main === true;
+      if (label !== undefined && main) {
+        throw new UsageError('--label or --main, one change at a time');
+      }
+      if (label === undefined && !main) {
+        throw new UsageError('Missing required flag: --label=<name> or --main');
+      }
+      const app = givenFlag(ctx, 'app');
+      const client = ctx.client();
+      const found = await resolveConnectionRef(ref, {
+        // Only its owner makes a connection their main: a name is one of your own.
+        rows: () =>
+          listConnectionRows(client, {
+            ...(app !== undefined && { app }),
+            ...(main && { owner: 'me' as const }),
+          }),
+        ...(app !== undefined && { app }),
+        appNarrows: app === undefined,
+        listed: connectionsListed(app),
+      });
+      if (label === undefined) return await madeMain(ctx, found);
+      const before = found.row?.name ?? connectionName(await client.connections.get(found.id));
+      const c = await client.connections.update(found.id, { label });
+      return {
+        stdout: renderJson(c, ctx.globals.format).stdout,
+        stderr: successNote(
+          ctx.globals.format,
+          `Renamed ${before} to ${connectionName(c)} (connection ${c.connectionId}).\n`,
+        ),
+      };
+    }),
+};
+
+/** `update --main`: it's your main one at its app now, or it was already. */
+async function madeMain(
+  ctx: CommandContext,
+  found: { readonly id: string; readonly row?: ConnectionRow },
+): Promise<Rendered> {
+  const client = ctx.client();
+  const already =
+    found.row !== undefined
+      ? found.row.main === true
+      : (await client.connections.get(found.id)).main === true;
+  const c = await client.connections.update(found.id, { main: true });
+  const said = already
+    ? `${connectionName(c)} is already your main connection at ${c.app}: nothing changed.\n`
+    : `Made ${connectionName(c)} your main connection at ${c.app} (connection ${c.connectionId}).\n`;
+  return {
+    stdout: renderJson(c, ctx.globals.format).stdout,
+    stderr: successNote(ctx.globals.format, said),
+  };
 }
 
 /** What a removal did at the app, in words. */
@@ -486,6 +653,6 @@ export const connectionsCommand: Command = {
   kind: 'group',
   name: 'connections',
   description:
-    'Connections: accounts at other apps that tools act with (list / get / connect / disconnect).',
-  subcommands: [list, get, connect, disconnect],
+    'Connections: accounts at other apps that tools act with (list / get / connect / update / disconnect).',
+  subcommands: [list, get, connect, update, disconnect],
 };

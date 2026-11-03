@@ -38,7 +38,12 @@ import {
 } from '@kindgi/capabilities';
 import { bearerValueProblem, headerValueProblem } from '@kindgi/types';
 
-import { AZURE_OPENAI_ADAPTER_ID, AZURE_OPENAI_CLOUDS, readAzureOpenAIConfig } from './config.js';
+import {
+  AZURE_OPENAI_ADAPTER_ID,
+  AZURE_OPENAI_CLOUDS,
+  AZURE_OPENAI_CONFIG_KEYS,
+  readAzureOpenAIConfig,
+} from './config.js';
 
 /** The Entra scope Azure OpenAI takes in Azure's public cloud. */
 export const AZURE_OPENAI_SCOPE = AZURE_OPENAI_CLOUDS[0].scope;
@@ -113,12 +118,13 @@ export const azureOpenAIAdapterFactory: AdapterFactory = (input) => {
   });
 };
 
-/** The entry a runtime registers: the factory, and its static check. */
+/** The entry a runtime registers: the factory, its static check, and the keys it takes. */
 export const azureOpenAIAdapterEntry: AdapterFactoryEntry = {
   adapterId: AZURE_OPENAI_ADAPTER_ID,
   capabilityKind: 'llm-inference',
   factory: azureOpenAIAdapterFactory,
   checkConfig: azureOpenAICheckConfig,
+  configKeys: AZURE_OPENAI_CONFIG_KEYS,
 };
 
 /**

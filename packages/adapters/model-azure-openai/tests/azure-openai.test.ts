@@ -12,6 +12,7 @@ import {
   type AdapterFactoryEntry,
   type AdapterFactoryInput,
   type ProviderMetadata,
+  adapterConfigKeyProblems,
   createAdapterFactoryRegistry,
 } from '@kindgi/capabilities';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
@@ -90,7 +91,6 @@ describe('checkConfig', () => {
       'must be one of responses, chat-completions',
     ],
     [{ ...GOOD, auth: 'oauth' }, '/adapter_config/auth', 'must be one of api-key, entra'],
-    [{ ...GOOD, deployment: 'x' }, '/adapter_config/deployment', "isn't an Azure OpenAI setting"],
     [
       { resourceName: 'acme-res' },
       '/adapter_config/deployments',
@@ -162,6 +162,25 @@ describe('checkConfig', () => {
     const problems = check(config as Record<string, string>);
     expect(problems.map((p) => p.path)).toContain(path);
     expect(problems.find((p) => p.path === path)?.message).toContain(words);
+  });
+
+  test("a key it doesn't take is the registration's to refuse, from the keys its entry declares; its check leaves it be", () => {
+    const stored = { ...GOOD, deployment: 'x' };
+    expect(check(stored)).toEqual([]);
+    expect(adapterConfigKeyProblems(azureOpenAIAdapterEntry, stored)).toEqual([
+      {
+        path: '/adapter_config/deployment',
+        message:
+          "adapter_config.deployment isn't a setting of this adapter: it takes resourceName, baseURL, deployments, api, auth.",
+      },
+    ]);
+    expect(
+      adapterConfigKeyProblems(azureOpenAIAdapterEntry, {
+        ...GOOD,
+        api: 'responses',
+        auth: 'api-key',
+      }),
+    ).toEqual([]);
   });
 
   test('Entra on a runtime that has no Azure identity: refused when it registers, naming the setting', () => {
@@ -369,6 +388,19 @@ describe('what the provider sends', () => {
     expect(r.costUsd).toBeCloseTo((40 * 0.002 + 5 * 0.01) / 1000, 12);
   });
 
+  test("a key it doesn't take, stored before 0.3.0: it builds, and sends what it sends without it", async () => {
+    const sent: Sent[] = [];
+    const provider = build(
+      { ...GOOD, deployment: 'x' },
+      { fetch: capturingFetch(sent), resolveApiKey: async () => 'key-one' },
+    );
+    await provider.invoke(ask());
+    expect(sent[0]?.url).toBe(
+      'https://acme-res.openai.azure.com/openai/v1/responses?api-version=v1',
+    );
+    expect(sent[0]?.body).toMatchObject({ model: 'gpt-6-1-sol', store: false });
+  });
+
   test("Entra: a bearer from the runtime's identity for every request, for the Azure OpenAI scope; no api-key", async () => {
     const sent: Sent[] = [];
     const getToken = vi.fn(async () => ({ token: `token-${getToken.mock.calls.length}` }));
@@ -490,6 +522,86 @@ describe('whether a model reasons is the registration’s where it says, never t
     // From the deployment's name, as the library reads it: a GPT-6 name reasons, another not.
     expect((await sentTo('gpt-6-luna-x')).include).toEqual(['reasoning.encrypted_content']);
     expect((await sentTo('luna-prod')).include).toBeUndefined();
+  });
+});
+
+describe('how much a model thinks: the level goes to the library as its portable reasoning', () => {
+  const thinking = { mode: 'adaptive', lowest: 'none', levels: ['low', 'medium', 'high', 'xhigh'] };
+  const metadata = {
+    ...METADATA,
+    models: METADATA.models.map((m, i) => (i === 0 ? { ...m, thinking } : m)),
+  } as unknown as ProviderMetadata;
+  const call = async (api: string, level: string | undefined, model = 'gpt-6.1-sol') => {
+    const sent: Sent[] = [];
+    const result = await azureOpenAIAdapterFactory({
+      metadata,
+      config: { ...GOOD, api },
+      fetch: capturingFetch(sent, 200, api === 'responses' ? RESPONSES_BODY : CHAT_BODY),
+      resolveApiKey: async () => 'k',
+    }).invoke({ ...ask(model), ...(level !== undefined && { thinking: level as never }) });
+    const body = sent[0]?.body as Record<string, unknown>;
+    return {
+      effort:
+        api === 'responses'
+          ? (body.reasoning as { effort?: string } | undefined)?.effort
+          : body.reasoning_effort,
+      thinking: result.thinking,
+      warnings: result.warnings,
+    };
+  };
+
+  describe.each(['responses', 'chat-completions'])('%s', (api) => {
+    test.each(['low', 'medium', 'high', 'xhigh'])(
+      '%s is sent as the effort of its name, and reported',
+      async (level) => {
+        expect(await call(api, level)).toEqual({
+          effort: level,
+          thinking: { level, sent: { reasoning: level } },
+          warnings: undefined,
+        });
+      },
+    );
+
+    test("an effort the library won't send for the deployment is dropped: it says so, and no level is reported", async () => {
+      // The library reads the deployment's name (gpt-6-1-sol) and takes low to max: not none.
+      expect(await call(api, 'lowest')).toEqual({
+        effort: undefined,
+        thinking: undefined,
+        warnings: [
+          {
+            code: 'sdk-unsupported',
+            message:
+              'reasoningEffort: gpt-6-1-sol only supports the following reasoning efforts: low, medium, high, xhigh, max',
+          },
+          {
+            code: 'thinking-unsupported',
+            message:
+              "gpt-6.1-sol doesn't take reasoning none through the AI SDK, so the call sent no level (it asked for lowest).",
+          },
+        ],
+      });
+    });
+
+    test('max is rounded to the highest it takes, with a warning', async () => {
+      expect(await call(api, 'max')).toEqual({
+        effort: 'xhigh',
+        thinking: { level: 'xhigh', sent: { reasoning: 'xhigh' } },
+        warnings: [
+          {
+            code: 'thinking-level-adjusted',
+            message: "gpt-6.1-sol doesn't take thinking level max, so the call sent xhigh.",
+          },
+        ],
+      });
+    });
+
+    test('a model with no thinking is sent none, with a warning', async () => {
+      expect(await call(api, 'high', 'gpt-6-luna')).toEqual({
+        effort: undefined,
+        thinking: undefined,
+        warnings: [expect.objectContaining({ code: 'thinking-unsupported' })],
+      });
+    });
   });
 });
 

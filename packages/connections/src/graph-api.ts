@@ -8,6 +8,7 @@
  */
 
 import { AppRefused, type AppSend } from './app-request.js';
+import { bodyBytes } from './mail-attachment.js';
 import {
   type MailTextUse,
   clippedPerson,
@@ -32,8 +33,11 @@ export const GRAPH_ID = /^[A-Za-z0-9=_-]{1,512}$/;
 /** What a message is read with: all a `MailMessage` needs but its body. */
 export const MESSAGE_FIELDS =
   'id,conversationId,subject,from,toRecipients,ccRecipients,replyTo,receivedDateTime,internetMessageHeaders';
-/** Its attachments' names, types and sizes, never their content. */
-export const ATTACHMENTS = 'attachments($select=name,contentType,size,isInline)';
+/**
+ * Its attachments' names, types and sizes, never their content, and their
+ * ids, which only the attachment tool reads.
+ */
+export const ATTACHMENTS = 'attachments($select=id,name,contentType,size,isInline)';
 
 /** Graph found nothing at the path: a message deleted, or a folder that isn't there. */
 export class GraphNotFound extends AppRefused {}
@@ -58,6 +62,31 @@ export async function graphJson(
   });
   if (res.ok) return res.json();
   throw graphRefusal(res.status, graphErrorOf(await res.text(), res.status), url);
+}
+
+/**
+ * A GET of an attachment's bytes (its `$value`), at most `max`: `undefined`
+ * past them, the rest left unread; an error in Microsoft's words, as
+ * {@link graphJson}, naming `shown`, the message's attachments, never the
+ * attachment's id.
+ */
+export async function graphBytes(
+  send: AppSend,
+  toolId: string,
+  url: string,
+  prefer: string,
+  max: number,
+  shown: string,
+): Promise<Uint8Array | undefined> {
+  const res = await send({
+    entry: microsoft,
+    connection: 'mail',
+    toolId,
+    url,
+    headers: { prefer },
+  });
+  if (res.ok) return bodyBytes(res, max);
+  throw graphRefusal(res.status, graphErrorOf(await res.text(), res.status), shown);
 }
 
 /** Graph's refusal of a call to `url`: a 404 as `GraphNotFound`. */
@@ -148,6 +177,7 @@ interface RawBody {
 
 interface RawAttachment {
   readonly '@odata.type'?: unknown;
+  readonly id?: unknown;
   readonly name?: unknown;
   readonly contentType?: unknown;
   readonly size?: unknown;
@@ -184,7 +214,7 @@ export function outlookMessage(
       ? htmlToText(content.content ?? '')
       : (content?.content ?? '');
   const body = cutText(trimLinks(text, use), chars);
-  const listed = listedAttachments(attachmentsOf(raw));
+  const listed = listedAttachments(outlookAttachments(raw).map((entry) => entry.attachment));
   return {
     id: raw.id,
     ...(typeof raw.conversationId === 'string' &&
@@ -202,25 +232,41 @@ export function outlookMessage(
 }
 
 /**
- * The message's attachments, one shown in the body (an image in the HTML)
- * marked `inline`. An attached message (`itemAttachment`) has no type of
- * its own.
+ * A listed attachment, and what the attachment tool fetches it by, which
+ * a message's read leaves out: its id, when it's a file. An attached
+ * message (`itemAttachment`) or a link to a file kept elsewhere
+ * (`referenceAttachment`) has no bytes of its own to fetch.
  */
-function attachmentsOf(raw: RawMessage): MailAttachment[] {
+export interface OutlookAttachmentEntry {
+  readonly attachment: MailAttachment;
+  readonly fileId?: string;
+}
+
+/**
+ * The message's attachments, in its order, one shown in the body (an image
+ * in the HTML) marked `inline`: the one list a read and the attachment tool
+ * share. An attached message has no type of its own.
+ */
+export function outlookAttachments(raw: RawMessage): readonly OutlookAttachmentEntry[] {
   return (raw.attachments ?? [])
     .filter((a): a is RawAttachment => a !== null)
     .map((a) => {
-      const item = a['@odata.type'] === '#microsoft.graph.itemAttachment';
+      const kind = a['@odata.type'];
+      const item = kind === '#microsoft.graph.itemAttachment';
+      const file = kind === '#microsoft.graph.fileAttachment';
       return {
-        name: typeof a.name === 'string' && a.name !== '' ? a.name : 'attachment',
-        contentType:
-          typeof a.contentType === 'string' && a.contentType !== ''
-            ? a.contentType
-            : item
-              ? 'message/rfc822'
-              : 'application/octet-stream',
-        size: typeof a.size === 'number' && a.size >= 0 ? a.size : 0,
-        ...(a.isInline === true && { inline: true }),
+        attachment: {
+          name: typeof a.name === 'string' && a.name !== '' ? a.name : 'attachment',
+          contentType:
+            typeof a.contentType === 'string' && a.contentType !== ''
+              ? a.contentType
+              : item
+                ? 'message/rfc822'
+                : 'application/octet-stream',
+          size: typeof a.size === 'number' && a.size >= 0 ? a.size : 0,
+          ...(a.isInline === true && { inline: true }),
+        },
+        ...(file && typeof a.id === 'string' && a.id !== '' && { fileId: a.id }),
       };
     });
 }

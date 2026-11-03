@@ -3,7 +3,7 @@
 
 /**
  * Multi-tenant hierarchy primitives — the type surface for the
- * `Tenant → Org → Team → Project + User` flow.
+ * `Workspace → Org → Team → Project + User` flow.
  *
  * **Pure type shapes.** No runtime code, no validation, no defaults.
  * Binding interfaces live in the sibling `*-binding.ts` files;
@@ -108,9 +108,9 @@ export interface TeamMembership {
 // `Engagement` in accounting, `Episode` in healthcare, `Deal` in
 // finance).
 //
-// `isDefault` marks the auto-created "Default" project per tenant.
-// Implementations keep exactly one per tenant (the in-memory adapter
-// rejects a second Default on `create`).
+// `isDefault` marks each tenant's default project (a new tenant gets one).
+// Implementations keep at most one per tenant (the in-memory adapter
+// rejects a second default on `create`).
 // ============================================================
 
 export interface Project {
@@ -124,9 +124,9 @@ export interface Project {
   readonly name: string;
   readonly slug: string;
   /**
-   * `true` for the tenant's auto-created "Default" project. Exactly
-   * one row per tenant carries `isDefault = true`.
-   * `false` for every user-created project.
+   * `true` for the workspace's default project (a new workspace gets one). At most
+   * one row per workspace carries `isDefault = true`.
+   * `false` for every other project.
    */
   readonly isDefault: boolean;
   readonly description?: string;
@@ -140,11 +140,26 @@ export interface Project {
   /**
    * The slugs the project had before it was renamed, newest first, and
    * empty when it never was. They stay the project's: no other project of
-   * the tenant can take one, in any org, while the project exists. A
+   * the workspace can take one, in any org, while the project exists. A
    * binding that keeps them always fills this in; it's absent only from one
    * that doesn't.
    */
   readonly formerSlugs?: readonly string[];
+  /**
+   * `true` sorts end users' corrections (an app's, for a `participantId`,
+   * and not an expert's) like the others, and a schedule counting everyone's
+   * counts them. Absent or `false`: they're listed and become test cases,
+   * but stay open and unsorted, and never start Improve. Admin on the
+   * project sets it (`ProjectPatch`).
+   */
+  readonly sortEndUserCorrections?: boolean;
+  /**
+   * The company-wide GitHub connection the project opens its block
+   * changes' pull requests through; absent while none is set. Set and
+   * cleared by `ProjectBinding.setRepoConnection`. The connection may be
+   * gone since: a reader treats that as none.
+   */
+  readonly repoConnectionId?: string;
   readonly createdAt: Timestamp;
   readonly updatedAt: Timestamp;
 }
@@ -155,8 +170,8 @@ export interface ProjectSpec {
   readonly description?: string;
   readonly orgId?: OrgId;
   /**
-   * Optional at spec time — the tenant's Default project is created
-   * by the framework at tenant-inception, not by a caller. User
+   * Optional at spec time — the workspace's default project is created
+   * by the framework at workspace-inception, not by a caller. User
    * projects created via `POST /v1/projects` default to `false`.
    */
   readonly isDefault?: boolean;
@@ -171,6 +186,8 @@ export interface ProjectPatch {
    * `undefined` leaves the FK untouched.
    */
   readonly orgId?: OrgId | null;
+  /** `Project.sortEndUserCorrections`; `undefined` leaves it as it is. */
+  readonly sortEndUserCorrections?: boolean;
 }
 
 /**

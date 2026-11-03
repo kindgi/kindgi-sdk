@@ -16,7 +16,7 @@ import type {
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
-import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
+import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
 import { type ServedEnvRule, refuseUnservedReference } from '../served-env.js';
 import type { AppEnv } from '../types.js';
 import {
@@ -59,8 +59,9 @@ export function webhookEndpointsRouter(
   } = {},
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
-  // A model provider's key is never a webhook endpoint's signing secret, and
-  // on a runtime that refuses other envs the secret is named under its env.
+  // A reserved `kindgi.` name or a model provider's key is never a webhook
+  // endpoint's signing secret, and on a runtime that refuses other envs the
+  // secret is named under its env.
   const providerKey = async (
     tenantId: TenantId,
     secretRef: WebhookSecretRef | undefined,
@@ -68,7 +69,7 @@ export function webhookEndpointsRouter(
     (secretRef === undefined
       ? undefined
       : refuseUnservedReference(options.servedEnv, secretRef, '`secretRef`')) ??
-    refuseProviderKeys(
+    refuseSecretNames(
       options.providerKeys,
       tenantId,
       secretRef === undefined ? [] : [secretRef.name],

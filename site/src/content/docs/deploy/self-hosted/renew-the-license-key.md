@@ -254,7 +254,8 @@ route refuses it.
 
 Mint it with the runtime's own token. On a runtime serving one tenant
 (runtime 0.1.10 or later), only that token mints system keys, and only ones
-holding `system:license`. The token reaches `curl` as a header file, so it
+holding `system:license`, or, with a pack service per deployment, the
+orchestrator's scopes. The token reaches `curl` as a header file, so it
 never shows in the list of processes:
 
 ```sh
@@ -331,7 +332,7 @@ from the runtime (`GET /v1/license/usage`, which only the deployment's own
 token, or a [system key holding `system:license`](#a-key-for-the-counts),
 can read):
 
-- **runs:** the runs started, not counting dry runs, replays, evals or the
+- **runs:** the runs started, not counting dry runs, replays, test runs or the
   runs another run starts;
 - **people:** the distinct people who started runs or decided approvals,
   counted in each tenant and summed, so a person in two tenants counts twice;

@@ -499,6 +499,7 @@ const MODEL_CALL_FIELDS = [
   'fallback',
   'status',
   'usage',
+  'thinking',
   'durationMs',
   'finishReason',
   'providerRequestId',

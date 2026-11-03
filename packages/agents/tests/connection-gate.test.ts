@@ -19,7 +19,10 @@ import type { NodeContext } from '@kindgi/handler';
 import { WaitpointCancelledError } from '@kindgi/handler';
 import type { RunMailbox, RunStartedBy } from '@kindgi/runtime';
 import {
+  type ConnectionAccount,
+  type ConnectionAccountChoices,
   type ConnectionNeed,
+  type ConnectionPick,
   ConnectionRejectedError,
   ConnectionRenewError,
   type ResolveConnectionsInput,
@@ -102,6 +105,40 @@ function waitFor(name: string): ResolveConnectionsOutcome {
   };
 }
 
+/** Two company Acme connections, named. */
+const support = {
+  connectionId: 'conn-support',
+  name: 'support',
+  account: { id: 'acct-support', label: 'support@acme.example' },
+};
+const sales = {
+  connectionId: 'conn-sales',
+  name: 'sales',
+  account: { id: 'acct-sales', label: 'sales@acme.example' },
+};
+
+/** Each need ready on the connection given, and, when given, how each was picked. */
+function readyOn(
+  on: Readonly<
+    Record<
+      string,
+      { readonly connectionId: string; readonly name?: string; readonly account: ConnectionAccount }
+    >
+  >,
+  picks?: Readonly<Record<string, ConnectionPick>>,
+): ResolveConnectionsOutcome {
+  return {
+    kind: 'ready',
+    connections: Object.fromEntries(
+      Object.entries(on).map(([name, c]) => [
+        name,
+        { ...c, app: 'acme', appName: 'Acme', accessToken: `secret-token-${c.connectionId}` },
+      ]),
+    ),
+    ...(picks !== undefined && { picks }),
+  };
+}
+
 interface TurnOptions {
   readonly needs?: Readonly<Record<string, ConnectionNeed>>;
   readonly mutating?: boolean;
@@ -128,6 +165,12 @@ interface TurnOptions {
   readonly records?: Map<string, unknown>;
   /** The step's scope. */
   readonly stepScope?: string;
+  /** The sets the turn offers (`TurnContext.accountChoices`). */
+  readonly accountChoices?: ConnectionAccountChoices;
+  /** The call's arguments. Absent: `{to: 'someone'}`. */
+  readonly arguments?: Readonly<Record<string, unknown>>;
+  /** The tool's input schema. Absent: `{to}` alone. */
+  readonly input?: Record<string, unknown>;
 }
 
 /** Every string a value holds as its own (an error's message and stack too), down its causes. */
@@ -144,12 +187,17 @@ async function turn(o: TurnOptions = {}) {
   const enqueued: HitlEnqueueInput[] = [];
   const events: TurnEvent[] = [];
   const results: unknown[] = [];
+  const inputs: unknown[] = [];
   const needs = o.needs ?? { mail };
   const defined = defineTool<{ to: string }, { ok: boolean }>({
     id: 'pack.send' as ToolId,
     description: 'Sends a note.',
     version: '1.0.0',
-    input: { type: 'object', properties: { to: { type: 'string' } }, additionalProperties: false },
+    input: o.input ?? {
+      type: 'object',
+      properties: { to: { type: 'string' } },
+      additionalProperties: false,
+    },
     output: {
       type: 'object',
       properties: { ok: { type: 'boolean' } },
@@ -159,7 +207,8 @@ async function turn(o: TurnOptions = {}) {
     effects: [],
     ...(o.mutating !== undefined && { mutating: o.mutating }),
     needsSpec: { connections: needs },
-    handler: async (_input, ctx) => {
+    handler: async (input, ctx) => {
+      inputs.push(input);
       ran.push(ctx);
       if (o.run !== undefined) return (await o.run(ctx, ran.length)) as { ok: boolean };
       return { ok: true };
@@ -219,8 +268,10 @@ async function turn(o: TurnOptions = {}) {
       definitions: [],
       byName: new Map([[tool.id, { tool, resolvedVersion: '1.0.0', requestedRange: '^1.0.0' }]]),
     },
+    ...(o.accountChoices !== undefined && { accountChoices: o.accountChoices }),
     turnAbort: new AbortController(),
     appended: [],
+    initialMessageCount: 1,
     hitlPolicy: resolveEffectiveHitlPolicy({ tenant: undefined, agent: a }),
   } as unknown as TurnContext;
   const records = o.records ?? new Map<string, unknown>();
@@ -232,7 +283,7 @@ async function turn(o: TurnOptions = {}) {
       message: {
         role: 'assistant',
         content: '',
-        toolCalls: [{ id: CALL, name: 'pack.send', arguments: { to: 'someone' } }],
+        toolCalls: [{ id: CALL, name: 'pack.send', arguments: o.arguments ?? { to: 'someone' } }],
       },
       iterationUsage: { promptTokens: 0, completionTokens: 0 },
       provider: { id: 'p', model: 'm' },
@@ -256,8 +307,113 @@ async function turn(o: TurnOptions = {}) {
     thrown = e;
   });
   const failed = events.filter((e) => e.kind === 'tool.failed');
-  return { ran, asked, waits, enqueued, events, failed, results, records, thrown, ctx };
+  return { ran, inputs, asked, waits, enqueued, events, failed, results, records, thrown, ctx };
 }
+
+describe('a call that names its connections from a set', () => {
+  const offered: ConnectionAccountChoices = {
+    'pack.send': {
+      shared: {
+        appName: 'Acme',
+        members: [
+          { name: 'support', connectionId: 'conn-support' },
+          { name: 'sales', connectionId: 'conn-sales' },
+        ],
+        default: 'conn-support',
+      },
+    },
+  };
+  const registration = { id: 'reg-acme-1', name: 'Acme (reg-acme)' };
+
+  test('the name it gives is the connection it reads, and the tool never sees `accounts`', async () => {
+    const named: ConnectionPick = {
+      by: 'named',
+      choiceId: 'choice-1',
+      registration,
+      as: 'company',
+      setSize: 2,
+    };
+    const t = await turn({
+      needs: { shared },
+      mutating: false,
+      accountChoices: offered,
+      arguments: { to: 'someone', accounts: { shared: 'sales' } },
+      answers: [readyOn({ shared: sales }, { shared: named })],
+    });
+    expect(t.ran).toHaveLength(1);
+    expect(t.inputs).toEqual([{ to: 'someone' }]);
+    // Asked by id, recorded, and again for the run with the id the record holds.
+    expect(t.asked.map((a) => a.accounts)).toEqual([
+      { shared: 'conn-sales' },
+      { shared: 'conn-sales' },
+    ]);
+    expect(t.records.get(`connection-gate:${CALL}`)).toMatchObject({
+      kind: 'ready',
+      connections: { shared: { connectionId: 'conn-sales', pick: named } },
+    });
+  });
+
+  test('a call that names none asks with nothing named, so it reads the default', async () => {
+    const t = await turn({ needs: { shared }, mutating: false, accountChoices: offered });
+    expect(t.ran).toHaveLength(1);
+    expect(t.asked.map((a) => 'accounts' in a)).toEqual([false, false]);
+  });
+
+  test("with no set offered, `accounts` is the tool's own input: it reaches the tool, and names nothing", async () => {
+    const t = await turn({
+      needs: { shared },
+      mutating: false,
+      input: {
+        type: 'object',
+        properties: { to: { type: 'string' }, accounts: { type: 'object' } },
+        additionalProperties: false,
+      },
+      arguments: { to: 'someone', accounts: { shared: 'sales' } },
+    });
+    expect(t.ran).toHaveLength(1);
+    expect(t.inputs).toEqual([{ to: 'someone', accounts: { shared: 'sales' } }]);
+    expect(t.asked.map((a) => 'accounts' in a)).toEqual([false, false]);
+  });
+
+  test.each([
+    ['a name outside the set', { shared: 'billing' }],
+    ['a need with no set offered', { archive: 'support' }],
+  ])(
+    '%s fails the call as connection-missing, and the failure never repeats the name',
+    async (_, accounts) => {
+      const t = await turn({
+        needs: { shared },
+        mutating: false,
+        accountChoices: offered,
+        arguments: { to: 'someone', accounts },
+      });
+      const [need, name] = Object.entries(accounts)[0] as [string, string];
+      expect(t.ran).toEqual([]);
+      expect(t.asked).toEqual([]);
+      expect(t.thrown).toBeUndefined();
+      expect(t.failed[0]?.error).toMatchObject({
+        code: 'connection-missing',
+        message: `pack.send named a connection for "${need}" that it can't read from here, so it didn't run.`,
+      });
+      expect(JSON.stringify(t.failed)).not.toContain(name);
+    },
+  );
+
+  test("an `accounts` that isn't an object fails the call the same way", async () => {
+    const t = await turn({
+      needs: { shared },
+      mutating: false,
+      accountChoices: offered,
+      arguments: { to: 'someone', accounts: 'sales' },
+    });
+    expect(t.ran).toEqual([]);
+    expect(t.asked).toEqual([]);
+    expect(t.failed[0]?.error).toMatchObject({
+      code: 'connection-missing',
+      message: "pack.send's accounts names each connection it reads by its need, so it didn't run.",
+    });
+  });
+});
 
 describe('a call gets its connections before it runs', () => {
   test('ready: the tool gets its tokens, asked fresh; the record keeps none', async () => {
@@ -272,11 +428,12 @@ describe('a call gets its connections before it runs', () => {
     expect(t.records.get(`connection-gate:${CALL}`)).toEqual({
       kind: 'ready',
       connections: {
+        // A person's account by its id alone: the record never names it.
         mail: {
           connectionId: 'conn-mail',
           app: 'acme',
           appName: 'Acme',
-          account: { id: 'acct-mail', label: 'owner@acme.example' },
+          account: { id: 'acct-mail' },
         },
         shared: {
           connectionId: 'conn-shared',
@@ -872,19 +1029,48 @@ describe("a tool's own abort or timeout reaches the turn as the error it is", ()
 describe("a call that acts with a person's connection is theirs to approve", () => {
   const ask = { hitl: { tools: { overrides: { 'pack.send': 'always_ask' } } } };
 
-  test('the approval names its owner and the account it acts as', async () => {
+  test('the approval names its owner, and says the account it acts as is theirs, never naming it', async () => {
     const t = await turn({ policy: ask });
-    expect(t.enqueued[0]).toMatchObject({
-      approver: { kind: 'member', userId: OWNER },
-      connection: { app: 'acme', appName: 'Acme', account: 'owner@acme.example' },
-    });
+    expect(t.enqueued[0]).toMatchObject({ approver: { kind: 'member', userId: OWNER } });
+    expect(t.enqueued[0]?.connection).toEqual({ app: 'acme', appName: 'Acme', as: 'person' });
     expect(t.ran).toHaveLength(1);
   });
 
-  test('a company connection keeps the reviewers', async () => {
+  test('a company connection keeps the reviewers, and the approval shows it, named', async () => {
     const t = await turn({ policy: ask, needs: { shared } });
     expect(t.enqueued[0]).not.toHaveProperty('approver');
-    expect(t.enqueued[0]).not.toHaveProperty('connection');
+    expect(t.enqueued[0]?.connection).toEqual({
+      app: 'acme',
+      appName: 'Acme',
+      as: 'company',
+      account: 'owner@acme.example',
+    });
+
+    const named = await turn({
+      policy: ask,
+      needs: { shared, archive: shared },
+      answers: [readyOn({ shared: support, archive: sales })],
+    });
+    // The first company connection, by the tool's names for them, sorted.
+    expect(named.enqueued[0]?.connection).toEqual({
+      app: 'acme',
+      appName: 'Acme',
+      as: 'company',
+      account: 'sales@acme.example',
+      name: 'sales',
+    });
+    expect(named.ran).toHaveLength(1);
+  });
+
+  test("with a person's connection and a company one, the approval is the person's, naming neither their account nor their name for it", async () => {
+    const t = await turn({
+      policy: ask,
+      needs: { mail, archive: shared },
+      answers: [readyOn({ mail: { ...support, name: 'mine' }, archive: sales })],
+    });
+    expect(t.enqueued[0]).toMatchObject({ approver: { kind: 'member', userId: OWNER } });
+    // Built from the run's record, which any project reader reads.
+    expect(t.enqueued[0]?.connection).toEqual({ app: 'acme', appName: 'Acme', as: 'person' });
   });
 
   test('the connect comes before the approval', async () => {
@@ -931,7 +1117,7 @@ describe("a call that acts with a person's connection is theirs to approve", () 
     expect(t.failed[0]?.error).toEqual({
       code: 'connection-approver-not-a-reviewer',
       message:
-        'Only user user-owner can approve pack.send, as it acts with their Acme account owner@acme.example, ' +
+        "Only user user-owner can approve pack.send, as it acts with this person's Acme account, " +
         'and they have no reviewer seat at senior or above, the rank the approval needs: ' +
         'a tenant admin adds them to the reviewers. ' +
         "The call didn't run.",
@@ -974,8 +1160,9 @@ describe("in a run no person started, a read with a person's connection waits fo
       expect(t.enqueued).toHaveLength(1);
       expect(t.enqueued[0]).toMatchObject({
         approver: { kind: 'member', userId: OWNER },
-        connection: { app: 'acme', account: 'owner@acme.example' },
+        connection: { app: 'acme', as: 'person' },
       });
+      expect(t.enqueued[0]?.connection).not.toHaveProperty('account');
       // Approved, so it runs.
       expect(t.ran).toHaveLength(1);
     },
@@ -1020,4 +1207,196 @@ describe("in a run no person started, a read with a person's connection waits fo
       expect(t.failed[0]?.error.code).toBe('connection-needs-a-person');
     },
   );
+});
+
+describe('which company connection a call uses', () => {
+  const notChosen: ResolveConnectionsOutcome = {
+    kind: 'refused',
+    code: 'connection-not-chosen',
+    name: 'shared',
+    app: 'acme',
+    choices: [
+      { connectionId: 'conn-sales', name: 'sales' },
+      { connectionId: 'conn-support', name: 'support' },
+    ],
+    message:
+      'This project has 2 company Acme connections (sales, support), and agent pack.agent has no choice of one.',
+  };
+
+  test("every ask names the call's agent and the run's mailbox", async () => {
+    const mailbox: RunMailbox = { app: 'google', as: 'company', connectionId: 'conn-support' };
+    const t = await turn({ needs: { shared }, mailbox });
+    expect(t.asked).toHaveLength(2);
+    for (const asked of t.asked) {
+      expect(asked).toMatchObject({ target: { agentId: 'pack.agent' }, mailbox });
+    }
+    const none = await turn({ needs: { shared } });
+    expect(none.asked[0]).not.toHaveProperty('mailbox');
+  });
+
+  test.each([
+    ['the first ask', [notChosen], undefined],
+    ['the ask after a connect', [waitFor('mail'), notChosen], `connection-gate:${CALL}:connected`],
+    ['the fresh ask', [readyOn({ mail: support, shared: support }), notChosen], undefined],
+  ] as const)(
+    'none chosen, at %s: the turn fails, naming the choices, and the model never reads it',
+    async (_, answers, key) => {
+      const t = await turn({ needs: { mail, shared }, answers });
+      expect(t.ran).toEqual([]);
+      expect(t.results).toEqual([]);
+      expect(t.failed).toEqual([]);
+      expect(t.thrown).toBeInstanceOf(AgentTurnFailure);
+      expect((t.thrown as AgentTurnFailure).payload).toEqual({
+        code: 'connection-not-chosen',
+        message: notChosen.kind === 'refused' ? notChosen.message : '',
+        connection: 'shared',
+        choices: ['sales', 'support'],
+      });
+      expect(stringsOf(t.thrown).join(' ')).not.toContain('conn-');
+      if (key !== undefined) expect(t.records.get(key)).toEqual(notChosen);
+    },
+  );
+
+  test('the record keeps the choices, and a ready connection its name', async () => {
+    const refused = await turn({ needs: { shared }, answers: [notChosen] });
+    expect(refused.records.get(`connection-gate:${CALL}`)).toEqual(notChosen);
+
+    const ready = await turn({ needs: { shared }, answers: [readyOn({ shared: support })] });
+    expect(ready.records.get(`connection-gate:${CALL}`)).toEqual({
+      kind: 'ready',
+      connections: {
+        shared: { app: 'acme', appName: 'Acme', ...support },
+      },
+    });
+    expect(ready.ran[0]?.connections?.shared?.name).toBe('support');
+  });
+
+  test("the record says how each was picked, and names a person's connection by its app and account id only", async () => {
+    const registration = { id: 'reg-acme-1', name: 'Acme (reg-acme)' };
+    const own = { by: 'own', registration, extra: 'not recorded' } as ConnectionPick;
+    const t = await turn({
+      needs: { mail, shared },
+      answers: [
+        readyOn(
+          { mail: { ...support, name: 'mine' }, shared: sales },
+          { mail: own, shared: { by: 'choice', choiceId: 'choice-1', registration } },
+        ),
+      ],
+    });
+    expect(t.records.get(`connection-gate:${CALL}`)).toEqual({
+      kind: 'ready',
+      connections: {
+        mail: {
+          connectionId: 'conn-support',
+          app: 'acme',
+          appName: 'Acme',
+          account: { id: support.account.id },
+          pick: { by: 'own', registration },
+        },
+        shared: {
+          app: 'acme',
+          appName: 'Acme',
+          ...sales,
+          pick: { by: 'choice', choiceId: 'choice-1', registration },
+        },
+      },
+    });
+    // The tool still reads its own connection's name; only the record leaves it out.
+    expect(t.ran[0]?.connections?.mail?.name).toBe('mine');
+  });
+
+  test.each([
+    [
+      'a company connection',
+      { shared },
+      [readyOn({ shared: support }), readyOn({ shared: sales })],
+      'The connection "shared" changed while this call waited (support, support@acme.example, to sales, sales@acme.example), so it didn\'t run.',
+    ],
+    [
+      // Named by its app alone: never their name for it or its account.
+      "a person's",
+      { mail },
+      [
+        readyOn({
+          mail: {
+            connectionId: 'conn-mail',
+            name: 'mine',
+            account: { id: 'a', label: 'owner@acme.example' },
+          },
+        }),
+        readyOn({
+          mail: { connectionId: 'conn-ana', account: { id: 'b', label: 'ana@acme.example' } },
+        }),
+      ],
+      'The connection "mail" to Acme changed while this call waited, so it didn\'t run.',
+    ],
+  ] as const)(
+    '%s that changed before the call first ran: it fails, saying so, and runs nothing',
+    async (_, needs, answers, message) => {
+      const t = await turn({ needs, answers });
+      expect(t.ran).toEqual([]);
+      expect(t.thrown).toBeUndefined();
+      expect(t.failed.map((e) => e.error)).toEqual([{ code: 'connection-changed', message }]);
+      expect(t.results).toEqual([
+        {
+          status: 'failed',
+          error: { code: 'connection-changed', message, connection: Object.keys(needs)[0] },
+        },
+      ]);
+    },
+  );
+
+  test.each([
+    ['a company connection', 'shared', { shared }],
+    ["a person's", 'mail', { mail }],
+  ] as const)(
+    '%s that changed by the renew after the app refused its token: it fails, run once',
+    async (_, name, needs) => {
+      const t = await turn({
+        needs,
+        answers: [
+          readyOn({ [name]: support }),
+          readyOn({ [name]: support }),
+          readyOn({ [name]: sales }),
+        ],
+        run: async (_ctx, attempt) => {
+          if (attempt === 1) throw new ConnectionRejectedError(name, 'Acme said 401.');
+          return { ok: true };
+        },
+      });
+      expect(t.ran).toHaveLength(1);
+      expect(t.asked[2]).toMatchObject({ renew: [name] });
+      expect(t.failed.map((e) => e.error.code)).toEqual(['connection-changed']);
+    },
+  );
+
+  test('after a connect, the connection the call waited for is the one it runs on', async () => {
+    const ran = await turn({
+      answers: [waitFor('mail'), readyOn({ mail: support }), readyOn({ mail: support })],
+    });
+    expect(ran.ran).toHaveLength(1);
+    expect(ran.failed).toEqual([]);
+
+    const changed = await turn({
+      answers: [waitFor('mail'), readyOn({ mail: support }), readyOn({ mail: sales })],
+    });
+    expect(changed.ran).toEqual([]);
+    expect(changed.failed[0]?.error).toEqual({
+      code: 'connection-changed',
+      message: 'The connection "mail" to Acme changed while this call waited, so it didn\'t run.',
+    });
+  });
+
+  test('the same connection, renamed or with a new token, runs as before', async () => {
+    const t = await turn({
+      needs: { mail, shared },
+      answers: [
+        readyOn({ mail: support, shared: sales }),
+        readyOn({ mail: { ...support, name: 'help desk' }, shared: sales }),
+      ],
+    });
+    expect(t.failed).toEqual([]);
+    expect(t.ran).toHaveLength(1);
+    expect(t.ran[0]?.connections?.mail?.name).toBe('help desk');
+  });
 });

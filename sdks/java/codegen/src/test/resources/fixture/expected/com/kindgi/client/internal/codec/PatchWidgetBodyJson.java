@@ -9,6 +9,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.kindgi.client.models.OptionalNullable;
 import com.kindgi.client.models.Owner;
 import com.kindgi.client.models.PatchWidgetBody;
+import com.kindgi.client.models.WidgetState;
 import tools.jackson.databind.module.SimpleModule;
 
 /**
@@ -39,5 +40,12 @@ final class PatchWidgetBodyJson {
                 valueFilter = OptionalNullable.AbsentFilter.class
         )
         abstract OptionalNullable<Owner> owner();
+
+        @JsonProperty("state")
+        @JsonInclude(
+                value = JsonInclude.Include.CUSTOM,
+                valueFilter = OptionalNullable.AbsentFilter.class
+        )
+        abstract OptionalNullable<WidgetState> state();
     }
 }

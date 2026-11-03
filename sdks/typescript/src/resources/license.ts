@@ -17,7 +17,8 @@ export interface LicenseClient {
    * how to get the next one. Never the key itself. The deployment's own
    * token reads all of it; where the deployment serves one tenant, that
    * tenant's admins read the countdown only; anyone else gets 403
-   * `license-operator-only`. A deployment that doesn't report it answers
+   * `license-operator-only`, as `identity.permissions()` says before asking
+   * (`licenseOperatorOnly`). A deployment that doesn't report it answers
    * 404.
    *
    * @wire `GET /v1/license`
@@ -26,7 +27,7 @@ export interface LicenseClient {
   /**
    * How much the deployment was used since `since`: what a free key's
    * renewal carries (`kindgi license renew --runtime`). The runs started
-   * (not dry runs, replays, evals or child runs), the distinct people who
+   * (not dry runs, replays, test runs or child runs), the distinct people who
    * started runs or decided approvals (counted in each tenant and summed),
    * the projects in production when the runtime can put projects in
    * production, and its version. Counts only. A `since` up to five minutes

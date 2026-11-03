@@ -66,13 +66,21 @@ variable "pack_image" {
 # ---- the server ---------------------------------------------------------------
 
 variable "seed_tenant_id" {
-  description = "KINDGI_TENANT_ID: the tenant the server seeds and runs background work for. Keep it for the deployment's life."
+  description = "KINDGI_TENANT_ID: the tenant the server seeds and runs background work for, a uuid. Keep it for the deployment's life."
   type        = string
+  validation {
+    condition     = can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.seed_tenant_id))
+    error_message = "seed_tenant_id must be a uuid (a tenant id is one), such as `uuidgen | tr 'A-Z' 'a-z'` prints in lower case."
+  }
 }
 
 variable "seed_user_id" {
-  description = "KINDGI_SEED_USER_ID: the first admin user. Keep it for the deployment's life."
+  description = "KINDGI_SEED_USER_ID: the first admin user, a uuid. Keep it for the deployment's life."
   type        = string
+  validation {
+    condition     = can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.seed_user_id))
+    error_message = "seed_user_id must be a uuid (a user id is one), such as `uuidgen | tr 'A-Z' 'a-z'` prints in lower case."
+  }
 }
 
 variable "server_cpu" {
@@ -333,6 +341,17 @@ variable "erasure_ledger_key_version" {
   validation {
     condition     = var.erasure_ledger_key_version == "" || can(regex("^[0-9a-f]{32}$", var.erasure_ledger_key_version))
     error_message = "erasure_ledger_key_version: a 32-hex Key Vault secret version id."
+  }
+}
+
+variable "database_url_version" {
+  description = "The version of the `database-url` secret the server reads, pinned: a new revision then reads exactly that version, not whatever Key Vault's refresh has picked up. upgrade.sh's way back sets it to the version that names the restored server. Leave it empty otherwise (the server reads the latest version), and clear it once the restored server is the one you keep; upgrade.sh refuses to start while it's set."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.database_url_version == "" || can(regex("^[0-9a-f]{32}$", var.database_url_version))
+    error_message = "database_url_version: a 32-hex Key Vault secret version id."
   }
 }
 

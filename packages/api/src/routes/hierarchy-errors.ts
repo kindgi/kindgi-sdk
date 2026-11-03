@@ -30,7 +30,7 @@ export function slugConflictError(
         ? `The slug "${slug}" was another project's until it was renamed, and it stays that project's. Choose another slug.`
         : resource === 'project'
           ? `Another project in its org has the slug "${slug}" (for a project without an org: another project without one)`
-          : `Another ${resource} in the tenant has the slug "${slug}"`,
+          : `Another ${resource} in the workspace has the slug "${slug}"`,
     resource,
     slug,
     heldAs,
@@ -61,11 +61,11 @@ export function orgNotFoundError(orgId: string) {
   return { code: 'org-not-found', message: `No org with id "${orgId}"`, orgId } as const;
 }
 
-/** `409 project-default-already-exists`: the tenant has a Default project. */
+/** `409 project-default-already-exists`: the tenant has a default project. */
 export function projectDefaultAlreadyExistsError() {
   return {
     code: 'project-default-already-exists',
-    message: 'The tenant already has a Default project',
+    message: 'The workspace already has a default project',
   } as const;
 }
 

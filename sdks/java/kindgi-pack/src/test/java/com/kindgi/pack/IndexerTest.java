@@ -125,6 +125,22 @@ class IndexerTest {
 
   @Test
   @SuppressWarnings("unchecked")
+  void anLlmJudgeGuardrailCarriesItsJudgeIntoAValidIndex() throws Exception {
+    // The runtime routes an llm-judge guardrail's judge by its judgeCapabilities, and refuses one without them.
+    Map<String, Object> report = value(index("judge"));
+    assertThat(report.get("fileErrors")).isEqualTo(List.of());
+    String text = Files.readString(out.resolve("judge.json"), StandardCharsets.UTF_8);
+    Map<String, Object> index = (Map<String, Object>) Json.parse(text.getBytes(StandardCharsets.UTF_8));
+    Map<String, Object> guardrail = ((List<Map<String, Object>>) index.get("guardrails")).get(0);
+    assertThat(guardrail).containsEntry("kind", "llm-judge").containsEntry("checkId", "acme.checks.tone")
+        .containsEntry("judgeCapabilities", Map.of("needs", List.of(Map.of("feature", "structured-output"))));
+
+    List<Map<String, Object>> issues = Specs.validator("pack-index").issues(index);
+    assertThat(issues).as(String.valueOf(issues)).isEmpty();
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
   void aCheckIdWithoutThePacksPrefixIsAWarningAndStillIndexes() throws Exception {
     Map<String, Object> report = value(index("warn"));
     assertThat(report.get("fileErrors")).isEqualTo(List.of());
@@ -136,11 +152,11 @@ class IndexerTest {
     assertThat(warnings).extracting(w -> w.get("filePath")).containsOnly(rel);
     assertThat(warnings).extracting(w -> (String) w.get("message")).containsExactlyInAnyOrder(
         rel + ": check \"cites\" doesn't start with this pack's id (\"acme.\"). Name it \"acme.checks.<name>\""
-            + " so it can't collide with another pack's check in the same tenant. The pack builds as it is.",
+            + " so it can't collide with another pack's check in the same workspace. The pack builds as it is.",
         rel + ": check \"checks.grounded\" doesn't start with this pack's id (\"acme.\"). Name it \"acme.checks.<name>\""
-            + " so it can't collide with another pack's check in the same tenant. The pack builds as it is.",
+            + " so it can't collide with another pack's check in the same workspace. The pack builds as it is.",
         rel + ": check \"acmeplus.cites\" doesn't start with this pack's id (\"acme.\"). Name it \"acme.checks.<name>\""
-            + " so it can't collide with another pack's check in the same tenant. The pack builds as it is.");
+            + " so it can't collide with another pack's check in the same workspace. The pack builds as it is.");
   }
 
   @Test

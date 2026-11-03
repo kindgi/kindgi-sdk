@@ -2,44 +2,35 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * `thinkingLevels`: how much each model thinks, set on a provider in code
- * (`GeminiProviderOptions.thinkingLevels`) or on a registration
- * (`adapter_config.thinkingLevels`, `"model=level,…"`). Each named model
- * gets its level on every call; one it doesn't name gets none; a call's
- * `thinking: 'lowest'` still wins. The check refuses what the factory
- * would throw on, with the same message.
+ * How much a Gemini model thinks: the call's `thinking`, or the model's
+ * `thinking.default` when the call asks none, sent as `thinkingLevel`,
+ * upper-cased. A level the model doesn't take is rounded to one it does
+ * (`thinking-level-adjusted`); a model with no `thinking` is sent none
+ * (`thinking-unsupported`). The result reports the level and what was
+ * sent. `adapter_config.thinkingLevels` is no longer read: a stored one
+ * builds and changes nothing.
  */
 
 import type { GenerateContentParameters, GenerateContentResponse } from '@google/genai';
-import { type AdapterConfig, adapterConfigError } from '@kindgi/capabilities';
+import type { ModelInfo, ModelThinking, ThinkingLevel } from '@kindgi/capabilities';
 import { afterEach, describe, expect, test } from 'vitest';
 
 import {
-  GEMINI_ADAPTER_ID,
   type GeminiClient,
-  type GeminiProviderOptions,
   createGeminiProvider,
   geminiAdapterFactory,
   geminiCheckConfig,
 } from '../src/index.js';
 
-const model = (name: string, lowest?: string) => ({
-  name,
-  contextWindow: 1_048_576,
-  features: ['tool-use' as const],
-  cost: { promptUsdPer1kTokens: 0.00075, completionUsdPer1kTokens: 0.00375 },
-  ...(lowest !== undefined && { thinking: { mode: 'adaptive' as const, lowest } }),
-});
+const NAME = 'gemini-3.8-flash';
 
-const METADATA: GeminiProviderOptions['metadata'] = {
-  id: 'acme-gemini',
-  region: 'global',
-  models: [
-    model('gemini-3.8-flash', 'low'),
-    model('gemini-3.5-flash-lite', 'minimal'),
-    model('gemini-3.1-pro-preview'),
-  ],
-};
+const model = (thinking?: ModelThinking): ModelInfo => ({
+  name: NAME,
+  contextWindow: 1_048_576,
+  features: ['tool-use'],
+  cost: { promptUsdPer1kTokens: 0.00075, completionUsdPer1kTokens: 0.00375 },
+  ...(thinking !== undefined && { thinking }),
+});
 
 const ANSWER: Partial<GenerateContentResponse> = {
   candidates: [
@@ -61,211 +52,210 @@ function fakeClient(): GeminiClient & { readonly calls: GenerateContentParameter
   };
 }
 
-describe('GeminiProviderOptions.thinkingLevels', () => {
-  /** The thinkingConfig one call to `name` sends. */
-  async function sent(
-    thinkingLevels: GeminiProviderOptions['thinkingLevels'],
-    name: string,
-    lowest = false,
-  ) {
-    const client = fakeClient();
-    const provider = createGeminiProvider({
-      metadata: METADATA,
-      vertex: { project: 'acme-dev', location: 'global' },
-      client,
-      ...(thinkingLevels !== undefined && { thinkingLevels }),
-    });
-    await provider.invoke({
-      model: name,
-      messages: [{ role: 'user', content: 'hi' }],
-      ...(lowest && { thinking: 'lowest' as const }),
-    });
-    return client.calls[0]?.config?.thinkingConfig;
-  }
-
-  test("sends each named model's level, upper-cased; a model it doesn't name gets none", async () => {
-    const levels = { 'gemini-3.8-flash': 'medium', 'gemini-3.5-flash-lite': 'minimal' } as const;
-    expect(await sent(levels, 'gemini-3.8-flash')).toEqual({ thinkingLevel: 'MEDIUM' });
-    expect(await sent(levels, 'gemini-3.5-flash-lite')).toEqual({ thinkingLevel: 'MINIMAL' });
-    expect(await sent(levels, 'gemini-3.1-pro-preview')).toBeUndefined();
-    expect(await sent({ 'gemini-3.8-flash': 'high' }, 'gemini-3.5-flash-lite')).toBeUndefined();
+/** One call to a model with this `thinking`: what it sent, and what it reported. */
+async function call(thinking: ModelThinking | undefined, asked?: ThinkingLevel) {
+  const client = fakeClient();
+  const provider = createGeminiProvider({
+    metadata: { id: 'acme-gemini', region: 'global', models: [model(thinking)] },
+    vertex: { project: 'acme-dev', location: 'global' },
+    client,
   });
-
-  test('unset, nothing is sent', async () => {
-    expect(await sent(undefined, 'gemini-3.8-flash')).toBeUndefined();
+  const result = await provider.invoke({
+    model: NAME,
+    messages: [{ role: 'user', content: 'hi' }],
+    ...(asked !== undefined && { thinking: asked }),
   });
+  return {
+    thinkingConfig: client.calls[0]?.config?.thinkingConfig,
+    thinking: result.thinking,
+    warnings: result.warnings,
+  };
+}
 
-  test("a call's thinking: 'lowest' still sends the model's lowest", async () => {
-    expect(await sent({ 'gemini-3.8-flash': 'high' }, 'gemini-3.8-flash', true)).toEqual({
-      thinkingLevel: 'LOW',
-    });
-  });
+const adjusted = (asked: string, level: string) => [
+  {
+    code: 'thinking-level-adjusted',
+    message: `${NAME} doesn't take thinking level ${asked}, so the call sent ${level}.`,
+  },
+];
 
-  test('a level the model refuses is refused when the provider is made, an injected client too', () => {
-    expect(() =>
-      createGeminiProvider({
-        metadata: METADATA,
-        client: fakeClient(),
-        thinkingLevels: { 'gemini-3.8-flash': 'minimal' },
-      }),
-    ).toThrow(
-      'adapter_config.thinkingLevels gives gemini-3.8-flash "minimal", below its thinking.lowest: it thinks at "low" at the least.',
-    );
-  });
-});
-
-describe('adapter_config.thinkingLevels: the check agrees with the factory', () => {
-  /** The check's problems for a registration, and what the factory throws for it. */
-  function both(config: AdapterConfig, models = METADATA.models) {
-    const metadata = { ...METADATA, models };
-    const problems = geminiCheckConfig({ metadata, config, hasSecretRef: true });
-    let thrown: string | undefined;
-    try {
-      geminiAdapterFactory({ metadata, config, resolveApiKey: async () => 'unused' });
-    } catch (err) {
-      thrown = (err as Error).message;
-    }
-    return { problems, thrown };
-  }
+describe('each level', () => {
+  const TAKES: ModelThinking = {
+    mode: 'adaptive',
+    lowest: 'minimal',
+    levels: ['low', 'medium', 'high'],
+  };
 
   test.each([
-    ['Vertex AI', { project: 'acme-project', thinkingLevels: 'gemini-3.8-flash=low' }],
-    [
-      'the Developer API, two models, spaces around each part',
-      {
-        api: 'developer',
-        thinkingLevels: ' gemini-3.8-flash = high , gemini-3.5-flash-lite=minimal',
-      },
-    ],
-  ] as const)('%s: no problems, and the factory builds it', (_name, config) => {
-    expect(both(config)).toEqual({ problems: [], thrown: undefined });
-  });
-
-  test("a model's lowest is read in any case", () => {
-    const models = [model('gemini-3.8-flash', 'LOW')];
-    expect(
-      both({ project: 'acme-project', thinkingLevels: 'gemini-3.8-flash=low' }, models),
-    ).toEqual({ problems: [], thrown: undefined });
-  });
-
-  describe.each([
-    ['Vertex AI', { project: 'acme-project' }],
-    ['the Developer API', { api: 'developer' }],
-  ] as const)('on %s', (_api, target) => {
-    test.each([
-      ['not a string', true, 'must be "model=level,…" (e.g. "gemini-3.8-flash=low"), got true.'],
-      ['empty', ' ', 'must be "model=level,…" (e.g. "gemini-3.8-flash=low"), got " ".'],
-      [
-        'an entry without a level',
-        'gemini-3.8-flash',
-        'has "gemini-3.8-flash": each entry is model=level.',
-      ],
-      [
-        'an entry with two',
-        'gemini-3.8-flash=low=high',
-        'has "gemini-3.8-flash=low=high": each entry is model=level.',
-      ],
-      [
-        'a model named twice',
-        'gemini-3.8-flash=low,gemini-3.8-flash=high',
-        'names gemini-3.8-flash twice: one level each.',
-      ],
-      [
-        'a model the registration does not list',
-        'gemini-9-ultra=low',
-        "names gemini-9-ultra, which this registration doesn't list in metadata.models.",
-      ],
-      [
-        'a model with no thinking',
-        'gemini-3.1-pro-preview=low',
-        "names gemini-3.1-pro-preview, which has no thinking in metadata.models: it isn't known to think.",
-      ],
-      [
-        'a level Gemini does not have',
-        'gemini-3.8-flash=none',
-        'gives gemini-3.8-flash "none": a level is minimal, low, medium or high.',
-      ],
-      [
-        'a level in capitals (levels are lowercase)',
-        'gemini-3.8-flash=LOW',
-        'gives gemini-3.8-flash "LOW": a level is minimal, low, medium or high.',
-      ],
-      [
-        "a level under the model's lowest",
-        'gemini-3.8-flash=minimal',
-        'gives gemini-3.8-flash "minimal", below its thinking.lowest: it thinks at "low" at the least.',
-      ],
-    ] as const)(
-      '%s: the check points at thinkingLevels, and the factory throws the same message',
-      (_name, thinkingLevels, says) => {
-        const { problems, thrown } = both({ ...target, thinkingLevels });
-        expect(problems).toEqual([
-          {
-            path: '/adapter_config/thinkingLevels',
-            message: `adapter_config.thinkingLevels ${says}`,
-          },
-        ]);
-        expect(thrown).toBe(
-          adapterConfigError(GEMINI_ADAPTER_ID, 'acme-gemini', problems[0]!).message,
-        );
-      },
-    );
-  });
-
-  test("a model whose lowest isn't a Gemini level is refused by name, not compared", () => {
-    const models = [model('gemini-3.8-flash', 'off')];
-    const { problems, thrown } = both(
-      { project: 'acme-project', thinkingLevels: 'gemini-3.8-flash=high' },
-      models,
-    );
-    expect(problems).toEqual([
-      {
-        path: '/adapter_config/thinkingLevels',
-        message:
-          'adapter_config.thinkingLevels names gemini-3.8-flash, whose thinking.lowest "off" isn\'t a Gemini thinking level (minimal, low, medium or high), so its least isn\'t known.',
-      },
-    ]);
-    expect(thrown).toBe(adapterConfigError(GEMINI_ADAPTER_ID, 'acme-gemini', problems[0]!).message);
-  });
-
-  test('each bad entry is reported, after the target', () => {
-    const { problems } = both({
-      project: 'x',
-      thinkingLevels: 'gemini-9-ultra=low,gemini-3.8-flash=none',
+    ['lowest', 'MINIMAL'],
+    ['low', 'LOW'],
+    ['medium', 'MEDIUM'],
+    ['high', 'HIGH'],
+  ] as const)('%s is sent as thinkingLevel %s, and reported', async (asked, thinkingLevel) => {
+    expect(await call(TAKES, asked)).toEqual({
+      thinkingConfig: { thinkingLevel },
+      thinking: { level: asked, sent: { thinkingLevel } },
+      warnings: undefined,
     });
-    expect(problems.map((p) => p.path)).toEqual([
-      '/adapter_config/project',
-      '/adapter_config/thinkingLevels',
-      '/adapter_config/thinkingLevels',
-    ]);
+  });
+
+  test.each([
+    ['minimal', 'low', 'LOW'],
+    ['xhigh', 'high', 'HIGH'],
+    ['max', 'high', 'HIGH'],
+  ] as const)(
+    "%s, which it doesn't take, is sent as %s, with a warning",
+    async (asked, level, thinkingLevel) => {
+      expect(await call(TAKES, asked)).toEqual({
+        thinkingConfig: { thinkingLevel },
+        thinking: { level, sent: { thinkingLevel } },
+        warnings: adjusted(asked, level),
+      });
+    },
+  );
+
+  test("lowest sends the model's own lowest, in any case", async () => {
+    expect(await call({ mode: 'adaptive', lowest: 'LOW' }, 'lowest')).toEqual({
+      thinkingConfig: { thinkingLevel: 'LOW' },
+      thinking: { level: 'lowest', sent: { thinkingLevel: 'LOW' } },
+      warnings: undefined,
+    });
   });
 });
 
-describe('adapter_config.thinkingLevels on the wire', () => {
+describe('rounding', () => {
+  test.each([
+    // Without levels: the ones every thinking model takes, from its lowest.
+    ['at the floor, no levels', { lowest: 'low' }, 'minimal', 'low', 'LOW'],
+    ['above the ceiling, no levels', { lowest: 'minimal' }, 'max', 'high', 'HIGH'],
+    ['a lowest of medium, no levels', { lowest: 'medium' }, 'low', 'medium', 'MEDIUM'],
+    ['minimal, when lowest is minimal', { lowest: 'minimal' }, 'minimal', 'minimal', 'MINIMAL'],
+    // With levels: only those.
+    [
+      'at the floor, levels',
+      { lowest: 'low', levels: ['medium', 'high'] },
+      'low',
+      'medium',
+      'MEDIUM',
+    ],
+    ['in a gap, levels', { lowest: 'low', levels: ['low', 'high'] }, 'medium', 'high', 'HIGH'],
+    [
+      'above the ceiling, levels',
+      { lowest: 'low', levels: ['low', 'medium'] },
+      'high',
+      'medium',
+      'MEDIUM',
+    ],
+  ] as const)('%s: asked %s, it sends %s', async (_name, t, asked, level, thinkingLevel) => {
+    expect(await call({ mode: 'adaptive', ...t }, asked)).toEqual({
+      thinkingConfig: { thinkingLevel },
+      thinking: { level, sent: { thinkingLevel } },
+      warnings: asked === level ? undefined : adjusted(asked, level),
+    });
+  });
+});
+
+describe("the model's default", () => {
+  test('a call that asks none is sent the default, as registered, with no warning', async () => {
+    expect(await call({ mode: 'adaptive', lowest: 'low', default: 'medium' })).toEqual({
+      thinkingConfig: { thinkingLevel: 'MEDIUM' },
+      thinking: { level: 'medium', sent: { thinkingLevel: 'MEDIUM' } },
+      warnings: undefined,
+    });
+  });
+
+  test("a default of lowest sends the model's lowest", async () => {
+    expect(
+      (await call({ mode: 'adaptive', lowest: 'minimal', default: 'lowest' })).thinkingConfig,
+    ).toEqual({ thinkingLevel: 'MINIMAL' });
+  });
+
+  test("the call's level beats the default", async () => {
+    expect(await call({ mode: 'adaptive', lowest: 'low', default: 'medium' }, 'high')).toEqual({
+      thinkingConfig: { thinkingLevel: 'HIGH' },
+      thinking: { level: 'high', sent: { thinkingLevel: 'HIGH' } },
+      warnings: undefined,
+    });
+  });
+
+  test('no level asked and no default: nothing is sent or reported', async () => {
+    expect(await call({ mode: 'adaptive', lowest: 'low' })).toEqual({
+      thinkingConfig: undefined,
+      thinking: undefined,
+      warnings: undefined,
+    });
+  });
+});
+
+describe('a model with no thinking', () => {
+  test('a level asked is sent nowhere, with a warning', async () => {
+    expect(await call(undefined, 'high')).toEqual({
+      thinkingConfig: undefined,
+      thinking: undefined,
+      warnings: [
+        {
+          code: 'thinking-unsupported',
+          message: `${NAME} doesn't think, or how it thinks isn't known, so the call sent no level (it asked for high).`,
+        },
+      ],
+    });
+  });
+
+  test('none asked: nothing, and no warning', async () => {
+    expect(await call(undefined)).toEqual({
+      thinkingConfig: undefined,
+      thinking: undefined,
+      warnings: undefined,
+    });
+  });
+});
+
+describe('a stored adapter_config.thinkingLevels', () => {
   const original = globalThis.fetch;
   afterEach(() => {
     globalThis.fetch = original;
   });
 
-  test('a registered provider sends each named model its level, and none to the others', async () => {
+  const metadata = (thinking: ModelThinking) => ({
+    id: 'acme-gemini',
+    region: 'global',
+    models: [model(thinking)],
+  });
+  const config = { api: 'developer', thinkingLevels: `${NAME}=high` };
+
+  test('its check leaves it be', () => {
+    expect(
+      geminiCheckConfig({
+        metadata: metadata({ mode: 'adaptive', lowest: 'low' }),
+        config,
+        hasSecretRef: true,
+      }),
+    ).toEqual([]);
+  });
+
+  test("it builds and isn't read: the model's default is sent, or nothing", async () => {
     const bodies: string[] = [];
     globalThis.fetch = async (_url: unknown, init?: RequestInit) => {
       bodies.push(String(init?.body));
       return Response.json(ANSWER);
     };
-    const provider = geminiAdapterFactory({
-      metadata: METADATA,
-      config: { api: 'developer', thinkingLevels: 'gemini-3.8-flash=low' },
-      resolveApiKey: async () => 'k',
-    });
-    for (const name of ['gemini-3.8-flash', 'gemini-3.5-flash-lite']) {
-      await provider.invoke({ model: name, messages: [{ role: 'user', content: 'hi' }] });
+    const thinkings: readonly ModelThinking[] = [
+      { mode: 'adaptive', lowest: 'low' },
+      { mode: 'adaptive', lowest: 'low', default: 'low' },
+    ];
+    for (const thinking of thinkings) {
+      const provider = geminiAdapterFactory({
+        metadata: metadata(thinking),
+        config,
+        resolveApiKey: async () => 'k',
+      });
+      await provider.invoke({ model: NAME, messages: [{ role: 'user', content: 'hi' }] });
     }
     const thinkingConfigs = bodies.map(
       (b) =>
         (JSON.parse(b) as { generationConfig?: { thinkingConfig?: unknown } }).generationConfig
           ?.thinkingConfig,
     );
-    expect(thinkingConfigs).toEqual([{ thinkingLevel: 'LOW' }, undefined]);
+    expect(thinkingConfigs).toEqual([undefined, { thinkingLevel: 'LOW' }]);
   });
 });

@@ -14,7 +14,7 @@ import type { EnvName } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
 import { loadLocalEnvSettings } from '../env/project-env.js';
-import { UsageError } from '../errors.js';
+import { UsageError, extractKindgiError } from '../errors.js';
 import { renderJson } from '../output.js';
 import { binDisplay, detectBinRunner } from '../package-manager.js';
 import {
@@ -157,8 +157,8 @@ const register: LeafCommand = {
         const spec = (await readJsonInput(specText)) as RegisterProviderInput;
         return renderJson(await ctx.client().providers.register(spec), ctx.globals.format);
       }
-      const { input, keyHint } = await presetInput(ctx, presetName as string);
-      const outcome = await ctx.client().providers.register(input);
+      const built = await presetInput(ctx, presetName as string);
+      const { outcome, input, levelsNote } = await registerPreset(ctx, built.input);
       const wanted = input.metadata.defaultModel;
       const models = input.metadata.models
         .map((m) => (m.name === wanted ? `${m.name} (default)` : m.name))
@@ -170,10 +170,68 @@ const register: LeafCommand = {
       const kept = await runtimeNotes(ctx, input);
       return {
         stdout: renderJson(outcome, ctx.globals.format).stdout,
-        stderr: `✓ Registered ${input.metadata.id}: ${models}${key}\n${keyHint}${kept}`,
+        stderr: `✓ Registered ${input.metadata.id}: ${models}${key}\n${built.keyHint}${levelsNote}${kept}`,
       };
     }),
 };
+
+/**
+ * How a runtime before 0.3.0 refuses a model's `thinking` with more than
+ * `mode` and `lowest`, at the end of its message. 0.3.0's own refusal of
+ * that shape goes on to name `levels` and `default`, so it never ends so.
+ */
+const LEVELLESS_THINKING_REFUSAL =
+  "thinking must be { mode: 'adaptive' | 'always', lowest: <the vendor's setting> }";
+
+/**
+ * Register a preset's body. A runtime before 0.3.0 takes a model's
+ * `thinking` as `mode` and `lowest` only, and refuses the preset's
+ * `levels` (`LEVELLESS_THINKING_REFUSAL`): then the models go again
+ * without them, and the note says they need a newer runtime. Any other
+ * refusal stands, a 0.3.0 runtime's refusal of a level among them.
+ */
+async function registerPreset(
+  ctx: CommandContext,
+  input: RegisterProviderInput,
+): Promise<{
+  readonly outcome: Awaited<
+    ReturnType<ReturnType<CommandContext['client']>['providers']['register']>
+  >;
+  readonly input: RegisterProviderInput;
+  readonly levelsNote: string;
+}> {
+  try {
+    return { outcome: await ctx.client().providers.register(input), input, levelsNote: '' };
+  } catch (err) {
+    const wire = extractKindgiError(err);
+    const leveled = input.metadata.models.filter((m) => m.thinking?.levels !== undefined);
+    if (
+      leveled.length === 0 ||
+      wire?.code !== 'invalid-request' ||
+      wire.serverCode !== 'invalid-provider' ||
+      wire.fields?.reason !== 'invalid-thinking' ||
+      !wire.message.endsWith(LEVELLESS_THINKING_REFUSAL)
+    ) {
+      throw err;
+    }
+    const without: RegisterProviderInput = {
+      ...input,
+      metadata: {
+        ...input.metadata,
+        models: input.metadata.models.map((m) =>
+          m.thinking === undefined
+            ? m
+            : { ...m, thinking: { mode: m.thinking.mode, lowest: m.thinking.lowest } },
+        ),
+      },
+    };
+    return {
+      outcome: await ctx.client().providers.register(without),
+      input: without,
+      levelsNote: `  This runtime doesn't accept thinking levels, so ${leveled.map((m) => m.name).join(', ')} registered without them. Upgrade it to 0.3.0 or later to use them.\n`,
+    };
+  }
+}
 
 /**
  * A runtime from before 0.1.4 keeps only the provider fields it knows: it

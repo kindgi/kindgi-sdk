@@ -439,7 +439,7 @@ function keyCeilingDeny(
     return keyDecision(
       action,
       resource,
-      `a member ${c.get('sessionId') !== undefined ? 'session' : 'API key'} takes no admin action on the tenant`,
+      `a member ${c.get('sessionId') !== undefined ? 'session' : 'API key'} takes no admin action on the workspace`,
     );
   }
   const keyProject = c.get('tokenProjectId');

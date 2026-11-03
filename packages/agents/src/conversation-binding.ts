@@ -2,7 +2,15 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { RunBinding } from '@kindgi/runtime';
-import type { ListScope, ProjectId, Result, ScopeSegment, Semver, TenantId } from '@kindgi/types';
+import type {
+  FileValue,
+  ListScope,
+  ProjectId,
+  Result,
+  ScopeSegment,
+  Semver,
+  TenantId,
+} from '@kindgi/types';
 
 import type { AgentError } from './errors.js';
 import type {
@@ -47,6 +55,8 @@ export interface AppendMessageInput {
   readonly toolCall?: { readonly toolId: string; readonly invocationId: string };
   /** The message came from outside (`ConversationMessage.fromEvent`): kept with it. */
   readonly fromEvent?: true;
+  /** Stored files the message carries (`ConversationMessage.files`): kept with it. */
+  readonly files?: readonly FileValue[];
   /**
    * When true, this message is a mid-turn assistant emission (e.g. the
    * assistant message that contains tool calls before the final
@@ -106,7 +116,7 @@ export interface ListConversationsPageInput {
   readonly tenantId: TenantId;
   /**
    * Only one project's conversations, or every project's in an org.
-   * Absent: the tenant's. A conversation opened without a project is
+   * Absent: the workspace's. A conversation opened without a project is
    * listed only without a scope.
    */
   readonly scope?: ListScope;
@@ -152,9 +162,9 @@ export interface ConversationPage {
  * whatever conversation-store implementation a deployment plugs in
  * (the Kindgi runtime ships a Postgres-backed one; alternatives possible).
  *
- * Every method is tenant-scoped: RLS (or the moral equivalent for
+ * Every method is workspace-scoped: RLS (or the moral equivalent for
  * non-Postgres impls) is expected to be enforced inside the binding.
- * Callers pass the tenant on every method — the binding does not
+ * Callers pass the workspace on every method — the binding does not
  * carry request-scoped identity.
  *
  * `closeConversation` accepts an optional `RunBinding` so the impl can
@@ -198,7 +208,7 @@ export interface ConversationBinding {
   /**
    * Unregister a conversation: a tombstone (`unregisteredAt`). From then
    * on no read, list or recall returns it, and no message can be added;
-   * the retention sweep removes it after the tenant's grace. Optional: a
+   * the retention sweep removes it after the workspace's grace. Optional: a
    * binding without it can't unregister (the route answers 501).
    */
   unregisterConversation?(

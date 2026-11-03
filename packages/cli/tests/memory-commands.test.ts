@@ -53,7 +53,7 @@ async function memory(argv: readonly string[]) {
         memory: {
           search: record('search', [{ fact: FACT, score: 2 / 61 }]),
           facts: {
-            list: record('list', { data: [FACT], hasMore: false, items: [FACT] }),
+            list: record('list', { data: [FACT], hasMore: false }),
             read: record('read', FACT),
             write: record('write', FACT),
             supersede: record('supersede', { ...FACT, version: 2 }),

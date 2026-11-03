@@ -34,6 +34,7 @@
     "check:cycles": "node scripts/check-package-cycles.mjs",
     "check:constructor-super": "node scripts/check-constructor-super.mjs",
     "check:docs-ship": "node scripts/check-docs-ship.mjs",
+    "check:skill-versions": "node scripts/check-skill-versions.mjs",
     "check:readme": "node scripts/readme-packages.mjs --check",
     "readme:packages": "node scripts/readme-packages.mjs",
     "check:publish": "node scripts/check-publish.mjs",

@@ -1,5 +1,84 @@
 # @kindgi/blob-binding
 
+## 0.4.0
+
+### Patch Changes
+
+- Updated dependencies [b25b82f]
+- Updated dependencies [d92355b]
+- Updated dependencies [d6c9279]
+- Updated dependencies [6380c49]
+- Updated dependencies [f2adcc2]
+- Updated dependencies [9b015f7]
+- Updated dependencies [9a8a294]
+- Updated dependencies [1bd877d]
+- Updated dependencies [265fffb]
+- Updated dependencies [d779ec5]
+- Updated dependencies [dff9515]
+- Updated dependencies [d576ff4]
+  - @kindgi/types@0.4.0
+  - @kindgi/platform@0.4.0
+
+## 0.3.1
+
+### Patch Changes
+
+- @kindgi/platform@0.3.1
+  - @kindgi/types@0.3.1
+
+## 0.3.1-rc.1
+
+### Patch Changes
+
+- @kindgi/platform@0.3.1-rc.1
+  - @kindgi/types@0.3.1-rc.1
+
+## 0.3.1-rc.0
+
+### Patch Changes
+
+- @kindgi/platform@0.3.1-rc.0
+  - @kindgi/types@0.3.1-rc.0
+
+## 0.3.0
+
+### Patch Changes
+
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+  - @kindgi/platform@0.3.0
+  - @kindgi/types@0.3.0
+
+## 0.3.0-rc.0
+
+### Patch Changes
+
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+  - @kindgi/platform@0.3.0-rc.0
+  - @kindgi/types@0.3.0-rc.0
+
+## 0.2.0
+
+### Patch Changes
+
+- @kindgi/platform@0.2.0
+  - @kindgi/types@0.2.0
+
+## 0.2.0-rc.1
+
+### Patch Changes
+
+- @kindgi/platform@0.2.0-rc.1
+  - @kindgi/types@0.2.0-rc.1
+
+## 0.2.0-rc.0
+
+### Patch Changes
+
+- @kindgi/platform@0.2.0-rc.0
+  - @kindgi/types@0.2.0-rc.0
+
 ## 0.1.10
 
 ### Patch Changes

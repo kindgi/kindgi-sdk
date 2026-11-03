@@ -18,6 +18,7 @@ import { spawn } from 'node:child_process';
 import { type FSWatcher, watch } from 'node:fs';
 import { watch as watchEventsReal } from 'node:fs/promises';
 
+import { programPath } from '../program-path.js';
 import type { PackBuild, PackBuilder } from './runners.js';
 import {
   DEFAULT_SCAN_INTERVAL_MS,
@@ -122,23 +123,26 @@ export function createPythonPackBuilder(options: PythonPackBuilderOptions): Pack
   async function build(): Promise<PackBuild> {
     const [program, ...prefix] = options.python;
     const env = await options.env();
-    const run = await new Promise<{ code: number | null; stdout: string; stderr: string }>(
-      (resolve) => {
-        const child = spawn(program, [...prefix, '-c', COMPILE_SCRIPT, options.packDir], {
-          env,
-          stdio: ['ignore', 'pipe', 'pipe'],
-        });
-        let stdout = '';
-        let stderr = '';
-        child.stdout.on('data', (chunk: Buffer) => {
-          stdout += chunk.toString('utf8');
-        });
-        child.stderr.on('data', (chunk: Buffer) => {
-          stderr += chunk.toString('utf8');
-        });
-        child.once('error', (cause) => resolve({ code: null, stdout, stderr: cause.message }));
-        child.once('close', (code) => resolve({ code, stdout, stderr }));
-      },
+    // The pack's Python on its env's PATH, never one in the pack's folder.
+    const run = await programPath(program, env).then(
+      (file) =>
+        new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
+          const child = spawn(file, [...prefix, '-c', COMPILE_SCRIPT, options.packDir], {
+            env,
+            stdio: ['ignore', 'pipe', 'pipe'],
+          });
+          let stdout = '';
+          let stderr = '';
+          child.stdout.on('data', (chunk: Buffer) => {
+            stdout += chunk.toString('utf8');
+          });
+          child.stderr.on('data', (chunk: Buffer) => {
+            stderr += chunk.toString('utf8');
+          });
+          child.once('error', (cause) => resolve({ code: null, stdout, stderr: cause.message }));
+          child.once('close', (code) => resolve({ code, stdout, stderr }));
+        }),
+      (cause: Error) => ({ code: null, stdout: '', stderr: cause.message }),
     );
     let errors: { file: string; line: number; col: number; message: string }[];
     try {

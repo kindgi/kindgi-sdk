@@ -103,7 +103,7 @@ const DOCKER_SOCKET = '/var/run/docker.sock';
 /** Written from inside on Linux: the root is bound read-only. */
 const SYSTEM_FILE = '/usr/kindgi-dev-sandbox-probe';
 
-const availability = await REAL_DEV_RUNNERS.detectSandbox();
+const availability = await REAL_DEV_RUNNERS.detectSandbox(process.env);
 const engine = availability.kind === 'available' ? availability.engine : undefined;
 // CI installs bubblewrap and sets this: there the test fails rather than skips.
 const required = process.env.KINDGI_DEV_SANDBOX_LIVE === 'required';

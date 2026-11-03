@@ -63,7 +63,7 @@ describe('the render budget', () => {
     expect(error.retryAfterMs).toBeGreaterThan(0);
     expect(error.retryAfterMs).toBeLessThanOrEqual(60_000);
     expect(error.message).toMatch(
-      /^Templates rendered for this tenant took its budget of 0\.001 ms in the last 60 seconds: try again in \d+ s\.$/,
+      /^Templates rendered for this workspace took its budget of 0\.001 ms in the last 60 seconds: try again in \d+ s\.$/,
     );
   });
 

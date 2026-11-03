@@ -2,11 +2,10 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * T262: a list page carries its list once. `items`, the deprecated name
- * for `data`, still reads the list, but it isn't an own enumerable
- * property, so `JSON.stringify` (and the CLI's JSON output) and a spread
- * show `data` alone. Before, `items` was a plain copy and every page
- * printed its list twice.
+ * A list page carries its list once, as `data`, beside `hasMore` and
+ * `nextCursor`. `items`, the name the client used first, is gone: a page
+ * has no such property, so `JSON.stringify` (and the CLI's JSON output)
+ * and a spread show the list once.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -29,10 +28,10 @@ describe('listPage', () => {
     expect({ ...page }).not.toHaveProperty('items');
   });
 
-  it('still reads items, as the same list as data', () => {
+  it('has no items: data is the list', () => {
     const page = listPage({ data: ROWS, hasMore: false });
-    expect(page.items).toBe(page.data);
-    expect(page.items.map((r) => r.id)).toEqual(['a', 'b']);
+    expect('items' in page).toBe(false);
+    expect(page.data.map((r) => r.id)).toEqual(['a', 'b']);
   });
 
   it('a list call answers such a page', async () => {
@@ -44,6 +43,7 @@ describe('listPage', () => {
     });
     const page = await client.flows.list();
     expect(JSON.stringify(page)).not.toContain('"items"');
-    expect(page.items[0]?.id).toBe('acme.intake');
+    expect('items' in page).toBe(false);
+    expect(page.data[0]?.id).toBe('acme.intake');
   });
 });

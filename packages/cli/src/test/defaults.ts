@@ -13,6 +13,7 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { programPath } from '../program-path.js';
 import {
   type RunTestsOptions,
   type RunTestsResult,
@@ -43,13 +44,28 @@ async function spawnRunner(opts: RunTestsOptions): Promise<RunTestsResult> {
   const args = usePnpm
     ? ['exec', 'vitest', ...opts.args]
     : ['--no-install', 'vitest', ...opts.args];
+  const env = { ...process.env, ...opts.env } as NodeJS.ProcessEnv;
+  // The runner on PATH, never one in the pack's folder. Its miss reads as
+  // the spawn's own error below would.
+  let file: string;
+  try {
+    file = await programPath(binary, env);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return {
+      spawned: false,
+      exitCode: 1,
+      reason: code === 'ENOENT' ? 'runner-binary-not-found' : 'runner-spawn-error',
+      resolvedBinary: binary,
+    };
+  }
 
   return new Promise<RunTestsResult>((resolvePromise) => {
     let child: ChildProcess;
     try {
-      child = spawn(binary, args, {
+      child = spawn(file, args, {
         cwd: opts.packDir,
-        env: { ...process.env, ...opts.env } as NodeJS.ProcessEnv,
+        env,
         stdio: ['inherit', 'pipe', 'pipe'],
         ...(opts.signal !== undefined && { signal: opts.signal }),
       });

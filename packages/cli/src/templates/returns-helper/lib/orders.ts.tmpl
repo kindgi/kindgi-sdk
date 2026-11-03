@@ -1,0 +1,47 @@
+// The sample orders the returns helper's tools read and refund. They live in
+// memory, dated from today, so the pack runs under `kindgi dev` with no store
+// behind it; a real pack reads its store here instead.
+
+export interface SampleOrder {
+  readonly id: string;
+  readonly item: string;
+  readonly total: number;
+  readonly currency: string;
+  /** ISO time it was delivered; absent while it's on its way. */
+  readonly deliveredAt?: string;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function daysAgo(days: number, now: Date): string {
+  return new Date(now.getTime() - days * DAY_MS).toISOString();
+}
+
+/** The orders, dated from `now`: try A-1002 for a correction about the return window. */
+export function sampleOrders(now: Date = new Date()): readonly SampleOrder[] {
+  return [
+    { id: 'A-1001', item: 'Rain jacket', total: 40, currency: 'EUR', deliveredAt: daysAgo(5, now) },
+    {
+      id: 'A-1002',
+      item: 'Trail shoes',
+      total: 60,
+      currency: 'EUR',
+      deliveredAt: daysAgo(20, now),
+    },
+    { id: 'A-1003', item: 'Tent', total: 250, currency: 'EUR', deliveredAt: daysAgo(3, now) },
+    { id: 'A-1004', item: 'Camping stove', total: 35, currency: 'EUR' },
+  ];
+}
+
+export function findOrder(id: string, now: Date = new Date()): SampleOrder | undefined {
+  return sampleOrders(now).find((o) => o.id === id.trim().toUpperCase());
+}
+
+/** Whole days since it was delivered, or `undefined` while it's on its way. */
+export function daysSinceDelivery(order: SampleOrder, now: Date = new Date()): number | undefined {
+  if (order.deliveredAt === undefined) return undefined;
+  return Math.floor((now.getTime() - Date.parse(order.deliveredAt)) / DAY_MS);
+}
+
+/** What each order has been refunded so far, while the pack runs. */
+export const refunded = new Map<string, number>();

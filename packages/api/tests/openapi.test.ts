@@ -9,6 +9,11 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import { OPERATIONS, generateOpenApiDocument, honoToOpenapiPath } from '../src/index.js';
+import {
+  READS_WITHOUT_STORAGE,
+  answersDatabaseBusy,
+  answersIdempotencyStoreUnavailable,
+} from '../src/openapi/operations.js';
 import { RunEventSchema } from '../src/openapi/schemas.js';
 
 import { fullAppInput, noopResolveToken, noopRunHandler } from './support/full-app.js';
@@ -104,6 +109,111 @@ describe('OpenAPI — generated document', () => {
     }
   });
 
+  test('every served read declares the 503 the database answers when busy', () => {
+    const doc = generateOpenApiDocument() as {
+      paths: Record<
+        string,
+        Record<string, { responses: Record<string, { description?: string }> }>
+      >;
+    };
+    const reads = OPERATIONS.filter((o) => o.unserved === undefined && answersDatabaseBusy(o));
+    // Guard against a filter that selects nothing (which would pass vacuously):
+    // there are well over a hundred served reads.
+    expect(reads.length).toBeGreaterThan(100);
+    for (const op of reads) {
+      const method = doc.paths[op.openapiPath]?.[op.method];
+      expect(method, `${op.method} ${op.openapiPath} missing`).toBeTruthy();
+      const response = method?.responses['503'];
+      expect(
+        response,
+        `${op.operationId} (${op.method} ${op.openapiPath}) must declare a 503 (database-busy)`,
+      ).toBeDefined();
+      // The 503 must name the busy answer, so a read that keeps its own 503
+      // can't quietly drop it (`identity.me.permissions` names both causes).
+      expect(response?.description, `${op.operationId} 503 must name database-busy`).toContain(
+        'database-busy',
+      );
+    }
+  });
+
+  test('a read that never reaches storage is left out of the 503', () => {
+    const doc = generateOpenApiDocument() as {
+      paths: Record<string, Record<string, { responses: Record<string, unknown> }>>;
+    };
+    expect(READS_WITHOUT_STORAGE.size).toBeGreaterThan(0);
+    for (const id of READS_WITHOUT_STORAGE) {
+      const op = OPERATIONS.find((o) => o.operationId === id);
+      expect(op, `no operation ${id}`).toBeTruthy();
+      const method = op === undefined ? undefined : doc.paths[op.openapiPath]?.[op.method];
+      expect(method, `${id} missing`).toBeTruthy();
+      expect(
+        (method as { responses: Record<string, unknown> }).responses['503'],
+        `${id} never reaches storage, so it declares no 503`,
+      ).toBeUndefined();
+    }
+  });
+
+  test('a read with its own 503 keeps it, not the shared database-busy one', () => {
+    const doc = generateOpenApiDocument() as {
+      paths: Record<string, Record<string, { responses: Record<string, { description: string }> }>>;
+    };
+    // `identity.me.permissions` declares its own 503 (`authz-backend-unavailable`,
+    // widened to name `database-busy` too); the generator keeps it rather than
+    // replacing it with the shared response.
+    const method = doc.paths['/v1/identity/me/permissions']?.get;
+    expect(method, 'identity.me.permissions missing').toBeTruthy();
+    expect(method?.responses['503']?.description).toContain('authz-backend-unavailable');
+  });
+
+  test('every served write that takes an Idempotency-Key declares the 503 its key store answers', () => {
+    const doc = generateOpenApiDocument() as {
+      paths: Record<
+        string,
+        Record<string, { responses: Record<string, { description?: string }> }>
+      >;
+    };
+    const writes = OPERATIONS.filter(
+      (o) => o.unserved === undefined && answersIdempotencyStoreUnavailable(o),
+    );
+    // Guard against a filter that selects nothing (which would pass vacuously):
+    // well over a hundred writes take the key.
+    expect(writes.length).toBeGreaterThan(100);
+    for (const op of writes) {
+      const response = doc.paths[op.openapiPath]?.[op.method]?.responses['503'];
+      expect(
+        response,
+        `${op.operationId} (${op.method} ${op.openapiPath}) must declare a 503 (idempotency-store-unavailable)`,
+      ).toBeDefined();
+      // A write that keeps its own 503 must name this one too.
+      expect(
+        response?.description,
+        `${op.operationId} 503 must name idempotency-store-unavailable`,
+      ).toContain('idempotency-store-unavailable');
+    }
+  });
+
+  test('an operation without the key never declares it: reads, and writes that take no key', () => {
+    const doc = generateOpenApiDocument() as {
+      paths: Record<
+        string,
+        Record<string, { responses: Record<string, { description?: string }> }>
+      >;
+    };
+    const others = OPERATIONS.filter(
+      (o) => o.unserved === undefined && !answersIdempotencyStoreUnavailable(o),
+    );
+    // Both kinds are there, so neither half passes vacuously.
+    expect(others.some((o) => o.method === 'get')).toBe(true);
+    expect(others.some((o) => o.method === 'post')).toBe(true);
+    for (const op of others) {
+      const response = doc.paths[op.openapiPath]?.[op.method]?.responses['503'];
+      expect(
+        response?.description ?? '',
+        `${op.operationId} takes no Idempotency-Key`,
+      ).not.toContain('idempotency-store-unavailable');
+    }
+  });
+
   test("what the runtime doesn't serve is left out, with the schemas only it uses", () => {
     const doc = generateOpenApiDocument() as {
       paths: Record<string, Record<string, unknown>>;
@@ -112,7 +222,17 @@ describe('OpenAPI — generated document', () => {
     };
     const unserved = OPERATIONS.filter((o) => o.unserved !== undefined);
     expect(unserved.map((o) => o.operationId).sort()).toEqual(
-      ['register', 'list', 'get', 'update', 'pause', 'resume', 'unregister']
+      [
+        'register',
+        'list',
+        'get',
+        'update',
+        'pause',
+        'resume',
+        'unregister',
+        'listVersions',
+        'getVersion',
+      ]
         .map((verb) => `eventTriggers.${verb}`)
         .sort(),
     );
@@ -152,6 +272,31 @@ describe('OpenAPI — generated document', () => {
     for (const ref of refs) {
       const name = ref.replace('#/components/schemas/', '');
       expect(known.has(name), `dangling $ref: ${ref}`).toBe(true);
+    }
+  });
+
+  // Without a `mapping`, a generator may take each member's schema name as
+  // its tag (openapi-typescript types `kind` as "ImproveRunOutcomeSuggested").
+  // A mapping that leaves a member out is no better: openapi-typescript keeps
+  // that member's schema name, and typed-openapi's zod output drops it.
+  test("every discriminated union maps each member's tag to that member", () => {
+    const doc = generateOpenApiDocument() as {
+      components: { schemas: Record<string, SchemaNode> };
+    };
+    const unions: DiscriminatedUnion[] = [];
+    collectDiscriminatedUnions(doc, '#', unions);
+    // The walk finds named unions, and ones inlined in a property.
+    expect(unions.map((u) => u.where)).toEqual(
+      expect.arrayContaining([
+        '#/components/schemas/ImproveRunOutcome',
+        '#/components/schemas/CreateServiceAccountBody/properties/grants/items',
+      ]),
+    );
+    for (const { where, union } of unions) {
+      expect(
+        union.discriminator.mapping,
+        `${where}: no mapping, or not each member's tag to that member`,
+      ).toEqual(mappingFromTags(where, union, doc.components.schemas));
     }
   });
 });
@@ -200,4 +345,69 @@ function collectRefs(node: unknown, out: string[]): void {
     if (key === '$ref' && typeof value === 'string') out.push(value);
     else collectRefs(value, out);
   }
+}
+
+interface SchemaNode {
+  readonly $ref?: string;
+  readonly oneOf?: readonly SchemaNode[];
+  readonly discriminator?: {
+    readonly propertyName: string;
+    readonly mapping?: Record<string, string>;
+  };
+  readonly properties?: Record<string, { readonly const?: unknown; readonly enum?: unknown[] }>;
+  readonly required?: readonly string[];
+}
+
+interface DiscriminatedSchema extends SchemaNode {
+  readonly discriminator: NonNullable<SchemaNode['discriminator']>;
+}
+
+interface DiscriminatedUnion {
+  readonly where: string;
+  readonly union: DiscriminatedSchema;
+}
+
+function collectDiscriminatedUnions(node: unknown, where: string, out: DiscriminatedUnion[]): void {
+  if (node === null || typeof node !== 'object') return;
+  if (Array.isArray(node)) {
+    for (const [i, item] of node.entries()) collectDiscriminatedUnions(item, `${where}/${i}`, out);
+    return;
+  }
+  const schema = node as SchemaNode;
+  if (typeof schema.discriminator?.propertyName === 'string') {
+    out.push({ where, union: schema as DiscriminatedSchema });
+  }
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    collectDiscriminatedUnions(value, `${where}/${key}`, out);
+  }
+}
+
+// The mapping a union should declare: each `oneOf` member, named once by
+// `$ref`, under the one value its required tag property takes.
+function mappingFromTags(
+  where: string,
+  union: DiscriminatedSchema,
+  schemas: Record<string, SchemaNode>,
+): Record<string, string> {
+  const { propertyName } = union.discriminator;
+  const refs = (union.oneOf ?? []).map((member) => member.$ref ?? '');
+  expect(refs.length, `${where}: no oneOf members`).toBeGreaterThan(0);
+  expect(new Set(refs).size, `${where}: a member named twice`).toBe(refs.length);
+  const mapping: Record<string, string> = {};
+  for (const ref of refs) {
+    expect(ref, `${where}: a member that isn't a $ref`).toMatch(/^#\/components\/schemas\//);
+    const member = schemas[ref.replace('#/components/schemas/', '')];
+    expect(member?.required ?? [], `${where}: ${ref} doesn't require ${propertyName}`).toContain(
+      propertyName,
+    );
+    const tag = member?.properties?.[propertyName];
+    const raw = tag?.const ?? (tag?.enum?.length === 1 ? tag.enum[0] : undefined);
+    expect(typeof raw, `${where}: ${ref} has no single ${propertyName} string`).toBe('string');
+    const value = String(raw);
+    expect(Object.keys(mapping), `${where}: two members share the tag ${value}`).not.toContain(
+      value,
+    );
+    mapping[value] = ref;
+  }
+  return mapping;
 }

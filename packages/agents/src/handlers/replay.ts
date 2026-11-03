@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Replay turns: an eval run re-running a past run (`InvokeAgentInput.replay`)
+ * Replay turns: a test run re-running a past run (`InvokeAgentInput.replay`)
  * on an agent version, without doing anything the past run didn't already
  * do. Each tool call is decided by the deployment's `ReplayBinding`:
  *
@@ -15,7 +15,8 @@
  *     effect): its result is computed again from the same arguments, so
  *     the replay hasn't diverged from the past run. A tool that does read
  *     from somewhere runs as `live`;
- *   - `recorded`: the past run's result for the same call is used;
+ *   - `recorded`: the past run's result for the same call is used, as
+ *     outside data when the past run kept it so (`fromEvent`);
  *   - `refused`: the tool doesn't run, and the model gets the given result.
  *
  * A turn marked as a replay with no binding refuses every call. Each
@@ -72,7 +73,19 @@ export type ReplayToolDecision =
       readonly env?: Readonly<Record<string, string>>;
     }
   | { readonly kind: 'recomputed' }
-  | { readonly kind: 'recorded'; readonly result: unknown }
+  | {
+      readonly kind: 'recorded';
+      readonly result: unknown;
+      /**
+       * The past run kept the result as outside data (its tool message's
+       * `fromEvent`): another system's answer to a paused call, or a result
+       * its tool says is outside data. The replay stores it marked, and the
+       * model reads it as data, as in the past run. Absent: it's outside
+       * data only when the replayed tool says its results are
+       * (`Tool.resultIsOutsideData`).
+       */
+      readonly fromEvent?: true;
+    }
   | { readonly kind: 'refused'; readonly result: unknown; readonly reason: string };
 
 /** An approval decision the past run recorded. */
@@ -107,7 +120,7 @@ export interface ReplayBinding {
   sessionApproval?(input: ReplayTurnRef): Promise<ReplayApproval | undefined>;
   /**
    * Block content the replay runs instead of the agent version's pinned
-   * content (a comparison's `overrides`: an improvement pass's search):
+   * content (a comparison's `overrides`: an Improve run's search):
    * settings values and prompt templates, by block id. The same for every
    * turn of a replay, on resume too. `undefined` (or absent): the pinned
    * content.
@@ -191,6 +204,33 @@ export function isReadOnlyTool(tool: {
   );
 }
 
+/**
+ * Why a tool can't take a set of connections that each call names one of
+ * (`accounts`): `changes` when it isn't read-only (`isReadOnlyTool`),
+ * `sensitive-data-egress` when it declares it may send what it reads
+ * elsewhere, which a read-only tool may, and `accounts-input` when its own
+ * input has an `accounts`. `undefined` when it may.
+ */
+export function connectionSetRefusal(tool: {
+  readonly mutating?: boolean;
+  readonly effects?: readonly { readonly kind: string }[] | readonly string[];
+  readonly input?: unknown;
+}): 'changes' | 'sensitive-data-egress' | 'accounts-input' | undefined {
+  if (!isReadOnlyTool(tool)) return 'changes';
+  const egress = (tool.effects ?? []).some(
+    (e) => (typeof e === 'string' ? e : e.kind) === 'sensitive-data-egress',
+  );
+  if (egress) return 'sensitive-data-egress';
+  const properties =
+    typeof tool.input === 'object' && tool.input !== null
+      ? (tool.input as { readonly properties?: unknown }).properties
+      : undefined;
+  if (typeof properties === 'object' && properties !== null && 'accounts' in properties) {
+    return 'accounts-input';
+  }
+  return undefined;
+}
+
 /** What the model gets for a call a replay refuses because nothing decided it. */
 const NO_BINDING_REASON = 'replay: no replay binding is wired, so no tool runs';
 const CHANGES_REASON = 'replay: this call changes things and has no recorded result';
@@ -200,9 +240,14 @@ function refusedResult(reason: string): Readonly<Record<string, unknown>> {
   return { status: 'not-executed', reason };
 }
 
-/** The journaled decision of one call: its trace entry, the result the model got, and a live call's env. */
+/**
+ * The journaled decision of one call: its trace entry, the result the
+ * model got (with a recorded one's outside-data mark), and a live call's
+ * env.
+ */
 interface RecordedDecision extends ReplayToolTrace {
   readonly result?: unknown;
+  readonly fromEvent?: true;
   readonly env?: Readonly<Record<string, string>>;
 }
 
@@ -258,9 +303,7 @@ export async function decideReplayTool(
         callId: call.callId,
         gated: call.gated,
       });
-      if (decision.kind === 'recorded') {
-        return { ...base, source: 'recorded', result: decision.result };
-      }
+      if (decision.kind === 'recorded') return recordedDecision(base, decision);
       if (decision.kind === 'refused') {
         return { ...base, source: 'refused', reason: decision.reason, result: decision.result };
       }
@@ -282,13 +325,32 @@ export async function decideReplayTool(
     if (decided.recomputed === true) return { kind: 'recomputed' };
     return { kind: 'live', ...(decided.env !== undefined && { env: decided.env }) };
   }
-  if (decided.source === 'recorded') return { kind: 'recorded', result: decided.result };
+  if (decided.source === 'recorded') {
+    return {
+      kind: 'recorded',
+      result: decided.result,
+      ...(decided.fromEvent === true && { fromEvent: true as const }),
+    };
+  }
   return { kind: 'refused', result: decided.result, reason: decided.reason ?? CHANGES_REASON };
 }
 
-/** A journaled decision's trace entry (without the result or the env values). */
+/** A `recorded` decision as journaled: the past run's result, with its outside-data mark. */
+function recordedDecision(
+  base: Omit<ReplayToolTrace, 'source'>,
+  decision: Extract<ReplayToolDecision, { readonly kind: 'recorded' }>,
+): RecordedDecision {
+  return {
+    ...base,
+    source: 'recorded',
+    result: decision.result,
+    ...(decision.fromEvent === true && { fromEvent: true as const }),
+  };
+}
+
+/** A journaled decision's trace entry (without the result, its mark or the env values). */
 function traceOf(decided: RecordedDecision): ReplayToolTrace {
-  const { result: _result, env: _env, ...trace } = decided;
+  const { result: _result, fromEvent: _fromEvent, env: _env, ...trace } = decided;
   return trace;
 }
 
@@ -371,7 +433,7 @@ export function replayReport(ctx: TurnContext): ReplayTurnReport | undefined {
   if (replay === undefined) return undefined;
   return {
     of: replay.of,
-    evalRunId: replay.evalRunId,
+    testRunId: replay.testRunId,
     tools: [...(ctx.replayTrace ?? [])].sort((a, b) => a.step - b.step),
     ...(ctx.replayApproval !== undefined && { approval: ctx.replayApproval }),
   };
@@ -380,7 +442,7 @@ export function replayReport(ctx: TurnContext): ReplayTurnReport | undefined {
 /** A replay's tag on its usage records (`ModelUsageRecord.replay`). */
 export function replayTag(replay: RunReplayRef): {
   readonly of: string;
-  readonly evalRunId: string;
+  readonly testRunId: string;
 } {
-  return { of: replay.of as unknown as string, evalRunId: replay.evalRunId };
+  return { of: replay.of as unknown as string, testRunId: replay.testRunId };
 }

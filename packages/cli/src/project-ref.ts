@@ -156,7 +156,7 @@ function idOf(rows: readonly ProjectRow[], ref: string, where: string): string {
       return resolved.id;
     case 'none':
       throw new UsageError(
-        `No project of this tenant has the slug "${ref}". \`kindgi projects list\` shows them; pass a project id instead.`,
+        `No project of this workspace has the slug "${ref}". \`kindgi projects list\` shows them; pass a project id instead.`,
       );
     case 'renamed':
       throw new UsageError(renamedRefusal(ref, resolved.project, where));

@@ -31,6 +31,7 @@ import { existsSync, lstatSync, readFileSync, readlinkSync, realpathSync } from 
 import { readFile } from 'node:fs/promises';
 import { delimiter, dirname, isAbsolute, join, parse, resolve, sep } from 'node:path';
 
+import { findOnPath, programPath } from '../../program-path.js';
 import { type PackCode, isJvmPackCode, javaArgsFile } from '../pack-code.js';
 import type { DevSandboxSettings } from './settings.js';
 
@@ -254,7 +255,7 @@ async function runtimeRoots(opts: SandboxPolicyOptions): Promise<{
     };
   }
   if (isJvmPackCode(code)) {
-    const jdk = jdkRoot(code.javaHome, code.java, opts.env.PATH);
+    const jdk = await jdkRoot(code.javaHome, code.java, opts.env);
     const classpath = await classpathEntries(javaArgsFile(code));
     return {
       roots: [jdk, ...classpath],
@@ -332,15 +333,18 @@ function nodeRoots(
   };
 }
 
-/** The JDK's home: `javaHome`, else the `java` on `PATH`'s, two folders up from its real path. */
-function jdkRoot(javaHome: string | undefined, java: string, path: string | undefined): string {
+/**
+ * The JDK's home: `javaHome`, else the `java` on `env`'s PATH's
+ * (`findOnPath`, so never one in the pack's folder), two folders up from
+ * its real path.
+ */
+async function jdkRoot(
+  javaHome: string | undefined,
+  java: string,
+  env: Readonly<Record<string, string>>,
+): Promise<string> {
   if (javaHome !== undefined) return real(javaHome);
-  const binary = isAbsolute(java)
-    ? java
-    : (path ?? '')
-        .split(delimiter)
-        .map((d) => join(d, java))
-        .find((p) => existsSync(p));
+  const binary = isAbsolute(java) ? java : await findOnPath(java, env);
   return binary === undefined ? '' : dirname(dirname(real(binary)));
 }
 
@@ -359,16 +363,24 @@ export async function classpathEntries(argsFile: string): Promise<string[]> {
 const PYTHON_PATHS =
   'import json, sys; print(json.dumps({"path": sys.path, "prefix": sys.prefix, "base": sys.base_prefix, "exe": sys.executable}))';
 
-/** Ask the pack's interpreter where it reads from. */
-export function queryPythonReal(
+/** Ask the pack's interpreter, the one on `env`'s PATH (`programPath`), where it reads from. */
+export async function queryPythonReal(
   python: readonly string[],
   cwd: string,
   env: Readonly<Record<string, string>>,
 ): Promise<PythonPaths> {
   const [program, ...args] = python;
+  let file: string;
+  try {
+    file = await programPath(program ?? 'python3', env);
+  } catch (err) {
+    throw new Error(
+      `could not ask the pack's Python where it reads from: ${(err as Error).message}`,
+    );
+  }
   return new Promise((resolvePaths, reject) => {
     execFile(
-      program ?? 'python3',
+      file,
       [...args, '-c', PYTHON_PATHS],
       { cwd, env, timeout: 30_000, maxBuffer: 1024 * 1024 },
       (err, stdout) => {

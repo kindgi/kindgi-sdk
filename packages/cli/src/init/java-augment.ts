@@ -21,7 +21,7 @@ import { chmod, copyFile, readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { PACK_ID_REGEX } from '../commands/init.js';
-import { syncSkills } from '../commands/skills.js';
+import { skillCopyPaths, syncSkills } from '../commands/skills.js';
 import type { CommandResult } from '../commands/types.js';
 import { type OutputFormat, renderJson } from '../output.js';
 import { binDisplay } from '../package-manager.js';
@@ -159,9 +159,11 @@ export async function runInitJavaAugment(inputs: RunInitJavaAugmentInputs): Prom
       dryRun: false,
     });
     for (const o of report.outcomes) {
-      const target = join(inputs.targetDir, o.folder, o.name, 'SKILL.md');
-      if (o.status === 'added' || o.status === 'updated') created.push(target);
-      else if (o.status !== 'local-only') skipped.push(target);
+      if (o.status === 'added' || o.status === 'updated') {
+        created.push(...skillCopyPaths(inputs.targetDir, o, 'written'));
+      } else if (o.status !== 'local-only') {
+        skipped.push(...skillCopyPaths(inputs.targetDir, o, 'files'));
+      }
     }
   }
   const gitignorePath = join(inputs.targetDir, '.gitignore');

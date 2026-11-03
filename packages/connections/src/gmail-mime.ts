@@ -138,14 +138,30 @@ export function gmailBody(payload: GmailPart): {
   readonly text: string;
   readonly attachments: readonly MailAttachment[];
 } {
-  const attachments: MailAttachment[] = [];
-  const invites = new Set<MailAttachment>();
-  collectAttachments(payload, attachments, invites);
-  const fileToo = attachments.some((a) => !invites.has(a) && CALENDAR_FILES.has(a.contentType));
   return {
     text: textOf(payload)?.text ?? '',
-    attachments: fileToo ? attachments.filter((a) => !invites.has(a)) : attachments,
+    attachments: gmailAttachments(payload).map((entry) => entry.attachment),
   };
+}
+
+/** A listed attachment, and the part that holds its bytes, which a message's read leaves out. */
+export interface GmailAttachmentEntry {
+  readonly attachment: MailAttachment;
+  readonly part: GmailPart;
+}
+
+/**
+ * The message's attachments as {@link gmailBody} lists them, in its order,
+ * each with its part: the one list a read and the attachment tool share.
+ */
+export function gmailAttachments(payload: GmailPart): readonly GmailAttachmentEntry[] {
+  const entries: GmailAttachmentEntry[] = [];
+  const invites = new Set<GmailAttachmentEntry>();
+  collectAttachments(payload, entries, invites);
+  const fileToo = entries.some(
+    (e) => !invites.has(e) && CALENDAR_FILES.has(e.attachment.contentType),
+  );
+  return fileToo ? entries.filter((e) => !invites.has(e)) : entries;
 }
 
 /** The body in another form, beside the plain and HTML choices. */
@@ -202,8 +218,8 @@ function textOf(part: GmailPart): PartText | undefined {
  */
 function collectAttachments(
   part: GmailPart,
-  into: MailAttachment[],
-  invites: Set<MailAttachment>,
+  into: GmailAttachmentEntry[],
+  invites: Set<GmailAttachmentEntry>,
   parent = '',
 ): void {
   const type = mimeTypeOf(part);
@@ -211,9 +227,9 @@ function collectAttachments(
   if (choice && BODY_FORMS.has(type)) return;
   if (isAttachment(part)) {
     const name = decodeEncodedWords(part.filename ?? '').trim();
-    const attachment = attachmentOf(part, name, parent === 'multipart/related');
-    into.push(attachment);
-    if (choice && type === 'text/calendar' && name === '') invites.add(attachment);
+    const entry = { attachment: attachmentOf(part, name, parent === 'multipart/related'), part };
+    into.push(entry);
+    if (choice && type === 'text/calendar' && name === '') invites.add(entry);
     return;
   }
   for (const child of part.parts ?? []) collectAttachments(child, into, invites, type);

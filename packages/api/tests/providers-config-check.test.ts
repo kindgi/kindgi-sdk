@@ -73,6 +73,35 @@ const unchecked: AdapterFactoryEntry = {
   capabilityKind: 'llm-inference',
   factory: checked.factory,
 };
+/**
+ * One that declares its keys: `region` and `project`, with `thinkingLevels`
+ * moved. Its own check refuses a bare `extra` (as openai-compat's refuses a
+ * bare `extraBody`), which it doesn't declare either.
+ */
+const DECLARED = '@acme/adapter-with-keys';
+const declared: AdapterFactoryEntry = {
+  adapterId: DECLARED,
+  capabilityKind: 'llm-inference',
+  factory: checked.factory,
+  checkConfig: (input) => [
+    ...(input.config?.region === 'moon'
+      ? [{ path: '/adapter_config/region', message: 'adapter_config.region "moon" isn\'t one.' }]
+      : []),
+    ...(input.config?.extra !== undefined
+      ? [{ path: '/adapter_config/extra', message: 'adapter_config.extra goes in extra.<field>.' }]
+      : []),
+  ],
+  configKeys: ['region', 'project'],
+  movedConfigKeys: { thinkingLevels: 'metadata.models[].thinking.default' },
+};
+/** Declared keys and no check of its own. */
+const KEYS_ONLY = '@acme/adapter-keys-only';
+const keysOnly: AdapterFactoryEntry = {
+  adapterId: KEYS_ONLY,
+  capabilityKind: 'llm-inference',
+  factory: checked.factory,
+  configKeys: ['baseURL'],
+};
 
 function metadata(id: string): ProviderMetadata {
   return {
@@ -132,6 +161,8 @@ function makeApp(withFactories: boolean) {
   const factories = createAdapterFactoryRegistry();
   factories.register(checked);
   factories.register(unchecked);
+  factories.register(declared);
+  factories.register(keysOnly);
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
@@ -284,6 +315,72 @@ describe('POST /v1/providers checks the registration with its adapter', () => {
   });
 });
 
+describe("POST /v1/providers refuses an adapter_config key its adapter doesn't take", () => {
+  test('an unknown key is 422 provider-config-invalid, naming it and the keys the adapter takes', async () => {
+    const { app, registry } = makeApp(true);
+    const res = await register(app, {
+      metadata: metadata('acme'),
+      adapter_id: DECLARED,
+      adapter_config: { region: 'eu', projct: 'acme-project' },
+    });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as {
+      error: { code: string; message: string; details: { issues: unknown[] } };
+    };
+    expect(body.error.code).toBe('provider-config-invalid');
+    expect(body.error.message).toBe(
+      `Provider "acme" doesn't fit adapter ${DECLARED}: adapter_config.projct isn't a setting of this adapter: it takes region, project.`,
+    );
+    expect(body.error.details.issues).toEqual([
+      {
+        path: '/adapter_config/projct',
+        message: "adapter_config.projct isn't a setting of this adapter: it takes region, project.",
+      },
+    ]);
+    expect(JSON.stringify(body)).not.toContain('acme-project');
+    expect(registry.stored.size).toBe(0);
+  });
+
+  test("a moved key names where its setting goes, beside the adapter's own problems", async () => {
+    const { app } = makeApp(true);
+    const res = await register(app, {
+      metadata: metadata('acme'),
+      adapter_id: DECLARED,
+      adapter_config: { region: 'moon', thinkingLevels: '{"acme-model":"low"}' },
+    });
+    expect(res.status).toBe(422);
+    expect(
+      ((await res.json()) as { error: { details: { issues: unknown[] } } }).error.details.issues,
+    ).toEqual([
+      { path: '/adapter_config/region', message: 'adapter_config.region "moon" isn\'t one.' },
+      {
+        path: '/adapter_config/thinkingLevels',
+        message:
+          "adapter_config.thinkingLevels isn't read here: its setting is metadata.models[].thinking.default.",
+      },
+    ]);
+  });
+
+  test('an adapter with declared keys and no check of its own refuses one too; its own keys are stored', async () => {
+    const { app, registry } = makeApp(true);
+    const bad = await register(app, {
+      metadata: metadata('acme'),
+      adapter_id: KEYS_ONLY,
+      adapter_config: { baseUrl: 'https://llm.acme.test' },
+    });
+    expect(bad.status).toBe(422);
+    const good = await register(app, {
+      metadata: metadata('acme'),
+      adapter_id: KEYS_ONLY,
+      adapter_config: { baseURL: 'https://llm.acme.test' },
+    });
+    expect(good.status).toBe(201);
+    expect(registry.stored.get('acme')?.adapterConfig).toEqual({
+      baseURL: 'https://llm.acme.test',
+    });
+  });
+});
+
 describe('GET /v1/providers/{providerId}/check', () => {
   const check = (app: ReturnType<typeof makeApp>['app'], id: string) =>
     app.request(`/v1/providers/${encodeURIComponent(id)}/check`, { headers: auth });
@@ -355,6 +452,71 @@ describe('GET /v1/providers/{providerId}/check', () => {
       providerId: 'plain',
       adapterId: '@acme/adapter-without-check',
       checked: false,
+      issues: [],
+    });
+  });
+
+  test("a stored key the adapter doesn't take is a warning, not an issue: the runtime builds it", async () => {
+    const { app, registry } = makeApp(true);
+    await registry.register({
+      tenantId,
+      metadata: metadata('old'),
+      adapterId: DECLARED,
+      adapterConfig: {
+        region: 'eu',
+        thinkingLevels: '{"acme-model":"low"}',
+        projct: 'acme-project',
+      },
+    });
+    const body = await (await check(app, 'old')).json();
+    expect(body).toEqual({
+      providerId: 'old',
+      adapterId: DECLARED,
+      checked: true,
+      issues: [],
+      warnings: [
+        {
+          path: '/adapter_config/thinkingLevels',
+          message:
+            "adapter_config.thinkingLevels isn't read here: its setting is metadata.models[].thinking.default.",
+        },
+        {
+          path: '/adapter_config/projct',
+          message:
+            "adapter_config.projct isn't a setting of this adapter: it takes region, project.",
+        },
+      ],
+    });
+    expect(JSON.stringify(body)).not.toContain('acme-project');
+  });
+
+  test("an adapter's own problem and an unknown key: one in each list, and a key its check refuses only in issues", async () => {
+    const { app, registry } = makeApp(true);
+    await registry.register({
+      tenantId,
+      metadata: metadata('both'),
+      adapterId: DECLARED,
+      adapterConfig: { region: 'moon', extra: 'x', projct: 'y' },
+    });
+    expect(await (await check(app, 'both')).json()).toMatchObject({
+      checked: true,
+      issues: [{ path: '/adapter_config/region' }, { path: '/adapter_config/extra' }],
+      warnings: [{ path: '/adapter_config/projct' }],
+    });
+  });
+
+  test('declared keys and no check of its own: checked, with no warnings when none', async () => {
+    const { app, registry } = makeApp(true);
+    await registry.register({
+      tenantId,
+      metadata: metadata('keyed-only'),
+      adapterId: KEYS_ONLY,
+      adapterConfig: { baseURL: 'https://llm.acme.test' },
+    });
+    expect(await (await check(app, 'keyed-only')).json()).toEqual({
+      providerId: 'keyed-only',
+      adapterId: KEYS_ONLY,
+      checked: true,
       issues: [],
     });
   });

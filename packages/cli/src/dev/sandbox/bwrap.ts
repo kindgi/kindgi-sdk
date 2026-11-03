@@ -150,20 +150,27 @@ function devOutputBinds(app: string): string[] {
 
 /**
  * Runs bwrap with its arguments and forwards TERM and INT to the
- * sandboxed process (bwrap reports its PID on `--info-fd`).
+ * sandboxed process (bwrap reports its PID on `--info-fd`). It runs
+ * bwrap, mktemp, sed and rm by the paths it's given, in the order of
+ * {@link BWRAP_WRAPPER_PROGRAMS}: the ones in `PATH`'s absolute entries,
+ * never a copy in the folder it runs in.
  *
- *   sh kindgi-dev-sandbox <bwrap args…> -- <command…>
+ *   sh kindgi-dev-sandbox <bwrap> <mktemp> <sed> <rm> <bwrap args…> -- <command…>
  */
 export const BWRAP_WRAPPER = `#!/bin/sh
 # kindgi-dev-sandbox: written by kindgi dev at every start. Do not edit.
 # Runs the pack service in bwrap and forwards TERM and INT to it: bwrap
 # doesn't, and a reload must let the old service drain.
+# Its first four arguments are the bwrap, mktemp, sed and rm it runs,
+# each by its path.
 set -u
-info=$(mktemp "\${TMPDIR:-/tmp}/kindgi-dev-sandbox.XXXXXX")
-bwrap --info-fd 3 "$@" 3>"$info" &
+bwrap=$1 mktemp=$2 sed=$3 rm=$4
+shift 4
+info=$("$mktemp" "\${TMPDIR:-/tmp}/kindgi-dev-sandbox.XXXXXX")
+"$bwrap" --info-fd 3 "$@" 3>"$info" &
 bw=$!
 forward() {
-  child=$(sed -n 's/.*"child-pid": *\\([0-9][0-9]*\\).*/\\1/p' "$info")
+  child=$("$sed" -n 's/.*"child-pid": *\\([0-9][0-9]*\\).*/\\1/p' "$info")
   if [ -n "$child" ]; then kill "-$1" "$child" 2>/dev/null; else kill "-$1" "$bw" 2>/dev/null; fi
 }
 trap 'forward TERM' TERM
@@ -174,6 +181,9 @@ while :; do
   status=$?
   kill -0 "$bw" 2>/dev/null || break
 done
-rm -f "$info"
+"$rm" -f "$info"
 exit "$status"
 `;
+
+/** The programs {@link BWRAP_WRAPPER} runs, in the order it takes their paths. */
+export const BWRAP_WRAPPER_PROGRAMS = ['bwrap', 'mktemp', 'sed', 'rm'] as const;

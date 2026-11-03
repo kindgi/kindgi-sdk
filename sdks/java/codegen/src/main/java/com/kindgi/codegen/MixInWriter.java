@@ -109,7 +109,7 @@ final class MixInWriter {
     if (inTextUnion(r.interfaces)) {
       tb.addAnnotation(readAsItself());
     }
-    MethodSpec.Builder ctor = MethodSpec.constructorBuilder();
+    List<ParameterSpec> known = new ArrayList<>();
     for (Ir.Field f : r.fields) {
       TypeName type = f.triState ? ParameterizedTypeName.get(ModelWriter.OPTIONAL_NULLABLE, f.type) : f.type;
       MethodSpec.Builder accessor =
@@ -125,19 +125,10 @@ final class MixInWriter {
                 .build());
       }
       tb.addMethod(accessor.build());
-      ctor.addParameter(ParameterSpec.builder(type, f.java).addAnnotation(property(f.wire)).build());
+      known.add(ParameterSpec.builder(type, f.java).addAnnotation(property(f.wire)).build());
     }
     if (r.open) {
-      TypeName extras = ParameterizedTypeName.get(ModelPlanner.MAP, ModelPlanner.STRING, r.openValueType);
-      tb.addMethod(
-          MethodSpec.methodBuilder("additionalProperties")
-              .addModifiers(Modifier.ABSTRACT)
-              .returns(extras)
-              .addAnnotation(ModelWriter.JSON_ANY_GETTER)
-              .build());
-      ctor.addParameter(ParameterSpec.builder(extras, "additionalProperties").addAnnotation(ModelWriter.JSON_ANY_SETTER).build());
-      // The unknown properties go in through the constructor: a mix-in constructor names them.
-      tb.addMethod(ctor.build());
+      keepUnknown(tb, r.name, known, "additionalProperties", r.openValueType);
     }
     register.addStatement("module.setMixInAnnotation($T.class, $T.class)", r.name, mixIn);
     return tb.build();
@@ -207,14 +198,13 @@ final class MixInWriter {
   }
 
   private TypeSpec unrecognizedMixIn(Ir.UnionDecl u, String name, MethodSpec.Builder register) {
-    TypeName props = ParameterizedTypeName.get(ModelPlanner.MAP, ModelPlanner.STRING, ModelPlanner.OBJECT);
     TypeSpec.Builder tb = TypeSpec.classBuilder(name).addModifiers(Modifier.ABSTRACT, Modifier.STATIC);
     if (u.kind == Ir.UnionKind.TEXT_OR_OBJECT) {
       tb.addAnnotation(readAsItself());
     }
-    MethodSpec.Builder ctor = MethodSpec.constructorBuilder();
+    List<ParameterSpec> known = new ArrayList<>();
     if (u.objectKind == Ir.UnionKind.TAGGED) {
-      ctor.addParameter(ParameterSpec.builder(ModelPlanner.STRING, u.tagJava).addAnnotation(property(u.tagWire)).build());
+      known.add(ParameterSpec.builder(ModelPlanner.STRING, u.tagJava).addAnnotation(property(u.tagWire)).build());
       tb.addMethod(
           MethodSpec.methodBuilder(u.tagJava)
               .addModifiers(Modifier.ABSTRACT)
@@ -222,16 +212,43 @@ final class MixInWriter {
               .addAnnotation(property(u.tagWire))
               .build());
     }
-    ctor.addParameter(ParameterSpec.builder(props, "properties").addAnnotation(ModelWriter.JSON_ANY_SETTER).build());
-    tb.addMethod(ctor.build());
-    tb.addMethod(
-        MethodSpec.methodBuilder("properties")
-            .addModifiers(Modifier.ABSTRACT)
-            .returns(props)
-            .addAnnotation(ModelWriter.JSON_ANY_GETTER)
-            .build());
+    keepUnknown(tb, u.unrecognized, known, "properties", ModelPlanner.OBJECT);
     register.addStatement("module.setMixInAnnotation($T.class, $T.class)", u.unrecognized, current.nestedClass(name));
     return tb.build();
+  }
+
+  /**
+   * The client's side of {@code ModelWriter.keepUnknown}: the same creator, any-setter and
+   * any-getter, for the client's Jackson, which can't see the record's own annotations.
+   */
+  private static void keepUnknown(TypeSpec.Builder tb, ClassName target, List<ParameterSpec> known, String map, TypeName value) {
+    TypeName mapType = ParameterizedTypeName.get(ModelPlanner.MAP, ModelPlanner.STRING, value);
+    tb.addAnnotation(ModelWriter.noAutoDetect());
+    if (known.isEmpty()) {
+      tb.addMethod(
+          MethodSpec.methodBuilder("read")
+              .addAnnotation(ModelWriter.delegatingCreator())
+              .addModifiers(Modifier.STATIC)
+              .returns(target)
+              .addParameter(mapType, map)
+              .addStatement("return null")
+              .build());
+    } else {
+      tb.addMethod(MethodSpec.constructorBuilder().addAnnotation(ModelWriter.propertiesCreator()).addParameters(known).build());
+      tb.addMethod(
+          MethodSpec.methodBuilder("put")
+              .addModifiers(Modifier.ABSTRACT)
+              .addAnnotation(ModelWriter.JSON_ANY_SETTER)
+              .addParameter(ModelPlanner.STRING, "key")
+              .addParameter(value, "value")
+              .build());
+    }
+    tb.addMethod(
+        MethodSpec.methodBuilder(map)
+            .addModifiers(Modifier.ABSTRACT)
+            .returns(mapType)
+            .addAnnotation(ModelWriter.JSON_ANY_GETTER)
+            .build());
   }
 
   /** The deserializer of a text-or-object union: a string is the text variant, an object the rest. */
