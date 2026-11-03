@@ -176,9 +176,9 @@ invitation read:
 
 ```text
 From: Kindgi <sign-in@acme-live.example>
-Subject: You're invited to Default tenant on Kindgi
+Subject: You're invited to Default workspace on Kindgi
 
-seed-user added you to Default tenant on Kindgi.
+seed-user added you to Default workspace on Kindgi.
 
 Sign in with this email address here:
 
