@@ -62,6 +62,7 @@ function rows(): ItemRow[] {
 const on = (project: ProjectId, ...actions: string[]) =>
   actions.map((a) => `${a} project:${project}` as Grant);
 
+/** Who holds `write` on a project holds `run` there too, as an editor is a runner. */
 const PEOPLE: Record<string, readonly Grant[]> = {
   /** Calls agents and executes flows in prod; not an editor there. */
   prod: on(PROD, 'read', 'call', 'execute'),
@@ -72,9 +73,9 @@ const PEOPLE: Record<string, readonly Grant[]> = {
   /** Calls in both. */
   both: [...on(STAGING, 'read', 'call', 'execute'), ...on(PROD, 'read', 'call', 'execute')],
   /** Today's rights on `acme.desk` and no project's: no longer enough in its projects. */
-  item: [`execute agent:${SERVED}`, `execute flow:${SERVED}`, ...on(PROD, 'write')],
+  item: [`execute agent:${SERVED}`, `execute flow:${SERVED}`, ...on(PROD, 'write', 'run')],
   /** Runs `acme.desk` in a project outside its order, as before: `execute` on it, `write` there. */
-  outside: [`execute agent:${SERVED}`, ...on(OTHER, 'read', 'write')],
+  outside: [`execute agent:${SERVED}`, ...on(OTHER, 'read', 'write', 'run')],
   /** Runs the one-project items, and may not write their project. */
   'solo-caller': [`execute agent:${SOLO}`, `execute flow:${SOLO}`, ...on(OTHER, 'read')],
   /** Runs the one-project items, as today. */
@@ -82,14 +83,14 @@ const PEOPLE: Record<string, readonly Grant[]> = {
     `execute agent:${SOLO}`,
     `execute flow:${SOLO}`,
     ...['read', 'write', 'admin', 'execute'].map((a) => `${a} test_set:${SOLO}` as Grant),
-    ...on(OTHER, 'read', 'write'),
+    ...on(OTHER, 'read', 'write', 'run'),
   ],
   /** Reads and runs evals in prod: execute and call there, write to file its results. */
-  'prod-evals': on(PROD, 'read', 'call', 'execute', 'write'),
+  'prod-evals': on(PROD, 'read', 'call', 'execute', 'write', 'run'),
   /** Runs prod: registers its triggers there, and calls and executes there. */
-  'prod-ops': on(PROD, 'read', 'write', 'call', 'execute'),
+  'prod-ops': on(PROD, 'read', 'write', 'run', 'call', 'execute'),
   /** Writes both projects (an improve schedule in prod makes versions in staging). */
-  'writes-both': [...on(STAGING, 'read', 'write'), ...on(PROD, 'read', 'write')],
+  'writes-both': [...on(STAGING, 'read', 'write', 'run'), ...on(PROD, 'read', 'write', 'run')],
   /** Edits the flow (today's right to register its event triggers) and executes in staging. */
   'event-maker': [`write flow:${SERVED}`, ...on(STAGING, 'read', 'execute')],
   /** Edits the flow, and executes in prod only. */
@@ -105,7 +106,7 @@ const PEOPLE: Record<string, readonly Grant[]> = {
     ...(['agent', 'flow'] as const).flatMap(
       (kind) => [`execute ${kind}:${SERVED}`, `execute ${kind}:${SOLO}`] as Grant[],
     ),
-    ...[STAGING, PROD, OTHER].flatMap((p) => on(p, 'read', 'write', 'call', 'execute')),
+    ...[STAGING, PROD, OTHER].flatMap((p) => on(p, 'read', 'write', 'run', 'call', 'execute')),
   ],
 };
 
@@ -767,14 +768,11 @@ describe('schedules of what an order carries', () => {
   });
   const flow = { flowId: SERVED, flowVersion: '1.0.0' };
 
-  test('a prod member schedules the flow in prod: write there, and execute there for the flow', async () => {
+  test('a prod member schedules the flow in prod, as their own: run there, and execute there for the flow', async () => {
     const { call } = harness();
     const res = await call('prod-ops', 'POST', '/v1/schedules', schedule(flow));
     expect(res.status, res.text).toBe(201);
-    expect(res.asked).toEqual([
-      `prod-ops write project:${PROD}`,
-      `prod-ops execute project:${PROD}`,
-    ]);
+    expect(res.asked).toEqual([`prod-ops run project:${PROD}`, `prod-ops execute project:${PROD}`]);
   });
 
   test("today's execute on the flow doesn't schedule it in its projects", async () => {
@@ -793,7 +791,7 @@ describe('schedules of what an order carries', () => {
       config: { cronExpression: '0 2 * * *', input: { userMessage: 'Summarize the night.' } },
     });
     expect(res.status, res.text).toBe(201);
-    expect(res.asked).toEqual([`prod-ops write project:${PROD}`, `prod-ops call project:${PROD}`]);
+    expect(res.asked).toEqual([`prod-ops run project:${PROD}`, `prod-ops call project:${PROD}`]);
   });
 
   test('an improve schedule in prod is write where the agent gets its new versions', async () => {
@@ -814,7 +812,7 @@ describe('schedules of what an order carries', () => {
     const b = await harness({ served: false }).call('solo', 'POST', '/v1/schedules', body);
     expect(a.status, a.text).toBe(b.status);
     expect(a.asked).toEqual(b.asked);
-    expect(a.asked).toEqual([`solo write project:${OTHER}`, `solo execute flow:${SOLO}`]);
+    expect(a.asked).toEqual([`solo run project:${OTHER}`, `solo execute flow:${SOLO}`]);
   });
 });
 

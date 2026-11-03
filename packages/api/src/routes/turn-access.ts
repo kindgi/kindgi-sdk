@@ -104,15 +104,38 @@ export async function turnRefusal(
 
 /**
  * Whether the caller can't read the conversation: `read` on what it's
- * checked on (`checkedOn`), asked through the authorizer, which records the
- * decision as it records every other. Without an authorizer, everyone can.
+ * checked on (`checkedOn`), or, for one they opened in a project, `run`
+ * there (`ownConversationIn`), asked through the authorizer, which records
+ * each decision as it records every other. Without an authorizer, everyone
+ * can.
  */
 export async function unreadable(
   c: Context<AppEnv>,
   authorizer: Authorizer | undefined,
   conversation: TurnConversation,
 ): Promise<boolean> {
-  return authorizer !== undefined && !(await authorizer.can(c, 'read', checkedOn(conversation)));
+  if (authorizer === undefined || (await authorizer.can(c, 'read', checkedOn(conversation)))) {
+    return false;
+  }
+  const own = ownConversationIn(c, conversation);
+  return own === undefined || !(await authorizer.can(c, 'run', ref('project', own)));
+}
+
+/**
+ * The project of a conversation the caller opened (its `openedBy` is
+ * theirs), where `run` lets them read it though `read` doesn't; else
+ * `undefined`. One from before projects has none: `read` alone.
+ */
+export function ownConversationIn(
+  c: Context<AppEnv>,
+  conversation: Pick<TurnConversation, 'projectId' | 'openedBy'>,
+): string | undefined {
+  const caller = callerRef(c);
+  return caller !== undefined &&
+    conversation.openedBy === caller &&
+    conversation.projectId !== undefined
+    ? conversation.projectId
+    : undefined;
 }
 
 /**

@@ -606,6 +606,7 @@ export function webhooksRouter(
       names,
       owned(found.value),
       'webhook trigger',
+      'write',
     );
     if (notOwners !== undefined) return notOwners;
     const signature = delivery.value.signature ?? found.value.signature;
@@ -780,6 +781,7 @@ export function webhooksRouter(
         names,
         owned(found.value),
         'webhook trigger',
+        'write',
       );
       if (notOwners !== undefined) return notOwners;
       const { tenantId, triggerId } = found.value;
@@ -806,6 +808,7 @@ export function webhooksRouter(
       names,
       owned(found.value),
       'webhook trigger',
+      'write',
     );
     if (notOwners !== undefined) return notOwners;
     const { tenantId, triggerId } = found.value;

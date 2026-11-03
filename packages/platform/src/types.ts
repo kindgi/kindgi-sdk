@@ -152,6 +152,16 @@ export interface Project {
    * gone since: a reader treats that as none.
    */
   readonly repoConnectionId?: string;
+  /**
+   * `true`: every person in the project's workspace may run it, without a
+   * role of their own; service accounts aren't included. That reads only
+   * what running takes (the project, its agents and flows, each person's
+   * own runs). Absent or `false`: only those given a role. A new project has it unless its
+   * creator turns it off; existing projects and workspaces keep it `false`
+   * until a project admin turns it on.
+   * Admin on the project changes it (`ProjectPatch`).
+   */
+  readonly everyoneCanRun?: boolean;
   readonly createdAt: Timestamp;
   readonly updatedAt: Timestamp;
 }
@@ -167,6 +177,11 @@ export interface ProjectSpec {
    * projects created via `POST /v1/projects` default to `false`.
    */
   readonly isDefault?: boolean;
+  /**
+   * `Project.everyoneCanRun`. Absent is `false`: `POST /v1/projects`
+   * passes it, `true` unless the caller turns it off.
+   */
+  readonly everyoneCanRun?: boolean;
 }
 
 export interface ProjectPatch {
@@ -180,19 +195,28 @@ export interface ProjectPatch {
   readonly orgId?: OrgId | null;
   /** `Project.sortEndUserCorrections`; `undefined` leaves it as it is. */
   readonly sortEndUserCorrections?: boolean;
+  /**
+   * `Project.everyoneCanRun`; `undefined` leaves it as it is. Where
+   * authorization is enforced, it changes through
+   * `TenantHierarchyBinding.updateProject`, with its grant.
+   */
+  readonly everyoneCanRun?: boolean;
 }
 
 /**
  * Roles on a `ProjectMembership` — the direct `User → Project` grant
  * shape. Additive with team-grants. Mirrors the OpenFGA project-type
- * relations (owner / editor / viewer) plus the
- * lightweight `member` and administrative `admin` shorthands.
+ * relations (owner / editor / runner / viewer) plus the
+ * lightweight `member` and administrative `admin` shorthands. A `runner`
+ * sees what a `viewer` does, starts runs of the project's agents and
+ * flows, stops their own runs and keeps their own schedules.
  */
-export type ProjectRole = 'viewer' | 'editor' | 'owner' | 'admin' | 'member';
+export type ProjectRole = 'viewer' | 'runner' | 'editor' | 'owner' | 'admin' | 'member';
 
 /**
- * A role a team holds on a project: `viewer`, `editor` or `admin`. A team
- * never owns one (`owner` is a person's), and `member` is retired.
+ * A role a team holds on a project: `viewer`, `runner`, `editor` or
+ * `admin`. A team never owns one (`owner` is a person's), and `member` is
+ * retired.
  */
 export type TeamProjectRole = Exclude<ProjectRole, 'owner' | 'member'>;
 

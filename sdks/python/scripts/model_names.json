@@ -1,5 +1,6 @@
 {
   "AccessPathDirect": ["AccessPathDirect"],
+  "AccessPathEveryone": ["AccessPathEveryone"],
   "AccessPathOrgAdmin": ["AccessPathOrgAdmin"],
   "AccessPathTeam": ["AccessPathTeam"],
   "AccessPathTenantAdmin": ["AccessPathTenantAdmin"],

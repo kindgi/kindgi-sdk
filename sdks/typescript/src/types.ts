@@ -2287,6 +2287,16 @@ export interface Project {
    * start Improve.
    */
   readonly sortEndUserCorrections?: boolean;
+  /**
+   * `true`: everyone in the project's workspace can run its agents and
+   * flows without a role of their own; service accounts aren't included.
+   * That reads nothing more than running takes: the project, the lists of
+   * its agents and flows, each of its flows, and each person's own runs,
+   * conversations and schedules. `false`: only people given a role. A new project has it unless its creator turns it
+   * off; existing projects and workspaces keep it `false` until a project
+   * admin turns it on. Absent from an older server.
+   */
+  readonly everyoneCanRun?: boolean;
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly updatedAt: import('@kindgi/types').Timestamp;
 }
@@ -2301,6 +2311,11 @@ export interface ProjectSpec {
    * created by the server when the tenant is created, not by a caller.
    */
   readonly isDefault?: boolean;
+  /**
+   * `Project.everyoneCanRun`: `true` when left out; `false` to choose
+   * people one by one.
+   */
+  readonly everyoneCanRun?: boolean;
 }
 
 export interface ProjectPatch {
@@ -2310,16 +2325,20 @@ export interface ProjectPatch {
   readonly orgId?: import('@kindgi/types').OrgId | null;
   /** `Project.sortEndUserCorrections`. Admin on the project. */
   readonly sortEndUserCorrections?: boolean;
+  /** `Project.everyoneCanRun`. Admin on the project. */
+  readonly everyoneCanRun?: boolean;
 }
 
 /**
  * Roles on a `ProjectMembership` — the direct `User → Project`
- * grant shape. Additive with team-grants. `owner`, `admin`, `editor`
- * and `viewer`, each including the ones after it; `member` only reads
+ * grant shape. Additive with team-grants. `owner`, `admin`, `editor`,
+ * `runner` and `viewer`, each including the ones after it (a `runner`
+ * starts runs of the project's agents and flows, stops their own runs and
+ * keeps their own schedules); `member` only reads
  * back on a role given before it was retired (it grants what `viewer`
  * does), and writes refuse it.
  */
-export type ProjectRole = 'viewer' | 'editor' | 'owner' | 'admin' | 'member';
+export type ProjectRole = 'viewer' | 'runner' | 'editor' | 'owner' | 'admin' | 'member';
 
 export interface ProjectMembership {
   readonly projectId: import('@kindgi/types').ProjectId;
@@ -2414,7 +2433,7 @@ export type ServiceAccountGrant =
   | {
       readonly kind: 'project';
       readonly projectId: string;
-      readonly role: 'viewer' | 'editor' | 'owner' | 'admin' | 'member';
+      readonly role: 'viewer' | 'runner' | 'editor' | 'owner' | 'admin' | 'member';
     };
 
 /**
@@ -2428,7 +2447,7 @@ export type ServiceAccountGrantInput =
   | {
       readonly kind: 'project';
       readonly projectId: string;
-      readonly role: 'viewer' | 'editor' | 'owner' | 'admin';
+      readonly role: 'viewer' | 'runner' | 'editor' | 'owner' | 'admin';
     };
 
 /** A grant to remove: tenant admin, tenant member, or whatever role the account has on a project. */
@@ -2472,7 +2491,7 @@ export interface PersonGrants {
   readonly tenantMember?: boolean;
   readonly projects: readonly {
     readonly projectId: string;
-    readonly role: 'viewer' | 'editor' | 'owner' | 'admin' | 'member';
+    readonly role: 'viewer' | 'runner' | 'editor' | 'owner' | 'admin' | 'member';
   }[];
   readonly teams: readonly { readonly teamId: string; readonly role: 'member' | 'admin' }[];
   readonly reviewer?: { readonly role: 'standard' | 'senior' | 'admin' };

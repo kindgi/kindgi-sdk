@@ -30,8 +30,9 @@ import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
 import { participantRefusal } from './participant-access.js';
+import { readableOrRun } from './runner-reach.js';
 import { parseListScope } from './scope-params.js';
-import { conversationNotFound, hiddenOr, unreadable } from './turn-access.js';
+import { conversationNotFound, hiddenOr, ownConversationIn, unreadable } from './turn-access.js';
 import { refuseMalformedUuidParam } from './uuid-param.js';
 
 const PROJECT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -63,7 +64,8 @@ export function conversationsRouter(
   projectBinding?: ProjectBinding,
   /**
    * With one: reading a conversation or its messages needs `read` on its
-   * project (its agent, for one from before projects); opening or closing
+   * project (its agent, for one from before projects), or, for one the
+   * caller opened in a project, `run` there; opening or closing
    * one needs `execute` on its agent, as starting a run does; unregistering
    * one needs `write` on its project (or agent). A caller refused on a
    * conversation they can't read gets the answer for one that doesn't
@@ -195,10 +197,17 @@ export function conversationsRouter(
         : undefined;
     // The binding narrows; this keeps a page right from one that doesn't.
     const theirs = openedBy === undefined ? data : data.filter((row) => row.openedBy === openedBy);
+    // `read` on a row's project (its agent, from before projects), or, on
+    // one the caller opened, `run` there. The cursor is the store's page.
     const visible =
       authorizer === undefined
         ? theirs
-        : await authorizer.filterByCan(c, 'read', theirs, conversationRef);
+        : await readableOrRun(authorizer, c, theirs, conversationRef, (row) =>
+            ownConversationIn(c, {
+              ...(row.projectId !== undefined && { projectId: row.projectId as unknown as string }),
+              ...(row.openedBy !== undefined && { openedBy: row.openedBy }),
+            }),
+          );
     return c.json({
       data: visible.map(serializeConversation),
       hasMore,

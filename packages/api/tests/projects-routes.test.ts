@@ -6,7 +6,12 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import type { AuthzCheckBinding, Decision } from '@kindgi/authz';
-import { makeInMemoryProjectBinding } from '@kindgi/platform';
+import {
+  type CreateProjectParams,
+  type TenantHierarchyBinding,
+  type UpdateProjectParams,
+  makeInMemoryProjectBinding,
+} from '@kindgi/platform';
 import type { ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
@@ -52,10 +57,20 @@ const runHandler: RunHandlerBinding = {
   }),
 };
 
-function makeApp(authz?: AuthzCheckBinding) {
+/**
+ * `hierarchy` replaces the stub tenant-hierarchy binding's methods it
+ * names; `undefined` for one leaves the binding without it.
+ */
+function makeApp(
+  authz?: AuthzCheckBinding,
+  hierarchy?: {
+    readonly [K in keyof TenantHierarchyBinding]?: TenantHierarchyBinding[K] | undefined;
+  },
+) {
   const trio = makeInMemoryProjectBinding();
+  const stubs = createStubAppBindings();
   const app = createApp({
-    ...createStubAppBindings(),
+    ...stubs,
     resolveToken,
     runHandler,
     projectBinding: trio.projects,
@@ -64,8 +79,31 @@ function makeApp(authz?: AuthzCheckBinding) {
     ...(authz !== undefined && {
       authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding: authz },
     }),
+    ...(hierarchy !== undefined && {
+      tenantHierarchyBinding: {
+        ...stubs.tenantHierarchyBinding,
+        ...hierarchy,
+      } as TenantHierarchyBinding,
+    }),
   });
   return { app, trio };
+}
+
+/** An authorization check that allows exactly the `"<action> <type>:<id>"` entries in `granted`. */
+function grantedOnly(granted: Set<string>): AuthzCheckBinding {
+  const decide = (action: string, resource: { type: string; id: string }) => {
+    const allowed = granted.has(`${action} ${resource.type}:${resource.id}`);
+    return { allowed, reason: 'test', failing: allowed ? undefined : 'actor' } as Decision;
+  };
+  return {
+    check: async (_principal: unknown, action: string, resource: { type: string; id: string }) =>
+      decide(action, resource),
+    checkBatch: async (
+      _principal: unknown,
+      action: string,
+      resources: readonly { type: string; id: string }[],
+    ) => resources.map((resource) => decide(action, resource)),
+  } as unknown as AuthzCheckBinding;
 }
 
 async function createProject(
@@ -249,17 +287,7 @@ describe('API — projects CRUD', () => {
 
   test('turning sortEndUserCorrections on takes admin on the project: write is a 403 that changes nothing', async () => {
     const granted = new Set<string>();
-    const authz = {
-      check: async (
-        _principal: unknown,
-        action: string,
-        resource: { type: string; id: string },
-      ) => {
-        const allowed = granted.has(`${action} ${resource.type}:${resource.id}`);
-        return { allowed, reason: 'test', failing: allowed ? undefined : 'actor' } as Decision;
-      },
-    } as unknown as AuthzCheckBinding;
-    const { app, trio } = makeApp(authz);
+    const { app, trio } = makeApp(grantedOnly(granted));
     const made = await trio.projects.create(tenantA, {
       name: 'x',
       slug: 'x',
@@ -295,6 +323,87 @@ describe('API — projects CRUD', () => {
     expect(await read()).toBe(true);
   });
 
+  test('everyoneCanRun is true on a new project unless its creator says false; a GET and the list read it back', async () => {
+    const { app } = makeApp();
+    const open = await createProject(app, TOKEN_A, { name: 'open', slug: 'open' });
+    const chosen = await createProject(app, TOKEN_A, {
+      name: 'chosen',
+      slug: 'chosen',
+      everyoneCanRun: false,
+    });
+    const read = async (id: string) =>
+      (
+        (await (
+          await app.request(`/v1/projects/${id}`, {
+            headers: { authorization: `Bearer ${TOKEN_A}` },
+          })
+        ).json()) as { everyoneCanRun?: boolean }
+      ).everyoneCanRun;
+    expect(await read(open)).toBe(true);
+    expect(await read(chosen)).toBe(false);
+
+    const list = await app.request('/v1/projects', {
+      headers: { authorization: `Bearer ${TOKEN_A}` },
+    });
+    const { data } = (await list.json()) as {
+      data: { id: string; everyoneCanRun?: boolean }[];
+    };
+    expect(Object.fromEntries(data.map((p) => [p.id, p.everyoneCanRun]))).toEqual({
+      [open]: true,
+      [chosen]: false,
+    });
+  });
+
+  test('a non-boolean everyoneCanRun is a 400 on create and on PATCH, and changes nothing', async () => {
+    const { app } = makeApp();
+    const created = await app.request('/v1/projects', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN_A}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'x', slug: 'x', everyoneCanRun: 'yes' }),
+    });
+    expect(created.status).toBe(400);
+    expect(((await created.json()) as { error: { message: string } }).error.message).toBe(
+      '`everyoneCanRun` must be a boolean when present',
+    );
+
+    const id = await createProject(app, TOKEN_A, { name: 'x', slug: 'x' });
+    const patched = await app.request(`/v1/projects/${id}`, {
+      method: 'PATCH',
+      headers: { authorization: `Bearer ${TOKEN_A}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'renamed', everyoneCanRun: 'no' }),
+    });
+    expect(patched.status).toBe(400);
+    expect(((await patched.json()) as { error: { message: string } }).error.message).toBe(
+      '`everyoneCanRun` must be a boolean when present',
+    );
+    const get = await app.request(`/v1/projects/${id}`, {
+      headers: { authorization: `Bearer ${TOKEN_A}` },
+    });
+    expect(await get.json()).toMatchObject({ name: 'x', everyoneCanRun: true });
+  });
+
+  test('without an authorizer, a PATCH that changes everyoneCanRun and the name stores both through the project binding', async () => {
+    const { app } = makeApp();
+    const id = await createProject(app, TOKEN_A, { name: 'x', slug: 'x' });
+    const patch = (body: unknown) =>
+      app.request(`/v1/projects/${id}`, {
+        method: 'PATCH',
+        headers: { authorization: `Bearer ${TOKEN_A}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const read = async () =>
+      (await (
+        await app.request(`/v1/projects/${id}`, {
+          headers: { authorization: `Bearer ${TOKEN_A}` },
+        })
+      ).json()) as { name: string; everyoneCanRun?: boolean };
+
+    expect((await patch({ name: 'renamed', everyoneCanRun: false })).status).toBe(204);
+    expect(await read()).toMatchObject({ name: 'renamed', everyoneCanRun: false });
+    expect((await patch({ everyoneCanRun: true })).status).toBe(204);
+    expect(await read()).toMatchObject({ name: 'renamed', everyoneCanRun: true });
+  });
+
   test('pagination with limit + cursor', async () => {
     const { app } = makeApp();
     for (let i = 0; i < 3; i += 1) {
@@ -317,6 +426,231 @@ describe('API — projects CRUD', () => {
     const secondBody = (await second.json()) as { data: unknown[]; hasMore: boolean };
     expect(secondBody.data).toHaveLength(1);
     expect(secondBody.hasMore).toBe(false);
+  });
+});
+
+describe('API — changing everyoneCanRun where authorization is enforced', () => {
+  /** A project everyone can run, which USER_A may read; `granted` takes more. */
+  async function authorizedProject(hierarchy: Parameters<typeof makeApp>[1]): Promise<{
+    granted: Set<string>;
+    id: string;
+    patch: (body: unknown) => Promise<Response>;
+    read: () => Promise<{ name: string; everyoneCanRun?: boolean }>;
+  }> {
+    const granted = new Set<string>();
+    const { app, trio } = makeApp(grantedOnly(granted), hierarchy);
+    const made = await trio.projects.create(tenantA, {
+      name: 'x',
+      slug: 'x',
+      everyoneCanRun: true,
+    });
+    if (made.kind !== 'ok') throw new Error(made.kind);
+    const id = made.projectId as unknown as string;
+    granted.add(`read project:${id}`);
+    return {
+      granted,
+      id,
+      patch: async (body) =>
+        app.request(`/v1/projects/${id}`, {
+          method: 'PATCH',
+          headers: { authorization: `Bearer ${USER_A}`, 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        }),
+      read: async () =>
+        (await (
+          await app.request(`/v1/projects/${id}`, {
+            headers: { authorization: `Bearer ${USER_A}` },
+          })
+        ).json()) as { name: string; everyoneCanRun?: boolean },
+    };
+  }
+
+  /** An `updateProject` that records each call and answers `outcome`. */
+  function recording(
+    outcome: Awaited<ReturnType<NonNullable<TenantHierarchyBinding['updateProject']>>>,
+  ) {
+    const calls: UpdateProjectParams[] = [];
+    return {
+      calls,
+      updateProject: async (params: UpdateProjectParams) => {
+        calls.push(params);
+        return outcome;
+      },
+    };
+  }
+
+  test('a create through the tenant-hierarchy binding asks for it unless the body says false', async () => {
+    const specs: CreateProjectParams['spec'][] = [];
+    const granted = new Set<string>([`admin tenant:${tenantA}`]);
+    const { app } = makeApp(grantedOnly(granted), {
+      createProject: async ({ spec }) => {
+        specs.push(spec);
+        return { kind: 'ok', value: { projectId: randomUUID() as ProjectId } };
+      },
+    });
+    for (const body of [
+      { name: 'open', slug: 'open' },
+      { name: 'chosen', slug: 'chosen', everyoneCanRun: false },
+    ]) {
+      await createProject(app, USER_A, body);
+    }
+    expect(specs.map((s) => [s.slug, s.everyoneCanRun])).toEqual([
+      ['open', true],
+      ['chosen', false],
+    ]);
+  });
+
+  test("an admin's PATCH that changes it goes whole through the tenant-hierarchy binding's updateProject, once; one that leaves it alone stays with the project binding", async () => {
+    const spy = recording({ kind: 'ok' });
+    const p = await authorizedProject({ updateProject: spy.updateProject });
+    p.granted.add(`admin project:${p.id}`);
+
+    expect((await p.patch({ name: 'renamed', everyoneCanRun: false })).status).toBe(204);
+    expect(spy.calls).toEqual([
+      { tenantId: tenantA, projectId: p.id, patch: { name: 'renamed', everyoneCanRun: false } },
+    ]);
+    // The project binding wrote none of it: the change is the hierarchy binding's.
+    expect(await p.read()).toMatchObject({ name: 'x', everyoneCanRun: true });
+
+    expect((await p.patch({ name: 'renamed' })).status).toBe(204);
+    expect(spy.calls).toHaveLength(1);
+    expect(await p.read()).toMatchObject({ name: 'renamed', everyoneCanRun: true });
+  });
+
+  test('an editor (write on the project) is refused with a 403, and updateProject is never called', async () => {
+    const spy = recording({ kind: 'ok' });
+    const p = await authorizedProject({ updateProject: spy.updateProject });
+    p.granted.add(`write project:${p.id}`);
+
+    const refused = await p.patch({ everyoneCanRun: false });
+    expect(refused.status).toBe(403);
+    expect(((await refused.json()) as { error: { code: string } }).error.code).toBe(
+      'permission-denied',
+    );
+    expect(spy.calls).toEqual([]);
+    expect((await p.read()).everyoneCanRun).toBe(true);
+  });
+
+  test("updateProject's slug-conflict is answered as the project binding's is: 409 slug-conflict", async () => {
+    // The project binding's own answer, where no authorizer is configured.
+    const { app } = makeApp();
+    await createProject(app, TOKEN_A, { name: 'taken', slug: 'taken' });
+    const other = await createProject(app, TOKEN_A, { name: 'y', slug: 'y' });
+    const viaBinding = await app.request(`/v1/projects/${other}`, {
+      method: 'PATCH',
+      headers: { authorization: `Bearer ${TOKEN_A}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ slug: 'taken', everyoneCanRun: false }),
+    });
+    expect(viaBinding.status).toBe(409);
+
+    const spy = recording({ kind: 'slug-conflict', slug: 'taken' });
+    const p = await authorizedProject({ updateProject: spy.updateProject });
+    p.granted.add(`admin project:${p.id}`);
+    const viaHierarchy = await p.patch({ slug: 'taken', everyoneCanRun: false });
+    expect(viaHierarchy.status).toBe(409);
+    expect(spy.calls).toHaveLength(1);
+
+    const { requestId: _a, ...expected } = (
+      (await viaBinding.json()) as { error: { requestId: string } }
+    ).error;
+    const { requestId: _b, ...answered } = (
+      (await viaHierarchy.json()) as { error: { requestId: string } }
+    ).error;
+    expect(answered).toEqual(expected);
+    expect(answered).toMatchObject({ code: 'slug-conflict' });
+  });
+
+  test('a tenant-hierarchy binding without updateProject is refused with a 501, and nothing changes', async () => {
+    const p = await authorizedProject({ updateProject: undefined });
+    p.granted.add(`admin project:${p.id}`);
+
+    const refused = await p.patch({ name: 'renamed', everyoneCanRun: false });
+    expect(refused.status).toBe(501);
+    expect(((await refused.json()) as { error: unknown }).error).toMatchObject({
+      code: 'authz-membership-unsupported',
+      details: { method: 'updateProject' },
+    });
+    expect(await p.read()).toMatchObject({ name: 'x', everyoneCanRun: true });
+  });
+});
+
+describe('a project a person may run, though not read', () => {
+  /** Two projects, `home` the default; USER_A holds what `granted` names. */
+  async function twoProjects() {
+    const granted = new Set<string>();
+    const { app, trio } = makeApp(grantedOnly(granted));
+    const ids: string[] = [];
+    for (const [slug, isDefault] of [
+      ['acme-one', true],
+      ['acme-two', false],
+    ] as const) {
+      const made = await trio.projects.create(tenantA, { name: slug, slug, isDefault });
+      if (made.kind !== 'ok') throw new Error(made.kind);
+      ids.push(made.projectId as unknown as string);
+    }
+    const [home, other] = ids as [string, string];
+    const as = (path: string, method = 'GET') =>
+      app.request(path, { method, headers: { authorization: `Bearer ${USER_A}` } });
+    return { granted, home, other, as };
+  }
+
+  test('its get, its HEAD and the default project pass on run', async () => {
+    const { granted, home, as } = await twoProjects();
+    granted.add(`run project:${home}`);
+    const one = await as(`/v1/projects/${home}`);
+    expect(one.status).toBe(200);
+    expect(((await one.json()) as { id: string }).id).toBe(home);
+    expect((await as(`/v1/projects/${home}`, 'HEAD')).status).toBe(200);
+    expect((await as('/v1/projects/default')).status).toBe(200);
+    expect((await as('/v1/projects/default', 'HEAD')).status).toBe(200);
+  });
+
+  test("another project, one it may run nothing in, is read's 403, its HEAD too", async () => {
+    const { granted, home, other, as } = await twoProjects();
+    granted.add(`run project:${other}`);
+    expect((await as(`/v1/projects/${home}`)).status).toBe(403);
+    expect((await as(`/v1/projects/${home}`, 'HEAD')).status).toBe(403);
+    expect((await as('/v1/projects/default')).status).toBe(403);
+    expect((await as('/v1/projects/default', 'HEAD')).status).toBe(403);
+    // Running is no admin: a change is still refused.
+    const patch = await as(`/v1/projects/${other}`, 'PATCH');
+    expect(patch.status).toBe(403);
+  });
+
+  test('the list holds the projects it may run and no other', async () => {
+    const { granted, home, other, as } = await twoProjects();
+    granted.add(`run project:${other}`);
+    const res = await as('/v1/projects');
+    expect(res.status).toBe(200);
+    const ids = ((await res.json()) as { data: { id: string }[] }).data.map((p) => p.id);
+    expect(ids).toEqual([other]);
+    expect(ids).not.toContain(home);
+  });
+
+  test('a page of only a project it may not run answers no rows and the next cursor; following it reaches one it may', async () => {
+    const { granted, home, other, as } = await twoProjects();
+    // The list's own order, as a reader of both sees it.
+    granted.add(`read project:${home}`);
+    granted.add(`read project:${other}`);
+    const first = (await (await as('/v1/projects?limit=1')).json()) as {
+      data: { id: string }[];
+    };
+    const [firstId] = first.data.map((p) => p.id);
+    const later = firstId === home ? other : home;
+    granted.clear();
+    granted.add(`run project:${later}`);
+    const page = (await (await as('/v1/projects?limit=1')).json()) as {
+      data: { id: string }[];
+      hasMore: boolean;
+      nextCursor?: string;
+    };
+    expect(page.data).toEqual([]);
+    expect(page.hasMore).toBe(true);
+    expect(page.nextCursor).toBeDefined();
+    const next = (await (
+      await as(`/v1/projects?limit=1&cursor=${encodeURIComponent(page.nextCursor ?? '')}`)
+    ).json()) as { data: { id: string }[] };
+    expect(next.data.map((p) => p.id)).toEqual([later]);
   });
 });
 
@@ -444,7 +778,7 @@ describe('API — project memberships', () => {
     });
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: { message: string } };
-    expect(body.error.message).toBe('`role` must be one of: viewer, editor, owner, admin');
+    expect(body.error.message).toBe('`role` must be one of: viewer, runner, editor, owner, admin');
   });
 
   test('`member` is retired: adding or changing to it is a 400 naming `viewer`, and changes nothing', async () => {

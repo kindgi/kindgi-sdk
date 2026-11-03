@@ -38,6 +38,7 @@ import type {
 const tenantId = randomUUID() as TenantId;
 const P1 = '00000000-0000-4000-8000-0000000000b1';
 const P2 = '00000000-0000-4000-8000-0000000000b2';
+const P3 = '00000000-0000-4000-8000-0000000000b3';
 
 const ALICE = 'tok-alice'; // a tenant admin
 const BOB = 'tok-bob'; // a project editor through a team, a senior reviewer
@@ -45,6 +46,8 @@ const ALICE_MEMBER_KEY = 'kgi_ak_alice-member';
 const BOB_PROJECT_KEY = 'kgi_ak_bob-p1';
 const ROLE_ONLY = 'tok-role-only'; // carries a reviewer role, no user
 const DEPLOYMENT = 'tok-deployment'; // the deployment's own token, with capabilities
+const CAROL = 'tok-carol'; // a viewer of one project, and runs two because everyone may
+const CAROL_P3_KEY = 'kgi_ak_carol-p3';
 
 const noopRunHandler: RunHandlerBinding = {
   invokeAgent: async () => ({ kind: 'err', error: { code: 'bad-input', message: 'noop' } }),
@@ -77,6 +80,17 @@ const resolveToken: TokenResolver = async (token) => {
       };
     case ROLE_ONLY:
       return { tenantId, scopes: [], reviewerRole: 'admin' };
+    case CAROL:
+      return { tenantId, userId: 'carol' as UserId, scopes: [] };
+    case CAROL_P3_KEY:
+      return {
+        tenantId,
+        userId: 'carol' as UserId,
+        scopes: [],
+        tokenId: 'k-cp' as ApiTokenId,
+        tokenRole: 'member',
+        tokenProjectId: P3,
+      };
     case DEPLOYMENT:
       return {
         tenantId,
@@ -146,6 +160,7 @@ const BOB_ACCESS: MyAccess = {
   teams: [{ teamId: 't1', name: 'Support', role: 'admin' }],
   capabilities: {
     viewer: { agent: ['read'], run: ['read'] },
+    runner: { agent: ['read', 'execute'], project: ['run', 'read'] },
     editor: {
       // Out of order, and `teleport` isn't an action: dropped.
       agent: ['publish', 'read', 'execute', 'write', 'teleport' as never],
@@ -219,9 +234,38 @@ function harness(
   return Object.assign(read, { recorded });
 }
 
+/**
+ * Carol views Alpha, which everyone may run as well, and holds no role on
+ * Beta, which everyone may run: the store lists both.
+ */
+const CAROL_ACCESS: MyAccess = {
+  projects: [
+    { projectId: P3, name: 'Beta', via: [{ kind: 'everyone' }] },
+    {
+      projectId: P1,
+      name: 'Alpha',
+      role: 'viewer',
+      via: [{ kind: 'direct', role: 'viewer' }, { kind: 'everyone' }],
+    },
+  ],
+  orgs: [],
+  teams: [],
+  capabilities: { viewer: { project: ['read'] } },
+  everyoneCapabilities: {
+    // Out of order, and `teleport` isn't an action: dropped.
+    flow: ['execute'],
+    project: ['run', 'teleport' as never],
+    agent: ['execute'],
+  },
+};
+
 const store: MyAccessBinding = {
   read: async ({ principal }) =>
-    principal.kind === 'user' && principal.userId === 'alice' ? ALICE_ACCESS : BOB_ACCESS,
+    principal.kind === 'user' && principal.userId === 'alice'
+      ? ALICE_ACCESS
+      : principal.kind === 'user' && principal.userId === 'carol'
+        ? CAROL_ACCESS
+        : BOB_ACCESS,
 };
 
 describe('GET /v1/identity/me/permissions', () => {
@@ -273,7 +317,7 @@ describe('GET /v1/identity/me/permissions', () => {
       string,
       Record<string, string[]>
     >;
-    expect(Object.keys(caps)).toEqual(['owner', 'admin', 'editor', 'viewer']);
+    expect(Object.keys(caps)).toEqual(['owner', 'admin', 'editor', 'runner', 'viewer']);
     expect(Object.keys(caps.editor ?? {})).toEqual([
       'project',
       'agent',
@@ -293,6 +337,8 @@ describe('GET /v1/identity/me/permissions', () => {
     );
     expect(caps.editor?.project).toEqual(['read', 'write']);
     expect(caps.viewer?.run).toEqual(['read']);
+    // A runner runs: `run` on the project, after the actions before it.
+    expect(caps.runner?.project).toEqual(['read', 'run']);
     // A role the store said nothing about allows nothing.
     expect(caps.owner?.agent).toEqual([]);
   });
@@ -304,7 +350,9 @@ describe('GET /v1/identity/me/permissions', () => {
       read: async () => ({
         ...ALICE_ACCESS,
         capabilities: {
-          admin: { project: ['call', 'read', 'execute', 'write', 'admin', 'delete'] as never },
+          admin: {
+            project: ['call', 'read', 'execute', 'write', 'admin', 'delete', 'run'] as never,
+          },
         },
       }),
     };
@@ -414,6 +462,52 @@ describe('GET /v1/identity/me/permissions', () => {
     expect(r.status).toBe(503);
     expect(r.body.error).toMatchObject({ code: 'authz-backend-unavailable' });
     expect(JSON.stringify(r.body)).not.toContain('fga down');
+  });
+
+  describe('a project everyone in the workspace may run', () => {
+    test('one reached only that way: listed with no role, `via` everyone', async () => {
+      const r = await harness(store)(CAROL);
+      expect(r.status).toBe(200);
+      expect(r.body.projects).toEqual([
+        {
+          projectId: P1,
+          name: 'Alpha',
+          role: 'viewer',
+          via: [{ kind: 'direct', role: 'viewer' }, { kind: 'everyone' }],
+        },
+        { projectId: P3, name: 'Beta', via: [{ kind: 'everyone' }] },
+      ]);
+    });
+
+    test('everyoneCapabilities: every project type, actions in the model order, unknown ones dropped', async () => {
+      const body = (await harness(store)(CAROL)).body as {
+        capabilities: Record<string, Record<string, string[]>>;
+        everyoneCapabilities: Record<string, string[]>;
+      };
+      const caps = body.everyoneCapabilities;
+      // The types a role's capabilities list, in the same order.
+      expect(Object.keys(caps)).toEqual(Object.keys(body.capabilities.viewer ?? {}));
+      expect(Object.keys(caps)).toContain('trigger');
+      expect(caps.project).toEqual(['run']);
+      expect(caps.agent).toEqual(OBJECT_ACTIONS.agent.filter((a) => a === 'execute'));
+      expect(caps.flow).toEqual(OBJECT_ACTIONS.flow.filter((a) => a === 'execute'));
+      expect(caps.run).toEqual([]);
+    });
+
+    test('absent where the store says nothing of it, as an older server', async () => {
+      const r = await harness(store)(BOB);
+      expect(r.status).toBe(200);
+      expect('everyoneCapabilities' in r.body).toBe(false);
+    });
+
+    test('a key limited to a project everyone may run lists that project alone', async () => {
+      const r = await harness(store)(CAROL_P3_KEY);
+      expect(r.status).toBe(200);
+      expect(r.body.key).toEqual({ tokenId: 'k-cp', role: 'member', projectId: P3 });
+      expect(r.body.projects).toEqual([
+        { projectId: P3, name: 'Beta', via: [{ kind: 'everyone' }] },
+      ]);
+    });
   });
 });
 

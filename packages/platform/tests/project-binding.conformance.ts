@@ -150,6 +150,21 @@ export function runProjectBindingConformance(
       expect((await projects.get(T1, id))?.sortEndUserCorrections).toBeUndefined();
     });
 
+    it('lets everyone run a project only when its spec or a patch says so, and keeps it through other patches', async () => {
+      const { projects } = makeBinding();
+      const plain = await createProject(projects, T1, { name: 'A', slug: 'a' });
+      expect((await projects.get(T1, plain))?.everyoneCanRun ?? false).toBe(false);
+      const id = await createProject(projects, T1, { name: 'B', slug: 'b', everyoneCanRun: true });
+      expect((await projects.get(T1, id))?.everyoneCanRun).toBe(true);
+      await projects.update(T1, id, { name: 'B-renamed' });
+      expect((await projects.get(T1, id))?.everyoneCanRun).toBe(true);
+      await projects.update(T1, id, { everyoneCanRun: false });
+      expect((await projects.get(T1, id))?.everyoneCanRun ?? false).toBe(false);
+      await projects.update(T1, plain, { everyoneCanRun: true });
+      const listed = await projects.list(T1, { limit: 10 });
+      expect(listed.items.find((p) => p.id === plain)?.everyoneCanRun).toBe(true);
+    });
+
     it('deletes a project + cascades memberships + grants', async () => {
       const { projects, memberships, grants } = makeBinding();
       const id = await createProject(projects, T1, { name: 'A', slug: 'a' });

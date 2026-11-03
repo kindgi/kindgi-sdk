@@ -395,19 +395,21 @@ export async function isTriggerAdmin(
 
 /**
  * Whether the caller may change a personal trigger, one a person owns:
- * its owner, while they hold `write` on its project, or an admin of the
- * project ({@link isTriggerAdmin}). Its owner stays either way: only a
- * take-over moves it.
+ * its owner, while they hold `ownerAction` on its project, or an admin of
+ * the project ({@link isTriggerAdmin}). `ownerAction` is `run` for a
+ * schedule (a project's runners keep their own schedules), but for an
+ * Improve schedule, and `write` for every other kind. Its owner stays either way: only a take-over moves it.
  */
 export async function mayChangePersonalTrigger(
   c: Context<AppEnv>,
   authorizer: Authorizer | undefined,
   trigger: { readonly projectId: string; readonly owner: TriggerOwner },
+  ownerAction: 'run' | 'write',
 ): Promise<boolean> {
   const caller = ownerOf(c);
   if (caller.kind === trigger.owner.kind && caller.id === trigger.owner.id) {
     if (authorizer === undefined) return true;
-    if (await authorizer.can(c, 'write', ref('project', trigger.projectId))) return true;
+    if (await authorizer.can(c, ownerAction, ref('project', trigger.projectId))) return true;
   }
   return isTriggerAdmin(c, authorizer, trigger.projectId);
 }
@@ -741,11 +743,13 @@ export interface OwnedTrigger {
 
 /**
  * Nothing when the caller may change `trigger`; else the 403. A personal
- * trigger is its owner's (holding `write`) or a project admin's to change
- * ({@link mayChangePersonalTrigger}), for every change: an edit, a pause, a
- * resume, a fire, a delete. A shared one is the project's writers', but
- * for what it runs (the route checks that, {@link triggerAdminRefusal}).
- * Asked after the route's own `write` check, so a caller without it gets
+ * trigger is its owner's (holding `ownerAction` on its project: `run` for
+ * a schedule, but for an Improve schedule, and `write` for every other
+ * kind) or a project admin's to change ({@link mayChangePersonalTrigger}),
+ * for every change: an edit, a pause, a resume, a fire, a delete. A shared
+ * one is the project's writers', but for what it runs (the route checks
+ * that, {@link triggerAdminRefusal}). Asked after the route's own check
+ * (`write`, or `run` for a schedule's owner), so a caller without it gets
  * the authorizer's 403 first, which never names the owner.
  */
 export async function personalTriggerRefusal(
@@ -754,9 +758,10 @@ export async function personalTriggerRefusal(
   names: TriggerOwnerNames | undefined,
   trigger: OwnedTrigger,
   word: TriggerWord,
+  ownerAction: 'run' | 'write',
 ): Promise<Response | undefined> {
   if (trigger.owner.kind !== 'user') return undefined;
-  if (await mayChangePersonalTrigger(c, authorizer, trigger)) return undefined;
+  if (await mayChangePersonalTrigger(c, authorizer, trigger, ownerAction)) return undefined;
   return ownerRuleRefused(c, authorizer, names, trigger, word);
 }
 

@@ -110,7 +110,7 @@ export interface ProjectPinnedVersionsClient {
 /** A team's role on a project, with the team's and the project's names. */
 export type TeamProjectGrantShape = TeamProjectGrantWire;
 export type TeamProjectGrantPage = TeamProjectGrantCollectionPage;
-/** `viewer`, `editor` or `admin`: a team never owns a project. */
+/** `viewer`, `runner`, `editor` or `admin`: a team never owns a project. */
 export type TeamProjectRoleValue = TeamProjectRoleWire;
 
 export interface ListTeamGrantsFilter {

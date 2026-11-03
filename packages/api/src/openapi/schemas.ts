@@ -11709,9 +11709,9 @@ export const PersonGrantsSchema: JsonSchema = {
 /** A project role as the authorization model holds it, highest first. */
 export const AccessRoleSchema: JsonSchema = {
   type: 'string',
-  enum: ['owner', 'admin', 'editor', 'viewer'],
+  enum: ['owner', 'admin', 'editor', 'runner', 'viewer'],
   description:
-    'A project role, as the authorization model holds it: `owner` > `admin` > `editor` > `viewer` (a membership stored as `member` is `viewer`).',
+    'A project role, as the authorization model holds it: `owner` > `admin` > `editor` > `runner` > `viewer` (a membership stored as `member` is `viewer`).',
 };
 
 export const AccessPathDirectSchema: JsonSchema = {
@@ -11769,14 +11769,24 @@ export const AccessPathTenantAdminSchema: JsonSchema = {
   properties: { kind: { type: 'string', enum: ['tenant-admin'] } },
 };
 
+export const AccessPathEveryoneSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  description:
+    "A person in the project's workspace, where the project lets everyone run it (`everyoneCanRun`): what `everyoneCapabilities` names, and no role. Listed whenever it reaches the caller, with a role or without.",
+  properties: { kind: { type: 'string', enum: ['everyone'] } },
+};
+
 export const AccessPathSchema: JsonSchema = {
   description:
-    'One way the caller holds a role on a project: a membership of its own, a team it is in, an org it administers, or tenant admin.',
+    "One way the caller holds a role on a project, or reaches it: a membership of its own, a team it is in, an org it administers, tenant admin, or everyone in the project's workspace.",
   oneOf: [
     { $ref: '#/components/schemas/AccessPathDirect' },
     { $ref: '#/components/schemas/AccessPathTeam' },
     { $ref: '#/components/schemas/AccessPathOrgAdmin' },
     { $ref: '#/components/schemas/AccessPathTenantAdmin' },
+    { $ref: '#/components/schemas/AccessPathEveryone' },
   ],
   discriminator: {
     propertyName: 'kind',
@@ -11785,6 +11795,7 @@ export const AccessPathSchema: JsonSchema = {
       team: '#/components/schemas/AccessPathTeam',
       'org-admin': '#/components/schemas/AccessPathOrgAdmin',
       'tenant-admin': '#/components/schemas/AccessPathTenantAdmin',
+      everyone: '#/components/schemas/AccessPathEveryone',
     },
   },
 };
@@ -11792,17 +11803,18 @@ export const AccessPathSchema: JsonSchema = {
 export const MyProjectAccessSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['projectId', 'name', 'role', 'via'],
+  required: ['projectId', 'name', 'via'],
   properties: {
     projectId: { type: 'string' },
     name: { type: 'string' },
     role: {
       $ref: '#/components/schemas/AccessRole',
-      description: 'The highest role the caller holds on the project, whichever way.',
+      description:
+        'The highest role the caller holds on the project, whichever way. Absent when it holds none, and reaches the project only because everyone in its workspace may run it (`via` lists `everyone` alone).',
     },
     via: {
       type: 'array',
-      description: 'Every way the caller holds a role on it (for "My access").',
+      description: 'Every way the caller holds a role on it, or reaches it (for "My access").',
       items: { $ref: '#/components/schemas/AccessPath' },
     },
   },
@@ -11873,12 +11885,13 @@ export const RoleCapabilitiesSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    "What each project role allows, worked out by the runtime from its authorization model. A client decides an action as `capabilities[project.role][type]` holding it; the server still checks every call. An object can grant more on itself (an agent's own editor), never less, so this is what the caller may do at the least.",
+    "What each project role allows, worked out by the runtime from its authorization model. A client decides an action as `capabilities[project.role][type]` holding it, or, on a project whose `via` lists `everyone`, `everyoneCapabilities[type]` holding it; the server still checks every call. An object can grant more on itself (an agent's own editor), never less, so this is what the caller may do at the least.",
   required: ['owner', 'admin', 'editor', 'viewer'],
   properties: {
     owner: { $ref: '#/components/schemas/RoleActions' },
     admin: { $ref: '#/components/schemas/RoleActions' },
     editor: { $ref: '#/components/schemas/RoleActions' },
+    runner: { $ref: '#/components/schemas/RoleActions' },
     viewer: { $ref: '#/components/schemas/RoleActions' },
   },
 };
@@ -11921,7 +11934,7 @@ export const MyPermissionsSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    "What the caller may do, with its API key's limits applied: tenant admin and member, its reviewer role, its key's limits and capabilities, the projects it may read with its role in each and how it holds it, its orgs and teams, and what each project role allows. Only what the caller may see: nothing names a project it can't read, or anyone else's role.",
+    "What the caller may do, with its API key's limits applied: tenant admin and member, its reviewer role, its key's limits and capabilities, the projects it may read or run with its role in each and how it holds it, its orgs and teams, what each project role allows, and what everyone in the workspace may do on a project that lets everyone run it. Only what the caller may see: nothing names a project it can neither read nor run, or anyone else's role.",
   required: [
     'tenantId',
     'tenant',
@@ -11947,7 +11960,8 @@ export const MyPermissionsSchema: JsonSchema = {
     },
     projects: {
       type: 'array',
-      description: 'The projects the caller may read, by name.',
+      description:
+        'The projects the caller may read, and those it may run only because the project lets everyone in its workspace run it, by name. A key limited to a project lists that one alone.',
       items: { $ref: '#/components/schemas/MyProjectAccess' },
     },
     orgs: {
@@ -11961,6 +11975,11 @@ export const MyPermissionsSchema: JsonSchema = {
       items: { $ref: '#/components/schemas/MyTeamAccess' },
     },
     capabilities: { $ref: '#/components/schemas/RoleCapabilities' },
+    everyoneCapabilities: {
+      $ref: '#/components/schemas/RoleActions',
+      description:
+        'What everyone in the workspace may do on a project that lets everyone run it, and on every object of each type in it, by object type: on each project whose `via` lists `everyone`, on top of any role held there. Worked out from the authorization model as `capabilities` is. Absent from an older server.',
+    },
     readOnlyNotice: {
       type: 'string',
       maxLength: 280,
@@ -13818,16 +13837,16 @@ export const AddTeamMembershipResultSchema: JsonSchema = {
  */
 export const ProjectRoleSchema: JsonSchema = {
   type: 'string',
-  enum: ['viewer', 'editor', 'owner', 'admin', 'member'],
+  enum: ['viewer', 'runner', 'editor', 'owner', 'admin', 'member'],
   description:
     'Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.',
 };
 
 export const AssignableProjectRoleSchema: JsonSchema = {
   type: 'string',
-  enum: ['viewer', 'editor', 'owner', 'admin'],
+  enum: ['viewer', 'runner', 'editor', 'owner', 'admin'],
   description:
-    'A role to give on a project: `owner`, `admin`, `editor` or `viewer`, each including the ones after it. `member` is refused (400): give `viewer`.',
+    "A role to give on a project: `owner`, `admin`, `editor`, `runner` or `viewer`, each including the ones after it. A `runner` can run the project's agents and flows: start runs, use their tools inside those runs, stop their own runs, and keep their own schedules. `member` is refused (400): give `viewer`.",
 };
 
 export const ProjectSchema: JsonSchema = {
@@ -13852,6 +13871,11 @@ export const ProjectSchema: JsonSchema = {
       type: 'boolean',
       description:
         "`true`: end users' corrections (an app's, with a `participantId`, and not an expert's) are sorted like the others when they're saved, and a schedule counting everyone's corrections counts them. `false` (the default): they're listed and become test cases, but stay open and unsorted, and never start Improve.",
+    },
+    everyoneCanRun: {
+      type: 'boolean',
+      description:
+        "`true`: everyone in the project's workspace can run this project's agents and flows without a role of their own; service accounts aren't included. That reads nothing more than running takes: the project, the lists of its agents and flows, each of its flows, and each person's own runs, conversations and schedules. `false`: only people given a role. A new project has it unless its creator turns it off; existing projects and workspaces keep it `false` until a project admin turns it on. Absent from an older server.",
     },
     repoConnectionId: {
       type: 'string',
@@ -13925,6 +13949,11 @@ export const ProjectSpecSchema: JsonSchema = {
     description: { type: 'string' },
     orgId: { type: 'string' },
     isDefault: { type: 'boolean' },
+    everyoneCanRun: {
+      type: 'boolean',
+      description:
+        "Whether everyone in the project's workspace can run its agents and flows (the project's `everyoneCanRun`). `true` when left out; `false` to choose people one by one. Existing projects and workspaces keep it `false` until a project admin turns it on.",
+    },
   },
 };
 
@@ -13943,6 +13972,11 @@ export const ProjectPatchSchema: JsonSchema = {
       type: 'boolean',
       description:
         "Whether end users' corrections are sorted like the others and count toward a schedule (the project's `sortEndUserCorrections`). Admin on the project.",
+    },
+    everyoneCanRun: {
+      type: 'boolean',
+      description:
+        "Whether everyone in the project's workspace can run its agents and flows (the project's `everyoneCanRun`). Existing projects and workspaces keep it `false` until a project admin turns it on. Admin on the project. A runtime enforcing authorization that can't change the grant with it answers `501 authz-membership-unsupported`, and nothing changes.",
     },
   },
 };
@@ -14019,9 +14053,9 @@ export const AddProjectMembershipResultSchema: JsonSchema = {
 
 export const TeamProjectRoleSchema: JsonSchema = {
   type: 'string',
-  enum: ['viewer', 'editor', 'admin'],
+  enum: ['viewer', 'runner', 'editor', 'admin'],
   description:
-    "A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project.",
+    "A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `runner`, which includes `viewer`. A team never owns a project.",
 };
 
 export const TeamProjectGrantSchema: JsonSchema = {
@@ -14155,7 +14189,7 @@ export const ProjectAccessSchema: JsonSchema = {
     },
     role: {
       type: 'string',
-      enum: ['owner', 'admin', 'editor', 'viewer'],
+      enum: ['owner', 'admin', 'editor', 'runner', 'viewer'],
       description: 'The effective role: the highest any way in gives.',
     },
     via: {
@@ -18320,6 +18354,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['AccessPathTeam', AccessPathTeamSchema],
   ['AccessPathOrgAdmin', AccessPathOrgAdminSchema],
   ['AccessPathTenantAdmin', AccessPathTenantAdminSchema],
+  ['AccessPathEveryone', AccessPathEveryoneSchema],
   ['AccessPath', AccessPathSchema],
   ['MyProjectAccess', MyProjectAccessSchema],
   ['MyOrgAccess', MyOrgAccessSchema],

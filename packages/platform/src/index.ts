@@ -85,5 +85,6 @@ export type {
   TenantLimits,
   TenantSummary,
   UpdateProjectMemberRoleParams,
+  UpdateProjectParams,
   UpdateTeamMemberRoleParams,
 } from './tenant-hierarchy-binding.js';

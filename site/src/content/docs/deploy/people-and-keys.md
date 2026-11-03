@@ -50,8 +50,11 @@ With authorization on:
   only those in projects they read. One deployed without a project is the
   default project's.
 - **A role on a project** gives the work in it: its agents, runs and
-  conversations. The roles are `owner`, `admin`, `editor` and `viewer`
-  ([Project memberships](../authorization/#project-memberships)).
+  conversations. The roles are `owner`, `admin`, `editor`, `runner` and
+  `viewer` ([Project memberships](../authorization/#project-memberships)).
+  A `runner` can run: start runs of the project's agents and flows, use
+  their tools inside those runs, stop their own runs, and keep their own
+  schedules.
 - **A service account** has only what it's granted. It isn't a tenant member
   unless you make it one.
 - **A capability** is needed on top of the role to trust signing keys
@@ -142,8 +145,8 @@ curl -X POST "$KINDGI_API_URL/v1/projects/<project-id>/memberships" \
 
 - `<project-id>` is the project's id.
 - `email` names the person. `userId` names them by id instead.
-- `role` is their role on the project: `owner`, `admin`, `editor` or
-  `viewer`.
+- `role` is their role on the project: `owner`, `admin`, `editor`,
+  `runner` or `viewer`.
 
 The email matches whatever its case, and the answer names the person. Here a
 project admin added a viewer as `GUS@acme.test`:
@@ -380,14 +383,23 @@ a role.
   `secrets:reveal`; no one else holds any. An API key carries those it was
   minted with, none by default, and only ones its minter holds.
 - **`projects`:** each project you may read, with your highest role in it and
-  every way you hold one (`via`):
+  every way you hold one (`via`), and each one you may run because it lets
+  everyone in the workspace run it:
   - `direct`, or through a `team`, with `since` when the runtime keeps it;
   - `org-admin`, as an admin of the org it sits in;
-  - `tenant-admin`.
+  - `tenant-admin`;
+  - `everyone`, where the project lets everyone run it. With no role of
+    your own there, `role` is absent and this is the only `via`.
 - **`orgs` and `teams`:** your own, with your role in each.
 - **`capabilities`:** what each project role allows on the project and on
   each kind of object in it, read from the runtime's authorization model.
-  Your project role's entry is what you may do there.
+  Your project role's entry is what you may do there. A `runner`'s
+  `project` entry holds `run`: stopping their own runs and keeping their
+  own schedules. `runner` is absent from a runtime that has no such role.
+- **`everyoneCapabilities`:** what everyone in the workspace may do on a
+  project that lets everyone run it, by kind of object, for each project
+  whose `via` lists `everyone`, on top of any role you hold there. It's
+  absent from an older runtime.
 - **`licenseOperatorOnly`:** `true` when `GET /v1/license` refuses you
   whatever your role, because the license is the deployment operator's, as
   on a runtime serving many tenants; the console doesn't ask it then.

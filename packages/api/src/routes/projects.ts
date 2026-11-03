@@ -34,6 +34,7 @@ import {
 } from './hierarchy-errors.js';
 import { clampLimit } from './pagination.js';
 import { parseAssignableProjectRole } from './project-roles.js';
+import { actionOrRunRefusal, readableOrRun } from './runner-reach.js';
 
 /**
  * Projects resource routes — part of the multi-tenant hierarchy.
@@ -43,7 +44,9 @@ import { parseAssignableProjectRole } from './project-roles.js';
  *                                          `?limit=` / `?cursor=` / `?orgId=` /
  *                                          `?nameContains=`.
  *   - `POST   /`                         — create; body `{ name, slug,
- *                                          orgId?, description?, isDefault? }`;
+ *                                          orgId?, description?, isDefault?,
+ *                                          everyoneCanRun? }` (`true` unless
+ *                                          `false` is given);
  *                                          201 `{ id }`; 409 `slug-conflict`
  *                                          when its org (or, without an org,
  *                                          the tenant's projects without one)
@@ -57,7 +60,8 @@ import { parseAssignableProjectRole } from './project-roles.js';
  *   - `GET    /:projectId`               — get; 200 or 404 `project-not-found`.
  *   - `PATCH  /:projectId`               — partial update (`name`, `slug`,
  *                                          `description`, `orgId`,
- *                                          `sortEndUserCorrections`); 204, 404
+ *                                          `sortEndUserCorrections`,
+ *                                          `everyoneCanRun`); 204, 404
  *                                          `project-not-found` or 409
  *                                          `slug-conflict` (a new slug, or a
  *                                          move to an org that has it).
@@ -193,16 +197,18 @@ export function projectsRouter(
   }
 
   // ---------- GET /default (literal segment; must precede /:projectId) ----------
-  // Read on the default project, as `GET /:projectId` checks it: someone
-  // with a role on another project only gets 403, not its settings.
+  // Read on the default project, or `run` there, as `GET /:projectId`
+  // checks it: someone with a role on another project only gets 403, not
+  // its settings. A HEAD is served by the GET handler (Hono), so it's
+  // checked as GET.
   if (authorizer !== undefined) {
     r.use('/default', async (c, next) => {
-      if (c.req.method !== 'GET') return next();
+      if (c.req.method !== 'GET' && c.req.method !== 'HEAD') return next();
       const proj = await binding.getDefault(c.get('tenantId') as TenantId);
       // None: the handler answers 404.
       if (proj === undefined) return next();
-      const mw = authorizer.authorize('read', () => ref('project', proj.id as unknown as string));
-      return mw(c, next);
+      const id = proj.id as unknown as string;
+      return (await actionOrRunRefusal(authorizer, c, 'read', ref('project', id), id)) ?? next();
     });
   }
   r.get('/default', async (c) => {
@@ -238,11 +244,16 @@ export function projectsRouter(
       ...(nameContainsRaw !== undefined &&
         nameContainsRaw.length > 0 && { nameContains: nameContainsRaw }),
     });
-    // Authorization list-filter — strip projects the caller can't read.
+    // Authorization list-filter: strip the projects the caller can neither
+    // read nor run. The cursor is the store's, so a short page still moves on.
     const visible =
       authorizer !== undefined
-        ? await authorizer.filterByCan(c, 'read', page.items, (p) =>
-            ref('project', p.id as unknown as string),
+        ? await readableOrRun(
+            authorizer,
+            c,
+            page.items,
+            (p) => ref('project', p.id as unknown as string),
+            (p) => p.id as unknown as string,
           )
         : [...page.items];
     return c.json({
@@ -255,12 +266,12 @@ export function projectsRouter(
   // ---------- Authorization middleware ----------
   // Full PEP surface for projects + memberships:
   //   POST /                                     → admin on tenant
-  //   GET /:projectId                            → read on project
+  //   GET /:projectId                            → read or run on project
   //   PATCH /:projectId                          → admin on project
   //   DELETE /:projectId                         → delete on project
-  //   GET /:projectId/memberships[/:userId]      → read on project
+  //   GET /:projectId/memberships[/:userId]      → write on project
   //   other /:projectId/memberships[/:userId]    → admin on project
-  //   GET /                                       → list-filter by can_read
+  //   GET /                                      → list-filter by read or run
   if (authorizer !== undefined) {
     r.use('/', async (c, next) => {
       if (c.req.method !== 'POST') return next();
@@ -271,9 +282,14 @@ export function projectsRouter(
     });
     r.use('/:projectId', async (c, next) => {
       const method = c.req.method;
-      if (method !== 'GET' && method !== 'PATCH' && method !== 'DELETE') return next();
       const projectId = c.req.param('projectId');
-      const action = method === 'GET' ? 'read' : method === 'DELETE' ? 'delete' : 'admin';
+      // A HEAD is served by the GET handler (Hono), so it's checked as GET.
+      if (method === 'GET' || method === 'HEAD') {
+        const project = ref('project', projectId);
+        return (await actionOrRunRefusal(authorizer, c, 'read', project, projectId)) ?? next();
+      }
+      if (method !== 'PATCH' && method !== 'DELETE') return next();
+      const action = method === 'DELETE' ? 'delete' : 'admin';
       const mw = authorizer.authorize(action, () => ref('project', projectId));
       return mw(c, next);
     });
@@ -358,12 +374,24 @@ export function projectsRouter(
         ),
       );
     }
+    if (b.everyoneCanRun !== undefined && typeof b.everyoneCanRun !== 'boolean') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          { code: 'bad-input', message: '`everyoneCanRun` must be a boolean when present' },
+          requestId,
+        ),
+      );
+    }
     const spec: ProjectSpec = {
       name: b.name,
       slug: b.slug,
       ...(b.description !== undefined && { description: b.description as string }),
       ...(b.orgId !== undefined && { orgId: b.orgId as unknown as OrgId }),
       ...(b.isDefault !== undefined && { isDefault: b.isDefault as boolean }),
+      // Everyone in its org (else the workspace) can run it, unless its
+      // creator turns that off.
+      everyoneCanRun: b.everyoneCanRun !== false,
     };
     // With an authorizer, create through the tenant-hierarchy binding —
     // it writes FGA tuples atomically. The tuples are what makes downstream
@@ -757,7 +785,34 @@ export function projectsRouter(
       }
       shaped.sortEndUserCorrections = b.sortEndUserCorrections;
     }
-    const outcome = await binding.update(tenantId, projectId, shaped);
+    if (b.everyoneCanRun !== undefined) {
+      if (typeof b.everyoneCanRun !== 'boolean') {
+        c.status(statusFor('bad-input') as never);
+        return c.json(
+          toWireError(
+            { code: 'bad-input', message: '`everyoneCanRun` must be a boolean when present' },
+            requestId,
+          ),
+        );
+      }
+      shaped.everyoneCanRun = b.everyoneCanRun;
+    }
+    // `everyoneCanRun` is a grant as well as a column. With an authorizer, a
+    // patch that changes it goes whole through the tenant-hierarchy binding,
+    // which changes the project and the grant in one transaction, or the
+    // change is refused before anything is written. Any other patch, or no
+    // authorizer: the project binding. The route's own check is `admin` on
+    // the project, which changing it takes.
+    const withGrant = shaped.everyoneCanRun !== undefined && authorizer !== undefined;
+    if (withGrant && tenantHierarchy.updateProject === undefined) {
+      const refusal = membershipNotKeptInStepError('updateProject');
+      c.status(statusFor(refusal.code) as never);
+      return c.json(toWireError(refusal, requestId));
+    }
+    const outcome =
+      withGrant && tenantHierarchy.updateProject !== undefined
+        ? await tenantHierarchy.updateProject({ tenantId, projectId, patch: shaped })
+        : await binding.update(tenantId, projectId, shaped);
     if (outcome.kind === 'project-not-found') {
       c.status(statusFor('project-not-found') as never);
       return c.json(
@@ -876,6 +931,7 @@ function serializeProject(p: Project): Record<string, unknown> {
       productionSince: p.productionSince as unknown as string,
     }),
     sortEndUserCorrections: p.sortEndUserCorrections === true,
+    everyoneCanRun: p.everyoneCanRun === true,
     ...(p.repoConnectionId !== undefined && { repoConnectionId: p.repoConnectionId }),
     createdAt: p.createdAt as unknown as string,
     updatedAt: p.updatedAt as unknown as string,

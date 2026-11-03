@@ -20,7 +20,12 @@ import type { ProjectId, TenantId, UserId } from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
-import type { CreateAppInput, OrderItemKind, TokenResolver } from '../src/index.js';
+import type {
+  CreateAppInput,
+  IdentityDirectoryBinding,
+  OrderItemKind,
+  TokenResolver,
+} from '../src/index.js';
 import { environmentOrders } from './support/environment-orders.js';
 import { type Grant, type ItemRow, grantsAuthz, itemProjects } from './support/order-items.js';
 
@@ -94,6 +99,17 @@ function rows(retired = false): ItemRow[] {
     },
   ];
 }
+
+/** Who owns each agent, with `owned`, and the name the directory has for them. */
+const OWNER = 'user-acme-owner' as UserId;
+const OWNER_NAME = 'Acme Owner';
+const directory = {
+  async getUser({ userId }: { userId: UserId }) {
+    return userId === OWNER
+      ? { userId, tenantId, createdAt: '2026-10-01T00:00:00.000Z', displayName: OWNER_NAME }
+      : null;
+  },
+} as unknown as IdentityDirectoryBinding;
 
 /** When the retired item's versions were unregistered. */
 const RETIRED_AT = '2026-10-20T00:00:00.000Z';
@@ -183,6 +199,10 @@ const PEOPLE: Record<string, readonly Grant[]> = {
   'other-key': [`read agent:${SERVED}`, `read project:${OTHER}`],
   /** Reads prod, with a key limited to prod. */
   'prod-key': [`read project:${PROD}`],
+  /** May run in prod, and reads nothing: everyone may run there. */
+  'prod-runner': [`run project:${PROD}`],
+  /** May run the one-project items' project, and reads nothing. */
+  'solo-runner': [`run project:${OTHER}`],
   nobody: [],
 };
 
@@ -203,7 +223,8 @@ const resolveToken: TokenResolver = async (token) => {
  * item-projects binding: every item has one project. Without `authorized`,
  * no authorizer. With `projectless`, no record names a project, as
  * `kindgi dev`'s pack read from disk. With `retired`, every version of the
- * order's item is unregistered.
+ * order's item is unregistered. With `owned`, every agent has an owner the
+ * directory names.
  */
 function harness(
   opts: {
@@ -213,6 +234,7 @@ function harness(
     authorized?: boolean;
     projectless?: boolean;
     retired?: boolean;
+    owned?: boolean;
   } = {},
 ) {
   const at = (projectId: ProjectId) => (opts.projectless === true ? undefined : projectId);
@@ -228,7 +250,10 @@ function harness(
     ]
       .filter((r) => opts.soloOnly !== true || r.id === SOLO)
       // A test set's kind is an eval kind, and the list holds those it lists.
-      .map((r) => (prefix === 'test_set' ? { ...r, kind: 'custom' } : r));
+      .map((r) => (prefix === 'test_set' ? { ...r, kind: 'custom' } : r))
+      .map((r) =>
+        prefix === 'agent' && opts.owned === true ? { ...r, owner: { userId: OWNER } } : r,
+      );
   const registries = Object.fromEntries(
     KINDS.map((k) => [k.registry, registry(k.idKey, records(k.kind))]),
   ) as unknown as Partial<CreateAppInput>;
@@ -241,6 +266,7 @@ function harness(
     ...(opts.authorized !== false && { authz: authz.authz }),
     ...(opts.served !== false && { itemProjects: items }),
     ...(opts.ordered !== false && { environmentOrders: environmentOrders([[STAGING, PROD]]) }),
+    ...(opts.owned === true && { identityDirectory: directory }),
   } as CreateAppInput);
   const get = async (who: string, path: string) => {
     const res = await app.request(path, {
@@ -249,7 +275,14 @@ function harness(
     const text = await res.text();
     return { status: res.status, text, body: JSON.parse(text) as Record<string, any> };
   };
-  return { get, asked: authz.asked, batches: authz.batches, items: items.asked };
+  const head = async (who: string, path: string) =>
+    (
+      await app.request(path, {
+        method: 'HEAD',
+        headers: { authorization: `Bearer ${who}`, 'x-request-id': 'req-order-items' },
+      })
+    ).status;
+  return { get, head, asked: authz.asked, batches: authz.batches, items: items.asked };
 }
 
 const pathOf = (k: Kind, id: string, rest = '') => `${k.path}/${id}${rest}`;
@@ -358,12 +391,19 @@ describe.each(KINDS)('a $kind that an order carries: GET /:id', (k) => {
     expect(await row('nobody', '?includeRetired=true')).toBeUndefined();
   });
 
-  test('a list page asks the binding once for its projects and checks its projects in one batch', async () => {
+  test('a list page asks the binding once for its projects and checks its projects in one batch per action', async () => {
     const { get, items, batches } = harness();
     await get('prod', k.path);
     expect(items.filter((a) => a.startsWith('projectsOfMany'))).toHaveLength(1);
     expect(items.filter((a) => a.startsWith('newestVisibleOfMany'))).toHaveLength(1);
-    expect(batches.filter((b) => b.includes(STAGING) || b.includes(PROD))).toHaveLength(1);
+    const onProjects = (action: string) =>
+      batches.filter(
+        (b) => b.startsWith(`${action} `) && (b.includes(STAGING) || b.includes(PROD)),
+      );
+    expect(onProjects('read')).toHaveLength(1);
+    // The agent and flow lists hold what the caller may run too: one `run`
+    // batch, on the projects it doesn't read.
+    expect(onProjects('run')).toHaveLength(k.kind === 'agent' || k.kind === 'flow' ? 1 : 0);
   });
 
   test('a page of one-project items: no project batch, no newest-version ask, the same checks as before', async () => {
@@ -382,6 +422,119 @@ describe.each(KINDS)('a $kind that an order carries: GET /:id', (k) => {
     expect((await get('prod', pathOf(k, SERVED))).body.version).toBe('1.0.0');
     expect((await get('prod', pathOf(k, SERVED, '/versions/1.1.0'))).status).toBe(404);
   });
+});
+
+describe('agents and flows a person may run, though not read', () => {
+  const agent = KINDS.find((k) => k.kind === 'agent') as Kind;
+  const flow = KINDS.find((k) => k.kind === 'flow') as Kind;
+  const ids = (res: { body: Record<string, any> }) =>
+    (res.body.data as { id: string; version: string }[]).map((r) => `${r.id}@${r.version}`);
+
+  test.each([agent, flow])(
+    "the $kind list holds those in a project it may run, an order's at that project's newest, and no other",
+    async (k) => {
+      const { get } = harness();
+      expect(ids(await get('solo-runner', k.path))).toEqual([`${SOLO}@2.0.0`]);
+      expect(ids(await get('prod-runner', k.path))).toEqual([`${SERVED}@1.0.0`]);
+      expect(ids(await get('nobody', k.path))).toEqual([]);
+    },
+  );
+
+  test.each([agent, flow])(
+    "the $kind list's project filter passes on run there, and is read's 403 elsewhere",
+    async (k) => {
+      const { get } = harness();
+      const filtered = (projectId: string) => `${k.path}?scopeKind=project&scopeId=${projectId}`;
+      expect((await get('solo-runner', filtered(OTHER))).status).toBe(200);
+      expect((await get('solo-runner', filtered(PROD))).status).toBe(403);
+    },
+  );
+
+  test("a flow reads on run in its project; an order's at the newest that project runs", async () => {
+    const { get } = harness();
+    const solo = await get('solo-runner', pathOf(flow, SOLO));
+    expect(solo.status, solo.text).toBe(200);
+    expect(solo.body.version).toBe('2.0.0');
+    const served = await get('prod-runner', pathOf(flow, SERVED));
+    expect(served.status, served.text).toBe(200);
+    expect(served.body.version).toBe('1.0.0');
+  });
+
+  test.each([agent, flow])(
+    "the $kind's versions and one of them read on run in its project; an order's, those that run there",
+    async (k) => {
+      const { get, head } = harness();
+      const soloList = await get('solo-runner', pathOf(k, SOLO, '/versions'));
+      expect(soloList.status, soloList.text).toBe(200);
+      expect(ids(soloList)).toEqual([`${SOLO}@1.0.0`, `${SOLO}@2.0.0`]);
+      const soloOne = await get('solo-runner', pathOf(k, SOLO, '/versions/2.0.0'));
+      expect(soloOne.status, soloOne.text).toBe(200);
+      expect(soloOne.body.version).toBe('2.0.0');
+      expect(ids(await get('prod-runner', pathOf(k, SERVED, '/versions')))).toEqual([
+        `${SERVED}@0.9.0`,
+        `${SERVED}@1.0.0`,
+      ]);
+      expect((await get('prod-runner', pathOf(k, SERVED, '/versions/1.0.0'))).status).toBe(200);
+      // Staging's alone: as one that doesn't exist.
+      expect((await get('prod-runner', pathOf(k, SERVED, '/versions/1.1.0'))).status).toBe(404);
+      for (const rest of ['', '/versions', '/versions/2.0.0']) {
+        expect(await head('solo-runner', pathOf(k, SOLO, rest))).toBe(200);
+      }
+    },
+  );
+
+  test.each([agent, flow])(
+    "a $kind in a project it may not run is read's 403: by id, its versions, one of them, and their HEAD",
+    async (k) => {
+      const { get, head } = harness();
+      for (const [who, id] of [
+        ['prod-runner', SOLO],
+        ['solo-runner', SERVED],
+      ] as const) {
+        for (const rest of ['', '/versions', '/versions/1.0.0']) {
+          expect((await get(who, pathOf(k, id, rest))).status).toBe(403);
+          expect(await head(who, pathOf(k, id, rest))).toBe(403);
+        }
+      }
+    },
+  );
+
+  test('an agent reads on run in its project, its owner by id alone; a reader gets the name', async () => {
+    const { get } = harness({ owned: true });
+    const solo = await get('solo-runner', pathOf(agent, SOLO));
+    expect(solo.status, solo.text).toBe(200);
+    expect(solo.body.version).toBe('2.0.0');
+    expect(solo.body.owner).toEqual({ userId: OWNER });
+    const served = await get('prod-runner', pathOf(agent, SERVED));
+    expect(served.status, served.text).toBe(200);
+    expect(served.body.version).toBe('1.0.0');
+    expect(served.body.owner).toEqual({ userId: OWNER });
+    expect((await get('solo', pathOf(agent, SOLO))).body.owner).toEqual({
+      userId: OWNER,
+      name: OWNER_NAME,
+    });
+    expect((await get('prod', pathOf(agent, SERVED))).body.owner).toEqual({
+      userId: OWNER,
+      name: OWNER_NAME,
+    });
+  });
+
+  test("an agent's other reads stay closed to run: the projects it runs in", async () => {
+    const { get } = harness();
+    expect((await get('solo-runner', pathOf(agent, SOLO, '/projects'))).status).toBe(403);
+  });
+
+  test.each(KINDS.filter((k) => k.kind !== 'agent' && k.kind !== 'flow'))(
+    'a $kind stays closed to run: by id, its versions, one of them, and its list',
+    async (k) => {
+      const { get, head } = harness();
+      for (const rest of ['', '/versions', '/versions/2.0.0']) {
+        expect((await get('solo-runner', pathOf(k, SOLO, rest))).status).not.toBe(200);
+        expect(await head('solo-runner', pathOf(k, SOLO, rest))).not.toBe(200);
+      }
+      expect(ids(await get('solo-runner', k.path))).toEqual([]);
+    },
+  );
 });
 
 describe.each(KINDS.filter((k) => k.type !== undefined))(
