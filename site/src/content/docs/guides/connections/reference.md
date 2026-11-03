@@ -30,7 +30,7 @@ choice or a person's main says which one a call uses
 
 Each connection has a name, its `label`, that people know it by. It's the
 name given at the connect, or else the account's, such as an email address.
-Its owner or a workspace admin can change it
+Its owner or a tenant admin can change it
 (`PATCH /v1/connections/{connectionId}`). A name is 1 to 100 characters
 once spaces at either end are trimmed, with no control, format or invisible
 character, such as a bidi override, a zero-width joiner or a line
@@ -48,7 +48,7 @@ Only a connection's owner and your workspace's admins can see, rename or
 remove it. A project's members see the names of the company's connections
 it can use, so they can tell them apart
 ([Who sees what](../choose-a-connection/#who-sees-what)). Registering an app
-is for workspace admins only.
+is for tenant admins only.
 
 ## Where the token is kept
 
@@ -209,7 +209,7 @@ there.
 
 ## Disconnecting
 
-The connection's owner, or a workspace admin, disconnects it from the
+The connection's owner, or a tenant admin, disconnects it from the
 console's **Connections** page, or from a terminal, by its id from
 `kindgi connections list`:
 

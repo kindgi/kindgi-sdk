@@ -34,7 +34,7 @@ turn on: skip
 The steps after it are the same, with two differences:
 - **Register the site with the CLI signed in to Kindgi Cloud**
   ([Sign the CLI in](../../hosted/deploy-your-agent/#sign-the-cli-in)).
-  It takes a workspace admin's key, with **How far it goes** set to
+  It takes a tenant admin's key, with **How far it goes** set to
   **Admin** and **Where it works** to **Every project it can reach**. A
   **Member** key, or one for only one project, gets
   `403 permission-denied`.

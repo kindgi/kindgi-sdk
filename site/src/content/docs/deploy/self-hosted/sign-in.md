@@ -199,7 +199,7 @@ KINDGI_AUTH_TENANT_PROVIDERS=off
 ```
 
 - **Only the deployment's own token** (`KINDGI_API_TOKEN`) can then add,
-  change or remove a provider. A workspace admin's change is refused with
+  change or remove a provider. A tenant admin's change is refused with
   `403 identity-providers-operator-managed`:
 
   ```text

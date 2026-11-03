@@ -86,7 +86,7 @@ export interface OrgBinding {
    * when one of them has the slug of a project that has no org, and
    * deletes nothing. A storage that holds environment orders (the Kindgi
    * runtime's) answers `org-has-environment-order` instead, naming the
-   * order, when the org is the parent of one, and deletes nothing: a workspace
+   * order, when the org is the parent of one, and deletes nothing: a tenant
    * admin clears the order first. `ok`: the org is deleted, or wasn't there
    * (or was already deleted — idempotent).
    */
