@@ -18752,7 +18752,7 @@ class ConnectRequest(BaseModel):
     """
     connection_id: Annotated[UUID | None, Field(alias="connectionId")] = None
     """
-    The connection it made.
+    The connection it made, or the one it reconnected. A `declined` connect names it too when it kept what the app allowed; one that left the connection as it was names none.
     """
     connect_url: Annotated[AnyUrl, Field(alias="connectUrl")]
     """

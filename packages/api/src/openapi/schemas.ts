@@ -17358,7 +17358,12 @@ export const ConnectRequestSchema: JsonSchema = {
       description:
         "A GitHub App's, while it's `pending`: the app's installations the person's GitHub account reaches, when the finish found several and none was picked. They pick one and start again with `installationId`, or install the app on another account with `newInstallation`.",
     },
-    connectionId: { type: 'string', format: 'uuid', description: 'The connection it made.' },
+    connectionId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        'The connection it made, or the one it reconnected. A `declined` connect names it too when it kept what the app allowed; one that left the connection as it was names none.',
+    },
     connectUrl: { type: 'string', format: 'uri', description: 'Where the owner starts.' },
     expiresAt: { type: 'string', format: 'date-time' },
     createdAt: { type: 'string', format: 'date-time' },
