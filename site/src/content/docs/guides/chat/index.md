@@ -86,10 +86,15 @@ Anything these agents return may appear in your Claude chat.
 
 ## Disconnect
 
-In the console, open **My access**. Under **Chat apps**, choose
-**Disconnect** next to Claude.
+In the console, open **My access**, then its **Chat apps** page. Each chat
+app shows by the address it goes back to, so Claude shows as `claude.ai`.
+Choose **Disconnect** next to it, then **Disconnect it**.
+
+Claude stops acting for you at once: its next request to Kindgi is refused,
+and it can't sign in again on its own. To use it again, connect it from
+claude.ai.
 
 Removing the connector in claude.ai doesn't end what you allowed in Kindgi,
 so disconnect in Kindgi too.
 
-<!-- To confirm: how the Chat apps list names Claude, and what Disconnect ends at once. -->
+<!-- To confirm: the Chat apps page's words and its Disconnect button, once they're in a build. -->
