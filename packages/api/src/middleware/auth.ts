@@ -112,7 +112,8 @@ export interface TokenResolution {
   readonly providerId?: string;
   /**
    * Optional OAuth scopes granted to the session. Only populated by
-   * session-token verification.
+   * session-token verification, and by `mcpServer.resolveToken` for a
+   * chat app's token at `/mcp`.
    */
   readonly scopes?: readonly string[];
   /**
