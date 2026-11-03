@@ -12191,7 +12191,7 @@ class Connection(BaseModel):
     """
     main: bool | None = None
     """
-    Only ever `true`: the person's main connection through its registration in its env, the one their agents use when no choice names another. A person's first connection has none; their second connect makes the first their main. The company's has none.
+    Only ever `true`: the person's main connection through its registration in its env, the one their agents use when no choice names another. A person's first connection has none; their second connection makes the first their main. The company's has none.
     """
     permissions: list[str]
     """

@@ -115,7 +115,7 @@ export interface ConnectionRecord {
    * A person's connection that is their main one through its registration
    * in its env: their agents use it when nothing chooses another. Only ever
    * `true`; absent on every other connection, the company's too. A person's
-   * first connection gets no main; their second connect makes the first
+   * first connection gets no main; their second connection makes the first
    * one main.
    */
   readonly main?: boolean;
