@@ -612,6 +612,7 @@ describe('a site enrolls its key (public)', () => {
 
   test.each([
     [{ kind: 'refused' } as const, 401, 'site-enrollment-refused'],
+    [{ kind: 'key-retired' } as const, 409, 'site-enrollment-key-retired'],
     [{ kind: 'invalid-key', message: 'not Ed25519' } as const, 400, 'site-key-invalid'],
     [{ kind: 'rate-limited', retryAfterSeconds: 30 } as const, 429, 'rate-limit-exceeded'],
   ])('maps %o', async (enroll, status, code) => {

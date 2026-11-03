@@ -134,7 +134,8 @@ export function nodeModulesExternalPlugin(
         if (resolved.errors.length > 0 || resolved.external) return undefined;
         if (/[\\/]node_modules[\\/]/.test(resolved.path)) {
           onExternal?.(packageName(args.path), args.importer, args.path);
-          const path = importBy === 'bare' ? args.path : resolvedSpecifier(resolved.path, args.kind);
+          const path =
+            importBy === 'bare' ? args.path : resolvedSpecifier(resolved.path, args.kind);
           return { path, external: true };
         }
         return undefined;
