@@ -29,7 +29,8 @@ export type FlowError =
   | InvalidFanoutNodeError
   | InvalidSubflowNodeError
   | InvalidMappingError
-  | InvalidFlowOutputError;
+  | InvalidFlowOutputError
+  | InvalidMcpExposureError;
 
 export interface SchemaValidationError {
   readonly code: 'schema-validation-failed';
@@ -318,5 +319,17 @@ export interface InvalidFlowOutputError {
   readonly message: string;
   readonly flowId: FlowId;
   /** Meta-schema validation issues (Ajv-style path + message). */
+  readonly issues: readonly { readonly path: string; readonly message: string }[];
+}
+
+/**
+ * A flow with `mcp.expose: true` whose id can't be a tool's name: the tool
+ * is `flow.<id>`, so the id takes letters, digits, `_`, `-` and `.`, at
+ * most 123 characters.
+ */
+export interface InvalidMcpExposureError {
+  readonly code: 'invalid-mcp-exposure';
+  readonly message: string;
+  readonly flowId: FlowId;
   readonly issues: readonly { readonly path: string; readonly message: string }[];
 }

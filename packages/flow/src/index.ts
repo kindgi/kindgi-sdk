@@ -57,6 +57,7 @@ export type {
   InvalidEdgePolicyError,
   InvalidFanoutNodeError,
   InvalidFlowOutputError,
+  InvalidMcpExposureError,
   InvalidMappingError,
   InvalidPredicateError,
   InvalidSubflowNodeError,

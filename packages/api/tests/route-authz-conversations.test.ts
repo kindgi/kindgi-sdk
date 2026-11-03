@@ -9,7 +9,9 @@
  * needs `write` on its project (or agent). A caller refused on one they
  * can't read gets the answer for a conversation that doesn't exist, byte
  * for byte; one who can read it keeps the 403. Closing one doesn't take
- * reading it.
+ * reading it. One a person opened in a project they may run (though not
+ * read) is theirs to read, with its messages and in the list; another
+ * person's stays hidden.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -46,6 +48,10 @@ const inP = conversation(P);
 const legacy = conversation();
 const Q = randomUUID();
 const inQ = conversation(Q);
+/** Opened by the caller (`user-1`), and by another person, in P; by the caller before projects. */
+const callersInP = { ...conversation(P), openedBy: 'user:user-1' } as Conversation;
+const anothersInP = { ...conversation(P), openedBy: 'user:user-2' } as Conversation;
+const callersLegacy = { ...conversation(), openedBy: 'user:user-1' } as Conversation;
 
 /** The same person's keys limited to a project: Q's, and P's. */
 const LIMITED_TO_Q = 'route-authz-conversations-q';
@@ -72,7 +78,14 @@ function harness(
     authzOn = true,
     projects,
     gone = [],
-  }: { authzOn?: boolean; projects?: readonly string[]; gone?: readonly string[] } = {},
+    list,
+  }: {
+    authzOn?: boolean;
+    projects?: readonly string[];
+    gone?: readonly string[];
+    /** The store's pages; unset, one page of `inP` and `legacy`. */
+    list?: ConversationBinding['listConversationsPage'];
+  } = {},
 ) {
   const asked: string[] = [];
   const decide = (action: Action, r: ResourceRef): Decision => {
@@ -87,7 +100,9 @@ function harness(
   /** The refusals the authorizer decided itself and recorded, as `<action> <type>:<id> <failing>`. */
   const recorded: string[] = [];
   const reached: string[] = [];
-  const stored = [inP, legacy, inQ].filter((c) => !gone.includes(c.id as unknown as string));
+  const stored = [inP, legacy, inQ, callersInP, anothersInP, callersLegacy].filter(
+    (c) => !gone.includes(c.id as unknown as string),
+  );
   const conversations = {
     getConversation: async (_t: TenantId, id: string) => {
       const found = stored.find((c) => c.id === id);
@@ -96,10 +111,12 @@ function harness(
         ? { kind: 'err', error: { code: 'conversation-not-found', message: 'x' } }
         : { kind: 'ok', value: found };
     },
-    listConversationsPage: async () => ({
-      kind: 'ok',
-      value: { data: [inP, legacy], hasMore: false },
-    }),
+    listConversationsPage:
+      list ??
+      (async () => ({
+        kind: 'ok',
+        value: { data: [inP, legacy], hasMore: false },
+      })),
     openConversation: async () => {
       reached.push('open');
       return { kind: 'ok', value: inP };
@@ -229,6 +246,86 @@ describe('reading conversations needs read on their project (or agent)', () => {
       data: { id: string }[];
     };
     expect(body.data.map((c) => c.id)).toEqual([inP.id]);
+  });
+});
+
+describe('a conversation a person opened, in a project they may run', () => {
+  test('is theirs to read, with its messages: read refused, then run allowed', async () => {
+    const { call, asked, reached } = harness([`run project:${P}`]);
+    expect((await call('GET', `/v1/conversations/${callersInP.id}`)).status).toBe(200);
+    expect((await call('GET', `/v1/conversations/${callersInP.id}/messages`)).status).toBe(200);
+    expect(asked).toEqual([
+      `read project:${P}`,
+      `run project:${P}`,
+      `read project:${P}`,
+      `run project:${P}`,
+    ]);
+    expect(reached).toEqual(['messages']);
+  });
+
+  test('one another person opened stays hidden: the 404 a missing one gets, run never asked', async () => {
+    const grants = [`run project:${P}`];
+    for (const path of [
+      `/v1/conversations/${anothersInP.id}`,
+      `/v1/conversations/${anothersInP.id}/messages`,
+    ]) {
+      const { call, asked, reached } = harness(grants);
+      expect(await answer(await call('GET', path))).toEqual(
+        await asIfMissing(grants, 'GET', path, anothersInP.id),
+      );
+      expect(asked).toEqual([`read project:${P}`]);
+      expect(reached).toEqual([]);
+    }
+  });
+
+  test('one they opened before projects is read on its agent alone', async () => {
+    const grants = [`run project:${P}`];
+    const path = `/v1/conversations/${callersLegacy.id}`;
+    const { call, asked } = harness(grants);
+    expect(await answer(await call('GET', path))).toEqual(
+      await asIfMissing(grants, 'GET', path, callersLegacy.id),
+    );
+    expect(asked).toEqual([`read agent:${AGENT}`]);
+  });
+
+  test("the list holds theirs and no one else's", async () => {
+    const { call } = harness([`run project:${P}`], {
+      list: async () => ({
+        kind: 'ok',
+        value: { data: [inP, callersInP, anothersInP, callersLegacy], hasMore: false },
+      }),
+    });
+    const body = (await (await call('GET', '/v1/conversations')).json()) as {
+      data: { id: string }[];
+    };
+    expect(body.data.map((c) => c.id)).toEqual([callersInP.id]);
+  });
+
+  test("a page of only another person's answers no rows and the next cursor; following it reaches theirs", async () => {
+    const pages: ConversationBinding['listConversationsPage'] = async (input) =>
+      input.before === undefined
+        ? {
+            kind: 'ok',
+            value: {
+              data: [anothersInP],
+              hasMore: true,
+              next: { openedAt: anothersInP.openedAt, id: anothersInP.id },
+            },
+          }
+        : { kind: 'ok', value: { data: [callersInP], hasMore: false } };
+    const { call } = harness([`run project:${P}`], { list: pages });
+    const first = (await (await call('GET', '/v1/conversations?limit=1')).json()) as {
+      data: { id: string }[];
+      hasMore: boolean;
+      nextCursor?: string;
+    };
+    expect(first.data).toEqual([]);
+    expect(first.hasMore).toBe(true);
+    expect(first.nextCursor).toBeDefined();
+    const second = (await (
+      await call('GET', `/v1/conversations?limit=1&cursor=${first.nextCursor ?? ''}`)
+    ).json()) as { data: { id: string }[] };
+    expect(second.data.map((c) => c.id)).toEqual([callersInP.id]);
   });
 });
 

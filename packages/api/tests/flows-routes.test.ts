@@ -333,6 +333,56 @@ describe('API — flows get', () => {
     expect(body.edges).toHaveLength(4);
   });
 
+  test('mcp: as published when it is set; absent, no key, so the answer is as before', async () => {
+    const { app } = makeApp();
+    const publish = async (body: Record<string, unknown>) => {
+      const res = await app.request('/v1/flows', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      expect(res.status).toBe(201);
+    };
+    const mcp = { expose: true, destructive: true };
+    await publish({ ...flowPostBody(), mcp });
+    await publish({ ...flowPostBody(), id: 'ingest.plain' });
+    const read = async (path: string) => {
+      const res = await app.request(path, { headers: { authorization: `Bearer ${TOKEN}` } });
+      expect(res.status).toBe(200);
+      return (await res.json()) as Record<string, unknown> & { data?: Record<string, unknown>[] };
+    };
+    for (const [id, has] of [
+      ['ingest.contract-pdf', true],
+      ['ingest.plain', false],
+    ] as const) {
+      const answers = [
+        await read(`/v1/flows/${id}`),
+        await read(`/v1/flows/${id}/versions/1.0.0`),
+        ...((await read('/v1/flows')).data ?? []).filter((f) => f.id === id),
+      ];
+      expect(answers).toHaveLength(3);
+      for (const f of answers) {
+        if (has) expect(f.mcp).toEqual(mcp);
+        else expect(JSON.stringify(f)).not.toContain('"mcp"');
+      }
+    }
+  });
+
+  test("an exposed flow whose id can't make a tool's name → 400 invalid at /mcp/expose", async () => {
+    const { app } = makeApp();
+    const res = await app.request('/v1/flows', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ ...flowPostBody(), id: 'a'.repeat(124), mcp: { expose: true } }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; details?: { issues?: { path: string; message: string }[] } };
+    };
+    expect(body.error.code).toBe('validation-failed');
+    expect(body.error.details?.issues?.[0]?.path).toBe('/mcp/expose');
+  });
+
   test('publish + get roundtrip for a flow with a foreach loop node', async () => {
     const { app } = makeApp();
     const publish = await app.request('/v1/flows', {

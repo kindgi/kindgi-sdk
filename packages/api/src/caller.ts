@@ -114,6 +114,21 @@ export function callerRef(c: Context<AppEnv>): string | undefined {
 }
 
 /**
+ * Whom a run the request starts acts for (a run's `actsFor`): the person or
+ * service account it acts on behalf of, else its actor, as `user:<id>` or
+ * `service_account:<id>`. `undefined` for anyone else (an agent on its
+ * own, the system) and for a request with no principal.
+ */
+export function actsForOf(c: Context<AppEnv>): string | undefined {
+  const principal = c.get('principal');
+  const who = principal?.onBehalfOf ?? principal?.actor;
+  if (who === undefined) return undefined;
+  return who.kind === 'user' || who.kind === 'service_account'
+    ? `${who.kind}:${who.id}`
+    : undefined;
+}
+
+/**
  * Who the request comes from, always: the caller's principal (`user:…`,
  * `service_account:…`; an API key with neither is its own service account),
  * else the session it came with, else the credential itself (`token:` and

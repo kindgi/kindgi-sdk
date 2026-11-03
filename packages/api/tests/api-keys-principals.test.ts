@@ -666,7 +666,7 @@ describe('/v1/service-accounts', () => {
       role: 'boss',
     });
     expect(boss.body.error).toMatchObject({
-      message: "A project grant's `role` must be one of: viewer, editor, owner, admin",
+      message: "A project grant's `role` must be one of: viewer, runner, editor, owner, admin",
     });
   });
 

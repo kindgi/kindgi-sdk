@@ -8,6 +8,7 @@ import type {
   Brand,
   ConversationId,
   FileValue,
+  McpExposure,
   ProjectId,
   Semver,
   TenantId,
@@ -589,6 +590,14 @@ export interface Agent {
    * model may ask for.
    */
   readonly parallelToolCalls?: boolean;
+  /**
+   * Whether the agent is a tool in a person's chat app, through the API's
+   * MCP server, named by its id. Absent, or `expose: false`: it isn't one.
+   * With `expose: true`, the id must be a tool's name (letters, digits,
+   * `_`, `-` and `.`, at most 128) and can't start with `kindgi.` or
+   * `flow.`, the prefixes Kindgi keeps.
+   */
+  readonly mcp?: McpExposure;
   /**
    * The exact block versions this agent version runs, resolved by the
    * runtime when the version was published (see `AgentPins`). Never

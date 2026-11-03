@@ -1253,13 +1253,16 @@ describe('which company connection a call uses', () => {
         choices: ['sales', 'support'],
       });
       expect(stringsOf(t.thrown).join(' ')).not.toContain('conn-');
-      if (key !== undefined) expect(t.records.get(key)).toEqual(notChosen);
+      if (key !== undefined) expect(t.records.get(key)).toEqual({ ...notChosen, as: 'company' });
     },
   );
 
-  test('the record keeps the choices, and a ready connection its name', async () => {
+  test('the record keeps the choices and whose need it was, and a ready connection its name', async () => {
     const refused = await turn({ needs: { shared }, answers: [notChosen] });
-    expect(refused.records.get(`connection-gate:${CALL}`)).toEqual(notChosen);
+    expect(refused.records.get(`connection-gate:${CALL}`)).toEqual({
+      ...notChosen,
+      as: 'company',
+    });
 
     const ready = await turn({ needs: { shared }, answers: [readyOn({ shared: support })] });
     expect(ready.records.get(`connection-gate:${CALL}`)).toEqual({
@@ -1269,6 +1272,20 @@ describe('which company connection a call uses', () => {
       },
     });
     expect(ready.ran[0]?.connections?.shared?.name).toBe('support');
+  });
+
+  test('an older record, with no `as`, replays as before: the turn fails, and nothing is asked', async () => {
+    const records = new Map<string, unknown>([[`connection-gate:${CALL}`, notChosen]]);
+    const t = await turn({ needs: { shared }, records });
+    expect(t.asked).toEqual([]);
+    expect(t.ran).toEqual([]);
+    expect(t.thrown).toBeInstanceOf(AgentTurnFailure);
+    expect((t.thrown as AgentTurnFailure).payload).toEqual({
+      code: 'connection-not-chosen',
+      message: notChosen.kind === 'refused' ? notChosen.message : '',
+      connection: 'shared',
+      choices: ['sales', 'support'],
+    });
   });
 
   test("the record says how each was picked, and names a person's connection by its app and account id only", async () => {
