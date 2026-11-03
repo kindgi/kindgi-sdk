@@ -535,6 +535,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // `POST /v1/auth/sites/enroll`: a wrong, used or expired code, or a
   // paused or unregistered site, all alike.
   'site-enrollment-refused': 401,
+  // A key the site, or another site in the tenant at the same address,
+  // retired: only once the code checks out, and the code isn't used up.
+  'site-enrollment-key-retired': 409,
   'site-key-invalid': 400,
   // `POST /v1/auth/site-sign-in`: a statement refused; `details.reason` says why.
   'site-sign-in-refused': 401,
@@ -702,10 +705,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'webhook-url-refused': 400,
   'webhook-secret-not-found': 400,
   'webhook-secret-too-weak': 400,
-  // Connections (`/v1/connection-apps`, `/v1/connections`).
+  // Connections (`/v1/connection-apps`, `/v1/connections`, `/v1/connection-choices`).
   'connection-app-not-found': 404,
   'connection-not-found': 404,
   'connection-request-not-found': 404,
+  /** A choice that isn't there, or is removed: `details.choiceId` names it. */
+  'connection-choice-not-found': 404,
   /** A registration that doesn't fit its entry; `field` names what. */
   'connection-app-invalid': 400,
   'connection-app-unknown-entry': 400,
@@ -725,6 +730,25 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'connection-state-expired': 410,
   /** A reconnect signed in to an account other than the connection's. */
   'connection-account-mismatch': 409,
+  /**
+   * A connect's or a rename's `label` another live connection of the same
+   * app, owner and env has, by `comparableName`: `details.field` is
+   * `label`.
+   */
+  'connection-label-taken': 409,
+  /**
+   * A call needs a connection of an app, there are several in the env,
+   * and nothing picks one: the turn fails. A company need's names them in
+   * `details.choices`; a person's counts them in the message and lists
+   * none. Or a mail trigger's create or patch names no
+   * `config.mailbox.connectionId`, and on the company's mailbox the
+   * project has several of the app: `details.choices` lists them
+   * (`{connectionId, name}`, sorted by name). On a person's, its owner has
+   * several and no main: the message counts them, and lists none. Either
+   * way `details.field` is `config.mailbox.connectionId`, and nothing
+   * changes.
+   */
+  'connection-not-chosen': 409,
   /**
    * A connect, or its finish, for a connection still being disconnected:
    * disconnect it again to finish, then connect.

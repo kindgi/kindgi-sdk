@@ -1,5 +1,165 @@
 # @kindgi/compliance
 
+## 0.4.0
+
+### Patch Changes
+
+- 24c1f9d: **Who published a block version, and where it came from.** A block version now records `publishedBy` (`{ kind: "user" | "service", id }`, the caller) and `source`: `{ kind: "api" }` for `POST /v1/blocks`, `{ kind: "deploy", id }` with the deployment's id for a version a deploy's pack brought, and `{ kind: "suggested-change", id }` for one a suggested change published. `GET /v1/blocks/{blockId}` and its versions answer both. A version published before they were recorded has neither. `BlockPublishInput` takes both, so a store keeps them. A deploy mints its deployment's id before it publishes the pack's blocks, and `DeploymentRegisterInput.deploymentId` passes it to the store.
+  
+  **A block an agent version uses as its model settings takes only model settings.** `POST /v1/blocks` refuses a new settings version of such a block when its values aren't model settings, or name the model an agent version that uses it names too (`400 validation-failed`, naming the agent version). A deployment answers which agent versions use a block through the new `BlockUseBinding` (`blockUse` on the app). Without it, the publish isn't checked this way.
+  
+  **Audit events.** Publishing, unregistering and reinstating a block version (`block-version-published`, `block-version-unregistered`, `block-version-reinstated`), and registering and unregistering a model provider (`provider-registered`, `provider-unregistered`), are recorded with the caller as their actor. A deploy records each block version it publishes once its deployment is recorded. The events name the block and version, or the provider and its adapter, and never a block's content or a provider's key.
+- d508659: **A deploy never puts back an older block without saying so.** Before anything is published, `POST /v1/deployments` compares each of the pack's data blocks with the newest version that runs now in any project of the pack's agents: a project's own version (pinned, or Latest added from a suggested change) or a segment pin inside one. When the files' version is older, the deploy stops with `409 deploy-would-put-back-older-blocks` and writes nothing. `details.blocks` says, for each block, the files' version and the newest that runs, where, who made it run there, when, and the pull request opened for it. Every project counts, whoever deploys; in a project the caller can't read, the stop names the version only. The same version, a newer one in the files, and a block that runs nowhere all pass.
+  
+  - **`replace`.** The deploy's body names each block it puts back on purpose, `replace: [{ blockId, reason }]` (a reason of 1 to 500 characters). The deployment records each one (`replaced`: the block, the version that ran, the files' one, the reason and who deployed), and the audit log keeps one `deployment-replaced-block` event per block. A `replace` naming a block that nothing newer runs for is accepted and not recorded.
+  - **`POST /v1/deployments/check`.** The same answer, with nothing written: `{ projectId?, agents, blocks, replace? }`, with the deploy's own right. `200 { replaced, notNeeded }` when the deploy can go, the deploy's `409` when it would stop, and `501 runs-in-unsupported` on a runtime that doesn't read pins and Latest, whose deploys aren't checked either.
+  - **A promotion that pins.** `POST /v1/deployments/{deploymentId}/promotions` with `pin` runs the same check against what runs in the target project only, on the build's `contents.blocks`, before anything moves; its body takes `replace` (with `pin` only), and its answer's `blockCheck` says what was put back on purpose, what `replace` didn't need, and `checked: false` for a build deployed before deployments kept their blocks. The deployment a promotion makes keeps its own `replaced` (who promoted, and why), never the source's; a repeat leaves it as it is. Each block put back is one `deployment-replaced-block` event.
+  - **What runs.** `whatRunsByProject`'s segment pins carry their pin (`pin`: when it was set, and by which pin change).
+  - **TypeScript client.** `client.deployments.check(input)`, with `CheckDeploymentInput`, `DeployCheckResult` and `DeployCheckStop`; `replace` on `register`'s input, and `replaced` on the deployments it answers.
+  - **`kindgi deploy`.** It asks the check before an image is built, and on a stop prints each block, its version in the files and the newer one that runs (where, by whom, when), then "Nothing was deployed.", what keeps the newer versions, and the command that drops them; it exits `1`. `--replace=<block>` (repeatable) with `--reason=<text>` puts blocks back on purpose, and `--dry-run` checks too. A runtime without the check deploys as before, and a key the check refuses (`403`) goes on without it; each says so in one line.
+  - **`kindgi promote --pin`.** The same table on a stop ("Nothing was promoted."), exit `1`, nothing moved; `--replace=<block>` (repeatable, with `--pin` only) with `--reason=<text>`; and after a promotion, each block put back, each `--replace` not needed, or that none is older than what runs in the target.
+- f2adcc2: **An operator can set a pack's env name to a cloud secret.** On a runtime that runs a pack service for each deployment, a name a pack reads from its env can be set, at a tenant's scope and under one env, to a numbered version of a secret the operator's cloud holds, `projects/<project>/secrets/<secret>/versions/<number>`, instead of to a value. The runtime keeps that path and never reads the value: the pack service is given the name, and its cloud reads the value as the pack service's own account. A version is a number, never `latest` or an alias, and a secret whose id starts with `kp-` is refused (`400 cloud-secret-invalid`): those are the pack services' own copies.
+  
+  Only the operator sets one, with a system key holding the new scope `system:env-refs`: `PUT`, `GET` and `DELETE` on `/v1/system/tenants/{tenantId}/env[/{name}]`, or `kindgi env set NAME --cloud-secret <path> --tenant=<id> --scope=… --env=…`, `kindgi env unset NAME --cloud-secret …` and `kindgi env list --cloud-secret …`. A tenant's own key is refused, on `PUT /v1/env/{name}` with a `cloudSecret` too (`403 cloud-secret-system-only`). A runtime serving one tenant with a pack service per deployment mints `system:env-refs` keys from its own token, for that tenant alone. The runtime keeps them only with the new setting `KINDGI_ENV_CLOUD_SECRETS=on`, which needs `KINDGI_PACK_ROUTING=per-deployment`. Off, the default, it keeps none, and the routes answer `501 cloud-secrets-unsupported`. Each change is an `env-set` or `env-deleted` audit row naming the system key, marked `cloudSecret`, never with the path. `createInMemoryEnvCloudSecretBinding` is a store for dev and tests, and `parseCloudSecretVersion` checks a path.
+  
+  The tenant sees which names are set this way, never the path: `GET /v1/env/cloud-secrets` lists them, the pack-env check names each as `kind: "cloud-secret"`, and `kindgi env list --scope` prints it as `NAME (cloud secret)`. The orchestrator's pack-env answer gives each by its path, in `cloudSecrets`, and setting, changing or removing one moves the pack env revision. A name set to a cloud secret and also as a value or a secret is `pack-env-ambiguous`, and its `names` entry carries `cloudSecretScope`. An orchestrator whose host can't give a pack service a cloud secret records `pack-env-cloud-secret-unsupported`. The TypeScript client's `systemEnv` has `setCloudSecret`, `deleteCloudSecret` and `listCloudSecrets`, and `env.listCloudSecrets` is the tenant's list.
+- 1bd877d: **Choosing what a project runs is a pin, for agents as for flows and tools.** This is a breaking rename, and no old name is kept.
+  
+  - **Routes.** An agent's `/promotions` is `/pinned/pin`, `/promotions/check` is `/pinned/check`, `/promotions` and `/promotions/{promotionId}` are `/pin-history` and `/pin-history/{changeId}`, `/live` is `/pinned`, `/live-versions` is `/pinned-versions`, and `/live/unpin` is `/pinned/unpin`. `/live/rollback` is removed: going back is a pin of an earlier version, with the same release gate and approval.
+  - **Fields and values.**
+    - `promotionId` is `changeId`: on a pinned version, in a deployment's pin gate, in a suggested change's `rolledBack` and in a refused pin's `details`. A suggested change's `promotion` is `pin`.
+    - A pin's status `promoted` is `pinned`, and the check's outcome `would-promote` is `would-pin`. A pin's action is `pin` or `unpin`.
+    - What an agent resolves to: `via: 'live'` is `'pinned'`, and `liveScope` is `pinnedScope`. A run's `via` value `live` is `pinned`, and so is a queue rule's `when.versions` value. A `when.versions` entry that is neither an exact version, such as `1.2.0`, nor `pinned` is a 400.
+    - A suggested change's pin: `liveNow` is `pinnedNow`.
+    - A test run's comparison baseline `{ live: … }` is `{ pinned: … }`, and a compared version's `via` value `live` is `pinned`. The CLI's `--baseline live` is `--baseline pinned`.
+    - Unregistering an agent version that is pinned answers `agent-version-pinned` (was `agent-version-live`), like flows and tools, and the scopes it is pinned in are `pinned` (was `live`).
+    - The approval subject `agent-promotion` is `agent-pin`, and the permission `promote` on an agent is `pin`.
+    - The audit kinds `agent-promotion`, `agent-promotion-refused`, `agent-live-unpinned` and `agent-live-pin-inactive` are `agent-pinned`, `agent-pin-refused`, `agent-unpinned` and `agent-pin-inactive`. `agent-rollback` is removed, since going back is a pin.
+  - **Errors.** `promotion-not-found`, `promotion-superseded` and `promotion-gate-unsupported` are `pin-not-found`, `pin-superseded` and `pin-gate-unsupported`, and `live-scope-spans-environments` is `pin-scope-spans-environments`, the code a flow or tool pin answers, with the same body. `nothing-to-roll-back` is removed with the rollback route. Environment promotion's codes keep their names.
+  - **Messages.** A pin's gate checks call the version a test run is measured against "the pinned version" (was "the live version"), and `release-gate-scope-unpinned` says the scope has no pinned version of its own.
+  - **Schemas and types.** `Promotion`, `PromotionPage`, `PromotionCheck` and `SuggestedChangePromotion` are `Pin`, `PinPage`, `PinCheck` and `SuggestedChangePin`. `PromoteBody` and `UnpinBody` are `AgentPinBody` and `AgentUnpinBody`. `LivePin`, `LivePinList` and `LiveVersionResolution` are `AgentPinnedVersion`, `AgentPinnedVersionList` and `AgentPinnedVersionResolution`. An agent's pin scope is `AgentPinScope`: its tenant, org and project kinds are the `PinScope*` schemas flows and tools use, and its segment kind is `PinScopeSegment`.
+  - **Binding.** A runtime implements `AgentPinnedVersionBinding` (was `LiveVersionBinding`) and `PinBinding` (was `PromotionBinding`), with `AgentPinBindings` and `AgentPinGateDeps` (were `AgentReleaseBindings` and `AgentReleaseGateDeps`). Their types take the `Pin` names: `Pin`, `PinStatus`, `PinAction`, `PinError`, `PinErrorCode`, `PinRequestInput`, `ListPinHistoryInput`, `AgentPinInput`, `AgentUnpinInput`, `AgentPinnedVersion`, `AgentPinResolution` and `AgentPinResolveInput`. `PromotionActor` and `PinActor` are one `PinActor`. `liveScopeCoordinates` is `agentPinScopeCoordinates`. `rollback` and `RollbackInput` are removed. An unregister that a pin refuses answers `pinned` (was `live`). In `@kindgi/types`, `LiveScope` is `AgentPinScope`, and a run's `liveScope` is `pinnedScope` in `@kindgi/runtime` and `@kindgi/agents`.
+  - **TypeScript client.** `client.agents.pinned` has `resolve`, `list`, `pin`, `check`, `unpin`, `history` and `getChange`; `client.agents.promotions` and `client.agents.live` are removed. The client's types are `AgentPinnedClient`, `AgentPinnedWhere` (`PinnedWhere` stays the flow and tool lookup), `AgentUnpinInput` and `ListPinHistoryFilter`.
+  - **CLI.** `kindgi agents promote` is `kindgi agents pin`, `promotions list|get` is `pin-history list|get`, `live` is `pinned` and `live-versions` is `pinned-versions`. `kindgi agents rollback` is removed. `<promotion-id>` is `<change-id>`, and `--to` went with `rollback`.
+  - **Unchanged.** Environment promotion keeps its name: `kindgi promote` and `POST /v1/deployments/{deploymentId}/promotions`.
+- 156abe4: **A suggested change is made for one project, and checked on that project's test set.** This is a breaking change.
+  
+  - **Making one.** `POST /v1/suggested-changes` takes `agentId`, `projectId`, `block`, then `values` (a settings block) or `template` (a prompt block), `why` and `fixes` (at most 100 ids, each a correction in the project). `fromVersion`, `scope`, `tier`, `change` and `evidence` are gone from the body.
+    - It's built on the version the project runs. Its block version and agent version are published, and serve nothing until it's pinned.
+    - Its check starts at once: the answer is `201`, with status `checking`.
+    - The same change on the same version for the same project returns the one made before, with `X-Suggested-Change-Deduped`.
+    - In a later environment of an environment order it's refused (`409 environment-takes-promotions`). Make it in the order's first environment: the new version reaches later environments when a build is promoted.
+    - A read-only agent registry refuses making or checking one (`409 registry-read-only`), before anything else, unless it takes Improve's candidates (`RegistryReadOnly.takesCandidates`), as `kindgi dev`'s does.
+  - **Its check.** Its version (`with`) and the version it's built on (`now`) run the same cases of the project's test set. The set is frozen when the check starts.
+    - `POST /v1/suggested-changes/{suggestedChangeId}/check` checks it again, so new corrections count.
+    - `check` replaces `evaluate` and `rescore`, which are removed with their bodies.
+  - **Statuses.** The server derives these: `checking`, `check-failed`, `ready`, `waiting-for-second-person`, `pinned`, `added-as-latest` and `withdrawn`. A pin the gate refused, a second person rejected, or whose approval expired leaves it `ready`, with a `note` that says why.
+  - **A deploy's suggested changes.** A deploy that registers a new agent version makes one for it in each project that runs a pinned other version of the agent (`madeBy: deploy`). A project on Latest gets none. With environment orders, it's made when the deployment is promoted into the next project, unless the promotion makes the version live there.
+    - Its one change is the code: `{ kind: 'code', deploymentId, imageDigest }`.
+    - Its version is the deploy's, and it's never rebuilt: once its project moves, pinning it is `409 suggested-change-out-of-date` with `rebuilding: false`.
+    - Its check runs its version on the project's test set. `now` is the newest finished run of the version the project runs on the same frozen cases. With none, the check has no `now`, and its `note` is `{ kind: 'not-running', version }`.
+    - With no cases in the project's test set yet, it's made unchecked (`check-failed`).
+    - A deploy or a promotion never fails because one couldn't be made: it's logged.
+  - **The answer.** A suggested change carries:
+    - `projectId` and `title`;
+    - `madeBy`: who or what made it, which is an Improve run, a person, a service account, a deploy or an offer;
+    - `builtOn` and `version`;
+    - `changes`: the block, with `from` and `to` (`kind: 'block'`). `GET` of one also adds the content `before` and `after`. A deploy's is the code (`kind: 'code'`);
+    - `why` and `fixes`;
+    - `check`;
+    - `status` and `note` (a pin that didn't go through, or a deploy's `not-running`);
+    - `pinned`, `approvalId`, `addedAsLatest` and `withdrawn`.
+  
+    `fromVersion`, `scope`, `tier`, `change`, `evidence`, `candidate`, `evaluation`, `promotion` and `rolledBack` are gone.
+  - **Listing.** `GET /v1/suggested-changes` filters by `agentId`, `projectId`, `status` and `madeBy` (one of its kinds). The `tier` and scope filters are gone.
+  - **Pinning.** `POST /v1/suggested-changes/{suggestedChangeId}/pin` pins its version for its project, through the project's release gate policy, as before. For a project that runs Latest it's refused (`409 pin-stops-latest`) unless the body has `stopFollowingLatest: true`, which takes the project off Latest.
+  - **If the project moves first.** A suggested change built on a version its project no longer runs is rebuilt on the version the project runs now: its block change made again there (a prompt keeps its wording; settings keep the values it changed and take every other value from what runs now), a new version, and a new check. `builtOn.rebuiltAt` says when.
+    - Pinning one (not waiting for a second person) or adding one as Latest rebuilds the project's other `ready` and `check-failed` ones for the agent at once.
+    - Checking one again rebuilds it first when its project moved.
+    - Pinning or adding one whose project moved is refused (`409 suggested-change-out-of-date`), and starts its rebuild (`details.rebuilding`). One the project's version already has, or whose block it no longer uses, isn't rebuilt (`rebuilding: false`).
+  - **Adding it as Latest.** `POST /v1/suggested-changes/{suggestedChangeId}/add-as-latest` is new. It makes its version its project's Latest, now, for a project on Latest, with no gate. `reason` is kept on its `addedAsLatest`. It's refused for a project that runs a pin (`409 suggested-change-project-pinned`). It needs `pin` on the agent, and it's allowed from `ready`.
+  - **One made before this change.** One made for a tenant, an org or a segment reads with the project its version was made in, when that's known. It can only be withdrawn: checking or pinning it is `409 suggested-change-not-for-a-project`.
+  - **Errors.** Five codes are new:
+    - `suggested-change-not-for-a-project` (409);
+    - `suggested-change-check-unsupported` (501): the runtime freezes no test set;
+    - `suggested-change-nothing-to-check` (409): the project has no cases. When the host passes a correction registry (createApp's `correctionRegistry`), they're read before its test set is frozen, so no empty version of it is made;
+    - `suggested-change-project-pinned` (409);
+    - `suggested-change-out-of-date` (409).
+  - **Audit events.** Making one, pinning it, adding it as Latest and withdrawing it are recorded, in its project, with the caller as the actor: `suggested-change-created`, `suggested-change-pinned` (with its promotion, and whether it's pinned or waits for a second person), `suggested-change-added-as-latest` and `suggested-change-withdrawn`. Each names the suggested change, its agent, block, versions and who made it, never its content, its `why` or a reason. The same change sent again records nothing. `EVIDENCE_KINDS` lists the four kinds. The `kind` examples in `compliance-evidence.schema.json` list them too, with the block version and provider kinds.
+  - **An agent's own test set id is reserved.** Ids that start with `agent.` are agents' own test sets, and only a check or a test run makes their versions. `POST /v1/test-sets` and `POST /v1/test-sets/{testSetId}/versions/from-corrections` answer one from any caller with `400 bad-input`, and the TypeScript client and `kindgi test-sets from-corrections` refuse it before sending (`invalid-request`). A test set with such an id published before keeps reading and running, but a new version of it is refused: publish it under another id. `AGENT_TEST_SET_ID_PREFIX` and `isAgentTestSetId` are exported.
+  - **Deriving an agent version through the API is gone.** `POST /v1/agents/{agentId}/versions` is removed, with `client.agents.versions.derive`, `DeriveAgentVersionInput` and `kindgi agents derive`. A suggested change makes an agent version from a block's new content, and checks it. A version derived before keeps its `derivedFrom`.
+  - **Binding.** `TestSetFreezeBinding` freezes a project's test set for a check. With it and suggested changes, `createApp` makes a deploy's suggested changes, through the service's new `fromDeploy` (`DeployCardsInput`, `DeployCardsOutcome`). A stored suggested change's `tier` can be `code` (`StoredSuggestedChangeTier`), with a `CodeChange` (`StoredChange`), and a candidate's `blockVersion` is optional, since a deploy's has none. `agentTestSetId(agentId, projectId)` is the id it freezes under: `agent.<agentId>.<projectId>`. A stored suggested change keeps who drafted its content as `drafter` (`SuggestedChangeDrafter`). It gains `madeBy` (`SuggestedChangeMaker`), `builtOnVersion`, `rebuiltAt` and `addedAsLatest`, and a store records the new `rebuilt` and `added-as-latest` steps. A `rebuilt` step moves it onto a new version: it sets `builtOnVersion`, `rebuiltAt` and its block change there, clears its candidate, evaluation and promotion, and keeps its fingerprint.
+  - **TypeScript client.**
+    - `client.suggestedChanges.create` takes the new body.
+    - `check` replaces `evaluate` and `rescore`.
+    - `addAsLatest` is new.
+    - `list` takes `projectId`, `status` and `madeBy`.
+    - `SuggestedChange` follows the answer: a change is a block's or a deploy's code, and a `note` can be `not-running`. `ProposalTier` and `EvaluateProposalInput` are removed.
+  - **CLI.**
+    - `kindgi suggested-changes create` replaces `draft`. It needs `--project`, takes `--fixes` (a correction id, more than once) in place of `--correction`, and drops `--from-version`, `--tenant`, `--org` and `--segment`.
+    - `check` replaces `evaluate`: it checks it again, and takes only `--wait`.
+    - `pin` replaces `request`.
+    - `add-as-latest` is new, with `--reason`.
+    - `list` takes `--project`, and drops the scope flags and `--tier`.
+    - `get` names each correction in `fixes` that its author has replaced since, with the live one that replaced it and its status, on stderr. One it couldn't check gets a line that says why. `fixes` keeps the ids it names.
+    - The table shows each one's check, for example `25/27 (now 23/27)`. Its BLOCK column is CHANGE: a block and its version, or `code (deploy <deployment-id>)`.
+- 1131ec3: **Eval runs are now test runs.** This is a breaking rename, and no old name is kept.
+  
+  - **Routes.** `/v1/eval-runs` is `/v1/test-runs`, with `{testRunId}` in its paths; `cancel`, `events` and `rescore` keep their sub-paths. `POST /v1/test-sets/{testSetId}/runs` still starts one.
+  - **Fields and values.**
+    - A test run's own id is `testRunId`: in the start and rescore answers, the run view and the list rows, where it was `runId`. Ids of agent runs, such as a case's `runIds`, keep their names.
+    - `evalRunId` is `testRunId` everywhere it names a test run: in the agent pin body, in a run's replay marker (`{ of, testRunId }`), in a replay's provenance, and in `/v1/runs`'s filter.
+    - The stream's events `eval-run.completed`, `eval-run.failed`, `eval-run.cancelled`, `eval-run.case-completed` and `eval-run.case-failed` are `test-run.*`, with the same endings.
+    - The compliance evidence kind `eval-run` is `test-run`.
+    - `GET /v1/compliance/evidence?kind=` answers 400 for a kind that is neither a built-in evidence kind nor one the classifier names, such as `eval-run`. It was an empty page. A kind the classifier names but doesn't mark exportable is still an empty page.
+  - **Errors.** Codes starting `eval-run-` start `test-run-`.
+  - **Schemas and types.** `EvalRun*` names are `TestRun*`. A comparison's `EvalComparison`, `EvalBaseline`, `EvalOverrides` and `EvalSample` are `TestRunComparison`, `TestRunBaseline`, `TestRunOverrides` and `TestRunSample`, and the types `EvalReads` and `EvalGroupWeights` are `TestRunReads` and `TestRunGroupWeights`. The `@kindgi/api` export `EvalSubjectInvoker`, which a test run calls to run each case, is `TestRunSubjectInvoker`.
+  - **TypeScript client.** `client.evalRuns` is `client.testRuns`.
+  - **CLI.** `kindgi eval-runs` is `kindgi test-runs`, and `--eval-run` is `--test-run` (on `kindgi agents pin` and `kindgi runs list`). `kindgi exports create` writes them as `test-runs`.
+- Updated dependencies [b25b82f]
+- Updated dependencies [d92355b]
+- Updated dependencies [d6c9279]
+- Updated dependencies [6380c49]
+- Updated dependencies [f2adcc2]
+- Updated dependencies [9b015f7]
+- Updated dependencies [9a8a294]
+- Updated dependencies [1bd877d]
+- Updated dependencies [265fffb]
+- Updated dependencies [d779ec5]
+- Updated dependencies [dff9515]
+- Updated dependencies [d576ff4]
+  - @kindgi/types@0.4.0
+  - @kindgi/platform@0.4.0
+  - @kindgi/audit-events@0.4.0
+  - @kindgi/log@0.4.0
+
+## 0.3.1
+
+### Patch Changes
+
+- @kindgi/audit-events@0.3.1
+  - @kindgi/log@0.3.1
+  - @kindgi/platform@0.3.1
+  - @kindgi/types@0.3.1
+
+## 0.3.1-rc.1
+
+### Patch Changes
+
+- @kindgi/audit-events@0.3.1-rc.1
+  - @kindgi/log@0.3.1-rc.1
+  - @kindgi/platform@0.3.1-rc.1
+  - @kindgi/types@0.3.1-rc.1
+
+## 0.3.1-rc.0
+
+### Patch Changes
+
+- @kindgi/audit-events@0.3.1-rc.0
+  - @kindgi/log@0.3.1-rc.0
+  - @kindgi/platform@0.3.1-rc.0
+  - @kindgi/types@0.3.1-rc.0
+
 ## 0.3.0
 
 ### Patch Changes

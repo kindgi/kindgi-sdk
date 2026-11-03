@@ -4,7 +4,7 @@
 import type { Cursor, TenantId } from '@kindgi/types';
 
 /**
- * Caller-plugged surface for the tenant-policy catalog, part of the
+ * Caller-plugged surface for the workspace-policy catalog, part of the
  * admin control plane. Registry-only: publish +
  * read; enforcement is out of scope. Every runtime consumer of a policy
  * (for example the capability router for `model-routing`) reads it from
@@ -12,7 +12,7 @@ import type { Cursor, TenantId } from '@kindgi/types';
  *
  * Mirrors `AgentRegistryBinding` / `FlowRegistryBinding` (both in
  * `@kindgi/api`) 1:1 — same
- * versioned-CRUD shape, same tenant-scoped inputs, same opaque cursors,
+ * versioned-CRUD shape, same workspace-scoped inputs, same opaque cursors,
  * same "unregister a specific version" semantics.
  *
  * The wire shape is intentionally kind-neutral: `policyKind` selects the
@@ -88,7 +88,7 @@ export interface PolicyRegistryBinding {
    * domain), refuse with `scope-taken` when another policy id of the
    * kind holds the scope through an active version, and `scope-changed`
    * when any other version of this id, tombstoned ones included, holds a
-   * different scope. Check and write under one lock per tenant and kind,
+   * different scope. Check and write under one lock per workspace and kind,
    * so two publishes can't both take a scope.
    */
   publish(input: PolicyPublishInput): Promise<PolicyPublishOutcome>;
@@ -118,12 +118,12 @@ export interface PolicyRegistryBinding {
  *
  * - `access-control` — principal × resource × action allow / deny
  *   rules.
- * - `model-routing` — the tenant routing policy (`TenantPolicy`) that
+ * - `model-routing` — the workspace routing policy (`TenantPolicy`) that
  *   `route` in `@kindgi/capabilities` applies: provider / model allow
  *   and deny lists, `regionAllow`, per-call cost and token caps.
- * - `adapter-allowlist` — narrows the adapters a tenant can see at the
+ * - `adapter-allowlist` — narrows the adapters a workspace can see at the
  *   `/v1/adapters/*` surface.
- * - `rate-limit` — per-tenant, per-key rate caps for a rate-limit
+ * - `rate-limit` — per-workspace, per-key rate caps for a rate-limit
  *   middleware.
  * - `retention` — how long tombstoned rows are kept before hard purge,
  *   per domain (see `RetentionSpec`).
@@ -170,7 +170,7 @@ export function isAppliedPolicyKind(kind: PolicyKind): kind is AppliedPolicyKind
 }
 
 /**
- * Wire shape for a single tenant policy. `spec` is a JSON object whose
+ * Wire shape for a single workspace policy. `spec` is a JSON object whose
  * shape is dictated by `kind` — the registry treats it as opaque JSON
  * so new kinds can extend the catalog without touching this file.
  * Runtime consumers deserialize `spec` against their own contract.
@@ -384,7 +384,7 @@ export interface PolicyEvalContext {
  * policy `spec`'s shape for its kind — the registry is opaque.
  *
  * The executor is expected to:
- *   1. Fetch policies of `kind` for the tenant (from the caller-plugged
+ *   1. Fetch policies of `kind` for the workspace (from the caller-plugged
  *      `PolicyRegistryBinding`, cached however it likes)
  *   2. Merge / reduce them into a single decision shape (intersect
  *      allow lists, union deny lists, min-of caps, etc.)

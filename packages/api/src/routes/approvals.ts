@@ -41,6 +41,7 @@ import type {
 } from '../hitl-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { databaseBusyAnswer } from '../middleware/error-mapper.js';
+import { isReadMethod } from '../read-method.js';
 import { type ResumeReport, resumeAnswer, resumeInline } from '../resume-inline.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
@@ -228,13 +229,13 @@ export function approvalsRouter(
   // check, as it records every one.
   r.use('*', async (c, next) => {
     let role = await callerReviewerRole(c, reviewerBinding);
-    if (role === undefined && c.req.method === 'GET' && (await readsAsTenantAdmin(c))) {
+    if (role === undefined && isReadMethod(c.req.method) && (await readsAsTenantAdmin(c))) {
       role = 'admin';
       c.set('reviewerRole', role);
     }
     if (role === undefined) {
       return refused(c, authorizer, {
-        action: c.req.method === 'GET' ? 'read' : 'admin',
+        action: isReadMethod(c.req.method) ? 'read' : 'admin',
         resource: ref('tenant', c.get('tenantId') as unknown as string),
         message:
           "The caller isn't a reviewer: its token carries no reviewer role, and its user isn't registered as one (`kindgi reviewers register`). The approvals surface is reviewer-only.",
@@ -679,7 +680,7 @@ export function approvalsRouter(
       return refused(c, authorizer, {
         action: 'admin',
         resource: ref('tenant', c.get('tenantId') as unknown as string),
-        message: 'No reviewer row registered for this user under this tenant.',
+        message: 'No reviewer row registered for this user under this workspace.',
         failing: 'actor',
       });
     }
@@ -983,9 +984,15 @@ function serializeApproval(a: Approval): Record<string, unknown> {
   };
 }
 
-/** The person's account the call would use, field by field. */
+/** The connection the call would use, field by field. */
 function approvalConnection(connection: ApprovalConnection): Record<string, unknown> {
-  return { app: connection.app, appName: connection.appName, account: connection.account };
+  return {
+    app: connection.app,
+    appName: connection.appName,
+    ...(connection.as !== undefined && { as: connection.as }),
+    ...(connection.account !== undefined && { account: connection.account }),
+    ...(connection.name !== undefined && { name: connection.name }),
+  };
 }
 
 function serializeApprovalDecision(d: ReviewDecisionRecord): Record<string, unknown> {

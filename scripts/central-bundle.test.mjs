@@ -14,10 +14,10 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { after, before, describe, test } from 'node:test';
+import { after, afterEach, before, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { bundleArtifacts, bundleEntries } from './central-bundle.mjs';
+import { bundleArtifacts, bundleEntries, retryDelay } from './central-bundle.mjs';
 import { ARTIFACTS } from './check-jars.mjs';
 import { writeZip } from './lib/zip.mjs';
 
@@ -93,12 +93,48 @@ describe('the bundle', () => {
 // ---- the Portal, stood in for -------------------------------------------------------
 
 /** What the stand-in Portal and repository were asked, and how they answer. */
-const portal = { calls: [], states: [], onCentral: new Set(), uploads: [] };
+const portal = {
+  calls: [],
+  states: [],
+  onCentral: new Set(),
+  uploads: [],
+  repository: [],
+  status: [],
+  upload: [],
+};
 let server;
 let url;
 
 const TOKEN = `Bearer ${Buffer.from('token-user:token-pass').toString('base64')}`;
 const DEPLOYMENT = '3fa85f64-5717-4562-b3fc-2c963f66afa6';
+
+/** The next of a list of answers: it shifts while there's more than one, and the last one repeats. */
+const next = (answers) => (answers.length > 1 ? answers.shift() : answers[0]);
+
+/**
+ * Answers as a server that isn't answering properly when `entry` says so: a
+ * status number (answered with no body), 'drop' (the connection is reset),
+ * 'hang' (never answered) or 'stall' (a 200's headers, and a body that never
+ * finishes). False for 'serve', or no entry: the usual answer.
+ */
+function misbehave(entry, request, response) {
+  if (typeof entry === 'number') response.writeHead(entry).end();
+  else if (entry === 'drop') request.socket.destroy();
+  else if (entry === 'stall')
+    response.writeHead(200, { 'content-type': 'application/json' }).write('{');
+  else if (entry !== 'hang') return false;
+  return true;
+}
+
+/** The status call's answer: the deployment's next state, and the Portal's errors when it failed. */
+function answerStatus(searchParams, response) {
+  const state = portal.states.length > 1 ? portal.states.shift() : portal.states[0];
+  const status = { deploymentId: searchParams.get('id'), deploymentState: state };
+  if (state === 'FAILED') {
+    status.errors = { 'pkg:maven/com.kindgi/kindgi-pack@1.2.3': ['Missing signature'] };
+  }
+  response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(status));
+}
 
 /** The stand-in's answer: the repository's HEADs, then the Portal's three calls, with the token. */
 function answer(request, response, body) {
@@ -106,10 +142,12 @@ function answer(request, response, body) {
   const call = `${request.method} ${pathname}`;
   portal.calls.push(call);
   if (request.method === 'HEAD' && pathname.startsWith('/maven2/')) {
+    if (misbehave(next(portal.repository), request, response)) return;
     response.writeHead(portal.onCentral.has(pathname.split('/')[4]) ? 200 : 404).end();
   } else if (request.headers.authorization !== TOKEN) {
     response.writeHead(401).end('unauthorized');
   } else if (call === 'POST /api/v1/publisher/upload') {
+    if (misbehave(next(portal.upload), request, response)) return;
     portal.uploads.push({
       publishingType: searchParams.get('publishingType'),
       name: searchParams.get('name'),
@@ -117,12 +155,8 @@ function answer(request, response, body) {
     });
     response.writeHead(201).end(DEPLOYMENT);
   } else if (call === 'POST /api/v1/publisher/status') {
-    const state = portal.states.length > 1 ? portal.states.shift() : portal.states[0];
-    const status = { deploymentId: searchParams.get('id'), deploymentState: state };
-    if (state === 'FAILED') {
-      status.errors = { 'pkg:maven/com.kindgi/kindgi-pack@1.2.3': ['Missing signature'] };
-    }
-    response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(status));
+    if (misbehave(next(portal.status), request, response)) return;
+    answerStatus(searchParams, response);
   } else if (call === `DELETE /api/v1/publisher/deployment/${DEPLOYMENT}`) {
     response.writeHead(204).end();
   } else {
@@ -153,7 +187,9 @@ writeFileSync(
   ]),
 );
 
+/** Runs the script on `args`; a last argument `{ env, spawnTimeout }` adds to its env and stops it after that many ms. */
 function run(...args) {
+  const { env = {}, spawnTimeout } = typeof args.at(-1) === 'object' ? args.pop() : {};
   portal.calls = [];
   portal.uploads = [];
   const child = spawn(process.execPath, [SCRIPT, ...args], {
@@ -164,7 +200,9 @@ function run(...args) {
       KINDGI_CENTRAL_PORTAL_URL: url,
       KINDGI_CENTRAL_REPOSITORY_URL: `${url}/maven2`,
       KINDGI_CENTRAL_POLL_SECONDS: '0',
+      ...env,
     },
+    timeout: spawnTimeout,
   });
   let output = '';
   child.stdout.on('data', (chunk) => {
@@ -177,6 +215,12 @@ function run(...args) {
 }
 
 describe('the Portal', () => {
+  afterEach(() => {
+    portal.repository = [];
+    portal.status = [];
+    portal.upload = [];
+  });
+
   test('a dry run uploads for validation only, waits, and drops the deployment', async () => {
     portal.states = ['PENDING', 'VALIDATING', 'VALIDATED'];
     const { status, output } = await run('validate', '--bundle', bundle);
@@ -231,6 +275,143 @@ describe('the Portal', () => {
     assert.match(output, /is still PUBLISHING after 0\.0001 minutes: see it on/);
   });
 
+  const calls = (prefix) => portal.calls.filter((call) => call.startsWith(prefix)).length;
+  const STATUS = 'POST /api/v1/publisher/status';
+  const UPLOAD = 'POST /api/v1/publisher/upload';
+
+  test('a release reads the Portal again after a 503, a 429, a 408 and a dropped connection, and says so each time', async () => {
+    portal.onCentral = new Set();
+    portal.states = ['PUBLISHING', 'PUBLISHED'];
+    portal.status = [503, 429, 408, 'drop', 'serve'];
+    const { status, output } = await run('publish', '--bundle', bundle);
+    assert.equal(status, 0, output);
+    assert.match(output, /published kindgi-java-parent, kindgi-pack at 1\.2\.3/);
+    const retries = output.split('\n').filter((line) => line.includes('reading the Portal again'));
+    const poll = `POST /api/v1/publisher/status\\?id=${DEPLOYMENT}`;
+    assert.equal(retries.length, 4, output);
+    assert.match(retries[0], new RegExp(`${poll}: HTTP 503; reading the Portal again in 0 s`));
+    assert.match(retries[1], new RegExp(`${poll}: HTTP 429; reading the Portal again in 0 s`));
+    assert.match(retries[2], new RegExp(`${poll}: HTTP 408; reading the Portal again in 0 s`));
+    assert.match(
+      retries[3],
+      new RegExp(`${poll}: fetch failed\\b.*; reading the Portal again in 0 s`),
+    );
+    assert.equal(calls(STATUS), 6);
+    assert.deepEqual(portal.uploads, [
+      { publishingType: 'AUTOMATIC', name: 'kindgi-jvm 1.2.3', field: true },
+    ]);
+  });
+
+  test("a release's check for a version Central has reads Central again after a 503 and a dropped connection", async () => {
+    portal.onCentral = new Set();
+    portal.repository = [503, 'drop', 'serve'];
+    portal.states = ['PUBLISHED'];
+    const { status, output } = await run('publish', '--bundle', bundle);
+    assert.equal(status, 0, output);
+    const retries = output.split('\n').filter((line) => line.includes('reading Central again'));
+    const pom = 'HEAD \\S+kindgi-java-parent-1\\.2\\.3\\.pom';
+    assert.equal(retries.length, 2, output);
+    assert.match(retries[0], new RegExp(`${pom}: HTTP 503; reading Central again in 0 s`));
+    assert.match(retries[1], new RegExp(`${pom}: fetch failed\\b.*; reading Central again in 0 s`));
+    assert.equal(calls('HEAD /maven2/'), 4);
+    assert.equal(portal.uploads.length, 1);
+  });
+
+  test("a release's check gives up at its deadline with nothing uploaded, naming the last answer", async () => {
+    portal.onCentral = new Set();
+    portal.repository = [503];
+    const { status, output } = await run(
+      'publish',
+      '--bundle',
+      bundle,
+      '--wait-minutes',
+      '0.0001',
+      {
+        spawnTimeout: 10_000,
+      },
+    );
+    assert.equal(status, 1, output);
+    assert.match(
+      output,
+      /^central-bundle: Central still doesn't answer for kindgi-java-parent at 1\.2\.3 after 0\.0001 minutes: HEAD \S+: HTTP 503; nothing was uploaded$/m,
+    );
+    assert.equal(calls(UPLOAD), 0);
+  });
+
+  test('an answer from the Portal that will not change, such as a 403, still stops the wait at once', async () => {
+    portal.onCentral = new Set();
+    portal.status = [403];
+    const { status, output } = await run('publish', '--bundle', bundle, '--wait-minutes', '0.0001');
+    assert.equal(status, 1, output);
+    assert.match(output, /^central-bundle: POST \/api\/v1\/publisher\/status\?id=\S+: HTTP 403:/m);
+    assert.doesNotMatch(output, /still doesn't answer|reading the Portal again/);
+    assert.equal(calls(STATUS), 1);
+  });
+
+  test('the wait for a deployment gives up at its deadline when the Portal keeps failing, naming the last answer', async () => {
+    portal.onCentral = new Set();
+    portal.status = [503];
+    const { status, output } = await run(
+      'publish',
+      '--bundle',
+      bundle,
+      '--wait-minutes',
+      '0.0001',
+      {
+        spawnTimeout: 10_000,
+      },
+    );
+    assert.equal(status, 1, output);
+    assert.match(
+      output,
+      new RegExp(
+        `^central-bundle: the Portal still doesn't answer about deployment ${DEPLOYMENT} after 0\\.0001 minutes \\(last state: none\\): POST \\S+: HTTP 503; see it on `,
+        'm',
+      ),
+    );
+    assert.equal(calls(UPLOAD), 1);
+  });
+
+  test('a status read the Portal never answers, or never finishes, counts as no answer, and is tried again', async () => {
+    portal.onCentral = new Set();
+    portal.states = ['PUBLISHED'];
+    portal.status = ['hang', 'stall', 'serve'];
+    const { status, output } = await run('publish', '--bundle', bundle, {
+      env: { KINDGI_CENTRAL_REQUEST_SECONDS: '0.2' },
+      spawnTimeout: 10_000,
+    });
+    assert.equal(status, 0, output);
+    assert.match(output, /published kindgi-java-parent, kindgi-pack at 1\.2\.3/);
+    // The headers that never come, then the body that never ends. A slow poll on a loaded
+    // machine can only add a line after them.
+    const retries = output.split('\n').filter((line) => line.includes('reading the Portal again'));
+    assert.ok(retries.length >= 2, output);
+    for (const line of retries.slice(0, 2)) {
+      assert.match(line, /POST \S+: no answer in 0\.2 s; reading the Portal again/);
+    }
+    assert.ok(calls(STATUS) >= 3);
+  });
+
+  test('a dry run reads the Portal again too, and still drops the deployment', async () => {
+    portal.states = ['VALIDATED'];
+    portal.status = [503, 'serve'];
+    const { status, output } = await run('validate', '--bundle', bundle);
+    assert.equal(status, 0, output);
+    assert.equal(output.match(/reading the Portal again in 0 s/g)?.length, 1, output);
+    assert.match(output, /validated 2 artifact\(s\) at 1\.2\.3; nothing was published/);
+    assert.equal(portal.calls.at(-1), `DELETE /api/v1/publisher/deployment/${DEPLOYMENT}`);
+  });
+
+  test('an upload the Portal fails is never sent again', async () => {
+    portal.onCentral = new Set();
+    portal.upload = [503];
+    const { status, output } = await run('publish', '--bundle', bundle, '--wait-minutes', '0.0001');
+    assert.equal(status, 1, output);
+    assert.match(output, /^central-bundle: POST \/api\/v1\/publisher\/upload\?\S+: HTTP 503:/m);
+    assert.equal(calls(UPLOAD), 1);
+    assert.equal(calls(STATUS), 0);
+  });
+
   test('without the token, nothing is sent', async () => {
     const child = spawn(process.execPath, [SCRIPT, 'validate', '--bundle', bundle], {
       env: { PATH: process.env.PATH, KINDGI_CENTRAL_PORTAL_URL: url },
@@ -268,6 +449,83 @@ describe('the Portal', () => {
     assert.equal(status, 1);
     assert.match(output, /doesn't have kindgi-pack-scala_2\.13, kindgi-pack-scala_3 at 1\.2\.3/);
   });
+
+  const heads = () => portal.calls.filter((call) => call.startsWith('HEAD /maven2/')).length;
+
+  test('on-central reads Central again after a 503, a 429, a 408 and a dropped connection, and says so each time', async () => {
+    portal.onCentral = new Set(Object.keys(ARTIFACTS));
+    portal.repository = [503, 429, 408, 'drop', 'serve'];
+    const { status, output } = await run('on-central', '--version', '1.2.3');
+    assert.equal(status, 0, output);
+    assert.match(output, /Central has every JVM artifact at 1\.2\.3/);
+    const retries = output.split('\n').filter((line) => line.includes('reading Central again'));
+    const pom = 'HEAD \\S+kindgi-java-parent-1\\.2\\.3\\.pom';
+    assert.equal(retries.length, 4, output);
+    assert.match(retries[0], new RegExp(`${pom}: HTTP 503; reading Central again in 0 s`));
+    assert.match(retries[1], new RegExp(`${pom}: HTTP 429; reading Central again in 0 s`));
+    assert.match(retries[2], new RegExp(`${pom}: HTTP 408; reading Central again in 0 s`));
+    assert.match(retries[3], new RegExp(`${pom}: fetch failed\\b.*; reading Central again in 0 s`));
+    assert.equal(heads(), 4 + Object.keys(ARTIFACTS).length);
+  });
+
+  test('on-central stops at once on an answer that will not change, such as a 403', async () => {
+    portal.repository = [403];
+    const { status, output } = await run(
+      'on-central',
+      '--version',
+      '1.2.3',
+      '--wait-minutes',
+      '0.0001',
+    );
+    assert.equal(status, 1);
+    assert.match(output, /^central-bundle: HEAD \S+: HTTP 403$/m);
+    assert.doesNotMatch(output, /still doesn't answer|reading Central again/);
+    assert.equal(heads(), 1);
+  });
+
+  test('on-central gives up at its deadline when Central keeps failing, naming the last answer', async () => {
+    portal.repository = [503];
+    const { status, output } = await run(
+      'on-central',
+      '--version',
+      '1.2.3',
+      '--wait-minutes',
+      '0.0001',
+    );
+    assert.equal(status, 1);
+    assert.match(
+      output,
+      /Central still doesn't answer for kindgi-java-parent at 1\.2\.3 after 0\.0001 minutes: HEAD \S+: HTTP 503/,
+    );
+  });
+
+  test('a read Central never answers counts as no answer, and is tried again', async () => {
+    portal.onCentral = new Set(Object.keys(ARTIFACTS));
+    portal.repository = ['hang', 'serve'];
+    const { status, output } = await run('on-central', '--version', '1.2.3', {
+      env: { KINDGI_CENTRAL_REQUEST_SECONDS: '0.2' },
+      spawnTimeout: 10_000,
+    });
+    assert.equal(status, 0, output);
+    assert.match(output, /no answer in 0\.2 s; reading Central again/);
+  });
+
+  test('the pause between reads doubles up to a minute, follows Retry-After, and never passes the deadline', () => {
+    const now = Date.UTC(2026, 10, 3, 7);
+    const later = now + 3_600_000;
+    const delay = (failures, retryAfter, deadline = later) =>
+      retryDelay(failures, retryAfter, now, deadline, 10);
+    assert.deepEqual(
+      [1, 2, 3, 4, 9].map((failures) => delay(failures, null)),
+      [10_000, 20_000, 40_000, 60_000, 60_000],
+    );
+    assert.equal(delay(1, '120'), 120_000);
+    assert.equal(delay(1, new Date(now + 90_000).toUTCString()), 90_000);
+    assert.equal(delay(2, 'soon'), 20_000);
+    assert.equal(delay(3, '5'), 40_000);
+    assert.equal(delay(4, null, now + 5_000), 5_000);
+    assert.equal(delay(4, null, now - 1_000), 0);
+  });
 });
 
 describe('the Release workflow', () => {
@@ -283,14 +541,41 @@ describe('the Release workflow', () => {
   };
 
   test('npm publishes a CLI only once its kindgi-pack version is on Central', () => {
-    const npm = job('publish');
-    assert.match(npm, /needs: publish-maven/);
-    const guard = npm.indexOf(
-      'central-bundle.mjs on-central --version "$(node -p "require(\'./packages/cli/package.json\').version")"',
+    const wait = job('maven-on-central');
+    assert.match(wait, /\n {4}needs: publish-maven\n/);
+    assert.ok(
+      wait.includes(
+        'central-bundle.mjs on-central --wait-minutes 120 --version "$(node -p "require(\'./packages/cli/package.json\').version")"',
+      ),
+      'the on-central step is gone',
     );
-    const publish = npm.indexOf('pnpm -r publish --no-git-checks');
-    assert.ok(guard !== -1, 'the on-central step is gone');
-    assert.ok(guard < publish, 'the on-central step runs after npm publishes');
+    const npm = job('publish');
+    assert.match(npm, /\n {4}needs: \[publish-maven, maven-on-central\]\n/);
+    assert.match(npm, /\(inputs\.dry-run \|\| needs\.maven-on-central\.result == 'success'\)/);
+  });
+
+  test("the wait for Central comes before npm's approval, outlasts Central's lag, and runs in a dry run", () => {
+    const wait = job('maven-on-central');
+    assert.doesNotMatch(wait, /\n {4}environment:/, 'the wait holds an approval');
+    assert.ok(
+      !job('publish').includes('central-bundle.mjs on-central'),
+      "npm's approved job waits for Central",
+    );
+    const minutes = Number(wait.match(/ on-central --wait-minutes (\d+) /)?.[1]);
+    const limit = Number(wait.match(/\n {4}timeout-minutes: (\d+)\n/)?.[1]);
+    assert.ok(minutes >= 120, `the wait is ${minutes} minutes`);
+    assert.ok(limit > minutes, `the job's ${limit}-minute limit cuts the ${minutes}-minute wait`);
+    assert.ok(
+      limit - minutes >= 5,
+      `the job's ${limit}-minute limit leaves no room past the ${minutes}-minute wait for one round of reads and the checkout`,
+    );
+    // The job runs in a dry run, its step skipped: a job skipped there would skip the
+    // jobs after it whose `if:` has no !cancelled().
+    assert.match(wait, /\n {4}if: github\.event_name == 'workflow_dispatch'\n/);
+    assert.match(
+      wait,
+      /\n {8}if: \$\{\{ !inputs\.dry-run \}\}\n {8}run: node scripts\/central-bundle\.mjs on-central /,
+    );
   });
 
   test('Maven Central gets the checked, signature-verified bundle', () => {

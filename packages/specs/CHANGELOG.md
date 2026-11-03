@@ -1,5 +1,142 @@
 # @kindgi/specs
 
+## 0.4.0
+
+### Patch Changes
+
+- 9a8a294: **A tool can store the files it fetches, such as a mail's attachments, and read the files it's given; an agent is shown the ones it stores.**
+  - **Storing.** A tool that declares `storesFiles: true` gets `ctx.files.store` with each call that has an `idempotencyKey`, as an agent's tool calls do. `ctx.files.store({ name, contentType, bytes })` stores a file as one the call's run owns: the runtime checks the bytes, and only they decide the type. It answers `{ file }`, a file value the tool returns in its result's top-level `files`, or `{ notStored }`: `type`, `size`, `limit` past `MAX_STORED_FILES_PER_CALL` (10) files a call, or `storage` when the tenant's storage is full. A pack's store of a file over `MAX_STORED_FILE_BYTES` (10 MB, the most any type allows) answers `size` without sending its bytes. The same bytes again in the same call, a re-run of it included, answer the first file.
+  - **Reading.** A tool that declares `readsFiles: true` gets `ctx.files.read(artifactId)` with each call: the bytes of a file its run may be shown, by the `artifactId` of a file value, such as one in its input. It answers `{ bytes }`, the file as it was stored, or `{ notRead }`: `rule` (the run may not be shown a file of that id), `gone` (deleted, or its bytes are missing), `changed` (its bytes aren't the ones that were checked) or `size` (over its type's limit). `FILE_NOT_READ_REASONS` lists them.
+  - **Either way.** A store or a read the runtime refuses, or can't be reached for, rejects, and the call fails as any throw fails it. Only a tool with a handler can store or read files: `defineTool` and the pack indexer refuse `storesFiles` and `readsFiles` on a tool with a declarative `spec` or an MCP transport.
+  - **`storage`** joins the reasons a file isn't shown (`FileNotShownReason`): a tool's store found the tenant's storage full.
+  - **In a pack.** Pack protocol 2.10.0: a call of a tool that declares `storesFiles` or `readsFiles` carries `ctx.toolFiles` (`{ url, token }`). The runner keeps it from the handler and gives the handler `files` instead: a store posts the file's bytes to the link, and a read gets them from under it, each with the token as the bearer. The handler never sees the link or the token, and a thrown error that quotes the token shows it redacted. A call from an older runtime carries no tool files, and the tool gets no `files`. The tool manifest schema is 1.4.0 and the pack index schema 1.8.0, each with `storesFiles` and `readsFiles`.
+  - **In-process.** `FileBinding` gains `store(call, file)`, keyed by the call's `idempotencyKey`, and `readSource(artifactId)`; an agent's tool call gets `ctx.files` from them, with what its tool declares.
+  - **The API.** `POST /v1/tool-files` takes a pack service's store: the call's token as the bearer, no API key; the body is the file's bytes, with `Content-Type` and a percent-encoded `Kindgi-File-Name`. It answers `{ file }` or `{ notStored }`. `GET /v1/tool-files/{artifactId}` takes a read, with the same bearer: it answers the file's bytes as `application/octet-stream`, or `{ notRead }` as JSON. Either answers `404 tool-file-token-not-found` for a missing or wrong token alike, or for a call whose tool doesn't declare what it asks; `409 tool-file-token-closed` once the call has answered, its time has passed or its run has ended; and `503 tool-files-busy`, with `Retry-After`, when the runtime has no room for the bytes then: a store holds twice the file's size in its memory for files (`KINDGI_FILE_MEMORY_MIB`, whose description now says so), and a read its size. A runtime supplies both as `createApp`'s `toolFiles` binding. The OpenAPI document gives the read's 200 both bodies. The wire `Tool` gains optional `storesFiles` and `readsFiles`, in the TypeScript client too.
+  - **Conformance.** The `files` feature, with the fixture tools `conformance.store` and `conformance.read`, checks that a pack service posts a store to the call's tool files link, gets a read from under it, and gives the handler only what the runtime answered.
+- 1bd877d: **Choosing what a project runs is a pin, for agents as for flows and tools.** This is a breaking rename, and no old name is kept.
+  
+  - **Routes.** An agent's `/promotions` is `/pinned/pin`, `/promotions/check` is `/pinned/check`, `/promotions` and `/promotions/{promotionId}` are `/pin-history` and `/pin-history/{changeId}`, `/live` is `/pinned`, `/live-versions` is `/pinned-versions`, and `/live/unpin` is `/pinned/unpin`. `/live/rollback` is removed: going back is a pin of an earlier version, with the same release gate and approval.
+  - **Fields and values.**
+    - `promotionId` is `changeId`: on a pinned version, in a deployment's pin gate, in a suggested change's `rolledBack` and in a refused pin's `details`. A suggested change's `promotion` is `pin`.
+    - A pin's status `promoted` is `pinned`, and the check's outcome `would-promote` is `would-pin`. A pin's action is `pin` or `unpin`.
+    - What an agent resolves to: `via: 'live'` is `'pinned'`, and `liveScope` is `pinnedScope`. A run's `via` value `live` is `pinned`, and so is a queue rule's `when.versions` value. A `when.versions` entry that is neither an exact version, such as `1.2.0`, nor `pinned` is a 400.
+    - A suggested change's pin: `liveNow` is `pinnedNow`.
+    - A test run's comparison baseline `{ live: … }` is `{ pinned: … }`, and a compared version's `via` value `live` is `pinned`. The CLI's `--baseline live` is `--baseline pinned`.
+    - Unregistering an agent version that is pinned answers `agent-version-pinned` (was `agent-version-live`), like flows and tools, and the scopes it is pinned in are `pinned` (was `live`).
+    - The approval subject `agent-promotion` is `agent-pin`, and the permission `promote` on an agent is `pin`.
+    - The audit kinds `agent-promotion`, `agent-promotion-refused`, `agent-live-unpinned` and `agent-live-pin-inactive` are `agent-pinned`, `agent-pin-refused`, `agent-unpinned` and `agent-pin-inactive`. `agent-rollback` is removed, since going back is a pin.
+  - **Errors.** `promotion-not-found`, `promotion-superseded` and `promotion-gate-unsupported` are `pin-not-found`, `pin-superseded` and `pin-gate-unsupported`, and `live-scope-spans-environments` is `pin-scope-spans-environments`, the code a flow or tool pin answers, with the same body. `nothing-to-roll-back` is removed with the rollback route. Environment promotion's codes keep their names.
+  - **Messages.** A pin's gate checks call the version a test run is measured against "the pinned version" (was "the live version"), and `release-gate-scope-unpinned` says the scope has no pinned version of its own.
+  - **Schemas and types.** `Promotion`, `PromotionPage`, `PromotionCheck` and `SuggestedChangePromotion` are `Pin`, `PinPage`, `PinCheck` and `SuggestedChangePin`. `PromoteBody` and `UnpinBody` are `AgentPinBody` and `AgentUnpinBody`. `LivePin`, `LivePinList` and `LiveVersionResolution` are `AgentPinnedVersion`, `AgentPinnedVersionList` and `AgentPinnedVersionResolution`. An agent's pin scope is `AgentPinScope`: its tenant, org and project kinds are the `PinScope*` schemas flows and tools use, and its segment kind is `PinScopeSegment`.
+  - **Binding.** A runtime implements `AgentPinnedVersionBinding` (was `LiveVersionBinding`) and `PinBinding` (was `PromotionBinding`), with `AgentPinBindings` and `AgentPinGateDeps` (were `AgentReleaseBindings` and `AgentReleaseGateDeps`). Their types take the `Pin` names: `Pin`, `PinStatus`, `PinAction`, `PinError`, `PinErrorCode`, `PinRequestInput`, `ListPinHistoryInput`, `AgentPinInput`, `AgentUnpinInput`, `AgentPinnedVersion`, `AgentPinResolution` and `AgentPinResolveInput`. `PromotionActor` and `PinActor` are one `PinActor`. `liveScopeCoordinates` is `agentPinScopeCoordinates`. `rollback` and `RollbackInput` are removed. An unregister that a pin refuses answers `pinned` (was `live`). In `@kindgi/types`, `LiveScope` is `AgentPinScope`, and a run's `liveScope` is `pinnedScope` in `@kindgi/runtime` and `@kindgi/agents`.
+  - **TypeScript client.** `client.agents.pinned` has `resolve`, `list`, `pin`, `check`, `unpin`, `history` and `getChange`; `client.agents.promotions` and `client.agents.live` are removed. The client's types are `AgentPinnedClient`, `AgentPinnedWhere` (`PinnedWhere` stays the flow and tool lookup), `AgentUnpinInput` and `ListPinHistoryFilter`.
+  - **CLI.** `kindgi agents promote` is `kindgi agents pin`, `promotions list|get` is `pin-history list|get`, `live` is `pinned` and `live-versions` is `pinned-versions`. `kindgi agents rollback` is removed. `<promotion-id>` is `<change-id>`, and `--to` went with `rollback`.
+  - **Unchanged.** Environment promotion keeps its name: `kindgi promote` and `POST /v1/deployments/{deploymentId}/promotions`.
+- 156abe4: **A suggested change is made for one project, and checked on that project's test set.** This is a breaking change.
+  
+  - **Making one.** `POST /v1/suggested-changes` takes `agentId`, `projectId`, `block`, then `values` (a settings block) or `template` (a prompt block), `why` and `fixes` (at most 100 ids, each a correction in the project). `fromVersion`, `scope`, `tier`, `change` and `evidence` are gone from the body.
+    - It's built on the version the project runs. Its block version and agent version are published, and serve nothing until it's pinned.
+    - Its check starts at once: the answer is `201`, with status `checking`.
+    - The same change on the same version for the same project returns the one made before, with `X-Suggested-Change-Deduped`.
+    - In a later environment of an environment order it's refused (`409 environment-takes-promotions`). Make it in the order's first environment: the new version reaches later environments when a build is promoted.
+    - A read-only agent registry refuses making or checking one (`409 registry-read-only`), before anything else, unless it takes Improve's candidates (`RegistryReadOnly.takesCandidates`), as `kindgi dev`'s does.
+  - **Its check.** Its version (`with`) and the version it's built on (`now`) run the same cases of the project's test set. The set is frozen when the check starts.
+    - `POST /v1/suggested-changes/{suggestedChangeId}/check` checks it again, so new corrections count.
+    - `check` replaces `evaluate` and `rescore`, which are removed with their bodies.
+  - **Statuses.** The server derives these: `checking`, `check-failed`, `ready`, `waiting-for-second-person`, `pinned`, `added-as-latest` and `withdrawn`. A pin the gate refused, a second person rejected, or whose approval expired leaves it `ready`, with a `note` that says why.
+  - **A deploy's suggested changes.** A deploy that registers a new agent version makes one for it in each project that runs a pinned other version of the agent (`madeBy: deploy`). A project on Latest gets none. With environment orders, it's made when the deployment is promoted into the next project, unless the promotion makes the version live there.
+    - Its one change is the code: `{ kind: 'code', deploymentId, imageDigest }`.
+    - Its version is the deploy's, and it's never rebuilt: once its project moves, pinning it is `409 suggested-change-out-of-date` with `rebuilding: false`.
+    - Its check runs its version on the project's test set. `now` is the newest finished run of the version the project runs on the same frozen cases. With none, the check has no `now`, and its `note` is `{ kind: 'not-running', version }`.
+    - With no cases in the project's test set yet, it's made unchecked (`check-failed`).
+    - A deploy or a promotion never fails because one couldn't be made: it's logged.
+  - **The answer.** A suggested change carries:
+    - `projectId` and `title`;
+    - `madeBy`: who or what made it, which is an Improve run, a person, a service account, a deploy or an offer;
+    - `builtOn` and `version`;
+    - `changes`: the block, with `from` and `to` (`kind: 'block'`). `GET` of one also adds the content `before` and `after`. A deploy's is the code (`kind: 'code'`);
+    - `why` and `fixes`;
+    - `check`;
+    - `status` and `note` (a pin that didn't go through, or a deploy's `not-running`);
+    - `pinned`, `approvalId`, `addedAsLatest` and `withdrawn`.
+  
+    `fromVersion`, `scope`, `tier`, `change`, `evidence`, `candidate`, `evaluation`, `promotion` and `rolledBack` are gone.
+  - **Listing.** `GET /v1/suggested-changes` filters by `agentId`, `projectId`, `status` and `madeBy` (one of its kinds). The `tier` and scope filters are gone.
+  - **Pinning.** `POST /v1/suggested-changes/{suggestedChangeId}/pin` pins its version for its project, through the project's release gate policy, as before. For a project that runs Latest it's refused (`409 pin-stops-latest`) unless the body has `stopFollowingLatest: true`, which takes the project off Latest.
+  - **If the project moves first.** A suggested change built on a version its project no longer runs is rebuilt on the version the project runs now: its block change made again there (a prompt keeps its wording; settings keep the values it changed and take every other value from what runs now), a new version, and a new check. `builtOn.rebuiltAt` says when.
+    - Pinning one (not waiting for a second person) or adding one as Latest rebuilds the project's other `ready` and `check-failed` ones for the agent at once.
+    - Checking one again rebuilds it first when its project moved.
+    - Pinning or adding one whose project moved is refused (`409 suggested-change-out-of-date`), and starts its rebuild (`details.rebuilding`). One the project's version already has, or whose block it no longer uses, isn't rebuilt (`rebuilding: false`).
+  - **Adding it as Latest.** `POST /v1/suggested-changes/{suggestedChangeId}/add-as-latest` is new. It makes its version its project's Latest, now, for a project on Latest, with no gate. `reason` is kept on its `addedAsLatest`. It's refused for a project that runs a pin (`409 suggested-change-project-pinned`). It needs `pin` on the agent, and it's allowed from `ready`.
+  - **One made before this change.** One made for a tenant, an org or a segment reads with the project its version was made in, when that's known. It can only be withdrawn: checking or pinning it is `409 suggested-change-not-for-a-project`.
+  - **Errors.** Five codes are new:
+    - `suggested-change-not-for-a-project` (409);
+    - `suggested-change-check-unsupported` (501): the runtime freezes no test set;
+    - `suggested-change-nothing-to-check` (409): the project has no cases. When the host passes a correction registry (createApp's `correctionRegistry`), they're read before its test set is frozen, so no empty version of it is made;
+    - `suggested-change-project-pinned` (409);
+    - `suggested-change-out-of-date` (409).
+  - **Audit events.** Making one, pinning it, adding it as Latest and withdrawing it are recorded, in its project, with the caller as the actor: `suggested-change-created`, `suggested-change-pinned` (with its promotion, and whether it's pinned or waits for a second person), `suggested-change-added-as-latest` and `suggested-change-withdrawn`. Each names the suggested change, its agent, block, versions and who made it, never its content, its `why` or a reason. The same change sent again records nothing. `EVIDENCE_KINDS` lists the four kinds. The `kind` examples in `compliance-evidence.schema.json` list them too, with the block version and provider kinds.
+  - **An agent's own test set id is reserved.** Ids that start with `agent.` are agents' own test sets, and only a check or a test run makes their versions. `POST /v1/test-sets` and `POST /v1/test-sets/{testSetId}/versions/from-corrections` answer one from any caller with `400 bad-input`, and the TypeScript client and `kindgi test-sets from-corrections` refuse it before sending (`invalid-request`). A test set with such an id published before keeps reading and running, but a new version of it is refused: publish it under another id. `AGENT_TEST_SET_ID_PREFIX` and `isAgentTestSetId` are exported.
+  - **Deriving an agent version through the API is gone.** `POST /v1/agents/{agentId}/versions` is removed, with `client.agents.versions.derive`, `DeriveAgentVersionInput` and `kindgi agents derive`. A suggested change makes an agent version from a block's new content, and checks it. A version derived before keeps its `derivedFrom`.
+  - **Binding.** `TestSetFreezeBinding` freezes a project's test set for a check. With it and suggested changes, `createApp` makes a deploy's suggested changes, through the service's new `fromDeploy` (`DeployCardsInput`, `DeployCardsOutcome`). A stored suggested change's `tier` can be `code` (`StoredSuggestedChangeTier`), with a `CodeChange` (`StoredChange`), and a candidate's `blockVersion` is optional, since a deploy's has none. `agentTestSetId(agentId, projectId)` is the id it freezes under: `agent.<agentId>.<projectId>`. A stored suggested change keeps who drafted its content as `drafter` (`SuggestedChangeDrafter`). It gains `madeBy` (`SuggestedChangeMaker`), `builtOnVersion`, `rebuiltAt` and `addedAsLatest`, and a store records the new `rebuilt` and `added-as-latest` steps. A `rebuilt` step moves it onto a new version: it sets `builtOnVersion`, `rebuiltAt` and its block change there, clears its candidate, evaluation and promotion, and keeps its fingerprint.
+  - **TypeScript client.**
+    - `client.suggestedChanges.create` takes the new body.
+    - `check` replaces `evaluate` and `rescore`.
+    - `addAsLatest` is new.
+    - `list` takes `projectId`, `status` and `madeBy`.
+    - `SuggestedChange` follows the answer: a change is a block's or a deploy's code, and a `note` can be `not-running`. `ProposalTier` and `EvaluateProposalInput` are removed.
+  - **CLI.**
+    - `kindgi suggested-changes create` replaces `draft`. It needs `--project`, takes `--fixes` (a correction id, more than once) in place of `--correction`, and drops `--from-version`, `--tenant`, `--org` and `--segment`.
+    - `check` replaces `evaluate`: it checks it again, and takes only `--wait`.
+    - `pin` replaces `request`.
+    - `add-as-latest` is new, with `--reason`.
+    - `list` takes `--project`, and drops the scope flags and `--tier`.
+    - `get` names each correction in `fixes` that its author has replaced since, with the live one that replaced it and its status, on stderr. One it couldn't check gets a line that says why. `fixes` keeps the ids it names.
+    - The table shows each one's check, for example `25/27 (now 23/27)`. Its BLOCK column is CHANGE: a block and its version, or `code (deploy <deployment-id>)`.
+- 1131ec3: **Eval runs are now test runs.** This is a breaking rename, and no old name is kept.
+  
+  - **Routes.** `/v1/eval-runs` is `/v1/test-runs`, with `{testRunId}` in its paths; `cancel`, `events` and `rescore` keep their sub-paths. `POST /v1/test-sets/{testSetId}/runs` still starts one.
+  - **Fields and values.**
+    - A test run's own id is `testRunId`: in the start and rescore answers, the run view and the list rows, where it was `runId`. Ids of agent runs, such as a case's `runIds`, keep their names.
+    - `evalRunId` is `testRunId` everywhere it names a test run: in the agent pin body, in a run's replay marker (`{ of, testRunId }`), in a replay's provenance, and in `/v1/runs`'s filter.
+    - The stream's events `eval-run.completed`, `eval-run.failed`, `eval-run.cancelled`, `eval-run.case-completed` and `eval-run.case-failed` are `test-run.*`, with the same endings.
+    - The compliance evidence kind `eval-run` is `test-run`.
+    - `GET /v1/compliance/evidence?kind=` answers 400 for a kind that is neither a built-in evidence kind nor one the classifier names, such as `eval-run`. It was an empty page. A kind the classifier names but doesn't mark exportable is still an empty page.
+  - **Errors.** Codes starting `eval-run-` start `test-run-`.
+  - **Schemas and types.** `EvalRun*` names are `TestRun*`. A comparison's `EvalComparison`, `EvalBaseline`, `EvalOverrides` and `EvalSample` are `TestRunComparison`, `TestRunBaseline`, `TestRunOverrides` and `TestRunSample`, and the types `EvalReads` and `EvalGroupWeights` are `TestRunReads` and `TestRunGroupWeights`. The `@kindgi/api` export `EvalSubjectInvoker`, which a test run calls to run each case, is `TestRunSubjectInvoker`.
+  - **TypeScript client.** `client.evalRuns` is `client.testRuns`.
+  - **CLI.** `kindgi eval-runs` is `kindgi test-runs`, and `--eval-run` is `--test-run` (on `kindgi agents pin` and `kindgi runs list`). `kindgi exports create` writes them as `test-runs`.
+- d576ff4: **Eval suites are now test sets.** This is a breaking rename, and no old name is kept.
+  
+  - **Routes.** `/v1/eval-suites` is `/v1/test-sets`, with `{testSetId}` in its paths; the sub-paths are the same, including `runs`.
+  - **Fields and values.**
+    - `suiteId` is `testSetId` everywhere it names a test set, including on eval runs, and `suiteVersion` is `testSetVersion`.
+    - A test set's and an eval run's kind `judged` is `corrections`.
+    - A release gate's `comparison.suite` is `comparison.testSet`, and its check is named `comparison.testSet`. A comparison's summary says `testSet` where it said `suite`.
+    - The retention domain `eval_suite` is `test_set`, and so is the authorization resource type.
+    - A `reference-out-of-scope` issue names a test set with the kind `test-set` where it said `suite`.
+  - **Errors.** Codes starting `eval-suite-` start `test-set-`.
+  - **Schemas and types.** `EvalSuite*` names are `TestSet*`. `EvalKind` is `TestSetKind` (and `EVAL_KINDS` is `TEST_SET_KINDS`), and `CorrectedEvalCase`, `CorrectedEvalCaseCollectionPage` and `CorrectedEvalCaseCorrection` are `CorrectedTestCase`, `CorrectedTestCaseCollectionPage` and `CorrectedTestCaseCorrection`.
+  - **TypeScript client.** `client.evalSuites` is `client.testSets`.
+  - **Specs.** `@kindgi/specs/eval-suite.schema.json` is `@kindgi/specs/test-set.schema.json`, its `$id` is `https://kindgi.com/schemas/v1/test-set.schema.json` and its title "Test set", and its reference page is `reference/schemas/test-set/`. Its `kind` takes `corrections`, as the API does.
+  - **CLI.** `kindgi eval-suites` is `kindgi test-sets`, `--suite` is `--test-set`, and `--suite-version` is `--test-set-version`. `kindgi exports create` writes them as `test-sets` and `test-set-versions`.
+
+## 0.3.1
+
+### Patch Changes
+
+- 4beb42c: **A pack's `llm-judge` guardrail is judged.** The pack index carries a guardrail's `judgeCapabilities` (`pack-index.schema.json`), so the runtime routes an `llm-judge` guardrail's judge model by them. Before, the index left them out, and the runtime refused the guardrail on every turn it applied to: with action `halt` the turn failed, and with any other action the turn went on unjudged. `kindgi build` and `kindgi dev` now refuse an `llm-judge` guardrail with no `judgeCapabilities`, naming it. A runtime that registered the guardrail from an earlier deploy, without them, refuses the next deploy of it as a changed definition (`guardrail-already-registered`): unregister it (`kindgi guardrails unregister <id>`) and deploy again. Under `kindgi dev`, the runtime reads the guardrail from the pack's index, so the judge needs runtime 0.3.1 or later there. The guardrails skills say how to declare one in each language, and the conformance fixture pack has one (`conformance.judged`).
+
+## 0.3.1-rc.1
+
+No changes in this release.
+
+## 0.3.1-rc.0
+
+### Patch Changes
+
+- 4beb42c: **A pack's `llm-judge` guardrail is judged.** The pack index carries a guardrail's `judgeCapabilities` (`pack-index.schema.json`), so the runtime routes an `llm-judge` guardrail's judge model by them. Before, the index left them out, and the runtime refused the guardrail on every turn it applied to: with action `halt` the turn failed, and with any other action the turn went on unjudged. `kindgi build` and `kindgi dev` now refuse an `llm-judge` guardrail with no `judgeCapabilities`, naming it. A runtime that registered the guardrail from an earlier deploy, without them, refuses the next deploy of it as a changed definition (`guardrail-already-registered`): unregister it (`kindgi guardrails unregister <id>`) and deploy again. Under `kindgi dev`, the runtime reads the guardrail from the pack's index, so the judge needs runtime 0.3.1 or later there. The guardrails skills say how to declare one in each language, and the conformance fixture pack has one (`conformance.judged`).
+
 ## 0.3.0
 
 ### Patch Changes

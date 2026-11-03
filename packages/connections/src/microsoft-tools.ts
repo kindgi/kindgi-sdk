@@ -56,21 +56,26 @@ export type {
 } from './mail-attachment.js';
 export type { MailMessage, MailPerson } from './mail.js';
 export type {
+  CalendarAccess,
   CalendarAttendee,
   CalendarBusy,
   CalendarEvent,
   CalendarEventWritten,
+  CalendarListed,
   CalendarOwner,
   CalendarResponse,
   CalendarToolOptions,
 } from './calendar.js';
 export {
+  type OutlookCalendarCalendarsListInput,
+  type OutlookCalendarCalendarsListOutput,
   type OutlookCalendarEventCreateInput,
   type OutlookCalendarEventUpdateInput,
   type OutlookCalendarEventsListInput,
   type OutlookCalendarEventsListOutput,
   type OutlookCalendarFreeBusyInput,
   type OutlookCalendarFreeBusyOutput,
+  outlookCalendarCalendarsList,
   outlookCalendarEventCreate,
   outlookCalendarEventUpdate,
   outlookCalendarEventsList,

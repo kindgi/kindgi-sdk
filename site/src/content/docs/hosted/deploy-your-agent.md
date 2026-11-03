@@ -311,7 +311,7 @@ version and every version that's waiting read the same values:
   deployments, with their ids). Run the same
   `kindgi deploy --hosted --env=prod` again: it sends the same deployment
   and goes on waiting.
-- **Testing mode says `Going live isn't turned on for this tenant yet.`**
+- **Testing mode says `Going live isn't turned on for this workspace yet.`**
   If it offers **See how to go live**, that link says what comes next.
   Until then, building and testing work as they are.
 - **Going live is refused at the limit.** Move another project back to

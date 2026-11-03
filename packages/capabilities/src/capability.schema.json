@@ -3,7 +3,7 @@
   "$id": "https://kindgi.com/schemas/v1/capability.schema.json",
   "$comment": "schema-version: 1.1.0",
   "title": "Capability declaration",
-  "description": "An agent's model requirements as declarative constraints. The model router matches capabilities against registered providers, respecting per-tenant policy. `defineCapability` validates a declaration against this schema; a declaration that no registered provider satisfies fails at routing time with `capability-unsatisfiable`.",
+  "description": "An agent's model requirements as declarative constraints. The model router matches capabilities against registered providers, respecting per-workspace policy. `defineCapability` validates a declaration against this schema; a declaration that no registered provider satisfies fails at routing time with `capability-unsatisfiable`.",
   "type": "object",
   "required": ["needs"],
   "additionalProperties": false,
@@ -136,7 +136,7 @@
       "properties": {
         "region": {
           "type": "string",
-          "description": "Geographic region constraint (e.g. 'eu-only', 'us-only', 'us-gov'). Enforced by the router against each provider's declared region; a tenant policy's `regionAllow` can constrain it further."
+          "description": "Geographic region constraint (e.g. 'eu-only', 'us-only', 'us-gov'). Enforced by the router against each provider's declared region; a workspace policy's `regionAllow` can constrain it further."
         }
       }
     },
@@ -166,7 +166,7 @@
       "type": "object",
       "required": ["providers"],
       "additionalProperties": false,
-      "description": "Hard constraint on allowed providers (allowlist) or disallowed providers (denylist). Tenant policy can narrow the set further.",
+      "description": "Hard constraint on allowed providers (allowlist) or disallowed providers (denylist). Workspace policy can narrow the set further.",
       "properties": {
         "providers": {
           "type": "object",
@@ -192,7 +192,7 @@
       "type": "object",
       "required": ["models"],
       "additionalProperties": false,
-      "description": "Hard constraint on allowed models (allowlist) or disallowed models (denylist), matched against each provider's model names (`ModelInfo.name`). Can be combined with a providers requirement. Tenant policy can narrow the set further. Added in schema-version 1.1.0.",
+      "description": "Hard constraint on allowed models (allowlist) or disallowed models (denylist), matched against each provider's model names (`ModelInfo.name`). Can be combined with a providers requirement. Workspace policy can narrow the set further. Added in schema-version 1.1.0.",
       "properties": {
         "models": {
           "type": "object",

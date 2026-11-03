@@ -149,7 +149,7 @@ describe('turn memory: charged by size before each model call', () => {
   });
 
   test.each([
-    ['tenant', "the tenant's share of"],
+    ['tenant', "the workspace's share of"],
     ['server', "the runtime's"],
   ] as const)(
     'refused at the %s limit: the turn fails naming it, and the model is never called',

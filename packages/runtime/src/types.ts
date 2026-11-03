@@ -105,7 +105,7 @@ export interface StepRetryScheduledPayload {
  * `holderRunId` + `holderNodeId` attribute the current holder so an
  * operator can debug "why is my node stuck?" without looking up other runs.
  * `holderRunId` may equal the deferred node's run (self-contention) or a
- * different run in the same tenant.
+ * different run in the same workspace.
  *
  * Multiple `step.concurrency-deferred` entries for the same node are
  * expected under long-held leases — derivation records only that the
@@ -323,7 +323,7 @@ export interface SubflowCompletedPayload {
  *   - `subgraph-depth-exceeded` → parent's `RunOptions.maxSubflowDepth`
  *     was hit at dispatch.
  *   - `subgraph-cross-tenant` → attempted lookup of a flow registered
- *     under a different tenant (reserved — cannot happen with the current
+ *     under a different workspace (reserved — cannot happen with the current
  *     resolver contract but journaled defensively).
  *   - `resolver-missing` → the run was started without a `flowResolver`
  *     dependency wired in, so the subgraph node cannot dispatch.

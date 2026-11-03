@@ -48,14 +48,14 @@ nobody decides, and what the console shows. To decide one, follow
 ## The Reviewers page
 
 A project's **Approvals** page in the console leads to **Reviewers**: the
-tenant's roster, with each reviewer's role, when they were added, and whether
+workspace's roster, with each reviewer's role, when they were added, and whether
 they're active. Like the list, it's shown to tenant admins and reviewers
 only. Anyone else reads "Who reviews approvals is shown to tenant admins and
 reviewers."
 
 A tenant admin adds a reviewer with **Add a reviewer**:
 
-1. Find the person among the tenant's people, by name or email.
+1. Find the person among the workspace's people, by name or email.
 2. Choose the role: "They decide approvals of this role and below."
 3. Confirm with the button, which names them, such as
    **Make Eddie Park a standard reviewer**.
@@ -123,10 +123,21 @@ first email goes at once, then a digest every five minutes at most.
   reviewer seat at its `requiredRole` or above, as
   [Approvals](../../connections/use-a-connection/#approvals) in Use a
   connection in a tool describes.
-- **`connection`** is the account such a call would use:
-  `{ "app": "google", "appName": "Google", "account": "lee@acme.com" }`.
-  `app` is the app's entry id, and `account` is the account's label at the
-  app, such as an email address or a login.
+- **`connection`** is the connection a call would use, the company's or a
+  person's own. `app` is the app's entry id, and `as` says whose it is:
+  - **`"company"`:** it also has the connection's `name`, and `account`,
+    the account's label at the app, such as an email address or a login:
+    `{ "app": "google", "appName": "Google", "as": "company", "account": "support@acme.example", "name": "support" }`.
+  - **`"person"`:** it has no `name` and no `account`, so it doesn't say
+    which of that person's accounts the call would use. The approval
+    calls it "this person's Google account", and its `approver` is that
+    person: `{ "app": "google", "appName": "Google", "as": "person" }`.
+    The call's `arguments` stay as the model wrote them, so a call that
+    names one of the person's accounts shows it there.
+  - **No `as`:** an older runtime's approval. The company's connection has
+    its `name`. A person's has none, and has their account's label as
+    `account`:
+    `{ "app": "google", "appName": "Google", "account": "lee@acme.com" }`.
 - **`withdrawnBecause`** is `run-cancelled` or `run-ended` on an approval its
   run withdrew, as [Withdrawn by its run](#withdrawn-by-its-run) describes.
 
@@ -313,8 +324,13 @@ first. Its headline says how many and for how long, such as "4 approvals
 wait for you: the oldest for 3 h. 1 is assigned to you.", or "Nothing waits
 for you."
 
+- **Each row names its kind** under its title: **Tool calls and turns**,
+  where a run waits on a tool call, a turn or a fact to remember, or
+  **Versions to pin**, where a pin waits for a reviewer to approve the
+  version.
 - **Filters** by project, tier, **Assigned to you** or **No one assigned**,
-  kept in the page's link.
+  and **Kind**, kept in the page's link. A filter shows once the rows
+  differ in it.
 - **Who it's assigned to** reads "You", "A reviewer" or "No one", never a
   name.
 - **Choose one** to see it beside the list, or in the list's place on a

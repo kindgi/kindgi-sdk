@@ -99,10 +99,15 @@ Each record has a builder.
 - **Read, an answer is checked for its structure** (types, required
   properties, a union's variant), not its constraints, so a newer runtime
   that relaxes one doesn't break your client.
-- **Newer runtimes are expected.** Unknown properties are ignored. An enum
-  value this client doesn't know is kept: `status().value()` is
-  `UNRECOGNIZED`, and `asString()` has the text. A union variant it doesn't
-  know is kept too, as the union's `Unrecognized`. A request body is checked
+- **Newer runtimes are expected.** A property a record doesn't know is
+  ignored, by the client and by an app's mapper with
+  `FAIL_ON_UNKNOWN_PROPERTIES` off; an open record keeps it, in
+  `additionalProperties()`. An enum value this client doesn't know is kept:
+  `status().value()` is `UNRECOGNIZED`, and `asString()` has the text. A
+  tagged or deduced union's variant it doesn't know is kept too, as the
+  union's `Unrecognized`, with its other properties in `properties()`. An
+  app's own Jackson (2.15 and later, or 3) keeps an open record's and an
+  `Unrecognized`'s properties the same way. A request body is checked
   against the values this client knows before it's sent (a
   `ValidationException` if not), so a value read from a newer runtime can't
   be sent back. `build()` doesn't check that, so an answer that carries one

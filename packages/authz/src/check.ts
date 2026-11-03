@@ -95,6 +95,21 @@ export interface AuthzCheckBinding {
   ): Promise<readonly Decision[]>;
 
   /**
+   * Optional. The decision `check` makes, recorded nowhere. Only for what
+   * a caller is shown about its own access (whether it's a tenant admin,
+   * which actions a list offers it), which a console reads on every poll.
+   * Never for whether a request may go on, or what it may read: that's
+   * `check`'s, and recorded. Without it, the API layer asks `check` for
+   * those reads too, and they're recorded as any other decision.
+   */
+  probe?(
+    principal: Principal,
+    action: Action,
+    resource: ResourceRef,
+    ctx?: AuthzCheckContext,
+  ): Promise<Decision>;
+
+  /**
    * The ids of every object of `type` the principal may `action`, after
    * its downscope, and only those its `onBehalfOf` may too (OpenFGA
    * `ListObjects`). For a guard compiled into a query, such as which
@@ -110,7 +125,7 @@ export interface AuthzCheckBinding {
 
   /**
    * Optional. Whether `resource` belongs to project `projectId` in the
-   * principal's tenant: its `parent` is that project (an agent, a flow, a
+   * principal's workspace: its `parent` is that project (an agent, a flow, a
    * run, …), or its `scope` is (a secret, an env). The API layer asks it
    * to hold an API key limited to a project to that project's resources.
    * Without it, such a key reaches only the project itself.

@@ -73,6 +73,17 @@ jobs:
       # in target/central-staging (and installs, for the steps below).
       - name: Build and test (generator golden tests, models, client, operation coverage, pack)
         run: ./mvnw -B -ntp -P release -Dgpg.skip=true deploy
+      # The models' tests again, with each Jackson 2 line a Spring Boot release manages: an app's own
+      # mapper reads and writes them (the step above runs them with 2.18.11). From 2.20 on,
+      # jackson-annotations has no patch number, so each line names databind:annotations.
+      - name: The models with an app's Jackson 2 (2.15, 2.17, 2.18, 2.19, 2.21)
+        run: |
+          set -e
+          for jackson in 2.15.4:2.15.4 2.17.3:2.17.3 2.18.12:2.18.12 2.19.4:2.19.4 2.21.4:2.21; do
+            echo "::group::Jackson ${jackson%%:*}"
+            ./mvnw -B -ntp -pl kindgi-models test -Djackson2.test.version="${jackson%%:*}" -Djackson2.test.annotations.version="${jackson#*:}"
+            echo "::endgroup::"
+          done
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
@@ -82,10 +93,10 @@ jobs:
       - name: What would go to Maven Central (check-jars)
         working-directory: .
         run: node scripts/check-jars.mjs sdks/java/target/central-staging
-      - name: The client in Spring Boot apps (3.2, 3.5, 4.0, 4.1)
+      - name: The client in Spring Boot apps (3.2, 3.4, 3.5, 4.0, 4.1)
         run: |
           set -e
-          for boot in 3:3.2.12 3:3.5.16 4:4.0.8 4:4.1.1; do
+          for boot in 3:3.2.12 3:3.4.13 3:3.5.16 4:4.0.8 4:4.1.1; do
             echo "::group::Spring Boot ${boot#*:}"
             ./mvnw -B -ntp -Pcompat -pl "compat/spring-boot-${boot%%:*}" verify -Dspring-boot.version="${boot#*:}"
             echo "::endgroup::"

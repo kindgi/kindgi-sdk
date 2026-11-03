@@ -49,7 +49,7 @@ function membershipKey(teamId: TeamId, userId: UserId): string {
 /**
  * Combined factory — returns a `TeamBinding` + `TeamMembershipBinding`
  * pair that share underlying storage. The pair is the atomic unit
- * (memberships reference teams; the two must agree on tenant
+ * (memberships reference teams; the two must agree on workspace
  * membership at every op).
  */
 export function makeInMemoryTeamBinding(options: InMemoryHierarchyOptions = {}): {

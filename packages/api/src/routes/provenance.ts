@@ -27,6 +27,7 @@ import type {
   StepUsage,
   StepUsageByNodeId,
 } from '../provenance-binding.js';
+import { isReadMethod } from '../read-method.js';
 import {
   exportActor,
   parseSigningKeyId,
@@ -107,7 +108,9 @@ export function provenanceRouter(
           : ref('project', run.projectId as unknown as string);
       return authorizer.authorize('read', () => at)(c, next);
     };
-    r.use('/:runId', async (c, next) => (c.req.method === 'GET' ? onRunProject(c, next) : next()));
+    r.use('/:runId', async (c, next) =>
+      isReadMethod(c.req.method) ? onRunProject(c, next) : next(),
+    );
     r.use('/:runId/export', onRunProject);
   }
   const exportSigning = options.exportSigning;

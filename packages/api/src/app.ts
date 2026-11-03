@@ -136,6 +136,7 @@ import { capabilitiesRouter } from './routes/capabilities.js';
 import { complianceRouter } from './routes/compliance.js';
 import {
   connectionAppsRouter,
+  connectionChoicesRouter,
   connectionEntriesRouter,
   connectionNoticesRouter,
   connectionsRouter,
@@ -1195,8 +1196,8 @@ export interface CreateAppInput {
    * The deployment's own links (its help desk, status page, data
    * processing terms), which the console shows on every page, the sign-in
    * page too (sign-in options' `links`), in this order. At most 8; each
-   * label 1 to 40 characters once trimmed, with no control or format
-   * character, and no other link's once trimmed; each URL an absolute
+   * label 1 to 40 characters once trimmed, with no control, format or
+   * invisible character, and no other link's once trimmed; each URL an absolute
    * https URL with no username or password. Anything else, and createApp
    * throws. Absent or empty: the answer has no `links`.
    */
@@ -2333,6 +2334,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.triggerOwnerNotices !== undefined && {
             ownerNotices: input.triggerOwnerNotices,
           }),
+          // The company connection a company mailbox reads with, checked
+          // against the project's candidates, as connection choices are.
+          ...(input.connections !== undefined &&
+            servedEnv !== undefined && {
+              connections: { binding: input.connections, envName: servedEnv },
+            }),
         }),
       );
     }
@@ -2367,6 +2374,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(input.reviewerBinding !== undefined &&
           input.hitlBinding !== undefined && { reviewers: input.reviewerBinding }),
       }),
+    );
+    v1.route(
+      '/connection-choices',
+      connectionChoicesRouter(input.connections, authorizer, { envName: servedEnv }),
     );
   }
   if (input.policyRegistry !== undefined) {

@@ -595,7 +595,7 @@ export interface ModelCallResult {
 }
 
 /**
- * One model call, as a usage sink records it: who made it (tenant,
+ * One model call, as a usage sink records it: who made it (workspace,
  * project, run, agent, step), which provider and model answered, and what
  * the call used. Never the messages.
  */
@@ -667,9 +667,9 @@ export interface ModelProvider {
 }
 
 /**
- * Registry the router consults. Tenant-scoped: each tenant owns its
+ * Registry the router consults. Workspace-scoped: each workspace owns its
  * own set of registered providers, and the router only sees a
- * tenant's slice.
+ * workspace's slice.
  *
  * Isolation model:
  *   - Isolation across tenants is enforced here (not by after-the-fact
@@ -695,13 +695,13 @@ export interface ProviderRegistry {
   has(tenantId: TenantId, id: string): boolean;
   /**
    * Optional async warm-up. Storage-backed implementations
-   * hydrate their per-tenant instance cache from the persistent
-   * `ProviderRegistryBinding` on the first call for a given tenant;
+   * hydrate their per-workspace instance cache from the persistent
+   * `ProviderRegistryBinding` on the first call for a given workspace;
    * the agent runtime awaits this before the sync `list(tenantId)` call
    * so the router sees the full set. In-memory implementations that
    * hold their state eagerly leave this undefined, and callers skip it.
    *
-   * Idempotent: hydrating an already-hydrated tenant returns
+   * Idempotent: hydrating an already-hydrated workspace returns
    * immediately.
    */
   hydrate?(tenantId: TenantId): Promise<void>;
@@ -715,7 +715,7 @@ export interface ProviderRegistry {
    */
   invalidate?(tenantId: TenantId): void;
   /**
-   * Optional: the tenant's registered providers that its last `hydrate`
+   * Optional: the workspace's registered providers that its last `hydrate`
    * couldn't set up, each with why (its adapter refused its settings on
    * this runtime, or the runtime has no such adapter). `list` leaves them
    * out, so the router can't name them unless it's given them
@@ -725,7 +725,7 @@ export interface ProviderRegistry {
 }
 
 /**
- * A provider registered for a tenant that its registry couldn't set up
+ * A provider registered for a workspace that its registry couldn't set up
  * (`ProviderRegistry.setupFailures`).
  */
 export interface ProviderSetupFailure {
@@ -739,14 +739,14 @@ export interface ProviderSetupFailure {
 }
 
 /**
- * Per-tenant policy the router honors on top of the capability
+ * Per-workspace policy the router honors on top of the capability
  * declaration. Every field optional; empty policy = "no additional
  * constraints."
  *
  * `providers.allow` is a positive list of provider ids; if present,
  * only listed providers are eligible — an empty list allows none.
  * `providers.deny` excludes. `models.allow` / `models.deny` do the same
- * at the model level (e.g. "tenant may use anthropic but not opus").
+ * at the model level (e.g. "workspace may use anthropic but not opus").
  * Deny wins over allow where the two overlap at either level.
  *
  * `regionAllow` narrows to specific provider regions; an empty list

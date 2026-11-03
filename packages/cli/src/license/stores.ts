@@ -24,6 +24,7 @@ import { randomBytes } from 'node:crypto';
 import { chmod, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
+import { programPath } from '../program-path.js';
 import { awsSecretStore } from './aws.js';
 import { type CloudDeps, azureSecretStore, gcpSecretStore } from './cloud.js';
 
@@ -40,13 +41,15 @@ export class SecretRefError extends Error {}
 
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-/** Runs a cloud's CLI (`gcloud`, `az`, `aws`) for a token: its stdout. */
-export const runCloudCli: CloudDeps['run'] = (command, args) =>
-  new Promise((done, fail) => {
-    execFile(command, [...args], { timeout: 30_000 }, (error, stdout) =>
+/** Runs a cloud's CLI (`gcloud`, `az`, `aws`), the one on `PATH` (`programPath`), for a token: its stdout. */
+export const runCloudCli: CloudDeps['run'] = async (command, args) => {
+  const file = await programPath(command);
+  return new Promise((done, fail) => {
+    execFile(file, [...args], { timeout: 30_000 }, (error, stdout) =>
       error === null ? done(stdout) : fail(error),
     );
   });
+};
 
 /** What a cloud store uses, by default: `fetch`, the environment, and the cloud's CLI when there. */
 const DEFAULT_CLOUD: CloudDeps = {

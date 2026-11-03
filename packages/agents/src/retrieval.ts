@@ -103,7 +103,7 @@ const HYBRID_CANDIDATES = 50;
 
 /**
  * What a turn may see in memory (the scope guard), from the run, never
- * from the model or the intent: tenant-wide facts, its project's and its
+ * from the model or the intent: workspace-wide facts, its project's and its
  * org's, the user it acts for, its conversation's end user, and its own
  * conversation. Another conversation's or another end user's facts are
  * never visible, whatever an intent asks for.

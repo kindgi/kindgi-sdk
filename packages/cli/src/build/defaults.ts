@@ -26,6 +26,7 @@ import type { IndexedCounts } from '../dev/runners.js';
 import { createScalaPackBuilder } from '../dev/scala-builder.js';
 import { loadEsbuild } from '../esbuild-loader.js';
 import { readPnpmVersion } from '../package-manager.js';
+import { programPath } from '../program-path.js';
 import { REQUIRE_BANNER, collectPackEntries, nodeModulesExternalPlugin } from './bundle.js';
 import { COMPUTED_IMPORT_LOG_OVERRIDE, computedImportsFrom } from './computed-imports.js';
 import { renderContainerfile } from './containerfile.js';
@@ -792,15 +793,24 @@ export async function dockerBuildReal(opts: DockerBuildOptions): Promise<DockerB
   return { kind: 'ok', imageId: inspected.stdout.trim() };
 }
 
-/** Run a command to the end: its exit code and output, each line also to `onLine`. */
-function spawnOutcome(
+/**
+ * Run a command to the end, the one `programPath` finds: its exit code
+ * and output, each line also to `onLine`.
+ */
+async function spawnOutcome(
   command: string,
   args: readonly string[],
   cwd: string,
   onLine?: (line: string) => void,
 ): Promise<{ readonly code: number; readonly stdout: string; readonly stderr: string }> {
+  let file: string;
+  try {
+    file = await programPath(command);
+  } catch (cause) {
+    return { code: 127, stdout: '', stderr: (cause as Error).message };
+  }
   return new Promise((resolveRun) => {
-    const child = spawn(command, args as string[], { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(file, args as string[], { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
     const lines = (chunk: Buffer, pending: { text: string }): void => {
@@ -830,13 +840,15 @@ function spawnOutcome(
   });
 }
 
-function spawnCapture(
+/** Run a command to the end, the one `programPath` finds: its stdout, or why it failed. */
+async function spawnCapture(
   command: string,
   args: readonly string[],
   signal: AbortSignal | undefined,
 ): Promise<string> {
+  const file = await programPath(command);
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args as string[], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(file, args as string[], { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
     child.stdout?.on('data', (c: Buffer) => {

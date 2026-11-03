@@ -136,7 +136,7 @@ function named(ref: ItemReference): string {
   return `${NOUN[ref.kind]} "${ref.id}"${ref.version !== undefined ? ` ${ref.version}` : ''}`;
 }
 
-const REGISTERED = 'registered in this project, its org or the tenant';
+const REGISTERED = 'registered in this project, its org or the workspace';
 
 /**
  * Why a reference is refused. A version may be of an item the project has

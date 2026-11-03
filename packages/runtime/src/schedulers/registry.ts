@@ -43,11 +43,11 @@ export interface TriggerRegistryBinding {
    * A trigger's versions, newest first: one for each definition it has
    * had ({@link TriggerVersionRecord}). Empty for a trigger with none yet
    * (registered before versions, until its first edit or fire), and for
-   * an id the tenant has no trigger with.
+   * an id the workspace has no trigger with.
    */
   listVersions(input: ListTriggerVersionsInput): Promise<TriggerVersionPage>;
 
-  /** One of a trigger's versions; `null` when the tenant's trigger has no such version. */
+  /** One of a trigger's versions; `null` when the workspace's trigger has no such version. */
   getVersion(input: GetTriggerVersionInput): Promise<TriggerVersionRecord | null>;
 
   /**
@@ -66,7 +66,7 @@ export interface TriggerRegistryBinding {
    * The receiver's lookup: the webhook trigger with this routable id,
    * paused or unregistered too (`unregistered`), so the receiver verifies
    * a request with the trigger's own secret before it answers that the
-   * trigger is gone. `null` when the tenant has none. Optional: without
+   * trigger is gone. `null` when the workspace has none. Optional: without
    * it, `POST /v1/hooks/…` answers every request as an unknown trigger.
    */
   findWebhook?(input: {
@@ -112,7 +112,11 @@ export interface TriggerRegistryBinding {
   /**
    * Make `owner` the principal a schedule's runs act as (an admin re-owns
    * a schedule whose owner left). A new owner makes the trigger's next
-   * version (cause `owner`); the owner it already has makes none.
+   * version (cause `owner`); the owner it already has makes none. On a
+   * mail trigger that reads a person's mailbox, a new owner clears the
+   * stored `mailbox.connectionId` and the label of the account it last
+   * read, both the previous owner's: `account` keeps only its id until the
+   * next poll stores the new owner's.
    * Optional: without it, the route answers `501`.
    */
   setOwner?(
@@ -144,7 +148,7 @@ export type TriggerTarget =
       /**
        * The project its Improve runs work in, the schedule's own;
        * registering one names it. Absent on a schedule registered for a
-       * tenant or an org before Improve schedules worked in a project: its
+       * workspace or an org before Improve schedules worked in a project: its
        * fires are refused until its target is saved with the project.
        */
       readonly projectId?: ProjectId;
@@ -300,8 +304,8 @@ export interface TriggerFire {
    * `skipped`, as `detail` says: a webhook trigger was paused; what the
    * target waits for wasn't there (an `improve` schedule's open corrections,
    * or room under its month's cap); its project is suspended (`project-suspended`); its run or
-   * Improve run hadn't started when its tenant was suspended, and the restore
-   * concluded it (`tenant-suspended`); or its tenant was suspended or closing
+   * Improve run hadn't started when its workspace was suspended, and the restore
+   * concluded it (`tenant-suspended`); or its workspace was suspended or closing
    * as its run started (`tenant-suspended`, `tenant-closing`). A skip for a
    * suspension or a close doesn't reset the count of refusals and failures
    * in a row either. A mail trigger's mail is `skipped` when it's from the
@@ -340,7 +344,7 @@ export interface TriggerFire {
   readonly detail?: string;
   /**
    * Whether it counted toward the trigger's auto-pause (5 in a row by
-   * default). `false` for a refusal for a limit, such as the tenant's runs
+   * default). `false` for a refusal for a limit, such as the workspace's runs
    * pending (`detail` starts `rate-limited:`), or a mail trigger's
    * `runsPerHour` (`over-limit:`): the limit passes, and the
    * trigger isn't at fault. `false` too for a mail trigger's
@@ -390,7 +394,7 @@ export interface RegisterCronTriggerInput {
    */
   readonly by: string;
   readonly target: TriggerTarget;
-  /** The schedule's project; absent → the tenant's default project. */
+  /** The schedule's project; absent → the workspace's default project. */
   readonly projectId?: ProjectId;
   /** Who its runs act as: the principal registering it. */
   readonly owner: TriggerOwner;
@@ -429,7 +433,7 @@ export interface RegisterWebhookTriggerInput {
   /** The flow it starts, at an exact version. */
   readonly flowId: string;
   readonly flowVersion: string;
-  /** The trigger's project; absent → the tenant's default project. */
+  /** The trigger's project; absent → the workspace's default project. */
   readonly projectId?: ProjectId;
   /** Who its runs act as: the principal registering it. */
   readonly owner: TriggerOwner;
@@ -475,13 +479,28 @@ export interface RegisterMailTriggerInput {
   /** As `RegisterCronTriggerInput.by`. */
   readonly by: string;
   readonly target: MailTriggerTarget;
-  /** The trigger's project; absent → the tenant's default project. */
+  /** The trigger's project; absent → the workspace's default project. */
   readonly projectId?: ProjectId;
   /**
    * Who its runs act as: the principal registering it, or a service
    * account the route allowed. A `person` mailbox's owner is a person.
    */
   readonly owner: TriggerOwner;
+  /**
+   * Stored as given. The route has decided `mailbox.connectionId`. On the
+   * company's mailbox: one of the project's company connections of the
+   * app, the only one when none was named, or none when the project has
+   * none. On a person's: the owner's own live connection of the app, their
+   * main when none was named, else their only one, or none when they have
+   * none. A stored id is the connection the poller reads with. With none
+   * stored, its next read stores the one those rules give (a version,
+   * cause `pin`) and reads with it from then on; with several and none to
+   * pick, the trigger's `statusReason` is `connection-not-chosen` (on the
+   * company's the reason names them, on a person's it counts them), and it
+   * doesn't poll until someone points it at one, or on a person's, its
+   * owner makes one their main. A run's `mailbox.connectionId` is its
+   * trigger version's, fixed when the fire starts it.
+   */
   readonly config: MailTriggerConfig;
   readonly label?: string;
   /**
@@ -553,9 +572,11 @@ export interface UpdateWebhookTriggerInput extends UpdateBase {
 export interface UpdateMailTriggerInput extends Omit<UpdateBase, 'flowVersion'> {
   readonly kind: 'mail';
   /**
-   * The fields given replace the trigger's; `mailbox` is replaced whole.
-   * Another mailbox (the other app, or the other `as`) with no `folder`
-   * drops the trigger's folder, so it watches the new mailbox's inbox.
+   * The fields given replace the trigger's; `mailbox` is replaced whole,
+   * its `connectionId` as the route decided it (as at registration).
+   * Another mailbox (the other app, the other `as`, or another
+   * `connectionId`, one where there was none too) with no `folder` drops
+   * the trigger's folder, so it watches the new mailbox's inbox.
    */
   readonly config?: Partial<MailTriggerConfig>;
   /** Run something else: another agent or agent version, another flow version. */
@@ -664,13 +685,21 @@ export interface MailTriggerRecord extends TriggerRecordBase {
   /**
    * Why it isn't polling as it should: `connection-missing` (the mailbox's
    * connection is gone or lapsed; polls go on, and work again once it's
-   * back), `owner-refused` (its owner was removed or may no longer run the
-   * target; polls go on and read nothing until that changes or an admin
-   * takes it over), or why the runtime paused it.
+   * back), `connection-not-chosen` (it names no connection, and the
+   * project has several company connections of the app, which the reason
+   * names, or its owner has several and no main, which it counts; it
+   * doesn't poll until someone points it at one), `owner-refused` (its owner was
+   * removed or may no longer run the target; polls go on and read nothing
+   * until that changes or an admin takes it over), or why the runtime
+   * paused it.
    */
   readonly statusReason?: string;
-  /** The mailbox's account at its last poll. Absent before its first. */
-  readonly account?: { readonly id: string; readonly label: string };
+  /**
+   * The mailbox's account at its last poll. Absent before its first. On a
+   * person's mailbox that was taken over, only its `id`, until the next
+   * poll.
+   */
+  readonly account?: { readonly id: string; readonly label?: string };
   /** When it last polled the mailbox and got an answer. */
   readonly lastPolledAt?: string;
   /** As `CronTriggerRecord.toolsAllowedUnattended`. */

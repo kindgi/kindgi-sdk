@@ -118,7 +118,7 @@ function extractId(schema: unknown): Result<string, SchemaError> {
 /**
  * Build a SpecRegistry from an array of already-parsed schema documents:
  * Kindgi's own (`@kindgi/specs`), whose patterns run on V8 as the rest of
- * Kindgi's code does. A tenant's schema goes through `compileJsonSchema`
+ * Kindgi's code does. A workspace's schema goes through `compileJsonSchema`
  * or `compileInlineSchema`, under the bounds.
  *
  * All schemas are registered with the Ajv instance FIRST (so cross-schema
@@ -207,8 +207,8 @@ export interface CompiledInlineSchema {
    * for caller convenience — the runtime does not verify the T assertion
    * beyond schema conformance). It keeps the schema's cache key, not its
    * validator: once the cache has dropped the validator, it compiles the
-   * schema again, a recompile the tenant's budget counts, so it throws
-   * `SchemaCompileBudgetError` when the tenant has spent its budget.
+   * schema again, a recompile the workspace's budget counts, so it throws
+   * `SchemaCompileBudgetError` when the workspace has spent its budget.
    */
   validate<T = unknown>(data: unknown): Result<T, ValidationErrorLike>;
   /** The raw schema JSON, for round-tripping or debugging. */
@@ -239,7 +239,7 @@ export const INLINE_ANNOTATIONS: readonly string[] = ['x-kindgi-tunable'];
  * validator. Returns `err` if the schema itself is malformed (Ajv rejects
  * it), which is how the flow loader surfaces `LoopOutputSchemaError` and
  * similar load-time diagnostics. Throws `SchemaCompileBudgetError` when the
- * compile counts against a tenant that has spent its budget: that isn't
+ * compile counts against a workspace that has spent its budget: that isn't
  * the schema's fault, and the caller answers it as a limit, not an issue.
  *
  * Design note: this is intentionally decoupled from `SpecRegistry` — inline

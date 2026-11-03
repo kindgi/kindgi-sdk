@@ -1,5 +1,63 @@
 # @kindgi/connections
 
+## 0.4.0
+
+### Patch Changes
+
+- 44f9726: **Calendar tools.** `@kindgi/connections/google/tools` adds `googleCalendarEventsList`, `googleCalendarFreeBusy`, `googleCalendarEventCreate` and `googleCalendarEventUpdate`, and `@kindgi/connections/microsoft/tools` adds `outlookCalendarEventsList`, `outlookCalendarFreeBusy`, `outlookCalendarEventCreate` and `outlookCalendarEventUpdate`. They list the events in a window of at most 31 days, say when the calendar is busy, and add or change an event, on the calendar of the account the run acts as. `as: 'company'` uses the company's calendar a tenant admin connected. Each asks for the least access its call takes.
+  
+  - **Times.** A tool takes a time with its offset, or a day for an all-day event, and gives times in UTC. An event's `start` and `end` are both times or both days.
+  - **Invitations.** A create or an update tells the people it invites, so both are mutating tools that wait for a yes in a run no person started. A create runs once per call: a step that runs again gets the first create's answer.
+  - **What an update changes.** One event, or one occurrence of a repeating one, by the id a list gave. It refuses a whole series.
+  - **Permissions.** The Google entry adds `calendar.events.owned.readonly`, `calendar.freebusy` and `calendar.events.owned`, each with review `sensitive`; the Microsoft entry adds `calendars.readbasic` and `calendars.readwrite`. A connection made for mail only lacks the calendar permissions: in a run the person started, the call waits for them to allow them; in any other, it fails with `connection-missing`.
+  - **Rate limits.** Google calendar calls are paced at 600 a minute per connection, apart from Gmail's units. Outlook calendar calls count against Graph's mailbox limit; a create or an update also counts against the 30 a minute that sends do.
+  - **Docs.** A new Calendars guide, the calendar steps in the Google and Microsoft setup guides, and the calendar tools in the tools authoring skill.
+- efa3cdb: **The mail tools can show an agent a mail's attachments.**
+  - **The tools.** `gmailAttachmentGet` (`@kindgi/connections/google/tools`) and `outlookAttachmentGet` (`@kindgi/connections/microsoft/tools`) take a message's id and an attachment's number in its list (1 for the first). Each works on the person's own mailbox, or on the company's with `as: 'company'`. It stores the attachment as a file the call's run owns, and the agent is shown it. It takes a JPEG, PNG or WebP image (at most 5 MB), a PDF (at most 10 MB), or a text, Markdown or CSV file (at most 1 MB). The attachment's type and listed size are checked before anything is downloaded, and a download stops past the type's limit. Any other attachment, an attached message, or a link to a file kept elsewhere answers `notShown`, with its name and why: `type`, `size`, `limit`, `store` (the call has no file store), or `storage` (the tenant's storage is full). The tools read with `gmail.readonly` and `mail.read`, as the read tools do, and change nothing in the mailbox. An attachment's id at Google or Microsoft never reaches the model, in an answer or in an error.
+  - **The numbers.** The attachment tools take the same list as the read tools and a mail trigger's turn, in the same order. A mail turn numbers each mail's attachments from 1, and shows their sizes in the units the limits use (1 MB is 1,000,000 bytes), rounded up. An earlier mail that lists attachments now shows its id, as the new mail does.
+  - `outlookMessageGet` and the Outlook mail trigger now read each attachment's id with its name, type and size, and never show it.
+- 265fffb: **A project's repo connection.** `PUT /v1/projects/{projectId}/repo-connection` with `{ connectionId }` sets the company-wide GitHub connection a project opens its block changes' pull requests through, and `DELETE` clears it. Both need `admin` on the project. A connection that isn't there, or was removed, is `404 connection-not-found`; a person's own connection, or another app's, is `400 repo-connection-not-company-github`. `GET /v1/projects/{projectId}` answers `repoConnectionId` while one is set. The project keeps the id only, so a connection removed later reads as none. A runtime whose project store keeps no repo connection answers `501 repo-connection-unsupported`.
+  
+  - **Platform.** `Project.repoConnectionId`, and an optional `ProjectBinding.setRepoConnection(tenantId, projectId, connectionId | null)` answering `ProjectRepoConnectionOutcome`; the in-memory binding implements it, and the project binding conformance suite checks it with `repoConnection: true`.
+  - **TypeScript client.** `client.projects.setRepoConnection(projectId, connectionId)` and `client.projects.clearRepoConnection(projectId)`.
+  - **GitHub permissions.** The GitHub entry adds `contents.read`, `contents.write`, `pull_requests.read` and `pull_requests.write`. A repo connection's GitHub App needs **Contents** and **Pull requests**, read and write; the GitHub connection guide says so.
+- Updated dependencies [b25b82f]
+- Updated dependencies [d92355b]
+- Updated dependencies [d6c9279]
+- Updated dependencies [f2adcc2]
+- Updated dependencies [d10dcc3]
+- Updated dependencies [9b015f7]
+- Updated dependencies [f3bd652]
+- Updated dependencies [9a8a294]
+- Updated dependencies [1bd877d]
+- Updated dependencies [dff9515]
+- Updated dependencies [1131ec3]
+- Updated dependencies [d576ff4]
+  - @kindgi/types@0.4.0
+  - @kindgi/capabilities@0.4.0
+  - @kindgi/tools@0.4.0
+
+## 0.3.1
+
+### Patch Changes
+
+- @kindgi/tools@0.3.1
+  - @kindgi/types@0.3.1
+
+## 0.3.1-rc.1
+
+### Patch Changes
+
+- @kindgi/tools@0.3.1-rc.1
+  - @kindgi/types@0.3.1-rc.1
+
+## 0.3.1-rc.0
+
+### Patch Changes
+
+- @kindgi/tools@0.3.1-rc.0
+  - @kindgi/types@0.3.1-rc.0
+
 ## 0.3.0
 
 ### Patch Changes

@@ -10,7 +10,7 @@
 When an agent turn fires, the router expands each registered provider
 into one entry per model (`metadata.models[]`), filters the resulting
 (provider, model) tuples against the agent's `capabilities.needs` (and
-tenant policy), then sorts survivors in this order:
+workspace policy), then sorts survivors in this order:
 
 1. **Preferred provider / model.** Tuples matching the agent's
    `preferredProvider` and `preferredModel` are promoted to the front.

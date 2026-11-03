@@ -171,7 +171,7 @@ const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
   description:
-    "List the tenant's registrations at other apps. Removed ones are left out unless `--include-removed`.",
+    "List the workspace's registrations at other apps. Removed ones are left out unless `--include-removed`.",
   usage: 'kindgi connection-apps list [--include-removed] [--limit=<n>] [--cursor=<c>] [--table]',
   optionSpec: {
     'include-removed': {
@@ -214,7 +214,7 @@ const add: LeafCommand = {
   kind: 'leaf',
   name: 'add',
   description:
-    "Register the tenant's app at Google (`google`), Microsoft (`microsoft`, with `--tenant`), GitHub (`github`, with its four GitHub flags) or LinkedIn (`linkedin`), by its client id and the secrets you stored with `kindgi secrets set`. Prints the registration, with the redirect and notices addresses to give the app.",
+    "Register the workspace's app at Google (`google`), Microsoft (`microsoft`, with `--tenant`), GitHub (`github`, with its four GitHub flags) or LinkedIn (`linkedin`), by its client id and the secrets you stored with `kindgi secrets set`. Prints the registration, with the redirect and notices addresses to give the app.",
   usage:
     'kindgi connection-apps add <app> --client-id=<id> --client-secret-ref=<env>/<name> [--tenant=<directory>] [--projects=<id>,…] [--github-app-id=<n> --slug=<slug> --private-key-ref=<env>/<name> --webhook-secret-ref=<env>/<name>]',
   optionSpec: {

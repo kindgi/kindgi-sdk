@@ -67,7 +67,7 @@ export interface Page<T> {
 
 /**
  * A list's content scope: one project's records, or those of every
- * project in an org. Absent: the whole tenant. Lists of content (runs,
+ * project in an org. Absent: the whole workspace. Lists of content (runs,
  * approvals, conversations, provenance) take it; on the wire it is
  * `?scopeKind=project|org&scopeId=…`. It narrows a list, it isn't an
  * authorization boundary.

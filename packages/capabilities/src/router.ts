@@ -51,7 +51,7 @@ export interface RouteInput {
    */
   readonly preferredModel?: string;
   /**
-   * The tenant's registered providers that couldn't be set up
+   * The workspace's registered providers that couldn't be set up
    * (`ProviderRegistry.setupFailures`). They're never candidates. When
    * nothing routes, the error names each under the requirement
    * `provider set up`, and its message gives the first one's why.
@@ -62,7 +62,7 @@ export interface RouteInput {
 /**
  * Route a capability declaration against a provider slice. Returns
  * the highest-ranked `(provider, model)` tuple satisfying every
- * `needs` constraint plus tenant policy, with alternates in ranked
+ * `needs` constraint plus workspace policy, with alternates in ranked
  * order for failover.
  *
  * The router is pure: given the same (capability, providers, policy)
@@ -74,8 +74,8 @@ export interface RouteInput {
  * other provider satisfies the capability; the decision then says so
  * (`fallback: true`). Its tuples are never alternates to a regular pick.
  *
- * Tenant scoping happens BEFORE the router — callers pass a
- * `providers` array that already reflects the target tenant. This
+ * Workspace scoping happens BEFORE the router — callers pass a
+ * `providers` array that already reflects the target workspace. This
  * keeps the router decoupled from whether the underlying registry is
  * in-memory, postgres-backed, or a composed view.
  */
@@ -430,7 +430,7 @@ function tenantPolicyRequirements(policy: TenantPolicy | undefined): readonly {
         deny.includes(t.provider.metadata.id)
           ? {
               code: 'tenant-denied',
-              message: 'tenant policy deny',
+              message: 'workspace policy deny',
               providerId: t.provider.metadata.id,
             }
           : null,
@@ -446,7 +446,7 @@ function tenantPolicyRequirements(policy: TenantPolicy | undefined): readonly {
           ? null
           : {
               code: 'tenant-not-allowed',
-              message: 'not on tenant allow list',
+              message: 'not on workspace allow list',
               providerId: t.provider.metadata.id,
             },
     });
@@ -460,7 +460,7 @@ function tenantPolicyRequirements(policy: TenantPolicy | undefined): readonly {
         deny.includes(t.model.name)
           ? {
               code: 'tenant-model-denied',
-              message: 'tenant policy deny (model)',
+              message: 'workspace policy deny (model)',
               modelName: t.model.name,
             }
           : null,
@@ -476,7 +476,7 @@ function tenantPolicyRequirements(policy: TenantPolicy | undefined): readonly {
           ? null
           : {
               code: 'tenant-model-not-allowed',
-              message: 'not on tenant model allow list',
+              message: 'not on workspace model allow list',
               modelName: t.model.name,
             },
     });
@@ -490,7 +490,7 @@ function tenantPolicyRequirements(policy: TenantPolicy | undefined): readonly {
           ? null
           : {
               code: 'tenant-region-not-allowed',
-              message: `region "${t.provider.metadata.region}" not in tenant allow list`,
+              message: `region "${t.provider.metadata.region}" not in workspace allow list`,
               observed: t.provider.metadata.region,
               allow: regions,
             },
@@ -505,7 +505,7 @@ function tenantPolicyRequirements(policy: TenantPolicy | undefined): readonly {
           ? null
           : {
               code: 'tenant-cost-cap-exceeded',
-              message: `promptCost/1k=$${t.model.cost.promptUsdPer1kTokens} > tenant cap $${cap}`,
+              message: `promptCost/1k=$${t.model.cost.promptUsdPer1kTokens} > workspace cap $${cap}`,
               observedUsd: t.model.cost.promptUsdPer1kTokens,
               capUsd: cap,
             },
@@ -521,7 +521,7 @@ function tenantPolicyRequirements(policy: TenantPolicy | undefined): readonly {
           : {
               // Reuse context-window-mismatch for tenant-side context caps.
               code: 'context-window-mismatch',
-              message: `contextWindow=${t.model.contextWindow} < tenant cap ${cap}`,
+              message: `contextWindow=${t.model.contextWindow} < workspace cap ${cap}`,
               observed: t.model.contextWindow,
               op: '>=',
               wanted: cap,
@@ -576,7 +576,7 @@ function buildReason(t: ProviderModelPick, input: RouteInput, fallback: boolean)
     `satisfies ${input.capability.needs.length} constraint(s)`,
   ];
   if (fallback) parts.push('a fallback provider — no other registered provider satisfies it');
-  if (input.tenantPolicy !== undefined) parts.push('respects tenant policy');
+  if (input.tenantPolicy !== undefined) parts.push('respects workspace policy');
   const prefs = input.capability.prefer;
   if (prefs !== undefined && prefs.length > 0)
     parts.push(`ranked top of ${prefs.length} preference(s)`);

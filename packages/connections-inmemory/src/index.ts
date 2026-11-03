@@ -13,9 +13,15 @@
  */
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { type ConnectWaitResult, computeConnectWaitToken } from '@kindgi/agents';
+import {
+  type ConnectWaitResult,
+  computeConnectWaitToken,
+  connectionSetRefusal,
+} from '@kindgi/agents';
+import { comparableName, fitName } from '@kindgi/api';
 import type {
   ConnectFinishInput,
+  ConnectFinishMain,
   ConnectFinishOutcome,
   ConnectRequestCreateInput,
   ConnectRequestInstallation,
@@ -24,6 +30,11 @@ import type {
   ConnectionAppRecord,
   ConnectionAppUpdateInput,
   ConnectionBinding,
+  ConnectionChoiceListInput,
+  ConnectionChoiceNeedRecord,
+  ConnectionChoiceRecord,
+  ConnectionChoiceSetInput,
+  ConnectionChoiceTarget,
   ConnectionError,
   ConnectionErrorCode,
   ConnectionListInput,
@@ -31,6 +42,7 @@ import type {
   ConnectionPage,
   ConnectionRecord,
   ConnectionRemovedReason,
+  ConnectionSetRefusal,
   ConnectionState,
   ConnectionWithdrawn,
 } from '@kindgi/api';
@@ -38,11 +50,18 @@ import type { PrincipalRef } from '@kindgi/authz';
 import { type AppEntry, SIGN_IN_TENANT_PATTERN } from '@kindgi/connections';
 import {
   type ConnectionAccount,
+  type ConnectionAccountChoices,
+  type ConnectionAccountChoicesInput,
+  type ConnectionNeed,
+  type ConnectionPick,
   ConnectionRenewError,
   type ConnectionResolver,
+  type ConnectionRunMailbox,
+  type ConnectionTarget,
   type ResolveConnectionsInput,
   type ResolveConnectionsOutcome,
   type ToolConnection,
+  type ToolManifest,
   type WaitingForConnection,
 } from '@kindgi/tools';
 import type { Cursor, EnvName, ProjectId, Result, TenantId } from '@kindgi/types';
@@ -61,6 +80,21 @@ const MAX_RENEW_MARGIN_MS = 60_000;
  */
 const ACCESS_END_MARGIN_MS = 60_000;
 const HOUR_MS = 60 * 60_000;
+/** A connection's label, in characters, as a server's. */
+const MAX_LABEL_LENGTH = 100;
+/** The states of a connection a choice may name: live, never `removing` or `removed`. */
+const LIVE: ReadonlySet<ConnectionState> = new Set(['working', 'needs-reconnecting']);
+/** How many connections a set holds, as a server's. */
+const SET_SIZE = { min: 2, max: 10 } as const;
+const COMPANY: ConnectionOwner = { kind: 'company' };
+
+/** Why a tool keeps one connection, by `connectionSetRefusal`'s answer. */
+const SET_REFUSED: Readonly<Record<ConnectionSetRefusal, (tool: string) => string>> = {
+  changes: (tool) => `${tool} changes things, so it keeps one connection.`,
+  'sensitive-data-egress': (tool) =>
+    `${tool} may send what it reads elsewhere, so it keeps one connection.`,
+  'accounts-input': (tool) => `${tool} has its own accounts input, so it can't take a set.`,
+};
 
 /** What the fake app answers a code with. */
 export interface FakeAppExchange {
@@ -173,17 +207,50 @@ export interface InMemoryConnectionsOptions {
     readonly waitToken: string;
     readonly result: ConnectWaitResult;
   }) => Promise<void>;
+  /**
+   * Whether an agent or a flow is one of a project's, for a choice
+   * (`setChoice`) and its needs (`choiceNeeds`). Without it none is: each
+   * answers `agent-not-found` or `flow-not-found`.
+   */
+  readonly inProject?: (input: {
+    readonly tenantId: TenantId;
+    readonly projectId: ProjectId;
+    readonly kind: 'agent' | 'flow';
+    readonly id: string;
+  }) => boolean | Promise<boolean>;
+  /**
+   * An agent's or a flow's tools, at the versions it resolves to now: what a
+   * tool's choice (`setChoice`), `choiceNeeds`, a call's set and
+   * `accountChoices` read. Without it, a target has no tools.
+   */
+  readonly toolsOf?: (input: {
+    readonly tenantId: TenantId;
+    readonly projectId: ProjectId;
+    readonly kind: 'agent' | 'flow';
+    readonly id: string;
+  }) => TargetTools | Promise<TargetTools>;
 }
 
-/** A connection put in place without a connect. */
+/** A tool as its agent or flow resolves it now: its needs, and whether it may take a set. */
+export type TargetTool = Pick<ToolManifest, 'id' | 'mutating' | 'effects' | 'input' | 'needsSpec'>;
+
+/** An agent's or a flow's tools; `unread` names those whose version couldn't be read. */
+export interface TargetTools {
+  readonly tools: readonly TargetTool[];
+  readonly unread?: readonly string[];
+}
+
+/** A connection put in place without a connect. It's never made main: `update` does that. */
 export interface SeedConnectionInput {
   readonly tenantId: TenantId;
   readonly envName: EnvName;
   readonly app: string;
-  /** Which registration, when the tenant has more than one for the app. */
+  /** Which registration, when the workspace has more than one for the app. */
   readonly appId?: string;
   readonly owner: ConnectionOwner;
   readonly account: ConnectionAccount;
+  /** Absent: none, as on a connection made before connections had names. */
+  readonly label?: string;
   readonly permissions: readonly string[];
   readonly state?: ConnectionState;
   readonly installationId?: string;
@@ -241,9 +308,51 @@ interface Wait {
 }
 
 type Resolved =
-  | { readonly kind: 'ready'; readonly connection: ToolConnection }
+  | { readonly kind: 'ready'; readonly connection: ToolConnection; readonly pick: ConnectionPick }
   | { readonly kind: 'wait'; readonly wait: Wait }
   | Refused;
+
+/** How the resolver's steps 1 to 4 picked a need's connection. */
+interface Picked {
+  readonly by: 'mailbox' | 'choice' | 'named';
+  readonly connectionId: string;
+  readonly choiceId?: string;
+  /** With a set: how many connections it holds. */
+  readonly setSize?: number;
+}
+
+/** What a choice's version counts in: project, env, target, app, tool and need, and owner. */
+interface ChoiceKey {
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly envName: EnvName;
+  readonly target: ConnectionChoiceTarget;
+  readonly app: string;
+  readonly aim: ToolNeed | undefined;
+  readonly owner: ConnectionOwner;
+}
+
+/** A tool's need a choice is for. */
+interface ToolNeed {
+  readonly toolId: string;
+  readonly need: string;
+}
+
+/** What a choice is for, a tool's need or none, and its set, if it has one. */
+interface ChoiceAim {
+  readonly aim: ToolNeed | undefined;
+  readonly set: readonly string[] | undefined;
+}
+
+/** A need's set a call may name from, as `accountChoices` answers it. */
+type AccountSet = ConnectionAccountChoices[string][string];
+
+/** Why a connection picked for a need can't serve it, and whether reconnecting would. */
+interface Unserved {
+  readonly why: string;
+  readonly reconnect: boolean;
+  readonly lacks?: readonly string[];
+}
 
 /** Who a code signed in as, and through which GitHub App installation. */
 interface SignedIn {
@@ -253,6 +362,33 @@ interface SignedIn {
 
 function ok<T>(value: T): Outcome<T> {
   return { kind: 'ok', value };
+}
+
+/**
+ * Why a tool's choice can't be for its need, else nothing: the need is the
+ * other owner's (`as`), so the choice would never be read.
+ */
+function otherOwnersNeed(
+  input: ConnectionChoiceSetInput,
+  { toolId, need }: ToolNeed,
+  as: ConnectionNeed['as'] | undefined,
+  appName: string,
+): Outcome<never> | undefined {
+  if (as === 'person' && input.person === undefined) {
+    return refuse(
+      'bad-input',
+      `${toolId}'s ${need} is each person's own ${appName} connection: a person chooses their own (person, or --mine).`,
+      { field: 'person' },
+    );
+  }
+  if (as === 'company' && input.person !== undefined) {
+    return refuse(
+      'bad-input',
+      `${toolId}'s ${need} is the company's ${appName} connection: a project admin chooses it for the project, not each person.`,
+      { field: 'person' },
+    );
+  }
+  return undefined;
 }
 
 function refuse(
@@ -283,6 +419,96 @@ function page<T>(items: readonly T[], limit: number, cursor?: Cursor): Connectio
   return { data, ...(next < items.length && { nextCursor: String(next) as Cursor }) };
 }
 
+/** The agent or the flow alone, from an input that names one. */
+function targetOf(input: ConnectionChoiceTarget): ConnectionChoiceTarget {
+  return input.agentId !== undefined ? { agentId: input.agentId } : { flowId: input.flowId };
+}
+
+/** A call's agent or flow, as a choice names it. */
+function choiceTarget(target: ConnectionTarget): ConnectionChoiceTarget {
+  return 'agentId' in target ? { agentId: target.agentId } : { flowId: target.flowId };
+}
+
+function sameTarget(a: ConnectionChoiceTarget, b: ConnectionChoiceTarget): boolean {
+  return a.agentId !== undefined ? a.agentId === b.agentId : a.flowId === b.flowId;
+}
+
+/** Whose a choice is: the company's, or the person's it names. */
+function choiceOwner(of: { readonly person?: { readonly userId: string } }): ConnectionOwner {
+  return of.person === undefined ? COMPANY : { kind: 'member', userId: of.person.userId };
+}
+
+/** Whether a choice has the key its version counts in. */
+function keyed(c: ConnectionChoiceRecord, key: ChoiceKey): boolean {
+  return (
+    c.tenantId === key.tenantId &&
+    c.projectId === key.projectId &&
+    c.envName === key.envName &&
+    c.app === key.app &&
+    c.toolId === key.aim?.toolId &&
+    c.need === key.aim?.need &&
+    ownerKey(choiceOwner(c)) === ownerKey(key.owner) &&
+    sameTarget(c, key.target)
+  );
+}
+
+/** Whether a choice is one of those asked for: absent, the company's only. */
+function ownedAsAsked(
+  c: ConnectionChoiceRecord,
+  owners: ConnectionChoiceListInput['owners'],
+): boolean {
+  if (c.person === undefined) return owners?.company ?? true;
+  const person = owners?.person;
+  return person === 'every' || person?.userId === c.person.userId;
+}
+
+/** Whether two sets hold the same connections; no set is the same as no set alone. */
+function sameSet(a: readonly string[] | undefined, b: readonly string[] | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return a.length === b.length && a.every((id) => b.includes(id));
+}
+
+/** The connection a need's mailbox binds it to: the run's mailbox of its app and owner. */
+function mailboxOf(
+  need: ConnectionNeed,
+  mailbox: ConnectionRunMailbox | undefined,
+): string | undefined {
+  return mailbox?.as === need.as && mailbox.app === need.app ? mailbox.connectionId : undefined;
+}
+
+/** A tool's needs of connections, by their names, sorted. */
+function needsOf(tool: TargetTool | undefined): [string, ConnectionNeed][] {
+  const needs: Readonly<Record<string, ConnectionNeed>> = tool?.needsSpec?.connections ?? {};
+  return Object.entries(needs).sort(([a], [b]) => a.localeCompare(b));
+}
+
+/** A tool's needs as a needs read answers them: only those of `app`, when it's given. */
+function needRecordsOf(tool: TargetTool, app: string | undefined): ConnectionChoiceNeedRecord[] {
+  const refusal = connectionSetRefusal(tool);
+  const records: ConnectionChoiceNeedRecord[] = [];
+  for (const [need, spec] of needsOf(tool)) {
+    if (app !== undefined && spec.app !== app) continue;
+    records.push({
+      toolId: tool.id,
+      need,
+      app: spec.app,
+      as: spec.as,
+      set: refusal === undefined ? { allowed: true } : { allowed: false, reason: refusal },
+    });
+  }
+  return records;
+}
+
+/** The record without `main`: a connection that isn't, or is no more, its person's main one. */
+function withoutMain(record: ConnectionRecord): ConnectionRecord {
+  const { main: _main, ...rest } = record;
+  return rest;
+}
+
+function oldestFirst(a: ConnectionChoiceRecord, b: ConnectionChoiceRecord): number {
+  return a.createdAt.localeCompare(b.createdAt) || a.choiceId.localeCompare(b.choiceId);
+}
+
 function challengeOf(verifier: string): string {
   return createHash('sha256').update(verifier).digest('base64url');
 }
@@ -308,6 +534,7 @@ export function createInMemoryConnections(
   const apps = new Map<string, ConnectionAppRecord>();
   const connections = new Map<string, StoredConnection>();
   const requests = new Map<string, StoredRequest>();
+  const choices = new Map<string, ConnectionChoiceRecord>();
   const calls: FakeAppCall[] = [];
 
   // ---------------- registrations ----------------
@@ -420,6 +647,250 @@ export function createInMemoryConnections(
     );
   }
 
+  /** The agent or the flow, as `inProject` and `toolsOf` ask about it. */
+  function targetAsked(
+    input: { readonly tenantId: TenantId; readonly projectId: ProjectId },
+    target: ConnectionChoiceTarget,
+  ) {
+    const kind: 'agent' | 'flow' = target.agentId !== undefined ? 'agent' : 'flow';
+    const id = (target.agentId ?? target.flowId) as string;
+    return { tenantId: input.tenantId, projectId: input.projectId, kind, id };
+  }
+
+  /** The refusal when the agent or the flow isn't one of the project's. */
+  async function outsideProject(
+    input: { readonly tenantId: TenantId; readonly projectId: ProjectId },
+    target: ConnectionChoiceTarget,
+  ): Promise<Outcome<never> | undefined> {
+    const asked = targetAsked(input, target);
+    if (await (options.inProject?.(asked) ?? false)) return undefined;
+    const { kind, id } = asked;
+    return refuse(`${kind}-not-found`, `No ${kind} "${id}" in the project`, {
+      field: `${kind}Id`,
+    });
+  }
+
+  /** The target's tools at the versions it resolves to now: none without `toolsOf`. */
+  async function targetTools(
+    input: { readonly tenantId: TenantId; readonly projectId: ProjectId },
+    target: ConnectionChoiceTarget,
+  ): Promise<TargetTools> {
+    return (await options.toolsOf?.(targetAsked(input, target))) ?? { tools: [] };
+  }
+
+  /**
+   * The connection a choice names, when it's a candidate of the choice's
+   * owner (and of `app`, for a set's member). A person's live connection in
+   * the env, in the company's choice, says why it can't be; any other that
+   * isn't a candidate is the same `connection-not-found` as an id that
+   * isn't there, so an id tells nothing more.
+   */
+  function choosable(
+    input: ConnectionChoiceSetInput,
+    connectionId: string,
+    field: 'connectionId' | 'connectionIds',
+    app?: string,
+  ): Outcome<ConnectionRecord> {
+    const stored = connections.get(connectionId);
+    const connection =
+      stored !== undefined && stored.record.tenantId === input.tenantId
+        ? current(stored)
+        : undefined;
+    if (
+      input.person === undefined &&
+      connection?.owner.kind === 'member' &&
+      LIVE.has(connection.state) &&
+      connection.envName === input.envName
+    ) {
+      return refuse(
+        'bad-input',
+        "This is a person's connection: a person chooses their own (person, or --mine).",
+        { field },
+      );
+    }
+    if (
+      connection === undefined ||
+      (app !== undefined && connection.app !== app) ||
+      !candidate(connection, input.projectId, input.envName, choiceOwner(input))
+    ) {
+      return refuse('connection-not-found', 'No such connection', { field });
+    }
+    return ok(connection);
+  }
+
+  /**
+   * Whether a choice in the project may name the connection: the owner's
+   * (the company's, else that person's own), live (working, or needing a
+   * reconnect), in the env, on a live registration that allows the project.
+   */
+  function candidate(
+    c: ConnectionRecord,
+    projectId: ProjectId,
+    envName: EnvName,
+    owner: ConnectionOwner = COMPANY,
+  ): boolean {
+    if (ownerKey(c.owner) !== ownerKey(owner) || !LIVE.has(c.state) || c.envName !== envName) {
+      return false;
+    }
+    const app = liveApp(c.tenantId, c.appId);
+    return app !== undefined && allows(app, projectId);
+  }
+
+  /**
+   * The tool's need a choice is for (`toolId`), at the version the target
+   * resolves to now: one of the app the tool has, named, or its only one,
+   * whose owner (`as`) is the choice's, since a choice of the other owner
+   * is never read. None for the target's own choice (`withoutTool`).
+   */
+  async function toolNeedOf(
+    input: ConnectionChoiceSetInput,
+    target: ConnectionChoiceTarget,
+    app: string,
+  ): Promise<Outcome<(ToolNeed & { readonly tool: TargetTool }) | undefined>> {
+    if (input.toolId === undefined) return withoutTool(input, target, app);
+    const toolId = input.toolId;
+    const appName = entries.get(app)?.name ?? app;
+    const tool = (await targetTools(input, target)).tools.find((t) => t.id === toolId);
+    const specs = new Map(needsOf(tool).filter(([, need]) => need.app === app));
+    const needs = [...specs.keys()];
+    if (tool === undefined || needs.length === 0) {
+      const { kind } = targetAsked(input, target);
+      return refuse('bad-input', `The ${kind} has no tool ${toolId} that uses ${appName}.`, {
+        field: 'toolId',
+      });
+    }
+    const need = input.need ?? (needs.length === 1 ? needs[0] : undefined);
+    if (need === undefined) {
+      return refuse(
+        'bad-input',
+        `${toolId} uses ${appName} twice: name the need (${needs.join(', ')}).`,
+        { field: 'need' },
+      );
+    }
+    if (!needs.includes(need)) {
+      return refuse('bad-input', `${toolId} has no need ${need} of ${appName}.`, {
+        field: 'need',
+      });
+    }
+    const owners = otherOwnersNeed(input, { toolId, need }, specs.get(need)?.as, appName);
+    if (owners !== undefined) return owners;
+    return ok({ toolId, need, tool });
+  }
+
+  /**
+   * The target's own choice (no `toolId`): no `need` and no set, and, when
+   * the target's tools use the app now, one of their needs of it the choice
+   * owner's, since a choice of the other owner is never read.
+   */
+  async function withoutTool(
+    input: ConnectionChoiceSetInput,
+    target: ConnectionChoiceTarget,
+    app: string,
+  ): Promise<Outcome<undefined>> {
+    if (input.need !== undefined) {
+      return refuse('bad-input', "`need` is a tool's: name the tool (`toolId`)", {
+        field: 'need',
+      });
+    }
+    if (input.connectionIds !== undefined) {
+      return refuse('bad-input', 'A set of connections is for one tool: name it.', {
+        field: 'connectionIds',
+      });
+    }
+    // A target that doesn't use the app now may be chosen for ahead.
+    const owners = (await targetTools(input, target)).tools.flatMap((t) =>
+      needsOf(t)
+        .filter(([, need]) => need.app === app)
+        .map(([, need]) => need.as),
+    );
+    const person = input.person !== undefined;
+    if (owners.length === 0 || owners.some((as) => (as === 'person') === person)) {
+      return ok(undefined);
+    }
+    const { kind } = targetAsked(input, target);
+    const appName = entries.get(app)?.name ?? app;
+    return refuse(
+      'bad-input',
+      person
+        ? `The ${kind} uses ${appName} only as the company's connection: a project admin chooses it for the project, not each person.`
+        : `The ${kind} uses ${appName} only as each person's own connection: a person chooses their own (person, or --mine).`,
+      { field: 'person' },
+    );
+  }
+
+  /**
+   * A choice's set (`connectionIds`): 2 to 10 different candidates of the
+   * default's app, every one named, the default among them, for a tool
+   * that may take one (`connectionSetRefusal`).
+   */
+  function setOf(
+    input: ConnectionChoiceSetInput,
+    connection: ConnectionRecord,
+    aim: { readonly toolId: string; readonly tool: TargetTool } | undefined,
+  ): Outcome<readonly string[] | undefined> {
+    const ids = input.connectionIds;
+    if (ids === undefined) return ok(undefined);
+    const at = { field: 'connectionIds' };
+    if (aim === undefined) {
+      return refuse('bad-input', 'A set of connections is for one tool: name it.', at);
+    }
+    if (ids.length < SET_SIZE.min || ids.length > SET_SIZE.max || new Set(ids).size < ids.length) {
+      return refuse(
+        'bad-input',
+        `A set holds ${SET_SIZE.min} to ${SET_SIZE.max} different connections.`,
+        at,
+      );
+    }
+    if (!ids.includes(connection.connectionId)) {
+      return refuse('bad-input', 'The default must be one of the set.', at);
+    }
+    const refusal = connectionSetRefusal(aim.tool);
+    if (refusal !== undefined) return refuse('bad-input', SET_REFUSED[refusal](aim.toolId), at);
+    const members = membersOf(input, ids, connection.app);
+    if (members.kind !== 'ok') return members;
+    return ok([...ids]);
+  }
+
+  /**
+   * A set's members, in the order named: each a candidate of `app`
+   * (`choosable`), and every one named, since the agent picks them by name.
+   */
+  function membersOf(
+    input: ConnectionChoiceSetInput,
+    ids: readonly string[],
+    app: string,
+  ): Outcome<readonly ConnectionRecord[]> {
+    const members: ConnectionRecord[] = [];
+    for (const id of ids) {
+      const member = choosable(input, id, 'connectionIds', app);
+      if (member.kind !== 'ok') return member;
+      members.push(member.value);
+    }
+    const unnamed = members.find((m) => m.label === undefined);
+    if (unnamed !== undefined) {
+      return refuse(
+        'bad-input',
+        `Name ${unnamed.account.label} first: the agent picks a set's connections by name.`,
+        { field: 'connectionIds' },
+      );
+    }
+    return ok(members);
+  }
+
+  /** The tool's need a choice is for, if any (`toolNeedOf`), and its set (`setOf`). */
+  async function aimAndSet(
+    input: ConnectionChoiceSetInput,
+    target: ConnectionChoiceTarget,
+    connection: ConnectionRecord,
+  ): Promise<Outcome<ChoiceAim>> {
+    const aimed = await toolNeedOf(input, target, connection.app);
+    if (aimed.kind !== 'ok') return aimed;
+    const set = setOf(input, connection, aimed.value);
+    if (set.kind !== 'ok') return set;
+    const aim = aimed.value && { toolId: aimed.value.toolId, need: aimed.value.need };
+    return ok({ aim, set: set.value });
+  }
+
   /**
    * A project uses one registration of an app, so a run's connect is never a
    * guess: another live registration of the app may not serve a project
@@ -443,7 +914,12 @@ export function createInMemoryConnections(
       if (other.projects === undefined || projects === undefined) {
         return refuse(
           'connection-app-invalid',
-          `Registration ${other.appId} of ${entry.name} already serves every project this one would; a project uses one registration of an app, so name projects that don't overlap`,
+          everyProjectOverlap(
+            entry,
+            other.appId,
+            other.projects === undefined,
+            projects === undefined,
+          ),
           { field: 'projects' },
         );
       }
@@ -457,6 +933,23 @@ export function createInMemoryConnections(
       }
     }
     return undefined;
+  }
+
+  /** Why a registration that serves every project, or would, overlaps another: what to change first. */
+  function everyProjectOverlap(
+    entry: AppEntry,
+    id: string,
+    liveEvery: boolean,
+    thisEvery: boolean,
+  ): string {
+    const one = `Registration ${id} of ${entry.name}`;
+    if (liveEvery && thisEvery) {
+      return `${one} already serves every project, as this one would; a project uses one registration of an app, so remove ${id} first, or give each a list of projects that don't overlap`;
+    }
+    if (liveEvery) {
+      return `${one} already serves every project; a project uses one registration of an app, so give ${id} a list of projects this one doesn't name, or remove it, first`;
+    }
+    return `${one} already serves its own list of projects, and this one would serve every project; a project uses one registration of an app, so give this one a list of projects ${id} doesn't serve`;
   }
 
   /** The field naming a change of the client the registration's connections were granted to, if any. */
@@ -536,26 +1029,132 @@ export function createInMemoryConnections(
 
   // ---------------- connections ----------------
 
-  function liveConnection(
-    tenantId: TenantId,
-    appId: string,
+  /** The owner's live connections through the registration in the env, oldest first. */
+  function ownerConnections(
+    of: Pick<ConnectionRecord, 'tenantId' | 'appId' | 'envName'>,
     owner: ConnectionOwner,
-    envName: EnvName,
-  ): StoredConnection | undefined {
+  ): StoredConnection[] {
     const key = ownerKey(owner);
-    for (const stored of connections.values()) {
-      const c = stored.record;
-      if (
-        c.tenantId === tenantId &&
-        c.appId === appId &&
-        c.envName === envName &&
+    return [...connections.values()].filter(
+      ({ record: c }) =>
+        c.tenantId === of.tenantId &&
+        c.appId === of.appId &&
+        c.envName === of.envName &&
         ownerKey(c.owner) === key &&
-        c.state !== 'removed'
+        c.state !== 'removed',
+    );
+  }
+
+  /** The live connection `connectionId`, if it's the owner's through the registration in the env. */
+  function ownConnection(
+    of: Pick<ConnectRequestRecord, 'tenantId' | 'appId' | 'owner' | 'envName'>,
+    connectionId: string,
+  ): StoredConnection | undefined {
+    const stored = connections.get(connectionId);
+    const c = stored?.record;
+    return c !== undefined &&
+      c.tenantId === of.tenantId &&
+      c.appId === of.appId &&
+      c.envName === of.envName &&
+      ownerKey(c.owner) === ownerKey(of.owner) &&
+      c.state !== 'removed'
+      ? stored
+      : undefined;
+  }
+
+  /**
+   * The owner's live connection of the account through the registration in
+   * the env: the company and a person each keep one per account.
+   */
+  function accountConnection(
+    of: Pick<ConnectRequestRecord, 'tenantId' | 'appId' | 'envName'>,
+    owner: ConnectionOwner,
+    accountId: string,
+  ): StoredConnection | undefined {
+    return ownerConnections(of, owner).find((s) => s.record.account.id === accountId);
+  }
+
+  /**
+   * Makes a person's connection their main one through its registration in
+   * its env, in one step: the one that was is main no more. The main one
+   * already is left as it is.
+   */
+  function makeMain(stored: StoredConnection): void {
+    if (stored.record.main === true) return;
+    const at = iso();
+    for (const other of ownerConnections(stored.record, stored.record.owner)) {
+      if (other.record.main !== true) continue;
+      other.record = { ...withoutMain(other.record), updatedAt: at };
+    }
+    stored.record = { ...stored.record, main: true, updatedAt: at };
+  }
+
+  /**
+   * What a person's new connection does to their main one through the
+   * registration in the env, before it's stored: the one they had becomes
+   * it, unless one of theirs already is; with several and none main, none
+   * is set. Nothing for their first, or for the company's.
+   */
+  function mainOnConnect(request: ConnectRequestRecord): ConnectFinishMain | undefined {
+    if (request.owner.kind !== 'member') return undefined;
+    const had = ownerConnections(request, request.owner);
+    const main = had.find((s) => s.record.main === true);
+    if (main !== undefined) return { state: 'kept', connectionId: main.record.connectionId };
+    const [only, ...more] = had;
+    if (only === undefined) return undefined;
+    if (more.length > 0) return { state: 'missing' };
+    makeMain(only);
+    return { state: 'set', connectionId: only.record.connectionId };
+  }
+
+  /**
+   * Another live connection of the app, owner and env named `label`, by
+   * `comparableName` (names that look the same);
+   * `except` is the connection being named.
+   */
+  function labelTaken(
+    of: Pick<ConnectionRecord, 'tenantId' | 'app' | 'owner' | 'envName'>,
+    label: string,
+    except?: string,
+  ): boolean {
+    const key = ownerKey(of.owner);
+    const wanted = comparableName(label);
+    for (const { record: c } of connections.values()) {
+      if (
+        c.connectionId !== except &&
+        c.tenantId === of.tenantId &&
+        c.app === of.app &&
+        c.envName === of.envName &&
+        ownerKey(c.owner) === key &&
+        c.state !== 'removed' &&
+        c.label !== undefined &&
+        comparableName(c.label) === wanted
       ) {
-        return stored;
+        return true;
       }
     }
-    return undefined;
+    return false;
+  }
+
+  /**
+   * A new connection's label: the request's, else the account's made to fit
+   * in 100 characters (`fitName`). When another has it, the first free
+   * `<label> 2`, `<label> 3`, and so on, the label cut to fit the number, and
+   * `taken` is the one it was to get: a finish isn't failed for it.
+   */
+  function newLabel(
+    request: ConnectRequestRecord,
+    account: ConnectionAccount,
+  ): { readonly label?: string; readonly taken?: string } {
+    const label = request.label ?? fitName(account.label, MAX_LABEL_LENGTH);
+    if (label.length === 0) return {};
+    if (!labelTaken(request, label)) return { label };
+    for (let n = 2; ; n += 1) {
+      const suffix = ` ${n}`;
+      // A label of one character longer than the cut leaves only the number.
+      const next = `${fitName(label, MAX_LABEL_LENGTH - suffix.length)}${suffix}`.trimStart();
+      if (!labelTaken(request, next)) return { label: next, taken: label };
+    }
   }
 
   function issueToken(stored: StoredConnection): void {
@@ -639,6 +1238,7 @@ export function createInMemoryConnections(
     return answer === 'ok' ? 'at-app' : 'app-failed';
   }
 
+  /** A removed main one is main no more, and no other is made main in its place. */
   function remove(
     stored: StoredConnection,
     by: string,
@@ -647,7 +1247,7 @@ export function createInMemoryConnections(
   ): ConnectionRecord {
     const at = iso();
     stored.record = {
-      ...stored.record,
+      ...withoutMain(stored.record),
       state: 'removed',
       removedAt: at,
       removedBy: by,
@@ -677,6 +1277,7 @@ export function createInMemoryConnections(
     readonly owner: ConnectionOwner;
     readonly permissions: readonly string[];
     readonly reconnects?: string;
+    readonly label?: string;
     readonly run?: { readonly runId: string; readonly waitToken: string; readonly name: string };
     readonly expiresAtMs: number;
     readonly createdBy: string;
@@ -692,6 +1293,7 @@ export function createInMemoryConnections(
       permissions: input.permissions,
       says: input.permissions.map((p) => input.entry.permissions[p]?.says ?? p),
       ...(input.reconnects !== undefined && { reconnects: input.reconnects }),
+      ...(input.label !== undefined && { label: input.label }),
       ...(input.run !== undefined && input.run),
       state: 'pending',
       connectUrl: `${publicUrl}/console/connect/${requestId}`,
@@ -748,6 +1350,23 @@ export function createInMemoryConnections(
       : ok(app);
   }
 
+  /**
+   * The connection a connect reconnects: the one `reconnects` names, which
+   * must be the owner's through the registration in the env. The owner's of
+   * an account, the company's or a person's, is known only at the finish.
+   */
+  function reconnectedBy(
+    input: ConnectRequestCreateInput,
+    appId: string,
+  ): Outcome<StoredConnection | undefined> {
+    if (input.reconnects === undefined) return ok(undefined);
+    const named = ownConnection({ ...input, appId }, input.reconnects);
+    // Another owner's, registration's or env's, a removed one or none: one answer.
+    return named !== undefined
+      ? ok(named)
+      : refuse('connection-not-found', 'No such connection to reconnect', { field: 'reconnects' });
+  }
+
   function createRequest(input: ConnectRequestCreateInput): Outcome<ConnectRequestRecord> {
     const entry = entries.get(input.app);
     if (entry === undefined) {
@@ -759,7 +1378,15 @@ export function createInMemoryConnections(
     if (asked.kind === 'err') return asked;
     const app = registrationFor(entry, input);
     if (app.kind === 'err') return app;
-    const existing = liveConnection(input.tenantId, app.value.appId, input.owner, input.envName);
+    const reconnects = reconnectedBy(input, app.value.appId);
+    if (reconnects.kind === 'err') return reconnects;
+    const existing = reconnects.value;
+    // A reconnect keeps the connection's label, so the one asked isn't checked.
+    if (existing === undefined && input.label !== undefined && labelTaken(input, input.label)) {
+      return refuse('connection-label-taken', `Another connection is named "${input.label}"`, {
+        field: 'label',
+      });
+    }
     return ok(
       newRequest({
         tenantId: input.tenantId,
@@ -769,6 +1396,7 @@ export function createInMemoryConnections(
         owner: input.owner,
         permissions: union(input.permissions, existing?.record.permissions ?? []),
         ...(existing !== undefined && { reconnects: existing.record.connectionId }),
+        ...(input.label !== undefined && { label: input.label }),
         expiresAtMs: now() + REQUEST_LIFE_MS,
         createdBy: principalKey(input.by),
       }),
@@ -1015,12 +1643,20 @@ export function createInMemoryConnections(
     return ok(found);
   }
 
-  /** The connection a finish makes or reconnects, with what was granted. */
+  /**
+   * The connection a finish makes or reconnects, with what was granted. A
+   * reconnect keeps its label; a new one's may have been taken. A person's
+   * new one keeps their main one (`mainOnConnect`).
+   */
   function storeConnection(
     request: ConnectRequestRecord,
     live: StoredConnection | undefined,
     made: SignedIn & { readonly granted: readonly string[] },
-  ): StoredConnection {
+  ): {
+    readonly stored: StoredConnection;
+    readonly labelTaken?: string;
+    readonly main?: ConnectFinishMain;
+  } {
     const at = iso();
     const installation = made.installationId !== undefined && {
       installationId: made.installationId,
@@ -1036,8 +1672,10 @@ export function createInMemoryConnections(
         connectedAt: at,
         updatedAt: at,
       };
-      return live;
+      return { stored: live };
     }
+    const { label, taken } = newLabel(request, made.account);
+    const main = mainOnConnect(request);
     const connection: StoredConnection = {
       record: {
         connectionId: randomUUID(),
@@ -1047,6 +1685,7 @@ export function createInMemoryConnections(
         app: request.app,
         owner: request.owner,
         account: made.account,
+        ...(label !== undefined && { label }),
         permissions: made.granted,
         state: 'working',
         ...installation,
@@ -1057,7 +1696,11 @@ export function createInMemoryConnections(
       },
     };
     connections.set(connection.record.connectionId, connection);
-    return connection;
+    return {
+      stored: connection,
+      ...(taken !== undefined && { labelTaken: taken }),
+      ...(main !== undefined && { main }),
+    };
   }
 
   /**
@@ -1082,6 +1725,7 @@ export function createInMemoryConnections(
           { kind: 'connected', connectionId },
         ),
         connection: live.record,
+        reconnected: true,
       });
     }
     const missing = union(request.permissions, held).filter((p) => !kept.includes(p));
@@ -1091,12 +1735,18 @@ export function createInMemoryConnections(
     });
   }
 
-  /** The working connection a finish lands on: the one it reconnects, or the owner's. */
-  function landsOn(request: ConnectRequestRecord): StoredConnection | undefined {
-    const target =
-      (request.reconnects !== undefined ? connections.get(request.reconnects) : undefined) ??
-      liveConnection(request.tenantId, request.appId, request.owner, request.envName);
-    return target !== undefined && target.record.state !== 'removed' ? target : undefined;
+  /**
+   * The live connection a finish lands on: the one it reconnects, while
+   * it's still live; else the owner's of the account signed in to, the
+   * company's or a person's, so one account never has two.
+   */
+  function landsOn(
+    request: ConnectRequestRecord,
+    account: ConnectionAccount,
+  ): StoredConnection | undefined {
+    const named =
+      request.reconnects !== undefined ? ownConnection(request, request.reconnects) : undefined;
+    return named ?? accountConnection(request, request.owner, account.id);
   }
 
   /**
@@ -1139,7 +1789,9 @@ export function createInMemoryConnections(
     gave: { readonly refreshToken: boolean; readonly expiresIn: boolean },
   ): Promise<Outcome<ConnectFinishOutcome>> {
     const request = stored.record;
-    const live = landsOn(request);
+    // Nothing is awaited from here to the store, so two finishes of one
+    // account can't both make a connection.
+    const live = landsOn(request, signedIn.account);
     if (live !== undefined && live.record.account.id !== signedIn.account.id) {
       await settle(stored, { state: 'failed', failure: 'account-mismatch' });
       return refuse(
@@ -1171,7 +1823,14 @@ export function createInMemoryConnections(
       await settle(stored, { state: 'failed', failure: 'app-refused' });
       return refuse('connection-app-refused', refused);
     }
-    const connection = storeConnection(request, live, { ...signedIn, granted: kept });
+    const {
+      stored: connection,
+      labelTaken,
+      main,
+    } = storeConnection(request, live, {
+      ...signedIn,
+      granted: kept,
+    });
     issueFirstToken(connection, renews === 'renews');
     const connectionId = connection.record.connectionId;
     if (missing.length > 0) {
@@ -1192,6 +1851,9 @@ export function createInMemoryConnections(
         { kind: 'connected', connectionId },
       ),
       connection: connection.record,
+      reconnected: live !== undefined,
+      ...(labelTaken !== undefined && { labelTaken }),
+      ...(main !== undefined && { main }),
     });
   }
 
@@ -1373,6 +2035,168 @@ export function createInMemoryConnections(
       return ok(remove(stored, principalKey(input.by), 'disconnected', withdrawAtApp(stored)));
     },
 
+    async update(input) {
+      const stored = connections.get(input.connectionId);
+      if (
+        stored === undefined ||
+        stored.record.tenantId !== input.tenantId ||
+        stored.record.state === 'removed'
+      ) {
+        return refuse('connection-not-found', 'No such connection');
+      }
+      const { label } = input;
+      if (input.main === true && stored.record.owner.kind === 'company') {
+        return refuse(
+          'bad-input',
+          "The company has no main connection: its agents use the company's through their choices.",
+          { field: 'main' },
+        );
+      }
+      if (label !== undefined && labelTaken(stored.record, label, input.connectionId)) {
+        return refuse('connection-label-taken', `Another connection is named "${label}"`, {
+          field: 'label',
+        });
+      }
+      if (label !== undefined) stored.record = { ...stored.record, label, updatedAt: iso() };
+      if (input.main === true) makeMain(stored);
+      return ok(current(stored));
+    },
+
+    async listChoices(input) {
+      const data = [...choices.values()]
+        .filter(
+          (c) =>
+            c.tenantId === input.tenantId &&
+            c.projectId === input.projectId &&
+            c.envName === input.envName &&
+            (input.includeRemoved === true || c.removedAt === undefined) &&
+            (input.agentId === undefined || c.agentId === input.agentId) &&
+            (input.flowId === undefined || c.flowId === input.flowId) &&
+            (input.app === undefined || c.app === input.app) &&
+            (input.toolId === undefined || c.toolId === input.toolId) &&
+            ownedAsAsked(c, input.owners),
+        )
+        .sort(oldestFirst);
+      return page(data, input.limit, input.cursor);
+    },
+
+    async getChoice(input) {
+      const choice = choices.get(input.choiceId);
+      return choice !== undefined && choice.tenantId === input.tenantId ? choice : null;
+    },
+
+    async setChoice(input) {
+      const { tenantId, projectId, envName } = input;
+      const target = targetOf(input);
+      const outside = await outsideProject(input, target);
+      if (outside !== undefined) return outside;
+      const chosen = choosable(input, input.connectionId, 'connectionId');
+      if (chosen.kind !== 'ok') return chosen;
+      const connection = chosen.value;
+      const aimed = await aimAndSet(input, target, connection);
+      if (aimed.kind !== 'ok') return aimed;
+      const { aim, set } = aimed.value;
+      const owner = choiceOwner(input);
+      const { app } = connection;
+      const key: ChoiceKey = { tenantId, projectId, envName, target, app, aim, owner };
+      const history = [...choices.values()].filter((c) => keyed(c, key));
+      const live = history.find((c) => c.removedAt === undefined);
+      if (live?.connectionId === connection.connectionId && sameSet(live.connectionIds, set)) {
+        return ok(live);
+      }
+      const at = iso();
+      const by = principalKey(input.by);
+      if (live !== undefined) choices.set(live.choiceId, { ...live, removedAt: at, removedBy: by });
+      const choice: ConnectionChoiceRecord = {
+        ...target,
+        choiceId: randomUUID(),
+        tenantId,
+        projectId,
+        envName,
+        app,
+        ...aim,
+        connectionId: connection.connectionId,
+        ...(set !== undefined && { connectionIds: set }),
+        ...(input.person !== undefined && { person: { userId: input.person.userId } }),
+        version: Math.max(0, ...history.map((c) => c.version)) + 1,
+        createdAt: at,
+        createdBy: by,
+      };
+      choices.set(choice.choiceId, choice);
+      return ok(choice);
+    },
+
+    async removeChoice(input) {
+      const choice = choices.get(input.choiceId);
+      if (
+        choice === undefined ||
+        choice.tenantId !== input.tenantId ||
+        choice.removedAt !== undefined
+      ) {
+        return refuse('connection-choice-not-found', 'No such connection choice');
+      }
+      const removed = { ...choice, removedAt: iso(), removedBy: principalKey(input.by) };
+      choices.set(choice.choiceId, removed);
+      return ok(removed);
+    },
+
+    async listCandidates(input) {
+      const owner = choiceOwner(input);
+      const data = [...connections.values()]
+        .map(current)
+        .filter(
+          (c) =>
+            c.tenantId === input.tenantId &&
+            (input.app === undefined || c.app === input.app) &&
+            candidate(c, input.projectId, input.envName, owner),
+        )
+        .sort(
+          (a, b) =>
+            a.createdAt.localeCompare(b.createdAt) || a.connectionId.localeCompare(b.connectionId),
+        )
+        .map((c) => ({
+          connectionId: c.connectionId,
+          name: nameOf(c),
+          app: c.app,
+          accountLabel: c.account.label,
+          state: c.state,
+          ...(c.main === true && { main: true }),
+        }));
+      return page(data, input.limit, input.cursor);
+    },
+
+    async choiceNeeds(input) {
+      const target = targetOf(input);
+      const outside = await outsideProject(input, target);
+      if (outside !== undefined) return outside;
+      const { tools, unread = [] } = await targetTools(input, target);
+      const data: ConnectionChoiceNeedRecord[] = [];
+      for (const tool of [...tools].sort((a, b) => a.id.localeCompare(b.id))) {
+        data.push(...needRecordsOf(tool, input.app));
+      }
+      return ok({ data, ...(unread.length > 0 && { unread: [...unread] }) });
+    },
+
+    async listChoicesForConnection(input) {
+      const stored = connections.get(input.connectionId);
+      const named = stored?.record.tenantId === input.tenantId ? stored.record : undefined;
+      const data =
+        named === undefined
+          ? []
+          : [...choices.values()]
+              .filter(
+                (c) =>
+                  c.tenantId === input.tenantId &&
+                  c.envName === input.envName &&
+                  c.removedAt === undefined &&
+                  (c.connectionId === named.connectionId ||
+                    c.connectionIds?.includes(named.connectionId) === true) &&
+                  ownerKey(choiceOwner(c)) === ownerKey(named.owner),
+              )
+              .sort(oldestFirst);
+      return page(data, input.limit, input.cursor);
+    },
+
     async createRequest(input) {
       return createRequest(input);
     },
@@ -1481,6 +2305,7 @@ export function createInMemoryConnections(
       appName: entries.get(c.app)?.name ?? c.app,
       accessToken: `fake-${c.connectionId}-${issued.n}`,
       account: c.account,
+      name: nameOf(c),
       expiresAt: iso(issued.expiresAtMs),
     };
   }
@@ -1545,34 +2370,347 @@ export function createInMemoryConnections(
     return { entry, app };
   }
 
-  /** One need: its token, a connect to wait for, or why it can't be met. */
-  function resolveOne(name: string, need: Need, input: ResolveConnectionsInput): Resolved {
-    const registration = registrationOf(name, need, input);
-    if ('kind' in registration) return registration;
-    const { entry, app } = registration;
-    const owner = ownerFor(name, need, entry, input);
-    if (owner.kind === 'refused') return owner;
-    const found = liveConnection(input.tenantId, app.appId, owner, input.envName);
-    const lacks = need.permissions.filter((p) => !found?.record.permissions.includes(p));
-    if (found?.record.state === 'working' && lacks.length === 0) {
-      const token = tokenFor(found, name, input.renew?.includes(name) === true);
-      if (token !== 'needs-reconnecting') return { kind: 'ready', connection: token };
+  /** A connection's name: its label, else its account's label. */
+  function nameOf(c: ConnectionRecord): string {
+    return c.label ?? c.account.label;
+  }
+
+  /**
+   * A registration as a call's record names it: its label, else its app's
+   * name and its id's first 8 characters, as a runtime does.
+   */
+  function registrationSeen(
+    app: ConnectionAppRecord,
+    entry: AppEntry,
+  ): ConnectionPick['registration'] {
+    return { id: app.appId, name: app.label ?? `${entry.name} (${app.appId.slice(0, 8)})` };
+  }
+
+  /**
+   * A need's candidates: its owner's live connections of the app on a
+   * registration that allows the project, in the env.
+   */
+  function candidatesOf(
+    need: ConnectionNeed,
+    owner: ConnectionOwner,
+    input: Pick<ResolveConnectionsInput, 'tenantId' | 'projectId' | 'envName'>,
+  ): ConnectionRecord[] {
+    return [...connections.values()]
+      .filter((s) => s.record.tenantId === input.tenantId && s.record.app === need.app)
+      .map(current)
+      .filter((c) => candidate(c, input.projectId, input.envName, owner));
+  }
+
+  /** The owner's live choice for the target and app: a tool's need's (`aim`), else the target's. */
+  function liveChoice(
+    input: Pick<ResolveConnectionsInput, 'tenantId' | 'projectId' | 'envName'>,
+    target: ConnectionChoiceTarget,
+    owner: ConnectionOwner,
+    app: string,
+    aim: ToolNeed | undefined,
+  ): ConnectionChoiceRecord | undefined {
+    const { tenantId, projectId, envName } = input;
+    const key: ChoiceKey = { tenantId, projectId, envName, target, app, aim, owner };
+    return [...choices.values()].find((c) => c.removedAt === undefined && keyed(c, key));
+  }
+
+  /**
+   * Steps 1 to 4 for a need: the run's mailbox, when it's the owner's for
+   * the app; the member of the tool's set the call names (`accounts`), when
+   * the call's tool may take a set (`sets`); the tool's choice for the
+   * need, a set's default; else the target's choice for the app. Every
+   * choice is the owner's own. `outside`: the call named a connection that
+   * isn't a member of the need's live set, for a need with no set, or for a
+   * tool that may not take one now; it never falls back to the default.
+   */
+  function pickedFor(
+    name: string,
+    need: Need,
+    owner: ConnectionOwner,
+    input: ResolveConnectionsInput,
+    sets: boolean,
+  ): Picked | 'outside' | undefined {
+    const bound = mailboxOf(need, input.mailbox);
+    if (bound !== undefined) return { by: 'mailbox', connectionId: bound };
+    const named = input.accounts?.[name];
+    // A call with no agent or flow has no set: a name is outside it.
+    if (input.target === undefined) return named === undefined ? undefined : 'outside';
+    const target = choiceTarget(input.target);
+    const aim = { toolId: input.toolId, need: name };
+    const toolChoice = liveChoice(input, target, owner, need.app, aim);
+    if (named !== undefined) return namedMemberPick(toolChoice, named, sets);
+    const chosen = toolChoice ?? liveChoice(input, target, owner, need.app, undefined);
+    if (chosen === undefined) return undefined;
+    return {
+      by: 'choice',
+      connectionId: chosen.connectionId,
+      choiceId: chosen.choiceId,
+      ...(chosen.connectionIds !== undefined && { setSize: chosen.connectionIds.length }),
+    };
+  }
+
+  /**
+   * The member of the tool's live set the call names: `outside` for a tool
+   * that may not take a set (`sets`), without a set, or not in it.
+   */
+  function namedMemberPick(
+    toolChoice: ConnectionChoiceRecord | undefined,
+    named: string,
+    sets: boolean,
+  ): Picked | 'outside' {
+    const members = toolChoice?.connectionIds ?? [];
+    if (!sets || toolChoice === undefined || !members.includes(named)) return 'outside';
+    const { choiceId } = toolChoice;
+    return { by: 'named', connectionId: named, choiceId, setSize: members.length };
+  }
+
+  /** Several company connections, and none chosen: the turn stops, listing them. */
+  function notChosen(
+    name: string,
+    entry: AppEntry,
+    candidates: readonly ConnectionRecord[],
+    input: ResolveConnectionsInput,
+  ): Refused {
+    const listed = candidates
+      .map((c) => ({ connectionId: c.connectionId, name: nameOf(c) }))
+      .sort((a, b) => a.name.localeCompare(b.name) || a.connectionId.localeCompare(b.connectionId));
+    const has = `This project has ${listed.length} company ${entry.name} connections (${listed.map((c) => c.name).join(', ')})`;
+    const target = input.target;
+    const [kind, id, page] =
+      target === undefined
+        ? []
+        : 'agentId' in target
+          ? ['agent', target.agentId, 'Agents']
+          : ['flow', target.flowId, 'Flows'];
+    return {
+      kind: 'refused',
+      code: 'connection-not-chosen',
+      name,
+      app: entry.id,
+      choices: listed,
+      message:
+        kind === undefined
+          ? `${has}, and this call is no agent's or flow's, so none can be chosen for it.`
+          : `${has}, and ${kind} ${id} has no choice of one. A project admin chooses it: Project, ${page}, ${id}, Connections, or kindgi connection-choices set.`,
+    };
+  }
+
+  /**
+   * Several of a person's connections, none main and none chosen: the turn
+   * stops, counting them. Their names stay out of the record, and so do
+   * the choices.
+   */
+  function personNotChosen(
+    name: string,
+    entry: AppEntry,
+    count: number,
+    input: ResolveConnectionsInput,
+  ): Refused {
+    const has = `This person has ${count} ${entry.name} connections that could be used`;
+    const fix = `${has}, and none is their main: they make one their main`;
+    const target = input.target;
+    const of = target === undefined ? undefined : 'agentId' in target ? 'agent' : 'flow';
+    return {
+      kind: 'refused',
+      code: 'connection-not-chosen',
+      name,
+      app: entry.id,
+      message: of === undefined ? `${fix}.` : `${fix}, or choose one for this ${of}.`,
+    };
+  }
+
+  /** Why the picked connection isn't a candidate any more. */
+  function notCandidate(
+    c: ConnectionRecord,
+    entry: AppEntry,
+    input: ResolveConnectionsInput,
+  ): string {
+    if (!LIVE.has(c.state)) return 'was disconnected';
+    if (c.envName !== input.envName) return `is in env ${c.envName}, not ${input.envName}`;
+    return `is on a ${entry.name} registration that no longer allows this project`;
+  }
+
+  /**
+   * A need of its owner's, the company's or the run's person's: steps 1 to
+   * 4 (`pickedFor`), else a person's main one, else the only candidate. One
+   * of those that can't serve the call refuses, naming it if it's the
+   * company's, and never falls back to another; a person's that a
+   * reconnect would serve waits for it when the call can wait, as none at
+   * all does. The runtime keeps, per run tree, agent or flow, and app, the
+   * connection the first ready call took through a choice, even once the
+   * choice changes or is removed; this reference, which has no run tree (a
+   * call names its own run alone), answers each call from the current
+   * choice.
+   */
+  function resolveOwned(
+    name: string,
+    need: Need,
+    found: { readonly entry: AppEntry; readonly app: ConnectionAppRecord },
+    owner: ConnectionOwner,
+    input: ResolveConnectionsInput,
+    sets: boolean,
+  ): Resolved {
+    const { entry, app } = found;
+    const person = owner.kind === 'member';
+    const candidates = candidatesOf(need, owner, input);
+    const picked = pickedFor(name, need, owner, input, sets);
+    // A name outside the set answers as no connection does.
+    if (picked === 'outside') return missingRefusal(name, entry, undefined, need.permissions);
+    const main = person && picked === undefined ? candidates.find((c) => c.main) : undefined;
+    if (picked === undefined && main === undefined && candidates.length > 1) {
+      return person
+        ? personNotChosen(name, entry, candidates.length, input)
+        : notChosen(name, entry, candidates, input);
     }
-    const existing = liveConnection(input.tenantId, app.appId, owner, input.envName);
-    if (need.as === 'company' || input.waitMs <= 0) {
-      return missingRefusal(name, entry, existing, lacks);
+    const id = picked?.connectionId ?? main?.connectionId ?? candidates[0]?.connectionId;
+    const by = picked?.by ?? (main !== undefined ? 'main' : person ? 'own' : 'only');
+    const pick: ConnectionPick = {
+      by,
+      ...(picked?.choiceId !== undefined && { choiceId: picked.choiceId }),
+      as: need.as,
+      ...(picked?.setSize !== undefined && { setSize: picked.setSize }),
+      registration: registrationSeen(app, entry),
+    };
+    if (id === undefined && person) return waitOrMissing(name, need, found, owner, input);
+    // Only the owner's connection of the app is named: any other id answers as none does.
+    const stored = id === undefined ? undefined : ownedOf(id, need, owner, input);
+    if (stored === undefined) return missingRefusal(name, entry, undefined, need.permissions);
+    const answer = served(stored, name, need, candidates, entry, input);
+    if (!('why' in answer)) return { kind: 'ready', connection: answer, pick };
+    if (person && answer.reconnect && input.waitMs > 0) {
+      return waitOrMissing(name, need, found, owner, input, stored);
     }
+    const subject = person
+      ? by === 'mailbox'
+        ? `The ${entry.name} mailbox this run reads`
+        : `"${name}"'s ${entry.name} connection`
+      : by === 'mailbox'
+        ? `${nameOf(stored.record)}, the mailbox this run reads,`
+        : nameOf(stored.record);
+    return pickRefusal(name, entry, subject, by, answer);
+  }
+
+  /**
+   * A person's need with no connection to serve it, or one a reconnect
+   * would: the connect the call waits for, or `connection-missing` when it
+   * can't wait.
+   */
+  function waitOrMissing(
+    name: string,
+    need: Need,
+    found: { readonly entry: AppEntry; readonly app: ConnectionAppRecord },
+    owner: ConnectionOwner,
+    input: ResolveConnectionsInput,
+    existing?: StoredConnection,
+  ): Resolved {
+    const lacks = need.permissions.filter((p) => !existing?.record.permissions.includes(p));
+    if (input.waitMs <= 0) return missingRefusal(name, found.entry, existing, lacks);
     return {
       kind: 'wait',
       wait: {
         names: [name],
-        entry,
-        app,
+        entry: found.entry,
+        app: found.app,
         owner,
         ...(existing !== undefined && { existing }),
         permissions: [...need.permissions],
       },
     };
+  }
+
+  /** The tenant's connection of the need's app with that id, if it's the owner's. */
+  function ownedOf(
+    id: string,
+    need: Need,
+    owner: ConnectionOwner,
+    input: ResolveConnectionsInput,
+  ): StoredConnection | undefined {
+    const stored = connections.get(id);
+    return stored?.record.tenantId === input.tenantId &&
+      ownerKey(stored.record.owner) === ownerKey(owner) &&
+      stored.record.app === need.app
+      ? stored
+      : undefined;
+  }
+
+  /** The picked connection's token, or why it can't serve the need. */
+  function served(
+    stored: StoredConnection,
+    name: string,
+    need: Need,
+    candidates: readonly ConnectionRecord[],
+    entry: AppEntry,
+    input: ResolveConnectionsInput,
+  ): ToolConnection | Unserved {
+    const c = current(stored);
+    if (!candidates.some((k) => k.connectionId === c.connectionId)) {
+      return { why: notCandidate(c, entry, input), reconnect: false };
+    }
+    const lacks = need.permissions.filter((p) => !c.permissions.includes(p));
+    if (lacks.length > 0) return { why: `lacks ${lacks.join(', ')}`, reconnect: true, lacks };
+    const token =
+      c.state === 'working'
+        ? tokenFor(stored, name, input.renew?.includes(name) === true)
+        : 'needs-reconnecting';
+    return token === 'needs-reconnecting' ? { why: 'needs reconnecting', reconnect: true } : token;
+  }
+
+  /**
+   * The picked connection can't serve the need: `subject` names the
+   * company's by its name, and a person's only by whose it is; then how to
+   * fix it.
+   */
+  function pickRefusal(
+    name: string,
+    entry: AppEntry,
+    subject: string,
+    by: ConnectionPick['by'],
+    answer: Unserved,
+  ): Refused {
+    const chosen = by === 'choice' || by === 'named';
+    const fixes = [
+      ...(answer.reconnect ? ['reconnect it'] : []),
+      ...(chosen ? [answer.reconnect ? 'or choose another' : 'choose another'] : []),
+    ];
+    return {
+      kind: 'refused',
+      code: 'connection-missing',
+      name,
+      app: entry.id,
+      ...(answer.lacks !== undefined && { missing: answer.lacks }),
+      message: [`${subject} ${answer.why}`, fixes.join(', ')].filter((p) => p !== '').join('; '),
+    };
+  }
+
+  /**
+   * One need: its token, a connect to wait for, or why it can't be met.
+   * `sets`: the call's tool may take a set, so a name it gives counts;
+   * else a name answers as one outside the set does.
+   */
+  function resolveOne(
+    name: string,
+    need: Need,
+    input: ResolveConnectionsInput,
+    sets: boolean,
+  ): Resolved {
+    const registration = registrationOf(name, need, input);
+    if ('kind' in registration) return registration;
+    const owner = ownerFor(name, need, registration.entry, input);
+    if (owner.kind === 'refused') return owner;
+    return resolveOwned(name, need, registration, owner, input, sets);
+  }
+
+  /**
+   * Whether the call's tool, at the version its agent or flow resolves to
+   * now, may take a set: a call that names none needs no answer, and a
+   * name given by one that may not answers as one outside the set does.
+   */
+  async function takesSet(input: ResolveConnectionsInput): Promise<boolean> {
+    const named = input.accounts !== undefined && Object.keys(input.accounts).length > 0;
+    if (!named || input.target === undefined) return false;
+    const { tools } = await targetTools(input, choiceTarget(input.target));
+    const tool = tools.find((t) => t.id === input.toolId);
+    return tool !== undefined && connectionSetRefusal(tool) === undefined;
   }
 
   /** The connect request a wait is for: the call's own, made once. */
@@ -1617,16 +2755,21 @@ export function createInMemoryConnections(
     input: ResolveConnectionsInput,
   ): Promise<ResolveConnectionsOutcome> {
     const ready: Record<string, ToolConnection> = {};
+    const picks: Record<string, ConnectionPick> = {};
     const waits = new Map<string, Wait>();
+    const sets = await takesSet(input);
     for (const name of Object.keys(input.needs).sort()) {
-      const resolved = resolveOne(name, input.needs[name] as Need, input);
+      const resolved = resolveOne(name, input.needs[name] as Need, input, sets);
       if (resolved.kind === 'refused') return resolved;
       if (resolved.kind === 'ready') {
         ready[name] = resolved.connection;
+        picks[name] = resolved.pick;
         continue;
       }
-      // One request per connection, for all the call's needs of it.
-      const key = `${resolved.wait.app.appId}|${ownerKey(resolved.wait.owner)}`;
+      // One request per connection, for all the call's needs of it: the one
+      // they reconnect, else the owner's new one through the registration.
+      const { existing, app, owner } = resolved.wait;
+      const key = existing?.record.connectionId ?? `${app.appId}|${ownerKey(owner)}`;
       const wait = waits.get(key);
       if (wait === undefined) {
         waits.set(key, resolved.wait);
@@ -1635,11 +2778,85 @@ export function createInMemoryConnections(
       wait.names.push(name);
       wait.permissions = union(wait.permissions, resolved.wait.permissions);
     }
-    if (waits.size === 0) return { kind: 'ready', connections: ready };
+    if (waits.size === 0) return { kind: 'ready', connections: ready, picks };
     return { kind: 'wait', requests: [...waits.values()].map((w) => waitingFor(w, input)) };
   }
 
+  /**
+   * A need's set a call may name from: its owner's choice for the tool's
+   * need, when it's a set, with the members still candidates, by name, and
+   * its default by its connection id. None for a need the run's mailbox
+   * binds (step 1), a person's need in a run with no person, or a set none
+   * of whose members is a candidate any more.
+   */
+  function setFor(
+    need: string,
+    spec: ConnectionNeed,
+    toolId: string,
+    target: ConnectionChoiceTarget,
+    input: ConnectionAccountChoicesInput,
+  ): AccountSet | undefined {
+    if (mailboxOf(spec, input.mailbox) !== undefined) return undefined;
+    if (spec.as === 'person' && input.person === undefined) return undefined;
+    const owner = spec.as === 'person' ? choiceOwner(input) : COMPANY;
+    const choice = liveChoice(input, target, owner, spec.app, { toolId, need });
+    if (choice?.connectionIds === undefined) return undefined;
+    const candidates = candidatesOf(spec, owner, input);
+    const members = choice.connectionIds.flatMap((id) => {
+      const c = candidates.find((k) => k.connectionId === id);
+      return c === undefined ? [] : [{ name: nameOf(c), connectionId: id }];
+    });
+    if (members.length === 0) return undefined;
+    const appName = entries.get(spec.app)?.name ?? spec.app;
+    return { appName, members, default: choice.connectionId };
+  }
+
+  /** The tool's needs the call asks about whose choice is a set, each with it (`setFor`). */
+  function setsOfTool(
+    asked: ConnectionAccountChoicesInput['tools'][number],
+    target: ConnectionChoiceTarget,
+    input: ConnectionAccountChoicesInput,
+  ): Record<string, AccountSet> {
+    const sets: Record<string, AccountSet> = {};
+    for (const [need, spec] of Object.entries(asked.needs)) {
+      const set = setFor(need, spec, asked.toolId, target, input);
+      if (set !== undefined) sets[need] = set;
+    }
+    return sets;
+  }
+
+  /**
+   * Once per turn: each tool's needs whose choice for their owner is a set.
+   * A tool that may not take one, at the version its agent or flow resolves
+   * to now (`connectionSetRefusal`), is left out, as is one the target
+   * doesn't have.
+   */
+  async function accountChoices(
+    input: ConnectionAccountChoicesInput,
+  ): Promise<ConnectionAccountChoices> {
+    if (input.target === undefined) return {};
+    const target = choiceTarget(input.target);
+    const { tools } = await targetTools(input, target);
+    const offered: Record<string, Record<string, AccountSet>> = {};
+    for (const asked of input.tools) {
+      const tool = tools.find((t) => t.id === asked.toolId);
+      if (tool === undefined || connectionSetRefusal(tool) !== undefined) continue;
+      const sets = setsOfTool(asked, target, input);
+      if (Object.keys(sets).length > 0) offered[asked.toolId] = sets;
+    }
+    return offered;
+  }
+
   // ---------------- seeding ----------------
+
+  /** A seeded connection's label, unique among the live ones as a rename's is. */
+  function seededLabel(input: SeedConnectionInput): { readonly label?: string } {
+    if (input.label === undefined) return {};
+    if (input.state !== 'removed' && labelTaken(input, input.label)) {
+      throw new TypeError(`Another connection is named "${input.label}"`);
+    }
+    return { label: input.label };
+  }
 
   const seed = {
     app(input: ConnectionAppCreateInput): ConnectionAppRecord {
@@ -1656,9 +2873,12 @@ export function createInMemoryConnections(
           : registrationsFor(input.tenantId, input.app, undefined)[0];
       if (app === undefined)
         throw new TypeError(`No registration of ${entry.name}: seed one first`);
-      if (liveConnection(input.tenantId, app.appId, input.owner, input.envName) !== undefined) {
+      // An owner, a person as the company, has one live connection per account.
+      const held = accountConnection({ ...input, appId: app.appId }, input.owner, input.account.id);
+      if (held !== undefined) {
         throw new TypeError('That owner already has a connection through the registration');
       }
+      const label = seededLabel(input);
       const at = iso();
       const stored: StoredConnection = {
         record: {
@@ -1669,6 +2889,7 @@ export function createInMemoryConnections(
           app: input.app,
           owner: input.owner,
           account: input.account,
+          ...label,
           permissions: [...input.permissions],
           state: input.state ?? 'working',
           ...(input.installationId !== undefined && { installationId: input.installationId }),
@@ -1692,5 +2913,5 @@ export function createInMemoryConnections(
     },
   };
 
-  return { binding, resolver: { resolveConnections }, seed, calls };
+  return { binding, resolver: { resolveConnections, accountChoices }, seed, calls };
 }

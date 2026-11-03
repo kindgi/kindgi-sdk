@@ -88,7 +88,7 @@ export interface ToolStartedEvent {
   readonly toolId: string;
   /**
    * The exact version dispatched (picked at run start by `resolve(id,
-   * range)` on the tenant's tool registry) so subscribers can
+   * range)` on the workspace's tool registry) so subscribers can
    * distinguish `kb-search@1.2.3` from `kb-search@2.0.0`.
    */
   readonly toolVersion: string;

@@ -1,5 +1,38 @@
 # @kindgi/crypto
 
+## 0.4.0
+
+### Patch Changes
+
+- Updated dependencies [b25b82f]
+- Updated dependencies [d92355b]
+- Updated dependencies [d6c9279]
+- Updated dependencies [f2adcc2]
+- Updated dependencies [9b015f7]
+- Updated dependencies [9a8a294]
+- Updated dependencies [1bd877d]
+- Updated dependencies [dff9515]
+- Updated dependencies [d576ff4]
+  - @kindgi/types@0.4.0
+
+## 0.3.1
+
+### Patch Changes
+
+- @kindgi/types@0.3.1
+
+## 0.3.1-rc.1
+
+### Patch Changes
+
+- @kindgi/types@0.3.1-rc.1
+
+## 0.3.1-rc.0
+
+### Patch Changes
+
+- @kindgi/types@0.3.1-rc.0
+
 ## 0.3.0
 
 ### Patch Changes

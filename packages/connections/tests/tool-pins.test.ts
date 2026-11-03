@@ -20,6 +20,7 @@ import {
   gmailMessagesList,
   gmailReply,
   gmailSend,
+  googleCalendarCalendarsList,
   googleCalendarEventCreate,
   googleCalendarEventUpdate,
   googleCalendarEventsList,
@@ -28,6 +29,7 @@ import {
 import { linkedinPost } from '../src/linkedin-tools.js';
 import {
   outlookAttachmentGet,
+  outlookCalendarCalendarsList,
   outlookCalendarEventCreate,
   outlookCalendarEventUpdate,
   outlookCalendarEventsList,
@@ -88,6 +90,12 @@ const TOOLS = {
   outlookCalendarEventUpdate: (id: string) => outlookCalendarEventUpdate({ id }),
   'outlookCalendarEventUpdate as company': (id: string) =>
     outlookCalendarEventUpdate({ id, as: 'company' }),
+  googleCalendarCalendarsList: (id: string) => googleCalendarCalendarsList({ id }),
+  'googleCalendarCalendarsList as company': (id: string) =>
+    googleCalendarCalendarsList({ id, as: 'company' }),
+  outlookCalendarCalendarsList: (id: string) => outlookCalendarCalendarsList({ id }),
+  'outlookCalendarCalendarsList as company': (id: string) =>
+    outlookCalendarCalendarsList({ id, as: 'company' }),
 } satisfies Record<string, (id: string) => AnyTool>;
 
 /**

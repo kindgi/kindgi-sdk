@@ -138,6 +138,11 @@ class ToolConnection:
     account: ConnectionAccount
     expires_at: str | None = None
     """When the token expires (ISO 8601), when the app says."""
+    name: str | None = None
+    """The connection's name: its label, else its account's.
+
+    `None` from a runtime before pack protocol 2.11.0.
+    """
 
     @classmethod
     def from_wire(cls, value: Any) -> ToolConnection | None:
@@ -152,6 +157,7 @@ class ToolConnection:
         account_id = cast("Mapping[str, Any]", account).get("id")
         label = cast("Mapping[str, Any]", account).get("label")
         expires_at = raw.get("expiresAt")
+        name = raw.get("name")
         if not isinstance(account_id, str) or not isinstance(label, str):
             return None
         return cls(
@@ -161,6 +167,7 @@ class ToolConnection:
             access_token=cast(str, texts[3]),
             account=ConnectionAccount(id=account_id, label=label),
             expires_at=expires_at if isinstance(expires_at, str) else None,
+            name=name if isinstance(name, str) else None,
         )
 
 
@@ -214,7 +221,7 @@ class ToolContext:
     """Per-call context: who the call is for, its resolved env/secrets/config, its cancellation."""
 
     tenant_id: str
-    """Tenant the call runs for — key per-tenant state by it."""
+    """The workspace the call runs for — key per-workspace state by it."""
     run_id: str
     """The kernel run this call belongs to (an agent turn or a flow step)."""
     request_id: str | None = None
@@ -228,11 +235,11 @@ class ToolContext:
     from input. `None` when the project has no org."""
     env: Mapping[str, Any] = field(default_factory=_empty)
     """The env values the tool declares (`needs_spec["env"]`), by name, resolved for this call:
-    the project's value, else its org's, else the tenant's (a schema `default` when no scope sets
+    the project's value, else its org's, else the workspace's (a schema `default` when no scope sets
     one). Strings. Empty when the tool declares none, and from an older runtime (protocol 2.5.0).
     The pack service's own environment stays in `os.environ`."""
     secrets: Mapping[str, Any] = field(default_factory=_empty, repr=False)
-    """The secrets the tool declares (`needs_spec["secrets"]`), resolved for this call's tenant.
+    """The secrets the tool declares (`needs_spec["secrets"]`), resolved for this call's workspace.
     An optional one (its schema names null: `{"type": ["string", "null"]}`) is absent when the
     env doesn't have it, or has it empty: read it with `.get` (runtime 0.1.6 or later; an older
     runtime requires it). Never in the context's `repr`, so printing a context never prints a

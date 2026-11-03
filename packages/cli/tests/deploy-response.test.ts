@@ -4,7 +4,11 @@
 import { describe, expect, test } from 'vitest';
 
 import { renderResponse } from '../src/deploy/response.js';
-import type { DeploymentRecord, PostDeploymentResult } from '../src/deploy/runners.js';
+import type {
+  DeploymentEndpointRecord,
+  DeploymentRecord,
+  PostDeploymentResult,
+} from '../src/deploy/runners.js';
 
 const ctx = {
   envName: 'staging',
@@ -16,6 +20,7 @@ const ctx = {
   signerKeyId: 'k1',
   envelopePath: '.kindgi/build/envelope.json',
   idempotencyKey: 'k1',
+  waitsForPackService: false,
 };
 
 const refused = (error: {
@@ -71,7 +76,7 @@ describe('renderResponse: a refused deploy', () => {
       },
     });
     expect(banner(limited('tenant-unpack-hour')).replaceAll(/\s+/g, ' ')).toContain(
-      "This tenant's image reads unpacked as much as the server allows in an hour. Deploy again after the wait the message names",
+      "This workspace's image reads unpacked as much as the server allows in an hour. Deploy again after the wait the message names",
     );
     for (const limit of ['schema-compile-time', 'constructor', undefined]) {
       expect(banner(limited(limit))).not.toContain('Hint:');
@@ -144,14 +149,85 @@ describe('renderResponse: a deploy that landed', () => {
     }
   });
 
-  test('a new deployment says what new runs use; a replay names the digest that landed before', () => {
+  test('a new deployment says what new runs use; a same-image deploy names the digest deployed before', () => {
     expect(banner(landed('created', record))).toContain(
       'Runs started from now use image sha256:4d18e69581b56… (artifactVersion 20261015.1).',
     );
     const replayed = banner(landed('replayed', record));
     expect(replayed).toContain(
-      'Note: same imageDigest (sha256:4d18e69581b56…) previously landed. Server returned the existing record.',
+      'Note: this image (sha256:4d18e69581b56…) was deployed before, so the server answered with that deployment.',
     );
+    expect(replayed).toContain('200 OK (this image was deployed before)');
+    expect(replayed).not.toContain('previously landed');
+    expect(replayed).not.toContain('idempotent replay');
     expect(replayed).not.toContain('Deploy complete.');
+  });
+
+  describe('a same-image deploy says its pack service, by state', () => {
+    const at = '2026-10-30T08:00:01.000Z';
+    const replayedWith = (endpoint: DeploymentEndpointRecord): PostDeploymentResult =>
+      landed('replayed', { ...record, endpoint });
+    const asked =
+      "its tools answer once it's made. `kindgi deployments get d1` says when it's ready.";
+
+    test('pending: asked for, since when, and how to see it ready', () => {
+      expect(banner(landed('replayed', perDeployment))).toContain(
+        `  Its pack service is asked for (pending since ${at}): ${asked}`,
+      );
+    });
+
+    test('pending with a problem: the parenthesis says it and its code', () => {
+      const problem = { code: 'capacity-unavailable', since: at };
+      expect(banner(replayedWith({ status: 'pending', since: at, problem }))).toContain(
+        `  Its pack service is asked for (pending since ${at}: there is no room for another pack service just now (capacity-unavailable)): ${asked}`,
+      );
+    });
+
+    test('ready: since when', () => {
+      expect(banner(replayedWith({ status: 'ready', since: at }))).toContain(
+        `  Its pack service is ready (since ${at}).`,
+      );
+    });
+
+    test('ready on the values it was last given: why, by its code, and how to fix it; a later code alone', () => {
+      const held = (code: string) =>
+        banner(replayedWith({ status: 'ready', since: at, packEnvProblem: { code, since: at } }));
+      expect(held('pack-env-update-failed')).toContain(
+        `  Its pack service is ready (since ${at}), on the values it was last given: its newest values were given to it, but it didn't start with them. It's tried again for an hour from then (pack-env-update-failed). \`kindgi deployments get d1\` says how to fix it.`,
+      );
+      expect(held('pack-env-from-a-later-runtime')).toContain(
+        `  Its pack service is ready (since ${at}), on the values it was last given: pack-env-from-a-later-runtime. \`kindgi deployments get d1\` says how to fix it.`,
+      );
+    });
+
+    test('cleared and waiting for one again: asked for again', () => {
+      expect(banner(replayedWith({ status: 'cleared', since: at, waiting: true }))).toContain(
+        `  Its pack service is asked for again (cleared since ${at}, waiting for one again): ${asked}`,
+      );
+    });
+
+    test('cleared and retired: taken down, why, and no advice', () => {
+      const text = banner(
+        replayedWith({ status: 'cleared', since: at, retired: 'pack-suspended' }),
+      );
+      expect(text).toContain(
+        `  Its pack service was taken down (cleared since ${at}: its pack is suspended, until it's restored (pack-suspended)).`,
+      );
+      expect(text).not.toContain('kindgi deployments get');
+    });
+
+    test('none: without a pack service of its own, for a key replay, when the deploy waits for it, or for a 201', () => {
+      expect(banner(landed('replayed', record))).not.toContain('Its pack service');
+      expect(
+        banner({ kind: 'replayed', status: 200, idempotentReplay: true, record: perDeployment }),
+      ).not.toContain('Its pack service');
+      expect(
+        renderResponse(landed('replayed', perDeployment), {
+          ...ctx,
+          waitsForPackService: true,
+        }).banner.join('\n'),
+      ).not.toContain('Its pack service');
+      expect(banner(landed('created', perDeployment))).not.toContain('Its pack service');
+    });
   });
 });

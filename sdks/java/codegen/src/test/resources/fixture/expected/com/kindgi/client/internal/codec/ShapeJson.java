@@ -6,6 +6,8 @@ package com.kindgi.client.internal.codec;
 
 import com.fasterxml.jackson.annotation.JsonAnyGetter;
 import com.fasterxml.jackson.annotation.JsonAnySetter;
+import com.fasterxml.jackson.annotation.JsonAutoDetect;
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
@@ -43,13 +45,23 @@ final class ShapeJson {
     interface ShapeMixIn {
     }
 
+    @JsonAutoDetect(
+            fieldVisibility = JsonAutoDetect.Visibility.NONE,
+            getterVisibility = JsonAutoDetect.Visibility.NONE,
+            isGetterVisibility = JsonAutoDetect.Visibility.NONE
+    )
     abstract static class ShapeUnrecognizedMixIn {
-        ShapeUnrecognizedMixIn(@JsonProperty("kind") String kind,
-                @JsonAnySetter Map<String, Object> properties) {
+        @JsonCreator(
+                mode = JsonCreator.Mode.PROPERTIES
+        )
+        ShapeUnrecognizedMixIn(@JsonProperty("kind") String kind) {
         }
 
         @JsonProperty("kind")
         abstract String kind();
+
+        @JsonAnySetter
+        abstract void put(String key, Object value);
 
         @JsonAnyGetter
         abstract Map<String, Object> properties();

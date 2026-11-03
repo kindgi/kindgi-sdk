@@ -579,7 +579,7 @@ function parseModel(raw: unknown): ImprovementModel | undefined | string {
     !nonEmpty(m.model) ||
     Object.keys(m).length !== 2
   ) {
-    return "`model` is { providerId, model }: the tenant's provider and model that drafts the templates; omit it for the model of the version's own model-settings block";
+    return "`model` is { providerId, model }: the workspace's provider and model that drafts the templates; omit it for the model of the version's own model-settings block";
   }
   return { providerId: m.providerId, model: m.model };
 }

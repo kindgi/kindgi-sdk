@@ -3,8 +3,8 @@
 
 /**
  * What the calendar tools take and give, the same for Google and Outlook:
- * an event, a busy time, and how a time is written. Not a package
- * subpath: the tools' subpaths export the types.
+ * a calendar, an event, a busy time, and how a time is written. Not a
+ * package subpath: the tools' subpaths export the types.
  */
 
 import type { ConnectionNeed } from '@kindgi/tools';
@@ -58,6 +58,27 @@ export interface CalendarEvent {
   readonly busy: boolean;
   /** Its page in the calendar, for a person to open. */
   readonly link?: string;
+  /** The calendar it's on, given only when the call named its calendars (`calendarIds`). */
+  readonly calendarId?: string;
+}
+
+/**
+ * What the account may do on a calendar: `'owner'`, its own; `'write'`,
+ * add and change events; `'read'`, see them; `'free-busy'`, see only when
+ * it's busy.
+ */
+export type CalendarAccess = 'owner' | 'write' | 'read' | 'free-busy';
+
+/** A calendar in the account's list. */
+export interface CalendarListed {
+  /** What `calendarIds` takes. */
+  readonly id: string;
+  readonly name: string;
+  /** Whether it's the account's main calendar, which a call without `calendarIds` reads. */
+  readonly main: boolean;
+  readonly access: CalendarAccess;
+  /** Who owns it, given only when that's someone else. */
+  readonly owner?: MailPerson;
 }
 
 /** A busy time, in UTC. */
@@ -78,6 +99,26 @@ export const WINDOW_DAYS = 31;
 
 /** Events a list gives, unless the call asks for fewer. */
 export const LIST_DEFAULT = 25;
+
+/** Calendars a list or a free/busy reads at most in one call (`calendarIds`). */
+export const CALENDARS_MAX = 10;
+
+/** Pages a calendars list reads at most: past those, it fails. */
+export const CALENDAR_LIST_PAGES = 4;
+
+/**
+ * `calendarIds` as a tool's input takes it: 1 to `CALENDARS_MAX` ids,
+ * none twice, each as `id` says.
+ */
+export function calendarIdsInput<T extends object>(id: T) {
+  return {
+    type: 'array',
+    minItems: 1,
+    maxItems: CALENDARS_MAX,
+    uniqueItems: true,
+    items: id,
+  } as const;
+}
 
 /** A time with its offset (RFC 3339), or a day. */
 export const TIME_OR_DAY = {
@@ -134,6 +175,7 @@ export const CALENDAR_EVENT = {
     attendeesLeftOut: { type: 'integer', minimum: 1 },
     busy: { type: 'boolean' },
     link: { type: 'string' },
+    calendarId: { type: 'string' },
   },
 } as const;
 
@@ -143,6 +185,30 @@ export const EVENTS_OUTPUT = {
   additionalProperties: false,
   required: ['events'],
   properties: { events: { type: 'array', items: CALENDAR_EVENT } },
+} as const;
+
+/** A calendars list's answer: each a `CalendarListed`. */
+export const CALENDARS_OUTPUT = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['calendars'],
+  properties: {
+    calendars: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['id', 'name', 'main', 'access'],
+        properties: {
+          id: { type: 'string' },
+          name: { type: 'string' },
+          main: { type: 'boolean' },
+          access: { enum: ['owner', 'write', 'read', 'free-busy'] },
+          owner: MAIL_PERSON,
+        },
+      },
+    },
+  },
 } as const;
 
 /** A free/busy's answer. */
@@ -256,12 +322,65 @@ export function clippedLine(text: string): string {
   return clipText(text, LINE_MAX);
 }
 
+/** Half a UTF-16 pair with no other half, which a URL can't encode. */
+const LONE_SURROGATE = /\p{Cs}/u;
+
+/**
+ * `ids` as a call names them (`calendarIds`), each checked again as the
+ * input is, with `isId`, and refused with a lone surrogate: a thrown
+ * error names the first that isn't one.
+ */
+export function calendarIdsOf(
+  ids: readonly string[],
+  isId: (id: string) => boolean,
+): readonly string[] {
+  for (const id of ids) {
+    if (!isId(id) || LONE_SURROGATE.test(id)) throw new Error(`"${id}" isn't a calendar id.`);
+  }
+  return ids;
+}
+
+/**
+ * By `start`, a string compare: a UTC time sorts in time order, and a day
+ * (`2026-11-03`) before that day's times. The sort is stable, so two that
+ * start together keep their order.
+ */
+function byStart(a: { readonly start: string }, b: { readonly start: string }): number {
+  return a.start < b.start ? -1 : a.start > b.start ? 1 : 0;
+}
+
+/**
+ * The events of several calendars as one list: each with its calendar's
+ * id, by start, the first `top`. Two that start together keep the order
+ * of the calendars, then the calendar's own. An event on two calendars is
+ * there once for each.
+ */
+export function mergedEvents(
+  byCalendar: readonly { readonly calendarId: string; readonly events: readonly CalendarEvent[] }[],
+  top: number,
+): CalendarEvent[] {
+  return byCalendar
+    .flatMap(({ calendarId, events }) => events.map((e) => ({ ...e, calendarId })))
+    .sort(byStart)
+    .slice(0, top);
+}
+
+/**
+ * Calendars as a list gives them: the main one first, then by name, in
+ * English order so every host gives the same.
+ */
+export function sortedCalendars(calendars: readonly CalendarListed[]): CalendarListed[] {
+  return [...calendars].sort(
+    (a, b) => Number(b.main) - Number(a.main) || a.name.localeCompare(b.name, 'en'),
+  );
+}
+
 /**
  * Busy times as one list: sorted, and those that overlap or touch made
  * one.
  */
 export function mergedBusy(times: readonly CalendarBusy[]): CalendarBusy[] {
-  const sorted = [...times].sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+  const sorted = [...times].sort(byStart);
   const merged: CalendarBusy[] = [];
   for (const t of sorted) {
     const last = merged.at(-1);

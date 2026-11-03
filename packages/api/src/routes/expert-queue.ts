@@ -8,7 +8,7 @@ import { ref } from '@kindgi/authz';
 import type { ProjectBinding } from '@kindgi/platform';
 import type { Cursor, TenantId, Timestamp } from '@kindgi/types';
 
-import { callerRef } from '../caller.js';
+import { callerRef, canForDisplay } from '../caller.js';
 import {
   type CorrectionRegistryBinding,
   type CorrectorGroupAsserter,
@@ -26,6 +26,7 @@ import type {
   QueueRuleSpec,
 } from '../expert-queue-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { isReadMethod } from '../read-method.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
 import type { AppEnv } from '../types.js';
@@ -66,7 +67,7 @@ export function expertQueueRouter(
       return fail(c, 'bad-input', `"${projectId}" isn't a project id`);
     }
     if (authorizer !== undefined) {
-      const action = c.req.method === 'GET' ? 'read' : 'write';
+      const action = isReadMethod(c.req.method) ? 'read' : 'write';
       let allowed = false;
       const answer = await authorizer.authorize(action, () => ref('project', projectId))(
         c,
@@ -310,10 +311,19 @@ export function expertQueueRouter(
     });
   }
 
-  /** Whether the caller may change the queue: `write` on the project, as correcting the run needs. */
+  /**
+   * Whether to offer the caller the queue's changes (`can.dismiss`,
+   * `can.reopen`): `write` on the project, as correcting the run needs.
+   * Shown only, so no decision is recorded; the changes check their own.
+   */
   async function mayWrite(c: Context<AppEnv>): Promise<boolean> {
     if (authorizer === undefined) return true;
-    return authorizer.can(c, 'write', ref('project', c.req.param('projectId') as string));
+    return canForDisplay(
+      c,
+      authorizer,
+      'write',
+      ref('project', c.req.param('projectId') as string),
+    );
   }
 
   /** The live corrector groups the caller may assert (`forMe`), by the check recording a correction makes. */

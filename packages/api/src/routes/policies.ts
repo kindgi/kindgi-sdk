@@ -462,8 +462,8 @@ function scopeError(
     const message = !retention
       ? `Policy "${heldBy}" already holds "${scope}" for ${policyKind} policies.`
       : action === 'publish'
-        ? `Retention domain "${scope}" is already covered by policy "${heldBy}": a tenant has one retention policy per domain, and one for "*". Publish a new version of "${heldBy}" instead, or unregister it first.`
-        : `Retention domain "${scope}" is now covered by policy "${heldBy}", so reinstating "${policyId}" ${version} would make two: a tenant has one retention policy per domain, and one for "*". Unregister "${heldBy}" first.`;
+        ? `Retention domain "${scope}" is already covered by policy "${heldBy}": a workspace has one retention policy per domain, and one for "*". Publish a new version of "${heldBy}" instead, or unregister it first.`
+        : `Retention domain "${scope}" is now covered by policy "${heldBy}", so reinstating "${policyId}" ${version} would make two: a workspace has one retention policy per domain, and one for "*". Unregister "${heldBy}" first.`;
     return {
       code: 'policy-scope-taken',
       message,

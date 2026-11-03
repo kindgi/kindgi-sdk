@@ -43,11 +43,9 @@ password ([Pull the runtime image](../pull-the-runtime-image/)). Questions or tr
   ([Agent and tool versions](../../../guides/agents/agent-and-tool-versions/)).
   Internal ingress, and IAM-protected: the runtime calls it with a Google ID
   token and the service's own token. Its CPU is allocated only while a call
-  runs. A service keeps one instance warm, billed at Cloud Run's lower idle
-  rate between calls, while calls in its project go to it for something
-  always in use, such as a tool version a pinned agent or an unpinned agent's
-  latest version uses ([Your pack services](#your-pack-services)). Every
-  other one scales to zero.
+  runs. A service scales to zero when it's idle, and its first call after
+  that waits for an instance to start
+  ([Your pack services](#your-pack-services)).
 - **Cloud SQL** (Postgres 16) for the runtime's data, reached through the
   Cloud SQL socket, which encrypts the connection and checks the server
   ([Check the database's certificate](../database-tls/)).
@@ -435,13 +433,8 @@ module's `pack_*` settings. Every one runs as the one pack account,
 - **Scaling:** up to `pack_max_instances` instances, 8 by default, each
   running `pack_concurrency` calls at once, 32 by default. Both are whole
   numbers from 1 to 1000.
-- **Warm or at zero:** a service keeps one instance warm, with CPU only
-  while a call runs, while calls in its project go to it for something
-  always in use: a tool version a pinned agent, flow or tool version uses, a
-  tool version an unpinned agent's latest version uses, or a pack check a
-  registered guardrail runs. Its first call after a quiet spell doesn't wait
-  for an instance to start. Every other one scales to zero, and its first
-  call waits for an instance.
+- **At zero when idle:** a service scales to zero when it's idle, and its
+  first call after a quiet spell waits for an instance to start.
 - **Timeout:** `pack_timeout`, in whole seconds up to `"3600s"`, `"300s"` by
   default. Keep it above the runtime's `pack_call_timeout_ms`, so the runtime
   reports a timeout before Cloud Run cuts the call.
@@ -454,12 +447,9 @@ module's `pack_*` settings. Every one runs as the one pack account,
 - **Buckets:** `pack_bucket_readers`, read with `roles/storage.objectViewer`,
   and `pack_bucket_object_prefixes` to narrow a bucket to some prefixes.
 
-**What it costs.** A warm service bills at Cloud Run's idle rate between
-calls. At these defaults, with one instance, that's about $13 a month for
-each warm service in a Tier 1 region
-([Cloud Run pricing](https://cloud.google.com/run/pricing)).
-A service at zero bills only while it runs. The Job is billed per second of
-each pass.
+**What it costs.** A pack service bills only while it runs
+([Cloud Run pricing](https://cloud.google.com/run/pricing)). The Job is
+billed per second of each pass.
 
 **How many.** Cloud Run allows 1,000 services per region in a project,
 which a quota request can raise
@@ -816,7 +806,9 @@ A deployment registered before the runtime routed per deployment, with the
 module's earlier single pack service, has no routes: its tool calls answer
 `pack-route-missing`. Deploy it again. The same image is enough, with
 `--idempotency-key <new value>` so the runtime doesn't answer it as it did
-the earlier deploy.
+the earlier deploy. The deploy answers with that same deployment and says
+its pack service is asked for, and `kindgi deployments get <deployment-id>`
+says when it's ready.
 
 To deploy a client's pack into its own project, add `--project <id or slug>` ([Deploy a client's pack into its project](../../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
 
@@ -1042,8 +1034,10 @@ to, so set it to the deployment's before any `gcloud` command for it
   it, `terraform plan` stops and asks for it. From a module copy that set
   only Terraform's deletion protection, the next apply also turns on
   Google's in the instance, in place, while `database_deletion_protection`
-  is on (the default). With a private-IP database
-  (`database_private_network`), that change makes the module read the
+  is on (the default). From a module copy that doesn't turn on Cloud
+  Scheduler's API, the next apply turns it on (and, with
+  `secrets_backend = "none"`, Cloud KMS's). With a private-IP database
+  (`database_private_network`), either change makes the module read the
   instance's CAs during the apply, so the plan shows the server's
   `KINDGI_DATABASE_SERVER_CA` as `(known after apply)`: it's still the
   instance's CAs. If the plan says the instance `must be replaced`, stop:
@@ -1280,6 +1274,14 @@ repository from
      gcloud sql export sql <instance> gs://<bucket>/<file>.sql.gz --database=<database_name>
      ```
 
+     A new grant can take a few minutes to take effect. Until it does, the
+     export is refused with HTTP 412 and "the required permissions for the
+     bucket", or with HTTP 403, "failed to initiate resumable upload" and
+     "storage.objects.create": wait a minute and run the export again. A
+     403 without "storage.objects.create", such as one from an organization
+     policy or VPC Service Controls, isn't the grant's delay, and waiting
+     won't fix it.
+
    Writes made after the backup aren't in it.
 5. **Set the new image:** `server_image` in `prod.tfvars`, to
    `$REPO/runtime@sha256:<new digest>`. Keep a copy of the file as it was:
@@ -1443,8 +1445,8 @@ After the apply:
 4. **Deploy each pack again,** with the same image and a new
    `--idempotency-key`
    ([5. Trust your key, and deploy](#5-trust-your-key-and-deploy)). A pack
-   service keeps one instance warm while something in use calls it, and
-   scales to zero otherwise, whatever `pack_min_instances` was.
+   service scales to zero when it's idle, whatever `pack_min_instances`
+   was.
 5. **With `"multi"`,** each tenant deploys its packs again, with a key of
    the tenant. An endpoint your orchestrator recorded stays as it is, and
    its calls keep reaching your service while its host matches

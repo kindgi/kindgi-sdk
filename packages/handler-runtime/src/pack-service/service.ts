@@ -82,9 +82,9 @@ export interface PackServiceOptions {
   /** Test seam: how a module is loaded from its absolute path. */
   readonly importModule?: (absolutePath: string) => Promise<unknown>;
   /**
-   * The one tenant this service serves (`KINDGI_PACK_TENANT_ID`). Set: a call
+   * The one workspace this service serves (`KINDGI_PACK_TENANT_ID`). Set: a call
    * to `/v1/invoke` or `/v1/info` whose `kindgi-tenant-id` header is missing
-   * or names another tenant, or a tool call whose context names another, is
+   * or names another workspace, or a tool call whose context names another, is
    * refused with 421 before any pack code runs. A backstop for a misrouted
    * call: the server's routing is the boundary.
    */
@@ -116,7 +116,7 @@ export type PackServiceLogEvent =
       readonly names: readonly string[];
     }
   | {
-      /** A call for another tenant, refused with 421 (`KINDGI_PACK_TENANT_ID`). */
+      /** A call for another workspace, refused with 421 (`KINDGI_PACK_TENANT_ID`). */
       readonly kind: 'tenant-mismatch';
       readonly via: 'header' | 'context';
     };

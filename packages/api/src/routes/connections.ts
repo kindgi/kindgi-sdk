@@ -14,6 +14,11 @@ import type {
   ConnectRequestRecord,
   ConnectionAppRecord,
   ConnectionBinding,
+  ConnectionCandidateRecord,
+  ConnectionChoiceListInput,
+  ConnectionChoiceNeeds,
+  ConnectionChoiceRecord,
+  ConnectionChoiceTarget,
   ConnectionError,
   ConnectionOwner,
   ConnectionPage,
@@ -35,14 +40,17 @@ import type { ReviewerBinding } from '../reviewer-binding.js';
 import { type ServedEnvRule, refuseUnservedReference } from '../served-env.js';
 import { WEBHOOK_BODY_LIMITS } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
-import { refused } from './denied.js';
+import { deniedBy, refused } from './denied.js';
 import { WEBHOOK_REFUSALS_PER_CLIENT_PER_MINUTE } from './hooks.js';
 import { clampLimit } from './pagination.js';
 import { parseSecretRef } from './secret-ref.js';
+import { hasHiddenCharacters } from './sites.js';
 import { tenantAdminAccess } from './tenant-access.js';
+import { isTriggerAdmin } from './trigger-owners.js';
 import { UUID_RE, refuseMalformedUuidParam } from './uuid-param.js';
 
 const MAX_LABEL_LENGTH = 200;
+const MAX_CONNECTION_LABEL_LENGTH = 100;
 const MAX_CLIENT_ID_LENGTH = 512;
 /** A DNS name's longest. */
 const MAX_TENANT_LENGTH = 253;
@@ -323,7 +331,7 @@ export function connectionsRouter(
     if (body.kind === 'err') return badInput(c, body.message);
     const parsed = parseConnectBody(body.value);
     if (parsed.kind === 'err') return badInput(c, parsed.message, parsed.field);
-    const { app, appId, projectId, permissions } = parsed.value;
+    const { app, appId, projectId, permissions, label, reconnects } = parsed.value;
     const owner = await connectOwner(c, by, parsed.value.for);
     if (owner instanceof Response) return owner;
     const outcome = await binding.createRequest({
@@ -334,6 +342,8 @@ export function connectionsRouter(
       ...(projectId !== undefined && { projectId }),
       owner,
       permissions,
+      ...(label !== undefined && { label }),
+      ...(reconnects !== undefined && { reconnects }),
       by,
     });
     if (outcome.kind !== 'ok') return bindingRefused(c, authorizer, outcome.error);
@@ -397,6 +407,56 @@ export function connectionsRouter(
       return connectionNotFound(c, connectionId);
     }
     return c.json(serializeConnection(connection));
+  });
+
+  /**
+   * A rename, or a main. Whoever may disconnect it may rename it, and
+   * others get the same 404. Only its owner makes it their main.
+   */
+  r.patch('/:connectionId', connectionIdChecked, async (c) => {
+    const tenantId = c.get('tenantId') as TenantId;
+    const connectionId = c.req.param('connectionId');
+    const by = principalRef(c);
+    if (by === undefined) return noPrincipal(c, authorizer);
+    const body = await readJsonObject(c);
+    if (body.kind === 'err') return badInput(c, body.message);
+    const parsed = parseUpdateBody(body.value);
+    if (parsed.kind === 'err') return badInput(c, parsed.message, parsed.field);
+    const connection = await binding.get({ tenantId, connectionId });
+    if (
+      connection === null ||
+      connection.state === 'removed' ||
+      !(await mayReach(c, connection.owner))
+    ) {
+      return connectionNotFound(c, connectionId);
+    }
+    const notMain = mainRefusal(c, connection, parsed.value);
+    if (notMain !== undefined) return notMain;
+    const outcome = await binding.update({ tenantId, connectionId, ...parsed.value, by });
+    if (outcome.kind !== 'ok') return bindingRefused(c, authorizer, outcome.error);
+    return c.json(serializeConnection(outcome.value));
+  });
+
+  /**
+   * The live choices that name a connection, in every project: for its
+   * owner and a tenant admin, whom it reaches. Others get the same 404.
+   */
+  r.get('/:connectionId/choices', connectionIdChecked, async (c) => {
+    const tenantId = c.get('tenantId') as TenantId;
+    const connectionId = c.req.param('connectionId');
+    const connection = await binding.get({ tenantId, connectionId });
+    if (connection === null || !(await mayReach(c, connection.owner))) {
+      return connectionNotFound(c, connectionId);
+    }
+    const cursor = c.req.query('cursor');
+    const page = await binding.listChoicesForConnection({
+      tenantId,
+      envName: options.envName,
+      connectionId,
+      limit: clampLimit(c.req.query('limit')),
+      ...(cursor !== undefined && cursor.length > 0 && { cursor: cursor as Cursor }),
+    });
+    return c.json(serializePage(page, serializeChoice));
   });
 
   r.delete('/:connectionId', connectionIdChecked, async (c) => {
@@ -511,6 +571,231 @@ export function connectionNoticesRouter(
       'connection-notice-unavailable',
       "The notice couldn't be handled just now: send it again",
     );
+  });
+  return r;
+}
+
+/**
+ * The connection choices (`/v1/connection-choices`): which company
+ * connection an agent or a flow uses for an app in a project, in the env
+ * this server serves. The project's members read its choices, and its
+ * candidates' names; its admins set and remove choices, and read its
+ * candidates in full.
+ */
+export function connectionChoicesRouter(
+  binding: ConnectionBinding,
+  authorizer: Authorizer | undefined,
+  options: {
+    /** The env this server serves: the choices read and made are its. */
+    readonly envName: EnvName;
+  },
+): Hono<AppEnv> {
+  const r = new Hono<AppEnv>();
+
+  /** Nothing, when the caller is an admin of the project; else a 403 that says what `doing` takes. */
+  const notAdmin = async (
+    c: Context<AppEnv>,
+    projectId: string,
+    doing: string,
+  ): Promise<Response | undefined> => {
+    if (await isTriggerAdmin(c, authorizer, projectId)) return undefined;
+    return refused(c, authorizer, {
+      action: 'admin',
+      resource: ref('project', projectId),
+      message: `${doing} takes a project admin.`,
+      failing: 'actor',
+    });
+  };
+
+  /**
+   * Whose choices the caller reads: the company's and their own, and every
+   * person's for a tenant admin; with `owner=me`, their own alone.
+   */
+  const choiceOwners = async (
+    c: Context<AppEnv>,
+    mine: boolean,
+  ): Promise<NonNullable<ConnectionChoiceListInput['owners']>> => {
+    const caller = callerPrincipal(c);
+    const own = caller?.kind === 'user' ? { userId: caller.userId } : undefined;
+    if (mine) return { company: false, ...(own !== undefined && { person: own }) };
+    if (await isTenantAdmin(c, authorizer)) return { company: true, person: 'every' };
+    return { company: true, ...(own !== undefined && { person: own }) };
+  };
+
+  /**
+   * Nothing, when the caller may make a person's choice: it's their own,
+   * and they may run its agent or flow. Else the answer.
+   */
+  const notOwnChoice = async (
+    c: Context<AppEnv>,
+    body: ChoiceBody,
+    person: { readonly userId: string },
+  ): Promise<Response | undefined> => {
+    const caller = callerPrincipal(c);
+    if (caller?.kind !== 'user' || caller.userId !== person.userId) {
+      return badInput(c, 'A person makes their own choices.', 'person');
+    }
+    const unreadable = await deniedBy(authorizer, c, 'read', ref('project', body.projectId));
+    if (unreadable !== undefined) return unreadable;
+    return deniedBy(
+      authorizer,
+      c,
+      'execute',
+      body.agentId !== undefined ? ref('agent', body.agentId) : ref('flow', body.flowId as string),
+    );
+  };
+
+  /**
+   * Nothing, when the caller may remove the choice: a person's is theirs
+   * alone, the company's a project admin's. Else the answer.
+   */
+  const notAllowedToRemove = async (
+    c: Context<AppEnv>,
+    choice: ConnectionChoiceRecord,
+    choiceId: string,
+  ): Promise<Response | undefined> => {
+    if (choice.person !== undefined) {
+      // A person's choice is theirs alone: to anyone else it isn't there.
+      const caller = callerPrincipal(c);
+      if (caller?.kind !== 'user' || caller.userId !== choice.person.userId) {
+        return choiceNotFound(c, choiceId);
+      }
+      return undefined;
+    }
+    const projectId = choice.projectId as unknown as string;
+    return notAdmin(c, projectId, 'Removing a connection choice');
+  };
+
+  r.get('/', async (c) => {
+    const query = parseChoiceQuery(c);
+    if (query.kind === 'err') return badInput(c, query.message, query.field);
+    const { projectId, agentId, flowId, app, toolId, mine } = query.value;
+    const includeRemoved = parseIncludeRemoved(c);
+    if (includeRemoved.kind === 'err') {
+      return badInput(c, includeRemoved.message, includeRemoved.field);
+    }
+    const unreadable = await deniedBy(authorizer, c, 'read', ref('project', projectId));
+    if (unreadable !== undefined) return unreadable;
+    const cursor = c.req.query('cursor');
+    const page = await binding.listChoices({
+      tenantId: c.get('tenantId') as TenantId,
+      projectId,
+      envName: options.envName,
+      ...(agentId !== undefined && { agentId }),
+      ...(flowId !== undefined && { flowId }),
+      ...(app !== undefined && { app }),
+      ...(toolId !== undefined && { toolId }),
+      owners: await choiceOwners(c, mine),
+      ...(includeRemoved.value && { includeRemoved: true }),
+      limit: clampLimit(c.req.query('limit')),
+      ...(cursor !== undefined && cursor.length > 0 && { cursor: cursor as Cursor }),
+    });
+    return c.json(serializePage(page, serializeChoice));
+  });
+
+  r.get('/candidates', async (c) => {
+    const query = parseChoiceQuery(c, { targets: false });
+    if (query.kind === 'err') return badInput(c, query.message, query.field);
+    const { projectId, app, mine } = query.value;
+    const unreadable = await deniedBy(authorizer, c, 'read', ref('project', projectId));
+    if (unreadable !== undefined) return unreadable;
+    const caller = callerPrincipal(c);
+    // A person's own are theirs to read in full; no one else has any.
+    if (mine && caller?.kind !== 'user') return c.json({ data: [], hasMore: false });
+    const person = mine && caller?.kind === 'user' ? { userId: caller.userId } : undefined;
+    const full = person !== undefined || (await isTriggerAdmin(c, authorizer, projectId));
+    const cursor = c.req.query('cursor');
+    const page = await binding.listCandidates({
+      tenantId: c.get('tenantId') as TenantId,
+      projectId,
+      envName: options.envName,
+      ...(app !== undefined && { app }),
+      ...(person !== undefined && { person }),
+      limit: clampLimit(c.req.query('limit')),
+      ...(cursor !== undefined && cursor.length > 0 && { cursor: cursor as Cursor }),
+    });
+    return c.json(serializePage(page, (candidate) => serializeCandidate(candidate, full)));
+  });
+
+  /**
+   * What each of an agent's or flow's tools needs, of an app or of every
+   * one, and whether a need may take a set: for a project's readers.
+   */
+  r.get('/needs', async (c) => {
+    const query = parseNeedsQuery(c);
+    if (query.kind === 'err') return badInput(c, query.message, query.field);
+    const { projectId, agentId, flowId, app } = query.value;
+    if (agentId === undefined && flowId === undefined) {
+      return badInput(c, 'Name whose tools to read: `agentId` or `flowId`, one of them');
+    }
+    const unreadable = await deniedBy(authorizer, c, 'read', ref('project', projectId));
+    if (unreadable !== undefined) return unreadable;
+    const outcome = await binding.choiceNeeds({
+      ...(agentId !== undefined ? { agentId } : { flowId: flowId as string }),
+      tenantId: c.get('tenantId') as TenantId,
+      projectId,
+      envName: options.envName,
+      ...(app !== undefined && { app }),
+    });
+    if (outcome.kind !== 'ok') {
+      return bindingRefused(c, authorizer, outcome.error, {
+        ...(outcome.error.code === 'agent-not-found' && agentId !== undefined && { agentId }),
+        ...(outcome.error.code === 'flow-not-found' && flowId !== undefined && { flowId }),
+      });
+    }
+    return c.json(serializeNeeds(outcome.value));
+  });
+
+  r.put('/', async (c) => {
+    const by = principalRef(c);
+    if (by === undefined) return noPrincipal(c, authorizer);
+    const body = await readJsonObject(c);
+    if (body.kind === 'err') return badInput(c, body.message);
+    const parsed = parseChoiceBody(body.value);
+    if (parsed.kind === 'err') return badInput(c, parsed.message, parsed.field);
+    const notAllowed =
+      parsed.value.person !== undefined
+        ? await notOwnChoice(c, parsed.value, parsed.value.person)
+        : await notAdmin(c, parsed.value.projectId, 'Choosing a connection');
+    if (notAllowed !== undefined) return notAllowed;
+    const outcome = await binding.setChoice({
+      ...parsed.value,
+      tenantId: c.get('tenantId') as TenantId,
+      envName: options.envName,
+      by,
+    });
+    if (outcome.kind !== 'ok') {
+      const named = choiceNamed(parsed.value, outcome.error.code);
+      return bindingRefused(c, authorizer, outcome.error, named);
+    }
+    return c.json(serializeChoice(outcome.value));
+  });
+
+  r.delete('/:choiceId', refuseMalformedUuidParam('choiceId', 'a choice id'), async (c) => {
+    const tenantId = c.get('tenantId') as TenantId;
+    const by = principalRef(c);
+    if (by === undefined) return noPrincipal(c, authorizer);
+    const choiceId = c.req.param('choiceId');
+    const choice = await binding.getChoice({ tenantId, choiceId });
+    // A removed one, or another env's, isn't found here.
+    if (choice === null || choice.removedAt !== undefined || choice.envName !== options.envName) {
+      return choiceNotFound(c, choiceId);
+    }
+    const projectId = choice.projectId as unknown as string;
+    // One in a project the caller can't read isn't found either, so an id
+    // never tells it's there.
+    if ((await deniedBy(authorizer, c, 'read', ref('project', projectId))) !== undefined) {
+      return choiceNotFound(c, choiceId);
+    }
+    const notAllowed = await notAllowedToRemove(c, choice, choiceId);
+    if (notAllowed !== undefined) return notAllowed;
+    const outcome = await binding.removeChoice({ tenantId, choiceId, by });
+    if (outcome.kind !== 'ok') {
+      return bindingRefused(c, authorizer, outcome.error, {
+        ...(outcome.error.code === 'connection-choice-not-found' && { choiceId }),
+      });
+    }
+    return c.json({ deleted: true });
   });
   return r;
 }
@@ -704,6 +989,8 @@ interface ConnectBody {
   readonly projectId?: ProjectId;
   readonly permissions: readonly string[];
   readonly for: 'me' | 'company';
+  readonly label?: string;
+  readonly reconnects?: string;
 }
 
 const CONNECT_FIELDS: ReadonlySet<string> = new Set([
@@ -712,6 +999,8 @@ const CONNECT_FIELDS: ReadonlySet<string> = new Set([
   'projectId',
   'permissions',
   'for',
+  'label',
+  'reconnects',
 ]);
 
 function parseConnectBody(body: Record<string, unknown>): Parsed<ConnectBody> {
@@ -731,9 +1020,8 @@ function parseConnectBody(body: Record<string, unknown>): Parsed<ConnectBody> {
   }
   const permissions = parsePermissions(body.permissions);
   if (permissions.kind === 'err') return permissions;
-  if (body.for !== undefined && body.for !== 'me' && body.for !== 'company') {
-    return bad("`for` must be `'me'` or `'company'`", 'for');
-  }
+  const made = parseConnectionMade(body);
+  if (made.kind === 'err') return made;
   return {
     kind: 'ok',
     value: {
@@ -741,9 +1029,69 @@ function parseConnectBody(body: Record<string, unknown>): Parsed<ConnectBody> {
       ...(typeof body.appId === 'string' && { appId: body.appId }),
       ...(typeof body.projectId === 'string' && { projectId: body.projectId as ProjectId }),
       permissions: permissions.value,
-      for: body.for ?? 'me',
+      ...made.value,
     },
   };
+}
+
+/** Whose connection a connect makes, the one it reconnects, and its name. */
+function parseConnectionMade(
+  body: Record<string, unknown>,
+): Parsed<Pick<ConnectBody, 'for' | 'label' | 'reconnects'>> {
+  if (body.for !== undefined && body.for !== 'me' && body.for !== 'company') {
+    return bad("`for` must be `'me'` or `'company'`", 'for');
+  }
+  const { reconnects } = body;
+  if (reconnects !== undefined && (typeof reconnects !== 'string' || !UUID_RE.test(reconnects))) {
+    return bad('`reconnects` must be a connection id (a UUID)', 'reconnects');
+  }
+  const label = body.label === undefined ? undefined : parseConnectionLabel(body.label);
+  if (label?.kind === 'err') return label;
+  return {
+    kind: 'ok',
+    value: {
+      for: body.for ?? 'me',
+      ...(typeof reconnects === 'string' && { reconnects }),
+      ...(label !== undefined && { label: label.value }),
+    },
+  };
+}
+
+const UPDATE_FIELDS: ReadonlySet<string> = new Set(['label', 'main']);
+
+/** A rename's body: its `label`, required. */
+type UpdateBody = { readonly label: string } | { readonly main: true };
+
+/** `{label}` or `{main: true}`: one change. */
+function parseUpdateBody(body: Record<string, unknown>): Parsed<UpdateBody> {
+  const unknown = unknownField(body, UPDATE_FIELDS, '');
+  if (unknown !== undefined) return unknown;
+  if (body.main !== undefined) {
+    if (body.label !== undefined) return bad('`label` or `main`, one change at a time');
+    if (body.main === false) {
+      return bad('A main moves only by making another connection main.', 'main');
+    }
+    if (body.main !== true) return bad('`main` takes only `true`', 'main');
+    return { kind: 'ok', value: { main: true } };
+  }
+  const label = parseConnectionLabel(body.label);
+  return label.kind === 'err' ? label : { kind: 'ok', value: { label: label.value } };
+}
+
+/** A connection's name: trimmed, 1 to 100 characters, none of them hidden (`hasHiddenCharacters`). */
+function parseConnectionLabel(raw: unknown): Parsed<string> {
+  const label = typeof raw === 'string' ? raw.trim() : '';
+  if (
+    label.length === 0 ||
+    [...label].length > MAX_CONNECTION_LABEL_LENGTH ||
+    hasHiddenCharacters(label)
+  ) {
+    return bad(
+      `\`label\` must be 1 to ${MAX_CONNECTION_LABEL_LENGTH} characters, with no control, format or invisible characters`,
+      'label',
+    );
+  }
+  return { kind: 'ok', value: label };
 }
 
 function parsePermissions(raw: unknown): Parsed<readonly string[]> {
@@ -947,6 +1295,221 @@ async function readJsonObject(
   return { kind: 'ok', value: body };
 }
 
+interface ChoiceQuery {
+  readonly projectId: ProjectId;
+  readonly agentId?: string;
+  readonly flowId?: string;
+  readonly app?: string;
+  readonly toolId?: string;
+  /** `owner=me`: the caller's own only. */
+  readonly mine: boolean;
+}
+
+/**
+ * `projectId` (required), `app`, `owner=me`, and with `targets`, `agentId`
+ * or `flowId` and `toolId`.
+ */
+function parseChoiceQuery(
+  c: Context<AppEnv>,
+  opts: { readonly targets?: boolean } = {},
+): Parsed<ChoiceQuery> {
+  const projectId = c.req.query('projectId');
+  const app = c.req.query('app');
+  const owner = c.req.query('owner');
+  const agentId = opts.targets === false ? undefined : nonEmpty(c.req.query('agentId'));
+  const flowId = opts.targets === false ? undefined : nonEmpty(c.req.query('flowId'));
+  const toolId = opts.targets === false ? undefined : nonEmpty(c.req.query('toolId'));
+  if (owner !== undefined && owner !== 'me') return bad("`owner` takes only `'me'`", 'owner');
+  if (projectId === undefined || !UUID_RE.test(projectId)) {
+    return bad('`projectId` is required: a project id (a UUID)', 'projectId');
+  }
+  if (app !== undefined && !APP_ID_PATTERN.test(app)) {
+    return bad('`app` must be an entry id', 'app');
+  }
+  if (agentId !== undefined && flowId !== undefined) {
+    return bad('`agentId` or `flowId`, not both: a choice is for one of them');
+  }
+  return {
+    kind: 'ok',
+    value: {
+      projectId: projectId as ProjectId,
+      ...(agentId !== undefined && { agentId }),
+      ...(flowId !== undefined && { flowId }),
+      ...(app !== undefined && { app }),
+      ...(toolId !== undefined && { toolId }),
+      mine: owner === 'me',
+    },
+  };
+}
+
+type NeedsQuery = Omit<ChoiceQuery, 'toolId' | 'mine'>;
+
+/**
+ * `projectId` (required), `agentId` or `flowId`, and `app`: what the needs
+ * read declares. It reads nothing else, so `owner` and `toolId` are ignored,
+ * as a query param a read doesn't declare is everywhere.
+ */
+function parseNeedsQuery(c: Context<AppEnv>): Parsed<NeedsQuery> {
+  const projectId = c.req.query('projectId');
+  const app = c.req.query('app');
+  const agentId = nonEmpty(c.req.query('agentId'));
+  const flowId = nonEmpty(c.req.query('flowId'));
+  if (projectId === undefined || !UUID_RE.test(projectId)) {
+    return bad('`projectId` is required: a project id (a UUID)', 'projectId');
+  }
+  if (app !== undefined && !APP_ID_PATTERN.test(app)) {
+    return bad('`app` must be an entry id', 'app');
+  }
+  if (agentId !== undefined && flowId !== undefined) {
+    return bad('`agentId` or `flowId`, not both: a choice is for one of them');
+  }
+  return {
+    kind: 'ok',
+    value: {
+      projectId: projectId as ProjectId,
+      ...(agentId !== undefined && { agentId }),
+      ...(flowId !== undefined && { flowId }),
+      ...(app !== undefined && { app }),
+    },
+  };
+}
+
+function nonEmpty(raw: string | undefined): string | undefined {
+  return raw === undefined || raw.length === 0 ? undefined : raw;
+}
+
+const CHOICE_BODY_FIELDS: ReadonlySet<string> = new Set([
+  'projectId',
+  'agentId',
+  'flowId',
+  'toolId',
+  'need',
+  'connectionId',
+  'connectionIds',
+  'person',
+]);
+
+/** A set's size: 2 to 10 (`connectionIds`). */
+const SET_SIZE = { min: 2, max: 10 } as const;
+
+type ChoiceBody = ConnectionChoiceTarget & {
+  readonly projectId: ProjectId;
+  readonly connectionId: string;
+  readonly toolId?: string;
+  readonly need?: string;
+  readonly connectionIds?: readonly string[];
+  readonly person?: { readonly userId: string };
+};
+
+/**
+ * `{projectId, agentId | flowId, connectionId}`, with `toolId` and
+ * `need`, a set (`connectionIds`), and `person`; nothing else. What the
+ * agent's tools allow is the binding's to check.
+ */
+function parseChoiceBody(body: Record<string, unknown>): Parsed<ChoiceBody> {
+  const unknown = unknownField(body, CHOICE_BODY_FIELDS, '');
+  if (unknown !== undefined) return unknown;
+  const { projectId, agentId, flowId, connectionId, toolId, need, connectionIds, person } = body;
+  if (typeof projectId !== 'string' || !UUID_RE.test(projectId)) {
+    return bad('`projectId` is required: a project id (a UUID)', 'projectId');
+  }
+  if ((agentId === undefined) === (flowId === undefined)) {
+    return bad('Name what the choice is for: `agentId` or `flowId`, one of them');
+  }
+  const field = agentId !== undefined ? 'agentId' : 'flowId';
+  const id = agentId ?? flowId;
+  if (typeof id !== 'string' || id.length === 0) {
+    return bad(`\`${field}\` must be a non-empty string`, field);
+  }
+  if (typeof connectionId !== 'string' || !UUID_RE.test(connectionId)) {
+    return bad('`connectionId` is required: a connection id (a UUID)', 'connectionId');
+  }
+  const tool = parseChoiceTool(toolId, need, connectionIds, connectionId);
+  if (tool.kind === 'err') return tool;
+  const owner = parseChoicePerson(person);
+  if (owner.kind === 'err') return owner;
+  const target: ConnectionChoiceTarget = field === 'agentId' ? { agentId: id } : { flowId: id };
+  return {
+    kind: 'ok',
+    value: {
+      ...target,
+      projectId: projectId as ProjectId,
+      connectionId,
+      ...tool.value,
+      ...(owner.value !== undefined && { person: owner.value }),
+    },
+  };
+}
+
+/** A tool's choice: `toolId`, its `need`, and a set (`connectionIds`), each only for a tool. */
+function parseChoiceTool(
+  toolId: unknown,
+  need: unknown,
+  connectionIds: unknown,
+  connectionId: string,
+): Parsed<Pick<ChoiceBody, 'toolId' | 'need' | 'connectionIds'>> {
+  if (toolId !== undefined && (typeof toolId !== 'string' || toolId.length === 0)) {
+    return bad('`toolId` must be a non-empty string', 'toolId');
+  }
+  if (need !== undefined) {
+    if (typeof need !== 'string' || need.length === 0) {
+      return bad('`need` must be a non-empty string', 'need');
+    }
+    if (toolId === undefined) return bad("`need` is a tool's: name the tool (`toolId`)", 'need');
+  }
+  const set = parseChoiceSet(connectionIds, connectionId, toolId);
+  if (set.kind === 'err') return set;
+  return {
+    kind: 'ok',
+    value: {
+      ...(typeof toolId === 'string' && { toolId }),
+      ...(typeof need === 'string' && { need }),
+      ...(set.value !== undefined && { connectionIds: set.value }),
+    },
+  };
+}
+
+/** A person's own choice: `person`, `{userId}`, the caller. */
+function parseChoicePerson(person: unknown): Parsed<{ readonly userId: string } | undefined> {
+  if (person === undefined) return { kind: 'ok', value: undefined };
+  const userId = isObject(person) ? person.userId : undefined;
+  if (
+    !isObject(person) ||
+    Object.keys(person).some((k) => k !== 'userId') ||
+    typeof userId !== 'string' ||
+    userId.length === 0
+  ) {
+    return bad('`person` must be `{userId}`: you', 'person');
+  }
+  return { kind: 'ok', value: { userId } };
+}
+
+/** A set: 2 to 10 different connection ids, the default among them, for one tool. */
+function parseChoiceSet(
+  raw: unknown,
+  connectionId: string,
+  toolId: unknown,
+): Parsed<readonly string[] | undefined> {
+  if (raw === undefined) return { kind: 'ok', value: undefined };
+  if (toolId === undefined) {
+    return bad('A set of connections is for one tool: name it.', 'connectionIds');
+  }
+  if (!Array.isArray(raw) || raw.some((id) => typeof id !== 'string' || !UUID_RE.test(id))) {
+    return bad('`connectionIds` must be connection ids (UUIDs)', 'connectionIds');
+  }
+  const ids = raw as readonly string[];
+  if (ids.length < SET_SIZE.min || ids.length > SET_SIZE.max || new Set(ids).size !== ids.length) {
+    return bad(
+      `A set holds ${SET_SIZE.min} to ${SET_SIZE.max} different connections.`,
+      'connectionIds',
+    );
+  }
+  if (!ids.includes(connectionId)) {
+    return bad('The default must be one of the set.', 'connectionIds');
+  }
+  return { kind: 'ok', value: ids };
+}
+
 // ================ the caller ================
 
 /** The caller as the binding records it. */
@@ -962,6 +1525,26 @@ function principalRef(c: Context<AppEnv>): PrincipalRef | undefined {
 function isOwner(c: Context<AppEnv>, owner: ConnectionOwner): boolean {
   const caller = callerPrincipal(c);
   return owner.kind === 'member' && caller?.kind === 'user' && caller.userId === owner.userId;
+}
+
+/** Why a change can't make the connection a main: only its person makes it theirs. */
+function mainRefusal(
+  c: Context<AppEnv>,
+  connection: ConnectionRecord,
+  change: UpdateBody,
+): Response | undefined {
+  if (!('main' in change)) return undefined;
+  if (connection.owner.kind === 'company') {
+    return badInput(
+      c,
+      "The company has no main connection: its agents use the company's through their choices.",
+      'main',
+    );
+  }
+  if (!isOwner(c, connection.owner)) {
+    return badInput(c, 'Only the person whose connection it is makes it their main.', 'main');
+  }
+  return undefined;
 }
 
 function noPrincipal(c: Context<AppEnv>, authorizer: Authorizer | undefined): Response {
@@ -1070,6 +1653,8 @@ function serializeConnection(connection: ConnectionRecord): Record<string, unkno
     app: connection.app,
     owner: serializeOwner(connection.owner),
     account: { id: connection.account.id, label: connection.account.label },
+    ...(connection.label !== undefined && { label: connection.label }),
+    ...(connection.main === true && { main: true }),
     permissions: [...connection.permissions],
     state: connection.state,
     ...(connection.stateReason !== undefined && { stateReason: connection.stateReason }),
@@ -1099,6 +1684,7 @@ function serializeRequest(request: ConnectRequestRecord): Record<string, unknown
     permissions: [...request.permissions],
     says: [...request.says],
     ...(request.reconnects !== undefined && { reconnects: request.reconnects }),
+    ...(request.label !== undefined && { label: request.label }),
     ...(request.runId !== undefined && { runId: request.runId }),
     ...(request.name !== undefined && { name: request.name }),
     ...(request.startedBy !== undefined && { startedBy: request.startedBy }),
@@ -1125,8 +1711,76 @@ function serializeFinish(outcome: ConnectFinishOutcome): Record<string, unknown>
         kind: 'connected',
         request: serializeRequest(outcome.request),
         connection: serializeConnection(outcome.connection),
+        ...(outcome.reconnected !== undefined && { reconnected: outcome.reconnected }),
+        ...(outcome.labelTaken !== undefined && { labelTaken: outcome.labelTaken }),
+        ...(outcome.main !== undefined && {
+          main:
+            outcome.main.state === 'missing'
+              ? { state: 'missing' }
+              : { state: outcome.main.state, connectionId: outcome.main.connectionId },
+        }),
       }
     : { kind: outcome.kind, request: serializeRequest(outcome.request) };
+}
+
+/** A choice, with its removal when it's been removed. */
+function serializeChoice(choice: ConnectionChoiceRecord): Record<string, unknown> {
+  return {
+    choiceId: choice.choiceId,
+    projectId: choice.projectId as unknown as string,
+    envName: choice.envName as unknown as string,
+    ...(choice.agentId !== undefined && { agentId: choice.agentId }),
+    ...(choice.flowId !== undefined && { flowId: choice.flowId }),
+    app: choice.app,
+    ...(choice.toolId !== undefined && { toolId: choice.toolId }),
+    ...(choice.need !== undefined && { need: choice.need }),
+    connectionId: choice.connectionId,
+    ...(choice.connectionIds !== undefined && { connectionIds: [...choice.connectionIds] }),
+    ...(choice.person !== undefined && { person: { userId: choice.person.userId } }),
+    version: choice.version,
+    createdAt: choice.createdAt,
+    createdBy: choice.createdBy,
+    ...(choice.removedAt !== undefined && { removedAt: choice.removedAt }),
+    ...(choice.removedBy !== undefined && { removedBy: choice.removedBy }),
+  };
+}
+
+/** What a refused choice names: the agent, the flow or the connection not found. */
+function choiceNamed(body: ChoiceBody, code: string): Readonly<Record<string, string>> {
+  if (code === 'agent-not-found' && body.agentId !== undefined) return { agentId: body.agentId };
+  if (code === 'flow-not-found' && body.flowId !== undefined) return { flowId: body.flowId };
+  return code === 'connection-not-found' ? { connectionId: body.connectionId } : {};
+}
+
+/** A candidate: in full for a project admin, its id and name for anyone else. */
+function serializeCandidate(
+  candidate: ConnectionCandidateRecord,
+  full: boolean,
+): Record<string, unknown> {
+  return {
+    connectionId: candidate.connectionId,
+    name: candidate.name,
+    ...(full && {
+      app: candidate.app,
+      accountLabel: candidate.accountLabel,
+      state: candidate.state,
+      ...(candidate.main === true && { main: true }),
+    }),
+  };
+}
+
+/** The needs a choice may be for, and the tools whose version couldn't be read. */
+function serializeNeeds(needs: ConnectionChoiceNeeds): Record<string, unknown> {
+  return {
+    data: needs.data.map((n) => ({
+      toolId: n.toolId,
+      need: n.need,
+      app: n.app,
+      as: n.as,
+      set: n.set.allowed ? { allowed: true } : { allowed: false, reason: n.set.reason },
+    })),
+    ...(needs.unread !== undefined && { unread: [...needs.unread] }),
+  };
 }
 
 // ================ answers ================
@@ -1156,8 +1810,11 @@ function bindingRefused(
   c: Context<AppEnv>,
   authorizer: Authorizer | undefined,
   error: ConnectionError,
+  /** What the request named that the refusal is about (`connectionId`, `choiceId`). */
+  named: Readonly<Record<string, string>> = {},
 ): Response {
   const details = {
+    ...named,
     ...(error.field !== undefined && { field: error.field }),
     ...(error.connectRequestId !== undefined && { connectRequestId: error.connectRequestId }),
   };
@@ -1181,6 +1838,12 @@ function appNotFound(c: Context<AppEnv>, appId: string): Response {
 function connectionNotFound(c: Context<AppEnv>, connectionId: string): Response {
   return answer(c, 'connection-not-found', `No connection with id "${connectionId}"`, {
     connectionId,
+  });
+}
+
+function choiceNotFound(c: Context<AppEnv>, choiceId: string): Response {
+  return answer(c, 'connection-choice-not-found', `No connection choice with id "${choiceId}"`, {
+    choiceId,
   });
 }
 

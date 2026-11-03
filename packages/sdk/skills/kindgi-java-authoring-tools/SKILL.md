@@ -14,7 +14,7 @@ description: >
   by kindgi-java-getting-started.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.6"
+version: "0.1.8"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -159,7 +159,7 @@ final class Citator {
 
 ## `ToolContext`
 
-- `ctx.tenantId()`: the tenant the call is for. Key per-tenant state by it.
+- `ctx.tenantId()`: the workspace the call is for. Key per-workspace state by it.
 - `ctx.runId()`: the run (an agent turn or a flow step) the call belongs to.
 - `ctx.requestId()`: this call, such as the model's tool-call id. For logs:
   a model's call id is only unique within one of its answers, so don't
@@ -170,7 +170,7 @@ final class Citator {
   it writes to (an `Idempotency-Key` header, a client reference, a unique
   column) or looks for it there first: a refund never goes out twice. A
   UUID; `null` outside a run and from a runtime before 0.1.6. Docs:
-  https://docs.kindgi.com/v0.3/guides/tools/write-a-tool/#make-a-side-effect-happen-once
+  https://docs.kindgi.com/v0.4/guides/tools/write-a-tool/#make-a-side-effect-happen-once
 - `ctx.projectId()`, `ctx.orgId()`: the run's project, and its org (`null`
   when it has none). The runtime sets them from the run, never from the
   input. To check an id the input names, compare it with these.
@@ -183,7 +183,7 @@ final class Citator {
   context shows their names, never their values.
 - `ctx.env()`: the env values the tool declares (`set("needsSpec",
   Map.of("env", …))`), resolved for the call: its project's value, else its
-  org's, else the tenant's (`kindgi env set NAME <value>
+  org's, else the workspace's (`kindgi env set NAME <value>
   --scope=project:<id> --env=<env>`), with a declared `default` filled in.
   Strings, and not secret.
 - `ctx.config()`: **reserved, empty today**.
@@ -197,7 +197,7 @@ stop runs on, and its result goes nowhere.
 - In an agent, the turn fails, unless the agent's `toolErrors`
   (`set("toolErrors", …)`) lists `tool-error` in `retryOn`. The list
   replaces the default, so keep `invalid-arguments` and `unknown-tool` in
-  it; the tenant's `tool-errors` policy can narrow it further.
+  it; the workspace's `tool-errors` policy can narrow it further.
 - In a flow, the step fails. An edge's `retry` may run it again while the
   first handler still runs, with the same `ctx.idempotencyKey()`: pass the
   key on. An edge's `timeoutMs` can only fail it sooner.
@@ -210,14 +210,14 @@ with `ctx.idempotencyKey()`, return its id at once, and give the other
 system a webhook trigger that starts the next flow with its answer; when it
 can't call back, check the job from a scheduled flow.
 
-Docs: https://docs.kindgi.com/v0.3/guides/tools/write-a-tool/#work-that-takes-longer-than-a-call
+Docs: https://docs.kindgi.com/v0.4/guides/tools/write-a-tool/#work-that-takes-longer-than-a-call
 
 ## Configuration and secrets
 
-A secret that belongs to the tenant, such as an API key a customer gives
+A workspace's secret, such as an API key a customer gives
 you, is declared with `set("needsSpec", …)` and read from `ctx.secrets()`, as
 above. The runtime resolves every declared secret on every call, for the
-call's tenant, in its env (`KINDGI_ENV`; under `kindgi dev`, `local`: the
+call's workspace, in its env (`KINDGI_ENV`; under `kindgi dev`, `local`: the
 pack's `.env` and `.env.local`, then Kindgi's own `.kindgi/secrets.env`, where
 `./kindgiw secrets set` writes). It checks each against its schema, and fails
 the call, naming the secret, when one is missing or doesn't match. A
@@ -260,14 +260,14 @@ public static final Tool<Input, Output> TOOL = Tool.define("my-pack.send-mail")
     });
 ```
 
-- **Whose connection:** `"as", "person"` is the connection of the person the run acts as (whoever started it, or the owner of the schedule or webhook that did); `"as", "company"` is the company's. The runtime picks it from the run, never from the input or the model. A run that acts as nobody (a service account's, an event's) fails a `"person"` call with `connection-needs-a-person`.
+- **Whose connection:** `"as", "person"` is the connection of the person the run acts as (whoever started it, or the owner of the schedule or webhook that did); `"as", "company"` is the company's. With several company connections of one app, the mailbox the run's mail came to says which, else the agent's or flow's choice; with neither, the run fails with `connection-not-chosen`. The runtime picks it from the run, never from the input or the model. A run that acts as nobody (a service account's, an event's) fails a `"person"` call with `connection-needs-a-person`.
 - **The token:** `accessToken()` is current for this call only. Never keep, print, log or return it; it never reaches the journal. `account().label()` says whose account it is (`ana@acme.com`).
 - **A 401 from the app:** `throw new ConnectionRejectedException("mail")`, with the connection's name (a second argument can say what the app answered, never the token), or your own exception with it as the cause. The runtime renews the token once and runs the call again; refused again, the call fails with `connection-rejected`.
 - **An HTTP tool** sends the token with no code: `.authorization(new HttpAuthSpec.Connection("mail"))`.
 - **Unattended runs:** in a run no person started, a tool that uses a `"person"` connection waits for that person's yes, reads included: `.mutating(false)` doesn't lift it. The agent's own approval settings can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needsApprovalWhenUnattended` (below). In a run a new mail started, the mail is a stranger's text, so two more calls wait: a call of a tool that isn't `.mutating(false)`, and, when the trigger reads the company's mailbox, a read with the company's connection to that app. The mail trigger's `toolsAllowedUnattended` lifts these too.
-- **In a unit test:** `ToolContext.forTest(Map.of("mail", new ToolConnection("c-1", "google", "Google", "test", new ConnectionAccount("1", "ana@acme.com"), null)))`; the last argument, when the token expires, can be `null`. `ctx.connections()` is empty when the tool declares none.
+- **In a unit test:** `ToolContext.forTest(Map.of("mail", new ToolConnection("c-1", "google", "Google", "test", new ConnectionAccount("1", "ana@acme.com"), null, null)))`; the last two arguments, the connection's name and when the token expires, can be `null`. `ctx.connections()` is empty when the tool declares none.
 
-Docs: https://docs.kindgi.com/v0.3/guides/connections/use-a-connection/
+Docs: https://docs.kindgi.com/v0.4/guides/connections/use-a-connection/
 
 ## Errors and output
 
@@ -364,7 +364,7 @@ the same way, with the same `HttpToolSpec`.
 
 - **An agent's call waits** for a person's yes, whatever the agent's `conversationPolicy.hitl.tools` says. The agent's rules can't lift it: agents are reused, and the tool's author knows what it does.
 - **A flow's tool step that calls it is refused.** Put the tool behind an agent step instead, whose call waits.
-- **A trigger can lift both, for its own runs only.** A project admin names the tool in a webhook trigger's, a schedule's or a mail trigger's `toolsAllowedUnattended` (`--allow-unattended=<tool-id>` on `kindgi webhooks`, `kindgi schedules` and `kindgi mail-triggers`). In that trigger's runs, the tool is then as in a run a person started. The tenant's approval rules still apply.
+- **A trigger can lift both, for its own runs only.** A project admin names the tool in a webhook trigger's, a schedule's or a mail trigger's `toolsAllowedUnattended` (`--allow-unattended=<tool-id>` on `kindgi webhooks`, `kindgi schedules` and `kindgi mail-triggers`). In that trigger's runs, the tool is then as in a run a person started. The workspace's approval rules still apply.
 
 In a run a person started (signed in, or with their own API key), the agent's rules decide, as for any tool. Left unset, it counts as `false`. Declare it on a tool that moves money or changes something people rely on:
 
@@ -374,7 +374,7 @@ In a run a person started (signed in, or with their own API key), the agent's ru
       .needsApprovalWhenUnattended(true)
 ```
 
-Docs: https://docs.kindgi.com/v0.3/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
+Docs: https://docs.kindgi.com/v0.4/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
 
 ## Results that are text from outside: `resultIsOutsideData`
 
@@ -383,8 +383,8 @@ Docs: https://docs.kindgi.com/v0.3/guides/approvals/ask-before-a-tool-runs/#when
 ## Testing
 
 `Tool.call(input, ctx)` runs the handler with the input as given (no schema
-check). `ToolContext.forTest()` is a context with a test tenant and run and
-nothing else. `ToolContext.forTest(tool, env, secrets)` adds the env values
+check). `ToolContext.forTest()` is a context with only a test workspace and
+run. `ToolContext.forTest(tool, env, secrets)` adds the env values
 the tool declares in `needsSpec`, decided as a run decides them (a schema
 `default` fills a name the test doesn't set, each value is checked, and a
 missing or invalid one throws `IllegalArgumentException`), and the secrets as
@@ -491,7 +491,7 @@ removed field, a narrower type), not on every save.
     folder, `~/.aws`) or any `.env*` file, and gets `EPERM` there. A tool that
     needs a path names it in `kindgi.config.json`: `"dev": {"sandbox": {"allowRead": ["~/.aws"]}}`.
     Never set `KINDGI_DEV_SANDBOX=off` or `dev.sandbox: false` to get past it
-    (https://docs.kindgi.com/v0.3/guides/secrets/dev-sandbox/).
+    (https://docs.kindgi.com/v0.4/guides/secrets/dev-sandbox/).
 
 ## When the framework itself is the problem
 

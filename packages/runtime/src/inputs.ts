@@ -28,7 +28,7 @@ import type { RunOptions } from './types.js';
  * Resolver contract for `subgraph` node dispatch. Structurally
  * satisfied by `FlowRegistryBinding.getVersion(...)` in `@kindgi/api`.
  * The runtime invokes the resolver with the PARENT run's tenantId; a
- * flow registered under a different tenant returns `null`, which is
+ * flow registered under a different workspace returns `null`, which is
  * the cross-tenant guarantee (rejection at dispatch with
  * `subgraph-flow-not-found` attribution).
  */
@@ -135,6 +135,13 @@ export function runIsAttended(startedBy: RunStartedBy | undefined): boolean {
 export interface RunMailbox {
   readonly app: 'google' | 'microsoft';
   readonly as: 'company' | 'person';
+  /**
+   * The company connection the run's mail was read with: the one its
+   * trigger version names, fixed when the fire starts the run, so a
+   * trigger pointed elsewhere later doesn't move the run. Only with
+   * `as: 'company'`; a run whose trigger version names none carries none.
+   */
+  readonly connectionId?: string;
 }
 
 /**
@@ -267,7 +274,7 @@ function connectionNeedsOf(
 
 /**
  * The idempotency key of a run start: a start with a key a run of the
- * tenant already has starts nothing and answers that run (`existing`), so
+ * workspace already has starts nothing and answers that run (`existing`), so
  * a retried or re-driven start never runs twice. A trigger's fire uses
  * `fire:<fireId>`. Keys are opaque, at most 255 characters.
  */
@@ -292,8 +299,8 @@ export interface RunFlowInput {
   readonly tenantId: TenantId;
   /**
    * Content-scope anchor. REQUIRED — every kernel run is bound to
-   * exactly one project inside the tenant. Callers without a natural
-   * project id resolve to the tenant's default via
+   * exactly one project inside the workspace. Callers without a natural
+   * project id resolve to the workspace's default via
    * `projectBinding.getDefault(tenantId)` at the caller layer.
    */
   readonly projectId: ProjectId;
