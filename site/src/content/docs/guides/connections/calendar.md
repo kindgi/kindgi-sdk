@@ -22,8 +22,8 @@ or [Microsoft](../microsoft/#2-register-the-app-in-microsoft-entra), step 3.
 | --- | --- | --- | --- |
 | Lists the events in a window | `googleCalendarEventsList` | `outlookCalendarEventsList` | Google: see the events on your calendars. Outlook: see your calendar's events, without their details. |
 | Lists the events in a window, on calendars others share too | `googleCalendarSharedEventsList` | `outlookCalendarSharedEventsList` | Google: see the events on all your calendars. Outlook: see the events on your calendars, with their details. |
-| Says when the calendar is busy | `googleCalendarFreeBusy` | `outlookCalendarFreeBusy` | Google: see when you're free or busy. Outlook: the same as a list. |
-| Lists the calendars | `googleCalendarCalendarsList` | `outlookCalendarCalendarsList` | Google: see the list of your calendars. Outlook: the same as a list. |
+| Says when the calendar is busy | `googleCalendarFreeBusy` | `outlookCalendarFreeBusy` | Google: see when you're free or busy. Outlook: the same as the events list. |
+| Lists the calendars | `googleCalendarCalendarsList` | `outlookCalendarCalendarsList` | Google: see the list of your calendars. Outlook: the same as the events list. |
 | Adds an event | `googleCalendarEventCreate` | `outlookCalendarEventCreate` | Add and change events (Google), or read, add and change them (Outlook). |
 | Changes an event | `googleCalendarEventUpdate` | `outlookCalendarEventUpdate` | The same as adding one. |
 
