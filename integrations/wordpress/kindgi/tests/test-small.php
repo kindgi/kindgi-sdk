@@ -194,7 +194,9 @@ function test_admin_a_retired_key_set_by_hand_says_where_to_set_a_new_one_and_an
 	kindgi_assert( false === strpos( $environment, 'wp-config.php' ), 'the environment: not wp-config.php' );
 	foreach ( array( $constant, $environment ) as $words ) {
 		kindgi_assert( 0 === strpos( $words, "Kindgi won't take this site's key again: it was retired." ), 'why first' );
-		kindgi_assert( false === strpos( $words, 'same code' ), 'the code form adds the same-code sentence, not this' );
+		kindgi_assert( false === strpos( $words, '%' ), 'no format code left in the words' );
+		$last = ' The same code works until it expires.';
+		kindgi_assert( substr( $words, -strlen( $last ) ) === $last, 'the same code still works, last' );
 	}
 	kindgi_assert_same( $retired->get_error_message(), Kindgi_Admin::connect_error( $retired, 'option' ), "a key kept in the database: Kindgi's words" );
 	kindgi_assert_same( $retired->get_error_message(), Kindgi_Admin::connect_error( $retired, '' ), "no key yet: Kindgi's words" );
