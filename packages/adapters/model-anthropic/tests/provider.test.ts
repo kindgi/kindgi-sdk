@@ -747,6 +747,71 @@ describe('createAnthropicProvider — thinking through a tool loop', () => {
     ]);
   });
 
+  // A call that asks a level sends its fields (`anthropicThinking`) in the
+  // same request as the thinking it carries back.
+  test.each([
+    ['high', undefined, 'high'],
+    ['lowest', { type: 'between_tools' }, 'low'],
+  ] as const)(
+    'a call that asks %s sends its thinking fields with the thinking it carries back',
+    async (level, type, effort) => {
+      const lookup = {
+        type: 'tool_use',
+        id: 'tu-1',
+        name: 'acme__orders__lookup',
+        input: { order: 'A-1' },
+      } as const;
+      const create = vi
+        .fn()
+        .mockResolvedValueOnce(
+          fakeResponse({
+            model: 'claude-sonnet-5-5',
+            content: [thinking, lookup],
+            stop_reason: 'tool_use',
+          }),
+        )
+        .mockResolvedValueOnce(
+          fakeResponse({
+            model: 'claude-sonnet-5-5',
+            content: [{ type: 'text', text: 'Shipped.' }],
+          }),
+        );
+      const provider = createAnthropicProvider({
+        apiKey: 'sk-unused',
+        metadata: {
+          ...metadata,
+          models: [{ ...SONNET, thinking: { mode: 'adaptive', lowest: 'between_tools' } }],
+        },
+        client: { messages: { create } } as unknown as Anthropic,
+      });
+      const asked = { role: 'user' as const, content: 'Where is order A-1?' };
+      const first = await provider.invoke({
+        model: 'claude-sonnet-5-5',
+        messages: [asked],
+        tools: [lookupTool],
+        thinking: level,
+      });
+      await provider.invoke({
+        model: 'claude-sonnet-5-5',
+        messages: [
+          asked,
+          first.message,
+          { role: 'tool', content: '{"status":"shipped"}', toolCallId: 'tu-1' },
+        ],
+        tools: [lookupTool],
+        thinking: level,
+      });
+      const body = create.mock.calls[1]?.[0] as {
+        thinking?: unknown;
+        output_config?: unknown;
+        messages: Anthropic.MessageParam[];
+      };
+      expect(body.thinking).toEqual(type);
+      expect(body.output_config).toEqual({ effort });
+      expect(body.messages[1]).toEqual({ role: 'assistant', content: [thinking, lookup] });
+    },
+  );
+
   describe('thinking that takes the whole output cap', () => {
     const answer = async (
       content: readonly unknown[],
