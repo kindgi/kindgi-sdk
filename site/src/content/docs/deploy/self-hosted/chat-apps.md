@@ -43,12 +43,12 @@ KINDGI_MCP_SERVER=on
 KINDGI_PUBLIC_URL=https://kindgi.example.com
 ```
 
-`KINDGI_MCP_SERVER` is `off` unless you set it. With it `on`, the runtime
-doesn't start if `KINDGI_PUBLIC_URL` is unset or has a path
-(`https://example.com/kindgi`), or if sign-in isn't set up. It doesn't need
-an authorization store.
-
-<!-- To confirm: a link to KINDGI_MCP_SERVER's entry in the environment variables reference, once it's there. -->
+`KINDGI_MCP_SERVER` is `off` unless you set it, and `/mcp` then answers 404
+([the variable](../../../reference/env-vars/#kindgi_mcp_server)). With it
+`on`, the runtime doesn't start unless sign-in is set up and
+`KINDGI_PUBLIC_URL` is set. That address can't have a path, as in
+`https://example.com/kindgi`, because a chat app looks for sign-in at its
+root. The runtime doesn't need an authorization store for chat apps.
 
 Restart the runtime. Its start output says the endpoint is on:
 

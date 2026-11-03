@@ -18,7 +18,9 @@ other people's work.
   `https://kindgi.example.com/mcp`. Your Kindgi admin gives it to you
   ([Let people use Kindgi from Claude](../../deploy/self-hosted/chat-apps/)).
 - **A claude.ai account** that can add custom connectors.
-- **Your Kindgi sign-in,** the one you use for the console.
+- **Your Kindgi sign-in,** the one you use for the console. A chat app can't
+  use an API key's sign-in, so if you open the console with an API key,
+  sign in as yourself for this.
 
 ## Add Kindgi to claude.ai
 
