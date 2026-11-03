@@ -52,6 +52,7 @@ import type {
   OrderItemKind,
 } from './item-projects-binding.js';
 import type { Authorizer } from './middleware/authorize.js';
+import { isReadMethod } from './read-method.js';
 import type { AppEnv } from './types.js';
 
 type Ctx = Context<AppEnv>;
@@ -1125,7 +1126,7 @@ export async function shownLatest<T>(
  */
 export function itemPathCheck(c: Ctx): ItemCheck {
   const under = underItem(c);
-  if (c.req.method === 'GET') return readCheck(under);
+  if (isReadMethod(c.req.method)) return readCheck(under);
   const [first, version, verb] = under;
   if (
     under.length === 3 &&

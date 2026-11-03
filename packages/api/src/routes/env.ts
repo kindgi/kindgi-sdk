@@ -18,6 +18,7 @@ import type {
 } from '../env-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { isReadMethod } from '../read-method.js';
 import { type ServedEnvRule, refuseUnservedValue } from '../served-env.js';
 import type { AppEnv } from '../types.js';
 import { capabilityRefusal } from './denied.js';
@@ -74,7 +75,7 @@ export function envRouter(
     const scopeFromQuery = (c: import('hono').Context<AppEnv>) =>
       queryScopeResourceRef((n) => c.req.query(n), { tenantId: c.get('tenantId') as TenantId });
     r.use('/', async (c, next) => {
-      if (c.req.method !== 'GET') return next();
+      if (!isReadMethod(c.req.method)) return next();
       const mw = authorizer.authorize('admin', scopeFromQuery);
       return mw(c, next);
     });

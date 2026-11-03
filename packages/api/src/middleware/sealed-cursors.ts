@@ -5,21 +5,22 @@ import type { Context, MiddlewareHandler } from 'hono';
 
 import { type CursorContext, type CursorSealer, filtersOf } from '../cursor-seal.js';
 import { statusFor, toWireError } from '../errors.js';
+import { isReadMethod } from '../read-method.js';
 import type { AppEnv } from '../types.js';
 
 /**
  * Page cursors are sealed at the API's edge, for every list at once. A
- * GET's `cursor` is opened before any route reads it: a sealed one opens
- * to the position its list handed out, and one sealed for another list,
- * filter set or caller, tampered with, or expired, is `400 bad-input`. A
- * plain one passes as it is (a list still takes a position a client sends;
- * it hides what the caller can't read either way). A JSON answer's
- * `nextCursor` is sealed on its way out, so a cursor never shows the row
- * it points after, even one the list hid.
+ * GET's or a HEAD's `cursor` is opened before any route reads it: a
+ * sealed one opens to the position its list handed out, and one sealed
+ * for another list, filter set or caller, tampered with, or expired, is
+ * `400 bad-input`. A plain one passes as it is (a list still takes a
+ * position a client sends; it hides what the caller can't read either
+ * way). A JSON answer's `nextCursor` is sealed on its way out, so a
+ * cursor never shows the row it points after, even one the list hid.
  */
 export function sealedCursors(sealer: CursorSealer): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    if (c.req.method !== 'GET') return next();
+    if (!isReadMethod(c.req.method)) return next();
     const context = cursorContext(c);
     if (context === undefined) return next();
     c.set('cursorsSealed', true);
