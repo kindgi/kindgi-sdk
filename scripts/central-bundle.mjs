@@ -20,9 +20,11 @@
  *             A version Central already has is skipped (versions are
  *             permanent), and a version it has part of is refused.
  *   on-central  Waits until every JVM artifact at a version resolves from
- *             Central. The npm job runs it before it publishes: a CLI
+ *             Central, reading Central again while it doesn't answer.
+ *             The release's Central job runs it before npm's: a CLI
  *             scaffolds Java and Scala packs on kindgi-pack at its own
- *             version, so npm never gets a CLI whose kindgi-pack isn't there.
+ *             version, so npm never gets a CLI whose kindgi-pack isn't
+ *             there.
  *
  * The Portal user token comes from MAVEN_CENTRAL_USERNAME and
  * MAVEN_CENTRAL_PASSWORD, by name, and is never printed.
@@ -47,8 +49,12 @@ import { readZip, writeZip } from './lib/zip.mjs';
 const NAME = 'central-bundle';
 const PORTAL = process.env.KINDGI_CENTRAL_PORTAL_URL ?? 'https://central.sonatype.com';
 const REPOSITORY = process.env.KINDGI_CENTRAL_REPOSITORY_URL ?? 'https://repo1.maven.org/maven2';
-/** Seconds between status polls. The URLs and this are overridden only by its tests. */
+/** Seconds between status polls. The URLs and these are overridden only by its tests. */
 const POLL_SECONDS = Number(process.env.KINDGI_CENTRAL_POLL_SECONDS ?? 10);
+/** Seconds one read of Central may take before it counts as no answer. */
+const REQUEST_SECONDS = Number(process.env.KINDGI_CENTRAL_REQUEST_SECONDS ?? 30);
+/** While Central doesn't answer, the pause doubles from POLL_SECONDS up to this many polls. */
+const RETRY_MAX_POLLS = 6;
 const GROUP_PATH = 'com/kindgi';
 const CHECKSUMS = { md5: 'md5', sha1: 'sha1' };
 
@@ -202,11 +208,14 @@ async function waitFor(id, states, minutes) {
 const failure = (status) =>
   `the Portal failed the deployment:\n${JSON.stringify(status.errors ?? status, null, 2)}`;
 
+const pomUrl = (artifact, version) =>
+  `${REPOSITORY}/${GROUP_PATH}/${artifact}/${version}/${artifact}-${version}.pom`;
+
 /** Which of the bundle's artifacts Central already has. */
 async function alreadyOnCentral(artifacts) {
   const found = [];
   for (const { artifact, version } of artifacts) {
-    const url = `${REPOSITORY}/${GROUP_PATH}/${artifact}/${version}/${artifact}-${version}.pom`;
+    const url = pomUrl(artifact, version);
     const response = await fetch(url, { method: 'HEAD' });
     if (response.status === 200) found.push(artifact);
     else if (response.status !== 404) throw new BundleError(`HEAD ${url}: HTTP ${response.status}`);
@@ -260,23 +269,114 @@ async function publish(bundlePath, minutes) {
   console.log(`${NAME}: published ${artifacts.map((a) => a.artifact).join(', ')} at ${version}`);
 }
 
-/** Waits until Central serves every artifact we publish at `version`. */
+/**
+ * One read of an artifact's pom on Central: true when Central serves it,
+ * false when it doesn't yet (404), or `{ url, reason, retryAfter }` when
+ * Central didn't answer just now: no answer in REQUEST_SECONDS, a network
+ * error, a 408, a 429 or a 5xx. Any other answer is an error, as
+ * alreadyOnCentral's is.
+ */
+async function readOnCentral(artifact, version) {
+  const url = pomUrl(artifact, version);
+  // A malformed repository URL is a mistake here, not Central's: it throws at once.
+  const target = new URL(url);
+  let response;
+  try {
+    response = await fetch(target, {
+      method: 'HEAD',
+      signal: AbortSignal.timeout(REQUEST_SECONDS * 1000),
+    });
+  } catch (err) {
+    const reason =
+      err.name === 'TimeoutError'
+        ? `no answer in ${REQUEST_SECONDS} s`
+        : `${err.message}${err.cause?.code ? ` (${err.cause.code})` : ''}`;
+    return { url, reason };
+  }
+  if (response.status === 200) return true;
+  if (response.status === 404) return false;
+  if (response.status === 408 || response.status === 429 || response.status >= 500) {
+    return {
+      url,
+      reason: `HTTP ${response.status}`,
+      retryAfter: response.headers.get('retry-after'),
+    };
+  }
+  throw new BundleError(`HEAD ${url}: HTTP ${response.status}`);
+}
+
+/**
+ * The pause, in ms, before Central is read again after `failures` rounds in
+ * a row it didn't answer: POLL_SECONDS, doubled each time up to
+ * RETRY_MAX_POLLS polls, or longer when its Retry-After asks (seconds or a
+ * date), and never past `deadline`.
+ */
+export function retryDelay(failures, retryAfter, now, deadline, pollSeconds = POLL_SECONDS) {
+  const backoff = pollSeconds * 1000 * Math.min(2 ** (failures - 1), RETRY_MAX_POLLS);
+  const asked = /^\d+$/.test(retryAfter ?? '')
+    ? Number(retryAfter) * 1000
+    : (Date.parse(retryAfter ?? '') || now) - now;
+  return Math.max(0, Math.min(Math.max(backoff, asked), deadline - now));
+}
+
+/**
+ * One round of reads of `artifacts`' poms, in order: the ones Central
+ * serves, and `failed` for the first one it didn't answer, which ends the
+ * round there.
+ */
+async function readRound(artifacts) {
+  const found = [];
+  for (const { artifact, version } of artifacts) {
+    const read = await readOnCentral(artifact, version);
+    if (typeof read === 'object') return { found, failed: { artifact, ...read } };
+    if (read) found.push(artifact);
+  }
+  return { found };
+}
+
+/**
+ * The pause before Central is read again after `failures` failed rounds in
+ * a row, the last one `failed`, printed as one line.
+ */
+function retryPause(failed, failures, deadline) {
+  const now = Date.now();
+  const pause = retryDelay(failures, failed.retryAfter, now, deadline);
+  console.log(
+    `${NAME}: HEAD ${failed.url}: ${failed.reason}; reading Central again in ${Math.round(pause / 1000)} s (${Math.max(0, Math.ceil((deadline - now) / 60_000))} min left)`,
+  );
+  return pause;
+}
+
+/**
+ * Waits until Central serves every artifact we publish at `version`. A round
+ * that Central doesn't answer is tried again, with a longer pause each time,
+ * until the deadline; an answer that won't change stops it at once.
+ */
 async function onCentral(version, minutes) {
   const artifacts = Object.keys(ARTIFACTS).map((artifact) => ({ artifact, version }));
   const deadline = Date.now() + minutes * 60_000;
+  let failures = 0;
   for (;;) {
-    const present = new Set(await alreadyOnCentral(artifacts));
-    const missing = artifacts.filter(({ artifact }) => !present.has(artifact));
-    if (missing.length === 0) {
+    const { found, failed } = await readRound(artifacts);
+    const missing = artifacts.filter(({ artifact }) => !found.includes(artifact));
+    if (failed === undefined && missing.length === 0) {
       console.log(`${NAME}: Central has every JVM artifact at ${version}`);
       return;
     }
     if (Date.now() > deadline) {
       throw new BundleError(
-        `Central doesn't have ${missing.map((a) => a.artifact).join(', ')} at ${version} after ${minutes} minutes: a CLI at ${version} would scaffold packs on artifacts that don't resolve`,
+        failed === undefined
+          ? `Central doesn't have ${missing.map((a) => a.artifact).join(', ')} at ${version} after ${minutes} minutes: a CLI at ${version} would scaffold packs on artifacts that don't resolve`
+          : `Central still doesn't answer for ${failed.artifact} at ${version} after ${minutes} minutes: HEAD ${failed.url}: ${failed.reason}`,
       );
     }
-    await sleep(POLL_SECONDS * 1000);
+    if (failed === undefined) {
+      failures = 0;
+      await sleep(Math.max(0, Math.min(POLL_SECONDS * 1000, deadline - Date.now())));
+    } else {
+      failures += 1;
+      await sleep(retryPause(failed, failures, deadline));
+    }
   }
 }
 
