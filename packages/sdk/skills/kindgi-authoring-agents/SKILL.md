@@ -204,6 +204,11 @@ export default defined.value;
   time. The results reach the conversation and the model in the model's order
   either way. `false` runs every call on its own, for read-only tools that
   mustn't overlap (a rate-limited API, say).
+- **`mcp`** — optional. `{ expose: true }` makes the agent a tool, named by
+  its id, in the chat apps (Claude, say) people connect to the workspace; each person
+  sees it only if they can see the agent. Its id then can't start with
+  `kindgi.` or `flow.`. `readOnly` and `destructive` (true or false) become the
+  tool's hints; left out, none is sent.
 - **`retrieval`** — what the agent reads from memory before each turn.
   Empty = no memory. Each intent is
   `{ types: ['acme.preference'], scope, mode?, limit? }`, with `scope`

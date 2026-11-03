@@ -3513,6 +3513,27 @@ export const RetrievalIntentSchema: JsonSchema = {
   },
 };
 
+export const McpExposureSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['expose'],
+  description:
+    "Whether an agent or a flow is a tool in a person's chat app, through the API's MCP server (`/mcp`). An agent's tool is named by its id, a flow's by `flow.` and its id. The chat app lists it only to people who can see it. Absent, or `expose: false`: it isn't one.",
+  properties: {
+    expose: { type: 'boolean', description: 'Offer it as a tool to the people who can see it.' },
+    readOnly: {
+      type: 'boolean',
+      description:
+        "Tells the chat app that a run changes nothing (the tool's `readOnlyHint`). Absent: no hint, so the chat app applies the protocol's default.",
+    },
+    destructive: {
+      type: 'boolean',
+      description:
+        "Tells the chat app that a run may change or remove things in a way that can't be undone (the tool's `destructiveHint`). Absent: no hint, so the chat app applies the protocol's default.",
+    },
+  },
+};
+
 export const AgentMemoryPolicySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -3711,6 +3732,7 @@ export const AgentSchema: JsonSchema = {
       description:
         "Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default `true`. `false`: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for.",
     },
+    mcp: { $ref: '#/components/schemas/McpExposure' },
     pins: { $ref: '#/components/schemas/AgentPins' },
     derivedFrom: { $ref: '#/components/schemas/VersionDerivation' },
     unregisteredAt: {
@@ -3863,6 +3885,7 @@ export const PublishAgentBodySchema: JsonSchema = {
       description:
         "Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default `true`. `false`: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for.",
     },
+    mcp: { $ref: '#/components/schemas/McpExposure' },
   },
 };
 
@@ -4026,6 +4049,7 @@ export const FlowSchema: JsonSchema = {
     edges: { type: 'array', items: { $ref: '#/components/schemas/FlowEdge' } },
     maxParallelism: { type: 'integer', minimum: 1 },
     metadata: { type: 'object', additionalProperties: true },
+    mcp: { $ref: '#/components/schemas/McpExposure' },
     pins: { $ref: '#/components/schemas/FlowPins' },
     pinsDigest: {
       type: 'string',
@@ -4089,6 +4113,7 @@ export const PublishFlowBodySchema: JsonSchema = {
     edges: { type: 'array', items: { $ref: '#/components/schemas/FlowEdge' } },
     maxParallelism: { type: 'integer', minimum: 1 },
     metadata: { type: 'object', additionalProperties: true },
+    mcp: { $ref: '#/components/schemas/McpExposure' },
   },
 };
 
@@ -18212,6 +18237,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PromptParameter', PromptParameterSchema],
   ['RetrievalIntent', RetrievalIntentSchema],
   ['AgentMemoryPolicy', AgentMemoryPolicySchema],
+  ['McpExposure', McpExposureSchema],
   ['ConversationPolicy', ConversationPolicySchema],
   ['TurnBudget', TurnBudgetSchema],
   ['Capability', CapabilitySchema],
