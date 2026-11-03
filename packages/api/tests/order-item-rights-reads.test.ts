@@ -528,9 +528,11 @@ describe('agents and flows a person may run, though not read', () => {
     'a $kind stays closed to run: by id, its versions, one of them, and its list',
     async (k) => {
       const { get, head } = harness();
+      // A block hides itself from anyone who can't read it: a 404, as before.
+      const refused = k.kind === 'block' ? 404 : 403;
       for (const rest of ['', '/versions', '/versions/2.0.0']) {
-        expect((await get('solo-runner', pathOf(k, SOLO, rest))).status).not.toBe(200);
-        expect(await head('solo-runner', pathOf(k, SOLO, rest))).not.toBe(200);
+        expect((await get('solo-runner', pathOf(k, SOLO, rest))).status).toBe(refused);
+        expect(await head('solo-runner', pathOf(k, SOLO, rest))).toBe(refused);
       }
       expect(ids(await get('solo-runner', k.path))).toEqual([]);
     },

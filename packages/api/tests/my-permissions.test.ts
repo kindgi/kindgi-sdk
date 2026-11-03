@@ -39,6 +39,7 @@ const tenantId = randomUUID() as TenantId;
 const P1 = '00000000-0000-4000-8000-0000000000b1';
 const P2 = '00000000-0000-4000-8000-0000000000b2';
 const P3 = '00000000-0000-4000-8000-0000000000b3';
+const P4 = '00000000-0000-4000-8000-0000000000b4';
 
 const ALICE = 'tok-alice'; // a tenant admin
 const BOB = 'tok-bob'; // a project editor through a team, a senior reviewer
@@ -236,11 +237,13 @@ function harness(
 
 /**
  * Carol views Alpha, which everyone may run as well, and holds no role on
- * Beta, which everyone may run: the store lists both.
+ * Beta, which everyone may run: the store lists both. Gamma comes back
+ * with neither a role nor `everyone`, which no store should answer.
  */
 const CAROL_ACCESS: MyAccess = {
   projects: [
     { projectId: P3, name: 'Beta', via: [{ kind: 'everyone' }] },
+    { projectId: P4, name: 'Gamma', via: [] },
     {
       projectId: P1,
       name: 'Alpha',
@@ -465,7 +468,7 @@ describe('GET /v1/identity/me/permissions', () => {
   });
 
   describe('a project everyone in the workspace may run', () => {
-    test('one reached only that way: listed with no role, `via` everyone', async () => {
+    test('one reached only that way: in everyoneCanRunProjects; every one in `projects` keeps its role', async () => {
       const r = await harness(store)(CAROL);
       expect(r.status).toBe(200);
       expect(r.body.projects).toEqual([
@@ -475,8 +478,14 @@ describe('GET /v1/identity/me/permissions', () => {
           role: 'viewer',
           via: [{ kind: 'direct', role: 'viewer' }, { kind: 'everyone' }],
         },
-        { projectId: P3, name: 'Beta', via: [{ kind: 'everyone' }] },
       ]);
+      expect(r.body.everyoneCanRunProjects).toEqual([{ projectId: P3, name: 'Beta' }]);
+    });
+
+    test('one with neither a role nor `everyone` is in neither list', async () => {
+      const body = JSON.stringify((await harness(store)(CAROL)).body);
+      expect(body).not.toContain(P4);
+      expect(body).not.toContain('Gamma');
     });
 
     test('everyoneCapabilities: every project type, actions in the model order, unknown ones dropped', async () => {
@@ -498,15 +507,15 @@ describe('GET /v1/identity/me/permissions', () => {
       const r = await harness(store)(BOB);
       expect(r.status).toBe(200);
       expect('everyoneCapabilities' in r.body).toBe(false);
+      expect('everyoneCanRunProjects' in r.body).toBe(false);
     });
 
     test('a key limited to a project everyone may run lists that project alone', async () => {
       const r = await harness(store)(CAROL_P3_KEY);
       expect(r.status).toBe(200);
       expect(r.body.key).toEqual({ tokenId: 'k-cp', role: 'member', projectId: P3 });
-      expect(r.body.projects).toEqual([
-        { projectId: P3, name: 'Beta', via: [{ kind: 'everyone' }] },
-      ]);
+      expect(r.body.projects).toEqual([]);
+      expect(r.body.everyoneCanRunProjects).toEqual([{ projectId: P3, name: 'Beta' }]);
     });
   });
 });

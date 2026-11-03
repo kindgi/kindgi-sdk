@@ -54,7 +54,9 @@ const theirs = record(THEIRS);
 // Runs that act for someone: the caller (`user-1`), and another person.
 const callersOwn: KernelRunRecord = { ...record(MINE), actsFor: 'user:user-1' };
 const anothersOwn: KernelRunRecord = { ...record(MINE), actsFor: 'user:user-2' };
-const runs = [mine, theirs, callersOwn, anothersOwn];
+// A key's run, or a service account's schedule's: never a person's own.
+const serviceAccounts: KernelRunRecord = { ...record(MINE), actsFor: 'service_account:sa-1' };
+const runs = [mine, theirs, callersOwn, anothersOwn, serviceAccounts];
 
 type ListRuns = RunBinding['listRuns'];
 
@@ -264,9 +266,12 @@ describe('cancelling a run of their own', () => {
 describe('reading a run of their own', () => {
   const reads = (runId: string): [string, string][] => [
     ['GET', `/v1/runs/${runId}`],
+    ['HEAD', `/v1/runs/${runId}`],
     ['GET', `/v1/runs/${runId}/journal`],
+    ['GET', `/v1/runs/${runId}/stream`],
     ['HEAD', `/v1/runs/${runId}/stream`],
     ['GET', `/v1/runs/${runId}/progress`],
+    ['GET', `/v1/runs/${runId}/progress/stream`],
     ['HEAD', `/v1/runs/${runId}/progress/stream`],
   ];
 
@@ -274,7 +279,9 @@ describe('reading a run of their own', () => {
     for (const [method, path] of reads(callersOwn.runId)) {
       const { call, asked } = harness([`run project:${MINE}`]);
       const res = await call(method, path);
-      expect([path, res.status]).toEqual([path, 200]);
+      // A stream's body isn't read: its status is the check's answer.
+      await res.body?.cancel();
+      expect([method, path, res.status]).toEqual([method, path, 200]);
       expect(asked).toEqual([`read project:${MINE}`, `run project:${MINE}`]);
     }
   });
@@ -283,7 +290,7 @@ describe('reading a run of their own', () => {
     for (const [method, path] of reads(anothersOwn.runId)) {
       const { call, asked } = harness([`run project:${MINE}`]);
       const res = await call(method, path);
-      expect([path, res.status]).toEqual([path, 403]);
+      expect([method, path, res.status]).toEqual([method, path, 403]);
       if (method === 'GET') {
         expect((await res.json()) as unknown).toMatchObject({
           error: { code: 'permission-denied', details: { action: 'read' } },
@@ -293,9 +300,18 @@ describe('reading a run of their own', () => {
     }
   });
 
-  test('a runner reads no run that acts for no one', async () => {
+  test("a runner reads no run that acts for no one, as a project's run doesn't", async () => {
     const { call } = harness([`run project:${MINE}`]);
     expect((await call('GET', `/v1/runs/${mine.runId}`)).status).toBe(403);
+  });
+
+  test("a runner reads no run that acts for a service account: read's 403 on every read route", async () => {
+    for (const [method, path] of reads(serviceAccounts.runId)) {
+      const { call, asked } = harness([`run project:${MINE}`]);
+      const res = await call(method, path);
+      expect([method, path, res.status]).toEqual([method, path, 403]);
+      expect(asked).toEqual([`read project:${MINE}`]);
+    }
   });
 
   test("a viewer reads anyone's run on read alone", async () => {

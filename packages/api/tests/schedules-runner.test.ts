@@ -114,6 +114,11 @@ function harness() {
     [BEN, 'everyone'],
     [BOT, 'editor'],
   ]);
+  /** Each check on a project, in the order asked: `<action> project:<id>`. */
+  const asked: string[] = [];
+  const record = (action: Action, resource: ResourceRef) => {
+    if (resource.type === 'project') asked.push(`${action} project:${resource.id}`);
+  };
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
@@ -124,9 +129,15 @@ function harness() {
     authz: {
       fgaApiUrl: 'http://fga.invalid',
       authzCheckBinding: {
-        check: async (p, action, resource) => decide(roles, p, action, resource),
+        check: async (p, action, resource) => {
+          record(action, resource);
+          return decide(roles, p, action, resource);
+        },
         checkBatch: async (p, action, resources) =>
-          resources.map((resource) => decide(roles, p, action, resource)),
+          resources.map((resource) => {
+            record(action, resource);
+            return decide(roles, p, action, resource);
+          }),
       } satisfies AuthzCheckBinding,
     },
   });
@@ -144,7 +155,7 @@ function harness() {
   /** The schedules in the project, as its admin lists them. */
   const listed = async () =>
     ((await call('GET', '/v1/schedules', undefined, 'ada')).body.data as unknown[]).length;
-  return { call, roles, listed };
+  return { call, roles, listed, asked };
 }
 type Harness = ReturnType<typeof harness>;
 
@@ -338,9 +349,11 @@ describe("a person everyone may run sees their own schedule, and no one else's",
   test('by id: their own; read refused, then run allowed', async () => {
     const h = harness();
     const own = await made(h, 'bea');
+    h.asked.length = 0;
     const res = await h.call('GET', `/v1/schedules/${own}`, undefined, 'bea');
     expect(res.status).toBe(200);
     expect(res.body.owner).toMatchObject({ kind: 'user', id: BEA });
+    expect(h.asked).toEqual([`read project:${PROJECT}`, `run project:${PROJECT}`]);
   });
 
   test("by id: another person's, a runner's and a shared one are read's 403", async () => {

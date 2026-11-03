@@ -71,7 +71,11 @@ const resolveToken: TokenResolver = async (token) => {
   return null;
 };
 
-/** What the caller (Ada, a tenant admin) holds: enough to register and take over anything here. */
+/**
+ * What the caller (Ada, a tenant admin) holds: enough to register and take over anything here.
+ * Each fixture holds `run` on the project as its role does (`can_run` includes editor): a
+ * person's own schedule asks `run` there, not `write`.
+ */
 const ADA_GRANTS = [
   `admin tenant:${tenantId}`,
   `read project:${PROJECT}`,

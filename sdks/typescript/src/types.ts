@@ -2290,11 +2290,12 @@ export interface Project {
   /**
    * `true`: everyone in the project's workspace can run its agents and
    * flows without a role of their own; service accounts aren't included.
-   * That reads nothing more than running takes: the project, the lists of
-   * its agents and flows, each of its flows, and each person's own runs,
-   * conversations and schedules. `false`: only people given a role. A new project has it unless its creator turns it
-   * off; existing projects and workspaces keep it `false` until a project
-   * admin turns it on. Absent from an older server.
+   * That reads nothing more than running takes: the project, its agents
+   * and flows with their versions (an agent's owner by id alone), and each
+   * person's own runs, conversations and schedules. `false`: only people
+   * given a role. A new project has it unless its creator turns it off;
+   * existing projects and workspaces keep it `false` until a project admin
+   * turns it on. Absent from an older server.
    */
   readonly everyoneCanRun?: boolean;
   readonly createdAt: import('@kindgi/types').Timestamp;

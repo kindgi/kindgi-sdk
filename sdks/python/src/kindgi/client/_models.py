@@ -9079,7 +9079,7 @@ class AccessPathTenantAdmin(BaseModel):
 
 class AccessPathEveryone(BaseModel):
     """
-    A person in the project's workspace, where the project lets everyone run it (`everyoneCanRun`): what `everyoneCapabilities` names, and no role. Listed whenever it reaches the caller, with a role or without.
+    A person in the project's workspace, where the project lets everyone run it (`everyoneCanRun`): what `everyoneCapabilities` names, and no role. Listed on a project where the caller also holds a role; one it reaches this way alone is in `everyoneCanRunProjects` instead.
     """
 
     model_config = ConfigDict(
@@ -9087,6 +9087,19 @@ class AccessPathEveryone(BaseModel):
         populate_by_name=True,
     )
     kind: Literal["everyone"]
+
+
+class MyEveryoneCanRunProject(BaseModel):
+    """
+    A project the caller holds no role on, and may run because it lets everyone in its workspace run it (`everyoneCanRun`): what `everyoneCapabilities` names.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[str, Field(alias="projectId")]
+    name: str
 
 
 class MyOrgAccess(BaseModel):
@@ -9163,7 +9176,7 @@ class RoleActions(BaseModel):
 
 class RoleCapabilities(BaseModel):
     """
-    What each project role allows, worked out by the runtime from its authorization model. A client decides an action as `capabilities[project.role][type]` holding it, or, on a project whose `via` lists `everyone`, `everyoneCapabilities[type]` holding it; the server still checks every call. An object can grant more on itself (an agent's own editor), never less, so this is what the caller may do at the least.
+    What each project role allows, worked out by the runtime from its authorization model. A client decides an action as `capabilities[project.role][type]` holding it, or, on a project in `everyoneCanRunProjects` or whose `via` lists `everyone`, `everyoneCapabilities[type]` holding it; the server still checks every call. An object can grant more on itself (an agent's own editor), never less, so this is what the caller may do at the least.
     """
 
     model_config = ConfigDict(
@@ -10733,7 +10746,7 @@ class Project(BaseModel):
     """
     everyone_can_run: Annotated[bool | None, Field(alias="everyoneCanRun")] = None
     """
-    `true`: everyone in the project's workspace can run this project's agents and flows without a role of their own; service accounts aren't included. That reads nothing more than running takes: the project, the lists of its agents and flows, each of its flows, and each person's own runs, conversations and schedules. `false`: only people given a role. A new project has it unless its creator turns it off; existing projects and workspaces keep it `false` until a project admin turns it on. Absent from an older server.
+    `true`: everyone in the project's workspace can run this project's agents and flows without a role of their own; service accounts aren't included. That reads nothing more than running takes: the project, its agents and flows with their versions (an agent's owner by id alone), and each person's own runs, conversations and schedules. `false`: only people given a role. A new project has it unless its creator turns it off; existing projects and workspaces keep it `false` until a project admin turns it on. Absent from an older server.
     """
     repo_connection_id: Annotated[str | None, Field(alias="repoConnectionId")] = None
     """
@@ -17005,11 +17018,9 @@ class MyProjectAccess(BaseModel):
     )
     project_id: Annotated[str, Field(alias="projectId")]
     name: str
-    role: (
-        Annotated[Literal["owner", "admin", "editor", "runner", "viewer"] | str, _open.OPEN] | None
-    ) = None
+    role: Annotated[Literal["owner", "admin", "editor", "runner", "viewer"] | str, _open.OPEN]
     """
-    The highest role the caller holds on the project, whichever way. Absent when it holds none, and reaches the project only because everyone in its workspace may run it (`via` lists `everyone` alone).
+    The highest role the caller holds on the project, whichever way.
     """
     via: list[
         Annotated[
@@ -17023,7 +17034,7 @@ class MyProjectAccess(BaseModel):
         ]
     ]
     """
-    Every way the caller holds a role on it, or reaches it (for "My access").
+    Every way the caller holds a role on it (for "My access"), and `everyone` when the project also lets everyone in its workspace run it.
     """
 
 
@@ -17062,7 +17073,13 @@ class MyPermissions(BaseModel):
     """
     projects: list[MyProjectAccess]
     """
-    The projects the caller may read, and those it may run only because the project lets everyone in its workspace run it, by name. A key limited to a project lists that one alone.
+    The projects the caller may read, by name. A key limited to a project lists that one alone.
+    """
+    everyone_can_run_projects: Annotated[
+        list[MyEveryoneCanRunProject] | None, Field(alias="everyoneCanRunProjects")
+    ] = None
+    """
+    The projects the caller holds no role on, and may run because each lets everyone in its workspace run it, by name. A key limited to a project lists that one alone. Absent when there are none, and from an older server.
     """
     orgs: list[MyOrgAccess]
     """
@@ -17075,7 +17092,7 @@ class MyPermissions(BaseModel):
     capabilities: RoleCapabilities
     everyone_capabilities: Annotated[RoleActions | None, Field(alias="everyoneCapabilities")] = None
     """
-    What everyone in the workspace may do on a project that lets everyone run it, and on every object of each type in it, by object type: on each project whose `via` lists `everyone`, on top of any role held there. Worked out from the authorization model as `capabilities` is. Absent from an older server.
+    What everyone in the workspace may do on a project that lets everyone run it, and on every object of each type in it, by object type: on each project in `everyoneCanRunProjects`, and on each in `projects` whose `via` lists `everyone`, on top of the role held there. Worked out from the authorization model as `capabilities` is. Absent from an older server.
     """
     read_only_notice: Annotated[str | None, Field(alias="readOnlyNotice", max_length=280)] = None
     """

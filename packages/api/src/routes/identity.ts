@@ -657,14 +657,27 @@ function mountMyPermissions(
     // org or team (`keyCeilingDeny`): a project only everyone may run
     // included.
     const keyProject = c.get('tokenProjectId') as string | undefined;
-    const projects = (access?.projects ?? [])
-      .filter((p) => keyProject === undefined || p.projectId === keyProject)
-      .map((p) => ({
-        projectId: p.projectId,
-        name: p.name,
-        ...(p.role !== undefined && { role: p.role }),
-        via: p.via.map(serializeAccessPath),
-      }));
+    const reached = (access?.projects ?? []).filter(
+      (p) => keyProject === undefined || p.projectId === keyProject,
+    );
+    // `projects[].role` stays required, as every released client reads it:
+    // a project the caller holds no role on, and runs only because everyone
+    // in its workspace may, is listed apart.
+    const projects = reached.flatMap((p) =>
+      p.role === undefined
+        ? []
+        : [
+            {
+              projectId: p.projectId,
+              name: p.name,
+              role: p.role,
+              via: p.via.map(serializeAccessPath),
+            },
+          ],
+    );
+    const everyoneCanRunProjects = reached
+      .filter((p) => p.role === undefined && p.via.some((v) => v.kind === 'everyone'))
+      .map((p) => ({ projectId: p.projectId, name: p.name }));
     const ceiling = <R extends string>(role: R): R | 'member' =>
       keyProject !== undefined && role === 'admin' ? 'member' : role;
     const orgs = (access?.orgs ?? []).map((o) => ({
@@ -698,6 +711,9 @@ function mountMyPermissions(
       }),
       tokenCapabilities: [...(c.get('capabilities') ?? [])].sort(),
       projects: projects.sort(byName((p) => p.projectId)),
+      ...(everyoneCanRunProjects.length > 0 && {
+        everyoneCanRunProjects: everyoneCanRunProjects.sort(byName((p) => p.projectId)),
+      }),
       orgs: orgs.sort(byName((o) => o.orgId)),
       teams: teams.sort(byName((t) => t.teamId)),
       capabilities: normalizeCapabilities(access?.capabilities ?? {}),

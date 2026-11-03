@@ -365,12 +365,13 @@ without a role of their own. It's the project's `everyoneCanRun`:
 - It reaches people only. A service account gets a role of its own, as
   before.
 - It lets people run, and reads nothing else by itself. Someone who holds
-  no role there sees the project, the lists of its agents and flows, and
-  each of its flows; their own runs, with their journal, progress and
-  provenance, and their public links; the conversations they opened; and
-  their own schedules. They can stop their own runs and keep their own
-  schedules. Anyone else's runs, conversations and schedules, an agent's
-  own page, its tools, test sets and approvals take a role, as before.
+  no role there sees the project; its agents and flows with their
+  versions, where an agent names its owner by id alone; their own runs,
+  with their journal, progress and provenance, and their public links; the
+  conversations they opened; and their own schedules. They can stop their
+  own runs and keep their own schedules. Anyone else's runs, conversations
+  and schedules, an agent's other pages, its tools, test sets and
+  approvals take a role, as before.
 - A role given to someone still counts: an editor stays an editor.
 
 A project admin turns it on or off:

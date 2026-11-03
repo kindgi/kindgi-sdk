@@ -62,7 +62,9 @@ export interface ProjectAccess {
   /**
    * The highest role the principal holds on the project, whichever way.
    * Absent when it holds none, and reaches the project only because
-   * everyone in its workspace may run it (`via` lists `everyone` alone).
+   * everyone in its workspace may run it (`via` lists `everyone` alone):
+   * `GET /v1/identity/me/permissions` lists such a project in
+   * `everyoneCanRunProjects`, not in `projects`.
    */
   readonly role?: ProjectRole;
   /** Every way the principal holds a role on it, or reaches it. */

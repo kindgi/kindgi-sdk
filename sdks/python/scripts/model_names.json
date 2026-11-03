@@ -635,6 +635,7 @@
   "ModelThinking": ["ModelThinking"],
   "Month": ["ImproveRunCheck.month"],
   "MustNotCallItem": ["AddTestCaseBody.mustNotCall", "CreateCorrectionBody.mustNotCall"],
+  "MyEveryoneCanRunProject": ["MyEveryoneCanRunProject"],
   "MyKeyLimits": ["MyKeyLimits"],
   "MyOrgAccess": ["MyOrgAccess"],
   "MyPermissions": ["MyPermissions"],

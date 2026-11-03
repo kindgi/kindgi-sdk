@@ -383,13 +383,14 @@ a role.
   `secrets:reveal`; no one else holds any. An API key carries those it was
   minted with, none by default, and only ones its minter holds.
 - **`projects`:** each project you may read, with your highest role in it and
-  every way you hold one (`via`), and each one you may run because it lets
-  everyone in the workspace run it:
+  every way you hold one (`via`):
   - `direct`, or through a `team`, with `since` when the runtime keeps it;
   - `org-admin`, as an admin of the org it sits in;
   - `tenant-admin`;
-  - `everyone`, where the project lets everyone run it. With no role of
-    your own there, `role` is absent and this is the only `via`.
+  - `everyone`, where the project also lets everyone in the workspace run it.
+- **`everyoneCanRunProjects`:** each project you hold no role on, and may run
+  because it lets everyone in the workspace run it, by name. It's absent when
+  there are none, and from an older runtime.
 - **`orgs` and `teams`:** your own, with your role in each.
 - **`capabilities`:** what each project role allows on the project and on
   each kind of object in it, read from the runtime's authorization model.
@@ -397,9 +398,10 @@ a role.
   `project` entry holds `run`: stopping their own runs and keeping their
   own schedules. `runner` is absent from a runtime that has no such role.
 - **`everyoneCapabilities`:** what everyone in the workspace may do on a
-  project that lets everyone run it, by kind of object, for each project
-  whose `via` lists `everyone`, on top of any role you hold there. It's
-  absent from an older runtime.
+  project that lets everyone run it, by kind of object: for each project in
+  `everyoneCanRunProjects`, and each in `projects` whose `via` lists
+  `everyone`, on top of the role you hold there. It's absent from an older
+  runtime.
 - **`licenseOperatorOnly`:** `true` when `GET /v1/license` refuses you
   whatever your role, because the license is the deployment operator's, as
   on a runtime serving many tenants; the console doesn't ask it then.
