@@ -38,12 +38,13 @@ import type { ConnectWaitResult } from './tool-hitl.js';
  *    missing, lacks a permission or needs reconnecting makes a connect
  *    request when the run can wait (a person started it), and the call
  *    waits for it (`computeConnectWaitToken`). The record keeps no token.
- *    A ready one says the call's run is recorded too (`recordsRan`).
+ *    A ready one says the handover below is recorded too (`recordsRan`).
  * 2. **Every time the tool runs:** a fresh resolve, never recorded, gives
  *    the tokens (`ctx.connections`). Before the tool's first run on them,
- *    the call records that it ran, in that attempt of its step
- *    (`connection-gate:<callId>:ran:<attempt>`, `kind: 'ran'`): a call
- *    these connections stopped has no such record. The app refusing one
+ *    the call records that its tool was handed them, in that attempt of
+ *    its step (`connection-gate:<callId>:ran:<attempt>`, `kind: 'ran'`): a
+ *    call these connections stopped has no such record, and one whose
+ *    input then fails the tool's input check has one. The app refusing one
  *    (an HTTP 401, `ConnectionRejectedError`) renews that token and runs
  *    the call once more. A pausing call's answer from outside runs
  *    nothing, and asks for none.
@@ -62,7 +63,8 @@ import type { ConnectWaitResult } from './tool-hitl.js';
  * Why a call that needs connections failed: it didn't run; or it ran, the
  * app refused a token, and the renewed one was refused too
  * (`connection-rejected`) or its renewal failed (another code). Whether
- * it ran is its gate's `ran` record (`connection-gate:<callId>:ran:<attempt>`).
+ * its tool was handed its connections is its gate's `ran` record
+ * (`connection-gate:<callId>:ran:<attempt>`).
  */
 export type ConnectionCallCode =
   | 'connection-app-missing'

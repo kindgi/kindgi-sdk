@@ -38,10 +38,10 @@ export type ConnectionGateRecord =
       readonly kind: 'ready';
       readonly connections: Readonly<Record<string, RecordedConnection>>;
       /**
-       * Set by a gate that also records when the call's tool gets these
-       * connections (`kind: 'ran'`): a call with no such record didn't
-       * run. Absent from older records, and from a flow's tool step, whose
-       * ready record is written right before its tool runs.
+       * Set by a gate that also records when the call's tool is handed
+       * these connections (`kind: 'ran'`): a call with no such record
+       * didn't run. Absent from older records, and from a flow's tool step,
+       * whose ready record is written right before its tool runs.
        */
       readonly recordsRan?: true;
     }
@@ -61,9 +61,11 @@ export type ConnectionGateRecord =
       readonly message: string;
     }
   /**
-   * The call's tool got the connections its gate decided on, and ran on
-   * them: written once per attempt of its step, right before its first
-   * run. A renewed run after the app refused a token writes no other.
+   * The call's tool was handed the connections its gate decided on:
+   * written once per attempt of its step, right before its first run on
+   * them. A renewed run after the app refused a token writes no other. A
+   * call whose input then failed the tool's input check has one too, and
+   * its tool didn't start: its result says the input failed.
    */
   | { readonly kind: 'ran' };
 

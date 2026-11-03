@@ -1500,6 +1500,18 @@ describe("a call's record says whether its tool ran", () => {
     expect(ranKeys(records)).toEqual([RAN]);
   });
 
+  test("its input failed the tool's input check: it was handed its connections, so it's recorded, and its tool didn't start", async () => {
+    const t = await turn({ arguments: { to: 5 } });
+    expect(t.ran).toEqual([]);
+    expect(t.results).toEqual([
+      expect.objectContaining({
+        status: 'failed',
+        error: expect.objectContaining({ kind: 'invalid-arguments' }),
+      }),
+    ]);
+    expect(ranKeys(t.records)).toEqual([RAN]);
+  });
+
   test("a retried step's attempt records its own", async () => {
     const records = new Map<string, unknown>([[RAN, { kind: 'ran' }]]);
     const t = await turn({ records, node: { attempt: 2 } });

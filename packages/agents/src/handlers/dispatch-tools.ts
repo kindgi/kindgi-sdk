@@ -1802,7 +1802,7 @@ const TOOL_PAUSE_RECORD_PREFIX = 'tool-pause:';
  * step the answer resumes reads the pause back and runs nothing, so a
  * connection that lapsed while it waited doesn't lose the answer. A call
  * its connections stop runs nothing (`not-connected`); one they're handed
- * to records that it ran on them first (`recordRan`).
+ * to records that it was handed them first (`recordRan`).
  *
  * The tool runs with `args`: the call's input, without the `accounts` its
  * turn offered it (`toolArguments`).

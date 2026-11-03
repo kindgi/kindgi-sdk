@@ -147,14 +147,18 @@ and the `message`. The company's `connection-not-chosen` also lists the
 connections to choose from (`choices`, each `{ "connectionId", "name" }`);
 a person's lists none. Records from older runtimes have no `as`.
 
-An agent's call also records that its tool ran, as `"kind": "ran"`, right
-before its tool's first run on those connections, once for each attempt of
-the call's step. Its `ready` record then has `"recordsRan": true`, and a
-call with that and no `ran` record didn't run: an approval turned it down,
-or the check right before its tool stopped it (`connection-changed`, say).
-A flow's tool step records `ready` right before its tool runs, so there
-the `ready` record says it ran. Records from older runtimes have neither
-`ran` nor `recordsRan`.
+An agent's call also records when its tool is handed those connections,
+as `"kind": "ran"`, right before the tool's first run on them, once for
+each attempt of the call's step. Its `ready` record then has
+`"recordsRan": true`, and a call with that and no `ran` record didn't
+run: an approval turned it down, or the check right before its tool
+stopped it (`connection-changed`, say). A call whose input then failed
+the tool's input check has a `ran` record too, and its tool didn't
+start: its result says the input failed (`invalid-arguments`). A flow's
+tool step records `ready` right before its tool runs, so there the
+`ready` record says it was handed its connections, and a step that then
+failed with `input-validation-failed` didn't start either. Records from
+older runtimes have neither `ran` nor `recordsRan`.
 
 In the console, a run's page words this record under **What happened**,
 below each tool call that ran, in an agent's turn or a flow's tool step:
