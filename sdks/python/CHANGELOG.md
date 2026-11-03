@@ -13,6 +13,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+## 0.4.0
+
 - `kindgi`: **a retired block, policy or release gate can be found.**
   `blocks.list`, `policies.list` and `release_gates.list` take
   `include_retired=True`, as `agents.list`, `flows.list`, `tools.list` and

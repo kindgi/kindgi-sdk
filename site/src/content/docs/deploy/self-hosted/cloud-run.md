@@ -1032,8 +1032,10 @@ to, so set it to the deployment's before any `gcloud` command for it
   it, `terraform plan` stops and asks for it. From a module copy that set
   only Terraform's deletion protection, the next apply also turns on
   Google's in the instance, in place, while `database_deletion_protection`
-  is on (the default). With a private-IP database
-  (`database_private_network`), that change makes the module read the
+  is on (the default). From a module copy that doesn't turn on Cloud
+  Scheduler's API, the next apply turns it on (and, with
+  `secrets_backend = "none"`, Cloud KMS's). With a private-IP database
+  (`database_private_network`), either change makes the module read the
   instance's CAs during the apply, so the plan shows the server's
   `KINDGI_DATABASE_SERVER_CA` as `(known after apply)`: it's still the
   instance's CAs. If the plan says the instance `must be replaced`, stop:
