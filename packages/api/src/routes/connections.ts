@@ -430,18 +430,8 @@ export function connectionsRouter(
     ) {
       return connectionNotFound(c, connectionId);
     }
-    if ('main' in parsed.value) {
-      if (connection.owner.kind === 'company') {
-        return badInput(
-          c,
-          "The company has no main connection: its agents use the company's through their choices.",
-          'main',
-        );
-      }
-      if (!isOwner(c, connection.owner)) {
-        return badInput(c, 'Only the person whose connection it is makes it their main.', 'main');
-      }
-    }
+    const notMain = mainRefusal(c, connection, parsed.value);
+    if (notMain !== undefined) return notMain;
     const outcome = await binding.update({ tenantId, connectionId, ...parsed.value, by });
     if (outcome.kind !== 'ok') return bindingRefused(c, authorizer, outcome.error);
     return c.json(serializeConnection(outcome.value));
@@ -655,6 +645,27 @@ export function connectionChoicesRouter(
     );
   };
 
+  /**
+   * Nothing, when the caller may remove the choice: a person's is theirs
+   * alone, the company's a project admin's. Else the answer.
+   */
+  const notAllowedToRemove = async (
+    c: Context<AppEnv>,
+    choice: ConnectionChoiceRecord,
+    choiceId: string,
+  ): Promise<Response | undefined> => {
+    if (choice.person !== undefined) {
+      // A person's choice is theirs alone: to anyone else it isn't there.
+      const caller = callerPrincipal(c);
+      if (caller?.kind !== 'user' || caller.userId !== choice.person.userId) {
+        return choiceNotFound(c, choiceId);
+      }
+      return undefined;
+    }
+    const projectId = choice.projectId as unknown as string;
+    return notAdmin(c, projectId, 'Removing a connection choice');
+  };
+
   r.get('/', async (c) => {
     const query = parseChoiceQuery(c);
     if (query.kind === 'err') return badInput(c, query.message, query.field);
@@ -711,7 +722,7 @@ export function connectionChoicesRouter(
    * one, and whether a need may take a set: for a project's readers.
    */
   r.get('/needs', async (c) => {
-    const query = parseChoiceQuery(c);
+    const query = parseNeedsQuery(c);
     if (query.kind === 'err') return badInput(c, query.message, query.field);
     const { projectId, agentId, flowId, app } = query.value;
     if (agentId === undefined && flowId === undefined) {
@@ -776,16 +787,8 @@ export function connectionChoicesRouter(
     if ((await deniedBy(authorizer, c, 'read', ref('project', projectId))) !== undefined) {
       return choiceNotFound(c, choiceId);
     }
-    if (choice.person !== undefined) {
-      // A person's choice is theirs alone: to anyone else it isn't there.
-      const caller = callerPrincipal(c);
-      if (caller?.kind !== 'user' || caller.userId !== choice.person.userId) {
-        return choiceNotFound(c, choiceId);
-      }
-    } else {
-      const notAllowed = await notAdmin(c, projectId, 'Removing a connection choice');
-      if (notAllowed !== undefined) return notAllowed;
-    }
+    const notAllowed = await notAllowedToRemove(c, choice, choiceId);
+    if (notAllowed !== undefined) return notAllowed;
     const outcome = await binding.removeChoice({ tenantId, choiceId, by });
     if (outcome.kind !== 'ok') {
       return bindingRefused(c, authorizer, outcome.error, {
@@ -1339,6 +1342,38 @@ function parseChoiceQuery(
   };
 }
 
+type NeedsQuery = Omit<ChoiceQuery, 'toolId' | 'mine'>;
+
+/**
+ * `projectId` (required), `agentId` or `flowId`, and `app`: what the needs
+ * read declares. It reads nothing else, so `owner` and `toolId` are ignored,
+ * as a query param a read doesn't declare is everywhere.
+ */
+function parseNeedsQuery(c: Context<AppEnv>): Parsed<NeedsQuery> {
+  const projectId = c.req.query('projectId');
+  const app = c.req.query('app');
+  const agentId = nonEmpty(c.req.query('agentId'));
+  const flowId = nonEmpty(c.req.query('flowId'));
+  if (projectId === undefined || !UUID_RE.test(projectId)) {
+    return bad('`projectId` is required: a project id (a UUID)', 'projectId');
+  }
+  if (app !== undefined && !APP_ID_PATTERN.test(app)) {
+    return bad('`app` must be an entry id', 'app');
+  }
+  if (agentId !== undefined && flowId !== undefined) {
+    return bad('`agentId` or `flowId`, not both: a choice is for one of them');
+  }
+  return {
+    kind: 'ok',
+    value: {
+      projectId: projectId as ProjectId,
+      ...(agentId !== undefined && { agentId }),
+      ...(flowId !== undefined && { flowId }),
+      ...(app !== undefined && { app }),
+    },
+  };
+}
+
 function nonEmpty(raw: string | undefined): string | undefined {
   return raw === undefined || raw.length === 0 ? undefined : raw;
 }
@@ -1389,6 +1424,30 @@ function parseChoiceBody(body: Record<string, unknown>): Parsed<ChoiceBody> {
   if (typeof connectionId !== 'string' || !UUID_RE.test(connectionId)) {
     return bad('`connectionId` is required: a connection id (a UUID)', 'connectionId');
   }
+  const tool = parseChoiceTool(toolId, need, connectionIds, connectionId);
+  if (tool.kind === 'err') return tool;
+  const owner = parseChoicePerson(person);
+  if (owner.kind === 'err') return owner;
+  const target: ConnectionChoiceTarget = field === 'agentId' ? { agentId: id } : { flowId: id };
+  return {
+    kind: 'ok',
+    value: {
+      ...target,
+      projectId: projectId as ProjectId,
+      connectionId,
+      ...tool.value,
+      ...(owner.value !== undefined && { person: owner.value }),
+    },
+  };
+}
+
+/** A tool's choice: `toolId`, its `need`, and a set (`connectionIds`), each only for a tool. */
+function parseChoiceTool(
+  toolId: unknown,
+  need: unknown,
+  connectionIds: unknown,
+  connectionId: string,
+): Parsed<Pick<ChoiceBody, 'toolId' | 'need' | 'connectionIds'>> {
   if (toolId !== undefined && (typeof toolId !== 'string' || toolId.length === 0)) {
     return bad('`toolId` must be a non-empty string', 'toolId');
   }
@@ -1400,32 +1459,29 @@ function parseChoiceBody(body: Record<string, unknown>): Parsed<ChoiceBody> {
   }
   const set = parseChoiceSet(connectionIds, connectionId, toolId);
   if (set.kind === 'err') return set;
-  let owner: { readonly userId: string } | undefined;
-  if (person !== undefined) {
-    const userId = isObject(person) ? person.userId : undefined;
-    if (
-      !isObject(person) ||
-      Object.keys(person).some((k) => k !== 'userId') ||
-      typeof userId !== 'string' ||
-      userId.length === 0
-    ) {
-      return bad('`person` must be `{userId}`: you', 'person');
-    }
-    owner = { userId };
-  }
-  const target: ConnectionChoiceTarget = field === 'agentId' ? { agentId: id } : { flowId: id };
   return {
     kind: 'ok',
     value: {
-      ...target,
-      projectId: projectId as ProjectId,
-      connectionId,
       ...(typeof toolId === 'string' && { toolId }),
       ...(typeof need === 'string' && { need }),
       ...(set.value !== undefined && { connectionIds: set.value }),
-      ...(owner !== undefined && { person: owner }),
     },
   };
+}
+
+/** A person's own choice: `person`, `{userId}`, the caller. */
+function parseChoicePerson(person: unknown): Parsed<{ readonly userId: string } | undefined> {
+  if (person === undefined) return { kind: 'ok', value: undefined };
+  const userId = isObject(person) ? person.userId : undefined;
+  if (
+    !isObject(person) ||
+    Object.keys(person).some((k) => k !== 'userId') ||
+    typeof userId !== 'string' ||
+    userId.length === 0
+  ) {
+    return bad('`person` must be `{userId}`: you', 'person');
+  }
+  return { kind: 'ok', value: { userId } };
 }
 
 /** A set: 2 to 10 different connection ids, the default among them, for one tool. */
@@ -1469,6 +1525,26 @@ function principalRef(c: Context<AppEnv>): PrincipalRef | undefined {
 function isOwner(c: Context<AppEnv>, owner: ConnectionOwner): boolean {
   const caller = callerPrincipal(c);
   return owner.kind === 'member' && caller?.kind === 'user' && caller.userId === owner.userId;
+}
+
+/** Why a change can't make the connection a main: only its person makes it theirs. */
+function mainRefusal(
+  c: Context<AppEnv>,
+  connection: ConnectionRecord,
+  change: UpdateBody,
+): Response | undefined {
+  if (!('main' in change)) return undefined;
+  if (connection.owner.kind === 'company') {
+    return badInput(
+      c,
+      "The company has no main connection: its agents use the company's through their choices.",
+      'main',
+    );
+  }
+  if (!isOwner(c, connection.owner)) {
+    return badInput(c, 'Only the person whose connection it is makes it their main.', 'main');
+  }
+  return undefined;
 }
 
 function noPrincipal(c: Context<AppEnv>, authorizer: Authorizer | undefined): Response {

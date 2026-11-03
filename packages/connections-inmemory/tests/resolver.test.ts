@@ -889,6 +889,12 @@ describe("a tool's set of connections", () => {
   const ana: PrincipalRef = { kind: 'user', id: 'user-ana', tenantId };
   const read: ConnectionNeed = { app: 'google', permissions: ['gmail.readonly'], as: 'company' };
   const personal: ConnectionNeed = { ...read, as: 'person' };
+  /** Three ways the call's tool, at the version its agent resolves to now, may not take a set. */
+  const moves: Partial<TargetTool>[] = [
+    { effects: [{ kind: 'sensitive-data-egress' }] },
+    { mutating: true },
+    { input: { type: 'object', properties: { accounts: { type: 'array' } } } },
+  ];
 
   /** The company's support, sales and desk, each named and reading; `acme.mail.send` reads one. */
   function sets() {
@@ -970,18 +976,49 @@ describe("a tool's set of connections", () => {
     });
   });
 
-  test('a call whose tool, at the version it resolves to now, may not take a set reads the default', async () => {
+  test('a call that names a member, when its tool at the version it resolves to now may not take a set, is connection-missing and never reads the default', async () => {
+    const made = sets();
+    await made.choose(made.sales, {
+      toolId: 'acme.mail.send',
+      connectionIds: [made.support, made.sales],
+    });
+    // Every token handed out is renewed first, so the fake app's calls list each connection read.
+    const named = () =>
+      made.resolve(
+        { inbox: read },
+        { person: null, target: agent, accounts: { inbox: made.support }, renew: ['inbox'] },
+      );
+    // As a name outside the set answers: the name isn't repeated.
+    const missing = {
+      kind: 'refused',
+      code: 'connection-missing',
+      name: 'inbox',
+      app: 'google',
+      missing: ['gmail.readonly'],
+      message: `"inbox" needs a Google connection, and there's none`,
+    };
+    for (const moved of moves) {
+      made.retool([tool({ inbox: read }, moved)]);
+      expect(await named()).toEqual(missing);
+    }
+    // And one its agent no longer has.
+    made.retool([]);
+    expect(await named()).toEqual(missing);
+    expect(made.calls).toEqual([]);
+    const sales = await made.binding.get({ tenantId, connectionId: made.sales });
+    expect(sales).not.toHaveProperty('lastUsedAt');
+  });
+
+  test('a call that names nothing reads the default, whatever version its tool resolves to now', async () => {
     const made = sets();
     const choice = await made.choose(made.sales, {
       toolId: 'acme.mail.send',
       connectionIds: [made.support, made.sales],
     });
-    const named = async () =>
+    // Every token handed out is renewed first, so the fake app's calls list each connection read.
+    const unnamed = async () =>
       picked(
-        await made.resolve(
-          { inbox: read },
-          { person: null, target: agent, accounts: { inbox: made.support } },
-        ),
+        await made.resolve({ inbox: read }, { person: null, target: agent, renew: ['inbox'] }),
       );
     const byDefault = {
       inbox: {
@@ -992,18 +1029,16 @@ describe("a tool's set of connections", () => {
         setSize: 2,
       },
     };
-    const moves: Partial<TargetTool>[] = [
-      { effects: [{ kind: 'sensitive-data-egress' }] },
-      { mutating: true },
-      { input: { type: 'object', properties: { accounts: { type: 'array' } } } },
-    ];
-    for (const moved of moves) {
+    for (const moved of [{}, ...moves]) {
       made.retool([tool({ inbox: read }, moved)]);
-      expect(await named()).toEqual(byDefault);
+      expect(await unnamed()).toEqual(byDefault);
     }
-    // And one its agent no longer has.
     made.retool([]);
-    expect(await named()).toEqual(byDefault);
+    expect(await unnamed()).toEqual(byDefault);
+    // Each call read the default, and no other connection.
+    expect(made.calls.map((c) => c.connectionId)).toEqual(
+      Array.from({ length: moves.length + 2 }, () => made.sales),
+    );
   });
 
   test("the tool's choice beats the agent's; another tool's call reads the agent's", async () => {

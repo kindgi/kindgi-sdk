@@ -12280,84 +12280,9 @@ class ConnectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
-class Person(BaseModel):
+class ConnectionChoicePerson(BaseModel):
     """
-    Whose choice it is, for a person's connection: theirs alone to make, change or remove. Absent: the company's.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    user_id: Annotated[str, Field(alias="userId")]
-
-
-class ConnectionChoice(BaseModel):
-    """
-    Which connection an agent or a flow uses for an app in a project, in one env: `agentId` or `flowId`, one of them. The company's, or a person's own (`person`), for their runs. With `toolId`, it's that tool's, which comes before the agent's or flow's. A choice is never changed: changing it removes it and makes a new one at the next version.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    choice_id: Annotated[UUID, Field(alias="choiceId")]
-    project_id: Annotated[UUID, Field(alias="projectId")]
-    env_name: Annotated[str, Field(alias="envName")]
-    agent_id: Annotated[str | None, Field(alias="agentId")] = None
-    flow_id: Annotated[str | None, Field(alias="flowId")] = None
-    app: str
-    """
-    The app's entry id (`google`): the connection's.
-    """
-    tool_id: Annotated[str | None, Field(alias="toolId")] = None
-    """
-    The tool it's for, with `need`. Absent: the agent's or flow's choice, for every tool's need of the app.
-    """
-    need: str | None = None
-    """
-    The tool's name for the connection (`calendar`), with `toolId`.
-    """
-    connection_id: Annotated[UUID, Field(alias="connectionId")]
-    """
-    The chosen connection, and a set's default. A choice of a connection that's since been disconnected stays until it's set again or removed.
-    """
-    connection_ids: Annotated[
-        list[UUID] | None, Field(alias="connectionIds", max_length=10, min_length=2)
-    ] = None
-    """
-    A set: the connections a call of the tool may name one of (by its name), `connectionId` among them. A call that names none uses `connectionId`. Only a tool's choice, for a tool that changes nothing. Absent for one connection.
-    """
-    person: Person | None = None
-    """
-    Whose choice it is, for a person's connection: theirs alone to make, change or remove. Absent: the company's.
-    """
-    version: Annotated[int, Field(ge=1)]
-    """
-    From 1, per project, env, agent or flow, app, tool and need, and person.
-    """
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    created_by: Annotated[str, Field(alias="createdBy")]
-    removed_at: Annotated[AwareDatetime | None, Field(alias="removedAt")] = None
-    """
-    When it was removed, or replaced by a new choice. Only a removed choice has it.
-    """
-    removed_by: Annotated[str | None, Field(alias="removedBy")] = None
-
-
-class ConnectionChoicePage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[ConnectionChoice]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    has_more: Annotated[bool, Field(alias="hasMore")]
-
-
-class Person1(BaseModel):
-    """
-    A choice of your own connection, for your own runs: you.
+    The person whose own connection a choice names.
     """
 
     model_config = ConfigDict(
@@ -12395,7 +12320,7 @@ class SetConnectionChoiceBody(BaseModel):
     """
     connection_id: Annotated[UUID, Field(alias="connectionId")]
     """
-    One of the candidates (`GET /v1/connection-choices/candidates`, with `mine` for a person's own). The choice is for its app. With `connectionIds`, the set's default.
+    One of the candidates (`GET /v1/connection-choices/candidates`, with `owner=me` for a person's own). The choice is for its app. With `connectionIds`, the set's default.
     """
     connection_ids: Annotated[
         list[UUID] | None, Field(alias="connectionIds", max_length=10, min_length=2)
@@ -12403,7 +12328,7 @@ class SetConnectionChoiceBody(BaseModel):
     """
     A set, for a tool's choice: 2 to 10 different candidates, `connectionId` among them, each named. Only for a tool that changes nothing, doesn't declare `sensitive-data-egress` and has no `accounts` input of its own (`GET /v1/connection-choices/needs`).
     """
-    person: Person1 | None = None
+    person: ConnectionChoicePerson | None = None
     """
     A choice of your own connection, for your own runs: you.
     """
@@ -12419,7 +12344,7 @@ class ConnectionChoiceDeleteResult(BaseModel):
 
 class ConnectionCandidate(BaseModel):
     """
-    A connection a choice in the project may name: the company's, or with `mine`, your own. Its `state` is `working` or `needs-reconnecting`: one that needs reconnecting may be chosen, and works again once it's reconnected. A project admin reads all of a company one; a project member, only `connectionId` and `name`. You read all of your own.
+    A connection a choice in the project may name: the company's, or with `owner=me`, your own. Its `state` is `working` or `needs-reconnecting`: one that needs reconnecting may be chosen, and works again once it's reconnected. A project admin reads all of a company one; a project member, only `connectionId` and `name`. You read all of your own.
     """
 
     model_config = ConfigDict(
@@ -12448,7 +12373,7 @@ class ConnectionCandidate(BaseModel):
     """
     main: bool | None = None
     """
-    Only ever `true`, with `mine`: your main connection of the app.
+    Only ever `true`, with `owner=me`: your main connection of the app.
     """
 
 
@@ -12462,7 +12387,11 @@ class ConnectionCandidatePage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
-class Set(BaseModel):
+class ConnectionChoiceNeedSet(BaseModel):
+    """
+    Whether a choice for the tool's connection may be a set, and if not, why not.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -12474,43 +12403,6 @@ class Set(BaseModel):
     ) = None
     """
     Why not, with `allowed: false`: the tool changes things, may send what it reads elsewhere, or has its own `accounts` input.
-    """
-
-
-class ConnectionChoiceNeed(BaseModel):
-    """
-    One of a tool's connections, and whether a choice for it may be a set.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    tool_id: Annotated[str, Field(alias="toolId")]
-    need: str
-    """
-    The tool's name for the connection.
-    """
-    app: str
-    """
-    The app's entry id.
-    """
-    as_: Annotated[Annotated[Literal["company", "person"] | str, _open.OPEN], Field(alias="as")]
-    """
-    Whose connection: the company's, or the run's person's.
-    """
-    set: Set
-
-
-class ConnectionChoiceNeeds(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[ConnectionChoiceNeed]
-    unread: list[str] | None = None
-    """
-    The tools whose version couldn't be read, refused or gone.
     """
 
 
@@ -12612,9 +12504,9 @@ class FinishConnectBody(BaseModel):
     ] = None
 
 
-class Main(BaseModel):
+class ConnectFinishMain(BaseModel):
     """
-    Present when `kind` is `connected`, `reconnected` is `false`, and the person already had a connection through the registration in the env. `set`: the one they had, `connectionId`, is now their main, and this one is added. `kept`: their main, `connectionId`, stays. `missing`: they have several and none is their main, so their agents use none until they make one main, or a choice names one.
+    `set`: the one they had, `connectionId`, is now their main, and this one is added. `kept`: their main, `connectionId`, stays. `missing`: they have several and none is their main, so their agents use none until they make one main, or a choice names one.
     """
 
     model_config = ConfigDict(
@@ -18694,6 +18586,106 @@ class ConnectionEntryList(BaseModel):
     data: list[ConnectionEntry]
 
 
+class ConnectionChoice(BaseModel):
+    """
+    Which connection an agent or a flow uses for an app in a project, in one env: `agentId` or `flowId`, one of them. The company's, or a person's own (`person`), for their runs. With `toolId`, it's that tool's, which comes before the agent's or flow's. A choice is never changed: changing it removes it and makes a new one at the next version.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    choice_id: Annotated[UUID, Field(alias="choiceId")]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    env_name: Annotated[str, Field(alias="envName")]
+    agent_id: Annotated[str | None, Field(alias="agentId")] = None
+    flow_id: Annotated[str | None, Field(alias="flowId")] = None
+    app: str
+    """
+    The app's entry id (`google`): the connection's.
+    """
+    tool_id: Annotated[str | None, Field(alias="toolId")] = None
+    """
+    The tool it's for, with `need`. Absent: the agent's or flow's choice, for every tool's need of the app.
+    """
+    need: str | None = None
+    """
+    The tool's name for the connection (`calendar`), with `toolId`.
+    """
+    connection_id: Annotated[UUID, Field(alias="connectionId")]
+    """
+    The chosen connection, and a set's default. A choice of a connection that's since been disconnected stays until it's set again or removed.
+    """
+    connection_ids: Annotated[
+        list[UUID] | None, Field(alias="connectionIds", max_length=10, min_length=2)
+    ] = None
+    """
+    A set: the connections a call of the tool may name one of (by its name), `connectionId` among them. A call that names none uses `connectionId`. Only a tool's choice, for a tool that changes nothing. Absent for one connection.
+    """
+    person: ConnectionChoicePerson | None = None
+    """
+    Whose choice it is, for a person's connection: theirs alone to make, change or remove. Absent: the company's.
+    """
+    version: Annotated[int, Field(ge=1)]
+    """
+    From 1, per project, env, agent or flow, app, tool and need, and person.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    created_by: Annotated[str, Field(alias="createdBy")]
+    removed_at: Annotated[AwareDatetime | None, Field(alias="removedAt")] = None
+    """
+    When it was removed, or replaced by a new choice. Only a removed choice has it.
+    """
+    removed_by: Annotated[str | None, Field(alias="removedBy")] = None
+
+
+class ConnectionChoicePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ConnectionChoice]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class ConnectionChoiceNeed(BaseModel):
+    """
+    One of a tool's connections, and whether a choice for it may be a set.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool_id: Annotated[str, Field(alias="toolId")]
+    need: str
+    """
+    The tool's name for the connection.
+    """
+    app: str
+    """
+    The app's entry id.
+    """
+    as_: Annotated[Annotated[Literal["company", "person"] | str, _open.OPEN], Field(alias="as")]
+    """
+    Whose connection: the company's, or the run's person's.
+    """
+    set: ConnectionChoiceNeedSet
+
+
+class ConnectionChoiceNeeds(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ConnectionChoiceNeed]
+    unread: list[str] | None = None
+    """
+    The tools whose version couldn't be read, refused or gone.
+    """
+
+
 class ConnectRequest(BaseModel):
     """
     A connect: the owner goes to `connectUrl`, consents at the app, and comes back. A run that needs a connection it lacks waits on one.
@@ -18793,9 +18785,9 @@ class ConnectFinish(BaseModel):
     """
     On a server with approvals, for a member who connected: whether they have a reviewer seat, which approving a send from their own account needs.
     """
-    main: Main | None = None
+    main: ConnectFinishMain | None = None
     """
-    Present when `kind` is `connected`, `reconnected` is `false`, and the person already had a connection through the registration in the env. `set`: the one they had, `connectionId`, is now their main, and this one is added. `kept`: their main, `connectionId`, stays. `missing`: they have several and none is their main, so their agents use none until they make one main, or a choice names one.
+    Present when `kind` is `connected`, `reconnected` is `false`, and the person already had a connection through the registration in the env.
     """
 
 

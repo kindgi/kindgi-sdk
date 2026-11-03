@@ -602,7 +602,14 @@ export interface ConnectionBinding {
    * With `toolId`, the choice is for that tool's need of the app
    * (`needs`): a tool the target has no need of the app for, an unknown
    * `need`, or one left out when the tool has two needs of the app, is
-   * `bad-input`. `connectionIds` makes a set, only for a tool's need whose
+   * `bad-input`. The need's owner (`as`) must be the choice's: the
+   * company's choice for a need that is each person's own, or a person's
+   * for the company's, is `bad-input` (`person`), before the set is read.
+   * Without `toolId`, the same holds for the target's tools that use the
+   * app now: when every need of it is the other owner's, the choice is
+   * `bad-input` (`person`); a target that doesn't use the app now may be
+   * chosen for ahead.
+   * `connectionIds` makes a set, only for a tool's need whose
    * `set.allowed` is true, with 2 to 10 different connections, every one
    * named (a label), `connectionId` among them: anything else is
    * `bad-input` (`connectionIds`).

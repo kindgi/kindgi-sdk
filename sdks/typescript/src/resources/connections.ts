@@ -229,15 +229,19 @@ export interface ConnectionChoicesClient {
   /**
    * @wire GET /v1/connection-choices/needs — each of an agent's or a flow's
    * tools' connections, and whether a choice for it may be a set; the tools
-   * whose version couldn't be read are in `unread`.
+   * whose version couldn't be read are in `unread`. It reads an agent's or
+   * a flow's: one of them.
    */
-  needs(input: {
-    readonly projectId: string;
-    readonly agentId?: string;
-    readonly flowId?: string;
-    /** An app's entry id: `'google'`. */
-    readonly app?: string;
-  }): Promise<ConnectionChoiceNeeds>;
+  needs(
+    input: {
+      readonly projectId: string;
+      /** An app's entry id: `'google'`. */
+      readonly app?: string;
+    } & (
+      | { readonly agentId: string; readonly flowId?: never }
+      | { readonly flowId: string; readonly agentId?: never }
+    ),
+  ): Promise<ConnectionChoiceNeeds>;
 }
 
 interface MutationOptions {

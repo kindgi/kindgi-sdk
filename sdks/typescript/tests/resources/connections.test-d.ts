@@ -144,4 +144,13 @@ describe('connectionChoices — what a choice names', () => {
       .toHaveProperty('projectId')
       .toEqualTypeOf<string>();
   });
+
+  it("a needs read is an agent's or a flow's: one of them, never neither or both", () => {
+    type Input = Parameters<ConnectionChoicesClient['needs']>[0];
+    type Both = { projectId: string; agentId: string; flowId: string };
+    expectTypeOf<{ projectId: string; agentId: string }>().toMatchTypeOf<Input>();
+    expectTypeOf<{ projectId: string; flowId: string; app: string }>().toMatchTypeOf<Input>();
+    expectTypeOf<{ projectId: string }>().not.toMatchTypeOf<Input>();
+    expectTypeOf<Both>().not.toMatchTypeOf<Input>();
+  });
 });

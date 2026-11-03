@@ -2122,7 +2122,7 @@ describe('connection choices', () => {
     needsSpec: { connections: { mail: reads() } },
     ...more,
   });
-  /** The agent `triage`'s tools; the flow's is `acme.inbox` alone, and one it couldn't read. */
+  /** The agent `triage`'s tools; the flow's are `flowTools`, and one it couldn't read. */
   const TOOLS = [
     tool('acme.inbox'),
     tool('acme.send', { mutating: true }),
@@ -2138,9 +2138,10 @@ describe('connection choices', () => {
   /**
    * Google through a registration for project A and one for project B, and
    * GitHub for every project. Project A has the agent `triage` and the flow
-   * `triage`; project B the agent `triage` only. The agent has `TOOLS`.
+   * `triage`; project B the agent `triage` only. The agent has `TOOLS`;
+   * the flow, `flowTools`.
    */
-  function choosing(inProject = true) {
+  function choosing(inProject = true, flowTools: readonly TargetTool[] = [tool('acme.inbox')]) {
     let at = START;
     const made = createInMemoryConnections({
       entries: [google, github],
@@ -2151,9 +2152,7 @@ describe('connection choices', () => {
           id === 'triage' && (projectId === projA || kind === 'agent'),
       }),
       toolsOf: ({ kind }) =>
-        kind === 'agent'
-          ? { tools: TOOLS }
-          : { tools: [tool('acme.inbox')], unread: ['acme.gone'] },
+        kind === 'agent' ? { tools: TOOLS } : { tools: flowTools, unread: ['acme.gone'] },
     });
     const [googleA, googleB] = [projA, projB].map(
       (project) =>
@@ -2598,6 +2597,78 @@ describe('connection choices', () => {
       error: { code: 'connection-not-found' },
     });
     expect(await listed(made)).toEqual([]);
+  });
+
+  test("a tool's choice is its need's owner's: the company's for each person's own need, or a person's for the company's, is refused before its set", async () => {
+    const made = choosing();
+    const refused = (message: string) => ({
+      kind: 'err',
+      error: { code: 'bad-input', message, field: 'person' },
+    });
+    // A set of one would be refused too, after the owner.
+    const forPeople = await set(made, made.c.support, {
+      toolId: 'acme.mine',
+      connectionIds: [made.c.support],
+    });
+    expect(forPeople).toEqual(
+      refused(
+        "acme.mine's mail is each person's own Google connection: a person chooses their own (person, or --mine).",
+      ),
+    );
+    const forCompany = await set(made, made.c.ana, {
+      person: ana,
+      toolId: 'acme.inbox',
+      connectionIds: [made.c.ana],
+    });
+    expect(forCompany).toEqual(
+      refused(
+        "acme.inbox's mail is the company's Google connection: a project admin chooses it for the project, not each person.",
+      ),
+    );
+    expect(await listed(made, { owners: { company: true, person: 'every' } })).toEqual([]);
+  });
+
+  test("an agent's or a flow's own choice is for its tools' needs of the app now: when every one is the other owner's, it's refused and nothing is stored", async () => {
+    const refused = (message: string) => ({
+      kind: 'err',
+      error: { code: 'bad-input', message, field: 'person' },
+    });
+    // The flow's one tool, acme.inbox, needs Google as the company's.
+    const made = choosing();
+    expect(await set(made, made.c.ana, { flowId: 'triage', person: ana })).toEqual(
+      refused(
+        "The flow uses Google only as the company's connection: a project admin chooses it for the project, not each person.",
+      ),
+    );
+    expect(await listed(made, { owners: { company: true, person: 'every' } })).toEqual([]);
+    const own = choosing(true, [
+      tool('acme.mine', { needsSpec: { connections: { mail: reads('person') } } }),
+    ]);
+    expect(await set(own, own.c.support, { flowId: 'triage' })).toEqual(
+      refused(
+        "The flow uses Google only as each person's own connection: a person chooses their own (person, or --mine).",
+      ),
+    );
+    expect(await listed(own, { owners: { company: true, person: 'every' } })).toEqual([]);
+  });
+
+  test("a target whose tools need the app both ways keeps the company's own choice and a person's", async () => {
+    const made = choosing();
+    // The agent's acme.inbox needs Google as the company's, and acme.mine as each person's own.
+    const company = await chosen(made, made.c.support);
+    const anas = await chosen(made, made.c.ana, { person: ana });
+    expect(await listed(made, { owners: { company: true, person: 'every' } })).toEqual([
+      company,
+      anas,
+    ]);
+  });
+
+  test("a target that doesn't use the app now may be chosen for ahead", async () => {
+    const made = choosing();
+    // The flow's one tool needs Google, not GitHub.
+    const ahead = await chosen(made, made.c.github, { flowId: 'triage' });
+    expect(ahead).toMatchObject({ flowId: 'triage', app: 'github', connectionId: made.c.github });
+    expect(await listed(made, { flowId: 'triage' })).toEqual([ahead]);
   });
 
   test("a read tool's choice may be a set: 2 to 10 named candidates, the default among them; the same set in any order answers it", async () => {

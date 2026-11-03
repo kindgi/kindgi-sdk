@@ -627,7 +627,7 @@ describe('kindgi connection-choices list', () => {
     expect(JSON.parse(out.stdout)).toEqual(page);
   });
 
-  test("--table: a set's default is marked, your own named, another person's only counted", async () => {
+  test("--table: a set's default is marked, your own named and marked yours, another person's only counted with whose", async () => {
     const { calls, rec } = recorder();
     const THEIRS_ID = '9cadbecf-eeee-4fc0-8142-00000000000f';
     const theirs = {
@@ -665,17 +665,17 @@ describe('kindgi connection-choices list', () => {
       ),
     );
     expect(rows[2]).toMatch(
-      new RegExp(`^agent acme\\.support\\s+google\\s+work\\s+${OWN_CHOICE_ID}`),
+      new RegExp(`^agent acme\\.support\\s+google\\s+yours: work\\s+${OWN_CHOICE_ID}`),
     );
     expect(rows[3]).toMatch(
       new RegExp(
-        `^agent acme\\.support\\s+acme\\.mail\\s+inbox\\s+google\\s+3 connections\\s+${THEIRS_ID}`,
+        `^agent acme\\.support\\s+acme\\.mail\\s+inbox\\s+google\\s+user-bo: 3 connections\\s+${THEIRS_ID}`,
       ),
     );
     expect(out.stdout).not.toContain('00000000-0000-4000-8000-00000000001');
   });
 
-  test("--table: a person's choice is counted when who you are can't be read; --mine names yours", async () => {
+  test("--table: a person's choice is counted when who you are can't be read; --mine names yours, unmarked", async () => {
     const { calls, rec } = recorder();
     const unread = await run(['connection-choices', 'list', `--project=${PROJECT}`, '--table'], {
       identity: {
@@ -689,7 +689,7 @@ describe('kindgi connection-choices list', () => {
       },
     });
     expect(unread.exitCode, unread.stderr).toBe(0);
-    expect(unread.stdout).toMatch(/\s1 connection\s/);
+    expect(unread.stdout).toMatch(/\suser-ana: 1 connection\s/);
     expect(unread.stdout).not.toContain(WORK_ID);
     expect(calls.map(([name]) => name)).toEqual(['list']);
 
@@ -709,6 +709,7 @@ describe('kindgi connection-choices list', () => {
       ['candidates', { projectId: PROJECT, owner: 'me' }],
     ]);
     expect(listed.stdout).toMatch(/\swork\s/);
+    expect(listed.stdout).not.toContain('yours:');
   });
 });
 

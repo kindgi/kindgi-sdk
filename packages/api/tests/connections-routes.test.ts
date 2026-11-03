@@ -24,6 +24,7 @@ import type {
   ConnectionChoiceListInput,
   ConnectionChoiceNeeds,
   ConnectionChoiceRecord,
+  ConnectionChoiceSetInput,
   ConnectionRecord,
 } from '../src/connection-binding.js';
 import type { HitlBinding } from '../src/hitl-binding.js';
@@ -56,6 +57,37 @@ const SECRET = { envName: 'local', name: 'ACME_GOOGLE_CLIENT_SECRET' };
 const at = '2026-10-22T12:00:00.000Z';
 /** The connection a second connect made its owner's main. */
 const FIRST_CONNECTION = randomUUID();
+/** The needs of the agent `acme.support`'s tools, as `choiceNeeds` answers them. */
+const NEEDS: ConnectionChoiceNeeds['data'] = [
+  {
+    toolId: 'acme.read-mail',
+    need: 'mail',
+    app: 'google',
+    as: 'company',
+    set: { allowed: true },
+  },
+  {
+    toolId: 'acme.read-own-mail',
+    need: 'mail',
+    app: 'google',
+    as: 'person',
+    set: { allowed: true },
+  },
+  {
+    toolId: 'acme.send-mail',
+    need: 'mail',
+    app: 'google',
+    as: 'person',
+    set: { allowed: false, reason: 'changes' },
+  },
+  {
+    toolId: 'acme.issues',
+    need: 'repo',
+    app: 'github',
+    as: 'company',
+    set: { allowed: false, reason: 'accounts-input' },
+  },
+];
 
 /** A binding that keeps everything in maps, and records what the routes pass it. */
 function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
@@ -101,6 +133,37 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
         c.state !== 'removed' &&
         c.label?.toLowerCase() === label.toLowerCase(),
     );
+  /** Why a choice can't name the connection: a person's own is theirs, and never the company's. */
+  const notChoosable = (
+    connection: ConnectionRecord,
+    person: ConnectionChoiceSetInput['person'],
+  ) => {
+    if (person !== undefined) {
+      const theirs =
+        connection.owner.kind === 'member' && connection.owner.userId === person.userId;
+      if (!theirs) return refuse('connection-not-found', 'No such candidate', 'connectionId');
+    } else if (connection.owner.kind === 'member') {
+      return refuse(
+        'bad-input',
+        "This is a person's connection: a person chooses their own (person, or --mine).",
+        'connectionId',
+      );
+    }
+    return undefined;
+  };
+  /** A tool's need is the company's or each person's: the other owner's choice is refused. */
+  const otherOwnersNeed = (input: ConnectionChoiceSetInput, connection: ConnectionRecord) => {
+    const owned = NEEDS.find((n) => n.toolId === input.toolId && n.app === connection.app);
+    if (owned === undefined || (owned.as === 'person') === (input.person !== undefined)) {
+      return undefined;
+    }
+    const appName = entries.find((e) => e.id === connection.app)?.name ?? connection.app;
+    const whose =
+      owned.as === 'person'
+        ? `each person's own ${appName} connection: a person chooses their own (person, or --mine).`
+        : `the company's ${appName} connection: a project admin chooses it for the project, not each person.`;
+    return refuse('bad-input', `${owned.toolId}'s ${owned.need} is ${whose}`, 'person');
+  };
   const binding: ConnectionBinding = {
     entries: () => entries,
     async listApps(input) {
@@ -225,20 +288,13 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
       if (connection === undefined) {
         return refuse('connection-not-found', 'No such candidate', 'connectionId');
       }
-      if (input.person !== undefined) {
-        const theirs =
-          connection.owner.kind === 'member' && connection.owner.userId === input.person.userId;
-        if (!theirs) return refuse('connection-not-found', 'No such candidate', 'connectionId');
-      } else if (connection.owner.kind === 'member') {
-        return refuse(
-          'bad-input',
-          "This is a person's connection: a person chooses their own (person, or --mine).",
-          'connectionId',
-        );
-      }
+      const notTheirs = notChoosable(connection, input.person);
+      if (notTheirs !== undefined) return notTheirs;
       if (input.agentId === 'acme.elsewhere') {
         return refuse('agent-not-found', 'No such agent in the project');
       }
+      const otherOwners = otherOwnersNeed(input, connection);
+      if (otherOwners !== undefined) return otherOwners;
       const { agentId, flowId } = input;
       const choice = {
         choiceId: randomUUID(),
@@ -291,33 +347,10 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
       if (input.agentId !== 'acme.support') {
         return refuse('agent-not-found', 'No such agent in the project');
       }
-      const data: ConnectionChoiceNeeds['data'] = [
-        {
-          toolId: 'acme.read-mail',
-          need: 'mail',
-          app: 'google',
-          as: 'company',
-          set: { allowed: true },
-        },
-        {
-          toolId: 'acme.send-mail',
-          need: 'mail',
-          app: 'google',
-          as: 'person',
-          set: { allowed: false, reason: 'changes' },
-        },
-        {
-          toolId: 'acme.issues',
-          need: 'repo',
-          app: 'github',
-          as: 'company',
-          set: { allowed: false, reason: 'accounts-input' },
-        },
-      ];
       return {
         kind: 'ok',
         value: {
-          data: data.filter((n) => input.app === undefined || n.app === input.app),
+          data: NEEDS.filter((n) => input.app === undefined || n.app === input.app),
           unread: ['acme.gone'],
         },
       };
@@ -2053,7 +2086,7 @@ describe('several connections of an app', () => {
     const body = {
       projectId: project,
       agentId: 'acme.support',
-      toolId: 'acme.read-mail',
+      toolId: 'acme.read-own-mail',
       need: 'mail',
       connectionId: work.connectionId,
       connectionIds: [work.connectionId, school.connectionId],
@@ -2077,7 +2110,7 @@ describe('several connections of an app', () => {
       envName: 'local',
       agentId: 'acme.support',
       app: 'google',
-      toolId: 'acme.read-mail',
+      toolId: 'acme.read-own-mail',
       need: 'mail',
       connectionId: work.connectionId,
       connectionIds: [work.connectionId, school.connectionId],
@@ -2087,7 +2120,7 @@ describe('several connections of an app', () => {
       createdBy: `user:${BEN}`,
     });
     expect(calls.setChoice?.[0]).toMatchObject({
-      toolId: 'acme.read-mail',
+      toolId: 'acme.read-own-mail',
       need: 'mail',
       connectionIds: [work.connectionId, school.connectionId],
       person: { userId: BEN },
@@ -2103,6 +2136,37 @@ describe('several connections of an app', () => {
     const removed = await call(app, 'ben', 'DELETE', path);
     expect(removed.status).toBe(200);
     expect(removed.json).toEqual({ deleted: true });
+  });
+
+  test("a tool's choice is its need's owner's: the company's for each person's own need, or a person's for the company's, is the binding's 400", async () => {
+    const { app, calls, company, work } = severalApp();
+    const base = { projectId: project, agentId: 'acme.support' };
+    const forPeople = await call(app, 'ana', 'PUT', choices, {
+      ...base,
+      toolId: 'acme.read-own-mail',
+      connectionId: company.connectionId,
+    });
+    expect(forPeople.status).toBe(400);
+    expect(forPeople.json.error).toMatchObject({
+      code: 'bad-input',
+      message:
+        "acme.read-own-mail's mail is each person's own Google connection: a person chooses their own (person, or --mine).",
+      details: { field: 'person' },
+    });
+    const forCompany = await call(app, 'ben', 'PUT', choices, {
+      ...base,
+      toolId: 'acme.read-mail',
+      connectionId: work.connectionId,
+      person: { userId: BEN },
+    });
+    expect(forCompany.status).toBe(400);
+    expect(forCompany.json.error).toMatchObject({
+      code: 'bad-input',
+      message:
+        "acme.read-mail's mail is the company's Google connection: a project admin chooses it for the project, not each person.",
+      details: { field: 'person' },
+    });
+    expect(calls.setChoice).toHaveLength(2);
   });
 
   test("a choice body's tool, need and set are checked before the binding", async () => {
@@ -2169,6 +2233,13 @@ describe('several connections of an app', () => {
           set: { allowed: true },
         },
         {
+          toolId: 'acme.read-own-mail',
+          need: 'mail',
+          app: 'google',
+          as: 'person',
+          set: { allowed: true },
+        },
+        {
           toolId: 'acme.send-mail',
           need: 'mail',
           app: 'google',
@@ -2204,6 +2275,25 @@ describe('several connections of an app', () => {
     expect((await call(app, 'bot', 'GET', path)).status).toBe(403);
   });
 
+  test("needs reads only what it declares: `owner` and `toolId` aren't its, so they're ignored", async () => {
+    const { app, calls } = severalApp();
+    const path = `${choices}/needs?projectId=${project}&agentId=acme.support`;
+    for (const extra of ['&owner=me', '&owner=someone', '&toolId=acme.issues']) {
+      const res = await call(app, 'ben', 'GET', `${path}${extra}`);
+      expect(res.status, extra).toBe(200);
+      expect(res.json, extra).toEqual({ data: NEEDS, unread: ['acme.gone'] });
+    }
+    expect(calls.choiceNeeds).toHaveLength(3);
+    for (const input of calls.choiceNeeds ?? []) {
+      expect(input).toEqual({
+        agentId: 'acme.support',
+        tenantId: tenantA,
+        projectId: project,
+        envName: 'local',
+      });
+    }
+  });
+
   test("an approval's connection reads three ways: the company's, a person's, and one from before `as`", () => {
     const shapes = [
       {
@@ -2228,7 +2318,7 @@ describe('several connections of an app', () => {
     const set = await call(app, 'ben', 'PUT', choices, {
       projectId: project,
       agentId: 'acme.support',
-      toolId: 'acme.read-mail',
+      toolId: 'acme.read-own-mail',
       connectionId: work.connectionId,
       connectionIds: [work.connectionId, school.connectionId],
       person: { userId: BEN },

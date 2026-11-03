@@ -4,6 +4,7 @@
 import type { ConnectionChoice, ConnectionChoicePage, KindgiClient } from '@kindgi/client';
 
 import {
+  type ConnectionLookup,
   type ConnectionRow,
   candidatesListed,
   everyPage,
@@ -82,6 +83,29 @@ function connectionRefs(
     );
   }
   return { refs, byDefault };
+}
+
+/**
+ * The connections named, by their ids in the order given, and the one the
+ * choice names: the set's `--default`, else the only one.
+ */
+async function resolveSet(
+  refs: readonly string[],
+  byDefault: string | undefined,
+  lookup: ConnectionLookup,
+): Promise<{ readonly ids: string[]; readonly connectionId: string }> {
+  const ids: string[] = [];
+  for (const ref of refs) ids.push((await resolveConnectionRef(ref, lookup)).id);
+  let connectionId = ids[0] as string;
+  if (byDefault !== undefined) {
+    const { id } = await resolveConnectionRef(byDefault, lookup);
+    const inSet = ids.find((i) => i.toLowerCase() === id.toLowerCase());
+    if (inSet === undefined) {
+      throw new UsageError("--default must be one of the set's connections");
+    }
+    connectionId = inSet;
+  }
+  return { ids, connectionId };
 }
 
 /** The caller's own user id, for `--mine`: a choice of their own is theirs alone. */
@@ -204,17 +228,7 @@ const set: LeafCommand = {
         appNarrows: app === undefined,
         listed: mine ? ownCandidatesListed : candidatesListed,
       };
-      const ids: string[] = [];
-      for (const ref of refs) ids.push((await resolveConnectionRef(ref, lookup)).id);
-      let connectionId = ids[0] as string;
-      if (byDefault !== undefined) {
-        const { id } = await resolveConnectionRef(byDefault, lookup);
-        const inSet = ids.find((i) => i.toLowerCase() === id.toLowerCase());
-        if (inSet === undefined) {
-          throw new UsageError("--default must be one of the set's connections");
-        }
-        connectionId = inSet;
-      }
+      const { ids, connectionId } = await resolveSet(refs, byDefault, lookup);
       const before = await everyPage((cursor) =>
         client.connectionChoices.list({
           projectId,
@@ -258,17 +272,23 @@ interface Naming {
 
 /**
  * A choice's connections by name, a set's default marked: `support
- * (default), sales`. Another person's are only counted: `3 connections`.
+ * (default), sales`. The caller's own are marked, `yours: work`, unless
+ * `--mine` lists only theirs. Another person's are only counted, with
+ * whose: `user-7: 3 connections`.
  */
 function connectionsCell(naming: Naming, c: ConnectionChoice): string {
   const ids = c.connectionIds ?? [c.connectionId];
   if (c.person !== undefined && !naming.mine && c.person.userId !== naming.me) {
-    return ids.length === 1 ? '1 connection' : `${ids.length} connections`;
+    const count = ids.length === 1 ? '1 connection' : `${ids.length} connections`;
+    return `${c.person.userId}: ${count}`;
   }
-  if (c.connectionIds === undefined) return nameOf(naming.rows, c.connectionId);
-  return ids
-    .map((id) => `${nameOf(naming.rows, id)}${id === c.connectionId ? ' (default)' : ''}`)
-    .join(', ');
+  const named =
+    c.connectionIds === undefined
+      ? nameOf(naming.rows, c.connectionId)
+      : ids
+          .map((id) => `${nameOf(naming.rows, id)}${id === c.connectionId ? ' (default)' : ''}`)
+          .join(', ');
+  return c.person !== undefined && !naming.mine ? `yours: ${named}` : named;
 }
 
 /** The table's columns; `CONNECTIONS` by name, from the project's candidates. */

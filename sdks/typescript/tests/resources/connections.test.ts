@@ -317,4 +317,19 @@ describe('connectionChoices', () => {
       flowId: 'acme.intake',
     });
   });
+
+  it('needs takes a target picked as the call runs, an agent or a flow, and sends only it', async () => {
+    const targets: ({ readonly agentId: string } | { readonly flowId: string })[] = [
+      { agentId: 'acme.triage' },
+      { flowId: 'acme.intake' },
+    ];
+    const { stub, client } = clientFor(targets.length);
+    for (const target of targets) {
+      await client.connectionChoices.needs({ projectId: 'p-1', ...target });
+    }
+    expect(urls(stub).map((u) => Object.fromEntries(u.searchParams))).toEqual([
+      { projectId: 'p-1', agentId: 'acme.triage' },
+      { projectId: 'p-1', flowId: 'acme.intake' },
+    ]);
+  });
 });

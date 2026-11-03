@@ -213,22 +213,10 @@ export async function freshConnections(
   const needs = connectionNeedsOf(tool);
   if (needs === undefined) return { kind: 'ready', connections: {} };
   if (ctx.bindings.connections === undefined) return { kind: 'failed', failure: notServed(needs) };
-  const accounts: Record<string, string> = {};
-  for (const [name, seen] of Object.entries(decided)) {
-    if (seen.pick?.by === 'named') accounts[name] = seen.connectionId;
-  }
+  const accounts = decidedAccounts(decided);
   let outcome: ResolveConnectionsOutcome;
   try {
-    outcome = await resolve(
-      ctx,
-      kctx,
-      call,
-      tool,
-      needs,
-      0,
-      renew,
-      Object.keys(accounts).length > 0 ? accounts : undefined,
-    );
+    outcome = await resolve(ctx, kctx, call, tool, needs, 0, renew, accounts);
   } catch (cause) {
     const failure = renewFailureOf(cause);
     if (failure === undefined) throw cause;
@@ -667,4 +655,18 @@ function notServed(needs: Readonly<Record<string, ConnectionNeed>>): ConnectionC
 function renewFailureOf(cause: unknown): ConnectionCallFailure | undefined {
   if (!isConnectionRenewError(cause)) return undefined;
   return { code: cause.code, connection: cause.connection, message: cause.message };
+}
+
+/**
+ * The connections the gate decided on for the needs the call named a set's
+ * member for, by their ids; none when it named none.
+ */
+function decidedAccounts(
+  decided: Readonly<Record<string, ConnectionSeen>>,
+): Readonly<Record<string, string>> | undefined {
+  const accounts: Record<string, string> = {};
+  for (const [name, seen] of Object.entries(decided)) {
+    if (seen.pick?.by === 'named') accounts[name] = seen.connectionId;
+  }
+  return Object.keys(accounts).length > 0 ? accounts : undefined;
 }

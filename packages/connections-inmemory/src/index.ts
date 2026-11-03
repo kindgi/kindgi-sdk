@@ -338,6 +338,12 @@ interface ToolNeed {
   readonly need: string;
 }
 
+/** What a choice is for, a tool's need or none, and its set, if it has one. */
+interface ChoiceAim {
+  readonly aim: ToolNeed | undefined;
+  readonly set: readonly string[] | undefined;
+}
+
 /** A need's set a call may name from, as `accountChoices` answers it. */
 type AccountSet = ConnectionAccountChoices[string][string];
 
@@ -356,6 +362,33 @@ interface SignedIn {
 
 function ok<T>(value: T): Outcome<T> {
   return { kind: 'ok', value };
+}
+
+/**
+ * Why a tool's choice can't be for its need, else nothing: the need is the
+ * other owner's (`as`), so the choice would never be read.
+ */
+function otherOwnersNeed(
+  input: ConnectionChoiceSetInput,
+  { toolId, need }: ToolNeed,
+  as: ConnectionNeed['as'] | undefined,
+  appName: string,
+): Outcome<never> | undefined {
+  if (as === 'person' && input.person === undefined) {
+    return refuse(
+      'bad-input',
+      `${toolId}'s ${need} is each person's own ${appName} connection: a person chooses their own (person, or --mine).`,
+      { field: 'person' },
+    );
+  }
+  if (as === 'company' && input.person !== undefined) {
+    return refuse(
+      'bad-input',
+      `${toolId}'s ${need} is the company's ${appName} connection: a project admin chooses it for the project, not each person.`,
+      { field: 'person' },
+    );
+  }
+  return undefined;
 }
 
 function refuse(
@@ -447,6 +480,23 @@ function mailboxOf(
 function needsOf(tool: TargetTool | undefined): [string, ConnectionNeed][] {
   const needs: Readonly<Record<string, ConnectionNeed>> = tool?.needsSpec?.connections ?? {};
   return Object.entries(needs).sort(([a], [b]) => a.localeCompare(b));
+}
+
+/** A tool's needs as a needs read answers them: only those of `app`, when it's given. */
+function needRecordsOf(tool: TargetTool, app: string | undefined): ConnectionChoiceNeedRecord[] {
+  const refusal = connectionSetRefusal(tool);
+  const records: ConnectionChoiceNeedRecord[] = [];
+  for (const [need, spec] of needsOf(tool)) {
+    if (app !== undefined && spec.app !== app) continue;
+    records.push({
+      toolId: tool.id,
+      need,
+      app: spec.app,
+      as: spec.as,
+      set: refusal === undefined ? { allowed: true } : { allowed: false, reason: refusal },
+    });
+  }
+  return records;
 }
 
 /** The record without `main`: a connection that isn't, or is no more, its person's main one. */
@@ -688,33 +738,21 @@ export function createInMemoryConnections(
 
   /**
    * The tool's need a choice is for (`toolId`), at the version the target
-   * resolves to now: one of the app the tool has, named, or its only one.
-   * None for the target's own choice.
+   * resolves to now: one of the app the tool has, named, or its only one,
+   * whose owner (`as`) is the choice's, since a choice of the other owner
+   * is never read. None for the target's own choice (`withoutTool`).
    */
   async function toolNeedOf(
     input: ConnectionChoiceSetInput,
     target: ConnectionChoiceTarget,
     app: string,
   ): Promise<Outcome<(ToolNeed & { readonly tool: TargetTool }) | undefined>> {
-    if (input.toolId === undefined) {
-      if (input.need !== undefined) {
-        return refuse('bad-input', "`need` is a tool's: name the tool (`toolId`)", {
-          field: 'need',
-        });
-      }
-      if (input.connectionIds !== undefined) {
-        return refuse('bad-input', 'A set of connections is for one tool: name it.', {
-          field: 'connectionIds',
-        });
-      }
-      return ok(undefined);
-    }
+    if (input.toolId === undefined) return withoutTool(input, target, app);
     const toolId = input.toolId;
     const appName = entries.get(app)?.name ?? app;
     const tool = (await targetTools(input, target)).tools.find((t) => t.id === toolId);
-    const needs = needsOf(tool)
-      .filter(([, need]) => need.app === app)
-      .map(([name]) => name);
+    const specs = new Map(needsOf(tool).filter(([, need]) => need.app === app));
+    const needs = [...specs.keys()];
     if (tool === undefined || needs.length === 0) {
       const { kind } = targetAsked(input, target);
       return refuse('bad-input', `The ${kind} has no tool ${toolId} that uses ${appName}.`, {
@@ -734,7 +772,50 @@ export function createInMemoryConnections(
         field: 'need',
       });
     }
+    const owners = otherOwnersNeed(input, { toolId, need }, specs.get(need)?.as, appName);
+    if (owners !== undefined) return owners;
     return ok({ toolId, need, tool });
+  }
+
+  /**
+   * The target's own choice (no `toolId`): no `need` and no set, and, when
+   * the target's tools use the app now, one of their needs of it the choice
+   * owner's, since a choice of the other owner is never read.
+   */
+  async function withoutTool(
+    input: ConnectionChoiceSetInput,
+    target: ConnectionChoiceTarget,
+    app: string,
+  ): Promise<Outcome<undefined>> {
+    if (input.need !== undefined) {
+      return refuse('bad-input', "`need` is a tool's: name the tool (`toolId`)", {
+        field: 'need',
+      });
+    }
+    if (input.connectionIds !== undefined) {
+      return refuse('bad-input', 'A set of connections is for one tool: name it.', {
+        field: 'connectionIds',
+      });
+    }
+    // A target that doesn't use the app now may be chosen for ahead.
+    const owners = (await targetTools(input, target)).tools.flatMap((t) =>
+      needsOf(t)
+        .filter(([, need]) => need.app === app)
+        .map(([, need]) => need.as),
+    );
+    const person = input.person !== undefined;
+    if (owners.length === 0 || owners.some((as) => (as === 'person') === person)) {
+      return ok(undefined);
+    }
+    const { kind } = targetAsked(input, target);
+    const appName = entries.get(app)?.name ?? app;
+    return refuse(
+      'bad-input',
+      person
+        ? `The ${kind} uses ${appName} only as the company's connection: a project admin chooses it for the project, not each person.`
+        : `The ${kind} uses ${appName} only as each person's own connection: a person chooses their own (person, or --mine).`,
+      { field: 'person' },
+    );
   }
 
   /**
@@ -765,9 +846,23 @@ export function createInMemoryConnections(
     }
     const refusal = connectionSetRefusal(aim.tool);
     if (refusal !== undefined) return refuse('bad-input', SET_REFUSED[refusal](aim.toolId), at);
+    const members = membersOf(input, ids, connection.app);
+    if (members.kind !== 'ok') return members;
+    return ok([...ids]);
+  }
+
+  /**
+   * A set's members, in the order named: each a candidate of `app`
+   * (`choosable`), and every one named, since the agent picks them by name.
+   */
+  function membersOf(
+    input: ConnectionChoiceSetInput,
+    ids: readonly string[],
+    app: string,
+  ): Outcome<readonly ConnectionRecord[]> {
     const members: ConnectionRecord[] = [];
     for (const id of ids) {
-      const member = choosable(input, id, 'connectionIds', connection.app);
+      const member = choosable(input, id, 'connectionIds', app);
       if (member.kind !== 'ok') return member;
       members.push(member.value);
     }
@@ -776,10 +871,24 @@ export function createInMemoryConnections(
       return refuse(
         'bad-input',
         `Name ${unnamed.account.label} first: the agent picks a set's connections by name.`,
-        at,
+        { field: 'connectionIds' },
       );
     }
-    return ok([...ids]);
+    return ok(members);
+  }
+
+  /** The tool's need a choice is for, if any (`toolNeedOf`), and its set (`setOf`). */
+  async function aimAndSet(
+    input: ConnectionChoiceSetInput,
+    target: ConnectionChoiceTarget,
+    connection: ConnectionRecord,
+  ): Promise<Outcome<ChoiceAim>> {
+    const aimed = await toolNeedOf(input, target, connection.app);
+    if (aimed.kind !== 'ok') return aimed;
+    const set = setOf(input, connection, aimed.value);
+    if (set.kind !== 'ok') return set;
+    const aim = aimed.value && { toolId: aimed.value.toolId, need: aimed.value.need };
+    return ok({ aim, set: set.value });
   }
 
   /**
@@ -1984,20 +2093,15 @@ export function createInMemoryConnections(
       const chosen = choosable(input, input.connectionId, 'connectionId');
       if (chosen.kind !== 'ok') return chosen;
       const connection = chosen.value;
-      const aimed = await toolNeedOf(input, target, connection.app);
+      const aimed = await aimAndSet(input, target, connection);
       if (aimed.kind !== 'ok') return aimed;
-      const set = setOf(input, connection, aimed.value);
-      if (set.kind !== 'ok') return set;
-      const aim = aimed.value && { toolId: aimed.value.toolId, need: aimed.value.need };
+      const { aim, set } = aimed.value;
       const owner = choiceOwner(input);
       const { app } = connection;
       const key: ChoiceKey = { tenantId, projectId, envName, target, app, aim, owner };
       const history = [...choices.values()].filter((c) => keyed(c, key));
       const live = history.find((c) => c.removedAt === undefined);
-      if (
-        live?.connectionId === connection.connectionId &&
-        sameSet(live.connectionIds, set.value)
-      ) {
+      if (live?.connectionId === connection.connectionId && sameSet(live.connectionIds, set)) {
         return ok(live);
       }
       const at = iso();
@@ -2012,7 +2116,7 @@ export function createInMemoryConnections(
         app,
         ...aim,
         connectionId: connection.connectionId,
-        ...(set.value !== undefined && { connectionIds: set.value }),
+        ...(set !== undefined && { connectionIds: set }),
         ...(input.person !== undefined && { person: { userId: input.person.userId } }),
         version: Math.max(0, ...history.map((c) => c.version)) + 1,
         createdAt: at,
@@ -2068,17 +2172,7 @@ export function createInMemoryConnections(
       const { tools, unread = [] } = await targetTools(input, target);
       const data: ConnectionChoiceNeedRecord[] = [];
       for (const tool of [...tools].sort((a, b) => a.id.localeCompare(b.id))) {
-        const refusal = connectionSetRefusal(tool);
-        for (const [need, spec] of needsOf(tool)) {
-          if (input.app !== undefined && spec.app !== input.app) continue;
-          data.push({
-            toolId: tool.id,
-            need,
-            app: spec.app,
-            as: spec.as,
-            set: refusal === undefined ? { allowed: true } : { allowed: false, reason: refusal },
-          });
-        }
+        data.push(...needRecordsOf(tool, input.app));
       }
       return ok({ data, ...(unread.length > 0 && { unread: [...unread] }) });
     },
@@ -2326,7 +2420,8 @@ export function createInMemoryConnections(
    * the call's tool may take a set (`sets`); the tool's choice for the
    * need, a set's default; else the target's choice for the app. Every
    * choice is the owner's own. `outside`: the call named a connection that
-   * isn't a member of the need's set.
+   * isn't a member of the need's live set, for a need with no set, or for a
+   * tool that may not take one now; it never falls back to the default.
    */
   function pickedFor(
     name: string,
@@ -2341,13 +2436,8 @@ export function createInMemoryConnections(
     const target = choiceTarget(input.target);
     const aim = { toolId: input.toolId, need: name };
     const toolChoice = liveChoice(input, target, owner, need.app, aim);
-    const named = sets ? input.accounts?.[name] : undefined;
-    if (named !== undefined) {
-      const members = toolChoice?.connectionIds ?? [];
-      if (toolChoice === undefined || !members.includes(named)) return 'outside';
-      const { choiceId } = toolChoice;
-      return { by: 'named', connectionId: named, choiceId, setSize: members.length };
-    }
+    const named = input.accounts?.[name];
+    if (named !== undefined) return sets ? namedMemberPick(toolChoice, named) : 'outside';
     const chosen = toolChoice ?? liveChoice(input, target, owner, need.app, undefined);
     if (chosen === undefined) return undefined;
     return {
@@ -2356,6 +2446,17 @@ export function createInMemoryConnections(
       choiceId: chosen.choiceId,
       ...(chosen.connectionIds !== undefined && { setSize: chosen.connectionIds.length }),
     };
+  }
+
+  /** The member of the tool's live set the call names: `outside` without a set, or not in it. */
+  function namedMemberPick(
+    toolChoice: ConnectionChoiceRecord | undefined,
+    named: string,
+  ): Picked | 'outside' {
+    const members = toolChoice?.connectionIds ?? [];
+    if (toolChoice === undefined || !members.includes(named)) return 'outside';
+    const { choiceId } = toolChoice;
+    return { by: 'named', connectionId: named, choiceId, setSize: members.length };
   }
 
   /** Several company connections, and none chosen: the turn stops, listing them. */
@@ -2578,7 +2679,8 @@ export function createInMemoryConnections(
 
   /**
    * One need: its token, a connect to wait for, or why it can't be met.
-   * `sets`: the call's tool may take a set, so a name it gives counts.
+   * `sets`: the call's tool may take a set, so a name it gives counts;
+   * else a name answers as one outside the set does.
    */
   function resolveOne(
     name: string,
@@ -2595,8 +2697,8 @@ export function createInMemoryConnections(
 
   /**
    * Whether the call's tool, at the version its agent or flow resolves to
-   * now, may take a set: a call that names none needs no answer, and one
-   * that may not gets each set's default.
+   * now, may take a set: a call that names none needs no answer, and a
+   * name given by one that may not answers as one outside the set does.
    */
   async function takesSet(input: ResolveConnectionsInput): Promise<boolean> {
     const named = input.accounts !== undefined && Object.keys(input.accounts).length > 0;
@@ -2704,6 +2806,20 @@ export function createInMemoryConnections(
     return { appName, members, default: choice.connectionId };
   }
 
+  /** The tool's needs the call asks about whose choice is a set, each with it (`setFor`). */
+  function setsOfTool(
+    asked: ConnectionAccountChoicesInput['tools'][number],
+    target: ConnectionChoiceTarget,
+    input: ConnectionAccountChoicesInput,
+  ): Record<string, AccountSet> {
+    const sets: Record<string, AccountSet> = {};
+    for (const [need, spec] of Object.entries(asked.needs)) {
+      const set = setFor(need, spec, asked.toolId, target, input);
+      if (set !== undefined) sets[need] = set;
+    }
+    return sets;
+  }
+
   /**
    * Once per turn: each tool's needs whose choice for their owner is a set.
    * A tool that may not take one, at the version its agent or flow resolves
@@ -2720,11 +2836,7 @@ export function createInMemoryConnections(
     for (const asked of input.tools) {
       const tool = tools.find((t) => t.id === asked.toolId);
       if (tool === undefined || connectionSetRefusal(tool) !== undefined) continue;
-      const sets: Record<string, AccountSet> = {};
-      for (const [need, spec] of Object.entries(asked.needs)) {
-        const set = setFor(need, spec, asked.toolId, target, input);
-        if (set !== undefined) sets[need] = set;
-      }
+      const sets = setsOfTool(asked, target, input);
       if (Object.keys(sets).length > 0) offered[asked.toolId] = sets;
     }
     return offered;

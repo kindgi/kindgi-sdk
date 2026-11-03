@@ -988,7 +988,8 @@ function approvalConnection(connection: ApprovalConnection): Record<string, unkn
   return {
     app: connection.app,
     appName: connection.appName,
-    account: connection.account,
+    ...(connection.as !== undefined && { as: connection.as }),
+    ...(connection.account !== undefined && { account: connection.account }),
     ...(connection.name !== undefined && { name: connection.name }),
   };
 }

@@ -120,7 +120,10 @@ export interface ResolveConnectionsInput {
   /**
    * The connections the call named, need to connection id: each one a
    * member of the need's set, from its turn's `accountChoices`. A need
-   * it names nothing for uses the set's default.
+   * it names nothing for uses the set's default. One it names that the
+   * need's live set doesn't hold, or the need has no set, or the tool, at
+   * the version its agent or flow resolves to now, may not take one, is
+   * `connection-missing` without the name, and never the default.
    */
   readonly accounts?: Readonly<Record<string, string>>;
 }
@@ -250,7 +253,10 @@ export type ConnectionAccountChoices = Readonly<
  * A choice is the owner's: a person's need reads only that person's
  * choices, and a company need the company's. A set is for a tool that
  * may take one (`connectionSetRefusal` in `@kindgi/agents`), and the
- * call's own version decides again: one that may not gets the default.
+ * version its agent or flow resolves to now decides again: one that may
+ * not gets the default for a call that names nothing, and a call that
+ * names a member is `connection-missing`, without the name, never the
+ * default.
  *
  * A connection steps 1 to 4 pick must still be a candidate, be working and
  * hold the need's permissions; if not, the need is `connection-missing`,

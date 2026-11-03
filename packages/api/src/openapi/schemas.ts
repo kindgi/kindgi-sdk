@@ -17049,6 +17049,18 @@ export const ConnectionPageSchema: JsonSchema = {
   },
 };
 
+/**
+ * A choice's person: the one whose own connection it names. A component of
+ * its own, so generated clients name it `ConnectionChoicePerson`.
+ */
+export const ConnectionChoicePersonSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['userId'],
+  description: 'The person whose own connection a choice names.',
+  properties: { userId: { type: 'string', minLength: 1 } },
+};
+
 export const ConnectionChoiceSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -17095,12 +17107,9 @@ export const ConnectionChoiceSchema: JsonSchema = {
         "A set: the connections a call of the tool may name one of (by its name), `connectionId` among them. A call that names none uses `connectionId`. Only a tool's choice, for a tool that changes nothing. Absent for one connection.",
     },
     person: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['userId'],
+      $ref: '#/components/schemas/ConnectionChoicePerson',
       description:
         "Whose choice it is, for a person's connection: theirs alone to make, change or remove. Absent: the company's.",
-      properties: { userId: { type: 'string' } },
     },
     version: {
       type: 'integer',
@@ -17155,7 +17164,7 @@ export const SetConnectionChoiceBodySchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "One of the candidates (`GET /v1/connection-choices/candidates`, with `mine` for a person's own). The choice is for its app. With `connectionIds`, the set's default.",
+        "One of the candidates (`GET /v1/connection-choices/candidates`, with `owner=me` for a person's own). The choice is for its app. With `connectionIds`, the set's default.",
     },
     connectionIds: {
       type: 'array',
@@ -17167,11 +17176,8 @@ export const SetConnectionChoiceBodySchema: JsonSchema = {
         "A set, for a tool's choice: 2 to 10 different candidates, `connectionId` among them, each named. Only for a tool that changes nothing, doesn't declare `sensitive-data-egress` and has no `accounts` input of its own (`GET /v1/connection-choices/needs`).",
     },
     person: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['userId'],
+      $ref: '#/components/schemas/ConnectionChoicePerson',
       description: 'A choice of your own connection, for your own runs: you.',
-      properties: { userId: { type: 'string', minLength: 1 } },
     },
   },
 };
@@ -17190,7 +17196,7 @@ export const ConnectionCandidateSchema: JsonSchema = {
   additionalProperties: false,
   required: ['connectionId', 'name'],
   description:
-    "A connection a choice in the project may name: the company's, or with `mine`, your own. Its `state` is `working` or `needs-reconnecting`: one that needs reconnecting may be chosen, and works again once it's reconnected. A project admin reads all of a company one; a project member, only `connectionId` and `name`. You read all of your own.",
+    "A connection a choice in the project may name: the company's, or with `owner=me`, your own. Its `state` is `working` or `needs-reconnecting`: one that needs reconnecting may be chosen, and works again once it's reconnected. A project admin reads all of a company one; a project member, only `connectionId` and `name`. You read all of your own.",
   properties: {
     connectionId: { type: 'string', format: 'uuid' },
     name: {
@@ -17206,7 +17212,7 @@ export const ConnectionCandidateSchema: JsonSchema = {
     state: { $ref: '#/components/schemas/ConnectionState' },
     main: {
       type: 'boolean',
-      description: 'Only ever `true`, with `mine`: your main connection of the app.',
+      description: 'Only ever `true`, with `owner=me`: your main connection of the app.',
     },
   },
 };
@@ -17219,6 +17225,26 @@ export const ConnectionCandidatePageSchema: JsonSchema = {
     data: { type: 'array', items: { $ref: '#/components/schemas/ConnectionCandidate' } },
     nextCursor: { type: 'string' },
     hasMore: { type: 'boolean' },
+  },
+};
+
+/**
+ * Whether a choice for a tool's connection may be a set. A component of its
+ * own, so generated clients name it `ConnectionChoiceNeedSet`.
+ */
+export const ConnectionChoiceNeedSetSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['allowed'],
+  description: "Whether a choice for the tool's connection may be a set, and if not, why not.",
+  properties: {
+    allowed: { type: 'boolean' },
+    reason: {
+      type: 'string',
+      enum: ['changes', 'sensitive-data-egress', 'accounts-input'],
+      description:
+        'Why not, with `allowed: false`: the tool changes things, may send what it reads elsewhere, or has its own `accounts` input.',
+    },
   },
 };
 
@@ -17236,20 +17262,7 @@ export const ConnectionChoiceNeedSchema: JsonSchema = {
       enum: ['company', 'person'],
       description: "Whose connection: the company's, or the run's person's.",
     },
-    set: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['allowed'],
-      properties: {
-        allowed: { type: 'boolean' },
-        reason: {
-          type: 'string',
-          enum: ['changes', 'sensitive-data-egress', 'accounts-input'],
-          description:
-            'Why not, with `allowed: false`: the tool changes things, may send what it reads elsewhere, or has its own `accounts` input.',
-        },
-      },
-    },
+    set: { $ref: '#/components/schemas/ConnectionChoiceNeedSet' },
   },
 };
 
@@ -17468,6 +17481,22 @@ export const FinishConnectBodySchema: JsonSchema = {
   },
 };
 
+/**
+ * What a person's new connection did to their main one. A component of its
+ * own, so generated clients name it `ConnectFinishMain`.
+ */
+export const ConnectFinishMainSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['state'],
+  description:
+    '`set`: the one they had, `connectionId`, is now their main, and this one is added. `kept`: their main, `connectionId`, stays. `missing`: they have several and none is their main, so their agents use none until they make one main, or a choice names one.',
+  properties: {
+    state: { type: 'string', enum: ['set', 'kept', 'missing'] },
+    connectionId: { type: 'string', format: 'uuid', description: 'With `set` and `kept`.' },
+  },
+};
+
 export const ConnectFinishSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -17500,15 +17529,9 @@ export const ConnectFinishSchema: JsonSchema = {
         'On a server with approvals, for a member who connected: whether they have a reviewer seat, which approving a send from their own account needs.',
     },
     main: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['state'],
+      $ref: '#/components/schemas/ConnectFinishMain',
       description:
-        'Present when `kind` is `connected`, `reconnected` is `false`, and the person already had a connection through the registration in the env. `set`: the one they had, `connectionId`, is now their main, and this one is added. `kept`: their main, `connectionId`, stays. `missing`: they have several and none is their main, so their agents use none until they make one main, or a choice names one.',
-      properties: {
-        state: { type: 'string', enum: ['set', 'kept', 'missing'] },
-        connectionId: { type: 'string', format: 'uuid', description: 'With `set` and `kept`.' },
-      },
+        'Present when `kind` is `connected`, `reconnected` is `false`, and the person already had a connection through the registration in the env.',
     },
   },
 };
@@ -18689,12 +18712,14 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateConnectionBody', UpdateConnectionBodySchema],
   ['ConnectionPage', ConnectionPageSchema],
   ['ConnectionChoice', ConnectionChoiceSchema],
+  ['ConnectionChoicePerson', ConnectionChoicePersonSchema],
   ['ConnectionChoicePage', ConnectionChoicePageSchema],
   ['SetConnectionChoiceBody', SetConnectionChoiceBodySchema],
   ['ConnectionChoiceDeleteResult', ConnectionChoiceDeleteResultSchema],
   ['ConnectionCandidate', ConnectionCandidateSchema],
   ['ConnectionCandidatePage', ConnectionCandidatePageSchema],
   ['ConnectionChoiceNeed', ConnectionChoiceNeedSchema],
+  ['ConnectionChoiceNeedSet', ConnectionChoiceNeedSetSchema],
   ['ConnectionChoiceNeeds', ConnectionChoiceNeedsSchema],
   ['ConnectRequest', ConnectRequestSchema],
   ['CreateConnectRequestBody', CreateConnectRequestBodySchema],
@@ -18702,6 +18727,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['StartConnectBody', StartConnectBodySchema],
   ['FinishConnectBody', FinishConnectBodySchema],
   ['ConnectFinish', ConnectFinishSchema],
+  ['ConnectFinishMain', ConnectFinishMainSchema],
   ['ConnectStart', ConnectStartSchema],
   ['WaitingForConnection', WaitingForConnectionSchema],
   ['ApprovalApprover', ApprovalApproverSchema],

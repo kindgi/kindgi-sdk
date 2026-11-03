@@ -11,7 +11,11 @@ import type { Cursor, EnvName, ProjectId, TenantId, TriggerId } from '@kindgi/ty
 
 import { callerIdentity, callerRef, isTenantAdmin } from '../caller.js';
 import { sameJson } from '../canonical-json.js';
-import type { ConnectionBinding, ConnectionCandidateRecord } from '../connection-binding.js';
+import type {
+  ConnectionBinding,
+  ConnectionCandidateRecord,
+  ConnectionRecord,
+} from '../connection-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -337,13 +341,7 @@ export function mailTriggersRouter(
       // live connection of the app in this env, and none named stores none.
       if (named === undefined) return mailbox;
       const connection = await connections.binding.get({ tenantId, connectionId: named });
-      const theirs =
-        connection !== null &&
-        LIVE_CONNECTION_STATES.has(connection.state) &&
-        connection.envName === connections.envName &&
-        connection.app === mailbox.app &&
-        connection.owner.kind === 'member' &&
-        connection.owner.userId === owner;
+      const theirs = isOwnLive(connection, mailbox.app, connections.envName, owner);
       return theirs ? mailbox : notACandidate(c, named);
     }
     const candidates = await candidatesOf(connections.binding, {
@@ -353,15 +351,7 @@ export function mailTriggersRouter(
       app: mailbox.app,
       person: { userId: owner },
     });
-    if (named !== undefined) {
-      return candidates.some((x) => x.connectionId === named) ? mailbox : notACandidate(c, named);
-    }
-    const picked =
-      candidates.find((x) => x.main === true) ??
-      (candidates.length === 1 ? candidates[0] : undefined);
-    if (picked !== undefined) return { ...mailbox, connectionId: picked.connectionId };
-    if (candidates.length === 0) return mailbox;
-    return notChosenOfPerson(c, connections.binding, mailbox.app, candidates.length);
+    return personPick(c, connections.binding, mailbox, candidates);
   }
 
   /** The company mailbox to store, its connection decided, else the refusal. */
@@ -1018,6 +1008,46 @@ async function namedRefusal(
   }
   const tenantsOwn = candidates === undefined && here && connection.owner.kind === 'company';
   return tenantsOwn ? undefined : notACandidate(c, named);
+}
+
+/** Whether the connection is the owner's own live one of the app in the env. */
+function isOwnLive(
+  connection: ConnectionRecord | null,
+  app: string,
+  envName: EnvName,
+  owner: string,
+): boolean {
+  return (
+    connection !== null &&
+    LIVE_CONNECTION_STATES.has(connection.state) &&
+    connection.envName === envName &&
+    connection.app === app &&
+    connection.owner.kind === 'member' &&
+    connection.owner.userId === owner
+  );
+}
+
+/**
+ * A person's mailbox, their candidates read: the one named, when it's one
+ * of them; else their main, else their only one. None stores none, and
+ * several with no main is the refusal that counts them.
+ */
+function personPick(
+  c: Context<AppEnv>,
+  binding: Pick<ConnectionBinding, 'entries'>,
+  mailbox: MailTriggerMailbox,
+  candidates: readonly ConnectionCandidateRecord[],
+): MailTriggerMailbox | Response {
+  const named = mailbox.connectionId;
+  if (named !== undefined) {
+    return candidates.some((x) => x.connectionId === named) ? mailbox : notACandidate(c, named);
+  }
+  const picked =
+    candidates.find((x) => x.main === true) ??
+    (candidates.length === 1 ? candidates[0] : undefined);
+  if (picked !== undefined) return { ...mailbox, connectionId: picked.connectionId };
+  if (candidates.length === 0) return mailbox;
+  return notChosenOfPerson(c, binding, mailbox.app, candidates.length);
 }
 
 /** A named connection that isn't a candidate: the same 404 as for one that doesn't exist. */
