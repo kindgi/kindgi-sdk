@@ -1184,6 +1184,7 @@ function serializeAgent(a: AgentVersionRecord): Record<string, unknown> {
     ...(a.preferredProvider !== undefined && { preferredProvider: a.preferredProvider }),
     ...(a.preferredModel !== undefined && { preferredModel: a.preferredModel }),
     ...(a.parallelToolCalls !== undefined && { parallelToolCalls: a.parallelToolCalls }),
+    ...(a.mcp !== undefined && { mcp: a.mcp }),
     ...(a.pins !== undefined && { pins: a.pins }),
     ...(a.pinsDigest !== undefined && { pinsDigest: a.pinsDigest }),
     ...(a.derivedFrom !== undefined && { derivedFrom: a.derivedFrom }),

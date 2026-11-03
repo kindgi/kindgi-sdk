@@ -627,13 +627,13 @@ describe('API — an agent stored with autoCloseAfterInactiveSeconds, from befor
   });
 });
 
-describe("API — an agent's output and toolErrors in every answer", () => {
+describe("API — an agent's output, toolErrors and mcp in every answer", () => {
   /**
    * Publishes acme.drafting with `field` set to `value` and acme.plain
    * without it, then reads each through the four answers that carry an
    * agent: the field as published on the one, absent on the other.
    */
-  async function answered(field: 'output' | 'toolErrors', value: unknown) {
+  async function answered(field: 'output' | 'toolErrors' | 'mcp', value: unknown) {
     const { app } = makeApp();
     const publish = async (body: Record<string, unknown>) => {
       const res = await app.request('/v1/agents', {
@@ -669,6 +669,30 @@ describe("API — an agent's output and toolErrors in every answer", () => {
       }
     }
   }
+
+  test('mcp: as published when it is set; absent, no key, so the answer is as before', async () => {
+    await answered('mcp', { expose: true, readOnly: true });
+  });
+
+  test("an exposed agent whose id starts kindgi. → 400 naming the prefix; unexposed, it's stored", async () => {
+    const { app } = makeApp();
+    const publish = (mcp: unknown) =>
+      app.request('/v1/agents', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ ...agentSpec({ id: 'kindgi.helper' }), mcp }),
+      });
+    const refused = await publish({ expose: true });
+    expect(refused.status).toBe(400);
+    const body = (await refused.json()) as { error: { details?: { issues?: unknown[] } } };
+    expect(body.error.details?.issues).toEqual([
+      {
+        path: '/mcp/expose',
+        message: `agent id "kindgi.helper" starts with "kindgi.", a prefix kept for Kindgi's own tools`,
+      },
+    ]);
+    expect((await publish({ expose: false })).status).toBe(201);
+  });
 
   test('output: as published when it is set, absent when it is not', async () => {
     await answered('output', {

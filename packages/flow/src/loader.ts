@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { NodeId, Result } from '@kindgi/types';
+import { type NodeId, type Result, mcpExposureIssues } from '@kindgi/types';
 
 import { compileInlineSchema, createSpecRegistry } from '@kindgi/schema';
 import type { SpecRegistry } from '@kindgi/schema';
@@ -15,6 +15,7 @@ import type {
   InvalidFanoutNodeError,
   InvalidFlowOutputError,
   InvalidMappingError,
+  InvalidMcpExposureError,
   InvalidPredicateError,
   InvalidSubflowNodeError,
   LoopBodyCycleError,
@@ -98,6 +99,7 @@ const SEMANTIC_CHECKS: readonly ((flow: Flow) => FlowError | undefined)[] = [
   checkAllSubflowNodes,
   checkAllMappings,
   checkFlowOutputSchema,
+  checkMcpExposure,
   checkStartEdge,
   detectOuterCycle,
   validateAllLoopBodies,
@@ -1244,6 +1246,14 @@ function checkFlowOutputSchema(flow: Flow): InvalidFlowOutputError | undefined {
     flowId: flow.id,
     issues: [{ path: '', message: primaryMessage }],
   };
+}
+
+// The schema checks the field's shape; this checks the id it names a tool by.
+function checkMcpExposure(flow: Flow): InvalidMcpExposureError | undefined {
+  const issues = mcpExposureIssues(flow.mcp, flow.id, 'flow');
+  const first = issues[0];
+  if (first === undefined) return undefined;
+  return { code: 'invalid-mcp-exposure', message: first.message, flowId: flow.id, issues };
 }
 
 // ============ per-loop-body validation ============
