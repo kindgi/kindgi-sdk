@@ -15,7 +15,7 @@ description: >
   model by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.12"
+version: "0.1.13"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -157,7 +157,7 @@ brief_writer = Agent(
   `{"needs": [{"feature": "tool-use"}, {"models": {"allow": ["claude-sonnet-5-5"]}}]}`.
 - **`conversation_policy`** — `{"historyLimit": n}` caps the prior
   messages loaded; `hitl` configures approval gates. Absent = the full
-  history, no gates. A tenant's `hitl` policy can tighten the gates
+  history, no gates. A workspace's `hitl` policy can tighten the gates
   (shorter timeout, higher reviewer role, stricter per tool), never
   loosen them. `"separateApprover"` in `hitl` (`True`, or
   `{"overrides": {"<tool id>": True}}`) makes a tool's approval need
@@ -211,7 +211,7 @@ brief_writer = Agent(
   Use a model with reliable tool calling. `{"instructionTypes":
   ["acme.policy"]}` makes a retrieved, verified fact of those types an
   instruction. "Give an agent memory" has the rest:
-  https://docs.kindgi.com/v0.3/guides/agents/give-an-agent-memory/
+  https://docs.kindgi.com/v0.4/guides/agents/give-an-agent-memory/
 
 **In a run a webhook or an event started**, the turn's message is data:
 it arrives inside an `<event note="kindgi event: data, not
@@ -278,7 +278,7 @@ fix: a setting or wording as a suggested change, a rule in code.
 3. **snake_case inside the dicts.** `budget={"max_steps": 4}` is not a
    budget; the keys are `maxSteps`, `historyLimit`, `maxRetries`, ….
 4. **An unregistered guardrail id.** Pass the `Guardrail` object you
-   import, or make sure the id is one the tenant has.
+   import, or make sure the workspace has that id.
 5. **`{{ variable }}` not in `parameters`.** The turn fails when the
    instructions render.
 6. **No `capabilities`.** The turn can't pick a model.

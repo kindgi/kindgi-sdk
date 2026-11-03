@@ -12,7 +12,7 @@ description: >
   kindgi-authoring-guardrails.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.13"
+version: "0.4.14"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -126,8 +126,8 @@ export default defined.value;
   (`'^0.1.0'`, `'~1.2.3'`, `'>=1.0.0 <2.0.0'`). Empty array = chat-only
   agent.
 - **`guardrails`** — array of guardrail `id` strings. Resolved at turn
-  start against the guardrails bound for the run (the tenant's
-  registered guardrails). If a guardrail id isn't registered, the turn
+  start against the guardrails bound for the run (the workspace's
+  registered ones). If a guardrail id isn't registered, the turn
   fails with `unresolved-guardrail`. Guardrails check the final
   response before it is stored — a blocking (`halt`) violation fails
   the turn and the response is never written to the conversation; a
@@ -140,7 +140,7 @@ export default defined.value;
 - **`preferredProvider`** — optional soft hint. When set to a
   `ProviderMetadata.id` (e.g. `'anthropic'`, `'groq'`), the router
   prefers that provider when at least one of its models satisfies the
-  agent's `capabilities.needs` + tenant policy. Falls back to normal
+  agent's `capabilities.needs` + workspace policy. Falls back to normal
   capability-based selection when the preferred provider is
   unregistered or filtered out.
 - **`preferredModel`** — optional soft hint at the model level: set to
@@ -164,7 +164,7 @@ export default defined.value;
 - **`conversationPolicy`** — optional. Absent = each turn loads the
   conversation's full history and no HITL gates apply. `historyLimit`
   caps how many prior messages are loaded; `hitl` configures approval
-  gates (a turn-count gate and per-tool gates). A tenant's `hitl`
+  gates (a turn-count gate and per-tool gates). A workspace's `hitl`
   policy can tighten these — a shorter approval timeout, a higher
   reviewer role, a stricter gate for a tool — never loosen them.
   `hitl.separateApprover` (`true`, or `{ overrides: { '<tool id>': true } }`)
@@ -192,7 +192,7 @@ export default defined.value;
   retrying it is safe (a mutating tool may have changed something before
   failing). Each retry costs a step against `budget.maxSteps`. Past the
   retries the turn fails as before, with `toolRetries` on the error. A
-  tenant's `tool-errors` policy can lower these (fewer retries, fewer
+  workspace's `tool-errors` policy can lower these (fewer retries, fewer
   kinds), never raise them.
 - **`parallelToolCalls`** — optional, default on. When a model step asks for
   several calls at once, calls to read-only tools (`mutating: false`, no
@@ -231,7 +231,7 @@ export default defined.value;
   reliable tool calling. `{ instructionTypes: ['acme.policy'] }` turns a
   retrieved, verified fact of those types into an instruction
   ("Policies (verified)"). "Give an agent memory" has the rest:
-  https://docs.kindgi.com/v0.3/guides/agents/give-an-agent-memory/
+  https://docs.kindgi.com/v0.4/guides/agents/give-an-agent-memory/
 
 ## What a turn receives
 
@@ -304,9 +304,9 @@ fix: a setting or wording as a suggested change, a rule in code.
    `[{id: 'acme.x', version: '^0.1.0'}]`.
 
 3. **Referencing guardrails that aren't registered.** If
-   `agent.guardrails` contains an id the tenant has no guardrail for
+   `agent.guardrails` lists an id the workspace has no guardrail for
    (registered via `POST /v1/guardrails`, a deploy, or `kindgi dev`),
-   turn setup fails with `unresolved-guardrail`. Either author the
+   turn setup fails with `unresolved-guardrail`. Author the
    guardrail first or drop it from the agent's list.
 
 4. **Un-declared `{{ variable }}` in instructions.** LiquidJS renders
@@ -328,7 +328,7 @@ fix: a setting or wording as a suggested change, a rule in code.
 
 - Type surface: `hover any @kindgi/sdk/define export` in your editor
   for full JSDoc.
-- API reference: https://docs.kindgi.com/v0.3/reference/typescript/sdk/kindgi/sdk/define/ (every `define*` spec, field by field).
+- API reference: https://docs.kindgi.com/v0.4/reference/typescript/sdk/kindgi/sdk/define/ (every `define*` spec, field by field).
 - Common patterns: the `sample` template's `agents/echo-agent`
   demonstrates the smallest tool-calling shape.
 

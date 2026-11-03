@@ -222,7 +222,7 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   {
     "error": {
       "code": "image-prefix-unset",
-      "message": "This tenant has no image repository set, so it can't register a deployment yet: its operator sets one.",
+      "message": "This workspace has no image repository set, so it can't register a deployment yet: its operator sets one.",
       "requestId": "req-f5000e71-d1ec-4ae8-984b-1778ece7b597"
     }
   }
@@ -564,7 +564,7 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants/$TENANT_ID/purge" \
   value is `400 tenant-slug-mismatch`, and nothing is changed.
 - **The servers need `KINDGI_TENANT_PURGE_RECORD`:** where purge records
   are kept, `local:<absolute dir>`, `gcs:<bucket>[/<prefix>]` or
-  `s3:<bucket>[/<prefix>]` (runtime 0.3.0 or later), the same place as the
+  `s3:<bucket>[/<prefix>]` (runtime 0.4.0 or later), the same place as the
   command's `--record`
   ([Choose where the runtime keeps files](../store-files/)). Unset, every
   purge is refused with `409 purge-record-unset`: without a record,
@@ -652,7 +652,7 @@ tenants purge: tenant 1ccae8e9-3dc8-4db9-b393-ba3d44e7f86e (acme-shop)
   that still holds rows, by table and count: rows only, not the bytes under
   its prefix.
 - **`--record`** (`local:<dir>`, `gcs:<bucket>[/<prefix>]`, or
-  `s3:<bucket>[/<prefix>]` with runtime 0.3.0 or later) keeps a record of
+  `s3:<bucket>[/<prefix>]` with runtime 0.4.0 or later) keeps a record of
   each purge, `purged/<tenant id>.json` under it. After a restore,
   [`tenants repurge`](#after-a-restore-tenants-repurge) reads them.
 - **One purge of a tenant runs at a time** (runtime 0.1.10 or later): a
@@ -730,7 +730,7 @@ kindgi-runtime tenants repair --all
 ```
 
 ```text
-tenant 5b52fd42-bd2b-4597-b324-84ec1a7033a4 (tenant-1792242381807-ed3afb): Default project kept; authorization store kept; 0 tuples added; 0 memberships and 0 service account grants put back; 0 removals finished and 0 grants taken away; adapters: 6 kept up to date, 0 removed; sign-in providers reconciled
+tenant 5b52fd42-bd2b-4597-b324-84ec1a7033a4 (workspace-1792242381807-ed3afb): Default project kept; authorization store kept; 0 tuples added; 0 memberships and 0 service account grants put back; 0 removals finished and 0 grants taken away; adapters: 6 kept up to date, 0 removed; sign-in providers reconciled
 1 tenant repaired.
 ```
 
@@ -750,6 +750,18 @@ id it named as the creator of what a key with no person behind it made; no
 person has that id. Each removal it finishes and each grant it takes away
 is named under the tenant's line. `--dry-run` shows what it would put back
 and take away, per tenant, and changes nothing.
+
+It also sets right the parents in the authorization store that a project's
+or a team's move into or out of an org, or an org's delete, left behind on
+an older runtime. That runtime changed only the row, so the old org's
+admins kept their way in, and the new org's had none. For each
+project, team and deleted org, it reads the parents the store has, and
+queues the changes the row calls for, which the server applies. The
+tenant's line counts them after the tuples added, only when there are any,
+such as
+`1 parent change queued for the server to apply`: a corrected parent is one
+change. `--dry-run` doesn't preview them. A runtime serving one tenant sets
+them right at each start.
 
 Run it again at will. `--tenant <id>` repairs one tenant.
 `--providers` redoes only sign-in's providers, after `KINDGI_PUBLIC_URL`
@@ -850,6 +862,9 @@ keys and people, as the first of many.
    ```text
      ⚠ Per-deployment routing: 1 deployment registered before it has no routes; deploy it again. The same image is enough.
    ```
+
+   Deploy it with `--idempotency-key <new value>`, so the runtime doesn't
+   answer it as it did the earlier deploy.
 
    Its `endpoint` is then `pending` until you record its pack service.
 

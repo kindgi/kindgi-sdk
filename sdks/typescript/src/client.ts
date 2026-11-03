@@ -12,9 +12,11 @@ import { type CapabilitiesClient, makeCapabilitiesClient } from './resources/cap
 import { type ComplianceClient, makeComplianceClient } from './resources/compliance.js';
 import {
   type ConnectionAppsClient,
+  type ConnectionChoicesClient,
   type ConnectionEntriesClient,
   type ConnectionsClient,
   makeConnectionAppsClient,
+  makeConnectionChoicesClient,
   makeConnectionEntriesClient,
   makeConnectionsClient,
 } from './resources/connections.js';
@@ -137,9 +139,9 @@ export interface KindgiClient {
   readonly projects: ProjectsClient;
   readonly env: EnvClient;
   readonly secrets: SecretsClient;
-  /** The tenant's env names, across env values and secrets (tenant admin). */
+  /** The workspace's env names, across env values and secrets (tenant admin). */
   readonly environments: EnvironmentsClient;
-  /** The order a tenant runs a project through on its way to live (its "environments"). */
+  /** The order a workspace runs a project through on its way to live (its "environments"). */
   readonly environmentOrders: EnvironmentOrdersClient;
   readonly deployments: DeploymentsClient;
   readonly compliance: ComplianceClient;
@@ -190,6 +192,8 @@ export interface KindgiClient {
   readonly connectionEntries: ConnectionEntriesClient;
   readonly connectionApps: ConnectionAppsClient;
   readonly connections: ConnectionsClient;
+  /** Which connection an agent or a flow, or one of its tools, uses for an app in a project. */
+  readonly connectionChoices: ConnectionChoicesClient;
   /** Inbound webhook triggers: a signed request starts a flow run. */
   readonly webhooks: WebhooksClient;
   /** Mail triggers: a mailbox's new mail starts runs of an agent or a flow. */
@@ -273,6 +277,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     connectionEntries: makeConnectionEntriesClient(transport),
     connectionApps: makeConnectionAppsClient(transport),
     connections: makeConnectionsClient(transport),
+    connectionChoices: makeConnectionChoicesClient(transport),
     webhooks: makeWebhooksClient(transport),
     mailTriggers: makeMailTriggersClient(transport),
     packs: makePacksClient(transport),

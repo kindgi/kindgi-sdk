@@ -17,7 +17,7 @@ import org.jspecify.annotations.Nullable;
  * A tool call's context, as the runtime sends it (pack protocol v2's call context), plus its
  * {@link #cancellation()} and its {@link #log()}.
  *
- * @param tenantId the tenant the call runs for
+ * @param tenantId the workspace the call runs for
  * @param runId the run the call belongs to
  * @param requestId the individual call (a model's tool-call id), when sent
  * @param projectId the run's project, when sent (set by the runtime, never from input)
@@ -77,7 +77,7 @@ public record ToolContext(
    * A context without connections: the components before pack protocol 2.9.0, so code that built one
    * before keeps compiling.
    *
-   * @param tenantId the tenant the call runs for
+   * @param tenantId the workspace the call runs for
    * @param runId the run the call belongs to
    * @param requestId the individual call, when sent
    * @param projectId the run's project, when sent
@@ -111,7 +111,7 @@ public record ToolContext(
    * A context without an idempotency key: the components before pack protocol 2.6.0, so code that
    * built one before keeps compiling.
    *
-   * @param tenantId the tenant the call runs for
+   * @param tenantId the workspace the call runs for
    * @param runId the run the call belongs to
    * @param requestId the individual call, when sent
    * @param projectId the run's project, when sent
@@ -142,7 +142,7 @@ public record ToolContext(
   /**
    * A context for a unit test of a handler.
    *
-   * @return a context with a test tenant and run, a logger that writes nothing, and nothing else
+   * @return a context with a test workspace and run, a logger that writes nothing, and nothing else
    */
   public static ToolContext forTest() {
     return new ToolContext("t-test", "run-test", null, null, null, Map.of(), Map.of(), Map.of(), Map.of(),
@@ -153,7 +153,7 @@ public record ToolContext(
    * A context for a unit test of a handler that logs.
    *
    * @param log the logger the handler's {@link #log()} writes to
-   * @return a context with a test tenant and run, the logger, and nothing else
+   * @return a context with a test workspace and run, the logger, and nothing else
    */
   public static ToolContext forTest(Logger log) {
     return new ToolContext("t-test", "run-test", null, null, null, Map.of(), Map.of(), Map.of(), Map.of(),
@@ -164,7 +164,8 @@ public record ToolContext(
    * A context for a unit test of a handler that uses connections.
    *
    * @param connections the connections the handler reads, by the tool's name for each
-   * @return a context with a test tenant and run, a logger that writes nothing, and the connections
+   * @return a context with a test workspace and run, a logger that writes nothing, and the
+   *     connections
    */
   public static ToolContext forTest(Map<String, ToolConnection> connections) {
     return new ToolContext("t-test", "run-test", null, null, null, Map.of(), Map.of(), Map.of(), Map.of(),
@@ -236,7 +237,7 @@ public record ToolContext(
     private Map<String, ToolConnection> connections = Map.of();
 
     /**
-     * @param tenantId the tenant the call runs for
+     * @param tenantId the workspace the call runs for
      * @return this
      */
     public Builder withTenantId(String tenantId) {

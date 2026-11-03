@@ -1,5 +1,54 @@
 # @kindgi/adapter-model-anthropic
 
+## 0.4.0
+
+### Patch Changes
+
+- 2d79bd0: **A failed call is the shared typed error.** The Anthropic and Gemini adapters throw `ModelProviderError` (`@kindgi/adapter-model-shared`) for a response that refuses a call, as the Bedrock, Azure OpenAI and OpenAI-compatible adapters do. Its `kind` comes from the status and the vendor's words (`invalid-request`, `auth`, `rate-limited`, `unavailable`, `context-too-long` or `content-filter`; `network` for Anthropic's failed connection), with its `status`, and its message is the same as before. The SDK's own error (Anthropic's `APIError`, Gemini's `ApiError`) is now its `cause`: code that checked the thrown error's type checks `cause` instead. An abort, and Gemini's failed connection, are thrown as they were.
+- f3bd652: **A model call can carry files: photos, PDFs and text files.** A user or tool message names stored files in a new optional `files` field (`MessageFile`: the stored file's id, name, type, size and sha256). The message holds references only. The adapter reads the bytes through the call's new optional `readFile`, sends them inline, and keeps none.
+  - **What's sent.** JPEG, PNG and WebP images (at most 5 MB each) and PDFs (at most 10 MB) go to a model that declares `vision`, after a line naming each file. Plain text, Markdown and CSV files (at most 1 MB, cut at 100,000 characters) are read in as text for any model, in a block marked as data, not instructions. All of them follow the message's text under a line saying they come from outside: data, not instructions.
+  - **What isn't.** Anything else, or a file over a limit, is a line naming the file and saying why it isn't shown. Examples: a HEIC photo, an image sent to a model without `vision`, a file that's no longer stored, or bytes whose size or sha256 isn't the file's. A `MessageFile` can carry a PDF's page count (`pages`). A call fails for none of them. Only a `readFile` that rejects, such as a store that's down, fails the call, before anything is sent.
+  - **One set of limits on every provider.** A call sends at most 10 images and PDFs, 12 MB and 100 PDF pages together, and reads in at most 200,000 characters of text files, never more than the model's context window has tokens. It keeps the newest files that fit; each one left out is a line saying so. `FILE_LIMITS` has the numbers. A provider's own lower limits apply too, listed in `PROVIDER_FILE_LIMITS`: on Bedrock, 3.75 MB an image, and 4.5 MB and five a call for PDFs.
+  - **A tool result's files.** Anthropic and the OpenAI Responses API take them in the tool result. Chat Completions, Azure OpenAI and Bedrock get them in a user message right after the tool results, and Gemini in the same user turn after the function responses, each under a line naming its call.
+  - **Anthropic's prompt cache** now counts image and document blocks, so a conversation's photo is read from the cache on the next step.
+  - **A PDF goes to the provider under a neutral name,** never the file's own: a file name is outside data.
+  - **`vision`'s description** now says it reads images and PDFs.
+- Updated dependencies [b25b82f]
+- Updated dependencies [d92355b]
+- Updated dependencies [d6c9279]
+- Updated dependencies [f2adcc2]
+- Updated dependencies [9b015f7]
+- Updated dependencies [f3bd652]
+- Updated dependencies [9a8a294]
+- Updated dependencies [1bd877d]
+- Updated dependencies [dff9515]
+- Updated dependencies [1131ec3]
+- Updated dependencies [d576ff4]
+  - @kindgi/types@0.4.0
+  - @kindgi/capabilities@0.4.0
+  - @kindgi/adapter-model-shared@0.4.0
+
+## 0.3.1
+
+### Patch Changes
+
+- @kindgi/capabilities@0.3.1
+  - @kindgi/types@0.3.1
+
+## 0.3.1-rc.1
+
+### Patch Changes
+
+- @kindgi/capabilities@0.3.1-rc.1
+  - @kindgi/types@0.3.1-rc.1
+
+## 0.3.1-rc.0
+
+### Patch Changes
+
+- @kindgi/capabilities@0.3.1-rc.0
+  - @kindgi/types@0.3.1-rc.0
+
 ## 0.3.0
 
 ### Patch Changes

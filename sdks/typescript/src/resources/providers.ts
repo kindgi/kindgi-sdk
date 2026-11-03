@@ -2,14 +2,14 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Providers — tenant-mutable model-routing catalog. CRUD.
+ * Providers — workspace-mutable model-routing catalog. CRUD.
  *
  * @wire /v1/providers/*  (packages/api/src/routes/providers.ts)
  * @generated Wire shapes from `../generated/api.js`.
  *
  * Distinct from `client.adapters` (deployment-wired infrastructure
  * inventory, read-only + smoke-test): adapters = static deployment
- * inventory; providers = dynamic tenant catalog.
+ * inventory; providers = dynamic workspace catalog.
  */
 
 import type {

@@ -139,9 +139,9 @@ let modelSettingsValidator: ReturnType<typeof compileJsonSchema> | undefined;
 /**
  * Whether `values` are model settings (`MODEL_SETTINGS_SCHEMA`): the
  * problems, none when they are. The schema is Kindgi's and never
- * changes, so it's compiled once in a process, outside any tenant's
+ * changes, so it's compiled once in a process, outside any workspace's
  * scope (`runOutsideTenant`), and its validator kept here: checking model
- * settings never counts against a tenant's compile budget.
+ * settings never counts against a workspace's compile budget.
  */
 export function modelSettingsIssues(values: unknown, path = '/content/values'): BlockIssue[] {
   modelSettingsValidator ??= runOutsideTenant(() =>
@@ -347,7 +347,7 @@ function withinModelSettings(key: TunableKey): TunableKey | undefined {
  * `projectId` is the turn's project: a reader that knows projects answers
  * only for blocks a run there may reach (`null`, no versions, otherwise),
  * so a turn never reads another project's prompts or settings. Absent:
- * every block of the tenant.
+ * every block of the workspace.
  */
 export interface BlockReader {
   /**

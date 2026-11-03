@@ -8,8 +8,9 @@ import { WaitpointCancelledError } from '@kindgi/handler';
 import { runIsAttended } from '@kindgi/runtime';
 import { connectionRejectionOf, isConnectionRenewError } from '@kindgi/tools';
 import type {
-  ConnectionAccount,
+  ConnectionChoiceOption,
   ConnectionNeed,
+  ConnectionPick,
   ConnectionRejection,
   ResolveConnectionsOutcome,
   Tool,
@@ -18,6 +19,8 @@ import type {
 } from '@kindgi/tools';
 
 import type { TurnContext } from './context.js';
+import { throwAgentTurnFailure } from './errors.js';
+import { namedAccounts } from './named-accounts.js';
 import type { HitlEnqueueInput } from './public-types.js';
 import type { ConnectWaitResult } from './tool-hitl.js';
 
@@ -39,7 +42,11 @@ import type { ConnectWaitResult } from './tool-hitl.js';
  * A call the connections stop runs nothing: it fails with a
  * `connection-*` code, the model reads why as its result, and the turn
  * goes on. So does a call the app refuses again with its renewed token
- * (`connection-rejected`), and the connection stays as it is.
+ * (`connection-rejected`), and the connection stays as it is, and one
+ * whose fresh resolve found another connection than the gate decided on
+ * (`connection-changed`). The one stop that fails the turn instead is
+ * `connection-not-chosen`: several company connections and no choice of
+ * one is a setup no model can fix.
  */
 
 /** The record key prefix of a call's connection gate. */
@@ -58,7 +65,9 @@ export type ConnectionCallCode =
   | 'connection-rejected'
   | 'connection-renew-failed'
   | 'connection-approval-conflict'
-  | 'connection-approver-not-a-reviewer';
+  | 'connection-approver-not-a-reviewer'
+  | 'connection-not-chosen'
+  | 'connection-changed';
 
 /** A call the connections stopped: the model reads it as the call's result. */
 export interface ConnectionCallFailure {
@@ -75,7 +84,16 @@ export interface ConnectionSeen {
   readonly connectionId: string;
   readonly app: string;
   readonly appName: string;
-  readonly account: ConnectionAccount;
+  /**
+   * Whose account it is at the app: its id, and the company's label. A
+   * person's has no label: their account is theirs alone. Older records
+   * keep it.
+   */
+  readonly account: { readonly id: string; readonly label?: string };
+  /** The company connection's name: its label, else its account's label. Never a person's. */
+  readonly name?: string;
+  /** How it was picked, and through which registration. Absent from older records. */
+  readonly pick?: ConnectionPick;
 }
 
 /** What the gate recorded for a call: the resolver's answer, without tokens. */
@@ -84,10 +102,15 @@ type GateRecord =
   | { readonly kind: 'wait'; readonly requests: readonly WaitingForConnection[] }
   | {
       readonly kind: 'refused';
-      readonly code: 'connection-app-missing' | 'connection-needs-a-person' | 'connection-missing';
+      readonly code:
+        | 'connection-app-missing'
+        | 'connection-needs-a-person'
+        | 'connection-missing'
+        | 'connection-not-chosen';
       readonly name: string;
       readonly app: string;
       readonly missing?: readonly string[];
+      readonly choices?: readonly ConnectionChoiceOption[];
       readonly message: string;
     };
 
@@ -134,8 +157,12 @@ export async function gateConnections(
   // an approval would wait; any other run can't wait.
   const waitMs = runIsAttended(ctx.input.startedBy) ? (ctx.hitlPolicy?.timeoutMs ?? 0) : 0;
   const key = `${CONNECTION_GATE_RECORD_PREFIX}${call.id}`;
+  // The set members the call names, by id from its turn's offer.
+  const named = namedAccounts(ctx, call, tool);
+  if (named.kind === 'failed') return named;
+  const { accounts } = named;
 
-  const first = await recordResolve(ctx, kctx, key, call, tool, needs, waitMs);
+  const first = await recordResolve(ctx, kctx, key, call, tool, needs, waitMs, accounts);
   if (first.kind === 'failed') return first;
   if (first.record.kind === 'ready') return first.record;
   if (first.record.kind === 'refused') return { kind: 'failed', failure: refusal(first.record) };
@@ -144,7 +171,16 @@ export async function gateConnections(
     const failure = await waitForConnect(kctx, request);
     if (failure !== undefined) return { kind: 'failed', failure };
   }
-  const connected = await recordResolve(ctx, kctx, `${key}:connected`, call, tool, needs, 0);
+  const connected = await recordResolve(
+    ctx,
+    kctx,
+    `${key}:connected`,
+    call,
+    tool,
+    needs,
+    0,
+    accounts,
+  );
   if (connected.kind === 'failed') return connected;
   if (connected.record.kind === 'ready') return connected.record;
   if (connected.record.kind === 'refused') {
@@ -155,14 +191,20 @@ export async function gateConnections(
 
 /**
  * The call's tokens, right before the tool runs (step 2 above): asked
- * fresh, never recorded, and never waiting. `renew` names the ones to
- * renew first, after the app refused them.
+ * fresh, never recorded, and never waiting. `decided` is what the gate
+ * decided on (step 1): a need that comes to another connection now fails
+ * the call (`connection-changed`), so an approved call runs only on the
+ * connection it was approved against. `renew` names the ones to renew
+ * first, after the app refused them. A need the call named a set's member
+ * for asks for the one the gate decided on, by its id, never for the
+ * name again: a rename since then moves nothing.
  */
 export async function freshConnections(
   ctx: TurnContext,
   kctx: NodeContext,
   call: ModelToolCall,
   tool: Tool,
+  decided: Readonly<Record<string, ConnectionSeen>>,
   renew?: readonly string[],
 ): Promise<
   | { readonly kind: 'ready'; readonly connections: Readonly<Record<string, ToolConnection>> }
@@ -171,9 +213,10 @@ export async function freshConnections(
   const needs = connectionNeedsOf(tool);
   if (needs === undefined) return { kind: 'ready', connections: {} };
   if (ctx.bindings.connections === undefined) return { kind: 'failed', failure: notServed(needs) };
+  const accounts = decidedAccounts(decided);
   let outcome: ResolveConnectionsOutcome;
   try {
-    outcome = await resolve(ctx, kctx, call, tool, needs, 0, renew);
+    outcome = await resolve(ctx, kctx, call, tool, needs, 0, renew, accounts);
   } catch (cause) {
     const failure = renewFailureOf(cause);
     if (failure === undefined) throw cause;
@@ -181,6 +224,26 @@ export async function freshConnections(
   }
   if (outcome.kind === 'refused') return { kind: 'failed', failure: refusal(outcome) };
   if (outcome.kind === 'wait') return { kind: 'failed', failure: stillMissing(outcome.requests) };
+  const changed = Object.keys(needs)
+    .sort()
+    .find((name) => {
+      const now = outcome.connections[name];
+      return now !== undefined && now.connectionId !== decided[name]?.connectionId;
+    });
+  if (changed !== undefined) {
+    const was = decided[changed];
+    const now = outcome.connections[changed] as ToolConnection;
+    // The run's record keeps the message, and any project reader reads it:
+    // a person's connection is named by its app alone.
+    const message =
+      needs[changed]?.as === 'person'
+        ? `The connection "${changed}" to ${now.appName} changed while this call waited, so it didn't run.`
+        : `The connection "${changed}" changed while this call waited (${was === undefined ? '' : `${described(was)}, to `}${described(now)}), so it didn't run.`;
+    return {
+      kind: 'failed',
+      failure: { code: 'connection-changed', connection: changed, message },
+    };
+  }
   const absent = Object.keys(needs).find((name) => outcome.connections[name] === undefined);
   if (absent !== undefined) {
     return {
@@ -233,10 +296,12 @@ function declaredRejectionOf(error: unknown, tool: Tool): ConnectionRejection | 
 }
 
 /**
- * Whom the call's approval is for: the owner of its first person's
- * connection (by the tool's names for them, sorted), and the account it
- * acts as. Only they decide it. `undefined` when the call uses no
- * person's connection: today's reviewers decide.
+ * Whom the call's approval is for, and the connection it acts with. With
+ * a person's connection: its owner (of the first, by the tool's names for
+ * them, sorted), and its app and account, never their name for it (the
+ * run's record has none). Only they decide it. Otherwise, with a company
+ * connection: the first company one, with its name, and today's
+ * reviewers decide. `undefined` when the call uses neither.
  */
 export function connectionApprovalOf(
   tool: Tool,
@@ -244,14 +309,44 @@ export function connectionApprovalOf(
   person: string | undefined,
 ): Pick<HitlEnqueueInput, 'approver' | 'connection'> | undefined {
   const name = firstPersonNeed(tool);
-  if (name === undefined || person === undefined) return undefined;
-  const seen = connections[name];
+  if (name !== undefined) {
+    if (person === undefined) return undefined;
+    const seen = connections[name];
+    return {
+      approver: { kind: 'member', userId: person },
+      ...(seen !== undefined && { connection: approvalConnection(seen, 'person') }),
+    };
+  }
+  const company = firstNeed(tool, 'company');
+  const seen = company === undefined ? undefined : connections[company];
+  return seen === undefined ? undefined : { connection: approvalConnection(seen, 'company') };
+}
+
+/**
+ * A connection as the approval shows it: a person's by its app alone
+ * ("this person's Google account"), the company's by its account and name.
+ */
+function approvalConnection(
+  seen: ConnectionSeen,
+  as: 'company' | 'person',
+): NonNullable<HitlEnqueueInput['connection']> {
+  if (as === 'person') return { app: seen.app, appName: seen.appName, as };
   return {
-    approver: { kind: 'member', userId: person },
-    ...(seen !== undefined && {
-      connection: { app: seen.app, appName: seen.appName, account: seen.account.label },
-    }),
+    app: seen.app,
+    appName: seen.appName,
+    as,
+    ...(seen.account.label !== undefined && { account: seen.account.label }),
+    ...(seen.name !== undefined && { name: seen.name }),
   };
+}
+
+/** A company connection as a message names it: its name and account, or the account alone. */
+function described(c: {
+  readonly name?: string;
+  readonly account: { readonly id: string; readonly label?: string };
+}): string {
+  const account = c.account.label ?? c.account.id;
+  return c.name !== undefined && c.name !== account ? `${c.name}, ${account}` : account;
 }
 
 /**
@@ -295,7 +390,7 @@ export function approverNotAReviewerOf(
   const as =
     approval.connection === undefined
       ? 'their own connection'
-      : `their ${approval.connection.appName} account ${approval.connection.account}`;
+      : `this person's ${approval.connection.appName} account`;
   return {
     code: 'connection-approver-not-a-reviewer',
     ...(name !== undefined && { connection: name }),
@@ -321,11 +416,16 @@ export function connectionFailureResult(failure: ConnectionCallFailure): {
 
 /** The first of the tool's person's connections, by its names for them, sorted. */
 function firstPersonNeed(tool: Tool): string | undefined {
+  return firstNeed(tool, 'person');
+}
+
+/** The first of the tool's connections of that kind, by its names for them, sorted. */
+function firstNeed(tool: Tool, as: ConnectionNeed['as']): string | undefined {
   const needs = connectionNeedsOf(tool);
   if (needs === undefined) return undefined;
   return Object.keys(needs)
     .sort()
-    .find((name) => needs[name]?.as === 'person');
+    .find((name) => needs[name]?.as === as);
 }
 
 /** One recorded resolve: the token-free record, or the renewal that failed (recorded as nothing). */
@@ -337,13 +437,14 @@ async function recordResolve(
   tool: Tool,
   needs: Readonly<Record<string, ConnectionNeed>>,
   waitMs: number,
+  accounts: Readonly<Record<string, string>> | undefined,
 ): Promise<
   | { readonly kind: 'recorded'; readonly record: GateRecord }
   | { readonly kind: 'failed'; readonly failure: ConnectionCallFailure }
 > {
   try {
     const record = await kctx.record(key, async () =>
-      recorded(await resolve(ctx, kctx, call, tool, needs, waitMs)),
+      recorded(await resolve(ctx, kctx, call, tool, needs, waitMs, undefined, accounts), needs),
     );
     return { kind: 'recorded', record };
   } catch (cause) {
@@ -361,6 +462,7 @@ function resolve(
   needs: Readonly<Record<string, ConnectionNeed>>,
   waitMs: number,
   renew?: readonly string[],
+  accounts?: Readonly<Record<string, string>>,
 ): Promise<ResolveConnectionsOutcome> {
   const served = ctx.bindings.connections;
   if (served === undefined) throw new Error('resolve called with no connections binding');
@@ -379,11 +481,22 @@ function resolve(
     ...(person !== undefined && { person: { userId: person } }),
     waitMs,
     ...(renew !== undefined && { renew }),
+    target: { agentId: ctx.input.agent.id as unknown as string },
+    ...(ctx.input.mailbox !== undefined && { mailbox: ctx.input.mailbox }),
+    ...(accounts !== undefined && { accounts }),
   });
 }
 
-/** The resolver's answer as the gate records it: what it names, never a token. */
-function recorded(outcome: ResolveConnectionsOutcome): GateRecord {
+/**
+ * The resolver's answer as the gate records it: what it names, never a
+ * token. Any project reader reads a run's record, so a person's
+ * connection is named by its app and account id, never by their name or
+ * address for it.
+ */
+function recorded(
+  outcome: ResolveConnectionsOutcome,
+  needs: Readonly<Record<string, ConnectionNeed>>,
+): GateRecord {
   if (outcome.kind === 'refused') {
     return {
       kind: 'refused',
@@ -391,6 +504,9 @@ function recorded(outcome: ResolveConnectionsOutcome): GateRecord {
       name: outcome.name,
       app: outcome.app,
       ...(outcome.missing !== undefined && { missing: outcome.missing }),
+      ...(outcome.choices !== undefined && {
+        choices: outcome.choices.map((c) => ({ connectionId: c.connectionId, name: c.name })),
+      }),
       message: outcome.message,
     };
   }
@@ -412,14 +528,31 @@ function recorded(outcome: ResolveConnectionsOutcome): GateRecord {
   }
   const connections: Record<string, ConnectionSeen> = {};
   for (const [name, c] of Object.entries(outcome.connections)) {
+    const pick = outcome.picks?.[name];
     connections[name] = {
       connectionId: c.connectionId,
       app: c.app,
       appName: c.appName,
-      account: { id: c.account.id, label: c.account.label },
+      account:
+        needs[name]?.as === 'company'
+          ? { id: c.account.id, label: c.account.label }
+          : { id: c.account.id },
+      ...(c.name !== undefined && needs[name]?.as === 'company' && { name: c.name }),
+      ...(pick !== undefined && { pick: pickSeen(pick) }),
     };
   }
   return { kind: 'ready', connections };
+}
+
+/** A pick as the gate records it: its own fields only. */
+function pickSeen(pick: ConnectionPick): ConnectionPick {
+  return {
+    by: pick.by,
+    ...(pick.choiceId !== undefined && { choiceId: pick.choiceId }),
+    ...(pick.as !== undefined && { as: pick.as }),
+    ...(pick.setSize !== undefined && { setSize: pick.setSize }),
+    registration: { id: pick.registration.id, name: pick.registration.name },
+  };
 }
 
 /**
@@ -477,7 +610,19 @@ function connectWaitResultOf(value: unknown): ConnectWaitResult {
   return { kind: 'declined' };
 }
 
+/**
+ * A refusal as the call's failure. `connection-not-chosen` fails the turn
+ * instead, with the choices' names only.
+ */
 function refusal(refused: Extract<GateRecord, { kind: 'refused' }>): ConnectionCallFailure {
+  if (refused.code === 'connection-not-chosen') {
+    throwAgentTurnFailure({
+      code: 'connection-not-chosen',
+      message: refused.message,
+      connection: refused.name,
+      ...(refused.choices !== undefined && { choices: refused.choices.map((c) => c.name) }),
+    });
+  }
   return {
     code: refused.code,
     connection: refused.name,
@@ -510,4 +655,18 @@ function notServed(needs: Readonly<Record<string, ConnectionNeed>>): ConnectionC
 function renewFailureOf(cause: unknown): ConnectionCallFailure | undefined {
   if (!isConnectionRenewError(cause)) return undefined;
   return { code: cause.code, connection: cause.connection, message: cause.message };
+}
+
+/**
+ * The connections the gate decided on for the needs the call named a set's
+ * member for, by their ids; none when it named none.
+ */
+function decidedAccounts(
+  decided: Readonly<Record<string, ConnectionSeen>>,
+): Readonly<Record<string, string>> | undefined {
+  const accounts: Record<string, string> = {};
+  for (const [name, seen] of Object.entries(decided)) {
+    if (seen.pick?.by === 'named') accounts[name] = seen.connectionId;
+  }
+  return Object.keys(accounts).length > 0 ? accounts : undefined;
 }

@@ -172,7 +172,7 @@ class PinTestRun(BaseModel):
 
 class PinScopeTenant(BaseModel):
     """
-    The whole tenant.
+    The whole workspace.
     """
 
     model_config = ConfigDict(
@@ -389,7 +389,7 @@ class PinCheck(BaseModel):
 
 class RunFailure(BaseModel):
     """
-    Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …; `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed, with `details` naming the budget); any other failure is `run-failed`, with the run's failure message.
+    Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …; `rate-limit-exceeded` when a budget kept per workspace refused work the turn needed, with `details` naming the budget); any other failure is `run-failed`, with the run's failure message.
     """
 
     model_config = ConfigDict(
@@ -536,7 +536,7 @@ class StartRunBody1(BaseModel):
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    Project to run under; omit → the tenant's default project.
+    Project to run under; omit → the workspace's default project.
     """
     segments: Annotated[list[ScopeSegment] | None, Field(max_length=8)] = None
     """
@@ -564,11 +564,11 @@ class StartRunBody2(BaseModel):
     """
     flow_version: Annotated[str | None, Field(alias="flowVersion")] = None
     """
-    Semver; omit → the version pinned for the run's project (the project, its org, then the tenant), else the newest it reaches.
+    Semver; omit → the version pinned for the run's project (the project, its org, then the workspace), else the newest it reaches.
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    Project to run under; omit → the tenant's default project.
+    Project to run under; omit → the workspace's default project.
     """
     segments: Annotated[list[ScopeSegment] | None, Field(max_length=8)] = None
     """
@@ -698,7 +698,7 @@ class RunEvent(BaseModel):
 
 class RunProgress(BaseModel):
     """
-    A run's progress: status and timing, without its input, output, failure message or tenant. Safe to show in a browser.
+    A run's progress: status and timing, without its input, output, failure message or workspace. Safe to show in a browser.
     """
 
     model_config = ConfigDict(
@@ -1031,7 +1031,7 @@ class PackEnvDeclaration(BaseModel):
 
 class PackEnvScope(BaseModel):
     """
-    Where a value is set: the deployment's project, the project's org, or the tenant.
+    Where a value is set: the deployment's project, the project's org, or the workspace (`tenant`).
     """
 
     model_config = ConfigDict(
@@ -1041,13 +1041,13 @@ class PackEnvScope(BaseModel):
     kind: Annotated[Literal["project", "org", "tenant"] | str, _open.OPEN]
     id: str | None = None
     """
-    The project's or the org's id. Absent for the tenant.
+    The project's or the org's id. Absent for the workspace (`tenant`).
     """
 
 
 class PackEnvNameStatus(BaseModel):
     """
-    One name the deployment's pack declares: where it's set, and why it can't be given to the pack service, if it can't (for `ambiguous` only, `secretScope` names the secret's scope and `cloudSecretScope` the cloud secret's). Each name is looked for at the deployment's project, then its org, then the tenant (most specific wins); a tenant-wide deployment's, at the tenant's default project. Never a value.
+    One name the deployment's pack declares: where it's set, and why it can't be given to the pack service, if it can't (for `ambiguous` only, `secretScope` names the secret's scope and `cloudSecretScope` the cloud secret's). Each name is looked for at the deployment's project, then its org, then the workspace (most specific wins); a workspace-wide deployment's, at the workspace's default project. Never a value.
     """
 
     model_config = ConfigDict(
@@ -1564,7 +1564,7 @@ class ServiceAccountGrantTenantAdmin(BaseModel):
 
 class ServiceAccountGrantTenantMember(BaseModel):
     """
-    Tenant member: read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. A service account has it only when granted; a person has it from being added.
+    Tenant member: read the workspace's settings (providers, policies, adapters, signing keys, deployments), not its projects. A service account has it only when granted; a person has it from being added.
     """
 
     model_config = ConfigDict(
@@ -1616,7 +1616,7 @@ class RevokeTokenResult(BaseModel):
 
 class TrustedSigningKey(BaseModel):
     """
-    A public key the tenant trusts to sign deployments (`POST /v1/deployments`). A revoked key stays readable, with `revokedAt`, so the deployments it signed can be audited; it verifies no new ones.
+    A public key the workspace trusts to sign deployments (`POST /v1/deployments`). A revoked key stays readable, with `revokedAt`, so the deployments it signed can be audited; it verifies no new ones.
     """
 
     model_config = ConfigDict(
@@ -1876,7 +1876,7 @@ class ReviewerCollectionPage(BaseModel):
 
 class RegisterReviewerBody(BaseModel):
     """
-    Register a reviewer for the caller's tenant. Idempotent w.r.t. `(tenantId, userId)` — re-registering rotates role/displayName rather than inserting a duplicate.
+    Register a reviewer for the caller's workspace. Idempotent w.r.t. `(tenantId, userId)` — re-registering rotates role/displayName rather than inserting a duplicate.
     """
 
     model_config = ConfigDict(
@@ -2995,7 +2995,7 @@ class Remember(BaseModel):
         Literal["same-user", "same-conversation", "same-project", "tenant"] | str, _open.OPEN
     ]
     """
-    Where its facts go: the conversation's end user (else the user the run acts for), the conversation, the run's project, or the tenant. Each but `tenant` includes the run's project.
+    Where its facts go: the conversation's end user (else the user the run acts for), the conversation, the run's project, or the workspace (`tenant`). Each but `tenant` includes the run's project.
     """
     keep_days: Annotated[int | None, Field(alias="keepDays", ge=1, le=3650)] = None
     """
@@ -3231,7 +3231,7 @@ class VersionDerivation(BaseModel):
 
 class FlowPins(BaseModel):
     """
-    The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs resolves once to its version pinned where the flow version is made (the project, then its org, then the tenant), else to its latest version then; each agent it runs at no named version resolves once to its version pinned for that project, else its latest. Every run of that flow version uses them, except that an agent step in a run whose segment path one of that agent's release gates set on a segment covers runs the agent's version pinned for that segment. Absent on a version published before pins existed: each run of it binds each tool's latest version, and each agent's version pinned for the run, else its latest.
+    The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs resolves once to its version pinned where the flow version is made (the project, then its org, then the workspace), else to its latest version then; each agent it runs at no named version resolves once to its version pinned for that project, else its latest. Every run of that flow version uses them, except that an agent step in a run whose segment path one of that agent's release gates set on a segment covers runs the agent's version pinned for that segment. Absent on a version published before pins existed: each run of it binds each tool's latest version, and each agent's version pinned for the run, else its latest.
     """
 
     model_config = ConfigDict(
@@ -3282,7 +3282,7 @@ class PublishAgentBody(BaseModel):
     description: str | None = None
     project_id: Annotated[UUID, Field(alias="projectId")]
     """
-    Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`.
+    Project this belongs to (its content scope). Required: missing, or not a project in the caller's workspace → `400 bad-input`.
     """
     instructions: Instructions | PromptRef
     """
@@ -3304,7 +3304,7 @@ class PublishAgentBody(BaseModel):
     guardrails: list[str]
     preferred_provider: Annotated[str | None, Field(alias="preferredProvider", min_length=1)] = None
     """
-    Soft hint — the router prefers this provider by id (e.g. `anthropic`) when at least one of its models satisfies `capabilities.needs` + tenant policy. Combine with `preferredModel` to pin the exact (provider, model) tuple.
+    Soft hint — the router prefers this provider by id (e.g. `anthropic`) when at least one of its models satisfies `capabilities.needs` + workspace policy. Combine with `preferredModel` to pin the exact (provider, model) tuple.
     """
     preferred_model: Annotated[str | None, Field(alias="preferredModel", min_length=1)] = None
     """
@@ -3494,7 +3494,7 @@ class PublishFlowBody(BaseModel):
     description: str | None = None
     project_id: Annotated[UUID, Field(alias="projectId")]
     """
-    Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`.
+    Project this belongs to (its content scope). Required: missing, or not a project in the caller's workspace → `400 bad-input`.
     """
     nodes: list[FlowNode]
     edges: list[FlowEdge]
@@ -3616,7 +3616,7 @@ class ConnectionNeed(BaseModel):
     """
     as_: Annotated[Annotated[Literal["person", "company"] | str, _open.OPEN], Field(alias="as")]
     """
-    Whose connection: `person`, the run's person (the one it acts for, who started it or owns its trigger); `company`, the tenant's.
+    Whose connection: `person`, the run's person (the one it acts for, who started it or owns its trigger); `company`, the workspace's.
     """
 
 
@@ -3858,7 +3858,7 @@ class RegisterGuardrailBody(BaseModel):
     id: Annotated[str, Field(min_length=1)]
     project_id: Annotated[UUID, Field(alias="projectId")]
     """
-    Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`.
+    Project this belongs to (its content scope). Required: missing, or not a project in the caller's workspace → `400 bad-input`.
     """
     name: str | None = None
     description: str | None = None
@@ -4041,7 +4041,7 @@ class Conversation(BaseModel):
     participant_id: Annotated[str | None, Field(alias="participantId")] = None
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The project the conversation is in: the project of the run that opened it, or `projectId` on open (when omitted, the agent's own project, or the tenant's default project for an agent filed under none). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope.
+    The project the conversation is in: the project of the run that opened it, or `projectId` on open (when omitted, the agent's own project, or the workspace's default project for an agent filed under none). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope.
     """
     opened_by: Annotated[str | None, Field(alias="openedBy")] = None
     """
@@ -4121,7 +4121,7 @@ class FileValue(BaseModel):
         Field(alias="notShown"),
     ] = None
     """
-    Set when the model isn't shown it, and reads a line naming it instead: `type` (not a type a model is shown), `size` (over its type's limit), `model` (the agent or its model doesn't take images and PDFs), `limit` (over a call's or a list's limits), `store` (no file store), `gone` (no longer stored), `changed` (not the bytes that were checked), `refused` (the model couldn't read it when it was attached), `storage` (a tool's store found the tenant's storage full), `reading` (what the model is sent in its place, an image or a text made from it, isn't made yet).
+    Set when the model isn't shown it, and reads a line naming it instead: `type` (not a type a model is shown), `size` (over its type's limit), `model` (the agent or its model doesn't take images and PDFs), `limit` (over a call's or a list's limits), `store` (no file store), `gone` (no longer stored), `changed` (not the bytes that were checked), `refused` (the model couldn't read it when it was attached), `storage` (a tool's store found the workspace's storage full), `reading` (what the model is sent in its place, an image or a text made from it, isn't made yet).
     """
 
 
@@ -4176,7 +4176,7 @@ class OpenConversationBody(BaseModel):
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The project the conversation is in; `GET /v1/conversations?scopeKind=project&scopeId=…` lists it. A project of the caller's tenant, else `400 bad-input`, that reaches the agent, else `400 reference-out-of-scope`. Omitted: the agent's own project, as for a run (the tenant's default project for an agent filed under none).
+    The project the conversation is in; `GET /v1/conversations?scopeKind=project&scopeId=…` lists it. A project of the caller's workspace, else `400 bad-input`, that reaches the agent, else `400 reference-out-of-scope`. Omitted: the agent's own project, as for a run (the workspace's default project for an agent filed under none).
     """
     scope: dict[str, Any] | None = None
     """
@@ -4424,7 +4424,7 @@ class FactCollectionPage(BaseModel):
 
 class WriteFactBody(BaseModel):
     """
-    Write a fact. `type` selects the retrieval-policy (which indexes populate); `scope.tenantId` MUST match the caller's tenant. Optional `retention` overrides tenant defaults; optional `contentHash` is a caller-supplied idempotence hint (runtime computes its own hash regardless). `subjects` names whom it is about; `validFrom`/`validUntil` when it is true in the world; `observedAt` when it was said or seen.
+    Write a fact. `type` selects the retrieval-policy (which indexes populate); `scope.tenantId` MUST match the caller's workspace. Optional `retention` overrides workspace defaults; optional `contentHash` is a caller-supplied idempotence hint (runtime computes its own hash regardless). `subjects` names whom it is about; `validFrom`/`validUntil` when it is true in the world; `observedAt` when it was said or seen.
     """
 
     model_config = ConfigDict(
@@ -4730,7 +4730,7 @@ class MemoryErasureLedgerEntry(BaseModel):
         None
     )
     """
-    HMAC-SHA256 of the selector under the tenant's ledger key; absent without one.
+    HMAC-SHA256 of the selector under the workspace's ledger key; absent without one.
     """
     key_id: Annotated[str | None, Field(alias="keyId")] = None
     """
@@ -4793,11 +4793,11 @@ class ReplayMemoryErasuresResult(BaseModel):
     )
     replayed: list[UUID]
     """
-    Found in the tenant again: run again.
+    Found in the workspace again: run again.
     """
     restored: list[UUID]
     """
-    Put back in the ledger; nothing in the tenant matches.
+    Put back in the ledger; nothing in the workspace matches.
     """
     unmatched: list[UnmatchedItem]
 
@@ -5800,7 +5800,7 @@ class BlobMeta(BaseModel):
     """
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
-    The project the artifact belongs to: its owner run's, else the upload's `projectId`, else the tenant's default project. Reading it needs `read` there; deleting it, `write`. Absent on blobs stored before projects were recorded.
+    The project the artifact belongs to: its owner run's, else the upload's `projectId`, else the workspace's default project. Reading it needs `read` there; deleting it, `write`. Absent on blobs stored before projects were recorded.
     """
     created_by: Annotated[str | None, Field(alias="createdBy")] = None
     """
@@ -5853,7 +5853,7 @@ class Datum5(BaseModel):
     """
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
-    The project the artifact belongs to: its owner run's, else the upload's `projectId`, else the tenant's default project. Reading it needs `read` there; deleting it, `write`. Absent on blobs stored before projects were recorded.
+    The project the artifact belongs to: its owner run's, else the upload's `projectId`, else the workspace's default project. Reading it needs `read` there; deleting it, `write`. Absent on blobs stored before projects were recorded.
     """
     created_by: Annotated[str | None, Field(alias="createdBy")] = None
     """
@@ -5899,7 +5899,7 @@ class UploadArtifactBody(BaseModel):
     owner_run_id: Annotated[UUID | None, Field(alias="ownerRunId")] = None
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
-    The project it belongs to, when there's no `ownerRunId` (with one, the run's project, and this must agree). Default: the tenant's default project.
+    The project it belongs to, when there's no `ownerRunId` (with one, the run's project, and this must agree). Default: the workspace's default project.
     """
     expected_hash: Annotated[str | None, Field(alias="expectedHash", pattern="^[0-9a-f]{64}$")] = (
         None
@@ -5923,7 +5923,7 @@ class DeleteArtifactResult(BaseModel):
 
 class CapabilityProvider(BaseModel):
     """
-    A provider of the tenant with a model that has the feature.
+    A provider of the workspace with a model that has the feature.
     """
 
     model_config = ConfigDict(
@@ -6105,7 +6105,7 @@ class ProviderCollectionPage(BaseModel):
 
 class SecretRef(BaseModel):
     """
-    The tenant secret holding the adapter's credential (an API key, a service-account key). Absent when the adapter needs none or finds its own (a cloud's default credentials).
+    The workspace secret holding the adapter's credential (an API key, a service-account key). Absent when the adapter needs none or finds its own (a cloud's default credentials).
     """
 
     model_config = ConfigDict(
@@ -6124,11 +6124,11 @@ class RegisterProviderBody(BaseModel):
     metadata: ProviderMetadata
     adapter_id: Annotated[str, Field(min_length=1)]
     """
-    The adapter that instantiates this provider (e.g. `@kindgi/adapter-model-gemini`). Must be registered for the tenant.
+    The adapter that instantiates this provider (e.g. `@kindgi/adapter-model-gemini`). Must be registered for the workspace.
     """
     secret_ref: SecretRef | None = None
     """
-    The tenant secret holding the adapter's credential (an API key, a service-account key). Absent when the adapter needs none or finds its own (a cloud's default credentials).
+    The workspace secret holding the adapter's credential (an API key, a service-account key). Absent when the adapter needs none or finds its own (a cloud's default credentials).
     """
     adapter_config: dict[str, str | float | bool] | None = None
     """
@@ -6636,7 +6636,7 @@ class Policy(BaseModel):
     description: str | None = None
     spec: dict[str, Any]
     """
-    Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. For `retention`, `{ v: 1, doc: RetentionSpec }` from `@kindgi/policy-contract` (domain / graceSeconds / mode, which must be `purge`); a tenant has one retention policy per domain, plus one for `*`. `tool-errors`, `hitl` and `retention` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer.
+    Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. For `retention`, `{ v: 1, doc: RetentionSpec }` from `@kindgi/policy-contract` (domain / graceSeconds / mode, which must be `purge`); a workspace has one retention policy per domain, plus one for `*`. `tool-errors`, `hitl` and `retention` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer.
     """
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
     """
@@ -6682,7 +6682,7 @@ class PolicyVersionRow(BaseModel):
     description: str | None = None
     spec: dict[str, Any]
     """
-    Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. For `retention`, `{ v: 1, doc: RetentionSpec }` from `@kindgi/policy-contract` (domain / graceSeconds / mode, which must be `purge`); a tenant has one retention policy per domain, plus one for `*`. `tool-errors`, `hitl` and `retention` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer.
+    Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. For `retention`, `{ v: 1, doc: RetentionSpec }` from `@kindgi/policy-contract` (domain / graceSeconds / mode, which must be `purge`); a workspace has one retention policy per domain, plus one for `*`. `tool-errors`, `hitl` and `retention` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer.
     """
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
     """
@@ -6708,7 +6708,7 @@ class PublishPolicyBody(BaseModel):
     id: Annotated[str, Field(min_length=1)]
     tenant_id: Annotated[UUID | None, Field(alias="tenantId")] = None
     """
-    Optional. When present, must match the caller tenant (server-derived from the token). Cross-tenant publish is rejected.
+    Optional. When present, must match the caller's workspace (server-derived from the token). Cross-tenant publish is rejected.
     """
     version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
     kind: Annotated[
@@ -7132,11 +7132,11 @@ class PublishTestSetBody(BaseModel):
     id: Annotated[str, Field(min_length=1)]
     project_id: Annotated[UUID, Field(alias="projectId")]
     """
-    Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`.
+    Project this belongs to (its content scope). Required: missing, or not a project in the caller's workspace → `400 bad-input`.
     """
     tenant_id: Annotated[UUID | None, Field(alias="tenantId")] = None
     """
-    Optional. When present, must match the caller tenant (server-derived from the token). Cross-tenant publish is rejected.
+    Optional. When present, must match the caller's workspace (server-derived from the token). Cross-tenant publish is rejected.
     """
     version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
     kind: Annotated[
@@ -7322,7 +7322,7 @@ class PublishBlockBody(BaseModel):
     )
     project_id: Annotated[UUID, Field(alias="projectId")]
     """
-    Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`.
+    Project this belongs to (its content scope). Required: missing, or not a project in the caller's workspace → `400 bad-input`.
     """
     id: Annotated[str, Field(min_length=1)]
     version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
@@ -7769,7 +7769,7 @@ class TestRun(BaseModel):
     error: str | None = None
     cancel_reason: Annotated[str | None, Field(alias="cancelReason")] = None
     """
-    Why a `cancelled` run stopped when nobody cancelled it: its project or tenant took no new runs when a case started (`project-suspended`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client.
+    Why a `cancelled` run stopped when nobody cancelled it: its project or workspace took no new runs when a case started (`project-suspended`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client.
     """
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
     """
@@ -7799,7 +7799,7 @@ class StartTestRunBody(BaseModel):
     )
     project_id: Annotated[UUID, Field(alias="projectId")]
     """
-    Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`.
+    Project this belongs to (its content scope). Required: missing, or not a project in the caller's workspace → `400 bad-input`.
     """
     agent_ref: Annotated[TestRunAgentRef | None, Field(alias="agentRef")] = None
     flow_ref: Annotated[TestRunFlowRef | None, Field(alias="flowRef")] = None
@@ -8431,7 +8431,7 @@ class UserCreated(BaseModel):
     last_active_at: Annotated[AwareDatetime | None, Field(alias="lastActiveAt")] = None
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
     """
-    When they were removed from the tenant (`POST /v1/identity/users/{userId}/unregister`); absent while they are here.
+    When they were removed from the workspace (`POST /v1/identity/users/{userId}/unregister`); absent while they are here.
     """
     invite: UserInvite | None = None
     """
@@ -8600,7 +8600,7 @@ class CreateUserBody(BaseModel):
     display_name: Annotated[str, Field(alias="displayName", max_length=200, min_length=1)]
     primary_email: Annotated[str | None, Field(alias="primaryEmail")] = None
     """
-    Unique among the tenant's people.
+    Unique among the workspace's people.
     """
     send_invite: Annotated[bool | None, Field(alias="sendInvite")] = None
     """
@@ -9175,7 +9175,7 @@ class MyTenantAccess(BaseModel):
     """
     member: bool | None = None
     """
-    Tenant member: reads the tenant's settings. Absent when the runtime doesn't report it.
+    Tenant member: reads the workspace's settings. Absent when the runtime doesn't report it.
     """
 
 
@@ -9191,7 +9191,7 @@ class MyKeyLimits(BaseModel):
     token_id: Annotated[str, Field(alias="tokenId")]
     role: Annotated[Literal["admin", "member"] | str, _open.OPEN] | None = None
     """
-    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).
+    The most the key may do, under its principal's grants: an `admin` key may administer the workspace when its principal is a tenant admin; a `member` key takes no admin action on the workspace, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).
     """
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
@@ -9334,7 +9334,7 @@ class DeploymentEndpointProblem(BaseModel):
     )
     code: str
     """
-    One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start). It can't be given its declared environment (`GET /v1/deployments/{deploymentId}/pack-env` names the names): `pack-env-ambiguous`, `pack-env-secret-not-yet`, `pack-env-missing`, `pack-env-secret-unreadable` (a name's secret can't be read for a reason the platform fixes, not the owner; it's tried again). It can't be given its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out; the platform fixes it, and it's tried again), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-name-too-long` (a name set as a secret is too long for the secret it's kept in, which is named after the pack service; shorten it in the pack), `pack-env-secret-capacity` (a name is set only as a secret, and there's no room just now for a pack service that can be given one, apart from other projects'; it's tried again).
+    One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the workspace's repository). The pack service couldn't be created: `tenant-not-provisioned` (the workspace has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start). It can't be given its declared environment (`GET /v1/deployments/{deploymentId}/pack-env` names the names): `pack-env-ambiguous`, `pack-env-secret-not-yet`, `pack-env-missing`, `pack-env-secret-unreadable` (a name's secret can't be read for a reason the platform fixes, not the owner; it's tried again). It can't be given its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out; the platform fixes it, and it's tried again), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-name-too-long` (a name set as a secret is too long for the secret it's kept in, which is named after the pack service; shorten it in the pack), `pack-env-secret-capacity` (a name is set only as a secret, and there's no room just now for a pack service that can be given one, apart from other projects'; it's tried again).
     """
     since: AwareDatetime
     """
@@ -9582,11 +9582,11 @@ class DeploymentValue(BaseModel):
         Field(alias="foundAt"),
     ] = None
     """
-    Where a run finds it, when it is set: the project, else its org, else the tenant.
+    Where a run finds it, when it is set: the project, else its org, else the workspace (`tenant`).
     """
     problem: str | None = None
     """
-    Why it isn't ready; absent when it is. One of a fixed list; a later runtime may add problems, so treat an unknown one as a reason not yet named. `missing`: set nowhere a run looks. `secret-not-yet`: a pack env name set only as a secret, which isn't given into a pack service's environment yet. `ambiguous`: a pack env name set two ways, as two of a plain value, a secret and a cloud secret. `revoked`: a tool's secret revoked where it's recorded, or a model key revoked where a run looks first (a run refuses rather than read a wider one). `no-provider`: an agent that runs on any provider (it names none, or names one that isn't registered), with no provider registered in the tenant, so a run has none to call.
+    Why it isn't ready; absent when it is. One of a fixed list; a later runtime may add problems, so treat an unknown one as a reason not yet named. `missing`: set nowhere a run looks. `secret-not-yet`: a pack env name set only as a secret, which isn't given into a pack service's environment yet. `ambiguous`: a pack env name set two ways, as two of a plain value, a secret and a cloud secret. `revoked`: a tool's secret revoked where it's recorded, or a model key revoked where a run looks first (a run refuses rather than read a wider one). `no-provider`: an agent that runs on any provider (it names none, or names one that isn't registered), with no provider registered in the workspace, so a run has none to call.
     """
 
 
@@ -9792,7 +9792,7 @@ class DeploymentRegistrationBody(BaseModel):
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The project to deploy into, one per client: its agents, flows, tools and guardrails are registered there, and its secret sync writes there. It takes admin on that project (a key limited to another project is refused). Absent: a tenant-wide deploy, into the tenant's default project. An id that already lives in another project is `409` (`tool-project-mismatch` and the like): each client gets its own pack, whose ids carry its own pack id. Not covered by the signature, which attests the image.
+    The project to deploy into, one per client: its agents, flows, tools and guardrails are registered there, and its secret sync writes there. It takes admin on that project (a key limited to another project is refused). Absent: a workspace-wide deploy, into the workspace's default project. An id that already lives in another project is `409` (`tool-project-mismatch` and the like): each client gets its own pack, whose ids carry its own pack id. Not covered by the signature, which attests the image.
     """
     source: DeploymentSourceBody | None = None
     replace: list[DeployReplaceBlock] | None = None
@@ -10044,7 +10044,7 @@ class ComplianceEvidence(BaseModel):
     tenant_id: Annotated[UUID, Field(alias="tenantId")]
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The project the underlying audit event belongs to. Absent for tenant-level events (e.g. authz decisions).
+    The project the underlying audit event belongs to. Absent for workspace-level events (e.g. authz decisions).
     """
     kind: Annotated[
         str,
@@ -10149,7 +10149,7 @@ class ComplianceEvidenceCollectionPage(BaseModel):
 
 class ExportComplianceEvidenceFilter(BaseModel):
     """
-    Optional filter narrowing the export set. Composition is AND — every populated field must match. Absent / empty filter exports every record for the tenant.
+    Optional filter narrowing the export set. Composition is AND — every populated field must match. Absent / empty filter exports every record for the workspace.
     """
 
     model_config = ConfigDict(
@@ -10239,7 +10239,7 @@ class ExportComplianceEvidenceFilter(BaseModel):
 
 class Filter(BaseModel):
     """
-    Optional filter narrowing the export set. Composition is AND — every populated field must match. Absent / empty filter exports every record for the tenant.
+    Optional filter narrowing the export set. Composition is AND — every populated field must match. Absent / empty filter exports every record for the workspace.
     """
 
     model_config = ConfigDict(
@@ -10342,7 +10342,7 @@ class ExportComplianceEvidenceBody(BaseModel):
     """
     filter: Filter | None = None
     """
-    Optional filter narrowing the export set. Composition is AND — every populated field must match. Absent / empty filter exports every record for the tenant.
+    Optional filter narrowing the export set. Composition is AND — every populated field must match. Absent / empty filter exports every record for the workspace.
     """
 
 
@@ -10489,7 +10489,7 @@ class TeamPatch(BaseModel):
     description: str | None = None
     org_id: Annotated[str | None, Field(alias="orgId")] = None
     """
-    `null` explicitly re-assigns the team out of any org (cross-org).
+    `null` explicitly re-assigns the team out of any org (cross-org). Naming it, even the current org, needs a tenant admin, as making a team in an org does.
     """
 
 
@@ -10792,7 +10792,7 @@ class ProjectPatch(BaseModel):
     description: str | None = None
     org_id: Annotated[str | None, Field(alias="orgId")] = None
     """
-    `null` explicitly re-assigns the project out of any org (cross-org).
+    `null` explicitly re-assigns the project out of any org (cross-org). Naming it, even the current org, needs a tenant admin, as making a project in an org does.
     """
     sort_end_user_corrections: Annotated[bool | None, Field(alias="sortEndUserCorrections")] = None
     """
@@ -10846,7 +10846,7 @@ class AddProjectMembershipBody(BaseModel):
     user_id: Annotated[str | None, Field(alias="userId", min_length=1)] = None
     email: Annotated[str | None, Field(min_length=1)] = None
     """
-    The person's email, as the tenant has it.
+    The person's email, as the workspace has it.
     """
     role: Literal["viewer", "editor", "owner", "admin"]
     """
@@ -10880,7 +10880,7 @@ class AddProjectMembershipResult(BaseModel):
 
 class TenantPatch(BaseModel):
     """
-    A new name, a new slug, or both; a field left out stays as it is. The id stays, so whatever names the tenant by its id keeps working.
+    A new name, a new slug, or both; a field left out stays as it is. The id stays, so whatever names the workspace by its id keeps working.
     """
 
     model_config = ConfigDict(
@@ -10890,13 +10890,13 @@ class TenantPatch(BaseModel):
     name: Annotated[str | None, Field(max_length=100, min_length=1)] = None
     slug: Annotated[str | None, Field(max_length=63, pattern="^[a-z0-9](?:-?[a-z0-9])*$")] = None
     """
-    Lowercase letters, digits and single hyphens, unique across tenants. The console's addresses carry it, so links with the old one stop opening the tenant; nothing else is keyed by it.
+    Lowercase letters, digits and single hyphens, unique across workspaces. The console's addresses carry it, so links with the old one stop opening the workspace; nothing else is keyed by it.
     """
 
 
 class TenantLimits(BaseModel):
     """
-    The tenant's limits that are set. A limit that isn't set is absent, and isn't enforced.
+    The workspace's limits that are set. A limit that isn't set is absent, and isn't enforced.
     """
 
     model_config = ConfigDict(
@@ -10911,7 +10911,7 @@ class TenantLimits(BaseModel):
         int | None, Field(alias="webhookReceivesPerMinute", ge=1)
     ] = None
     """
-    Webhook deliveries received a minute, across the tenant's triggers. Past it: 429.
+    Webhook deliveries received a minute, across the workspace's triggers. Past it: 429.
     """
     runs_at_once: Annotated[int | None, Field(alias="runsAtOnce", ge=1)] = None
     """
@@ -10923,7 +10923,7 @@ class TenantLimits(BaseModel):
     """
     tool_calls_in_flight: Annotated[int | None, Field(alias="toolCallsInFlight", ge=1)] = None
     """
-    Tool calls in flight to the tenant's pack services. Past it, a call waits for a slot.
+    Tool calls in flight to the workspace's pack services. Past it, a call waits for a slot.
     """
     approvals_pending: Annotated[int | None, Field(alias="approvalsPending", ge=1)] = None
     """
@@ -10937,7 +10937,7 @@ class TenantLimits(BaseModel):
 
 class EgressAddresses(BaseModel):
     """
-    The IP addresses this deployment's calls to other sites come from, for a site that admits only known addresses. They're the same for every tenant on the deployment, so admitting them admits every tenant's calls: a site still checks its own credentials. They say where calls come from, not where they go. Absent when the deployment publishes none. An empty list: none of that kind.
+    The IP addresses this deployment's calls to other sites come from, for a site that admits only known addresses. They're the same for every workspace on the deployment, so admitting them admits every workspace's calls: a site still checks its own credentials. They say where calls come from, not where they go. Absent when the deployment publishes none. An empty list: none of that kind.
     """
 
     model_config = ConfigDict(
@@ -10997,7 +10997,7 @@ class TenantConfigEntry(BaseModel):
     tenant_id: Annotated[str, Field(alias="tenantId")]
     kind: Annotated[Literal["env", "config", "secret"] | str, _open.OPEN]
     """
-    Slot for a tenant config entry (tenant-scoped). `env` and `config` both address `EnvBinding`; `secret` addresses `SecretBinding`. Prefer `/v1/env/*` + `/v1/secrets/*` for new callers.
+    Slot for a workspace config entry (workspace-scoped). `env` and `config` both address `EnvBinding`; `secret` addresses `SecretBinding`. Prefer `/v1/env/*` + `/v1/secrets/*` for new callers.
     """
     key: str
     value: str
@@ -11026,7 +11026,7 @@ class UpsertTenantConfigBody(BaseModel):
     )
     kind: Annotated[Literal["env", "config", "secret"] | str, _open.OPEN]
     """
-    Slot for a tenant config entry (tenant-scoped). `env` and `config` both address `EnvBinding`; `secret` addresses `SecretBinding`. Prefer `/v1/env/*` + `/v1/secrets/*` for new callers.
+    Slot for a workspace config entry (workspace-scoped). `env` and `config` both address `EnvBinding`; `secret` addresses `SecretBinding`. Prefer `/v1/env/*` + `/v1/secrets/*` for new callers.
     """
     key: Annotated[str, Field(min_length=1)]
     value: str
@@ -11225,7 +11225,7 @@ class ScheduleFire(BaseModel):
         _open.OPEN,
     ]
     """
-    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (enough new corrections since its last Improve run, or room under its month's cap); the target's project is suspended (`project-suspended`), so no run or Improve run started; its run or Improve run hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.
+    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (enough new corrections since its last Improve run, or room under its month's cap); the target's project is suspended (`project-suspended`), so no run or Improve run started; its run or Improve run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.
     """
     run_id: Annotated[UUID | None, Field(alias="runId")] = None
     """
@@ -11245,7 +11245,7 @@ class ScheduleFire(BaseModel):
     """
     counts_toward_pause: Annotated[bool | None, Field(alias="countsTowardPause")] = None
     """
-    Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for a refusal for a limit, such as the tenant's runs pending (`detail` starts `rate-limited:`): the limit passes, and the trigger isn't at fault. Absent from a runtime that doesn't say: `refused` and `failed` fires counted, and the others didn't.
+    Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for a refusal for a limit, such as the workspace's runs pending (`detail` starts `rate-limited:`): the limit passes, and the trigger isn't at fault. Absent from a runtime that doesn't say: `refused` and `failed` fires counted, and the others didn't.
     """
     missed_count: Annotated[int | None, Field(alias="missedCount", ge=1)] = None
     """
@@ -11308,7 +11308,7 @@ class WebhookFire(BaseModel):
         Literal["pending", "started", "skipped", "refused", "failed"] | str, _open.OPEN
     ]
     """
-    `pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended after the delivery was taken, before its run started (`project-suspended`); its run hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). `refused`: `detail` says why. `failed`: the run couldn't start.
+    `pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended after the delivery was taken, before its run started (`project-suspended`); its run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). `refused`: `detail` says why. `failed`: the run couldn't start.
     """
     run_id: Annotated[UUID | None, Field(alias="runId")] = None
     """
@@ -11324,7 +11324,7 @@ class WebhookFire(BaseModel):
     """
     counts_toward_pause: Annotated[bool | None, Field(alias="countsTowardPause")] = None
     """
-    Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for a refusal for a limit, such as the tenant's runs pending (`detail` starts `rate-limited:`): the limit passes, and the trigger isn't at fault. Absent from a runtime that doesn't say: `refused` and `failed` fires counted, and the others didn't.
+    Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for a refusal for a limit, such as the workspace's runs pending (`detail` starts `rate-limited:`): the limit passes, and the trigger isn't at fault. Absent from a runtime that doesn't say: `refused` and `failed` fires counted, and the others didn't.
     """
     duplicates: Annotated[int | None, Field(ge=1)] = None
     """
@@ -11378,7 +11378,7 @@ class ToolFileStoreAnswer2(BaseModel):
     )
     not_stored: Annotated[Literal["type", "size", "limit", "storage"], Field(alias="notStored")]
     """
-    Why nothing was stored: `type` (not a type a model is shown, or the bytes aren't the type they claim), `size` (over its type's limit), `limit` (the call has stored 10 files), `storage` (the tenant's storage is full). The tool returns it as the file's `notShown` reason.
+    Why nothing was stored: `type` (not a type a model is shown, or the bytes aren't the type they claim), `size` (over its type's limit), `limit` (the call has stored 10 files), `storage` (the workspace's storage is full). The tool returns it as the file's `notShown` reason.
     """
 
 
@@ -11423,7 +11423,7 @@ class WebhookReceipt(BaseModel):
     """
     skipped: Literal["paused", "tenant-suspended", "project-suspended"] | None = None
     """
-    No run started, and the event was dropped. `paused`: the trigger is paused, and a `skipped` fire was recorded. `tenant-suspended`, `project-suspended`: the trigger's tenant or project is suspended, and nothing was recorded.
+    No run started, and the event was dropped. `paused`: the trigger is paused, and a `skipped` fire was recorded. `tenant-suspended`, `project-suspended`: the trigger's workspace or project is suspended, and nothing was recorded.
     """
     received: Literal["ping"] | None = None
     """
@@ -11463,7 +11463,7 @@ class WebhookTriggerUnregisterResult(BaseModel):
 
 class MailTriggerMailbox(BaseModel):
     """
-    The mailbox a mail trigger reads: its app (`google`: Gmail; `microsoft`: Outlook) and whose it is (`company`: the company's mailbox, through the company's connection of that app; `person`: the trigger owner's own, through their connection).
+    The mailbox a mail trigger reads: its app (`google`: Gmail; `microsoft`: Outlook) and whose it is (`company`: the company's mailbox, through the company connection of that app `connectionId` names; `person`: the trigger owner's own, through their connection).
     """
 
     model_config = ConfigDict(
@@ -11472,11 +11472,15 @@ class MailTriggerMailbox(BaseModel):
     )
     app: Annotated[Literal["google", "microsoft"] | str, _open.OPEN]
     as_: Annotated[Annotated[Literal["company", "person"] | str, _open.OPEN], Field(alias="as")]
+    connection_id: Annotated[UUID | None, Field(alias="connectionId")] = None
+    """
+    The connection it reads the mailbox with. With `as: company`, it must be one of the project's candidates of the app (`GET /v1/connection-choices/candidates`); a person's own live connection of the app is `400 bad-input`, and any other `404 connection-not-found`. Not named, the project's only one is stored, so another connection added later doesn't change what the trigger reads; with several, it's `409 connection-not-chosen`, and with none, nothing is stored. With `as: person`, it must be the owner's own live connection of the app, and any other is `404 connection-not-found`. Not named, their main is stored, else their only one; with several and no main, it's `409 connection-not-chosen`, which counts them; with none, nothing is stored. A new owner clears it, and the next poll stores theirs. Another `connectionId`, or one named where there was none, is another mailbox. The mailbox it reads now, sent again with none, is the same mailbox: it keeps the one it reads with, or stores the one the rules above give. Absent from a trigger that names none.
+    """
 
 
 class Account(BaseModel):
     """
-    The mailbox's account at its last poll: the connection's account id and its label (the address). Absent before its first poll.
+    The mailbox's account at its last poll: the connection's account id and its label (the address). Absent before its first poll, and after a take-over of a person's mailbox until the next poll. On a person's mailbox (`config.mailbox.as: person`), only the trigger's owner and a tenant admin read it; anyone else reads the trigger without it.
     """
 
     model_config = ConfigDict(
@@ -11535,7 +11539,7 @@ class MailTriggerRecord(BaseModel):
     """
     status_reason: Annotated[str | None, Field(alias="statusReason")] = None
     """
-    Why it isn't polling as it should: `connection-missing` (the mailbox's connection is gone or lapsed; polls go on, and work again once it's back), `owner-refused` (its owner was removed or may no longer run the target; polls go on and read nothing until that changes or an admin takes it over), or why the runtime paused it.
+    Why it isn't polling as it should: `connection-missing` (the mailbox's connection is gone or lapsed; polls go on, and work again once it's back), `connection-not-chosen` (it names no connection, and the project has several company connections of the app, which the reason names, or its owner has several and no main; it doesn't poll until its `config.mailbox.connectionId` names one), `owner-refused` (its owner was removed or may no longer run the target; polls go on and read nothing until that changes or an admin takes it over), or why the runtime paused it.
     """
     version: Annotated[int | None, Field(ge=1)] = None
     """
@@ -11543,7 +11547,7 @@ class MailTriggerRecord(BaseModel):
     """
     account: Account | None = None
     """
-    The mailbox's account at its last poll: the connection's account id and its label (the address). Absent before its first poll.
+    The mailbox's account at its last poll: the connection's account id and its label (the address). Absent before its first poll, and after a take-over of a person's mailbox until the next poll. On a person's mailbox (`config.mailbox.as: person`), only the trigger's owner and a tenant admin read it; anyone else reads the trigger without it.
     """
     last_polled_at: Annotated[AwareDatetime | None, Field(alias="lastPolledAt")] = None
     """
@@ -11554,7 +11558,7 @@ class MailTriggerRecord(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a mail started asks for one for every call that changes something or uses its mailbox. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a mail started asks for one for every call that changes something or uses its mailbox. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
     last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
@@ -11597,7 +11601,7 @@ class PatchMailTriggerBodyConfig(BaseModel):
     mailbox: MailTriggerMailbox | None = None
     folder: Annotated[str | None, Field(max_length=512, min_length=1)] = None
     """
-    The Gmail label id, or the Outlook folder id or well-known name, it watches from now. Absent: it keeps its folder, unless `mailbox` changes; then it watches the new mailbox's inbox. To watch the inbox again, name it: `INBOX` in Gmail, `inbox` in Outlook.
+    The Gmail label id, or the Outlook folder id or well-known name, it watches from now. Absent: it keeps its folder, unless `mailbox` changes (another app, `as` or `connectionId`); then it watches the new mailbox's inbox. To watch the inbox again, name it: `INBOX` in Gmail, `inbox` in Outlook.
     """
     poll_seconds: Annotated[int | None, Field(alias="pollSeconds", ge=30, le=3600)] = None
     """
@@ -11630,7 +11634,7 @@ class RegisterMailTriggerBody(BaseModel):
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The trigger's project. Absent → the tenant's default project.
+    The trigger's project. Absent → the workspace's default project.
     """
     run_as_service_account_id: Annotated[
         str | None, Field(alias="runAsServiceAccountId", min_length=1)
@@ -11649,7 +11653,7 @@ class RegisterMailTriggerBody(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
@@ -11679,7 +11683,7 @@ class PatchMailTriggerBody(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    Replaces the list (`[]` clears it; absent keeps it). Naming it takes `admin` on the trigger's project. A new target (not just a version) or another mailbox while it lists any must name it again, as it is or `[]`. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    Replaces the list (`[]` clears it; absent keeps it). Naming it takes `admin` on the trigger's project. A new target (not just a version) or another mailbox while it lists any must name it again, as it is or `[]`. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
@@ -11785,7 +11789,7 @@ class MailTriggerDefinition(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a mail started asks for one for every call that changes something or uses its mailbox. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a mail started asks for one for every call that changes something or uses its mailbox. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
@@ -11963,7 +11967,7 @@ class ConnectionSecretRef(BaseModel):
 
 class ConnectionOwner(BaseModel):
     """
-    Who owns a connection: one member (`kind: member`, with their `userId`), or the company (`kind: company`, the tenant's own account).
+    Who owns a connection: one member (`kind: member`, with their `userId`), or the company (`kind: company`, the workspace's own account).
     """
 
     model_config = ConfigDict(
@@ -12067,7 +12071,7 @@ class ConnectionGitHubApp(BaseModel):
 
 class ConnectionApp(BaseModel):
     """
-    A tenant's registration of its own client at an app. Secrets are references, never values.
+    A workspace's registration of its own client at an app. Secrets are references, never values.
     """
 
     model_config = ConfigDict(
@@ -12181,6 +12185,14 @@ class Connection(BaseModel):
     """
     owner: ConnectionOwner
     account: ConnectionAccount
+    label: str | None = None
+    """
+    The name people know it by: the one asked for at the connect, else the account's label. Absent on a connection made before connections had names; show `account.label` then.
+    """
+    main: bool | None = None
+    """
+    Only ever `true`: the person's main connection through its registration in its env, the one their agents use when no choice names another. A person's first connection has none; their second connection makes the first their main. The company's has none.
+    """
     permissions: list[str]
     """
     The entry's permission keys the app granted.
@@ -12239,6 +12251,25 @@ class Connection(BaseModel):
     """
 
 
+class UpdateConnectionBody(BaseModel):
+    """
+    One change: `label` renames it, `main: true` makes it your main.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    main: bool | None = None
+    """
+    `true`: your main connection of its app through its registration and env, in place of the one that was. Only the person whose connection it is makes it their main, and the company's has none. `false` is refused: a main moves only by making another connection main. A mail trigger's stored connection doesn't move.
+    """
+    label: Annotated[str | None, Field(max_length=100, min_length=1)] = None
+    """
+    The connection's new name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case, an emoji's variation selector and how accented letters are encoded.
+    """
+
+
 class ConnectionPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -12247,6 +12278,132 @@ class ConnectionPage(BaseModel):
     data: list[Connection]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class ConnectionChoicePerson(BaseModel):
+    """
+    The person whose own connection a choice names.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user_id: Annotated[str, Field(alias="userId", min_length=1)]
+
+
+class SetConnectionChoiceBody(BaseModel):
+    """
+    Name what the choice is for: `agentId` or `flowId`, one of them, and `toolId` for a tool's own. A company choice is a project admin's; a person's (`person`) is theirs alone.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    One of the project's agents.
+    """
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    One of the project's flows.
+    """
+    tool_id: Annotated[str | None, Field(alias="toolId", min_length=1)] = None
+    """
+    One of the agent's or flow's tools that uses the connection's app.
+    """
+    need: Annotated[str | None, Field(min_length=1)] = None
+    """
+    The tool's name for the connection. It may be left out when the tool uses the app once.
+    """
+    connection_id: Annotated[UUID, Field(alias="connectionId")]
+    """
+    One of the candidates (`GET /v1/connection-choices/candidates`, with `owner=me` for a person's own). The choice is for its app. With `connectionIds`, the set's default.
+    """
+    connection_ids: Annotated[
+        list[UUID] | None, Field(alias="connectionIds", max_length=10, min_length=2)
+    ] = None
+    """
+    A set, for a tool's choice: 2 to 10 different candidates, `connectionId` among them, each named. Only for a tool that changes nothing, doesn't declare `sensitive-data-egress` and has no `accounts` input of its own (`GET /v1/connection-choices/needs`).
+    """
+    person: ConnectionChoicePerson | None = None
+    """
+    A choice of your own connection, for your own runs: you.
+    """
+
+
+class ConnectionChoiceDeleteResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    deleted: bool
+
+
+class ConnectionCandidate(BaseModel):
+    """
+    A connection a choice in the project may name: the company's, or with `owner=me`, your own. Its `state` is `working` or `needs-reconnecting`: one that needs reconnecting may be chosen, and works again once it's reconnected. A project admin reads all of a company one; a project member, only `connectionId` and `name`. You read all of your own.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    connection_id: Annotated[UUID, Field(alias="connectionId")]
+    name: str
+    """
+    Its label, else its account's label (a connection made before connections had names).
+    """
+    app: str | None = None
+    """
+    The app's entry id.
+    """
+    account_label: Annotated[str | None, Field(alias="accountLabel")] = None
+    """
+    Its account's label: an email address, a login.
+    """
+    state: (
+        Annotated[Literal["working", "needs-reconnecting", "removing", "removed"] | str, _open.OPEN]
+        | None
+    ) = None
+    """
+    `working`: runs can use it. `needs-reconnecting`: the app no longer accepts it; connect again. `removing`: a disconnect is under way. `removed`: gone.
+    """
+    main: bool | None = None
+    """
+    Only ever `true`, with `owner=me`: your main connection of the app.
+    """
+
+
+class ConnectionCandidatePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ConnectionCandidate]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class ConnectionChoiceNeedSet(BaseModel):
+    """
+    Whether a choice for the tool's connection may be a set, and if not, why not.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    allowed: bool
+    reason: (
+        Annotated[Literal["changes", "sensitive-data-egress", "accounts-input"] | str, _open.OPEN]
+        | None
+    ) = None
+    """
+    Why not, with `allowed: false`: the tool changes things, may send what it reads elsewhere, or has its own `accounts` input.
+    """
 
 
 class CreateConnectRequestBody(BaseModel):
@@ -12260,7 +12417,7 @@ class CreateConnectRequestBody(BaseModel):
     """
     app_id: Annotated[UUID | None, Field(alias="appId")] = None
     """
-    Which registration, when the tenant has more than one for the app.
+    Which registration, when the workspace has more than one for the app.
     """
     project_id: Annotated[str | None, Field(alias="projectId", min_length=1)] = None
     """
@@ -12273,6 +12430,14 @@ class CreateConnectRequestBody(BaseModel):
     for_: Annotated[Literal["me", "company"] | None, Field(alias="for")] = "me"
     """
     `me`: the caller's own account (signed in as a person). `company`: the company's account; a tenant admin only.
+    """
+    label: Annotated[str | None, Field(max_length=100, min_length=1)] = None
+    """
+    The connection's name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case, an emoji's variation selector and how accented letters are encoded. Absent: the account's label. A reconnect keeps the connection's name, and doesn't check this one against the others.
+    """
+    reconnects: UUID | None = None
+    """
+    The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. Absent: a person's connect, like the company's, asks only for the permissions it lists; at the finish it lands on the owner's connection of the account signed in to, when there is one (when it's connected, `reconnected` is true; a grant short of what that connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked), else makes a new one.
     """
 
 
@@ -12339,6 +12504,22 @@ class FinishConnectBody(BaseModel):
     ] = None
 
 
+class ConnectFinishMain(BaseModel):
+    """
+    `set`: the one they had, `connectionId`, is now their main, and this one is added. `kept`: their main, `connectionId`, stays. `missing`: they have several and none is their main, so their agents use none until they make one main, or a choice names one.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    state: Annotated[Literal["set", "kept", "missing"] | str, _open.OPEN]
+    connection_id: Annotated[UUID | None, Field(alias="connectionId")] = None
+    """
+    With `set` and `kept`.
+    """
+
+
 class ConnectStart(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -12397,7 +12578,7 @@ class ApprovalApprover(BaseModel):
 
 class ApprovalConnection(BaseModel):
     """
-    The person's account the call would use.
+    The connection the call would use: the person's own, or else the company's connection the call was gated on, which it then runs with or doesn't run (`connection-changed`). A person's account isn't named: show "this person's <appName> account".
     """
 
     model_config = ConfigDict(
@@ -12409,9 +12590,19 @@ class ApprovalConnection(BaseModel):
     The app's entry id.
     """
     app_name: Annotated[str, Field(alias="appName")]
-    account: str
+    as_: Annotated[
+        Annotated[Literal["company", "person"] | str, _open.OPEN] | None, Field(alias="as")
+    ] = None
     """
-    The account's label at the app: an email address, a login.
+    Whose connection: the company's, or the person's. Absent from older approvals.
+    """
+    account: str | None = None
+    """
+    The company's account label at the app: an email address, a login. Absent for a person's; older approvals have it for theirs too.
+    """
+    name: str | None = None
+    """
+    The company connection's name: its label, else the account's label. A person's own connection has none.
     """
 
 
@@ -12498,7 +12689,7 @@ class ImproveScheduleTarget(BaseModel):
     agent_id: Annotated[str, Field(alias="agentId", min_length=1)]
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The schedule's own project. Absent from older servers, and on a schedule registered for a tenant or an org before Improve schedules worked in a project: its fires are refused until its target is saved with the schedule's project.
+    The schedule's own project. Absent from older servers, and on a schedule registered for a workspace or an org before Improve schedules worked in a project: its fires are refused until its target is saved with the schedule's project.
     """
 
 
@@ -12610,7 +12801,7 @@ class AllowedRole(RootModel[str]):
 
 class Site(BaseModel):
     """
-    A site that signs its own people in to one project: it vouches for whoever is signed in there, so they ask the project's agents and decide its approvals as themselves. Each person it signs in is a person of the tenant, shown as "<name>, via <displayName>".
+    A site that signs its own people in to one project: it vouches for whoever is signed in there, so they ask the project's agents and decide its approvals as themselves. Each person it signs in is a person of the workspace, shown as "<name>, via <displayName>".
     """
 
     model_config = ConfigDict(
@@ -12905,7 +13096,7 @@ class AuditAuthzListResponse(BaseModel):
 
 class CompleteApprovalResultResumeOk(BaseModel):
     """
-    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per workspace refused work the turn needed. The decision stands either way.
     """
 
     model_config = ConfigDict(
@@ -12917,7 +13108,7 @@ class CompleteApprovalResultResumeOk(BaseModel):
 
 class CompleteApprovalResultResumeFailed(BaseModel):
     """
-    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per workspace refused work the turn needed. The decision stands either way.
     """
 
     model_config = ConfigDict(
@@ -12931,7 +13122,7 @@ class CompleteApprovalResultResumeFailed(BaseModel):
 
 class CorrectorGroupScopeTenant(BaseModel):
     """
-    Where a corrector group applies: the whole tenant, one project, or one agent in a project.
+    Where a corrector group applies: the whole workspace, one project, or one agent in a project.
     """
 
     model_config = ConfigDict(
@@ -12943,7 +13134,7 @@ class CorrectorGroupScopeTenant(BaseModel):
 
 class CorrectorGroupScopeProject(BaseModel):
     """
-    Where a corrector group applies: the whole tenant, one project, or one agent in a project.
+    Where a corrector group applies: the whole workspace, one project, or one agent in a project.
     """
 
     model_config = ConfigDict(
@@ -12956,7 +13147,7 @@ class CorrectorGroupScopeProject(BaseModel):
 
 class CorrectorGroupScopeAgent(BaseModel):
     """
-    Where a corrector group applies: the whole tenant, one project, or one agent in a project.
+    Where a corrector group applies: the whole workspace, one project, or one agent in a project.
     """
 
     model_config = ConfigDict(
@@ -13111,7 +13302,7 @@ class MCPEndpointConfigStreamableHttp(BaseModel):
 
 class RecordedSecretScopeTenant(BaseModel):
     """
-    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the workspace that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the workspace for a deploy that names none and for a promotion into the default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
     """
 
     model_config = ConfigDict(
@@ -13123,7 +13314,7 @@ class RecordedSecretScopeTenant(BaseModel):
 
 class RecordedSecretScopeOrg(BaseModel):
     """
-    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the workspace that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the workspace for a deploy that names none and for a promotion into the default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
     """
 
     model_config = ConfigDict(
@@ -13136,7 +13327,7 @@ class RecordedSecretScopeOrg(BaseModel):
 
 class RecordedSecretScopeProject(BaseModel):
     """
-    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the workspace that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the workspace for a deploy that names none and for a promotion into the default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
     """
 
     model_config = ConfigDict(
@@ -13698,7 +13889,7 @@ class ImproveRunModel(BaseModel):
 
 class StartImproveRunBodyModel(BaseModel):
     """
-    For the prompt tier: the tenant's provider and model that drafts the templates. Omit it for the model of the version's own model-settings block.
+    For the prompt tier: the workspace's provider and model that drafts the templates. Omit it for the model of the version's own model-settings block.
     """
 
     model_config = ConfigDict(
@@ -13992,7 +14183,7 @@ class PatchWebhookTriggerBodyConfig(BaseModel):
 
 class ConnectionEntrySignInTenant(BaseModel):
     """
-    Present when the sign-in happens in a directory of the app's own (Microsoft's tenant, not a Kindgi tenant). A registration's `oauth2.tenant` names it; without `default`, each registration must give its own.
+    Present when the sign-in happens in a directory of the app's own (Microsoft's tenant, not a Kindgi workspace). A registration's `oauth2.tenant` names it; without `default`, each registration must give its own.
     """
 
     model_config = ConfigDict(
@@ -14470,7 +14661,7 @@ class AgentPinnedVersionResolution(BaseModel):
         Field(alias="pinnedScope"),
     ] = None
     """
-    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: workspace, org, project, segment path. A run takes the most specific pin that covers it.
     """
 
 
@@ -14489,7 +14680,7 @@ class AgentPinnedVersion(BaseModel):
         _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: workspace, org, project, segment path. A run takes the most specific pin that covers it.
     """
     version: str
     change_id: Annotated[UUID, Field(alias="changeId")]
@@ -14580,7 +14771,7 @@ class Pin(BaseModel):
         _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: workspace, org, project, segment path. A run takes the most specific pin that covers it.
     """
     action: Annotated[Literal["pin", "unpin"] | str, _open.OPEN]
     from_version: Annotated[str | None, Field(alias="fromVersion")]
@@ -14650,7 +14841,7 @@ class PinAnswer(BaseModel):
     pin: Pin
     test_runs: Annotated[list[PinTestRun], Field(alias="testRuns")]
     """
-    One per project whose running version the pin changes and that has active cases: a project pin has one, a tenant or org pin one per such project, a segment pin none. While the pin waits for approval, its runs are already started.
+    One per project whose running version the pin changes and that has active cases: a project pin has one, a workspace or org pin one per such project, a segment pin none. While the pin waits for approval, its runs are already started.
     """
     fixed: list[str]
     """
@@ -14674,7 +14865,7 @@ class SuggestedChangePinAnswer(BaseModel):
     pin: Pin
     test_runs: Annotated[list[PinTestRun], Field(alias="testRuns")]
     """
-    One per project whose running version the pin changes and that has active cases: a project pin has one, a tenant or org pin one per such project, a segment pin none. While the pin waits for approval, its runs are already started.
+    One per project whose running version the pin changes and that has active cases: a project pin has one, a workspace or org pin one per such project, a segment pin none. While the pin waits for approval, its runs are already started.
     """
     fixed: list[str]
     """
@@ -14713,7 +14904,7 @@ class PinnedVersionResolution(BaseModel):
         Field(alias="pinnedScope"),
     ] = None
     """
-    Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
+    Where a flow or tool version is pinned, from least to most specific: workspace, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
     """
 
 
@@ -14728,7 +14919,7 @@ class PinnedVersion(BaseModel):
         _open.OpenUnion("kind", PinScopeUnrecognized),
     ]
     """
-    Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
+    Where a flow or tool version is pinned, from least to most specific: workspace, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
     """
     version: str
     change_id: Annotated[UUID, Field(alias="changeId")]
@@ -14763,7 +14954,7 @@ class PinnedVersionChange(BaseModel):
         _open.OpenUnion("kind", PinScopeUnrecognized),
     ]
     """
-    Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
+    Where a flow or tool version is pinned, from least to most specific: workspace, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
     """
     action: Annotated[Literal["pin", "unpin"] | str, _open.OPEN]
     from_version: Annotated[str | None, Field(alias="fromVersion")]
@@ -14803,7 +14994,7 @@ class PinVersionBody(BaseModel):
         _open.OpenUnion("kind", PinScopeUnrecognized),
     ]
     """
-    Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
+    Where a flow or tool version is pinned, from least to most specific: workspace, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
     """
     reason: Annotated[str | None, Field(max_length=2000)] = None
 
@@ -14818,7 +15009,7 @@ class UnpinVersionBody(BaseModel):
         _open.OpenUnion("kind", PinScopeUnrecognized),
     ]
     """
-    Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
+    Where a flow or tool version is pinned, from least to most specific: workspace, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
     """
     reason: Annotated[str | None, Field(max_length=2000)] = None
 
@@ -14882,7 +15073,7 @@ class ReleaseGate(BaseModel):
         _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: workspace, org, project, segment path. A run takes the most specific pin that covers it.
     """
     spec: ReleaseGateSpec
     description: str | None = None
@@ -14923,7 +15114,7 @@ class PublishReleaseGateBody(BaseModel):
         _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: workspace, org, project, segment path. A run takes the most specific pin that covers it.
     """
     spec: ReleaseGateSpec
     description: str | None = None
@@ -14958,7 +15149,7 @@ class AgentPinBody(BaseModel):
         _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: workspace, org, project, segment path. A run takes the most specific pin that covers it.
     """
     reason: Annotated[str | None, Field(max_length=2000)] = None
     test_run_id: Annotated[str | None, Field(alias="testRunId")] = None
@@ -14985,7 +15176,7 @@ class AgentUnpinBody(BaseModel):
         _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: workspace, org, project, segment path. A run takes the most specific pin that covers it.
     """
     reason: Annotated[str | None, Field(max_length=2000)] = None
 
@@ -15002,7 +15193,7 @@ class MintTokenBody(BaseModel):
     for_: Annotated[ApiKeyPrincipal | None, Field(alias="for")] = None
     role: Literal["admin", "member"] | None = None
     """
-    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project). Default `member`; `admin` needs a tenant admin minting it.
+    The most the key may do, under its principal's grants: an `admin` key may administer the workspace when its principal is a tenant admin; a `member` key takes no admin action on the workspace, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project). Default `member`; `admin` needs a tenant admin minting it.
     """
     capabilities: list[Capability] | None = None
     """
@@ -15035,7 +15226,7 @@ class MintTokenResult(BaseModel):
     principal: ApiKeyPrincipal | None = None
     role: Annotated[Literal["admin", "member"] | str, _open.OPEN]
     """
-    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).
+    The most the key may do, under its principal's grants: an `admin` key may administer the workspace when its principal is a tenant admin; a `member` key takes no admin action on the workspace, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).
     """
     capabilities: list[Capability]
     """
@@ -15235,7 +15426,7 @@ class ApiToken(BaseModel):
     principal: ApiKeyPrincipal | None = None
     role: Annotated[Literal["admin", "member"] | str, _open.OPEN]
     """
-    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).
+    The most the key may do, under its principal's grants: an `admin` key may administer the workspace when its principal is a tenant admin; a `member` key takes no admin action on the workspace, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).
     """
     capabilities: list[Capability]
     """
@@ -15275,7 +15466,7 @@ class Datum4(BaseModel):
     principal: ApiKeyPrincipal | None = None
     role: Annotated[Literal["admin", "member"] | str, _open.OPEN]
     """
-    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).
+    The most the key may do, under its principal's grants: an `admin` key may administer the workspace when its principal is a tenant admin; a `member` key takes no admin action on the workspace, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).
     """
     capabilities: list[Capability]
     """
@@ -15379,7 +15570,7 @@ class ServiceAccount(BaseModel):
     service_account_id: Annotated[str, Field(alias="serviceAccountId")]
     name: str
     """
-    Unique among the tenant's active accounts.
+    Unique among the workspace's active accounts.
     """
     description: str | None = None
     grants: list[
@@ -15576,7 +15767,7 @@ class CompleteApprovalResult(BaseModel):
         | None
     ) = None
     """
-    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per workspace refused work the turn needed. The decision stands either way.
     """
 
 
@@ -15637,7 +15828,7 @@ class CorrectorGroup(BaseModel):
         _open.OpenUnion("kind", CorrectorGroupScopeUnrecognized),
     ]
     """
-    Where a corrector group applies: the whole tenant, one project, or one agent in a project.
+    Where a corrector group applies: the whole workspace, one project, or one agent in a project.
     """
     name: str
     """
@@ -15685,7 +15876,7 @@ class CreateCorrectorGroupBody(BaseModel):
         _open.OpenUnion("kind", CorrectorGroupScopeUnrecognized),
     ]
     """
-    Where a corrector group applies: the whole tenant, one project, or one agent in a project.
+    Where a corrector group applies: the whole workspace, one project, or one agent in a project.
     """
     name: Annotated[str, Field(max_length=100, min_length=1)]
     weight: Annotated[float, Field(ge=0.0)]
@@ -15882,7 +16073,7 @@ class Agent(BaseModel):
     guardrails: list[str]
     preferred_provider: Annotated[str | None, Field(alias="preferredProvider", min_length=1)] = None
     """
-    Soft hint — the router prefers this provider by id (e.g. `anthropic`) when at least one of its models satisfies `capabilities.needs` + tenant policy. Combine with `preferredModel` to pin the exact (provider, model) tuple. Falls back to capability-based ranking when the pinned provider is unregistered or filtered out.
+    Soft hint — the router prefers this provider by id (e.g. `anthropic`) when at least one of its models satisfies `capabilities.needs` + workspace policy. Combine with `preferredModel` to pin the exact (provider, model) tuple. Falls back to capability-based ranking when the pinned provider is unregistered or filtered out.
     """
     preferred_model: Annotated[str | None, Field(alias="preferredModel", min_length=1)] = None
     """
@@ -16000,7 +16191,7 @@ class RegisterToolBody(BaseModel):
     """
     project_id: Annotated[UUID, Field(alias="projectId")]
     """
-    Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`.
+    Project this belongs to (its content scope). Required: missing, or not a project in the caller's workspace → `400 bad-input`.
     """
     description: Annotated[str, Field(min_length=1)]
     version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
@@ -16088,7 +16279,7 @@ class ImproveRun(BaseModel):
     agent_id: Annotated[str, Field(alias="agentId")]
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The project it works in. Absent from older servers, and on a run started for a tenant or an org before Improve runs worked in a project.
+    The project it works in. Absent from older servers, and on a run started for a workspace or an org before Improve runs worked in a project.
     """
     starts_from: Annotated[ImproveRunStart, Field(alias="startsFrom")]
     test_set_version: Annotated[str | None, Field(alias="testSetVersion")] = None
@@ -16200,7 +16391,7 @@ class StartImproveRunBody(BaseModel):
     """
     model: StartImproveRunBodyModel | None = None
     """
-    For the prompt tier: the tenant's provider and model that drafts the templates. Omit it for the model of the version's own model-settings block.
+    For the prompt tier: the workspace's provider and model that drafts the templates. Omit it for the model of the version's own model-settings block.
     """
     candidates: Annotated[int | None, Field(ge=1, le=5)] = None
     """
@@ -16210,7 +16401,7 @@ class StartImproveRunBody(BaseModel):
         Literal["as-recorded", "experts-only"] | None, Field(alias="groupWeights")
     ] = None
     """
-    Which corrections the Improve run learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project, or the agent in the project has an expert group, then only corrections recorded under one (`experts-only`).
+    Which corrections the Improve run learns from. Omit it for the default: everyone's (`as-recorded`) until the workspace, the project, or the agent in the project has an expert group, then only corrections recorded under one (`experts-only`).
     """
     objective: Literal["passRate", "weightedPrecisionAtK"] | None = "passRate"
     budget: Budget2 | None = None
@@ -16312,7 +16503,7 @@ class CapabilityDescriptor(BaseModel):
     """
     providers: list[CapabilityProvider] | None = None
     """
-    The tenant's registered providers with a model that has the feature, and those models. Absent from servers that don't read the provider registry; `[]` when no provider of the tenant has one.
+    The workspace's registered providers with a model that has the feature, and those models. Absent from servers that don't read the provider registry; `[]` when no provider of the workspace has one.
     """
 
 
@@ -16871,7 +17062,7 @@ class MyPermissions(BaseModel):
     key: MyKeyLimits | None = None
     token_capabilities: Annotated[list[str], Field(alias="tokenCapabilities")]
     """
-    The framework capabilities the caller's token carries (`env:write`, `secrets:write`, `secrets:rotate`, …), which secret, env and signing-key writes require on top of admin at their scope. A sign-in session carries those its person holds: none unless the runtime gives them some, as it does a tenant's first admin. An API key carries those it was minted with (`POST /v1/tokens`, none by default).
+    The framework capabilities the caller's token carries (`env:write`, `secrets:write`, `secrets:rotate`, …), which secret, env and signing-key writes require on top of admin at their scope. A sign-in session carries those its person holds: none unless the runtime gives them some, as it does a workspace's first admin. An API key carries those it was minted with (`POST /v1/tokens`, none by default).
     """
     projects: list[MyProjectAccess]
     """
@@ -16888,7 +17079,7 @@ class MyPermissions(BaseModel):
     capabilities: RoleCapabilities
     read_only_notice: Annotated[str | None, Field(alias="readOnlyNotice", max_length=280)] = None
     """
-    The line a console shows a caller who may only view a project, as a tenant admin set it in the tenant config (`kind: 'config'`, key `console.readOnlyNotice`). Plain text on one line, at most 280 characters. Absent when none is set: the console shows its own.
+    The line a console shows a caller who may only view a project, as a tenant admin set it in the workspace config (`kind: 'config'`, key `console.readOnlyNotice`). Plain text on one line, at most 280 characters. Absent when none is set: the console shows its own.
     """
     license_operator_only: Annotated[bool | None, Field(alias="licenseOperatorOnly")] = None
     """
@@ -16932,7 +17123,7 @@ class DeploymentEndpoint(BaseModel):
     """
     retired: str | None = None
     """
-    `cleared` only: why no pack service is wanted for it now. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.
+    `cleared` only: why no pack service is wanted for it now. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the workspace, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.
     """
     pack_env_problem: Annotated[PackEnvProblem | None, Field(alias="packEnvProblem")] = None
     """
@@ -16990,7 +17181,7 @@ class DeploymentRecord(BaseModel):
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The project the deploy named, which its primitives were registered into. Absent for a tenant-wide deploy (the tenant's default project).
+    The project the deploy named, which its primitives were registered into. Absent for a workspace-wide deploy (the workspace's default project).
     """
     pack_env: Annotated[PackEnvDeclaration | None, Field(alias="packEnv")] = None
     promoted_from_deployment_id: Annotated[
@@ -17020,7 +17211,7 @@ class DeployCheckBody(BaseModel):
     )
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The project the deploy goes into: the check takes the deploy's own right, admin on it. Absent: the tenant's default project, admin on the tenant. Every project of the pack's agents counts, whichever this is.
+    The project the deploy goes into: the check takes the deploy's own right, admin on it. Absent: the workspace's default project, admin on the workspace. Every project of the pack's agents counts, whichever this is.
     """
     agents: Annotated[list[DeployCheckAgentId], Field(max_length=500)]
     """
@@ -17114,7 +17305,7 @@ class DeploymentCollectionPage(BaseModel):
     """
     kept_builds: Annotated[int | None, Field(alias="keptBuilds", ge=0)] = None
     """
-    How many builds keep a pack service among the deployments the project filter selects, whatever the page and the other filters: those whose `endpoint.keptFor` isn't empty. With `?projectId=`, that project's (the default's counts the deployments that name no project); without, the total over the tenant's projects the caller may read. Absent when builds aren't counted (one service serves every build), and from a runtime before Kindgi 0.4.0.
+    How many builds keep a pack service among the deployments the project filter selects, whatever the page and the other filters: those whose `endpoint.keptFor` isn't empty. With `?projectId=`, that project's (the default's counts the deployments that name no project); without, the total over the workspace's projects the caller may read. Absent when builds aren't counted (one service serves every build), and from a runtime before Kindgi 0.4.0.
     """
 
 
@@ -17195,7 +17386,7 @@ class Tenant(BaseModel):
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
     production_allowed: Annotated[bool | None, Field(alias="productionAllowed")] = None
     """
-    Whether the tenant may put projects in production. Absent from a runtime that doesn't gate production.
+    Whether the workspace may put projects in production. Absent from a runtime that doesn't gate production.
     """
     production_next: Annotated[str | None, Field(alias="productionNext")] = None
     """
@@ -17668,7 +17859,7 @@ class ScheduleRecord(BaseModel):
         Annotated[Literal["latest", "skip"] | str, _open.OPEN] | None, Field(alias="catchUp")
     ] = None
     """
-    After a gap (the runtime was down, or a fire is later than `startingDeadlineSeconds`): `latest` runs once, for the latest missed occurrence, and its fire says how many it missed; `skip` drops the missed occurrences. Never a run per missed occurrence. A tenant's suspension isn't caught up either way: once the tenant is restored, a schedule that's on fires next at its first occurrence after the restore.
+    After a gap (the runtime was down, or a fire is later than `startingDeadlineSeconds`): `latest` runs once, for the latest missed occurrence, and its fire says how many it missed; `skip` drops the missed occurrences. Never a run per missed occurrence. A workspace's suspension isn't caught up either way: once the workspace is restored, a schedule that's on fires next at its first occurrence after the restore.
     """
     overlap: Annotated[Literal["skip", "allow"] | str, _open.OPEN] | None = None
     """
@@ -17708,7 +17899,7 @@ class ScheduleRecord(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
     next_fire_at: Annotated[AwareDatetime | None, Field(alias="nextFireAt")]
     """
@@ -17758,7 +17949,7 @@ class RegisterScheduleBody(BaseModel):
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The schedule's project. Absent → for `improve`, `improve.projectId` (another is refused); else the tenant's default project.
+    The schedule's project. Absent → for `improve`, `improve.projectId` (another is refused); else the workspace's default project.
     """
     run_as_service_account_id: Annotated[
         str | None, Field(alias="runAsServiceAccountId", min_length=1)
@@ -17791,7 +17982,7 @@ class RegisterScheduleBody(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    The tools whose calls in this schedule's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the schedule's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    The tools whose calls in this schedule's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the schedule's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
@@ -17842,7 +18033,7 @@ class PatchScheduleBody(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    Replaces the schedule's list; `[]` clears it, and absent keeps it. Naming it takes `admin` on the schedule's project. A change of what it runs (another flow or agent) while the list isn't empty must name it again, as it is or `[]`; a new version alone keeps it. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    Replaces the schedule's list; `[]` clears it, and absent keeps it. Naming it takes `admin` on the schedule's project. A change of what it runs (another flow or agent) while the list isn't empty must name it again, as it is or `[]`; a new version alone keeps it. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
@@ -17858,7 +18049,7 @@ class WebhookTriggerRecord(BaseModel):
     trigger_id: Annotated[str, Field(alias="triggerId")]
     webhook_id: Annotated[str, Field(alias="webhookId")]
     """
-    The routable id in the receive URL. Route-minted (a random UUID); unique per tenant. Not a secret: the signature is what a request is checked by.
+    The routable id in the receive URL. Route-minted (a random UUID); unique per workspace. Not a secret: the signature is what a request is checked by.
     """
     receive_url: Annotated[AnyUrl | None, Field(alias="receiveUrl")] = None
     """
@@ -17894,7 +18085,7 @@ class WebhookTriggerRecord(BaseModel):
         Field(alias="hmacSecretScope"),
     ] = None
     """
-    Where the signing secret is read, recorded when the trigger was registered (or its secret named again). `null`: none usable, so no delivery verifies until an admin names it again. Absent on triggers registered before it was recorded: read at the tenant, as before.
+    Where the signing secret is read, recorded when the trigger was registered (or its secret named again). `null`: none usable, so no delivery verifies until an admin names it again. Absent on triggers registered before it was recorded: read at the workspace, as before.
     """
     signing_secret: Annotated[str | None, Field(alias="signingSecret")] = None
     """
@@ -17945,7 +18136,7 @@ class WebhookTriggerRecord(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    The tools whose calls in this trigger's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    The tools whose calls in this trigger's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
     last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
@@ -17971,12 +18162,12 @@ class RegisterWebhookTriggerBody(BaseModel):
     flow_version: Annotated[str, Field(alias="flowVersion", min_length=1)]
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The trigger's project; absent: the tenant's default project.
+    The trigger's project; absent: the workspace's default project.
     """
     config: RegisterWebhookTriggerBodyConfig | None = None
     hmac_secret_name: Annotated[str, Field(alias="hmacSecretName", min_length=1)]
     """
-    The signing secret, by name: written first with `POST /v1/secrets`, and read at the first of the trigger's project, its org and the tenant that has it and that you administer (`hmacSecretScope`); or the name `generateSecret` stores a new one under. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing). Under `kindgi dev`, `generateSecret` writes it to an env file, so the name is capital letters, digits and underscores, not starting with a digit (`secret-name-invalid` otherwise).
+    The signing secret, by name: written first with `POST /v1/secrets`, and read at the first of the trigger's project, its org and the workspace that has it and that you administer (`hmacSecretScope`); or the name `generateSecret` stores a new one under. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing). Under `kindgi dev`, `generateSecret` writes it to an env file, so the name is capital letters, digits and underscores, not starting with a digit (`secret-name-invalid` otherwise).
     """
     generate_secret: Annotated[bool | None, Field(alias="generateSecret")] = None
     """
@@ -18022,7 +18213,7 @@ class RegisterWebhookTriggerBody(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    The tools whose calls in this trigger's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the trigger's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    The tools whose calls in this trigger's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the trigger's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
@@ -18070,7 +18261,7 @@ class PatchWebhookTriggerBody(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    Replaces the trigger's list; `[]` clears it, and absent keeps it (a new `flowVersion` too). Naming it takes `admin` on the trigger's project, and it's checked against the flow at the version the trigger will run. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    Replaces the trigger's list; `[]` clears it, and absent keeps it (a new `flowVersion` too). Naming it takes `admin` on the trigger's project, and it's checked against the flow at the version the trigger will run. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
@@ -18121,7 +18312,7 @@ class ScheduleDefinition(BaseModel):
         Annotated[Literal["latest", "skip"] | str, _open.OPEN], Field(alias="catchUp")
     ]
     """
-    After a gap (the runtime was down, or a fire is later than `startingDeadlineSeconds`): `latest` runs once, for the latest missed occurrence, and its fire says how many it missed; `skip` drops the missed occurrences. Never a run per missed occurrence. A tenant's suspension isn't caught up either way: once the tenant is restored, a schedule that's on fires next at its first occurrence after the restore.
+    After a gap (the runtime was down, or a fire is later than `startingDeadlineSeconds`): `latest` runs once, for the latest missed occurrence, and its fire says how many it missed; `skip` drops the missed occurrences. Never a run per missed occurrence. A workspace's suspension isn't caught up either way: once the workspace is restored, a schedule that's on fires next at its first occurrence after the restore.
     """
     overlap: Annotated[Literal["skip", "allow"] | str, _open.OPEN]
     """
@@ -18137,7 +18328,7 @@ class ScheduleDefinition(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
@@ -18227,7 +18418,7 @@ class WebhookTriggerDefinition(BaseModel):
         Field(alias="hmacSecretScope"),
     ] = None
     """
-    Where the signing secret is read, recorded when the trigger was registered (or its secret named again). `null`: none usable, so no delivery verifies until an admin names it again. Absent on triggers registered before it was recorded: read at the tenant, as before.
+    Where the signing secret is read, recorded when the trigger was registered (or its secret named again). `null`: none usable, so no delivery verifies until an admin names it again. Absent on triggers registered before it was recorded: read at the workspace, as before.
     """
     signature: Annotated[
         WebhookSignatureHmacSha256
@@ -18256,7 +18447,7 @@ class WebhookTriggerDefinition(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    The tools whose calls in this trigger's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    The tools whose calls in this trigger's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
@@ -18344,7 +18535,7 @@ class SignIn(BaseModel):
     kind: Annotated[Literal["oauth2", "github-app"] | str, _open.OPEN]
     tenant: ConnectionEntrySignInTenant | None = None
     """
-    Present when the sign-in happens in a directory of the app's own (Microsoft's tenant, not a Kindgi tenant). A registration's `oauth2.tenant` names it; without `default`, each registration must give its own.
+    Present when the sign-in happens in a directory of the app's own (Microsoft's tenant, not a Kindgi workspace). A registration's `oauth2.tenant` names it; without `default`, each registration must give its own.
     """
 
 
@@ -18395,6 +18586,106 @@ class ConnectionEntryList(BaseModel):
     data: list[ConnectionEntry]
 
 
+class ConnectionChoice(BaseModel):
+    """
+    Which connection an agent or a flow uses for an app in a project, in one env: `agentId` or `flowId`, one of them. The company's, or a person's own (`person`), for their runs. With `toolId`, it's that tool's, which comes before the agent's or flow's. A choice is never changed: changing it removes it and makes a new one at the next version.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    choice_id: Annotated[UUID, Field(alias="choiceId")]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    env_name: Annotated[str, Field(alias="envName")]
+    agent_id: Annotated[str | None, Field(alias="agentId")] = None
+    flow_id: Annotated[str | None, Field(alias="flowId")] = None
+    app: str
+    """
+    The app's entry id (`google`): the connection's.
+    """
+    tool_id: Annotated[str | None, Field(alias="toolId")] = None
+    """
+    The tool it's for, with `need`. Absent: the agent's or flow's choice, for every tool's need of the app.
+    """
+    need: str | None = None
+    """
+    The tool's name for the connection (`calendar`), with `toolId`.
+    """
+    connection_id: Annotated[UUID, Field(alias="connectionId")]
+    """
+    The chosen connection, and a set's default. A choice of a connection that's since been disconnected stays until it's set again or removed.
+    """
+    connection_ids: Annotated[
+        list[UUID] | None, Field(alias="connectionIds", max_length=10, min_length=2)
+    ] = None
+    """
+    A set: the connections a call of the tool may name one of (by its name), `connectionId` among them. A call that names none uses `connectionId`. Only a tool's choice, for a tool that changes nothing. Absent for one connection.
+    """
+    person: ConnectionChoicePerson | None = None
+    """
+    Whose choice it is, for a person's connection: theirs alone to make, change or remove. Absent: the company's.
+    """
+    version: Annotated[int, Field(ge=1)]
+    """
+    From 1, per project, env, agent or flow, app, tool and need, and person.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    created_by: Annotated[str, Field(alias="createdBy")]
+    removed_at: Annotated[AwareDatetime | None, Field(alias="removedAt")] = None
+    """
+    When it was removed, or replaced by a new choice. Only a removed choice has it.
+    """
+    removed_by: Annotated[str | None, Field(alias="removedBy")] = None
+
+
+class ConnectionChoicePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ConnectionChoice]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class ConnectionChoiceNeed(BaseModel):
+    """
+    One of a tool's connections, and whether a choice for it may be a set.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool_id: Annotated[str, Field(alias="toolId")]
+    need: str
+    """
+    The tool's name for the connection.
+    """
+    app: str
+    """
+    The app's entry id.
+    """
+    as_: Annotated[Annotated[Literal["company", "person"] | str, _open.OPEN], Field(alias="as")]
+    """
+    Whose connection: the company's, or the run's person's.
+    """
+    set: ConnectionChoiceNeedSet
+
+
+class ConnectionChoiceNeeds(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ConnectionChoiceNeed]
+    unread: list[str] | None = None
+    """
+    The tools whose version couldn't be read, refused or gone.
+    """
+
+
 class ConnectRequest(BaseModel):
     """
     A connect: the owner goes to `connectUrl`, consents at the app, and comes back. A run that needs a connection it lacks waits on one.
@@ -18423,6 +18714,10 @@ class ConnectRequest(BaseModel):
     reconnects: UUID | None = None
     """
     The connection it connects again; the same account is required.
+    """
+    label: str | None = None
+    """
+    The name asked for the connection it makes. A reconnect keeps the connection's.
     """
     run_id: Annotated[str | None, Field(alias="runId")] = None
     """
@@ -18478,9 +18773,21 @@ class ConnectFinish(BaseModel):
     """
     Present when `kind` is `connected`.
     """
+    reconnected: bool | None = None
+    """
+    Present when `kind` is `connected`. `true`: the finish landed on a connection that was already there, the one `reconnects` named or the owner's connection of the same account, the company's or the person's, and that connection keeps its name. `false`: it made a new one.
+    """
+    label_taken: Annotated[str | None, Field(alias="labelTaken")] = None
+    """
+    Present when `kind` is `connected` and the name the new connection was to get (the one asked for, else the account's label after the name rules) was already another connection's by the finish. The connection is then named the first free `<name> 2`, `<name> 3` and so on, which `connection.label` holds.
+    """
     reviewer_seat: Annotated[bool | None, Field(alias="reviewerSeat")] = None
     """
     On a server with approvals, for a member who connected: whether they have a reviewer seat, which approving a send from their own account needs.
+    """
+    main: ConnectFinishMain | None = None
+    """
+    Present when `kind` is `connected`, `reconnected` is `false`, and the person already had a connection through the registration in the env.
     """
 
 
@@ -18651,7 +18958,7 @@ class AgentProject(BaseModel):
     project_id: Annotated[UUID, Field(alias="projectId")]
     follows: Annotated[Literal["pin", "latest"] | str, _open.OPEN] | None = None
     """
-    Why `runs` runs there: `pin`, a pin that covers the project (its own, its org's or the tenant's); `latest`, no pin covers it, so it runs its Latest. Absent when neither has a version the caller can see, or when the server doesn't pin versions.
+    Why `runs` runs there: `pin`, a pin that covers the project (its own, its org's or the workspace's); `latest`, no pin covers it, so it runs its Latest. Absent when neither has a version the caller can see, or when the server doesn't pin versions.
     """
     runs: AgentProjectRuns | None = None
     segments: list[AgentProjectSegmentPin] | None = None
@@ -18693,7 +19000,7 @@ class Run(BaseModel):
         Field(alias="flowVersionVia"),
     ] = None
     """
-    How the run's flow version was chosen, recorded when the run was created: `explicit` (the start named it), `pinned` (the version pinned for the run's project, its org or the tenant; `flowPinnedScope` names the pin) or `latest` (the newest version the run's project reaches). Absent when the runtime didn't record it, as on runs from before it did.
+    How the run's flow version was chosen, recorded when the run was created: `explicit` (the start named it), `pinned` (the version pinned for the run's project, its org or the workspace; `flowPinnedScope` names the pin) or `latest` (the newest version the run's project reaches). Absent when the runtime didn't record it, as on runs from before it did.
     """
     flow_pinned_scope: Annotated[
         Annotated[
@@ -18704,7 +19011,7 @@ class Run(BaseModel):
         Field(alias="flowPinnedScope"),
     ] = None
     """
-    Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
+    Where a flow or tool version is pinned, from least to most specific: workspace, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
     """
     status: Annotated[
         Literal["pending", "running", "suspended", "completed", "failed", "cancelled"] | str,
@@ -18808,7 +19115,7 @@ class Datum(BaseModel):
         Field(alias="flowVersionVia"),
     ] = None
     """
-    How the run's flow version was chosen, recorded when the run was created: `explicit` (the start named it), `pinned` (the version pinned for the run's project, its org or the tenant; `flowPinnedScope` names the pin) or `latest` (the newest version the run's project reaches). Absent when the runtime didn't record it, as on runs from before it did.
+    How the run's flow version was chosen, recorded when the run was created: `explicit` (the start named it), `pinned` (the version pinned for the run's project, its org or the workspace; `flowPinnedScope` names the pin) or `latest` (the newest version the run's project reaches). Absent when the runtime didn't record it, as on runs from before it did.
     """
     flow_pinned_scope: Annotated[
         Annotated[
@@ -18819,7 +19126,7 @@ class Datum(BaseModel):
         Field(alias="flowPinnedScope"),
     ] = None
     """
-    Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
+    Where a flow or tool version is pinned, from least to most specific: workspace, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
     """
     status: Annotated[
         Literal["pending", "running", "suspended", "completed", "failed", "cancelled"] | str,
@@ -19370,7 +19677,7 @@ class PersonGrants(BaseModel):
     """
     tenant_member: Annotated[bool | None, Field(alias="tenantMember")] = None
     """
-    Whether the person is a tenant member: they read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. A person is one from being added. Absent when the runtime has no authorization store, or doesn't report it.
+    Whether the person is a tenant member: they read the workspace's settings (providers, policies, adapters, signing keys, deployments), not its projects. A person is one from being added. Absent when the runtime has no authorization store, or doesn't report it.
     """
     projects: list[PersonProjectRole]
     """
@@ -19601,7 +19908,7 @@ class MCPEndpointCollectionPage(BaseModel):
 
 class UserRecord(BaseModel):
     """
-    Tenant-scoped user record (admin plane). `primaryEmail` may be redacted on the wire based on tenant policy (the routes treat it as opaque). `metadata` is free-form JSON — deployments carry IdP claims / provisioning source / roles here.
+    Workspace-scoped user record (admin plane). `primaryEmail` may be redacted on the wire based on workspace policy (the routes treat it as opaque). `metadata` is free-form JSON — deployments carry IdP claims / provisioning source / roles here.
     """
 
     model_config = ConfigDict(
@@ -19616,7 +19923,7 @@ class UserRecord(BaseModel):
     last_active_at: Annotated[AwareDatetime | None, Field(alias="lastActiveAt")] = None
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
     """
-    When they were removed from the tenant (`POST /v1/identity/users/{userId}/unregister`); absent while they are here.
+    When they were removed from the workspace (`POST /v1/identity/users/{userId}/unregister`); absent while they are here.
     """
     invite: UserInvite | None = None
     """
@@ -19725,7 +20032,7 @@ class WhoamiResult(BaseModel):
     """
     tenant_admin: Annotated[bool | None, Field(alias="tenantAdmin")] = None
     """
-    Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the tenant when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.
+    Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the workspace when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.
     """
     served_env: Annotated[ServedEnv | None, Field(alias="servedEnv")] = None
     """

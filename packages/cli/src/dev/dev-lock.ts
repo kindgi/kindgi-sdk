@@ -24,6 +24,8 @@ import { randomUUID } from 'node:crypto';
 import { link, mkdir, open, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
+import { programPath } from '../program-path.js';
+
 /** What a running `kindgi dev` says about itself in its lock. */
 export interface DevLockRecord {
   readonly pid: number;
@@ -228,15 +230,18 @@ export function osProcesses(): DevLockProcesses {
         return (cause as NodeJS.ErrnoException).code === 'EPERM';
       }
     },
-    startTime(pid) {
-      if (process.platform === 'win32') return Promise.resolve(undefined);
+    async startTime(pid) {
+      if (process.platform === 'win32') return undefined;
+      // In one locale and time zone, whatever the shell's: a `kindgi dev`
+      // started from another terminal (another TZ or LANG, an agent's
+      // `LC_ALL=C`) reads the same start time, so a live one stays live.
+      const env = { ...process.env, LC_ALL: 'C', TZ: 'UTC' };
+      // The ps on PATH, never one in this folder.
+      const ps = await programPath('ps', env).catch(() => undefined);
+      if (ps === undefined) return undefined;
       return new Promise((resolve) => {
-        // In one locale and time zone, whatever the shell's: a `kindgi dev`
-        // started from another terminal (another TZ or LANG, an agent's
-        // `LC_ALL=C`) reads the same start time, so a live one stays live.
-        const env = { ...process.env, LC_ALL: 'C', TZ: 'UTC' };
         execFile(
-          'ps',
+          ps,
           ['-o', 'lstart=', '-p', String(pid)],
           { timeout: 2_000, env },
           (err, stdout) => {

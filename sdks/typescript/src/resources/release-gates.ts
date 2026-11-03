@@ -13,7 +13,7 @@ import { scopeQuery } from './agents.js';
 /**
  * Release gates: what an agent version must show before it is pinned for
  * a scope. One gate per agent and scope; the caller names the gate and
- * its semver versions. Writes need `admin` on the tenant.
+ * its semver versions. Writes need `admin` on the workspace.
  */
 export interface ReleaseGatesClient {
   /**

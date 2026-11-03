@@ -14,7 +14,7 @@ description: >
   kindgi-python-getting-started.
 type: core
 library: "kindgi (Python)"
-version: "0.1.8"
+version: "0.1.11"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -102,7 +102,7 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
 
 ## `ToolContext`
 
-- `ctx.tenant_id` — the tenant the call is for. Key any per-tenant
+- `ctx.tenant_id` — the workspace the call is for. Key per-workspace
   state by it.
 - `ctx.run_id` — the run (an agent turn or a flow step) the call belongs to.
 - `ctx.request_id` — this call, e.g. the model's tool-call id; for logs.
@@ -114,7 +114,7 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
   system it writes to (an `Idempotency-Key` header, a client reference, a
   unique column) or looks for it there first: a refund never goes out
   twice. A UUID; `None` outside a run and from a runtime before 0.1.6.
-  Docs: https://docs.kindgi.com/v0.3/guides/tools/write-a-tool/#make-a-side-effect-happen-once
+  Docs: https://docs.kindgi.com/v0.4/guides/tools/write-a-tool/#make-a-side-effect-happen-once
 - `ctx.project_id`, `ctx.org_id` — the run's project, and that project's
   org (`None` when it has none). The runtime sets them from the run, never
   from the input: to check an org or project id the input names, compare
@@ -125,9 +125,9 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
   `ctx.cancellation.cancelled`, call `ctx.cancellation.raise_if_cancelled()`,
   or wait with `ctx.cancellation.wait(timeout)` between slow steps.
 - `ctx.secrets` — the secrets the tool declares in `needs_spec`,
-  resolved for the call's tenant (below).
+  resolved for the call's workspace (below).
 - `ctx.env` — the env values the tool declares in `needs_spec`, resolved
-  for the call: its project's value, else its org's, else the tenant's
+  for the call: its project's value, else its org's, else the workspace's
   (`kindgi env set NAME <value> --scope=project:<id> --env=<env>`).
   Strings, and not secret. Empty from an older runtime.
 - `ctx.config` — **reserved, empty today**.
@@ -138,7 +138,7 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
   amounts and outcomes, never what a person typed (a refund's reason, a
   message, an address): the log is read by whoever operates the runtime.
   `ToolContext.for_test(…)` logs nothing unless you pass it `log=`. Docs:
-  https://docs.kindgi.com/v0.3/guides/tools/write-a-tool/#log-from-a-tool
+  https://docs.kindgi.com/v0.4/guides/tools/write-a-tool/#log-from-a-tool
 
 ## Work that takes longer than a call
 
@@ -151,7 +151,7 @@ its next `await`; a `def` handler runs on unless it checks `ctx.cancellation`.
   `"tool-error"` in `retryOn`. The list replaces the default, so keep
   `"invalid-arguments"` and `"unknown-tool"` in it:
   `tool_errors={"maxRetries": 1, "retryOn": ["invalid-arguments", "unknown-tool", "tool-error"]}`.
-  The keys inside stay camelCase: never `retry_on`. The tenant's
+  The keys inside stay camelCase: never `retry_on`. The workspace's
   `tool-errors` policy can narrow it further.
 - In a flow, the step fails. An edge's `retry` may run it again while the
   first handler still runs, with the same `ctx.idempotency_key`: pass the
@@ -175,12 +175,12 @@ it. Ask the user how the other system reports back, then:
 - It can't call back: return the job's id, and check it from a scheduled
   flow.
 
-Docs: https://docs.kindgi.com/v0.3/guides/tools/write-a-tool/#work-that-takes-longer-than-a-call
-and https://docs.kindgi.com/v0.3/guides/tools/wait-for-another-system/
+Docs: https://docs.kindgi.com/v0.4/guides/tools/write-a-tool/#work-that-takes-longer-than-a-call
+and https://docs.kindgi.com/v0.4/guides/tools/wait-for-another-system/
 
 ## Configuration and secrets
 
-A secret that belongs to the tenant — an API key a customer gives you —
+A workspace's secret — an API key a customer gives you —
 is declared, and read from `ctx.secrets`:
 
 ```python
@@ -194,7 +194,7 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
 ```
 
 The runtime resolves every declared secret on every call — for the
-call's tenant, in its env (`KINDGI_ENV`; in `kindgi dev`, `local`: the
+call's workspace, in its env (`KINDGI_ENV`; in `kindgi dev`, `local`: the
 pack's `.env` and `.env.local`, then Kindgi's own `.kindgi/secrets.env`, where
 `kindgi secrets set` writes) — checks it against its schema, and
 fails the call, naming the secret, when it is missing or doesn't match.
@@ -204,7 +204,7 @@ has empty, is absent from `ctx.secrets` (read it with `.get`), and the call
 goes on (runtime 0.1.6 or later; an older runtime requires it). In a test, pass them:
 `ToolContext.for_test(secrets={"CITATOR_KEY": "…"})`.
 
-A value that differs per tenant, org or project but isn't secret (a base URL, a region, an account id) is an **env value**: declared in `needs_spec`, read from `ctx.env`:
+A value that differs per workspace, org or project but isn't secret (a base URL, region or account id) is an **env value**: declared in `needs_spec`, read from `ctx.env`:
 
 ```python
 @tool(
@@ -222,11 +222,11 @@ def find_order(lookup: Lookup, ctx: ToolContext) -> Found:
     return Found(url=f"{ctx.env['ORDERS_BASE_URL']}/{ctx.env['ORDERS_REGION']}/orders/{lookup.order_id}")
 ```
 
-- **Which value a call gets:** its project's, else its org's, else the tenant's, in the runtime's env; a schema `default` makes a name optional. The values a call used are recorded with it, so a retry or a resume sees the same ones.
+- **Which value a call gets:** its project's, else its org's, else the workspace's, in the runtime's env; a schema `default` makes a name optional. The values a call used are recorded with it, so a retry or a resume sees the same ones.
 - **Setting them:** `kindgi env set ORDERS_REGION us --scope=project:<project-id> --env=local` (or `--scope=tenant`, for every project). Changing a value that's already set takes `--force`.
 - **A declared value nobody set** stops the call before the tool runs. For a tool `acme-orders.needs-account` that declares `ACME_ACCOUNT_ID`, the message reads:
   ```text
-  precondition-failed: Tool "acme-orders.needs-account" was not run: env-value-missing: tool "acme-orders.needs-account" needs env value "ACME_ACCOUNT_ID" in env "local", and none is set for project e889c1f5-eae7-45dc-8669-5bd029a5d85c, its org, or the tenant. Set it: kindgi env set ACME_ACCOUNT_ID <value> --scope=project:e889c1f5-eae7-45dc-8669-5bd029a5d85c --env=local (or --scope=tenant, for every project)
+  precondition-failed: Tool "acme-orders.needs-account" was not run: env-value-missing: tool "acme-orders.needs-account" needs env value "ACME_ACCOUNT_ID" in env "local", and none is set for project e889c1f5-eae7-45dc-8669-5bd029a5d85c, its org, or the workspace. Set it: kindgi env set ACME_ACCOUNT_ID <value> --scope=project:e889c1f5-eae7-45dc-8669-5bd029a5d85c --env=local (or --scope=tenant, for every project)
   ```
 - **Not secret:** env values are recorded with each run that uses them and shown in its journal. A credential is a secret, never an env value.
 - **In a test:** `ToolContext.for_test(tool=find_order, env={"ORDERS_BASE_URL": "…"})` decides them as a run does: a schema `default` fills a name the test doesn't set, each value is checked, and a missing or invalid one raises `ValueError`.
@@ -270,14 +270,14 @@ def send_mail(message: Message, ctx: ToolContext) -> Sent:
     # …
 ```
 
-- **Whose connection:** `"as": "person"` is the connection of the person the run acts as (whoever started it, or the owner of the schedule or webhook that did); `"as": "company"` is the company's. The runtime picks it from the run, never from the input or the model. A run that acts as nobody (a service account's, an event's) fails a `"person"` call with `connection-needs-a-person`.
+- **Whose connection:** `"as": "person"` is the connection of the person the run acts as (whoever started it, or the owner of the schedule or webhook that did); `"as": "company"` is the company's. With several company connections of one app, the mailbox the run's mail came to says which, else the agent's or flow's choice; with neither, the run fails with `connection-not-chosen`. The runtime picks it from the run, never from the input or the model. A run that acts as nobody (a service account's, an event's) fails a `"person"` call with `connection-needs-a-person`.
 - **The token:** `access_token` is current for this call only. Never keep, print, log or return it; it never reaches the journal. `account.label` says whose account it is (`ana@acme.com`).
 - **A 401 from the app:** `raise ConnectionRejected("mail")`, with the connection's name (a second argument can say what the app answered, never the token), or raise your own error `from` it. The runtime renews the token once and runs the call again; refused again, the call fails with `connection-rejected`.
 - **An HTTP tool** sends the token with no code: `authorization={"kind": "connection", "connection": "mail"}`.
 - **Unattended runs:** in a run no person started, a tool that uses a `"person"` connection waits for that person's yes, reads included: `mutating=False` doesn't lift it. The agent's own approval settings can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needs_approval_when_unattended` (below). In a run a new mail started, the mail is a stranger's text, so two more calls wait: a call of a tool that isn't `mutating=False`, and, when the trigger reads the company's mailbox, a read with the company's connection to that app. The mail trigger's `toolsAllowedUnattended` lifts these too.
 - **In a unit test:** `ToolContext.for_test(connections={"mail": ToolConnection(connection_id="c-1", app="google", app_name="Google", access_token="test", account=ConnectionAccount(id="1", label="ana@acme.com"))})`, all from `kindgi`. `ctx.connections` is empty when the tool declares none.
 
-Docs: https://docs.kindgi.com/v0.3/guides/connections/use-a-connection/
+Docs: https://docs.kindgi.com/v0.4/guides/connections/use-a-connection/
 
 ## Errors and output
 
@@ -333,7 +333,7 @@ policy and review; declare what the tool really does.
 
 - **An agent's call waits** for a person's yes, whatever the agent's `conversation_policy` says in `hitl["tools"]`. The agent's rules can't lift it: agents are reused, and the tool's author knows what it does.
 - **A flow's tool step that calls it is refused.** Put the tool behind an agent step instead, whose call waits.
-- **A trigger can lift both, for its own runs only.** A project admin names the tool in a webhook trigger's, a schedule's or a mail trigger's `toolsAllowedUnattended` (`--allow-unattended=<tool-id>` on `kindgi webhooks`, `kindgi schedules` and `kindgi mail-triggers`). In that trigger's runs, the tool is then as in a run a person started. The tenant's approval rules still apply.
+- **A trigger can lift both, for its own runs only.** A project admin names the tool in a webhook trigger's, a schedule's or a mail trigger's `toolsAllowedUnattended` (`--allow-unattended=<tool-id>` on `kindgi webhooks`, `kindgi schedules` and `kindgi mail-triggers`). In that trigger's runs, the tool is as in a run a person started. The workspace's approval rules still apply.
 
 In a run a person started (signed in, or with their own API key), the agent's rules decide, as for any tool. Left out, it counts as `False`. Declare it on a tool that moves money or changes something people rely on:
 
@@ -348,7 +348,7 @@ def refund(request: RefundRequest) -> Refunded:
     """Refunds an order."""
 ```
 
-Docs: https://docs.kindgi.com/v0.3/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
+Docs: https://docs.kindgi.com/v0.4/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
 
 ## Results that are text from outside: `result_is_outside_data`
 
@@ -485,7 +485,7 @@ removed field, a narrower type — not on every save.
     folder, `~/.aws`) or any `.env*` file, and gets `EPERM` there. A tool that
     needs a path names it in `pyproject.toml`: `[tool.kindgi.dev.sandbox]` `allowRead = ["~/.aws"]`.
     Never set `KINDGI_DEV_SANDBOX=off` or `dev.sandbox: false` to get past it
-    (https://docs.kindgi.com/v0.3/guides/secrets/dev-sandbox/).
+    (https://docs.kindgi.com/v0.4/guides/secrets/dev-sandbox/).
 
 ## When the framework itself is the problem
 

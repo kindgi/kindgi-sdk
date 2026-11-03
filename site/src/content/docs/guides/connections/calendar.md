@@ -8,7 +8,7 @@ sidebar:
 
 The calendar tools work on the calendar of the account someone connected:
 their own, or, with `as: 'company'`, the company's calendar that a tenant
-admin connected. There are four for Google Calendar and four for Outlook.
+admin connected. There are five for Google Calendar and five for Outlook.
 Each one asks for the least access its call takes.
 
 They use the same Google or Microsoft connection as the mail tools. Turn
@@ -22,6 +22,7 @@ or [Microsoft](../microsoft/#2-register-the-app-in-microsoft-entra), step 3.
 | --- | --- | --- | --- |
 | Lists the events in a window | `googleCalendarEventsList` | `outlookCalendarEventsList` | Google: see the events on your calendars. Outlook: see your calendar's events, without their details. |
 | Says when the calendar is busy | `googleCalendarFreeBusy` | `outlookCalendarFreeBusy` | Google: see when you're free or busy. Outlook: the same as a list. |
+| Lists the calendars | `googleCalendarCalendarsList` | `outlookCalendarCalendarsList` | Google: see the list of your calendars. Outlook: the same as a list. |
 | Adds an event | `googleCalendarEventCreate` | `outlookCalendarEventCreate` | Add and change events (Google), or read, add and change them (Outlook). |
 | Changes an event | `googleCalendarEventUpdate` | `outlookCalendarEventUpdate` | The same as adding one. |
 
@@ -45,6 +46,46 @@ export default googleCalendarEventCreate({ id: 'acme.store-calendar.create', as:
 A list gives each event's title, time, place, organizer and who's invited
 (the first 20, with a count of the rest), not its description. A Google list can also search with `query`, for words
 in the title, place, description and people.
+
+## Several calendars
+
+A list and a free/busy read the main calendar. To read others, such as a
+team's or a project's, a tool first lists the calendars. Each one comes
+with its `id`, its `name`, whether it's the `main` one, the `access` the
+account has (`owner`, `write` or `read`, and on Google `free-busy` too),
+and its `owner` when that's someone else:
+
+```json
+{
+  "calendars": [
+    { "id": "ana@acme.example", "name": "Ana", "main": true, "access": "owner" },
+    { "id": "c_team@group.calendar.google.com", "name": "Team", "main": false, "access": "owner" }
+  ]
+}
+```
+
+Then a list or a free/busy takes up to 10 of those ids in `calendarIds`,
+with its window:
+
+```json
+{
+  "from": "2026-11-03T00:00:00Z",
+  "to": "2026-11-10T00:00:00Z",
+  "calendarIds": ["ana@acme.example", "c_team@group.calendar.google.com"]
+}
+```
+
+- **A list** gives the events of all of them in one list by start, each
+  with its `calendarId`. `top` counts across them, and an event on two of
+  them comes once from each.
+- **A free/busy** joins their busy times.
+- **What a list can read:** Google reads only a calendar the account owns,
+  one whose entry shows `access: "owner"` and no `owner`, since its event
+  permission reaches no other. Outlook reads each with the same permission
+  as the main one. When Google or Microsoft refuses a calendar, the call
+  fails and names it.
+- **Outlook's free/busy** reads at most 1000 events across the calendars.
+  Past that, it fails: ask for a shorter window or fewer calendars.
 
 ## Times
 
@@ -96,15 +137,18 @@ Your own client or app asks for these permissions, so Google and Microsoft
 review your registration, not Kindgi's.
 
 - **Google:** `calendar.events.owned.readonly` to list,
-  `calendar.freebusy` for free/busy, and `calendar.events.owned` to add and
-  change. The two event permissions reach only calendars the account owns,
-  and `calendar.freebusy` shows only when it's free or busy. Google counts
-  calendar permissions as sensitive.
+  `calendar.freebusy` for free/busy, `calendar.calendarlist.readonly` to
+  list the calendars, and `calendar.events.owned` to add and change. The two
+  event permissions reach only calendars the account owns,
+  `calendar.freebusy` shows only when it's free or busy, and
+  `calendar.calendarlist.readonly` shows the calendars, not their events.
+  Google counts calendar permissions as sensitive.
   - With **Audience: Internal**, there's no review.
   - With **External**, an app Google hasn't verified shows its "unverified
     app" screen and takes at most 100 accounts, as for Gmail
     ([Google](../google/#1-create-the-client-in-the-google-cloud-console)).
-- **Microsoft:** `Calendars.ReadBasic` to list and for free/busy, and
+- **Microsoft:** `Calendars.ReadBasic` to list events and calendars and for
+  free/busy, and
   `Calendars.ReadWrite` to add and change. Neither needs an admin's consent
   by default. Your directory may still ask for it
   ([Admin consent](../microsoft/#admin-consent)).
@@ -119,6 +163,11 @@ In any other run, it fails with `connection-missing`
 ([Errors when a call uses a connection](../reference/#errors-when-a-call-uses-a-connection)).
 Connecting again asks for what the connection had as well as the calendar,
 so their mail keeps working, with Google and with Microsoft.
+
+The same goes for Google's calendars list on a connection made before it
+came: the connection lacks `calendar.calendarlist.readonly` until the
+person allows it. A list or a free/busy with `calendarIds` needs nothing
+new, and neither does Outlook's calendars list.
 
 ## Limits
 
@@ -135,6 +184,7 @@ so their mail keeps working, with Google and with Microsoft.
 ## Not here yet
 
 - Starting a run when an event is booked, changed or about to start.
-- Other people's calendars, shared and delegated calendars, and free/busy
-  for colleagues.
+- Events on a Google calendar the account doesn't own, delegated
+  calendars, and free/busy for colleagues.
+- Adding or changing events on a calendar other than the main one.
 - Deleting an event, and making or changing a repeating series.

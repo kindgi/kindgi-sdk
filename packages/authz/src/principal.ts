@@ -97,7 +97,7 @@ export function serviceAccountPrincipal(serviceAccountId: string, tenantId: Tena
 
 /**
  * Build a delegated principal: `actor` acting on behalf of `onBehalfOf`.
- * Both must be in the same tenant (checked at construction; mismatches
+ * Both must be in the same workspace (checked at construction; mismatches
  * are configuration bugs, not runtime authz denials).
  */
 export function delegate(
@@ -138,7 +138,7 @@ export function downscope(principal: Principal, scope: DownscopedPermissions): P
  * - `agent`           → `agent:${id}`
  * - `service_account` → `service_account:${id}` (machine identity
  *                       with narrow grants)
- * - `system`          → `user:system` (service identity the tenant's
+ * - `system`          → `user:system` (service identity the workspace's
  *                       setup grants tenant admin; with one FGA store
  *                       per tenant the string never crosses tenant
  *                       boundaries)

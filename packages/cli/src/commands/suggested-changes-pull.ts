@@ -25,8 +25,8 @@ import semver from 'semver';
 import type { CommandContext } from '../context.js';
 import { repoOf } from '../deploy/source.js';
 import { UsageError } from '../errors.js';
-import { findOnPath } from '../git.js';
 import { type Rendered, renderJson } from '../output.js';
+import { findOnPath } from '../program-path.js';
 import { resolveProjectRef } from '../project-ref.js';
 import { gitCaller, gitEnv, uncommittedFiles } from '../uncommitted-files.js';
 import {

@@ -1,5 +1,106 @@
 # @kindgi/runtime
 
+## 0.4.0
+
+### Patch Changes
+
+- 3a1502d: **An Improve run works in a project, checks it's ready first, and keeps a change only when it passes more of the cases and fails none that passed.** This is a breaking change, and no old name is kept.
+  
+  - **Start.** `POST /v1/improve-runs` takes `{ agentId, projectId, tiers?, model?, candidates?, budget?, objective?, groupWeights? }`. `projectId` is required; `scope`, `testSetId` and `fromVersion` are gone, and a body that sends them is refused (`400 bad-input`, naming the field). It starts from the version the project runs (pinned there, else the agent's latest), takes the project's open corrections sorted to Improve, and searches and proves on the project's test set. `tiers` left out tries every tier that's ready, and `candidates` left out takes the runtime's default.
+  - **The readiness check.** `POST /v1/improve-runs/check` answers `{ ready, startsFrom, items, estimate, month }`: `items` lists `wording`, `settings`, `test-cases`, `permission`, `one-at-a-time` and `project`, each missing one with its `fix` (`where`: `repo` or `kindgi`, and `text`); `estimate` is `{ costUsd, maxCostUsd, basis }` (the check's `estimatedCostUsd`, `maxCostUsd` and `basis` move under it); `estimate.basis.proofReplays` is the proof's share of `replays`, and `costUsd` caps only the search's share at `maxCostUsd`, with the proof's on top, as the budget caps only the search; `month` is this month's spend against the Improve schedule's cap. A start runs it first: `409 improve-not-ready` (`details.items`, the missing ones) or `409 improve-run-running` (`details.improveRunId`), one at a time per agent and project. The `validation-failed` refusals with `details.reason` `no-tunable-keys` or `no-pinned-prompt-block` no longer come from a start. The code `suggested-change-needs-pin` is gone: an Improve run's proof needs no pin for the whole tenant, as the version it makes is Latest nowhere until someone adds it.
+  - **The keep rule.** A change is kept only when its proof, on every case of the test set at the reference's repetitions, passes more cases than the version it started from and fails none that passed. The cheaper path for model-settings changes is gone.
+  - **The Improve run.** `candidatesEvaluated` is `tried`. It gains `projectId`, `startsFrom { version, follows }`, `testSetVersion`, `setAside { cases, of }` and `takes` (the correction ids it took); its `fromVersion`, `scope` and `testSetId` are gone, and its `groupWeights` is always present. Its `outcome` is one of `suggested` (was `proposed`), `nothing-better` (was `nothing-found`, with `reason` and an optional `holdOut`, the best change's proof numbers), `cost-cap { spentUsd }` (new) and `failed { message }`. A comparison's `part` can be `all`, for the proof. The `improve-run.finished` webhook event carries the same shape.
+  - **List.** `GET /v1/improve-runs` takes `projectId` and `status` beside `agentId`.
+  - **Improve schedules.** The target is `improve: { agentId, projectId }`, one per agent and project (`409 schedule-exists`, with `details.scheduleId` and `details.triggerId`); a segment or tenant scope is gone. Its input is `{ corrections, from, runCapUsd, monthCapUsd, tiers?, model? }` (defaults 5, `experts`, 5 and 20; `monthCapUsd` was `monthlyCapUsd`); `threshold`, `candidates`, `budget`, `objective` and `groupWeights` are gone, and an option it doesn't have is refused. A schedule at its month's cap stays `active` and says until when, `pausedUntil` with `pausedReason: 'month-cap'`; one whose owner loses `publish` on the agent is paused at its next fire, with `statusReason: 'owner-lost-publish'`, and saving it with a new owner resumes it. Registering one takes `write` on the project, as any schedule does, and `publish` on the agent, and so does changing, pausing, resuming, firing or unregistering one; an admin of its project may also pause or unregister one without `publish`, as its runs count toward the project's month.
+  - **TypeScript client.** `StartImproveRunInput` and `CheckImproveRunInput` take `projectId` (required), `tiers`, `objective`, `groupWeights`, `model`, `candidates` and `budget`; `scope`, `testSetId` and `fromVersion` are gone. `ImproveRunsListInput` takes `projectId` and `status`. `ImproveReadinessItem` is exported, and a `409 improve-not-ready` is a `conflict` whose `fields.items` lists the missing items (a `409 improve-run-running`, one whose `fields.improveRunId` names the Improve run still going).
+  - **CLI.** `kindgi improve runs start` takes `--project` (required) and `--check`, which prints the readiness items, the estimate and the month, starts nothing, and exits 3 when it isn't ready; a start that isn't ready prints each missing item with its fix. `--tier` repeats for both tiers. `--tenant`, `--org`, `--segment`, `--run-project`, `--test-set` and `--from-version` are gone. `kindgi improve runs list` takes `--project` and `--status`, and its table shows the version it started from, the project, `TRIED` and the new outcomes. `kindgi schedules create --improve` needs `--project`; `--segment` is gone. `kindgi schedules list --table` shows an Improve schedule's project, a schedule waiting for its month's cap and one paused for its owner, and `kindgi schedules fires --table` names a fire's Improve run as `Improve run <id>`.
+  - **Errors.** New: `improve-not-ready`, `improve-run-running` and `schedule-exists`. Gone: `suggested-change-needs-pin`.
+- 7bdd73e: **Improvement passes are now Improve runs.** This is a breaking rename, and no old name is kept.
+  
+  - **Routes.** `/v1/improvement-passes` is `/v1/improve-runs`, with `{improveRunId}` in its paths; `cancel` keeps its sub-path. `POST /v1/proposals/improve` is `POST /v1/improve-runs`, and `POST /v1/proposals/improve/estimate` is `POST /v1/improve-runs/check`, with the same body and answer. Nothing is left on `/v1/proposals`.
+  - **Fields and values.**
+    - `passId` is `improveRunId` everywhere it names an Improve run: on a schedule's fire and on a suggested change's `madeBy`.
+    - In the API and the clients, a suggested change's `drafter` is `madeBy`, and its `hypothesis` is `why`, also in the body that creates one and in an Improve run's comparisons.
+    - An Improve run's outcome `proposed` is `suggested`.
+    - The webhook type `improvement-pass.finished` is `improve-run.finished`, and its `data.pass` is `data.improveRun`.
+    - A test run's `passCount` keeps its name: it counts the cases that passed.
+  - **Errors.** `improvement-pass-not-found` and `improvement-pass-finished` are `improve-run-not-found` and `improve-run-finished`.
+  - **Schemas and types.** `ImprovementPass*` names are `ImproveRun*`. The start body is `StartImproveRunBody` (was `ImproveBody`), for both start and check, and the check's answer is `ImproveRunCheck` (was `ImprovementPassEstimate`). The schema `SuggestedChangeDrafter` is `SuggestedChangeMadeBy`; the binding's `drafter` field and its `SuggestedChangeDrafter` type keep their names. The runtime binding's schedule fire names its Improve run `improveRunId`.
+  - **TypeScript client.** `client.improveRuns` holds Improve runs, with `start`, `check`, `list`, `get` and `cancel`; `client.improvementPasses` and `client.proposals` are removed. Their inputs are `StartImproveRunInput` and `CheckImproveRunInput`. `@kindgi/sdk` re-exports `ImproveRunsClient` where it re-exported `ProposalsClient`.
+  - **CLI.** `kindgi improve runs start` starts one (was `kindgi proposals improve`), and `kindgi improve runs list`, `get` and `cancel` replace `kindgi proposals passes`; `kindgi proposals` is removed. `--pass-project` is `--run-project`, `<pass-id>` is `<improve-run-id>`, and `kindgi suggested-changes draft --hypothesis` is `--why`. `kindgi exports create` writes them as `improve-runs`.
+- 1bd877d: **Choosing what a project runs is a pin, for agents as for flows and tools.** This is a breaking rename, and no old name is kept.
+  
+  - **Routes.** An agent's `/promotions` is `/pinned/pin`, `/promotions/check` is `/pinned/check`, `/promotions` and `/promotions/{promotionId}` are `/pin-history` and `/pin-history/{changeId}`, `/live` is `/pinned`, `/live-versions` is `/pinned-versions`, and `/live/unpin` is `/pinned/unpin`. `/live/rollback` is removed: going back is a pin of an earlier version, with the same release gate and approval.
+  - **Fields and values.**
+    - `promotionId` is `changeId`: on a pinned version, in a deployment's pin gate, in a suggested change's `rolledBack` and in a refused pin's `details`. A suggested change's `promotion` is `pin`.
+    - A pin's status `promoted` is `pinned`, and the check's outcome `would-promote` is `would-pin`. A pin's action is `pin` or `unpin`.
+    - What an agent resolves to: `via: 'live'` is `'pinned'`, and `liveScope` is `pinnedScope`. A run's `via` value `live` is `pinned`, and so is a queue rule's `when.versions` value. A `when.versions` entry that is neither an exact version, such as `1.2.0`, nor `pinned` is a 400.
+    - A suggested change's pin: `liveNow` is `pinnedNow`.
+    - A test run's comparison baseline `{ live: … }` is `{ pinned: … }`, and a compared version's `via` value `live` is `pinned`. The CLI's `--baseline live` is `--baseline pinned`.
+    - Unregistering an agent version that is pinned answers `agent-version-pinned` (was `agent-version-live`), like flows and tools, and the scopes it is pinned in are `pinned` (was `live`).
+    - The approval subject `agent-promotion` is `agent-pin`, and the permission `promote` on an agent is `pin`.
+    - The audit kinds `agent-promotion`, `agent-promotion-refused`, `agent-live-unpinned` and `agent-live-pin-inactive` are `agent-pinned`, `agent-pin-refused`, `agent-unpinned` and `agent-pin-inactive`. `agent-rollback` is removed, since going back is a pin.
+  - **Errors.** `promotion-not-found`, `promotion-superseded` and `promotion-gate-unsupported` are `pin-not-found`, `pin-superseded` and `pin-gate-unsupported`, and `live-scope-spans-environments` is `pin-scope-spans-environments`, the code a flow or tool pin answers, with the same body. `nothing-to-roll-back` is removed with the rollback route. Environment promotion's codes keep their names.
+  - **Messages.** A pin's gate checks call the version a test run is measured against "the pinned version" (was "the live version"), and `release-gate-scope-unpinned` says the scope has no pinned version of its own.
+  - **Schemas and types.** `Promotion`, `PromotionPage`, `PromotionCheck` and `SuggestedChangePromotion` are `Pin`, `PinPage`, `PinCheck` and `SuggestedChangePin`. `PromoteBody` and `UnpinBody` are `AgentPinBody` and `AgentUnpinBody`. `LivePin`, `LivePinList` and `LiveVersionResolution` are `AgentPinnedVersion`, `AgentPinnedVersionList` and `AgentPinnedVersionResolution`. An agent's pin scope is `AgentPinScope`: its tenant, org and project kinds are the `PinScope*` schemas flows and tools use, and its segment kind is `PinScopeSegment`.
+  - **Binding.** A runtime implements `AgentPinnedVersionBinding` (was `LiveVersionBinding`) and `PinBinding` (was `PromotionBinding`), with `AgentPinBindings` and `AgentPinGateDeps` (were `AgentReleaseBindings` and `AgentReleaseGateDeps`). Their types take the `Pin` names: `Pin`, `PinStatus`, `PinAction`, `PinError`, `PinErrorCode`, `PinRequestInput`, `ListPinHistoryInput`, `AgentPinInput`, `AgentUnpinInput`, `AgentPinnedVersion`, `AgentPinResolution` and `AgentPinResolveInput`. `PromotionActor` and `PinActor` are one `PinActor`. `liveScopeCoordinates` is `agentPinScopeCoordinates`. `rollback` and `RollbackInput` are removed. An unregister that a pin refuses answers `pinned` (was `live`). In `@kindgi/types`, `LiveScope` is `AgentPinScope`, and a run's `liveScope` is `pinnedScope` in `@kindgi/runtime` and `@kindgi/agents`.
+  - **TypeScript client.** `client.agents.pinned` has `resolve`, `list`, `pin`, `check`, `unpin`, `history` and `getChange`; `client.agents.promotions` and `client.agents.live` are removed. The client's types are `AgentPinnedClient`, `AgentPinnedWhere` (`PinnedWhere` stays the flow and tool lookup), `AgentUnpinInput` and `ListPinHistoryFilter`.
+  - **CLI.** `kindgi agents promote` is `kindgi agents pin`, `promotions list|get` is `pin-history list|get`, `live` is `pinned` and `live-versions` is `pinned-versions`. `kindgi agents rollback` is removed. `<promotion-id>` is `<change-id>`, and `--to` went with `rollback`.
+  - **Unchanged.** Environment promotion keeps its name: `kindgi promote` and `POST /v1/deployments/{deploymentId}/promotions`.
+- 1131ec3: **Eval runs are now test runs.** This is a breaking rename, and no old name is kept.
+  
+  - **Routes.** `/v1/eval-runs` is `/v1/test-runs`, with `{testRunId}` in its paths; `cancel`, `events` and `rescore` keep their sub-paths. `POST /v1/test-sets/{testSetId}/runs` still starts one.
+  - **Fields and values.**
+    - A test run's own id is `testRunId`: in the start and rescore answers, the run view and the list rows, where it was `runId`. Ids of agent runs, such as a case's `runIds`, keep their names.
+    - `evalRunId` is `testRunId` everywhere it names a test run: in the agent pin body, in a run's replay marker (`{ of, testRunId }`), in a replay's provenance, and in `/v1/runs`'s filter.
+    - The stream's events `eval-run.completed`, `eval-run.failed`, `eval-run.cancelled`, `eval-run.case-completed` and `eval-run.case-failed` are `test-run.*`, with the same endings.
+    - The compliance evidence kind `eval-run` is `test-run`.
+    - `GET /v1/compliance/evidence?kind=` answers 400 for a kind that is neither a built-in evidence kind nor one the classifier names, such as `eval-run`. It was an empty page. A kind the classifier names but doesn't mark exportable is still an empty page.
+  - **Errors.** Codes starting `eval-run-` start `test-run-`.
+  - **Schemas and types.** `EvalRun*` names are `TestRun*`. A comparison's `EvalComparison`, `EvalBaseline`, `EvalOverrides` and `EvalSample` are `TestRunComparison`, `TestRunBaseline`, `TestRunOverrides` and `TestRunSample`, and the types `EvalReads` and `EvalGroupWeights` are `TestRunReads` and `TestRunGroupWeights`. The `@kindgi/api` export `EvalSubjectInvoker`, which a test run calls to run each case, is `TestRunSubjectInvoker`.
+  - **TypeScript client.** `client.evalRuns` is `client.testRuns`.
+  - **CLI.** `kindgi eval-runs` is `kindgi test-runs`, and `--eval-run` is `--test-run` (on `kindgi agents pin` and `kindgi runs list`). `kindgi exports create` writes them as `test-runs`.
+- Updated dependencies [b25b82f]
+- Updated dependencies [d92355b]
+- Updated dependencies [d6c9279]
+- Updated dependencies [f2adcc2]
+- Updated dependencies [9b015f7]
+- Updated dependencies [9a8a294]
+- Updated dependencies [1bd877d]
+- Updated dependencies [dff9515]
+- Updated dependencies [d576ff4]
+  - @kindgi/types@0.4.0
+  - @kindgi/authz@0.4.0
+  - @kindgi/flow@0.4.0
+  - @kindgi/handler@0.4.0
+
+## 0.3.1
+
+### Patch Changes
+
+- @kindgi/flow@0.3.1
+  - @kindgi/authz@0.3.1
+  - @kindgi/handler@0.3.1
+  - @kindgi/types@0.3.1
+
+## 0.3.1-rc.1
+
+### Patch Changes
+
+- @kindgi/authz@0.3.1-rc.1
+  - @kindgi/flow@0.3.1-rc.1
+  - @kindgi/handler@0.3.1-rc.1
+  - @kindgi/types@0.3.1-rc.1
+
+## 0.3.1-rc.0
+
+### Patch Changes
+
+- @kindgi/flow@0.3.1-rc.0
+  - @kindgi/authz@0.3.1-rc.0
+  - @kindgi/handler@0.3.1-rc.0
+  - @kindgi/types@0.3.1-rc.0
+
 ## 0.3.0
 
 ### Patch Changes

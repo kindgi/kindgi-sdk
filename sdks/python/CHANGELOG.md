@@ -13,6 +13,25 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **one agent can use several accounts of one app: the company's, or a person's own.** `Connection.main` and `ConnectionCandidate.main` mark a person's main connection of an app, the one their agents use when no choice names another, and `client.connections.update(connection_id, main=True)` makes a connection its owner's main. `ConnectFinish.main` says what a person's connect did to it. `client.connection_choices.set(...)` takes `tool_id` and `need` for one tool's connection, `person` for a person's own choice, and `connection_ids` for a set a read-only tool's calls may pick from by name. `list(...)` takes `tool_id` and `owner="me"`, and `candidates(...)` takes `owner="me"`. `client.connection_choices.needs(project_id=..., agent_id=...)` (or `flow_id=`) lists the tools' connections and whether each may take a set, and `client.connections.choices(connection_id)` lists the choices that name a connection, each with their async twins. `ApprovalConnection` gains `as_`, and its `account` is optional: a person's account isn't named. A mail trigger on a person's mailbox can name its owner's own connection, and only its owner and a tenant admin read that mailbox's `account`.
+- `kindgi`: **the client's docstrings call the place a workspace**, as the
+  API reference does. What you pass or read keeps `tenant`: `tenant_id`, the
+  scope value `tenant`, the model names (`ScopeTenant`) and the paths. So do
+  the `system_*` resources, which are for the operator of a runtime that
+  serves several workspaces.
+- `kindgi`: **the pack API says workspace for the place.** `ToolContext`'s
+  docstrings, the vendored spec schemas' descriptions and the indexer's
+  warning for a check whose id doesn't start with the pack's id say workspace,
+  as the console does. `tenant_id` and the value `tenant` keep their names.
+- `kindgi`: **a mail trigger on the company's mailbox names the company connection it reads with.** `MailTriggerMailbox` gains `connection_id` (`connectionId` on the wire), only with `as` `company`: one of the project's company connections of the app, as `GET /v1/connection-choices/candidates` lists them. A trigger registered, or moved to the company's mailbox, with none named stores the project's only one; with several, the call is `409 connection-not-chosen`, its `details.choices` listing each one's `connectionId` and `name`, sorted by name, and `details.field` `config.mailbox.connectionId`. Naming one that isn't a candidate is `404 connection-not-found`, and naming one for a person's mailbox, or a person's connection, is `400 bad-input`. Pointing a trigger at another connection is a change of mailbox, as another app is. A trigger's `status_reason` can be `connection-not-chosen`: it names no connection and the project has several, and it doesn't poll until it names one.
+- `kindgi`: **an approval shows the company connection a call would use, with its name.** `ApprovalConnection` (on an approval, and in a run's `waitingFor`) is now set for a company connection too, not only a person's own, and carries the connection's `name`. When a call needs a company connection of an app the project has several of, and the agent has no choice of one, its run fails with `connection-not-chosen` (`409` when the call waits for the run), naming the connections to choose from in `details.choices`.
+- `kindgi`: **a project's admins choose which company connection an agent or a flow uses for an app.** `client.connection_choices.set(project_id=..., agent_id=..., connection_id=...)` (or `flow_id=`) makes the choice (`PUT /v1/connection-choices`), for the connection's app; `list(project_id=...)` lists the project's live choices (`include_removed=True` the removed ones too, with `removed_at` and `removed_by`), `remove(choice_id)` removes one, and `candidates(project_id=...)` lists the company connections a choice may name, each with their async twins. A person's own connection is `400 bad-input`, another that can't be chosen `404 connection-not-found`, and an unknown or removed choice `404 connection-choice-not-found`. `ConnectionChoice` carries its `version`; `ConnectionCandidate` carries only `connectionId` and `name` for a member who isn't an admin.
+- `kindgi`: **the company keeps one connection per account, and a connect can name the one it reconnects.** `client.connections.connect(...)` takes an optional `reconnects`, the id of a live connection of the connect's own owner on that registration and environment; any other id is `404 connection-not-found`, and the same account is required at the finish. A company connect without it lands on the company's connection of the account signed in to, or makes a new one. `ConnectFinish` carries `reconnected` (whether it landed on one already there, which keeps its name) and `label_taken` (the name a new connection was to get, when another had it; it's named `<name> 2` and so on instead).
+- `kindgi`: **a connection has a name, its `label`.** `client.connections.connect(...)` takes an optional `label`, the name to give the connection it makes, else it takes its account's. `client.connections.update(connection_id, label=...)` renames one (`PATCH /v1/connections/{connectionId}`), with its async twin. A name another of the owner's live connections to that app has is `409 connection-label-taken`. `Connection` and `ConnectRequest` carry `label` when they have one.
+- `kindgi`: **a tool's connection has its name.** `ToolConnection` gains `name: str | None`, the connection's label, else its account's, as a runtime on pack protocol 2.11.0 sends it; it's `None` from an older one. It's the last field and defaults to `None`, so code that builds one, such as a unit test, needs no change.
+
+## 0.4.0
+
 - `kindgi`: **a retired block, policy or release gate can be found.**
   `blocks.list`, `policies.list` and `release_gates.list` take
   `include_retired=True`, as `agents.list`, `flows.list`, `tools.list` and
@@ -134,6 +153,21 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   approval; anything else is refused (400 `bad-input`). The decision it
   answers and the approval read back carry it (`ReviewDecision.fact_text`,
   `ApprovalDecisionRecord.fact_text`).
+
+## 0.3.1
+
+- `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",
+  judge_capabilities={"needs": [{"feature": "structured-output"}]})` names what the
+  judge model is routed by, and the index carries it (`judgeCapabilities`); the decorator
+  refuses an `llm-judge` guardrail without it. Before, `@guardrail` had no way to name it,
+  and the runtime refused such a guardrail on every turn.
+
+## 0.3.1rc1
+
+No Python changes; the version moves with the npm packages.
+
+## 0.3.1rc0
+
 - `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",
   judge_capabilities={"needs": [{"feature": "structured-output"}]})` names what the
   judge model is routed by, and the index carries it (`judgeCapabilities`); the decorator

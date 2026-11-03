@@ -15,7 +15,7 @@ export interface ConnectionNeed {
   readonly permissions: readonly string[];
   /**
    * Whose connection: `'person'` is the run's person (the one it acts for,
-   * who started it or owns its trigger); `'company'` is the tenant's.
+   * who started it or owns its trigger); `'company'` is the workspace's.
    */
   readonly as: 'person' | 'company';
 }
@@ -37,6 +37,8 @@ export interface ToolConnection {
   readonly appName: string;
   readonly accessToken: string;
   readonly account: ConnectionAccount;
+  /** The connection's name: its label, else its account's label. */
+  readonly name?: string;
   readonly expiresAt?: string;
 }
 
@@ -57,6 +59,29 @@ export interface WaitingForConnection {
   readonly expiresAt: string;
   /** The person connected this app before, and connects it again. */
   readonly reconnects?: boolean;
+}
+
+/**
+ * The mailbox a run reads, as the run records it (a runtime's `RunMailbox`):
+ * the mail trigger that started it watches this app's mailbox.
+ */
+export interface ConnectionRunMailbox {
+  readonly app: string;
+  readonly as: 'company' | 'person';
+  /**
+   * The connection the run's mail was read with, fixed when the fire
+   * starts the run: the company's, or the person's own.
+   */
+  readonly connectionId?: string;
+}
+
+/** The agent or the flow a call belongs to. */
+export type ConnectionTarget = { readonly agentId: string } | { readonly flowId: string };
+
+/** A company connection a project admin can choose for a target. */
+export interface ConnectionChoiceOption {
+  readonly connectionId: string;
+  readonly name: string;
 }
 
 export interface ResolveConnectionsInput {
@@ -84,28 +109,161 @@ export interface ResolveConnectionsInput {
   readonly waitMs: number;
   /** Names whose token to renew first, ignoring any cached one (after the app refused it). */
   readonly renew?: readonly string[];
+  /**
+   * The agent or flow the call belongs to, whose choice of a company
+   * connection applies. A runtime checks it against the run's own record
+   * and never takes it on trust.
+   */
+  readonly target?: ConnectionTarget;
+  /** The run's mailbox, from the run's own record, when a mail trigger started it. */
+  readonly mailbox?: ConnectionRunMailbox;
+  /**
+   * The connections the call named, need to connection id: each one a
+   * member of the need's set, from its turn's `accountChoices`. A need
+   * it names nothing for uses the set's default. One it names that the
+   * need's live set doesn't hold, or the need has no set, or the tool, at
+   * the version its agent or flow resolves to now, may not take one, is
+   * `connection-missing` without the name, and never the default.
+   */
+  readonly accounts?: Readonly<Record<string, string>>;
+}
+
+/**
+ * How a ready call's connection was picked, and the registration it came
+ * through, for the run's record. A tool never sees it.
+ */
+export interface ConnectionPick {
+  /**
+   * - `mailbox`: the connection the run's mail came to, the company's or
+   *   the person's.
+   * - `choice`: a choice, `choiceId`: the tool's, else the agent's or
+   *   flow's, the company's or the person's own. A set's default when the
+   *   call named none.
+   * - `named`: the member of the tool's set, `choiceId`, that the call
+   *   named.
+   * - `only`: the project's only company connection of the app.
+   * - `main`: the person's main connection.
+   * - `own`: the person's only connection of the app.
+   */
+  readonly by: 'mailbox' | 'choice' | 'named' | 'only' | 'main' | 'own';
+  /** The choice that picked it, with `by: 'choice'` and `'named'`. */
+  readonly choiceId?: string;
+  /** Whose need it was: the company's, or the run's person's. Absent from older records. */
+  readonly as?: 'company' | 'person';
+  /**
+   * With a set: how many connections it holds, as the run tree uses it.
+   * The record counts a person's set, and never names its members.
+   */
+  readonly setSize?: number;
+  /**
+   * The app's registration the connection came through: its id, and its
+   * label, else its app's name and its id's first 8 characters.
+   */
+  readonly registration: { readonly id: string; readonly name: string };
 }
 
 export type ResolveConnectionsOutcome =
-  | { readonly kind: 'ready'; readonly connections: Readonly<Record<string, ToolConnection>> }
+  | {
+      readonly kind: 'ready';
+      readonly connections: Readonly<Record<string, ToolConnection>>;
+      /** How each was picked, keyed like `connections`. Absent from a runtime that doesn't say. */
+      readonly picks?: Readonly<Record<string, ConnectionPick>>;
+    }
   /** One request per connection the call waits for; asked again for the same call, the same ones. */
   | { readonly kind: 'wait'; readonly requests: readonly WaitingForConnection[] }
   | {
       readonly kind: 'refused';
-      readonly code: 'connection-app-missing' | 'connection-needs-a-person' | 'connection-missing';
+      readonly code:
+        | 'connection-app-missing'
+        | 'connection-needs-a-person'
+        | 'connection-missing'
+        | 'connection-not-chosen';
       readonly name: string;
       readonly app: string;
       /** The permissions a connection lacks. */
       readonly missing?: readonly string[];
+      /** With `connection-not-chosen`: the connections to choose from, sorted by name. */
+      readonly choices?: readonly ConnectionChoiceOption[];
       readonly message: string;
     };
 
+/** What the agent loop asks of a turn's tools: which of their needs have a set. */
+export interface ConnectionAccountChoicesInput {
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly envName: EnvName;
+  readonly runId: string;
+  readonly target?: ConnectionTarget;
+  /** The run's person, as `ResolveConnectionsInput.person`. */
+  readonly person?: { readonly userId: string };
+  /** The run's mailbox: a need it binds has no set to name from. */
+  readonly mailbox?: ConnectionRunMailbox;
+  /** The turn's tools that may take a set, each with its `needsSpec.connections`. */
+  readonly tools: readonly {
+    readonly toolId: string;
+    readonly needs: Readonly<Record<string, ConnectionNeed>>;
+  }[];
+}
+
+/**
+ * Each tool's needs whose choice is a set, tool id to need: the app's
+ * name, the set's members still candidates, by name, and its default. A
+ * tool or need with no set is left out. The ids are for the run, never the
+ * model.
+ */
+export type ConnectionAccountChoices = Readonly<
+  Record<
+    string,
+    Readonly<
+      Record<
+        string,
+        {
+          readonly appName: string;
+          readonly members: readonly { readonly name: string; readonly connectionId: string }[];
+          /** The set's default, by its connection id: what a call that names none reads. */
+          readonly default: string;
+        }
+      >
+    >
+  >
+>;
+
 /**
  * What a run's tool dispatch asks for a call's connections: a runtime
- * implements it. For each need it finds the tenant's registration of the
+ * implements it. For each need it finds the workspace's registration of the
  * app that allows the project, the owner (the run's person, or the
  * company), and that owner's live connection with every permission the
  * need lists, in the served env.
+ *
+ * A need's candidates are its owner's live connections of the app
+ * (working or needing reconnecting) on a registration that allows the
+ * project, in the served env: the company's for a company need, the run's
+ * person's for theirs. It takes, in order:
+ *
+ * 1. the run's mailbox's connection, when `mailbox` is this owner's for
+ *    this app and names one;
+ * 2. the member of the tool's set the call names in `accounts`;
+ * 3. the tool's choice for this need, a set's default;
+ * 4. the target's choice for the app;
+ * 5. for a person, their main connection, else their only one; for the
+ *    company, the only candidate;
+ * 6. with none, `connection-missing`; with several and nothing chosen,
+ *    `connection-not-chosen`.
+ *
+ * A choice is the owner's: a person's need reads only that person's
+ * choices, and a company need the company's. A set is for a tool that
+ * may take one (`connectionSetRefusal` in `@kindgi/agents`), and the
+ * version its agent or flow resolves to now decides again: one that may
+ * not gets the default for a call that names nothing, and a call that
+ * names a member is `connection-missing`, without the name, never the
+ * default.
+ *
+ * A connection steps 1 to 4 pick must still be a candidate, be working and
+ * hold the need's permissions; if not, the need is `connection-missing`,
+ * naming it, and never another connection. An id that isn't the owner's
+ * connection of the app answers as no connection does. Candidates are
+ * counted before permissions, so one that lacks a permission still counts.
+ * Needs that pick one connection share it, with their permissions joined.
  *
  * - **`ready`:** every need has a token.
  * - **`wait`:** a person's connection is missing, lacks a permission, or
@@ -114,8 +272,10 @@ export type ResolveConnectionsOutcome =
  *   the same connection share one request, for all their permissions.
  * - **`refused`:** no registration allows the project
  *   (`connection-app-missing`), a person's connection in a run with no
- *   person (`connection-needs-a-person`), or a missing one the call can't
- *   wait for (`connection-missing`).
+ *   person (`connection-needs-a-person`), a missing one the call can't
+ *   wait for (`connection-missing`), or several connections and nothing
+ *   chosen (`connection-not-chosen`). A person's refusal names the app and
+ *   counts their connections, never their names, and lists no `choices`.
  *
  * When the app can't give a token just now, it throws
  * `ConnectionRenewError` and the connection stays as it is. One the app
@@ -125,6 +285,12 @@ export type ResolveConnectionsOutcome =
  */
 export interface ConnectionResolver {
   resolveConnections(input: ResolveConnectionsInput): Promise<ResolveConnectionsOutcome>;
+  /**
+   * Once per turn: which of the turn's tools' needs have a set the call may
+   * name from (`accounts`). Absent: no set is offered, and every need
+   * resolves as if it named none.
+   */
+  accountChoices?(input: ConnectionAccountChoicesInput): Promise<ConnectionAccountChoices>;
 }
 
 const CONNECTION_REJECTED = Symbol.for('kindgi.tools.connection-rejected');

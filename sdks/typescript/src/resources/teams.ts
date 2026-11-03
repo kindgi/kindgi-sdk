@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Teams — operational working groups within a tenant, with membership.
+ * Teams — operational working groups within a workspace, with membership.
  *
  * @wire /v1/teams/*  (packages/api/src/routes/teams.ts)
  * @generated Wire shapes from `../generated/api.js`.

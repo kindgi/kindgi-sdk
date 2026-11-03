@@ -174,7 +174,7 @@ describe('without an authorization store, the tenant settings are a tenant admin
       for (const caller of OTHERS) {
         await expectRefused(
           await call(caller, method, path),
-          'Only a tenant admin changes a tenant-wide setting.',
+          'Only a tenant admin changes a workspace-wide setting.',
         );
       }
     },
@@ -185,7 +185,7 @@ describe('without an authorization store, the tenant settings are a tenant admin
     for (const caller of OTHERS) {
       await expectRefused(
         await call(caller, method, path),
-        'Only a tenant admin reads or changes this tenant-wide setting.',
+        'Only a tenant admin reads or changes this workspace-wide setting.',
       );
     }
   });

@@ -19,6 +19,7 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { type Readable, finished } from 'node:stream';
 
+import { programPath } from '../program-path.js';
 import { dockerUnreachable } from './blocked.js';
 import { lineReader } from './lines.js';
 import { parseRecord, textLines } from './log-view.js';
@@ -70,13 +71,19 @@ export type DockerRunner = (
   options?: DockerRunOptions,
 ) => Promise<DockerOutcome>;
 
-/** Run one `docker` command to completion. */
-export function docker(
+/** Run one `docker` command to completion: the `docker` on `PATH` (`programPath`). */
+export async function docker(
   args: readonly string[],
   options: DockerRunOptions = {},
 ): Promise<DockerOutcome> {
+  let file: string;
+  try {
+    file = await programPath('docker');
+  } catch (err) {
+    return notStarted(err as NodeJS.ErrnoException, '');
+  }
   return new Promise((resolve) => {
-    const child = spawn('docker', args, {
+    const child = spawn(file, args, {
       stdio: [options.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
       ...(options.signal !== undefined && { signal: options.signal }),
     });
@@ -93,14 +100,7 @@ export function docker(
       stderr += chunk.toString();
       errLines?.push(chunk.toString());
     });
-    child.once('error', (err: NodeJS.ErrnoException) =>
-      resolve({
-        code: null,
-        stdout,
-        stderr: err.message,
-        ...(typeof err.code === 'string' && { errorCode: err.code }),
-      }),
-    );
+    child.once('error', (err: NodeJS.ErrnoException) => resolve(notStarted(err, stdout)));
     child.once('close', (code) => {
       outLines?.end();
       errLines?.end();
@@ -113,6 +113,16 @@ export function docker(
       child.stdin?.end(options.stdin);
     }
   });
+}
+
+/** A `docker` that didn't start, or isn't on `PATH`: no exit code, and why. */
+function notStarted(err: NodeJS.ErrnoException, stdout: string): DockerOutcome {
+  return {
+    code: null,
+    stdout,
+    stderr: err.message,
+    ...(typeof err.code === 'string' && { errorCode: err.code }),
+  };
 }
 
 function lastLines(text: string, n = 5): string {
@@ -546,9 +556,11 @@ export async function startRuntimeContainer(
   // failure's tail: a long session's lines aren't kept (they're shown as
   // they come).
   const log: LogLineText[] = [];
-  let logs: ChildProcess | undefined = spawn('docker', ['logs', '--follow', id], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  const dockerFile = await programPath('docker').catch(() => undefined);
+  let logs: ChildProcess | undefined =
+    dockerFile === undefined
+      ? undefined
+      : spawn(dockerFile, ['logs', '--follow', id], { stdio: ['ignore', 'pipe', 'pipe'] });
   const reader = (stream: 'stdout' | 'stderr') =>
     lineReader((line) => {
       // `docker logs` prints its own errors on the same stream as the
@@ -566,14 +578,14 @@ export async function startRuntimeContainer(
     });
   const out = reader('stdout');
   const err = reader('stderr');
-  logs.stdout?.setEncoding('utf8');
-  logs.stderr?.setEncoding('utf8');
-  logs.stdout?.on('data', (chunk: string) => out.push(chunk));
-  logs.stderr?.on('data', (chunk: string) => err.push(chunk));
-  // A follower that can't start is only no lines: the boot wait reads the
-  // runtime's health, and a failure reads its logs again. Unheard, its
-  // 'error' would end the CLI.
-  logs.once('error', () => undefined);
+  logs?.stdout?.setEncoding('utf8');
+  logs?.stderr?.setEncoding('utf8');
+  logs?.stdout?.on('data', (chunk: string) => out.push(chunk));
+  logs?.stderr?.on('data', (chunk: string) => err.push(chunk));
+  // A follower that can't start (or no docker on PATH) is only no lines:
+  // the boot wait reads the runtime's health, and a failure reads its logs
+  // again. Unheard, its 'error' would end the CLI.
+  logs?.once('error', () => undefined);
 
   // Stop following: listeners off first, so the follower's last output
   // (`docker logs --follow` can panic once its container is gone) is never
@@ -783,11 +795,15 @@ async function stoppedContainer(
   id: string,
   run: DockerRunner,
 ): Promise<{ readonly log: readonly LogLineText[]; readonly exit: ContainerExit }> {
-  const child = spawn('docker', ['logs', id], { stdio: ['ignore', 'pipe', 'pipe'] });
-  // A `docker logs` that can't start is only no lines (its streams end at
-  // once). Unheard, its 'error' would end the CLI.
-  child.once('error', () => undefined);
-  const log = await readStoppedLog(child.stdout, child.stderr);
+  const dockerFile = await programPath('docker').catch(() => undefined);
+  const child =
+    dockerFile === undefined
+      ? undefined
+      : spawn(dockerFile, ['logs', id], { stdio: ['ignore', 'pipe', 'pipe'] });
+  // A `docker logs` that can't start (or no docker on PATH) is only no
+  // lines (its streams end at once). Unheard, its 'error' would end the CLI.
+  child?.once('error', () => undefined);
+  const log = await readStoppedLog(child?.stdout ?? null, child?.stderr ?? null);
   const state = await run([
     'inspect',
     '--format',

@@ -10,7 +10,7 @@ may read, write or administer each project, with OpenFGA running next to
 it.
 
 By default, a self-hosted runtime lets in whoever holds a key or a sign-in,
-and each may work in every project. Tenant settings are the tenant admin's
+and each may work in every project. Workspace settings are the tenant admin's
 ([Without authorization](../people-and-keys/#without-authorization)).
 **Authorization** adds a check per resource, kept in
 [OpenFGA](https://openfga.dev): who may read, write or administer each
@@ -38,8 +38,10 @@ different access:
 - **Every request is checked** against what its caller may do: tenant admin,
   tenant member, a role on a project, or a reviewer role. Lists hold only
   what the caller may read.
-- **Every decision is recorded,** allowed or denied, with who asked, what for
-  and why ([The access audit](#the-access-audit)).
+- **Every decision on what a request may do or read is recorded,** allowed
+  or denied, with who asked, what for and why
+  ([The access audit](#the-access-audit)). What the console reads to show
+  you your own access isn't (runtime 0.6.0 or later).
 - **Registering an approval reviewer takes a tenant admin.** A tenant admin
   reads approvals at every tier without registering, through a session or an
   `admin` key not limited to a project, in the projects they may read.
@@ -273,7 +275,7 @@ checks every call.
 - **A project's viewer** reads its pages and takes no action in them. A
   line under the console's header says so on each of the project's pages:
   "You can view this project; changes need an editor." When a tenant admin
-  set the tenant's own line, `console.readOnlyNotice`, it shows instead,
+  set the workspace's own line, `console.readOnlyNotice`, it shows instead,
   such as "Ask Ana Ruiz for edit access."
 - **An editor** may also "run agents and flows, work on agent versions,
   publish prompts and settings, correct runs, sort corrections, add and
@@ -282,7 +284,7 @@ checks every call.
 - **A project admin** may also "pin versions, register agents and tools,
   rescore test runs, set corrector groups, remove others' corrections", and
   changes who works in the project ([Members](#in-the-console-members)).
-- **The tenant's sections** show to those they're for:
+- **The workspace's sections** show to those they're for:
   - People, Service accounts, Policies, Webhooks, Sign-in, Access audit and
     the like, to tenant admins;
   - the Inbox and Approvals, to reviewers;
@@ -290,9 +292,9 @@ checks every call.
 
 ![A project's Agents page as Gus Moreno, a viewer of Support: under the header, "You can view this project; changes need an editor."; the agents list (Support agent, acme.support, version 1.0.0) with no buttons.](../../../assets/access/viewer-project.png)
 
-**My access**, in the tenant's sections, is what you may do and how you
+**My access**, in the workspace's sections, is what you may do and how you
 have it. It starts with a sentence, such as "You're an editor in 1
-project." Then it has your tenant role ("Tenant: member. Its people, keys
+project." Then it has your tenant role ("Workspace: member. Its people, keys
 and settings are its admins'."), and your reviewer role if you have one.
 Last is a table of your projects: your role, how you have it, and what it
 lets you do and doesn't. You can have a role directly, through a team, as an
@@ -324,7 +326,7 @@ curl -X POST "$KINDGI_API_URL/v1/projects/<project-id>/memberships" \
   API key.
 
 You can name the person by `email` instead of `userId`. It matches one of
-the tenant's people, whatever its case
+the workspace's people, whatever its case
 ([Add a person](../people-and-keys/#add-a-person)).
 `PATCH …/memberships/<user-id>` with `{"role":"viewer"}` changes the role, and
 `DELETE …/memberships/<user-id>` removes the member. In the clients, the
@@ -352,21 +354,22 @@ In the console, a project's admins do this on its **Members** page: see
 
 ## Teams
 
-A team is a group of the tenant's people, each in it as a `member` or an
+A team is a group of the workspace's people, each in it as a `member` or an
 `admin`. A tenant admin makes one with `POST /v1/teams`, giving a `name`, a
 `slug` and an optional `description`, and holds its `admin` role. Its
 admins, and tenant admins, add and take out its people
 (`…/teams/<team-id>/memberships`), change their roles, and rename it
-(`PATCH /v1/teams/<team-id>`). A team's role on a project reaches everyone
-in it ([Team grants](#team-grants)).
+(`PATCH /v1/teams/<team-id>`). Only a tenant admin moves it into or out of
+an org (`orgId` on that `PATCH`), since the org's admins run it. A team's
+role on a project reaches everyone in it ([Team grants](#team-grants)).
 
 ### In the console: Teams
 
-**Teams**, in the tenant's sections, shows to tenant admins and anyone in a
+**Teams**, in the workspace's sections, shows to tenant admins and anyone in a
 team, with the teams each may see. A tenant admin makes one with **New
 team**: "A group of people, run by its admins: they decide who is in it.
 You add the first people on its page." It takes a name, a slug ("Lowercase
-letters, digits and hyphens; unique in the tenant.") and what the team is.
+letters, digits and hyphens; unique in the workspace.") and what the team is.
 
 ![The Teams page as a tenant admin: "1 team.", Support crew (support-crew, "First-line support"), a New team button, and under the list "The console doesn't give a team a role on a project yet: the API does (team grants)."](../../../assets/teams/teams.png)
 
@@ -374,7 +377,7 @@ A team's page, for its admins and tenant admins, says how many are in it
 and how many run it, such as "4 people, 2 run it.", and lists them with
 their role and since when. There they rename it, and the slug stays. They
 change someone's role, take someone out, which asks first, and add someone
-from the tenant's people. Finding a person reads the tenant's people, so
+from the workspace's people. Finding a person reads the workspace's people, so
 adding someone takes a tenant admin.
 
 ![Support crew's page as a tenant admin: "4 people, 2 run it." and "The console doesn't give a team a role on a project yet: the API does (team grants)."; Add someone to Support crew (a person, a role, Add); and the list: the seed user and Ana Ruiz (admins), Ben Okafor and Ada Lovelace (members), each with a role to change and Take out; a Rename button.](../../../assets/teams/team.png)
@@ -480,7 +483,7 @@ of the project:
   it, such as the creator of a project an older runtime made.
 - **A project made with a service account's key has no creator** (runtime
   0.3.0 or later). It lists only who was given access to it, and the
-  tenant's admins (and its org's, if it's in one). One an older runtime made
+  workspace's admins (and its org's, if it's in one). One an older runtime made
   lists `00000000-0000-0000-0000-000000000000` as its owner, an id no person
   has: `kindgi-runtime tenants repair --all` (or `--tenant <id>`) takes it
   away.
@@ -507,9 +510,9 @@ project's admins.
 
 A project admin changes who works there:
 
-- **Add someone** by their email in the tenant, with one of the four roles.
-  An email that isn't one of the tenant's people isn't added: "No one with
-  that email in this tenant: a tenant admin adds them on People first."
+- **Add someone** by their email in the workspace, with one of the four roles.
+  An email that isn't one of the workspace's people isn't added: "No one with
+  that email in this workspace: a tenant admin adds them on People first."
 - **Change** a person's role of their own. When another way in gives them
   more, it says so under it, such as "editor through another way in". A
   role through a team, an org or tenant admin is changed where it comes
@@ -526,14 +529,14 @@ more.
 
 ## The access audit
 
-Each decision the authorization model makes, allowed or denied, is kept. So
-is a refusal the API answers from its own checks. `GET /v1/audit/authz`
-lists them, oldest first, for a tenant admin. `order=desc` lists the newest
-first, and its cursor goes on in that order: `order: 'desc'` in TypeScript,
-`order="desc"` in Python. They're kept for good, unless the runtime purges
-audit events. With `KINDGI_COMPLIANCE_CLASSIFIER=shipped`, it purges allowed
-ones after 90 days and denied ones after 365
-([Audit events](../retention/#audit-events)).
+Each decision the authorization model makes on what a request may do or
+read, allowed or denied, is kept. So is a refusal the API answers from its
+own checks. `GET /v1/audit/authz` lists them, oldest first, for a tenant
+admin. `order=desc` lists the newest first, and its cursor goes on in that
+order: `order: 'desc'` in TypeScript, `order="desc"` in Python. They're kept
+for good, unless the runtime purges audit events. With
+`KINDGI_COMPLIANCE_CLASSIFIER=shipped`, it purges allowed ones after 90 days
+and denied ones after 365 ([Audit events](../retention/#audit-events)).
 
 ```json
 {
@@ -581,6 +584,14 @@ Never kept, since they don't refuse the caller: `signer-not-trusted`,
 being minted. Nor is a refusal of a request with no principal behind it: a
 public run token used outside its two progress routes, or correcting a run
 without a user or a service token. A `401`, for an unknown caller, never is.
+
+On runtime 0.6.0 or later, what a caller is shown about its own access isn't
+kept either, allowed or not: whoami's `tenantAdmin`
+(`GET /v1/identity/whoami`), `GET /v1/identity/me/permissions`, and an
+expert queue item's `can` (whether you may dismiss or reopen it). A console
+reads them often, to choose which pages and buttons to show, and none of
+them lets the caller do anything. Each request it then makes is checked, and
+kept, as above.
 
 ### In the console
 

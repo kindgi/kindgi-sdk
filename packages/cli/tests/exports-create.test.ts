@@ -349,6 +349,32 @@ describe('kindgi exports create', () => {
     ]);
   });
 
+  test('a project’s connection choices are read by its id, removed ones too', async () => {
+    const choice = {
+      choiceId: 'choice-1',
+      projectId: 'proj-1',
+      connectionId: 'conn-1',
+      version: 1,
+    };
+    const fake = server({
+      '/v1/projects': [{ id: 'proj-1' }, { id: 'proj-2' }],
+      '/v1/connection-choices': (url) =>
+        json(200, {
+          data: url.searchParams.get('projectId') === 'proj-1' ? [choice] : [],
+          hasMore: false,
+        }),
+    });
+    const res = await cli(fake);
+    expect(res.exitCode, res.stderr).toBe(0);
+    expect(fake.calls.filter((c) => c.startsWith('GET /v1/connection-choices?'))).toEqual([
+      'GET /v1/connection-choices?includeRemoved=true&projectId=proj-1&limit=100',
+      'GET /v1/connection-choices?includeRemoved=true&projectId=proj-2&limit=100',
+    ]);
+    expect(await lines('connection-choices')).toEqual([
+      { parent: { projectId: 'proj-1' }, item: choice },
+    ]);
+  });
+
   test('a 429 is waited out; a 5xx is sent again three times, then that kind fails and the rest go on', async () => {
     let flowsTries = 0;
     let agentsTries = 0;
@@ -765,7 +791,7 @@ describe('kindgi exports create', () => {
     const nameless = await cli(server({ '/v1/identity/whoami': { scopes: ['tenant-admin'] } }));
     expect(nameless.exitCode).toBe(1);
     expect(nameless.stderr).toContain(
-      'GET /v1/identity/whoami answered no tenantId, so the export has no tenant to name.',
+      'GET /v1/identity/whoami answered no tenantId, so the export has no workspace to name.',
     );
     await expect(readdir(out)).rejects.toThrow();
   });
@@ -793,7 +819,7 @@ describe('kindgi exports create', () => {
     await rm(out, { recursive: true, force: true });
     expect((await cli(server(answers))).exitCode).toBe(0);
     expect((await manifest()).consistency).toBe(
-      'The tenant is closing: nothing in it changes but deletes, revocations and erasures, so the files agree with each other, but for one of those made while the export ran.',
+      'The workspace is closing: nothing in it changes but deletes, revocations and erasures, so the files agree with each other, but for one of those made while the export ran.',
     );
 
     // Suspended when it started, active again by the end.

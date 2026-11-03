@@ -65,7 +65,7 @@ export function sitesRouter(
       c.status(statusFor('project-not-found') as never);
       return c.json(
         toWireError(
-          { code: 'project-not-found', message: 'No project with that id in this tenant' },
+          { code: 'project-not-found', message: 'No project with that id in this workspace' },
           c.get('requestId'),
         ),
       );
@@ -217,7 +217,7 @@ function restoreRefusedText(reason: SitePersonRestoreRefusal): string {
     case 'left':
       return 'Their site said they left it, and forgot them: if they come back, it signs them in as a new person';
     case 'linked-elsewhere':
-      return "This person also signs in another way (through another site, or the tenant's own sign-in), and letting them back in would let them in there too. Add them again instead, as a new person: with an email, they're invited";
+      return "This person also signs in another way (through another site, or the workspace's own sign-in), and letting them back in would let them in there too. Add them again instead, as a new person: with an email, they're invited";
   }
 }
 
@@ -500,14 +500,60 @@ export function siteOrigin(raw: unknown): string | undefined {
 /**
  * Characters that can disguise a name: controls (C0 and C1), format
  * characters (bidirectional marks, overrides and isolates, zero-width
- * characters, the byte-order mark) and the line and paragraph separators.
- * A site's display name, set by a tenant admin, is refused when it has one.
- * A person's `name`, which a site sends, is cleaned instead
+ * characters, the byte-order mark), lone surrogates, the line and
+ * paragraph separators, and the others that render as nothing (Unicode's
+ * default-ignorable ones, such as the Hangul fillers and the combining
+ * grapheme joiner). A variation selector is one too, except right after an
+ * emoji or inside a keycap such as `1️⃣`, whose look it picks: `✉️ Contact`
+ * is fine. A site's display name, a
+ * console link's label and a connection's name are refused when they have
+ * one. A person's `name`, which a site sends, is cleaned instead
  * (`withoutHiddenCharacters`): refusing it would keep out a person whose
  * name needs a joiner.
  */
 export function hasHiddenCharacters(text: string): boolean {
-  return /[\p{Cc}\p{Cf}\u2028\u2029]/u.test(text);
+  return text.search(HIDDEN_CHARACTERS) !== -1;
+}
+
+/**
+ * Every hidden character (`hasHiddenCharacters`). Global, for removing
+ * them: `search` and `replace` each start it at the beginning.
+ */
+const HIDDEN_CHARACTERS =
+  /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]|(?![\uFE0E\uFE0F])\p{Default_Ignorable_Code_Point}|(?<![\p{Extended_Pictographic}0-9#*])[\uFE0E\uFE0F]|(?<=[0-9#*])[\uFE0E\uFE0F](?!\u20E3)/gu;
+
+const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
+/**
+ * A name made from `text` that fits in `max` characters (code points): its
+ * hidden characters (`hasHiddenCharacters`) removed, trimmed, and cut
+ * between the characters a person sees, never inside one, so a flag, a
+ * keycap or an accented letter is kept whole or left out. What the cut
+ * leaves hidden goes too, and the end is trimmed. A connection's default
+ * name and a numbered one are made with it. It can be empty.
+ */
+export function fitName(text: string, max: number): string {
+  let kept = '';
+  let size = 0;
+  for (const { segment } of GRAPHEMES.segment(text.replace(HIDDEN_CHARACTERS, '').trim())) {
+    size += [...segment].length;
+    if (size > max) break;
+    kept += segment;
+  }
+  return kept.replace(HIDDEN_CHARACTERS, '').trimEnd();
+}
+
+/**
+ * What two names compare by: composed (NFC), without variation selectors,
+ * lower-cased. `✅ Done` and `✅️ Done` look the same, and so do a composed
+ * and a decomposed `Café`, so each pair has one key. A connection's name is
+ * taken when another live one of its app, owner and env has the same key.
+ */
+export function comparableName(text: string): string {
+  return text
+    .normalize('NFC')
+    .replace(/[\uFE0E\uFE0F]/gu, '')
+    .toLowerCase();
 }
 
 /**
@@ -558,7 +604,7 @@ function adminOnly(authorizer: Authorizer | undefined) {
         {
           code: 'permission-denied',
           message:
-            "Only a tenant admin manages a project's sites: a site creates people in the tenant",
+            "Only a tenant admin manages a project's sites: a site creates people in the workspace",
         },
         c.get('requestId'),
       ),

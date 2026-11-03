@@ -204,6 +204,33 @@ export function isReadOnlyTool(tool: {
   );
 }
 
+/**
+ * Why a tool can't take a set of connections that each call names one of
+ * (`accounts`): `changes` when it isn't read-only (`isReadOnlyTool`),
+ * `sensitive-data-egress` when it declares it may send what it reads
+ * elsewhere, which a read-only tool may, and `accounts-input` when its own
+ * input has an `accounts`. `undefined` when it may.
+ */
+export function connectionSetRefusal(tool: {
+  readonly mutating?: boolean;
+  readonly effects?: readonly { readonly kind: string }[] | readonly string[];
+  readonly input?: unknown;
+}): 'changes' | 'sensitive-data-egress' | 'accounts-input' | undefined {
+  if (!isReadOnlyTool(tool)) return 'changes';
+  const egress = (tool.effects ?? []).some(
+    (e) => (typeof e === 'string' ? e : e.kind) === 'sensitive-data-egress',
+  );
+  if (egress) return 'sensitive-data-egress';
+  const properties =
+    typeof tool.input === 'object' && tool.input !== null
+      ? (tool.input as { readonly properties?: unknown }).properties
+      : undefined;
+  if (typeof properties === 'object' && properties !== null && 'accounts' in properties) {
+    return 'accounts-input';
+  }
+  return undefined;
+}
+
 /** What the model gets for a call a replay refuses because nothing decided it. */
 const NO_BINDING_REASON = 'replay: no replay binding is wired, so no tool runs';
 const CHANGES_REASON = 'replay: this call changes things and has no recorded result';

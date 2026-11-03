@@ -14,7 +14,7 @@ Cloudflare R2. Before it serves, it checks that it can use each one.
 
 - **A runtime you deploy yourself,** whose settings you can change
   ([Self-host Kindgi](../self-host/)).
-- **For `s3:`, and the startup checks on this page, runtime 0.3.0 or
+- **For `s3:`, and the startup checks on this page, runtime 0.4.0 or
   later.** An earlier runtime refuses `s3:` at startup.
 - **For a bucket, the server's own identity** with access to it: its AWS
   identity, its Google service account, or an S3-compatible store's own key.

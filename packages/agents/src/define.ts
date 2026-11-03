@@ -155,7 +155,7 @@ export interface DefineAgentSpec {
    * for an agent that should run on a model that can follow a JSON schema
    * natively (its typed `output` is still checked by parse and repair, on
    * every model). The router uses
-   * the first entry to pick a compatible provider from the tenant's
+   * the first entry to pick a compatible provider from the workspace's
    * `ProviderRegistry`.
    */
   readonly capabilities: Agent['capabilities'];
@@ -204,7 +204,7 @@ export interface DefineAgentSpec {
   readonly parameters?: readonly PromptParameter[];
   /**
    * Preferred model provider by id. Soft hint — the router prefers
-   * this provider when it satisfies `capabilities.needs` + tenant
+   * this provider when it satisfies `capabilities.needs` + workspace
    * policy, falling back to normal capability-based selection when
    * the preferred provider is unregistered or filtered out. Enables
    * A/B'ing agents across providers without churning registrations:
@@ -235,7 +235,7 @@ export interface DefineAgentSpec {
    * the model as the call's result, so it can correct the call, up to
    * `maxRetries` times per turn, for the kinds in `retryOn`. Default:
    * one retry, for `invalid-arguments` and `unknown-tool` (nothing ran).
-   * A tenant's `tool-errors` policy can lower it. See `ToolErrorsSpec`.
+   * A workspace's `tool-errors` policy can lower it. See `ToolErrorsSpec`.
    */
   readonly toolErrors?: ToolErrorsSpec;
   /**

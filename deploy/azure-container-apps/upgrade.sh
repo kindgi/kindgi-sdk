@@ -77,7 +77,7 @@
 # Usage:
 #   ./upgrade.sh --var-file dev.tfvars [--var-file <another var file> ...] \
 #                --runtime-digest sha256:<64 hex> \
-#                [--to 0.4.0] [--from <version>] \
+#                [--to 0.5.0] [--from <version>] \
 #                [--pack-dir <path to the pack project>] \
 #                [--check-tenant <uuid>] [--dry-run]
 #
@@ -100,12 +100,12 @@
 #                      release's tag, then copied into the module's registry
 #                      by its whole index.
 #   --to               The target runtime version, 0.2.0 or later (default
-#                      0.4.0). An rc such as 0.4.0-rc.0 works too, and so does
+#                      0.5.0). An rc such as 0.5.0-rc.0 works too, and so does
 #                      a server-only release such as 0.2.0.1: a server fix for
 #                      0.2.0, with no SDK release of its own. Earlier
 #                      releases aren't on registry.kindgi.com: upgrade to
 #                      those by hand, as that release's README says. This
-#                      script knows the steps up to 0.4.0; for a later
+#                      script knows the steps up to 0.5.0; for a later
 #                      release, use this script as of that release's
 #                      @kindgi/sdk@<version> tag (for X.Y.Z.N, X.Y.Z's tag)
 #                      or, before that release is out, its newest
@@ -150,7 +150,7 @@ readonly RUNTIME_REPO="registry.kindgi.com/kindgi/runtime"
 readonly VERSION_FLOOR="0.1.8"         # upgrades from before this are refused
 readonly TARGET_FLOOR="0.2.0"          # the first release on registry.kindgi.com
 # Releases this script knows the upgrade steps for, oldest first.
-readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0")
+readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0")
 # The newest of them.
 readonly DEFAULT_TARGET="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
 
@@ -362,6 +362,9 @@ To go back:
     It changes the images (the server's, the pack's if this run rebuilt it,
     and the license renewal job's, if it has one) and the server's
     database-url reference, which now names that version, and nothing else.
+    Terraform plans the server's secrets as one set, so it shows them all
+    removed and added again, their contents hidden; only database-url's
+    reference changes.
     The plan holds your variables' values, secret ones too: umask 077 keeps
     it readable by you alone. Then apply it, and delete it:
       terraform apply back.tfplan
@@ -962,26 +965,28 @@ EOT
 EOT
       ;;
     0.4.0)
-      # STEPS-PENDING marks a release whose runtime steps here aren't final
-      # yet: they come from its release notes' Upgrade steps before its rc,
-      # and the rc's cut stops while either script has the marker.
+      # The 0.4.0 release notes' Upgrade steps, but for three: the core file
+      # limit is set in compose, docker run or systemd, which neither module
+      # runs, and the two on Cloud Run's packs are that module's own changes,
+      # which it prints with its plan and after its apply.
       cat <<'EOT'
-   - STEPS-PENDING: this copy's 0.4.0 runtime steps below aren't final yet.
-     Don't upgrade a deployment you keep with it: read the 0.4.0 release
-     notes' Upgrade steps.
-   - First start runs sixteen migrations: one new table, new columns that
-     are empty or have a fixed default, nothing rewritten, and the
-     supervisor_fix_proposals table dropped. They lock the tables they
-     change or point to: agent_registry, agent_registry_versions,
-     agent_promotions, block_registry_versions, deployments,
-     deployment_endpoints, eval_runs, eval_suite_cases,
-     improvement_proposals, judgments and projects. Seven of them hold the
-     lock while they read every row, to check a new rule or build an
-     index. One keeps judgments locked while it indexes every judgment, so
-     people's judgments and corrections wait, on the old revision too; one
-     indexes eval_runs, so starting or updating a test run waits. With many
-     of either (SELECT count(*) FROM judgments; and the same FROM
-     eval_runs) upgrade at a quiet time.
+   - Eighteen new migrations: four new tables (block_version_prs,
+     env_cloud_secrets, run_files and tool_file_tokens), new columns that
+     are empty or have a fixed default, with nothing rewritten, and the
+     supervisor_fix_proposals table dropped (below). The first start runs
+     them. They lock the tables they change or point to: agent_registry,
+     agent_registry_versions, agent_promotions, block_registry_versions,
+     deployments, deployment_endpoints, eval_runs, eval_suite_cases,
+     improvement_proposals, judgments, orgs and projects. Seven of the
+     migrations hold the lock while they read every row, to check a new
+     rule or build an index, and two of those tables can be large. The one
+     that sorts corrections keeps judgments locked while it indexes every
+     judgment: meanwhile reading or saving judgments and corrections waits,
+     on the old revision too. The one for test runs indexes eval_runs:
+     meanwhile starting or updating a test run waits. With many of either,
+     upgrade at a quiet time:
+       SELECT count(*) FROM judgments;
+       SELECT count(*) FROM eval_runs;
      A long transaction holding one of those tables makes the new revision
      fail after about a minute, naming the session that holds it (end it
      with pg_terminate_backend, or let it finish). The old revision keeps
@@ -993,24 +998,155 @@ EOT
      doesn't grant it: grant roles/storage.legacyBucketReader on the bucket,
      or add the permission to a custom role. A ledger or purge-record bucket
      needs only storage.objects.create.
-   - A mail trigger on the company's mailbox now stores the connection it
-     reads with. At its next look at the mailbox, one whose project has a
-     single company connection at the app stores that one and reads on.
-     With several, it reads nothing and shows connection-not-chosen, naming
-     them, until a project admin points it at one:
-       kindgi mail-triggers update <trigger-id> --mailbox=google \
-         --as=company --connection=<name>
-     (or --mailbox=microsoft), with --folder again if it watches a folder
-     other than the inbox, and --allow-unattended if it lists tools allowed
-     unattended.
+   - A site person's Ask gets the project's tools at their next sign-in.
+     There's no migration. The first start brings each tenant's
+     authorization store up to the new model, as at every upgrade, and logs
+     "store <id> now has the current model". A store it couldn't update logs
+     "could not bring store <id> up to the current model" (or "could not
+     read its store's model to bring it up to date"), and the next start
+     tries again. A site person whose role may ask gets the new turn_invoker
+     relation at their next sign-in through the site. Until then, or while
+     their tenant's store has the old model, their Ask's calls of the
+     project's tools are refused, as before. The approval floor holds from
+     the first start, though, so a kindgi_remember in their Ask waits for a
+     yes from then on. A sign-in whose store refuses the write logs a WARN,
+     once per tenant: "a site person's turn_invoker wasn't written". In the
+     audit, a site person's tool call in their own turn logs two
+     authz-decision events on the tool: the invoke deny, as before, then the
+     allow, whose evidence names turn_invoker.
    - Upgrading drops the old supervisor_fix_proposals table; at 0.3.x no
      route or job wrote to it.
-   - Projects gain one column, sort_end_user_corrections, empty on existing
-     projects, and empty reads as no: their end users' corrections aren't
-     sorted until a project turns it on.
-   - In KINDGI_LOG_LEVELS (server_env), change judging=<level> to
-     expert-queue=<level>. The old name only warns at boot, and has no
-     effect.
+   - Projects gain a sort_end_user_corrections column, a yes or no. It's
+     empty on existing projects, and empty reads as no: their end users'
+     corrections aren't sorted, and an Improve schedule that takes
+     everyone's corrections doesn't count them, until a project admin turns
+     it on with "sortEndUserCorrections": true on
+     PATCH /v1/projects/{projectId}.
+   - Right after the upgrade, a project no pin covers runs its Latest:
+     whichever came last there, the version the newest deployment into the
+     project shipped, or the newest version made in the project before
+     0.4.0, a derived one too, by when it was published. It's not always
+     the highest version: the two differ after a deploy that rolled back,
+     or a lower version published after a higher one. To keep a version
+     running in a project, pin it there before you upgrade.
+   - An Improve schedule saved at 0.3.x is read in 0.4.0's shape. Nothing
+     rewrites it. Its threshold.judgments is its "corrections", and the
+     threshold's "runs" and "judges" are dropped, so it fires on the count
+     of corrections alone. budget.maxCostUsd is its runCapUsd,
+     monthlyCapUsd its monthCapUsd, and classWeights its "from"
+     ("as-recorded" reads as "everyone", and "restricted-only" as
+     "experts"). Its objective, candidates and the rest of its budget are
+     dropped. One saved for a segment improves the segment's whole project.
+     One saved with no classWeights reads as "experts". At 0.3.x, where no
+     expert group applied (none for the tenant, the project or the agent),
+     it took everyone's corrections; now it takes only experts', so there
+     it starts no Improve run. To keep everyone's, copy its input from
+       kindgi schedules get <schedule-id>
+     set "from" to "everyone" in it, and send all of it back with
+       kindgi schedules update <schedule-id> --input=@<file>
+     The update replaces the whole input: a field left out goes back to its
+     default. The console can't change an existing schedule's input.
+   - Corrections made at 0.3.x go to nobody, so Improve doesn't learn from
+     them until they're handed to it. A correction now says who fixes it:
+     Improve, a developer or the agent's owner. An Improve run, or an
+     Improve schedule, takes only an agent's open corrections handed to
+     Improve. Upgrading keeps each older correction open, with nobody to fix
+     it, and the console shows it as "Nobody yet" under Who fixes it. To
+     have Improve learn from them, filter an agent's corrections by Who
+     fixes it: Nobody yet, and hand each one to Improve with Hand it to
+     someone else, or send PATCH /v1/corrections/{id} with
+     "sortedTo": "improve". Only an agent's corrections go to Improve: hand
+     a flow's to a developer or the owner.
+   - An Improve run still going when you upgrade ends, and doesn't carry
+     on. 0.4.0 checks a change case by case, and a run 0.3.x started
+     didn't, so the run ends failed: "An older version of the runtime
+     started this Improve run, and this version can't carry it on. Start it
+     again." One someone asked to stop ends cancelled. The suggested change
+     it made, and that change's check, stay for a person to look at. To
+     lose no run, upgrade when none is going.
+   - Upgrade your clients, the CLI and your own callers with the runtime.
+     0.4.0 renames routes, fields, error codes and metric names, and keeps
+     no old name: /v1/gate-policies is /v1/release-gates, and
+     kindgi gate-policies is kindgi release-gates, for one. A release gate
+     saved at 0.3.x needs no step: the runtime reads its old names. The
+     0.4.0 release notes list every renamed name, under Changed and in
+     their Upgrade steps.
+   - Console links saved before 0.4.0 can answer Page not found. Pages
+     moved under the agent or flow they belong to, and 0.4.0 keeps no old
+     address: a run's tabs, Quality (now Corrections), suggested changes
+     (which were proposals), Improve runs, test runs (which were eval
+     runs), test sets, and the page that makes a release gate. The 0.4.0
+     release notes' Upgrade steps list each new address.
+   - A webhook receiver, or code that reads approvals, sees 0.4.0's names.
+     The Improve run's event is improve-run.finished, which was
+     improvement-pass.finished, and its data is in data.improveRun, which
+     was data.pass. An endpoint subscribed to the old name gets the new one
+     with no step; a new subscription must name the new one. An approval's
+     subjectKind is agent-pin, fact or supervisor:suggested-change, which
+     were agent-promotion, memory-fact and supervisor:fix-proposal. The API
+     takes only the new names; approvals stored before read with them.
+   - A stdio MCP server that keeps a credential in config.env still works,
+     and the runtime says so at each start: move it into secretEnv. For
+     each stdio endpoint registered with a credential in plaintext
+     config.env, or with a secretRef, which a stdio server is never sent,
+     the boot logs a WARN under mcp.env that names the endpoint and the
+     secretEnv that replaces it. kindgi-runtime check mcp-env-credentials,
+     and kindgi doctor's mcp-env check, list the same. Its values in
+     config.env now read back as "[redacted]", and registering one again
+     with a credential in config.env is refused. To move one, store each
+     of its values in config.env as a secret (a secretRef is stored
+     already), then unregister the endpoint and register it again with
+     secretEnv. An HTTP MCP endpoint with secretEnv in the config file
+     stops the boot: only a stdio server is given one.
+   - The expert queue's records are logged under expert-queue, which was
+     judging. In KINDGI_LOG_LEVELS (server_env), change judging=<level> to
+     expert-queue=<level>. The old name only warns at boot, as a name no
+     subsystem logs under, and has no effect.
+EOT
+      ;;
+    0.5.0)
+      # STEPS-PENDING marks a release whose runtime steps here aren't final
+      # yet: they come from its release notes' Upgrade steps before its rc,
+      # and the rc's cut stops while either script has the marker.
+      cat <<'EOT'
+   - STEPS-PENDING: this copy's 0.5.0 runtime steps below aren't final yet.
+     Don't upgrade a deployment you keep with it: read the 0.5.0 release
+     notes' Upgrade steps.
+   - Two new migrations: three new tables (connection_choices,
+     connection_choice_uses and connection_choice_members), and new columns
+     on connections and connection_requests that are empty, with nothing
+     rewritten. The first start runs them. Each keeps connections locked
+     while it reads every connection to build new indexes or check a new
+     rule: meanwhile a call that needs a connection waits, on the old
+     revision too. That's short unless there are very many:
+       SELECT count(*) FROM connections;
+     A long transaction holding connections or connection_requests makes
+     the new revision fail after about a minute, naming the session that
+     holds it (end it with pg_terminate_backend, or let it finish). The old
+     revision keeps serving meanwhile.
+   - The migrations fill nothing in: each connection keeps working, with
+     no name, and no agent or flow has a choice of one. Name them when you
+     like.
+   - Before you upgrade, check your console links' labels. A runtime whose
+     KINDGI_CONSOLE_LINKS (server_env) holds a label with a character 0.5.0
+     refuses doesn't start, and says which link. It refuses a lone
+     surrogate, the characters that render as nothing (such as the Hangul
+     fillers and the combining grapheme joiner), and a variation selector
+     anywhere but in an emoji. Type the label again without it.
+   - Before you connect a second company account of an app, choose for the
+     agents and flows that use it. For each agent and flow whose tools use
+     the company's connection of that app, choose the connection it uses
+     now, and check that each company mail trigger of the app shows its
+     Connection, which it stores when it first reads after the upgrade.
+     Otherwise their runs stop with connection-not-chosen once the second
+     account is connected. A call that isn't an agent's or a flow's can't
+     have a choice, so it needs a project with one company connection of
+     the app.
+   - To list Google calendars, add this scope to your Google Cloud
+     project's consent screen:
+       https://www.googleapis.com/auth/calendar.calendarlist.readonly
+     A connection made before grants it once, when it's reconnected; the
+     permissions it had stay.
 EOT
       ;;
   esac
@@ -1041,6 +1177,11 @@ EOT
       cat <<'EOT'
    - 0.4.0's plan changes nothing in the module by itself: its one new
      variable, database_url_version, is empty unless a way back sets it.
+EOT
+      ;;
+    0.5.0)
+      cat <<'EOT'
+   - 0.5.0 doesn't change the module.
 EOT
       ;;
   esac

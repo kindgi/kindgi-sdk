@@ -77,11 +77,11 @@ version published without pins resolves its ranges per run too.
 
 ## A pin holds a tool at a version
 
-A **pin** holds a tool at a version for a project, an org or the whole tenant
+A **pin** holds a tool at a version for a project, an org or the whole workspace
 (runtime 0.3.0 or later), so you can publish a new tool version without it
 reaching the agents and flows made there. When an agent or flow version is
 made in a project a tool's pin covers (the project's own pin, then its org's,
-then the tenant's), the version locks the tool at the pinned version:
+then the workspace's), the version locks the tool at the pinned version:
 
 - **An agent's tool range** locks the pinned version when the range allows it.
   A range that leaves it out, such as the exact `1.2.0` while 1.1.0 is pinned,
@@ -247,7 +247,7 @@ environment, so a tool in an order is pinned there. A pin for a later
 environment would never act, and is refused with
 `409 environment-takes-promotions`, naming the first environment in
 `details.firstProjectId` when you can read that project. A pin for an org or
-the tenant is refused with `409 pin-scope-spans-environments`.
+the workspace is refused with `409 pin-scope-spans-environments`.
 
 **Some tools can't be pinned.** A tool an MCP endpoint's catalog lists (its
 metadata has the catalog's `kindgi.mcp` key) follows its server: a call goes

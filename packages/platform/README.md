@@ -1,7 +1,7 @@
 # @kindgi/platform
 
 The multi-tenant hierarchy primitives — the type surface for
-`Tenant → Org → Team → Project + User` plus the `Scope` discriminated
+`Workspace → Org → Team → Project + User` plus the `Scope` discriminated
 access-boundary.
 
 ## Status
@@ -50,8 +50,8 @@ rejected promise means the backend failed.
 | `ProjectMembershipBinding.add` | `project-not-found` |
 | `ProjectMembershipBinding.updateRole` | `project-not-found`, `project-membership-not-found` |
 
-An org's and a team's slug are unique within the tenant; a project's
-within its org, and a project without an org's among the tenant's
+An org's and a team's slug are unique within the workspace; a project's
+within its org, and a project without an org's among the workspace's
 projects without one (two orgs may each have a project with the same
 slug). `OrgBinding.delete` may answer `slug-conflict` when the org's
 projects, left without an org, would take a slug a project without one
@@ -65,10 +65,10 @@ outcome.
 ## Design directives
 
 - **`Scope` is required + discriminated** — never optional `projectId`
-  with tenant-fallback. Every write declares intent.
+  with workspace-fallback. Every write declares intent.
 - **Content always has a project** — no nullable-`projectId` shape
   anywhere.
-- **Users tenant-scoped.** Teams tenant-scoped. Orgs flat within tenant.
+- **Users workspace-scoped.** Teams workspace-scoped. Orgs flat within workspace.
 - **Team↔project many-to-many** via `TeamProjectGrant` (users join
   teams via `TeamMembership`).
 - **Framework-owned team memberships** (no external directory sync).

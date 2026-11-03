@@ -17,7 +17,7 @@ description: >
   kindgi-java-authoring-flows; models by kindgi-authoring-providers.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.7"
+version: "0.1.8"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -77,11 +77,11 @@ terminal, say), `kindgi dev` exits with code 3 and prints where it is
 and don't stop theirs.
 
 Each linked git worktree runs its own `kindgi dev`, side by side, with its
-own dev tenant, user and token. In the bundled Postgres it has its own
-database too, `kindgi_<project>__<worktree>`, and its tenant and user are
+own workspace, user and token. In the bundled Postgres it has its own
+database too, `kindgi_<project>__<worktree>`, and its workspace and user are
 named from it; with your own (`--database-url` or `KINDGI_DATABASE_URL`),
 it uses that one. Its `.kindgirc.json`, which `kindgi init` keeps out of
-git, keeps the token, the tenant and the user. When port 4000 is taken
+git, keeps the token, workspace and user. When port 4000 is taken
 (another worktree's `kindgi dev`), it takes the next free one and says so,
 `⚠ port 4000 is in use (another kindgi dev?): using 4001`; that
 worktree's `.kindgirc.json` records it, so the CLI there follows. Read the
@@ -251,7 +251,7 @@ Show it in the app's own UI. **Never:**
   gives no database access.
 - **link users to Kindgi's console**, or any Kindgi UI, for this data.
 
-Docs: https://docs.kindgi.com/v0.3/guides/runs/show-runs-in-your-app/
+Docs: https://docs.kindgi.com/v0.4/guides/runs/show-runs-in-your-app/
 
 ## Build an image
 
@@ -289,11 +289,11 @@ running the older version on it.
   https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading
 - **Any other Cloud Run deployment:** by hand, staging first, as the Cloud
   Run page's "Upgrade by hand" section says:
-  https://docs.kindgi.com/v0.3/deploy/self-hosted/cloud-run/#upgrade-by-hand
+  https://docs.kindgi.com/v0.4/deploy/self-hosted/cloud-run/#upgrade-by-hand
 - **On Azure Container Apps:** the "Operate it" section of its page:
-  https://docs.kindgi.com/v0.3/deploy/self-hosted/azure-container-apps/#operate-it
+  https://docs.kindgi.com/v0.4/deploy/self-hosted/azure-container-apps/#operate-it
 - **Otherwise:** the operate page's upgrade steps:
-  https://docs.kindgi.com/v0.3/deploy/self-hosted/operate/#upgrade-the-runtime
+  https://docs.kindgi.com/v0.4/deploy/self-hosted/operate/#upgrade-the-runtime
 
 An upgrade changes a running deployment: give the person the commands to run
 in their own terminal (`./upgrade.sh` waits for them to type `yes`).

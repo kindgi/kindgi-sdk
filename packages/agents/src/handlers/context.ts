@@ -10,7 +10,7 @@ import type {
 } from '@kindgi/capabilities';
 import type { Guardrail } from '@kindgi/guardrails';
 import type { ProvenanceBuilder } from '@kindgi/provenance';
-import type { Tool } from '@kindgi/tools';
+import type { ConnectionAccountChoices, Tool } from '@kindgi/tools';
 
 import type { EvaluationResult } from '@kindgi/guardrails';
 
@@ -63,6 +63,11 @@ export interface TurnContext {
    */
   /** The data blocks the turn runs with (set by setup; none when the agent references none). */
   blocks?: TurnBlocks;
+  /**
+   * The sets the turn's calls may name a connection from, tool id to need
+   * (`offerAccounts`): each tool here was offered an `accounts` input.
+   */
+  accountChoices?: ConnectionAccountChoices;
   tools?: {
     readonly definitions: readonly ModelToolDefinition[];
     /**

@@ -3,7 +3,7 @@
 
 /**
  * Multi-tenant hierarchy primitives — the type surface for the
- * `Tenant → Org → Team → Project + User` flow.
+ * `Workspace → Org → Team → Project + User` flow.
  *
  * **Pure type shapes.** No runtime code, no validation, no defaults.
  * Binding interfaces live in the sibling `*-binding.ts` files;
@@ -124,8 +124,8 @@ export interface Project {
   readonly name: string;
   readonly slug: string;
   /**
-   * `true` for the tenant's default project (a new tenant gets one). At most
-   * one row per tenant carries `isDefault = true`.
+   * `true` for the workspace's default project (a new workspace gets one). At most
+   * one row per workspace carries `isDefault = true`.
    * `false` for every other project.
    */
   readonly isDefault: boolean;
@@ -162,8 +162,8 @@ export interface ProjectSpec {
   readonly description?: string;
   readonly orgId?: OrgId;
   /**
-   * Optional at spec time — the tenant's default project is created
-   * by the framework at tenant-inception, not by a caller. User
+   * Optional at spec time — the workspace's default project is created
+   * by the framework at workspace-inception, not by a caller. User
    * projects created via `POST /v1/projects` default to `false`.
    */
   readonly isDefault?: boolean;

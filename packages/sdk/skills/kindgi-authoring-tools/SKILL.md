@@ -12,7 +12,7 @@ description: >
   authoring agents is covered by kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.5.3"
+version: "0.5.6"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -65,7 +65,7 @@ makes `defineTool` return an `invalid-tool-definition` error.
 | Your case | Read |
 |---|---|
 | A `handler`: what it gets (`input`, `ctx`), and logging | [imperative-handler.md](imperative-handler.md) |
-| An env value, a tenant's secret, or acting in another app (a connection) | [secrets-and-connections.md](secrets-and-connections.md) |
+| An env value, a workspace's secret, or acting in another app (a connection) | [secrets-and-connections.md](secrets-and-connections.md) |
 | A plain remote call: `spec: {kind: 'http'}` | [declarative-http.md](declarative-http.md) |
 | A read-only tool, a person's yes in unattended runs, results that are outside text | [tool-flags.md](tool-flags.md) |
 | Changing a tool, its `version`, its tests, code several tools share | [iterating-and-testing.md](iterating-and-testing.md) |
@@ -107,7 +107,7 @@ run start via `semver.maxSatisfying`. No implicit `:latest`.
 - Type surface: `hover any @kindgi/sdk/define export` in your editor
   for full JSDoc — every field on `DefineToolSpec` / `ToolManifest`
   documents purpose, when to set it, and gotchas.
-- API reference: https://docs.kindgi.com/v0.3/reference/typescript/sdk/kindgi/sdk/define/ (every `define*` spec, field by field).
+- API reference: https://docs.kindgi.com/v0.4/reference/typescript/sdk/kindgi/sdk/define/ (every `define*` spec, field by field).
 - Common patterns: check the `sample` template (`kindgi init
   --template=sample`) for working examples of both authoring modes.
 

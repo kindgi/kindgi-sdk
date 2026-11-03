@@ -116,7 +116,7 @@ export function signingKeysRouter(
         toWireError(
           {
             code: 'signing-key-not-found',
-            message: `No signing key "${keyId as unknown as string}" under this tenant`,
+            message: `No signing key "${keyId as unknown as string}" under this workspace`,
           },
           requestId,
         ),

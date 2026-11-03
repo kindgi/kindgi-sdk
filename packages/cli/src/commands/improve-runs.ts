@@ -227,7 +227,7 @@ const start: LeafCommand = {
     'group-weights': {
       type: 'string',
       description:
-        'Which corrections the Improve run learns from: `as-recorded` (all groups) or `experts-only` (expert groups only). Omitted, it counts everyone until the project, its tenant, or the agent in the project has an expert group, then only those.',
+        'Which corrections the Improve run learns from: `as-recorded` (all groups) or `experts-only` (expert groups only). Omitted, it counts everyone until the project, its workspace, or the agent in the project has an expert group, then only those.',
     },
     provider: {
       type: 'string',

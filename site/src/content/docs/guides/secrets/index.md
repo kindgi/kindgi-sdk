@@ -11,7 +11,7 @@ machine and in a deployment, and get each to the code that needs it.
 
 A pack's code needs three kinds of values, and Kindgi keeps them apart:
 
-- **Secrets a tool uses for a tenant**: an API key, a signing key. A tool
+- **Secrets a tool uses for a workspace**: an API key, a signing key. A tool
   declares them by name, and Kindgi resolves them for each call into
   `ctx.secrets`, at the scope recorded when the tool version was registered
   ([Where values live](../../concepts/projects-packs-values/#where-values-live)).
@@ -19,9 +19,9 @@ A pack's code needs three kinds of values, and Kindgi keeps them apart:
   name too. A model provider's key is its provider's only: no tool or
   endpoint gets it.
 - **Env values a tool uses per project**: a base URL, a region, an account
-  id, which aren't secret but differ per tenant, org or project. A tool
+  id, which aren't secret but differ per workspace, org or project. A tool
   declares them by name, and Kindgi resolves them for each call into
-  `ctx.env`: the project's value before its org's and the tenant's.
+  `ctx.env`: the project's value before its org's and the workspace's.
 - **Your code's own environment**: a service URL, a database your app owns,
   a feature flag. Your code reads them from `process.env` or `os.environ`,
   and the pack declares which ones it needs.
