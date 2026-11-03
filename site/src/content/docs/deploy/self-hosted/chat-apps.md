@@ -47,8 +47,10 @@ Restart the runtime. Its start output says the endpoint is on:
 
 On a runtime without an [authorization store](../../authorization/), the
 line adds `(no per-project permissions)`. Anyone signed in can then see and
-run every agent, and Claude gets the same access. The consent page tells
-each person so before they allow it.
+run every agent, and Claude gets the same access.
+
+<!-- To confirm: whether the consent page tells each person so before they allow it. -->
+
 
 Only agents their builders offer in chat show up there, and each person
 gets a tool only for those of them they may run in Kindgi.

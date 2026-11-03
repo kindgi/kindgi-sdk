@@ -28,7 +28,7 @@ other people's work.
 3. Choose **Connect**. A tab opens Kindgi's sign-in. Sign in as you do for
    the console.
 4. Read the consent page, then choose **Allow**:
-   - Its title, **Claude wants to use Kindgi as** …, names you and your
+   - Its title, **A chat app wants to use Kindgi as** …, names you and your
      workspace.
    - Under it, **You'll go back to claude.ai** shows where the tab goes
      next, in large text. If it names anything other than `claude.ai`,
@@ -38,10 +38,15 @@ other people's work.
        waiting for you**
      - **Run the agents you're allowed to run, and stop runs you started**
      - **Create, pause and remove your own schedules**
-   - If your Kindgi doesn't check permissions per project, the page says so:
-     anyone signed in can see and run every agent there, and Claude gets the
-     same access.
+
+   The page lasts five minutes. If it says the request expired, start again
+   from claude.ai.
 5. The tab goes back to claude.ai, and the connector shows as connected.
+
+<!-- To confirm: whether the consent page says when the runtime doesn't check permissions per project (anyone signed in can see and run every agent, and Claude gets the same access). If so, a bullet in step 4. -->
+
+If your Kindgi doesn't check permissions per project, anyone signed in can
+see and run every agent there, and Claude gets the same access.
 
 claude.ai may ask you before it uses a Kindgi tool, with **Always allow** for
 that tool. That choice belongs to this connector: if you remove the connector
@@ -81,7 +86,7 @@ Anything these agents return may appear in your Claude chat.
 
 ## Disconnect
 
-In the console, open **Connected apps** and choose **Disconnect** next to
-Claude.
+In the console, open **My access**. Under **Chat apps**, choose
+**Disconnect** next to Claude.
 
-<!-- To confirm: the place's final name and path, what Disconnect ends at once, and whether removing the connector in claude.ai ends Kindgi's grant. -->
+<!-- To confirm: how the Chat apps list names Claude, what Disconnect ends at once, and whether removing the connector in claude.ai ends Kindgi's grant. -->
