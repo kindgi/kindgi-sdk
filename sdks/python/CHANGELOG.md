@@ -13,6 +13,15 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **the client's docstrings call the place a workspace**, as the
+  API reference does. What you pass or read keeps `tenant`: `tenant_id`, the
+  scope value `tenant`, the model names (`ScopeTenant`) and the paths. So do
+  the `system_*` resources, which are for the operator of a runtime that
+  serves several workspaces.
+- `kindgi`: **the pack API says workspace for the place.** `ToolContext`'s
+  docstrings, the vendored spec schemas' descriptions and the indexer's
+  warning for a check whose id doesn't start with the pack's id say workspace,
+  as the console does. `tenant_id` and the value `tenant` keep their names.
 - `kindgi`: **a retired block, policy or release gate can be found.**
   `blocks.list`, `policies.list` and `release_gates.list` take
   `include_retired=True`, as `agents.list`, `flows.list`, `tools.list` and

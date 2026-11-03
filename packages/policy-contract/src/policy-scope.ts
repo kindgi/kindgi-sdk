@@ -9,8 +9,8 @@ import { retentionSpecDoc, validateRetentionSpec } from './retention-spec.js';
  * both apply to one thing, or `undefined` when its kind holds none (any
  * number of its policies coexist). Scopes are compared within a kind.
  *
- * A `retention` policy holds its domain, and `'*'`, the tenant-wide
- * default, is a scope of its own: a tenant has one retention policy per
+ * A `retention` policy holds its domain, and `'*'`, the workspace-wide
+ * default, is a scope of its own: a workspace has one retention policy per
  * domain, so no precedence rule decides between two.
  *
  * Every version of a policy id holds the same scope, so unregistering or

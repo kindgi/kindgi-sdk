@@ -479,10 +479,10 @@ describe('POST /:id/pinned/pin', () => {
         const res = await app.request(`/${ITEM}/pinned/pin`, post({ version: '1.0.0', scope }));
         const { error } = (await res.json()) as { error: { code: string; message: string } };
         expect([res.status, error.code]).toEqual([409, 'pin-scope-spans-environments']);
-        // The body 0.3.0 shipped: the scope, the item and the order, then what to do.
+        // The body's shape since 0.3.0: the scope, the item and the order, then what to do.
         expect(error.message).toMatch(
           new RegExp(
-            `^An? (tenant|org)-wide pin.* of ${kind} "${ITEM}" would act across every environment of .+ at once\\. .+ Nothing was pinned\\.$`,
+            `^An? (workspace|org)-wide pin.* of ${kind} "${ITEM}" would act across every environment of .+ at once\\. .+ Nothing was pinned\\.$`,
           ),
         );
       }

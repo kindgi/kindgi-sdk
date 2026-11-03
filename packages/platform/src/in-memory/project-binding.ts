@@ -62,17 +62,17 @@ function grantKey(teamId: TeamId, projectId: ProjectId): string {
 }
 
 /**
- * - `orgExists`: whether an org is the tenant's (live). Given, a project or
+ * - `orgExists`: whether an org is the workspace's (live). Given, a project or
  *   team created in or moved to another org is `org-not-found`, as the
  *   durable bindings answer; absent, any `orgId` is taken as it is.
- * - `productionLimit`: the tenant's limit on projects in production
+ * - `productionLimit`: the workspace's limit on projects in production
  *   (`TenantLimits.projectsInProduction`), read where it's kept;
  *   `undefined` for none. Read synchronously, so `setProduction` reads,
  *   counts and changes in one step, as a database's lock makes it.
  * - `environmentOrderOf`: the id of the environment order a project is a
  *   member of, or `undefined` for none. Given, `delete` and an `orgId` move
  *   refuse a project that is in an order (`project-in-environment-order`), as
- *   the durable binding does under its per-tenant lock; absent, no project is
+ *   the durable binding does under its per-workspace lock; absent, no project is
  *   in an order. Compose this to the environment-order binding's `orderOf`
  *   wherever both share a store so the guard is never silently unset.
  */

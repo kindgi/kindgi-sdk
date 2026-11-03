@@ -244,7 +244,7 @@ const get: LeafCommand = {
 const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
-  description: "List this tenant's sign-in providers.",
+  description: "List this workspace's sign-in providers.",
   usage: 'kindgi sso providers list',
   run: (ctx) =>
     runSdk(ctx, 'sso providers list', async () => await ctx.client().auth.providers.list(), {
@@ -308,7 +308,7 @@ const test: LeafCommand = {
         if (signInUrl !== undefined) {
           return {
             stdout: [
-              `Open this in a browser and sign in as a person who's been added to this tenant:`,
+              `Open this in a browser and sign in as a person who's been added to this workspace:`,
               `  ${signInUrl}`,
               '',
               'Afterwards, the console shows who you are signed in as.',
@@ -320,7 +320,7 @@ const test: LeafCommand = {
         const why =
           email === undefined
             ? `"${providerId}" has no domains. Sign-in is email first, so people find a provider by their email's domain: kindgi sso providers update ${providerId} --domains=<your-domain>`
-            : `No sign-in page offers "${providerId}" for ${email}: its domain isn't one of the provider's, or it isn't verified for this tenant (a runtime that serves several tenants routes a domain only once its operator lists it in KINDGI_AUTH_VERIFIED_DOMAINS).`;
+            : `No sign-in page offers "${providerId}" for ${email}: its domain isn't one of the provider's, or it isn't verified for this workspace (a runtime that serves several tenants routes a domain only once its operator lists it in KINDGI_AUTH_VERIFIED_DOMAINS).`;
         return { stdout: '', stderr: `${why}\n`, exitCode: 1 };
       },
     ),

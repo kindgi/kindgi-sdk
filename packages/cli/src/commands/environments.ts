@@ -112,7 +112,7 @@ const list: LeafCommand = {
     "Show the order projects go live through: each environment's name (from your pack config), project and position.",
   usage: 'kindgi environments list [--org=<org-id>] [--path=<dir>]',
   optionSpec: {
-    org: { type: 'string', description: "An org's order instead of the tenant's, by org id." },
+    org: { type: 'string', description: "An org's order instead of the workspace's, by org id." },
     path: {
       type: 'string',
       description: 'The pack root, to name the environments. Default: the current directory.',
@@ -149,7 +149,7 @@ const set: LeafCommand = {
   usage:
     'kindgi environments set <env> [<env> …] [--org=<org-id>] [--projects=<id-or-slug,…>] [--path=<dir>]',
   optionSpec: {
-    org: { type: 'string', description: "An org's order instead of the tenant's, by org id." },
+    org: { type: 'string', description: "An org's order instead of the workspace's, by org id." },
     projects: {
       type: 'string',
       description:
@@ -174,7 +174,7 @@ const clear: LeafCommand = {
     'Clear the environment order; projects then take builds directly again. Tenant admins only.',
   usage: 'kindgi environments clear [--org=<org-id>]',
   optionSpec: {
-    org: { type: 'string', description: "An org's order instead of the tenant's, by org id." },
+    org: { type: 'string', description: "An org's order instead of the workspace's, by org id." },
   },
   run: (ctx) =>
     runSdk(ctx, 'environments clear', async () => {

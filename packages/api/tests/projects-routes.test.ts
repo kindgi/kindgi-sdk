@@ -404,6 +404,72 @@ describe('API — projects CRUD', () => {
     expect(await read()).toMatchObject({ name: 'renamed', everyoneCanRun: true });
   });
 
+  test('a PATCH naming orgId also takes admin on the tenant: the project admin is a 403 that changes nothing', async () => {
+    const granted = new Set<string>();
+    const authz = {
+      check: async (
+        _principal: unknown,
+        action: string,
+        resource: { type: string; id: string },
+      ) => {
+        const allowed = granted.has(`${action} ${resource.type}:${resource.id}`);
+        return { allowed, reason: 'test', failing: allowed ? undefined : 'actor' } as Decision;
+      },
+    } as unknown as AuthzCheckBinding;
+    const { app, trio } = makeApp(authz);
+    const made = await trio.projects.create(tenantA, {
+      name: 'moved',
+      slug: 'moved',
+      orgId: 'org-a',
+      role: 'owner',
+    } as never);
+    if (made.kind !== 'ok') throw new Error(made.kind);
+    const id = made.projectId as unknown as string;
+    // Its owner: admin on the project, not on the tenant.
+    granted.add(`read project:${id}`).add(`admin project:${id}`);
+    const patch = (body: unknown) =>
+      app.request(`/v1/projects/${id}`, {
+        method: 'PATCH',
+        headers: { authorization: `Bearer ${USER_A}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const read = async () => {
+      const res = await app.request(`/v1/projects/${id}`, {
+        headers: { authorization: `Bearer ${USER_A}` },
+      });
+      expect(res.status).toBe(200);
+      return (await res.json()) as { name: string; orgId?: string };
+    };
+
+    // Into another org, out of any, its own org again, and beside a rename.
+    for (const body of [
+      { orgId: 'org-b' },
+      { orgId: null },
+      { orgId: 'org-a' },
+      { name: 'renamed', orgId: 'org-b' },
+    ]) {
+      const refused = await patch(body);
+      expect(refused.status).toBe(403);
+      expect(await refused.json()).toMatchObject({
+        error: {
+          code: 'permission-denied',
+          details: { action: 'admin', resource: `tenant:${tenantA as unknown as string}` },
+        },
+      });
+    }
+    expect(await read()).toMatchObject({ name: 'moved', orgId: 'org-a' });
+
+    // A PATCH without `orgId` takes admin on the project, as before.
+    expect((await patch({ name: 'renamed' })).status).toBe(204);
+    expect(await read()).toMatchObject({ name: 'renamed', orgId: 'org-a' });
+
+    granted.add(`admin tenant:${tenantA as unknown as string}`);
+    expect((await patch({ orgId: 'org-b' })).status).toBe(204);
+    expect(await read()).toMatchObject({ orgId: 'org-b' });
+    expect((await patch({ orgId: null })).status).toBe(204);
+    expect((await read()).orgId).toBeUndefined();
+  });
+
   test('pagination with limit + cursor', async () => {
     const { app } = makeApp();
     for (let i = 0; i < 3; i += 1) {
@@ -700,7 +766,7 @@ describe('API — projects /default', () => {
     // getDefault's 404 says "Tenant has no default project"; the
     // :projectId 404 says "No project with id 'default'". Distinct
     // messages confirm the /default route handled the request.
-    expect(body.error.message).toBe('Tenant has no default project');
+    expect(body.error.message).toBe('Workspace has no default project');
   });
 });
 

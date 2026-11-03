@@ -315,7 +315,7 @@ export interface Guardrail {
   readonly budget?: Budget;
   /**
    * For `kind: 'llm-judge'` — capability declaration for the judge
-   * model, routed through `@kindgi/capabilities` under the tenant policy
+   * model, routed through `@kindgi/capabilities` under the workspace policy
    * the caller passes as `EvaluationBindings.tenantPolicy`. Enables BYO
    * judges. Ignored for zero-llm + external.
    */
@@ -539,10 +539,10 @@ export interface EvaluationBindings {
    */
   readonly usage?: UsageSink;
   /**
-   * The tenant's model-routing policy (provider / model allow and deny
+   * The workspace's model-routing policy (provider / model allow and deny
    * lists, `regionAllow`, caps). When present, llm-judge models are
    * routed under it, and an explicit `judgeProvider` must satisfy it too
-   * — a judge never sends the run to a model the tenant doesn't allow.
+   * — a judge never sends the run to a model the workspace doesn't allow.
    */
   readonly tenantPolicy?: TenantPolicy;
   /**

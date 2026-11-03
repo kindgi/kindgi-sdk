@@ -18,7 +18,7 @@ description: >
   kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.1"
+version: "0.4.2"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -448,8 +448,8 @@ export const toneProfessional: Guardrail = {
 ```
 
 The judge is resolved from the provider registry passed in the
-evaluation bindings (or a pinned `judgeProvider`), under the tenant
-policy in those bindings when one is passed. Checks that run in a pack are called with empty
+evaluation bindings (or a pinned `judgeProvider`), under the workspace
+policy in those bindings, if any. Checks that run in a pack are called with empty
 `bindings` — no provider registry — so a pack check cannot call a model
 itself; use `kind: 'llm-judge'` for model-based rules.
 

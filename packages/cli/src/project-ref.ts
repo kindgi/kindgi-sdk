@@ -87,7 +87,7 @@ function idOf(rows: readonly ProjectRow[], ref: string): string {
   const resolved = resolveAgainst(rows, ref);
   if (resolved.kind === 'none') {
     throw new UsageError(
-      `No project of this tenant has the slug "${ref}". \`kindgi projects list\` shows them; pass a project id instead.`,
+      `No project of this workspace has the slug "${ref}". \`kindgi projects list\` shows them; pass a project id instead.`,
     );
   }
   if (resolved.kind === 'ambiguous') {

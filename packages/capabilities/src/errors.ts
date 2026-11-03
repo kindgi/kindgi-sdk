@@ -28,7 +28,7 @@ export interface InvalidProviderError {
   readonly reason: string;
 }
 
-/** Provider registration was called with an id already registered for the tenant. */
+/** Provider registration was called with an id already registered for the workspace. */
 export interface DuplicateProviderError {
   readonly code: 'duplicate-provider';
   readonly message: string;
@@ -37,7 +37,7 @@ export interface DuplicateProviderError {
 
 /**
  * The router couldn't find any provider satisfying the capability
- * declaration + tenant policy. `reasons` explains which requirement
+ * declaration + workspace policy. `reasons` explains which requirement
  * rejected which `(provider, model)` candidate.
  */
 export interface CapabilityUnsatisfiableError {

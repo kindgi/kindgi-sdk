@@ -26,7 +26,7 @@ import type { Command, CommandResult, LeafCommand } from './types.js';
 const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
-  description: "List the tenant's projects.",
+  description: "List the workspace's projects.",
   usage: 'kindgi projects list [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     limit: { type: 'string', description: 'The most projects to return.' },
@@ -49,7 +49,7 @@ const list: LeafCommand = {
 const getDefault: LeafCommand = {
   kind: 'leaf',
   name: 'get-default',
-  description: "The tenant's default project, the one used when none is named.",
+  description: "The workspace's default project, the one used when none is named.",
   usage: 'kindgi projects get-default',
   run: (ctx) =>
     runSdk(ctx, 'projects get-default', async () => await ctx.client().projects.getDefault()),

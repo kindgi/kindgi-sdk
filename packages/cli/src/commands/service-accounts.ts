@@ -62,7 +62,7 @@ function grantsCell(a: ServiceAccount): string {
 
 /** Read the tenant's settings: a service account has it only when granted. */
 const TENANT_MEMBER_HELP =
-  "Tenant member: read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Not given by default; give it only to an account whose job needs it.";
+  "Tenant member: read the workspace's settings (providers, policies, adapters, signing keys, deployments), not its projects. Not given by default; give it only to an account whose job needs it.";
 
 const TABLE: TableSpec<ListPage<ServiceAccount>, ServiceAccount> = {
   rows: (page) => page.data,
@@ -82,7 +82,7 @@ const create: LeafCommand = {
   kind: 'leaf',
   name: 'create',
   description:
-    "Create a service account with its first grants, written before it answers: a key minted for it works at once. It reads the tenant's settings only with --tenant-member.",
+    "Create a service account with its first grants, written before it answers: a key minted for it works at once. It reads the workspace's settings only with --tenant-member.",
   usage:
     'kindgi service-accounts create <name> [--description=<text>] [--tenant-admin] [--tenant-member] [--project=<project-id>:<role>]…',
   optionSpec: {
@@ -179,7 +179,7 @@ const grant: LeafCommand = {
   kind: 'leaf',
   name: 'grant',
   description:
-    "Grant a service account tenant admin, tenant member (read the tenant's settings), or a role on a project (replacing its role there). Written before it answers.",
+    "Grant a service account tenant admin, tenant member (read the workspace's settings), or a role on a project (replacing its role there). Written before it answers.",
   usage:
     'kindgi service-accounts grant <service-account-id> (--tenant-admin | --tenant-member | --project=<project-id> --role=<role>)',
   optionSpec: {

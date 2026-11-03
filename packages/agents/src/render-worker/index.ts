@@ -30,8 +30,8 @@ export type { WorkerTemplateRenderer, WorkerTemplateRendererOptions } from './po
  * - a render past `options.maxOldSpaceMb` fails with the memory limit's
  *   message;
  * - a stopped worker is replaced when a render next needs one;
- * - renders wait their turn by tenant: the waiting tenants take turns;
- * - each counts toward the tenant's render budget from when a worker takes
+ * - renders wait their turn by workspace: the waiting workspaces take turns;
+ * - each counts toward the workspace's render budget from when a worker takes
  *   it.
  *
  * `close()` it at shutdown: idle workers don't keep the process running,

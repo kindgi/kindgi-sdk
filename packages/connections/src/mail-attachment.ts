@@ -26,7 +26,7 @@ export interface MailAttachmentGetInput {
   readonly attachment: number;
 }
 
-/** Why an attachment isn't stored: its type, its size, the call's limit, no file store, or the tenant's storage full. */
+/** Why an attachment isn't stored: its type, its size, the call's limit, no file store, or the workspace's storage full. */
 export type MailAttachmentNotShownReason = Extract<
   FileNotShownReason,
   'type' | 'size' | 'limit' | 'store' | 'storage'

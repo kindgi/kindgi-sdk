@@ -31,7 +31,7 @@ export interface AppEntry {
   readonly setupGuide: string;
 }
 
-/** Who owns a connection: one member, or the company (the tenant). */
+/** Who owns a connection: one member, or the company (the workspace). */
 export type ConnectionOwnerKind = 'member' | 'company';
 
 /**
@@ -52,7 +52,7 @@ export type ConnectionOwnerKind = 'member' | 'company';
  *     permission's `grants` and each scope the app answers. The app may
  *     answer more than was asked (scopes consented to earlier).
  *   - `tenant`: the sign-in happens in a directory of the app's own
- *     (Microsoft's tenant, not a Kindgi tenant), named in the URLs:
+ *     (Microsoft's workspace, not a Kindgi workspace), named in the URLs:
  *     `authorizeUrl` and `tokenUrl` each hold `{tenant}` once, and
  *     `revokeUrl` may too. The registration's `tenant` fills it, else
  *     `default`; with no `default`, each registration must give its own.

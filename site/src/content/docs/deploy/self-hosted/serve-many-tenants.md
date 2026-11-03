@@ -222,7 +222,7 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   {
     "error": {
       "code": "image-prefix-unset",
-      "message": "This tenant has no image repository set, so it can't register a deployment yet: its operator sets one.",
+      "message": "This workspace has no image repository set, so it can't register a deployment yet: its operator sets one.",
       "requestId": "req-f5000e71-d1ec-4ae8-984b-1778ece7b597"
     }
   }
@@ -730,7 +730,7 @@ kindgi-runtime tenants repair --all
 ```
 
 ```text
-tenant 5b52fd42-bd2b-4597-b324-84ec1a7033a4 (tenant-1792242381807-ed3afb): Default project kept; authorization store kept; 0 tuples added; 0 memberships and 0 service account grants put back; 0 removals finished and 0 grants taken away; adapters: 6 kept up to date, 0 removed; sign-in providers reconciled
+tenant 5b52fd42-bd2b-4597-b324-84ec1a7033a4 (workspace-1792242381807-ed3afb): Default project kept; authorization store kept; 0 tuples added; 0 memberships and 0 service account grants put back; 0 removals finished and 0 grants taken away; adapters: 6 kept up to date, 0 removed; sign-in providers reconciled
 1 tenant repaired.
 ```
 
@@ -850,6 +850,9 @@ keys and people, as the first of many.
    ```text
      ⚠ Per-deployment routing: 1 deployment registered before it has no routes; deploy it again. The same image is enough.
    ```
+
+   Deploy it with `--idempotency-key <new value>`, so the runtime doesn't
+   answer it as it did the earlier deploy.
 
    Its `endpoint` is then `pending` until you record its pack service.
 

@@ -100,7 +100,7 @@ export const CONSOLE_LINKS_VAR = 'KINDGI_CONSOLE_LINKS';
 /** Which hops in front of the runtime to trust for the client's address: a hop count, or IPs/CIDRs. */
 export const TRUSTED_PROXIES_VAR = 'KINDGI_TRUSTED_PROXIES';
 
-/** Whether a tenant's admins may change its identity providers (`on` / `off`). */
+/** Whether a workspace's admins may change its identity providers (`on` / `off`). */
 export const AUTH_TENANT_PROVIDERS_VAR = 'KINDGI_AUTH_TENANT_PROVIDERS';
 
 /** A browser session's absolute lifetime, in milliseconds. */
@@ -135,7 +135,7 @@ export function parsePackServiceToken(raw: string | undefined): string | undefin
   return token;
 }
 
-/** The tenant a pack service serves: it refuses calls for any other (`KINDGI_PACK_TENANT_ID`). */
+/** The workspace a pack service serves: it refuses calls for any other (`KINDGI_PACK_TENANT_ID`). */
 export const PACK_TENANT_ID_VAR = 'KINDGI_PACK_TENANT_ID';
 
 const TENANT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -159,12 +159,12 @@ export function parsePackTenantId(raw: string | undefined): string | undefined {
   if (id === undefined || id === '') return undefined;
   if (!TENANT_UUID.test(id)) {
     throw new Error(
-      `${PACK_TENANT_ID_VAR} must be the tenant's id, a UUID such as 3f2b8c1e-4a5d-4e6f-9a0b-1c2d3e4f5a6b. Got a value that isn't one.`,
+      `${PACK_TENANT_ID_VAR} must be the workspace's id, a UUID such as 3f2b8c1e-4a5d-4e6f-9a0b-1c2d3e4f5a6b. Got a value that isn't one.`,
     );
   }
   if (id.toLowerCase() === NO_TENANT_ID) {
     throw new Error(
-      `${PACK_TENANT_ID_VAR} is ${NO_TENANT_ID}, the id no tenant has: no pack call carries it. Set the tenant's own id.`,
+      `${PACK_TENANT_ID_VAR} is ${NO_TENANT_ID}, the id no workspace has: no pack call carries it. Set the workspace's own id.`,
     );
   }
   return id;

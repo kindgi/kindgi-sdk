@@ -16,6 +16,7 @@ import {
   TRIGGER_VERSIONS_TABLE,
   type TableSpec,
   allowUnattendedField,
+  clearableFlag,
   commandResultFromThrown,
   givenFlag,
   integerFlag,
@@ -154,7 +155,11 @@ function mailFlags(on: 'register' | 'update'): Record<string, ParseArgsOption> {
       type: 'string',
       description: `The most runs its mail starts in an hour, 1 to 600${on === 'register' ? ' (default 60)' : ''}. Past it, a mail is refused, and doesn't run later.`,
     },
-    label: { type: 'string', description: on === 'register' ? 'A short label.' : 'A new label.' },
+    label: {
+      type: 'string',
+      description:
+        on === 'register' ? 'A short label.' : 'A new label (`--clear-label` takes it off).',
+    },
     connection: {
       type: 'string',
       description: `With --as=company: the company connection it reads the mailbox with, by id or name, one of the project's at the mailbox's app. Needed when the project has several there; with one, that one is stored.${again}`,
@@ -263,7 +268,7 @@ function allowUnattendedFlag(on: 'register' | 'update'): Record<string, ParseArg
     'allow-unattended': {
       type: 'string',
       multiple: true,
-      description: `A tool, by id, whose calls in this trigger's runs needn't wait for a person's yes (repeatable; only tools its agent or flow calls, no wildcard). In a run a mail started, every call that changes something, or uses the run's own mailbox, waits for one otherwise. Needs \`admin\` on the trigger's project. The tenant's and the agent's approval rules still apply.${on === 'update' ? " Replaces the list; `none` clears it; left out, the list is kept, and a new --agent, --flow or mailbox must name it again (or `none`, which the owner of a person's trigger may give with their own change)." : ''}`,
+      description: `A tool, by id, whose calls in this trigger's runs needn't wait for a person's yes (repeatable; only tools its agent or flow calls, no wildcard). In a run a mail started, every call that changes something, or uses the run's own mailbox, waits for one otherwise. Needs \`admin\` on the trigger's project. The workspace's and the agent's approval rules still apply.${on === 'update' ? " Replaces the list; `none` clears it; left out, the list is kept, and a new --agent, --flow or mailbox must name it again (or `none`, which the owner of a person's trigger may give with their own change)." : ''}`,
     },
   };
 }
@@ -375,7 +380,7 @@ const create: LeafCommand = {
     ...mailFlags('register'),
     project: {
       type: 'string',
-      description: "The trigger's project, by id (default: the tenant's default project).",
+      description: "The trigger's project, by id (default: the workspace's default project).",
     },
     ...RUN_AS_FLAG,
     ...allowUnattendedFlag('register'),
@@ -431,19 +436,20 @@ const update: LeafCommand = {
   description:
     "Change a mail trigger: what it runs, its mailbox, folder, pace or label, or the tools its runs may call unattended. A flag left out keeps the trigger's value, and its owner stays. On a person's mailbox, only the trigger's owner points it at another of their mailboxes or folders: a project admin can move it to the company's, or take it over to watch their own.",
   usage:
-    'kindgi mail-triggers update <trigger-id> [--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v>] [--mailbox=google|microsoft --as=person|company [--connection=<connection>]] [--folder=<label-or-folder>] [--poll=<seconds>] [--runs-per-hour=<n>] [--label=<text>] [--allow-unattended=<tool-id>|none]…',
+    'kindgi mail-triggers update <trigger-id> [--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v>] [--mailbox=google|microsoft --as=person|company [--connection=<connection>]] [--folder=<label-or-folder>] [--poll=<seconds>] [--runs-per-hour=<n>] [--label=<text>|--clear-label] [--allow-unattended=<tool-id>|none]…',
   optionSpec: {
     ...TARGET_FLAGS,
     ...mailFlags('update'),
+    'clear-label': { type: 'boolean', description: 'Take the label off.' },
     ...allowUnattendedFlag('update'),
   },
   run: (ctx) =>
     sendTrigger(ctx, 'mail-triggers update', async () => {
       const id = requiredPositional(ctx, 0, 'trigger-id');
+      const label = clearableFlag(ctx, 'label');
       const mailbox = mailboxOnUpdate(ctx);
       const named = mailbox !== undefined ? withConnection(ctx, mailbox) : undefined;
       const pace = paceFields(ctx);
-      const label = stringFlag(ctx, 'label');
       const rest = {
         ...targetFields(ctx),
         ...(label !== undefined && { label }),

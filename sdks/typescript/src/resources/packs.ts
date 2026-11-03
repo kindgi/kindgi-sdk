@@ -18,7 +18,7 @@ import type {
  * Packs resource — installable vertical applications.
  *
  * A pack bundles agents, tools, guardrails and memory schemas for
- * installation into a tenant.
+ * installation into a workspace.
  *
  * **Every method throws `not-yet-wired`.** The API has no pack routes
  * (there is no `packages/api/src/routes/packs.ts`) and `openapi.json`

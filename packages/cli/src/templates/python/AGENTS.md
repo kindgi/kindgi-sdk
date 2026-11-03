@@ -23,7 +23,7 @@ starts with `_`. The config is `[tool.kindgi]` in `pyproject.toml`.
   How much a model thinks (runtime 0.3.0 or later): `thinking` in the
   agent's `model_settings` block, else the model's registered
   `thinking.default`, else its vendor's own.
-- Each git worktree runs its own `kindgi dev`, with its own dev tenant,
+- Each git worktree runs its own `kindgi dev`, with its own dev workspace,
   user and token, and its own database in the bundled Postgres. When port
   4000 is taken (another worktree's, say), it takes the next free one,
   prints it and records it in `.kindgirc.json`. The getting-started skill

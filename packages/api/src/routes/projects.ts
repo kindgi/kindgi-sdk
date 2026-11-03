@@ -24,6 +24,7 @@ import type { IdentityDirectoryBinding } from '../identity-directory-binding.js'
 import type { Authorizer } from '../middleware/authorize.js';
 import type { ServiceAccountBinding } from '../service-account-binding.js';
 import type { AppEnv } from '../types.js';
+import { deniedBy } from './denied.js';
 import {
   membershipExistsError,
   membershipNotKeptInStepError,
@@ -169,7 +170,7 @@ export function projectsRouter(
         kind: 'refused',
         error: {
           code: 'identity-user-not-found',
-          message: `User "${named.userId as unknown as string}" is not a member of this tenant`,
+          message: `User "${named.userId as unknown as string}" is not a member of this workspace`,
           userId: named.userId as unknown as string,
         },
       };
@@ -191,7 +192,7 @@ export function projectsRouter(
       kind: 'refused',
       error: {
         code: 'identity-user-not-found',
-        message: `No one with email "${named.email}" is a member of this tenant`,
+        message: `No one with email "${named.email}" is a member of this workspace`,
       },
     };
   }
@@ -221,7 +222,7 @@ export function projectsRouter(
         toWireError(
           {
             code: 'project-not-found',
-            message: 'Tenant has no default project',
+            message: 'Workspace has no default project',
           },
           requestId,
         ),
@@ -268,6 +269,7 @@ export function projectsRouter(
   //   POST /                                     → admin on tenant
   //   GET /:projectId                            → read or run on project
   //   PATCH /:projectId                          → admin on project
+  //     and, naming `orgId`, admin on tenant     (the handler checks)
   //   DELETE /:projectId                         → delete on project
   //   GET /:projectId/memberships[/:userId]      → write on project
   //   other /:projectId/memberships[/:userId]    → admin on project
@@ -796,6 +798,14 @@ export function projectsRouter(
         );
       }
       shaped.everyoneCanRun = b.everyoneCanRun;
+    }
+    // A move between orgs changes who administers the project, so it
+    // needs what making one in an org needs: admin on the workspace. A
+    // body naming `orgId` asks, even its current one.
+    if ('orgId' in shaped) {
+      const tenant = ref('tenant', tenantId as unknown as string);
+      const refused = await deniedBy(authorizer, c, 'admin', tenant);
+      if (refused !== undefined) return refused;
     }
     // `everyoneCanRun` is a grant as well as a column. With an authorizer, a
     // patch that changes it goes whole through the tenant-hierarchy binding,

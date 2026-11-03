@@ -263,7 +263,7 @@ async function evaluateTurnPolicy<Spec>(
     if (cause instanceof TenantBudgetError) throw cause;
     throwAgentTurnFailure({
       code: 'tenant-policy-unavailable',
-      message: `The tenant's ${kind} policy could not be applied: ${cause instanceof Error ? cause.message : String(cause)}`,
+      message: `The workspace's ${kind} policy could not be applied: ${cause instanceof Error ? cause.message : String(cause)}`,
       policyKind: kind,
     });
   }

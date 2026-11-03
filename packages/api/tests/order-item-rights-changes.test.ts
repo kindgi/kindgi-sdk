@@ -626,7 +626,7 @@ describe("agentPinChangeRefusal: the one check a change to what's pinned asks", 
       // S1/N5: the message names the scope asked for and the order it spans,
       // so a reword that drops either regresses here.
       expect(res.body.error.message).toContain(
-        scope.kind === 'org' ? 'org-wide pin' : 'tenant-wide pin',
+        scope.kind === 'org' ? 'org-wide pin' : 'workspace-wide pin',
       );
       expect(res.body.error.message).toContain('environment order at once');
       // The shape a flow's and a tool's refusal use: it names the agent, and

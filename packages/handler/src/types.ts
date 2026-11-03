@@ -72,7 +72,7 @@ export interface NodeContext {
    * attempts.
    */
   readonly attempt?: number;
-  /** The tenant this run belongs to — required for any tenant-scoped I/O. */
+  /** The workspace this run belongs to — required for any workspace-scoped I/O. */
   readonly tenantId: TenantId;
   /**
    * The project this run belongs to, from the run (never from its input).

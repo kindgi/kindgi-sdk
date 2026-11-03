@@ -222,7 +222,7 @@ uv run kindgi providers register --preset=<preset>
   writes it to Kindgi's own `.kindgi/secrets.env`.
 - `--env=local` is the environment the secret belongs to. Under
   `kindgi dev`, `local` is the pack's env files, that one among them.
-- `--scope=tenant` is where the secret lives: the tenant, rather than one
+- `--scope=tenant` is where the secret lives: the workspace, rather than one
   org (`org:<orgId>`) or project (`project:<projectId>`).
 - `--preset=<preset>` registers the provider's models from Kindgi's built-in
   preset, which reads the `<KEY_NAME>` secret. `kindgi providers presets`

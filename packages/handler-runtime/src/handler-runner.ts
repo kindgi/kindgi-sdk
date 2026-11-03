@@ -58,7 +58,7 @@ import { withoutSecrets } from './secret-redaction.js';
 import { fileStoreOf, toolFilesOf } from './tool-files.js';
 
 /**
- * What a handler gets beside its input: the tenant and run it serves,
+ * What a handler gets beside its input: the workspace and run it serves,
  * and the "typed needs" it declares (`needsSpec.env`, `needsSpec.secrets`),
  * resolved by the runtime for this call and sent with it. `config` is
  * reserved: no runtime sends it yet.
@@ -77,7 +77,7 @@ export interface HandlerContext {
    * runtime, and outside a run.
    */
   readonly idempotencyKey?: string;
-  /** The declared env values: project, else org, else tenant (protocol 2.5.0). */
+  /** The declared env values: project, else org, else workspace (protocol 2.5.0). */
   readonly env?: Readonly<Record<string, unknown>>;
   readonly secrets?: Readonly<Record<string, unknown>>;
   /**
@@ -140,7 +140,7 @@ export interface HandlerContext {
   readonly abortSignal?: AbortSignal;
   /**
    * Never on the wire; the pack service adds it: a logger bound to the
-   * call (its tenant, run, request and trace). Not enumerable, like
+   * call (its workspace, run, request and trace). Not enumerable, like
    * `secrets`.
    */
   readonly log?: Logger;

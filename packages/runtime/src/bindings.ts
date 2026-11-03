@@ -140,16 +140,16 @@ export interface RunBinding {
   deleteRun(params: DeleteRunParams): Promise<Result<void, DeleteRunError>>;
 
   /**
-   * Fetch a single run by id, scoped to tenant. Returns null if
-   * the run doesn't exist or belongs to a different tenant. Callers
+   * Fetch a single run by id, scoped to workspace. Returns null if
+   * the run doesn't exist or belongs to a different workspace. Callers
    * do additional authz gating (per-project scope) at the route
-   * layer; this method is a straight tenant-scoped point-read.
+   * layer; this method is a straight workspace-scoped point-read.
    */
   getRun(tenantId: TenantId, runId: RunId): Promise<KernelRunRecord | null>;
 
   /**
    * List runs in `(createdAt desc, id desc)` order, cursor-
-   * paginated. Filter by content scope: absent = tenant-wide,
+   * paginated. Filter by content scope: absent = workspace-wide,
    * `{ kind: 'project' }` narrows to one project, `{ kind: 'org' }`
    * includes every project in the org. `parent` narrows to a run's
    * children; `topLevelOnly` excludes child runs; `agentId` narrows to
@@ -234,7 +234,7 @@ export interface WaitpointTimeoutSleeperHandle {
 
 /**
  * Run retention binding. Deployments plug this in to have expired
- * runs (per tenant retention policy) reaped on a schedule.
+ * runs (per workspace retention policy) reaped on a schedule.
  */
 export interface RunRetentionBinding {
   createRetentionAdapter(options: RunRetentionOptions): RunRetentionAdapter;
