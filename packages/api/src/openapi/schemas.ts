@@ -13745,7 +13745,8 @@ export const TeamPatchSchema: JsonSchema = {
     description: { type: 'string' },
     orgId: {
       type: ['string', 'null'],
-      description: '`null` explicitly re-assigns the team out of any org (cross-org).',
+      description:
+        '`null` explicitly re-assigns the team out of any org (cross-org). Naming it, even the current org, needs a tenant admin, as making a team in an org does.',
     },
   },
 };
@@ -13939,7 +13940,8 @@ export const ProjectPatchSchema: JsonSchema = {
     description: { type: 'string' },
     orgId: {
       type: ['string', 'null'],
-      description: '`null` explicitly re-assigns the project out of any org (cross-org).',
+      description:
+        '`null` explicitly re-assigns the project out of any org (cross-org). Naming it, even the current org, needs a tenant admin, as making a project in an org does.',
     },
     sortEndUserCorrections: {
       type: 'boolean',

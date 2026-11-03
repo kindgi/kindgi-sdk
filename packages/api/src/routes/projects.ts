@@ -24,6 +24,7 @@ import type { IdentityDirectoryBinding } from '../identity-directory-binding.js'
 import type { Authorizer } from '../middleware/authorize.js';
 import type { ServiceAccountBinding } from '../service-account-binding.js';
 import type { AppEnv } from '../types.js';
+import { deniedBy } from './denied.js';
 import {
   membershipExistsError,
   membershipNotKeptInStepError,
@@ -257,6 +258,7 @@ export function projectsRouter(
   //   POST /                                     → admin on tenant
   //   GET /:projectId                            → read on project
   //   PATCH /:projectId                          → admin on project
+  //     and, naming `orgId`, admin on tenant     (the handler checks)
   //   DELETE /:projectId                         → delete on project
   //   GET /:projectId/memberships[/:userId]      → read on project
   //   other /:projectId/memberships[/:userId]    → admin on project
@@ -756,6 +758,14 @@ export function projectsRouter(
         );
       }
       shaped.sortEndUserCorrections = b.sortEndUserCorrections;
+    }
+    // A move between orgs changes who administers the project, so it
+    // needs what making one in an org needs: admin on the workspace. A
+    // body naming `orgId` asks, even its current one.
+    if ('orgId' in shaped) {
+      const tenant = ref('tenant', tenantId as unknown as string);
+      const refused = await deniedBy(authorizer, c, 'admin', tenant);
+      if (refused !== undefined) return refused;
     }
     const outcome = await binding.update(tenantId, projectId, shaped);
     if (outcome.kind === 'project-not-found') {

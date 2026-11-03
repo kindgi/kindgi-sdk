@@ -9167,6 +9167,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Updated. No body.' },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        'No `admin` on the team; or the body names `orgId` (even the current one) and the caller is not a tenant admin, as making a team in an org needs (`permission-denied`).',
+      ),
       '404': ErrorResponse(
         'team-not-found: no team with that id under this workspace; or org-not-found: `orgId` names no org of the workspace (it never existed, or it was deleted).',
       ),
@@ -9458,6 +9461,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Updated. No body.' },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        'No `admin` on the project; or the body names `orgId` (even the current one) and the caller is not a tenant admin, as making a project in an org needs (`permission-denied`).',
+      ),
       '409': ErrorResponse(
         "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up; or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
       ),
