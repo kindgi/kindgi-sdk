@@ -737,6 +737,7 @@ function serializeGraph(g: FlowVersionRecord): Record<string, unknown> {
     edges: g.edges,
     ...(g.maxParallelism !== undefined && { maxParallelism: g.maxParallelism }),
     ...(g.metadata !== undefined && { metadata: g.metadata }),
+    ...(g.mcp !== undefined && { mcp: g.mcp }),
     ...(g.pins !== undefined && { pins: g.pins }),
     ...(g.pinsDigest !== undefined && { pinsDigest: g.pinsDigest }),
     ...(g.derivedFrom !== undefined && { derivedFrom: g.derivedFrom }),

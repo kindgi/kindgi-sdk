@@ -188,6 +188,11 @@ brief_writer = Agent(
   another system's answer or for the person who started the run to connect an
   app, runs on its own too. `False` runs every call on its own, for read-only
   tools that mustn't overlap (a rate-limited API, say).
+- **`mcp`** — optional. `{"expose": True}` makes the agent a tool, named by
+  its id, in the chat apps (Claude, say) people connect to the workspace; each person
+  sees it only if they can see the agent. Its id then can't start with
+  `kindgi.` or `flow.`. `readOnly` and `destructive` (true or false) become the
+  tool's hints; left out, none is sent.
 - **`retrieval`** — what the agent reads from memory before each turn;
   empty = no memory. Each intent is a dict with the API's keys:
   `{"types": ["acme.preference"], "scope": "same-user", "mode": "both",

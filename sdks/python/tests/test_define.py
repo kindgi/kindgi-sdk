@@ -4,13 +4,23 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from pathlib import Path
 from typing import Annotated, Any
 
 import pytest
 from pydantic import BaseModel, Field, StringConstraints
 
-from kindgi import Agent, CheckResult, DefinitionError, RunTrace, ToolContext, guardrail, tool
+from kindgi import (
+    Agent,
+    CheckResult,
+    DefinitionError,
+    Flow,
+    RunTrace,
+    ToolContext,
+    guardrail,
+    tool,
+)
 
 
 class In(BaseModel):
@@ -339,6 +349,54 @@ def test_an_agent_refuses_a_parallel_tool_calls_that_is_not_a_bool(value: Any) -
             instructions="Help.",
             parallel_tool_calls=value,
         )
+
+
+@pytest.mark.parametrize(
+    ("mcp", "message"),
+    [
+        ("yes", "mcp must be a mapping"),
+        ({}, "mcp.expose must be True or False"),
+        ({"expose": True, "readOnly": "no"}, "mcp.readOnly must be True or False"),
+        (
+            {"expose": True, "title": "x"},
+            "mcp takes only expose, readOnly and destructive, not title",
+        ),
+    ],
+)
+def test_an_agent_refuses_an_mcp_that_is_not_one(mcp: Any, message: str) -> None:
+    with pytest.raises(DefinitionError, match=re.escape(message)):
+        Agent(id="acme.desk", version="1.0.0", name="Desk", instructions="Help.", mcp=mcp)
+
+
+def test_an_agent_keeps_mcp() -> None:
+    mcp = {"expose": True, "readOnly": True}
+    desk = Agent(id="acme.desk", version="1.0.0", name="Desk", instructions="Help.", mcp=mcp)
+    assert desk.mcp == mcp
+
+
+def test_only_an_exposed_agent_is_refused_a_reserved_prefix() -> None:
+    def desk(expose: bool) -> Agent:
+        return Agent(
+            id="kindgi.desk",
+            version="1.0.0",
+            name="Desk",
+            instructions="Help.",
+            mcp={"expose": expose},
+        )
+
+    desk(False)
+    with pytest.raises(DefinitionError, match=re.escape('starts with "kindgi."')):
+        desk(True)
+
+
+def test_an_exposed_flow_needs_an_id_that_makes_a_tool_name() -> None:
+    def flow(id_: str) -> Flow:
+        return Flow(id=id_, version="1.0.0", nodes=[], edges=[], mcp={"expose": True})
+
+    flow("a" * 123)
+    flow("kindgi.intake")  # its tool is flow.kindgi.intake
+    with pytest.raises(DefinitionError, match="at most 123 characters"):
+        flow("a" * 124)
 
 
 def test_an_agent_keeps_parallel_tool_calls() -> None:

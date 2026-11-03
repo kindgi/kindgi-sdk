@@ -24,6 +24,8 @@ export type {
   TokenResolution,
   TokenResolver,
 } from './middleware/auth.js';
+export type { McpServerInput } from './mcp-server/endpoint.js';
+export { MCP_SCOPES, type McpScope } from './mcp-server/scopes.js';
 export type {
   ConsoleLink,
   SignInLegalLinks,

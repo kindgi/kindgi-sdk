@@ -49,6 +49,7 @@ import type {
   TenantId,
   ToolId,
 } from '@kindgi/types';
+import { mcpExposureIssues } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
 import type { AgentPinBindings } from '../agent-pin-binding.js';
@@ -3004,6 +3005,7 @@ function validateAgentIndexShape(
       message: 'agent.parallelToolCalls must be true or false',
     });
   }
+  out.push(...mcpExposureIssues(spec.mcp, String(spec.id), 'agent'));
   return out;
 }
 
@@ -3048,6 +3050,7 @@ function validateFlowIndexShape(
     out.push({ path: '/edges', message: 'flow.edges must be an array' });
   }
   out.push(...flowSchemaProblems(spec));
+  out.push(...mcpExposureIssues(spec.mcp, String(spec.id), 'flow'));
   return out;
 }
 
