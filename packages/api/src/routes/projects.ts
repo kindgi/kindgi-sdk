@@ -391,7 +391,7 @@ export function projectsRouter(
       ...(b.description !== undefined && { description: b.description as string }),
       ...(b.orgId !== undefined && { orgId: b.orgId as unknown as OrgId }),
       ...(b.isDefault !== undefined && { isDefault: b.isDefault as boolean }),
-      // Everyone in its org (else the workspace) can run it, unless its
+      // Everyone in its workspace can run it, in an org or not, unless its
       // creator turns that off.
       everyoneCanRun: b.everyoneCanRun !== false,
     };
