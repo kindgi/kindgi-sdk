@@ -131,6 +131,7 @@ import { type DevProject, resolveDevProject } from '../dev/project.js';
 import {
   type DeclaredProvider,
   type DevProvidersTarget,
+  adoptLegacyBundledEntries,
   declaredProviders,
   describeReconcile,
   devProvidersKey,
@@ -963,6 +964,17 @@ async function runDevForPack(
       : project !== undefined
         ? { kind: 'bundled', database: project.database }
         : { kind: 'database', url: databaseUrl };
+  if (providersTarget.kind === 'bundled') {
+    await adoptLegacyBundledEntries(
+      devProvidersRecordPath(args.packDir),
+      providersTarget.database,
+      server.tenantId,
+    ).catch((err: unknown) => {
+      emitProblem(
+        `  ⚠ could not update ${join('.kindgi', 'dev', 'providers.json')}: ${(err as Error).message}. Providers this pack registered before 0.1.4 may read as not its own.`,
+      );
+    });
+  }
   await applyDeclaredProviders({
     client,
     packDir: args.packDir,
