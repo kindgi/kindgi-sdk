@@ -6,7 +6,7 @@ on a runtime the user runs). At the deadline the call fails with
 runs on, and its result goes nowhere.
 - In an agent, the turn fails, unless `toolErrors.retryOn` lists
   `'tool-error'`. The list replaces the default, so keep
-  `'invalid-arguments'` and `'unknown-tool'` in it; the tenant's
+  `'invalid-arguments'` and `'unknown-tool'` in it; the workspace's
   `tool-errors` policy can narrow it further.
 - In a flow, the step fails. An edge's `retry` may run it again while the
   first handler still runs, with the same `ctx.idempotencyKey`: pass the key

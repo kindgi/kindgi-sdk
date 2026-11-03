@@ -29,7 +29,7 @@ Register from a spec whose `adapter_config.auth` is `api-key` and whose
    and a key works only in the Region it was made in. AWS recommends
    long-term keys for exploration only: tell the person so, with AWS's page
    (https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html).
-2. **Stored as a tenant secret**, with the no-echo prompt:
+2. **Stored as a workspace secret**, with the no-echo prompt:
    `kindgi secrets set BEDROCK_API_KEY --env=production --scope=tenant`.
 3. **Registered:** `kindgi providers register --spec=@bedrock.json`, with
    ```json

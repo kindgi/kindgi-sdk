@@ -43,11 +43,11 @@ export interface TriggerRegistryBinding {
    * A trigger's versions, newest first: one for each definition it has
    * had ({@link TriggerVersionRecord}). Empty for a trigger with none yet
    * (registered before versions, until its first edit or fire), and for
-   * an id the tenant has no trigger with.
+   * an id the workspace has no trigger with.
    */
   listVersions(input: ListTriggerVersionsInput): Promise<TriggerVersionPage>;
 
-  /** One of a trigger's versions; `null` when the tenant's trigger has no such version. */
+  /** One of a trigger's versions; `null` when the workspace's trigger has no such version. */
   getVersion(input: GetTriggerVersionInput): Promise<TriggerVersionRecord | null>;
 
   /**
@@ -66,7 +66,7 @@ export interface TriggerRegistryBinding {
    * The receiver's lookup: the webhook trigger with this routable id,
    * paused or unregistered too (`unregistered`), so the receiver verifies
    * a request with the trigger's own secret before it answers that the
-   * trigger is gone. `null` when the tenant has none. Optional: without
+   * trigger is gone. `null` when the workspace has none. Optional: without
    * it, `POST /v1/hooks/…` answers every request as an unknown trigger.
    */
   findWebhook?(input: {
@@ -148,7 +148,7 @@ export type TriggerTarget =
       /**
        * The project its Improve runs work in, the schedule's own;
        * registering one names it. Absent on a schedule registered for a
-       * tenant or an org before Improve schedules worked in a project: its
+       * workspace or an org before Improve schedules worked in a project: its
        * fires are refused until its target is saved with the project.
        */
       readonly projectId?: ProjectId;
@@ -304,8 +304,8 @@ export interface TriggerFire {
    * `skipped`, as `detail` says: a webhook trigger was paused; what the
    * target waits for wasn't there (an `improve` schedule's open corrections,
    * or room under its month's cap); its project is suspended (`project-suspended`); its run or
-   * Improve run hadn't started when its tenant was suspended, and the restore
-   * concluded it (`tenant-suspended`); or its tenant was suspended or closing
+   * Improve run hadn't started when its workspace was suspended, and the restore
+   * concluded it (`tenant-suspended`); or its workspace was suspended or closing
    * as its run started (`tenant-suspended`, `tenant-closing`). A skip for a
    * suspension or a close doesn't reset the count of refusals and failures
    * in a row either. A mail trigger's mail is `skipped` when it's from the
@@ -344,7 +344,7 @@ export interface TriggerFire {
   readonly detail?: string;
   /**
    * Whether it counted toward the trigger's auto-pause (5 in a row by
-   * default). `false` for a refusal for a limit, such as the tenant's runs
+   * default). `false` for a refusal for a limit, such as the workspace's runs
    * pending (`detail` starts `rate-limited:`), or a mail trigger's
    * `runsPerHour` (`over-limit:`): the limit passes, and the
    * trigger isn't at fault. `false` too for a mail trigger's
@@ -394,7 +394,7 @@ export interface RegisterCronTriggerInput {
    */
   readonly by: string;
   readonly target: TriggerTarget;
-  /** The schedule's project; absent → the tenant's default project. */
+  /** The schedule's project; absent → the workspace's default project. */
   readonly projectId?: ProjectId;
   /** Who its runs act as: the principal registering it. */
   readonly owner: TriggerOwner;
@@ -433,7 +433,7 @@ export interface RegisterWebhookTriggerInput {
   /** The flow it starts, at an exact version. */
   readonly flowId: string;
   readonly flowVersion: string;
-  /** The trigger's project; absent → the tenant's default project. */
+  /** The trigger's project; absent → the workspace's default project. */
   readonly projectId?: ProjectId;
   /** Who its runs act as: the principal registering it. */
   readonly owner: TriggerOwner;
@@ -479,7 +479,7 @@ export interface RegisterMailTriggerInput {
   /** As `RegisterCronTriggerInput.by`. */
   readonly by: string;
   readonly target: MailTriggerTarget;
-  /** The trigger's project; absent → the tenant's default project. */
+  /** The trigger's project; absent → the workspace's default project. */
   readonly projectId?: ProjectId;
   /**
    * Who its runs act as: the principal registering it, or a service

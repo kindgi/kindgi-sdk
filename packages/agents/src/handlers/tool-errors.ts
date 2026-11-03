@@ -31,9 +31,9 @@ export interface ToolErrorPolicy {
 }
 
 /**
- * The agent's setting (or the default), capped by the tenant's
+ * The agent's setting (or the default), capped by the workspace's
  * `tool-errors` policy: the fewer retries, and only the kinds both
- * allow — like every tenant policy, it can only make the turn stricter.
+ * allow — like every workspace policy, it can only make the turn stricter.
  */
 export function effectiveToolErrorPolicy(
   agent: ToolErrorsSpec | undefined,

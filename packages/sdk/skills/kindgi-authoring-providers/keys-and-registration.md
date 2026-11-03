@@ -57,7 +57,7 @@ the vendor's own setting for the least thinking, and optional `levels`
 lists the others it takes. `default` (optional) is the level a call that
 asks none is sent: `lowest` or one of its levels, else the registration is
 refused, naming the ones it takes. It needs runtime 0.3.0 or later; an
-older one refuses it. The registration is per tenant, so each tenant's
+older one refuses it. The registration is per workspace, so each workspace's
 registration sets its own. An agent's model-settings `thinking` wins over
 it, and without either the call sends no level, so the model thinks as its
 vendor sets. A guardrail's model judge, or a test run's judging model, asks

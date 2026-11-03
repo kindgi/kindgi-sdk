@@ -204,7 +204,7 @@ const set: LeafCommand = {
     },
     project: {
       type: 'string',
-      description: "The project, by id (default: the tenant's Default project).",
+      description: "The project, by id (default: the workspace's default project).",
     },
     app: {
       type: 'string',
@@ -327,7 +327,7 @@ const list: LeafCommand = {
   optionSpec: {
     project: {
       type: 'string',
-      description: "The project, by id (default: the tenant's Default project).",
+      description: "The project, by id (default: the workspace's default project).",
     },
     agent: { type: 'string', description: "Only this agent's." },
     flow: { type: 'string', description: "Only this flow's." },

@@ -152,7 +152,7 @@ export interface UnhandledWorkerError {
 }
 
 /**
- * Tenant-supplied field failed the strict per-field allowlist regex.
+ * Workspace-supplied field failed the strict per-field allowlist regex.
  * Adapters fail closed and never attempt to sanitize.
  * `field` names the config slot that rejected the value (image name,
  * host, cwd, env key, env value); `value` is the offending input

@@ -912,7 +912,7 @@ Test files aren't indexed: they never become tools.
 <TabItem label="Java">
 
 `TOOL.call` runs the handler with an input and a context, as a unit test
-wants it. `ToolContext.forTest()` is a context with a test tenant and run,
+wants it. `ToolContext.forTest()` is a context with a test workspace and run,
 whose logger writes nothing. The pack service checks the input and the output
 against their schemas on every call; `call` doesn't.
 
@@ -1125,7 +1125,7 @@ file.
 ## In the console
 
 A project's **Tools** page lists its tools: "Tools available in this
-project: its own and the tenant's." Each row has the tool's **Namespace**,
+project: its own and the workspace's." Each row has the tool's **Namespace**,
 its name under **Tool**, **What it does**, **Only reads** ("Yes" for a tool
 that only reads), its **Version**, and **In use**: "Yes", with what uses it
 on hover, or "No". The list has a search box, and **Columns** chooses which

@@ -5,7 +5,7 @@ Test helpers for Kindgi apps and packages.
 ## Purpose
 
 `createApp` from [`@kindgi/api`](../api) requires a set of bindings
-(conversations, run snapshots, kernel, tenant hierarchy, memory,
+(conversations, run snapshots, kernel, workspace hierarchy, memory,
 provenance) that a production deployment backs with the Kindgi runtime.
 Most API tests exercise one route family and never touch the others.
 `@kindgi/testing` supplies the rest as stubs, so a test can mount the real

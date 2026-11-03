@@ -245,7 +245,7 @@ export interface SeedConnectionInput {
   readonly tenantId: TenantId;
   readonly envName: EnvName;
   readonly app: string;
-  /** Which registration, when the tenant has more than one for the app. */
+  /** Which registration, when the workspace has more than one for the app. */
   readonly appId?: string;
   readonly owner: ConnectionOwner;
   readonly account: ConnectionAccount;

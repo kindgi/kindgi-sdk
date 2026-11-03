@@ -28,7 +28,7 @@ Record what went into a run's output (inputs, prompts, retrievals, model calls, 
   - **`KeyMaterial`** — `keyId`, `publicKey`, optional `privateKey` (absent for verification-only providers). Keys are base64-encoded DER: SPKI for the public key, PKCS#8 for the private key.
 - **Signing and verification**
   - **`signProvenance(provenance, keyProvider)`** — signs with `keyProvider.signingKey(tenantId)` and returns the record with the signature attached, replacing any earlier signature. Fails with `signing-not-supported` when the key has no private part.
-  - **`verifyProvenance(provenance, keyProvider)`** — looks the key up by the signature's `keyId` rather than by tenant, so records signed with an older key still verify while the provider knows that key.
+  - **`verifyProvenance(provenance, keyProvider)`** — looks the key up by the signature's `keyId` rather than by workspace, so records signed with an older key still verify while the provider knows that key.
   - **`verifyExported(provenance, base64PublicKey)`** — verifies against a public key alone, with no `KeyProvider`.
   - **`signingBytes(provenance)`** — the bytes that are signed: every field except `signature`, serialized with `canonicalize` from [`@kindgi/schema`](../schema/) (sorted keys, `undefined` omitted). Changing this projection invalidates existing signatures.
 - **Export** — **`exportProvenance(provenance)`** returns the full record, signature included, as a canonical JSON string; **`importProvenance(json)`** parses it back (a `JSON.parse` wrapper with no validation).

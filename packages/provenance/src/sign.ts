@@ -61,7 +61,7 @@ export function signProvenance(
 
 /**
  * Verify a signed provenance record. Resolves the key by the signature's
- * `keyId` (not by tenant — a rotated key still has to verify old signatures)
+ * `keyId` (not by workspace — a rotated key still has to verify old signatures)
  * and checks the Ed25519 signature against canonical bytes.
  */
 export function verifyProvenance(

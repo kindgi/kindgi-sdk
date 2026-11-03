@@ -4,7 +4,7 @@
 import { defineApp } from './define.js';
 
 /**
- * GitHub, for the company: a GitHub App the tenant registers and installs
+ * GitHub, for the company: a GitHub App the workspace registers and installs
  * on its organization. Any run in a project the registration allows may
  * use it, scheduled runs included.
  *

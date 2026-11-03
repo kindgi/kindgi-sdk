@@ -77,7 +77,7 @@ import { gmailSend } from '@kindgi/connections/google/tools';
 export default gmailSend({ id: 'acme.gmail.send' });
 ```
 
-The id is the pack's because a tool id is the tenant's, filed under the
+The id is the pack's because a tool id is the workspace's, filed under the
 first project that publishes it. Sending, replying, labelling and
 posting are `mutating`, and wait for a person's yes in a run no person
 started. So does a read with a person's connection, such as a mail read

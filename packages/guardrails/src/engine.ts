@@ -50,7 +50,7 @@ export function builtInStrategies(): readonly ExecutionStrategy[] {
 
 /**
  * Evaluate one guardrail against a run trace. Handles:
- *   - Scope check (mode + agent + flow + tenant filters).
+ *   - Scope check (mode + agent + flow + workspace filters).
  *   - Dispatch by `kind` through `bindings.strategies` (or the built-ins):
  *     zero-llm → check.evaluate; llm-judge → invokeJudge; external → an
  *     `invalid-guardrail` error unless the caller registered its own

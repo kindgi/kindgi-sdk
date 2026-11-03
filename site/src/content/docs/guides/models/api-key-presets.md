@@ -46,7 +46,7 @@ pnpm exec kindgi secrets set OPENAI_API_KEY --env=local --scope=tenant
 - `--env=local` is the environment the secret belongs to. Under
   `kindgi dev`, `local` is the pack's env files, `.kindgi/secrets.env` among
   them.
-- `--scope=tenant` is where the secret lives: the tenant, rather than one org
+- `--scope=tenant` is where the secret lives: the workspace, rather than one org
   (`org:<orgId>`) or project (`project:<projectId>`).
 
 It prompts for the key without echoing it and writes it to Kindgi's own

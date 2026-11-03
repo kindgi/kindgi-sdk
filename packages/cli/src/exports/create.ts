@@ -237,7 +237,7 @@ async function prepareFolder(input: CreateExportInput): Promise<Manifest | undef
   }
   if (earlier.server !== input.server || earlier.tenant?.id !== input.tenantId) {
     throw new Error(
-      `${input.out} holds an export of tenant ${earlier.tenant?.id} from ${earlier.server}, not of tenant ${input.tenantId} from ${input.server}. Resume it against that server and tenant, or start a new export in a new or empty folder.`,
+      `${input.out} holds an export of tenant ${earlier.tenant?.id} from ${earlier.server}, not of tenant ${input.tenantId} from ${input.server}. Resume it against that server and workspace, or start a new export in a new or empty folder.`,
     );
   }
   await chmod(input.out, FOLDER_MODE);
@@ -277,7 +277,7 @@ function consistencyOf(
   const frozenBefore =
     earlier === undefined || (frozen(earlier.tenant?.state) && earlier.consistency !== CHANGING);
   if (states.every((s) => frozen(s)) && frozenBefore) {
-    return `The tenant is ${states.at(-1)}: nothing in it changes but deletes, revocations and erasures, so the files agree with each other, but for one of those made while the export ran.`;
+    return `The workspace is ${states.at(-1)}: nothing in it changes but deletes, revocations and erasures, so the files agree with each other, but for one of those made while the export ran.`;
   }
   return CHANGING;
 }

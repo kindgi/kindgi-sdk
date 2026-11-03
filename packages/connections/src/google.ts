@@ -17,7 +17,7 @@ const CALENDAR_CALLS_FREE = {
  * Google, for a member's own account or the company's (a tenant admin
  * signs in as it): mail sent as them, their mail read, their calendars
  * listed, and their own calendars' events read, added and changed. Each
- * tenant registers its own Google Cloud project and OAuth client (the
+ * workspace registers its own Google Cloud project and OAuth client (the
  * setup guide says how).
  *
  * - **Sign-in:** OAuth 2.0 with PKCE. `access_type=offline` gets a refresh
@@ -34,7 +34,7 @@ const CALENDAR_CALLS_FREE = {
  *   units: a send costs 100, reading a message 60 (20 for its headers or
  *   its date only), a thread 120, a message list 5, an attachment 5, the
  *   mailbox's history 2 and its profile 1. The Calendar API's 600 requests
- *   a minute per person, each call 1. Its 10,000 a minute for the tenant's
+ *   a minute per person, each call 1. Its 10,000 a minute for the workspace's
  *   whole Google Cloud project is Google's own to enforce: a call over it
  *   is refused as a rate limit, and `appFetch` tries again.
  */

@@ -21,6 +21,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
+import { deniedBy } from './denied.js';
 import {
   membershipExistsError,
   membershipNotKeptInStepError,
@@ -108,6 +109,7 @@ export function teamsRouter(
   //   POST /                                    → admin on tenant
   //   GET  /:teamId                              → read on team
   //   PATCH /:teamId, DELETE /:teamId           → admin on team
+  //     a PATCH naming `orgId` also admin on tenant (the handler checks)
   //   *    /:teamId/memberships                  → GET: read; else admin
   //   *    /:teamId/memberships/:userId          → same
   //   GET  /                                     → list-filter by can_read
@@ -632,6 +634,15 @@ export function teamsRouter(
           ),
         );
       }
+    }
+    // A move between orgs changes who administers the team, and so what
+    // its members are granted, so it needs what making one in an org
+    // needs: admin on the workspace. A body naming `orgId` asks, even its
+    // current one.
+    if ('orgId' in shaped) {
+      const tenant = ref('tenant', tenantId as unknown as string);
+      const refused = await deniedBy(authorizer, c, 'admin', tenant);
+      if (refused !== undefined) return refused;
     }
     const outcome = await binding.update(tenantId, teamId, shaped);
     if (outcome.kind === 'team-not-found') {
