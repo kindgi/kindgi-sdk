@@ -153,8 +153,9 @@ company has two Google connections.
 - **`--reconnect=<connection>`** reconnects one by name or id, and needs
   the same account. It doesn't take `--label`: a reconnect keeps its name.
   It asks for the permissions you list and those the connection holds. A
-  grant short of what it holds leaves it as it was, and the connect is
-  declined with what's `missing`.
+  grant short of what it holds leaves it as it was: the connect answers
+  connected if the connection is working and already holds what was asked,
+  and is declined with what's `missing` if not.
 - **Rename one** with `kindgi connections update`. Its owner or a
   workspace admin can rename it, and only a workspace admin the company's:
 
