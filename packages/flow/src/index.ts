@@ -63,6 +63,7 @@ export type {
   InvalidSubflowNodeError,
   LoopBodyCycleError,
   LoopBodyEdgeReferenceError,
+  LoopBodyFanoutError,
   LoopBodyMissingStartError,
   LoopConcurrencyError,
   LoopMaxIterationsError,

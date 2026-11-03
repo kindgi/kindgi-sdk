@@ -138,6 +138,14 @@ export interface Project {
    */
   readonly productionSince?: Timestamp;
   /**
+   * The slugs the project had before it was renamed, newest first, and
+   * empty when it never was. They stay the project's: no other project of
+   * the workspace can take one, in any org, while the project exists. A
+   * binding that keeps them always fills this in; it's absent only from one
+   * that doesn't.
+   */
+  readonly formerSlugs?: readonly string[];
+  /**
    * `true` sorts end users' corrections (an app's, for a `participantId`,
    * and not an expert's) like the others, and a schedule counting everyone's
    * counts them. Absent or `false`: they're listed and become test cases,

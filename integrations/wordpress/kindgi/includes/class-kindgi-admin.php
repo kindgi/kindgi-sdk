@@ -819,7 +819,7 @@ final class Kindgi_Admin {
 			self::done( 'error', $response->get_error_message() );
 		}
 		if ( 200 !== $response['status'] ) {
-			self::done( 'error', Kindgi_Http::error( $response )->get_error_message() );
+			self::done( 'error', self::connect_error( Kindgi_Http::error( $response ), Kindgi_Keys::source() ) );
 		}
 		$body = (array) $response['body'];
 		if ( ! is_string( $body['siteId'] ?? null ) || ! is_string( $body['audience'] ?? null ) ) {
@@ -843,6 +843,39 @@ final class Kindgi_Admin {
 		// Kindgi ended the site's sessions: so do the copies kept here.
 		Kindgi_Sessions::forget_all();
 		self::done( 'ok', __( 'Connected: your staff can use the Kindgi pages now.', 'kindgi' ) );
+	}
+
+	/**
+	 * What connecting says when Kindgi refuses it: Kindgi's own message, but
+	 * for a key Kindgi won't take again (`site-enrollment-key-retired`) set
+	 * in wp-config.php or the environment, where to set a new one, and that
+	 * the same code still works. A key kept in the database is a new one on
+	 * every connect, so that refusal isn't expected there, and Kindgi's
+	 * message, which says the code still works, stays.
+	 *
+	 * @param WP_Error $error  Kindgi's answer, from `Kindgi_Http::error()`.
+	 * @param string   $source Where the site's key comes from: `Kindgi_Keys::source()`.
+	 */
+	public static function connect_error( WP_Error $error, string $source ): string {
+		if ( 'site-enrollment-key-retired' !== $error->get_error_code() || ! in_array( $source, array( 'constant', 'environment' ), true ) ) {
+			return $error->get_error_message();
+		}
+		$make  = "php -r 'echo base64_encode(random_bytes(32)), PHP_EOL;'";
+		$where = 'constant' === $source
+			? sprintf(
+				/* translators: 1: KINDGI_SITE_SECRET_KEY; 2: the command that makes a key */
+				__( "Kindgi won't take this site's key again: it was retired. Set a new %1\$s in wp-config.php (%2\$s), then connect again.", 'kindgi' ),
+				Kindgi_Keys::NAME,
+				$make
+			)
+			: sprintf(
+				/* translators: 1: KINDGI_SITE_SECRET_KEY; 2: the command that makes a key */
+				__( "Kindgi won't take this site's key again: it was retired. Set a new %1\$s in the server's environment (%2\$s), then connect again.", 'kindgi' ),
+				Kindgi_Keys::NAME,
+				$make
+			);
+		// Kindgi didn't use the code up, so the one the admin pasted still works.
+		return $where . ' ' . __( 'The same code works until it expires.', 'kindgi' );
 	}
 
 	/** WooCommerce webhooks to Kindgi that WooCommerce turned off, each with the way back on. */

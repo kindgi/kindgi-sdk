@@ -744,11 +744,11 @@ It's refused for yourself and for the seed user, with
   `signing-keys:write`. A key that trusts signing keys is an **Admin** key,
   under **How far it goes**, with **Trust signing keys** ticked.
 
-  ![The API keys page: one key, labelled laptop, acting as Sam Rivera with the member role, never used, expiring a month after it was made, with a Revoke button.](../../../assets/people/api-keys.png)
+  ![The API keys page: "Keys for apps and pipelines belong to a service account; a person's key goes to them. To add someone, see People."; then one key, labelled laptop, acting as Sam Rivera with the member role on every project it can reach, never used, expiring a month after it was made, with a Revoke icon.](../../../assets/people/api-keys.png)
 - **Service accounts,** for tenant admins: create one with its grants,
   change them, make it a key, or unregister it.
 
-  ![The Service accounts page: acme-ci, "Deploys from CI", admin on the default project, with no active keys yet.](../../../assets/people/service-accounts.png)
+  ![The Service accounts page: acme-ci, "Deploys from CI", admin on First Project, with no active keys yet.](../../../assets/people/service-accounts.png)
 
 A project you have no role on shows **No access**, with the projects you can
 open.
@@ -766,16 +766,16 @@ order the list, and the page's address keeps them.
 Someone [invited](#their-invitation) who hasn't signed in yet is marked
 **(invited)**, and **(invitation expired)** once its 7 days pass:
 
-![The People page with five people: Lee Park (invitation expired), added 9 days ago; the seed user (you), admin reviewer; and Ann Lee, Bo Chen and Kim Ito, each (invited), with no role yet, added just now.](../../../assets/people/people-invites.png)
+![The People page with five people: Lee Park (invitation expired), added 9 days ago; the seed user (you), tenant admin and admin reviewer; and Ann Lee, Bo Chen and Kim Ito, each (invited), reading the workspace's settings, added just now.](../../../assets/people/people-invites.png)
 
-![The People page: "8 people in this tenant", a People who were removed checkbox, Columns and Add a person; each person with their email, their access in words (the seed user: tenant admin, owner on Support and Billing, admin of team Support crew, admin reviewer; Ada Lovelace: reads the tenant's settings, viewer on Support, member of team Support crew, standard reviewer; Sam Rivera: reads the tenant's settings), their active keys, when they were last active and when they were added.](../../../assets/people/people.png)
+![The People page: a People who were removed checkbox, Search, Columns and Add a person; each person with their email, their access in words (the seed user: tenant admin, owner on Support, owner on Billing, admin of team Support crew, admin reviewer; Ada Lovelace: reads the workspace's settings, viewer on Support, member of team Support crew, standard reviewer; Sam Rivera: reads the workspace's settings), their active keys, when they were last active and when they were added.](../../../assets/people/people.png)
 
 **Add a person** adds someone with their access in one step: "Give them
 their access now, in the same step." It takes a name, an optional email
 ("One person per email in this workspace."), project roles, teams, a reviewer
 tier, and tenant admin.
 
-![The Add a person dialog: a name and an email, a viewer role on Billing, the team Support crew as a member, no reviewer role, and the Tenant admin checkbox, with an Add button.](../../../assets/people/add-person.png)
+![The Add a person dialog: a name and an email ("One person per email in this workspace."), a viewer role on Billing, the team Support crew as a member, no reviewer role, and the checkbox "Tenant admin: they administer the whole workspace", with an Add button.](../../../assets/people/add-person.png)
 
 Each part is a step of its own. When they all work, the person's page
 opens. When one doesn't, the dialog says how each went:
@@ -823,9 +823,9 @@ from the workspace** reads **Revoke the invitation**: "They haven't signed in: r
 removes them from the workspace, so the invitation no longer lets them in.
 Adding their email again invites them anew."
 
-![Ann Lee's page before they signed in: no keys and nothing they may do yet; Invitation: "They haven't signed in yet. Their invitation is open until 24 Oct 2026, 11:06 AM EDT; emailed 17 Oct 2026, 11:06 AM EDT.", with Send it again; then Revoke the invitation, with its button.](../../../assets/people/person-invitation.png)
+![Ann Lee's page before they signed in: no keys; What they may do: "They read the workspace's settings, nothing more"; no second factor; Invitation: "They haven't signed in yet. Their invitation is open until 10 Nov 2026, 12:01 PM EST; emailed 3 Nov 2026, 12:01 PM EST.", with Send it again; then Revoke the invitation, with its button.](../../../assets/people/person-invitation.png)
 
-![Ada Lovelace's page as a tenant admin: "1 active key acts as Ada Lovelace" with Make a key for Ada Lovelace; What they may do: Support (viewer) and Support crew (member), each with Take away; Reviewer: Standard, with Take off the roster; Tenant admin: No, with Make tenant admin; Give access (a project, a role); then Signed in, Their keys (ada-laptop, expiring in 3 days, with Revoke), Sign-ins, and Remove from the tenant.](../../../assets/people/person.png)
+![Ada Lovelace's page as a tenant admin: "1 active key acts as Ada Lovelace" with Make a key for Ada Lovelace; What they may do: Support (viewer) and Support crew (member), each with Take away; Reviewer: Standard, with Take off the roster; Tenant admin: No, with Make tenant admin; Give access (a project, a role); then Signed in, Their keys (ada-laptop, expiring in 3 days, with a Revoke icon), Sign-ins, and Remove from the workspace.](../../../assets/people/person.png)
 
 ### What needs you
 
@@ -842,7 +842,7 @@ A tenant admin's home in the workspace starts with what needs a look, such as
   recorded as denied, with **All refused requests**. "Someone refused may be
   missing access they need."
 
-![The tenant's home as a tenant admin. What needs you: "8 people in 3 projects and 1 team. 3 people have no project of their own; 1 key expires this week."; No project of their own: Ben Okafor, Sam Rivera and Eddie Park; Keys: "ada-laptop expires in 3 d"; Recently refused: a person refused admin on the tenant, just now. Below: the projects, and the tenant's sections.](../../../assets/people/tenant-home.png)
+![The workspace's home as a tenant admin. What needs you: "8 people in 3 projects and 1 team. 3 people have no project of their own; 1 key expires this week."; No project of their own: Ben Okafor, Sam Rivera and Eddie Park; Keys: "ada-laptop expires in 3d"; Recently refused: "Ada Lovelace: admin on the workspace", just now. Below: the projects, and Workspace administration, the sections that cover every project.](../../../assets/people/workspace-home.png)
 
 It counts everyone, and never says all is clear before it has read
 everything. While a read is still coming in, it says so, such as "Still
