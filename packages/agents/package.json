@@ -68,6 +68,7 @@
     }
   },
   "devDependencies": {
+    "@kindgi/adapter-model-anthropic": "workspace:*",
     "@types/node": "^22.10.5",
     "drizzle-kit": "^0.30.1",
     "typescript": "^5.7.3",

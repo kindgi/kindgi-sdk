@@ -10,6 +10,6 @@ export default defineConfig({
     testTimeout: 5_000,
     // tests/guard.test.ts reads every package's source by path, not by
     // import, so `vitest --changed` runs this suite when any of it changes.
-    forceRerunTriggers: [...configDefaults.forceRerunTriggers, '**/packages/*/src/**'],
+    forceRerunTriggers: [...configDefaults.forceRerunTriggers, '**/packages/**/src/**'],
   },
 });
