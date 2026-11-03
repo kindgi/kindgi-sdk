@@ -100,9 +100,10 @@ export interface ApprovalApprover {
 }
 
 /**
- * The connection a gated call would use: the app, whose it is, and, for the
- * company's, its account and name. A person's account isn't named: the
- * reviewer sees "this person's <app> account".
+ * The connection a gated call would use: the app, whose it is, its id, and,
+ * for the company's, its account and name. A person's account isn't named:
+ * the reviewer sees "this person's <app> account", and whoever may read the
+ * connection by its id sees the account too.
  */
 export interface ApprovalConnection {
   readonly app: string;
@@ -116,6 +117,12 @@ export interface ApprovalConnection {
   readonly account?: string;
   /** The company connection's name: its label, else the account's. A person's has none. */
   readonly name?: string;
+  /**
+   * The connection's id. Whoever may read the connection (its person, a
+   * tenant admin) looks its account up by it: `GET /v1/connections/{connectionId}`.
+   * Absent from older approvals.
+   */
+  readonly connectionId?: string;
 }
 
 /**

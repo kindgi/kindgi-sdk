@@ -607,6 +607,8 @@ The connection "mailbox" to Google changed while this call waited, so it didn't 
 ```
 
 An approval for a call that uses a connection says which one it's for: the
-company's by its account, and a person's as "this person's Google account"
+company's by its account, and a person's as "this person's Google account",
+with the connection's id, by which the person, or a tenant admin, reads which
+of their accounts it is
 ([An approval's fields](../../approvals/approvals-reference/#an-approvals-fields)).
 The account a call named is in the call's input, which the approval shows.

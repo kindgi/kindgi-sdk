@@ -340,6 +340,23 @@ describe("a suspended run's waitingFor: connects", () => {
     const { body } = await get();
     expect(body.waitingFor.approvals[0].connection).toEqual(connection);
   });
+
+  test("a person's connection's approval gives the connection's id, as the approval does", async () => {
+    const connection = {
+      app: 'google',
+      appName: 'Google',
+      as: 'person',
+      connectionId: '6f1c2b8e-4d3a-4f5e-9a7b-0c1d2e3f4a5b',
+    } as const;
+    const get = harness({
+      journal: [suspended('tok-1')],
+      approvals: [
+        approval('tok-1', { approver: { kind: 'member', userId: 'user-ana' }, connection }),
+      ],
+    });
+    const { body } = await get();
+    expect(body.waitingFor.approvals[0].connection).toEqual(connection);
+  });
 });
 
 describe('waitingFor is left out', () => {

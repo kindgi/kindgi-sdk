@@ -422,7 +422,8 @@ export interface HitlEnqueueInput {
    * name, whose it is, and, for the company's, the account as people know
    * it (`owner@acme.example`) and the connection's name. A person's
    * connection, or else the company's the gate decided on. A person's
-   * account isn't named: the reviewer sees "this person's <app> account".
+   * account isn't named in it: its `connectionId` lets that person, or a
+   * tenant admin, look the account up.
    */
   readonly connection?: {
     readonly app: string;
@@ -433,6 +434,12 @@ export interface HitlEnqueueInput {
     readonly account?: string;
     /** The company connection's name: its label, else its account's label. A person's has none. */
     readonly name?: string;
+    /**
+     * The connection's id. Whoever may read the connection (its person, a
+     * tenant admin) looks its account up by it: `GET /v1/connections/{id}`.
+     * Absent from older approvals.
+     */
+    readonly connectionId?: string;
   };
   readonly title?: string;
   readonly description?: string;

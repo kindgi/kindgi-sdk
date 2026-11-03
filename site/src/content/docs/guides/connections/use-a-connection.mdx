@@ -465,7 +465,8 @@ your app, `runs.get` answers it under `waitingFor.connections`
 
 A call that uses a connection is approved as any other call is, and the
 approval says whose connection it acts with: the company's by its account,
-a person's as "this person's Google account".
+a person's as "this person's Google account". Both give the connection's id,
+by which the person, or a tenant admin, reads which account it is.
 
 - **In a run you started,** the agent's own approval settings decide
   ([Ask before a tool runs](../../approvals/ask-before-a-tool-runs/)).
