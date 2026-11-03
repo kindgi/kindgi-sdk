@@ -44,9 +44,9 @@ KINDGI_PUBLIC_URL=https://kindgi.example.com
 ```
 
 `KINDGI_MCP_SERVER` is `off` unless you set it. With it `on`, the runtime
-doesn't start without `KINDGI_PUBLIC_URL`, with a public address that has a
-path (`https://example.com/kindgi`), or without sign-in. It doesn't need an
-authorization store.
+doesn't start if `KINDGI_PUBLIC_URL` is unset or has a path
+(`https://example.com/kindgi`), or if sign-in isn't set up. It doesn't need
+an authorization store.
 
 <!-- To confirm: a link to KINDGI_MCP_SERVER's entry in the environment variables reference, once it's there. -->
 
