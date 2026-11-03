@@ -20,8 +20,9 @@ registration and environment, which serves every project the registration
 allows. So either can have several of one app, each with its own name: the
 company's `support@acme.example` and `sales@acme.example` at Google, say,
 or a person's work and home accounts. A connect that lands on an account
-its owner already has reconnects that connection, which keeps its name and
-gains what was allowed. One of a person's connections through a
+its owner already has reconnects that connection when the grant keeps
+every permission it holds, and the connection keeps its name and gains
+what was allowed. One of a person's connections through a
 registration in an environment is their **main**, the one their agents use
 when no choice names another. When there are several, the run's mail, a
 choice or a person's main says which one a call uses
