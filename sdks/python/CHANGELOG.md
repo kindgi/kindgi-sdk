@@ -13,6 +13,17 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **an agent or a flow can be a tool in a person's chat app.**
+  `Agent(mcp={"expose": True})` and `Flow(mcp={"expose": True})` offer it,
+  through the API's MCP server, to the people who can see it: an agent's tool
+  is named by its id, a flow's by `flow.` and its id. `"readOnly"` and
+  `"destructive"` become the tool's hints; left out, none is sent. With
+  `"expose": True`, the id must be a tool's name, and an agent's can't start
+  with `kindgi.` or `flow.`; the class refuses one that isn't when the module
+  loads. The indexer writes `mcp` into the pack index, and the vendored
+  `flow.schema.json` (1.10.0) and `pack-index.schema.json` (1.9.0) take it.
+  The client's models gain `McpExposure` and an `mcp` field on `Agent`,
+  `Flow` and their publish bodies.
 - `kindgi`: **`client.runs.list(acts_for="me")` lists only the runs that act
   for you** (a run's `acts_for`); none when you act for no one. A runtime
   before Kindgi 0.6.0 ignores it and lists every run you may see.
