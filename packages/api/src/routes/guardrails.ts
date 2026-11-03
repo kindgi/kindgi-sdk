@@ -22,6 +22,7 @@ import type { GuardrailRecord, GuardrailRegistryBinding } from '../guardrail-bin
 import { type ItemRights, itemMiddleware, itemPathCheck } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
+import { isReadMethod } from '../read-method.js';
 import {
   type ReferenceScopeBinding,
   outOfScopeResponse,
@@ -131,7 +132,7 @@ export function guardrailsRouter(
       return mw(c, next);
     });
     r.use('/', async (c, next) => {
-      if (c.req.method !== 'GET') return next();
+      if (!isReadMethod(c.req.method)) return next();
       // A project filter needs read on that project. Parse it as the
       // handler does (`?scopeKind=project&scopeId=`).
       const s = parseScopeParams((n) => c.req.query(n), {
@@ -152,7 +153,7 @@ export function guardrailsRouter(
         rights: itemRights,
         kind: 'guardrail',
         id: (c) => c.req.param('guardrailId') ?? '',
-        today: (c) => (c.req.method === 'GET' ? 'read' : 'admin'),
+        today: (c) => (isReadMethod(c.req.method) ? 'read' : 'admin'),
         check: itemPathCheck,
         versionNotFound: guardrailNotFound,
       }),

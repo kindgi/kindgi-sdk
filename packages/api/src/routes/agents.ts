@@ -36,6 +36,7 @@ import {
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
+import { isReadMethod } from '../read-method.js';
 import {
   type ReferenceScopeBinding,
   agentReferences,
@@ -171,7 +172,7 @@ export function agentsRouter(
       return mw(c, next);
     });
     r.use('/', async (c, next) => {
-      if (c.req.method !== 'GET') return next();
+      if (!isReadMethod(c.req.method)) return next();
       // A project filter needs read on that project. Parse it as the
       // handler does (`?scopeKind=project&scopeId=`).
       const s = parseScopeParams((n) => c.req.query(n), {
@@ -212,7 +213,7 @@ export function agentsRouter(
         today: (c) =>
           isTestSetPath(c.req.path)
             ? undefined
-            : c.req.method === 'GET' || isAgentPinCheck(c.req.method, c.req.path)
+            : isReadMethod(c.req.method) || isAgentPinCheck(c.req.method, c.req.path)
               ? 'read'
               : isAgentPinWrite(c.req.method, c.req.path)
                 ? undefined
@@ -232,7 +233,7 @@ export function agentsRouter(
    */
   function agentCheck(c: Context<AppEnv>): ItemCheck {
     const under = underItem(c);
-    if (c.req.method === 'GET') return readCheck(under);
+    if (isReadMethod(c.req.method)) return readCheck(under);
     if (isAgentPinCheck(c.req.method, c.req.path)) return { rule: 'read' };
     return itemPathCheck(c);
   }

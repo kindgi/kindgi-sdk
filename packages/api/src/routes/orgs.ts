@@ -10,6 +10,7 @@ import type { Cursor, OrgId, TenantId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { isReadMethod } from '../read-method.js';
 import type { AppEnv } from '../types.js';
 import {
   orgDeleteSlugConflictError,
@@ -63,9 +64,9 @@ export function orgsRouter(
     });
     r.use('/:orgId', async (c, next) => {
       const method = c.req.method;
-      if (method !== 'PATCH' && method !== 'DELETE' && method !== 'GET') return next();
+      if (method !== 'PATCH' && method !== 'DELETE' && !isReadMethod(method)) return next();
       const orgId = c.req.param('orgId');
-      const action = method === 'GET' ? 'read' : method === 'DELETE' ? 'admin' : 'admin';
+      const action = isReadMethod(method) ? 'read' : method === 'DELETE' ? 'admin' : 'admin';
       const mw = authorizer.authorize(action, () => ref('org', orgId));
       return mw(c, next);
     });
