@@ -138,6 +138,14 @@ set ([Read several accounts with one tool](../choose-a-connection/#read-several-
 accounts. Records from older runtimes have no `pick`, or a `pick` without
 `as` and `setSize`, and keep a person's account label as it was recorded.
 
+A call that its connections stopped before it ran records why instead, as
+`"kind": "refused"`: its `code`, the tool's name for the connection
+(`name`), the `app`, whose connection the call needed (`as`), any
+permissions the connection lacks (`missing`), and the `message`. The
+company's `connection-not-chosen` also lists the connections to choose
+from (`choices`, each `{ "connectionId", "name" }`); a person's lists
+none. Records from older runtimes have no `as`.
+
 In the console, a run's page words this record under **What happened**,
 below each tool call that ran, in an agent's turn or a flow's tool step:
 
