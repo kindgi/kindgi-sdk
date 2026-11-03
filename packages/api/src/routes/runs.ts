@@ -59,6 +59,7 @@ import { clampLimit, decodeCursor, isCursorTime } from './pagination.js';
 import { participantRefusal } from './participant-access.js';
 import { pinScopeToWire } from './pin-scope-wire.js';
 import { runFailuresHandler } from './run-failures.js';
+import { actionOrRunRefusal, isOwnRun, readableOrRun } from './runner-reach.js';
 import { parseListScope } from './scope-params.js';
 import { parseSegmentsBody } from './segments.js';
 import {
@@ -180,24 +181,31 @@ export function runsRouter(
   //
   // POST /              — execute on the agent or flow it names (an
   //                       existing one; a missing one is the handler's 404)
-  // GET /:runId         — read on the run's project
-  // POST /:runId/cancel — write on the run's project
+  // GET /:runId         — read on the run's project; on a run of the
+  //                       caller's own (`isOwnRun`), run there
+  // POST /:runId/cancel — write on the run's project; on a run of the
+  //                       caller's own, run there
   // POST /:runId/resume — write on the run's project; answering a pause,
   //                       also execute on what the run runs (the route's)
-  // GET /:runId/journal — read on the run's project
-  // GET /:runId/stream  — read on the run's project
-  // GET /               — list; rows filtered to `read` on their project
+  // GET /:runId/journal,
+  //   /stream, /progress,
+  //   /progress/stream  — as GET /:runId
+  // GET /               — list; rows filtered to `read` on their project,
+  //                       or, for the caller's own, `run` there
   if (authorizer !== undefined) {
     // A run that isn't there is the handler's 404: `read` on the tenant
     // (which every reader has) lets it through without masking it. An id
     // that isn't a run id is never looked up (its uuid cast would fail
     // the query as a 500): the route's own 400 answers it.
-    const projectFromRun = async (c: import('hono').Context<AppEnv>) => {
+    const runOf = async (c: import('hono').Context<AppEnv>) => {
       const tenantId = c.get('tenantId') as TenantId;
       const runId = c.req.param('runId') ?? '';
-      const row = UUID_RE.test(runId) ? await runBinding.getRun(tenantId, runId as RunId) : null;
+      return UUID_RE.test(runId) ? runBinding.getRun(tenantId, runId as RunId) : null;
+    };
+    const projectFromRun = async (c: import('hono').Context<AppEnv>) => {
+      const row = await runOf(c);
       return row === null
-        ? ref('tenant', tenantId as unknown as string)
+        ? ref('tenant', c.get('tenantId') as unknown as string)
         : ref('project', row.projectId as unknown as string);
     };
     const onRunProject =
@@ -210,21 +218,43 @@ export function runsRouter(
         );
         return mw(c, next);
       };
+    // Reading a run, and stopping it: `action` on its project, or `run`
+    // there for a run of the caller's own (`isOwnRun`: one they started,
+    // or their own schedule did). Anyone else gets `action`'s 403.
+    const onRunProjectOrOwn =
+      (action: 'read' | 'write') =>
+      async (c: import('hono').Context<AppEnv>, next: import('hono').Next) => {
+        const row = await runOf(c);
+        if (row === null) {
+          const tenant = ref('tenant', c.get('tenantId') as unknown as string);
+          return authorizer.authorize('read', () => tenant)(c, next);
+        }
+        const project = row.projectId as unknown as string;
+        const own = isOwnRun(c, row) ? project : undefined;
+        const refused = await actionOrRunRefusal(
+          authorizer,
+          c,
+          action,
+          ref('project', project),
+          own,
+        );
+        return refused ?? next();
+      };
     r.use('/:runId', async (c, next) => {
       if (!isReadMethod(c.req.method)) return next();
-      return onRunProject('read')(c, next);
+      return onRunProjectOrOwn('read')(c, next);
     });
-    r.use('/:runId/journal', onRunProject('read'));
-    r.use('/:runId/stream', onRunProject('read'));
-    // Progress: `read` for API tokens. A public run token has no
-    // principal; the handlers check that its grant covers the run.
+    r.use('/:runId/journal', onRunProjectOrOwn('read'));
+    r.use('/:runId/stream', onRunProjectOrOwn('read'));
+    // Progress: as reading the run, for API tokens. A public run token has
+    // no principal; the handlers check that its grant covers the run.
     const progressAuth = async (c: import('hono').Context<AppEnv>, next: import('hono').Next) => {
       if (c.get('tokenKind') === 'public-run') return next();
-      return onRunProject('read')(c, next);
+      return onRunProjectOrOwn('read')(c, next);
     };
     r.use('/:runId/progress', progressAuth);
     r.use('/:runId/progress/stream', progressAuth);
-    r.use('/:runId/cancel', onRunProject('write'));
+    r.use('/:runId/cancel', onRunProjectOrOwn('write'));
     // As cancel: changing a run is `write` on its project (a project has
     // no `execute`; asking for it refused everyone, T243 A).
     r.use('/:runId/resume', onRunProject('write'));
@@ -466,11 +496,18 @@ export function runsRouter(
         filter: listFilter.value,
       }),
     );
+    // `read` on a row's project, or, on a run of the caller's own, `run`
+    // there. The cursor is the store's page, so a page this leaves short
+    // or empty still moves on.
     const visible =
       authorizer === undefined
         ? page.data
-        : await authorizer.filterByCan(c, 'read', page.data, (row) =>
-            ref('project', row.projectId as unknown as string),
+        : await readableOrRun(
+            authorizer,
+            c,
+            page.data,
+            (row) => ref('project', row.projectId as unknown as string),
+            (row) => (isOwnRun(c, row) ? (row.projectId as unknown as string) : undefined),
           );
     return c.json({
       data: visible.map((row) => serializeRun(row, { output: includeOutput })),

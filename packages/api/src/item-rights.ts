@@ -53,6 +53,8 @@ import type {
 } from './item-projects-binding.js';
 import type { Authorizer } from './middleware/authorize.js';
 import { isReadMethod } from './read-method.js';
+import { deniedBy } from './routes/denied.js';
+import { noteReadItself, readableOrRun } from './routes/runner-reach.js';
 import type { AppEnv } from './types.js';
 
 type Ctx = Context<AppEnv>;
@@ -68,10 +70,13 @@ export interface ItemRefusal {
 
 /** What a route under an item asks, for an item more than one project serves. */
 export type ItemCheck =
-  /** Rule 1: reading the item. */
-  | { readonly rule: 'read' }
-  /** Rules 1 and 2: reading one of its versions. */
-  | { readonly rule: 'version'; readonly version: string }
+  /**
+   * Rule 1: reading the item. `alsoRun`: or `run` on one of its projects,
+   * on a route that lets those who may run an item read it.
+   */
+  | { readonly rule: 'read'; readonly alsoRun?: true }
+  /** Rules 1 and 2: reading one of its versions. `alsoRun`: as for rule 1. */
+  | { readonly rule: 'version'; readonly version: string; readonly alsoRun?: true }
   /** Rule 3: a change in one project. */
   | { readonly rule: 'on'; readonly action: Action; readonly projectId: string }
   /** Rule 4: a change to the whole item, on each of its projects. */
@@ -95,6 +100,13 @@ export interface ItemRows<T> {
   };
   /** A row of a retired item (a list including them): its unregistered versions count. */
   readonly retired?: (row: T) => boolean;
+  /**
+   * On a list that shows the items the caller may run as well as those it
+   * may read: a one-project row's project, where `run` lets it through
+   * though today's check refuses; for an item more than one project
+   * serves, `run` on one of its projects counts as `read` there.
+   */
+  readonly alsoRun?: { readonly projectOf: (row: T) => string | undefined };
 }
 
 export interface ItemRights {
@@ -143,14 +155,21 @@ export interface ItemRights {
     kind: OrderItemKind,
     id: string,
   ): Promise<ItemServedElsewhere | undefined>;
-  /** Rule 1. `undefined` when allowed; else the item's own refusal, as today's. */
+  /**
+   * Rule 1. `undefined` when allowed; else the item's own refusal, as
+   * today's. `alsoRun`: `run` on one of its projects allows it too.
+   */
   read(
     c: Ctx,
     kind: OrderItemKind,
     id: string,
     projects: readonly ProjectId[],
+    alsoRun?: boolean,
   ): Promise<ItemRefusal | undefined>;
-  /** Rule 2: the rows whose version can run in a project the caller reads. */
+  /**
+   * Rule 2: the rows whose version can run in a project the caller reads.
+   * `alsoRun`: a project the caller may `run` counts as one it reads.
+   */
   visibleVersions<T>(
     c: Ctx,
     kind: OrderItemKind,
@@ -158,19 +177,22 @@ export interface ItemRights {
     projects: readonly ProjectId[],
     rows: readonly T[],
     versionOf: (row: T) => string,
+    alsoRun?: boolean,
   ): Promise<T[]>;
-  /** Rule 2, for one version: `false` for one that doesn't exist. */
+  /** Rule 2, for one version: `false` for one that doesn't exist. `alsoRun`: as above. */
   versionVisible(
     c: Ctx,
     kind: OrderItemKind,
     id: string,
     projects: readonly ProjectId[],
     version: string,
+    alsoRun?: boolean,
   ): Promise<boolean>;
   /**
    * The item's newest active version the caller can see (rule 2), or with
    * `inProject`, the newest that can run in that project, which the caller
-   * must read; `undefined`: none.
+   * must read; `undefined`: none. `alsoRun`: a project the caller may
+   * `run` counts as one it reads.
    */
   newestVisible(
     c: Ctx,
@@ -178,6 +200,7 @@ export interface ItemRights {
     id: string,
     projects: readonly ProjectId[],
     inProject?: string,
+    alsoRun?: boolean,
   ): Promise<string | undefined>;
   /**
    * Rules 1 and 2 for a list page: the rows the caller may read, each an
@@ -300,8 +323,26 @@ export function createItemRights(
    * What the caller reads of an item more than one project serves: the
    * item itself (its own decision), and the projects among its own it
    * reads. Reading the item reads as its first project's readers do.
+   * `alsoRun`: the projects among its own it may `run` count as read.
    */
-  function reach(c: Ctx, kind: OrderItemKind, id: string, projects: readonly ProjectId[]) {
+  function reach(
+    c: Ctx,
+    kind: OrderItemKind,
+    id: string,
+    projects: readonly ProjectId[],
+    alsoRun = false,
+  ): Promise<{ item: Decision | undefined; readable: readonly ProjectId[] }> {
+    if (alsoRun) {
+      return once(c, `reach or run ${kind} ${id}`, async () => {
+        const { item, readable } = await reach(c, kind, id, projects);
+        const unread = projects.filter((p) => !readable.includes(p));
+        const run =
+          unread.length === 0
+            ? []
+            : await authorizer.filterByCan(c, 'run', unread, (p) => ref('project', p));
+        return { item, readable: [...readable, ...run] };
+      });
+    }
     return once(c, `reach ${kind} ${id}`, async () => {
       const type = ITEM_TYPE[kind];
       const item =
@@ -319,8 +360,14 @@ export function createItemRights(
     });
   }
 
-  async function read(c: Ctx, kind: OrderItemKind, id: string, projects: readonly ProjectId[]) {
-    const { item, readable } = await reach(c, kind, id, projects);
+  async function read(
+    c: Ctx,
+    kind: OrderItemKind,
+    id: string,
+    projects: readonly ProjectId[],
+    alsoRun = false,
+  ) {
+    const { item, readable } = await reach(c, kind, id, projects, alsoRun);
     if (readable.length > 0) return undefined;
     const type = ITEM_TYPE[kind];
     const resource = ref(type ?? 'project', type === undefined ? (projects[0] ?? id) : id);
@@ -344,9 +391,10 @@ export function createItemRights(
     projects: readonly ProjectId[],
     rows: readonly T[],
     versionOf: (row: T) => string,
+    alsoRun = false,
   ): Promise<T[]> {
     if (rows.length === 0) return [];
-    const { readable } = await reach(c, kind, id, projects);
+    const { readable } = await reach(c, kind, id, projects, alsoRun);
     if (readable.length === 0) return [];
     const where = await binding.versionProjectsOfMany({
       tenantId: tenantOf(c),
@@ -363,8 +411,9 @@ export function createItemRights(
     id: string,
     projects: readonly ProjectId[],
     version: string,
+    alsoRun = false,
   ) {
-    const { readable } = await reach(c, kind, id, projects);
+    const { readable } = await reach(c, kind, id, projects, alsoRun);
     if (readable.length === 0) return false;
     const where = await versionProjects(c, kind, id, version);
     return where?.some((p) => readable.includes(p)) === true;
@@ -382,8 +431,9 @@ export function createItemRights(
     id: string,
     projects: readonly ProjectId[],
     inProject?: string,
+    alsoRun = false,
   ) {
-    const { readable } = await reach(c, kind, id, projects);
+    const { readable } = await reach(c, kind, id, projects, alsoRun);
     return newestIn(c, binding, kind, id, readable, inProject);
   }
 
@@ -404,8 +454,14 @@ export function createItemRights(
       return projects !== undefined && projects.length > 1 ? projects : undefined;
     };
     const many = new Set(rows.filter((row) => projectsOf(row) !== undefined));
-    // A page of one-project items: today's one check.
-    if (many.size === 0) return authorizer.filterByCan(c, 'read', rows, how.todayRef);
+    // A page of one-project items: today's one check (and `run` on a
+    // row's project, where the list shows those too).
+    if (many.size === 0) {
+      const runIn = how.alsoRun?.projectOf;
+      return runIn === undefined
+        ? authorizer.filterByCan(c, 'read', rows, how.todayRef)
+        : readableOrRun(authorizer, c, rows, how.todayRef, runIn);
+    }
     const { allowed, readProjects } = await pageReads(c, kind, rows, many, projectsOf, how);
     // The projects the caller reads a row's item through: as for one item (`reach`).
     const readableOf = (row: T): readonly ProjectId[] => {
@@ -435,7 +491,9 @@ export function createItemRights(
   /**
    * A page's two checks: today's, and for an item more than one project
    * serves, the item's own read (blocks have none); then read on the
-   * page's projects.
+   * page's projects. With `how.alsoRun`, `run` lets a one-project row
+   * through on its project, and a page project the caller may `run`
+   * counts as read.
    */
   async function pageReads<T>(
     c: Ctx,
@@ -453,7 +511,43 @@ export function createItemRights(
     const readProjects = new Set(
       await authorizer.filterByCan(c, 'read', pageProjects, (p) => ref('project', p)),
     );
+    const runIn = how.alsoRun?.projectOf;
+    if (runIn !== undefined) {
+      const one = rows.filter((r) => !many.has(r) && !allowed.has(r));
+      await runOnPage(c, one, runIn, pageProjects, allowed, readProjects);
+    }
     return { allowed, readProjects };
+  }
+
+  /**
+   * One more batch, `run`: on the page's projects the caller doesn't read,
+   * and on the projects of the one-project rows it may not read (`one`).
+   * Adds to `allowed` each such row whose project it may run, and to
+   * `readProjects` each page project it may run.
+   */
+  async function runOnPage<T>(
+    c: Ctx,
+    one: readonly T[],
+    runIn: (row: T) => string | undefined,
+    pageProjects: readonly ProjectId[],
+    allowed: Set<T>,
+    readProjects: Set<string>,
+  ): Promise<void> {
+    const ask = [
+      ...new Set([
+        ...pageProjects.filter((p) => !readProjects.has(p)),
+        ...one.flatMap((r) => runIn(r) ?? []),
+      ]),
+    ];
+    if (ask.length === 0) return;
+    const runs = new Set(await authorizer.filterByCan(c, 'run', ask, (p) => ref('project', p)));
+    for (const row of one) {
+      const project = runIn(row);
+      if (project !== undefined && runs.has(project)) allowed.add(row);
+    }
+    for (const p of pageProjects) {
+      if (runs.has(p)) readProjects.add(p);
+    }
   }
 
   /** For a page's items more than one project serves, each one's newest version the caller can see, in one ask. */
@@ -532,13 +626,14 @@ export function createItemRights(
       refused === undefined ? undefined : { refused, message: served(kind, id, refused, version) };
     switch (check.rule) {
       case 'read': {
-        const refused = await read(c, kind, id, projects);
+        const refused = await readOrRun(c, kind, id, projects, check.alsoRun === true);
         return refused === undefined ? undefined : { refused };
       }
       case 'version': {
-        const refused = await read(c, kind, id, projects);
+        const alsoRun = check.alsoRun === true;
+        const refused = await readOrRun(c, kind, id, projects, alsoRun);
         if (refused !== undefined) return { refused };
-        return (await versionVisible(c, kind, id, projects, check.version))
+        return (await versionVisible(c, kind, id, projects, check.version, alsoRun))
           ? undefined
           : { hidden: check.version };
       }
@@ -551,6 +646,25 @@ export function createItemRights(
         return changing(await onEvery(c, where, check.action), check.version);
       }
     }
+  }
+
+  /**
+   * Rule 1, noting a pass on `read` itself (`noteReadItself`); with
+   * `alsoRun`, `run` on one of its projects, asked once `read` refuses.
+   */
+  async function readOrRun(
+    c: Ctx,
+    kind: OrderItemKind,
+    id: string,
+    projects: readonly ProjectId[],
+    alsoRun: boolean,
+  ): Promise<ItemRefusal | undefined> {
+    const refused = await read(c, kind, id, projects);
+    if (refused === undefined) {
+      noteReadItself(c);
+      return undefined;
+    }
+    return alsoRun ? read(c, kind, id, projects, true) : refused;
   }
 
   /**
@@ -796,12 +910,25 @@ export function underItem(c: Ctx): readonly string[] {
 /**
  * What a GET under an item reads: one of its versions (rule 2) when the
  * path names one (`versions/:version[/…]`), else the item (rule 1).
+ * `alsoRun`: `run` on one of its projects lets it through too.
  */
-export function readCheck(under: readonly string[]): ItemCheck {
+export function readCheck(under: readonly string[], alsoRun = false): ItemCheck {
   const [first, version] = under;
+  const run = alsoRun ? ({ alsoRun: true } as const) : {};
   return first === 'versions' && version !== undefined && version.length > 0
-    ? { rule: 'version', version }
-    : { rule: 'read' };
+    ? { rule: 'version', version, ...run }
+    : { rule: 'read', ...run };
+}
+
+/**
+ * A read (`GET` or `HEAD`) of an item's definition: the item itself, its
+ * versions, or one of them. Those who may `run` an agent or a flow read
+ * these, and nothing else under it.
+ */
+export function readsDefinition(c: Ctx): boolean {
+  if (!isReadMethod(c.req.method)) return false;
+  const under = underItem(c);
+  return under.every((segment) => segment === '') || (under[0] === 'versions' && under.length <= 2);
 }
 
 /**
@@ -1042,7 +1169,10 @@ export async function pinWidthRefusal(
  * The authorization middleware under one item (`/:id` and `/:id/*`): for
  * an item more than one project serves, what `check` names (`enforce`);
  * else `today`, the item's own check, as before. `today` returning
- * `undefined` leaves the route to check for itself.
+ * `undefined` leaves the route to check for itself. `runIn`: on a route
+ * that lets those who may run the item read it, the item's project, where
+ * `run` lets a refused `read` through (`undefined`: not such a route);
+ * asked only once `read` is refused.
  */
 export function itemMiddleware(how: {
   readonly authorizer: Authorizer;
@@ -1052,6 +1182,7 @@ export function itemMiddleware(how: {
   readonly today: (c: Ctx) => Action | undefined | Promise<Action | undefined>;
   readonly check: (c: Ctx, projects: readonly ProjectId[]) => ItemCheck | Promise<ItemCheck>;
   readonly versionNotFound: (c: Ctx, version: string) => Response;
+  readonly runIn?: (c: Ctx) => Promise<string | undefined>;
 }): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const today = await how.today(c);
@@ -1066,8 +1197,32 @@ export function itemMiddleware(how: {
     }
     const type = ITEM_TYPE[how.kind];
     if (type === undefined) return next();
-    return how.authorizer.authorize(today, () => ref(type, id))(c, next);
+    if (today !== 'read' || how.runIn === undefined) {
+      return how.authorizer.authorize(today, () => ref(type, id))(c, next);
+    }
+    return (await readOrRunRefusal(how.authorizer, c, ref(type, id), how.runIn)) ?? next();
   };
+}
+
+/**
+ * Nothing when the caller may `read` the item (noted: `noteReadItself`),
+ * or `run` in its project (`runIn`, asked only once `read` refuses); else
+ * `read`'s refusal.
+ */
+async function readOrRunRefusal(
+  authorizer: Authorizer,
+  c: Ctx,
+  item: ResourceRef,
+  runIn: (c: Ctx) => Promise<string | undefined>,
+): Promise<Response | undefined> {
+  const refused = await deniedBy(authorizer, c, 'read', item);
+  if (refused === undefined) {
+    noteReadItself(c);
+    return undefined;
+  }
+  const project = await runIn(c);
+  const runs = project !== undefined && (await authorizer.can(c, 'run', ref('project', project)));
+  return runs ? undefined : refused;
 }
 
 /** What `shownLatest` answers. */
@@ -1099,6 +1254,8 @@ export async function shownLatest<T>(
     readonly versionOf: (row: T) => string;
     readonly projectOf: (row: T) => string | undefined;
     readonly getVersion: (version: string) => Promise<T | null>;
+    /** A project the caller may `run` counts as one it reads (`newestVisible`). */
+    readonly alsoRun?: boolean;
   },
 ): Promise<ShownLatest<T>> {
   const inProject = c.req.query('projectId');
@@ -1112,7 +1269,7 @@ export async function shownLatest<T>(
       ? { kind: 'ok', row: latest }
       : { kind: 'not-found' };
   }
-  const newest = await serving.newestVisible(c, kind, id, all, inProject);
+  const newest = await serving.newestVisible(c, kind, id, all, inProject, how.alsoRun === true);
   if (newest === undefined) return { kind: 'not-found' };
   if (newest === how.versionOf(latest)) return { kind: 'ok', row: latest };
   const row = await how.getVersion(newest);

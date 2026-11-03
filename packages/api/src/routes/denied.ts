@@ -13,6 +13,8 @@ import type { AppEnv } from '../types.js';
  * An in-handler check, for a resource known only once the request is
  * read: nothing when the caller may take `action` on `resource` (or there
  * is no authorizer), else the authorizer's own 403, to return as is.
+ * The request's status is left as it was: a route that goes on after a
+ * refusal (another right allows it) answers with its own status.
  */
 export async function deniedBy(
   authorizer: Authorizer | undefined,
@@ -25,7 +27,11 @@ export async function deniedBy(
   const answer = await authorizer.authorize(action, () => resource)(c, async () => {
     allowed = true;
   });
-  return allowed ? undefined : (answer as Response);
+  if (allowed) return undefined;
+  // The 403 is whole in `answer`; the status the refusal set goes back to
+  // the default.
+  c.status(200);
+  return answer as Response;
 }
 
 /**

@@ -30,6 +30,7 @@ import {
   itemMiddleware,
   itemPathCheck,
   readCheck,
+  readsDefinition,
   shownLatest,
   underItem,
 } from '../item-rights.js';
@@ -64,6 +65,7 @@ import { includeRetiredOf } from './include-retired.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
+import { actionOrRunRefusal, readableOrRun, wasReadItself } from './runner-reach.js';
 import { parseScopeParams } from './scope-params.js';
 
 /**
@@ -139,7 +141,9 @@ export function agentsRouter(
   // tuple via the enqueueTuples hook (see AgentPublishInput contract).
   //
   //   POST /                                         → admin on body.projectId
-  //   GET /:agentId, GET /:agentId/versions[/…]      → read on the agent
+  //   GET /:agentId, GET /:agentId/versions[/…]      → read on the agent, or
+  //                                                    run on its project (its
+  //                                                    owner then by id alone)
   //   POST /:agentId/versions/:version/unregister    → admin on the agent
   //   POST /:agentId/versions/:version/reinstate     → admin on the agent
   //   PUT /:agentId/owner                            → admin on the agent
@@ -179,9 +183,10 @@ export function agentsRouter(
         tenantId: c.get('tenantId') as TenantId,
       });
       if (s.kind !== 'ok' || s.scope?.kind !== 'project') return next();
+      // Or `run` there: the list shows the agents the caller may run.
       const scopeProjectId = s.scope.projectId as unknown as string;
-      const mw = authorizer.authorize('read', () => ref('project', scopeProjectId));
-      return mw(c, next);
+      const project = ref('project', scopeProjectId);
+      return (await actionOrRunRefusal(authorizer, c, 'read', project, scopeProjectId)) ?? next();
     });
     // Changing what's pinned is its own permission (`pin`, granted to the
     // agent's admins), checked as a deployment's promotion that pins what
@@ -200,6 +205,9 @@ export function agentsRouter(
     // An agent more than one project serves is checked on those projects
     // instead (`item-rights.ts`, `agentCheck`).
     // '/:agentId/*' matches '/:agentId' too: this one gate decides both, once.
+    // Its definition (the agent, its versions, one of them; `GET` or `HEAD`)
+    // reads on `run` on its project too: no runs in it, and its owner named
+    // by id alone (`ownerField`).
     r.use(
       '/:agentId/*',
       itemMiddleware({
@@ -220,6 +228,12 @@ export function agentsRouter(
                 : 'admin',
         check: (c) => agentCheck(c),
         versionNotFound: agentVersionNotFound,
+        runIn: async (c) => {
+          if (!readsDefinition(c)) return undefined;
+          const tenantId = c.get('tenantId') as TenantId;
+          const agentId = (c.req.param('agentId') ?? '') as AgentId;
+          return (await ownProject(tenantId, agentId))?.[0] as unknown as string | undefined;
+        },
       }),
     );
   }
@@ -233,6 +247,7 @@ export function agentsRouter(
    */
   function agentCheck(c: Context<AppEnv>): ItemCheck {
     const under = underItem(c);
+    if (readsDefinition(c)) return readCheck(under, true);
     if (isReadMethod(c.req.method)) return readCheck(under);
     if (isAgentPinCheck(c.req.method, c.req.path)) return { rule: 'read' };
     return itemPathCheck(c);
@@ -281,15 +296,22 @@ export function agentsRouter(
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
       ...includeRetiredOf(c),
     });
-    // Only what the caller may read (T243 A), as `GET …/:id` asks; an
-    // agent more than one project serves at its newest version the caller
-    // can see (`item-rights.ts`).
+    // Only what the caller may read, as `GET …/:id` asks, or
+    // run: `run` on an agent's project (a definition, no runs in it; `GET
+    // …/:id` names its owner, so it asks `read` alone). An agent more than
+    // one project serves at its newest version the caller can see
+    // (`item-rights.ts`).
+    const projectOf = (a: AgentVersionRecord) => a.projectId as unknown as string | undefined;
     const visible =
       authorizer === undefined
         ? page.data
         : itemRights === undefined
-          ? await authorizer.filterByCan(c, 'read', page.data, (a) =>
-              ref('agent', a.id as unknown as string),
+          ? await readableOrRun(
+              authorizer,
+              c,
+              page.data,
+              (a) => ref('agent', a.id as unknown as string),
+              projectOf,
             )
           : await itemRights.filterItems(c, 'agent', page.data, {
               idOf: (a) => a.id as unknown as string,
@@ -304,6 +326,7 @@ export function agentsRouter(
                   }),
               },
               retired: (a) => a.unregisteredAt !== undefined,
+              alsoRun: { projectOf },
             });
     return c.json({
       data: visible.map(serializeAgent),
@@ -363,6 +386,7 @@ export function agentsRouter(
         projectOf: (a) => a.projectId as unknown as string | undefined,
         getVersion: (version) =>
           binding.getVersion({ tenantId, agentId, version: version as Semver }),
+        alsoRun: true,
       },
     );
     if (shown.kind === 'bad-input') {
@@ -383,17 +407,28 @@ export function agentsRouter(
       );
     }
     // The owner is the agent's, not a version's: it's read off the head
-    // record, whichever version is shown.
-    return c.json({ ...serializeAgent(shown.row), ...(await ownerField(tenantId, highest)) });
+    // record, whichever version is shown. Named only to a caller who reads
+    // the agent: one who may only run it gets the id alone.
+    const named = authorizer === undefined || wasReadItself(c);
+    return c.json({
+      ...serializeAgent(shown.row),
+      ...(await ownerField(tenantId, highest, named)),
+    });
   });
 
-  /** `owner: { userId, name? }`, the name when the directory has one for the person. */
+  /**
+   * `owner: { userId, name? }`, the name when the directory has one for the
+   * person and `named`.
+   */
   async function ownerField(
     tenantId: TenantId,
     a: AgentVersionRecord,
+    named: boolean,
   ): Promise<{ owner?: { userId: string; name?: string } }> {
     if (a.owner === undefined) return {};
-    const user = await identityDirectory?.getUser({ tenantId, userId: a.owner.userId });
+    const user = named
+      ? await identityDirectory?.getUser({ tenantId, userId: a.owner.userId })
+      : undefined;
     const name = user?.displayName;
     return {
       owner: {
@@ -570,6 +605,7 @@ export function agentsRouter(
             projects,
             page.data,
             (a) => a.version as unknown as string,
+            true,
           );
     return c.json({
       data: data.map(serializeAgent),
