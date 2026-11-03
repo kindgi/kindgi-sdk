@@ -12437,7 +12437,7 @@ class CreateConnectRequestBody(BaseModel):
     """
     reconnects: UUID | None = None
     """
-    The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. Absent: a person's connect, like the company's, asks only for the permissions it lists; at the finish it lands on the owner's connection of the account signed in to, when there is one (when it's connected, `reconnected` is true; a grant short of what that connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked), else makes a new one.
+    The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. It asks for the permissions it lists and those the connection holds. A grant short of what the connection holds leaves it as it was, and the connect is declined with `missing`. Absent: a person's connect, like the company's, asks only for the permissions it lists; at the finish it lands on the owner's connection of the account signed in to, when there is one (when it's connected, `reconnected` is true; a grant short of what that connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked), else makes a new one.
     """
 
 
@@ -18670,6 +18670,10 @@ class ConnectionChoiceNeed(BaseModel):
     as_: Annotated[Annotated[Literal["company", "person"] | str, _open.OPEN], Field(alias="as")]
     """
     Whose connection: the company's, or the run's person's.
+    """
+    permissions: list[str] | None = None
+    """
+    The entry's permission keys the need asks for, from the tool's `needsSpec`: `gmail.send`. A connection that lacks one can't serve it until it's connected again for more, with `reconnects`.
     """
     set: ConnectionChoiceNeedSet
 

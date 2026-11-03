@@ -1777,6 +1777,7 @@ function serializeNeeds(needs: ConnectionChoiceNeeds): Record<string, unknown> {
       need: n.need,
       app: n.app,
       as: n.as,
+      ...(n.permissions !== undefined && { permissions: [...n.permissions] }),
       set: n.set.allowed ? { allowed: true } : { allowed: false, reason: n.set.reason },
     })),
     ...(needs.unread !== undefined && { unread: [...needs.unread] }),
