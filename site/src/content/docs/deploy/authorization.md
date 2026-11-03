@@ -288,7 +288,7 @@ checks every call.
   - the Inbox and Approvals, to reviewers;
   - Teams, to tenant admins and anyone in a team.
 
-![A project's Agents page as Gus Moreno, a viewer of Support: under the header, "You can view this project; changes need an editor."; the agents list (Support agent, acme.support, version 1.0.0) with no buttons.](../../../assets/access/viewer-project.png)
+![A project's Agents page as Gus Moreno, a viewer of Support: under the header, "You can view this project; changes need an editor."; the agents list (Support agent, version 1.0.0) with no buttons.](../../../assets/access/viewer-project.png)
 
 **My access**, in the workspace's sections, is what you may do and how you
 have it. It starts with a sentence, such as "You're an editor in 1
@@ -299,7 +299,7 @@ lets you do and doesn't. You can have a role directly, through a team, as an
 admin of the org, or as a tenant admin. **The detail** holds your ids and
 what each role allows on each kind of object.
 
-![My access as Eda Brooks: "You're an editor in 1 project." and "Tenant: member. Its people, keys and settings are its admins'."; a table with Support, Editor, directly, and what it lets her do: "run agents and flows, work on agent versions, publish prompts and settings, correct runs, sort corrections, add and retire test cases; not pin versions, register agents and tools, rescore test runs, set corrector groups, remove others' corrections"; and The detail, closed.](../../../assets/access/my-access.png)
+![My access as Eda Brooks: "You're an editor in 1 project." and "Workspace: member. Its people, keys and settings are its admins'."; a table with Support, Editor, directly, and what it lets them do: "run agents and flows, work on agent versions, publish prompts and settings, correct runs, sort corrections, add and retire test cases; not pin versions, register agents and tools, rescore test runs, set corrector groups, remove others' corrections"; and The detail, closed.](../../../assets/access/my-access.png)
 
 ## Project memberships
 
@@ -369,16 +369,15 @@ team**: "A group of people, run by its admins: they decide who is in it.
 You add the first people on its page." It takes a name, a slug ("Lowercase
 letters, digits and hyphens; unique in the workspace.") and what the team is.
 
-![The Teams page as a tenant admin: "1 team.", Support crew (support-crew, "First-line support"), a New team button, and under the list "The console doesn't give a team a role on a project yet: the API does (team grants)."](../../../assets/teams/teams.png)
+![The Teams page as a tenant admin: Search and Columns, Support crew (support-crew, "First-line support"), a New team button, and under the list "The console doesn't give a team a role on a project yet: the API does (team grants)."](../../../assets/teams/teams.png)
 
-A team's page, for its admins and tenant admins, says how many are in it
-and how many run it, such as "4 people, 2 run it.", and lists them with
-their role and since when. There they rename it, and the slug stays. They
+A team's page, for its admins and tenant admins, lists the people in it
+with their role and since when. There they rename it, and the slug stays. They
 change someone's role, take someone out, which asks first, and add someone
 from the workspace's people. Finding a person reads the workspace's people, so
 adding someone takes a tenant admin.
 
-![Support crew's page as a tenant admin: "4 people, 2 run it." and "The console doesn't give a team a role on a project yet: the API does (team grants)."; Add someone to Support crew (a person, a role, Add); and the list: the seed user and Ana Ruiz (admins), Ben Okafor and Ada Lovelace (members), each with a role to change and Take out; a Rename button.](../../../assets/teams/team.png)
+![Support crew's page as a tenant admin: "The console doesn't give a team a role on a project yet: the API does (team grants)."; Add someone to Support crew (a person, a role, Add); and the list: the seed user and Ana Ruiz (admins), Ben Okafor and Ada Lovelace (members), each with a role to change and a Take out icon; a Rename button.](../../../assets/teams/team.png)
 
 Anyone else in the team sees it, but not who else is in it: "You're in it.
 Who is in Support crew is shown to its admins."
@@ -496,15 +495,12 @@ like other lists. In the TypeScript and Python clients, it's
 ### In the console: Members
 
 A project's **Members** page shows everyone with access, and how, to the
-project's editors and admins. It starts with a count, each one counted once
-by the way their role comes from, such as "6 people and 1 service account have access
-to Support: 4 through a role of their own, 2 through a team, 1 as a tenant
-admin." Then each one, with their role and every way in: "Their own role
-(editor)", "Team Support crew (editor)", "Admin of Acme", "Tenant admin". A
-way the console can't name reads "Another way in". Emails show to the
-project's admins.
+project's editors and admins: each one, with their role and every way in:
+"Their own role (editor)", "Team Support crew (editor)", "Admin of Acme",
+"Tenant admin". A way the console can't name reads "Another way in". Emails
+show to the project's admins.
 
-![Support's Members page as a tenant admin: "6 people and 1 service account have access to Support: 4 through a role of their own, 2 through a team, 1 as a tenant admin."; an Add someone to Support form (an email, a role, Add); and the list: the seed user (owner; their own role, tenant admin, Team Support crew), Ana Ruiz (her own role editor, "admin through another way in"; tenant admin, Team Support crew), acme-ci (service account, editor), Ada Lovelace (her own role viewer, "editor through another way in"; Team Support crew (editor)), Ben Okafor (editor through Team Support crew), Eda Brooks (editor) and Gus Moreno (viewer), with Take away beside each role of someone's own.](../../../assets/access/members.png)
+![Support's Members page as a tenant admin: an Add someone to Support form (their email in this workspace, a role, Add); Search members and Columns; and the list: the seed user (owner; their own role, tenant admin, Team Support crew), Ana Ruiz (their own role editor, "admin through another way in"; tenant admin, Team Support crew), acme-ci (service account, editor), Ada Lovelace (their own role viewer, "editor through another way in"; Team Support crew (editor)), Ben Okafor (editor through Team Support crew), Eda Brooks (editor) and Gus Moreno (viewer), with a Take away icon beside each role of someone's own.](../../../assets/access/members.png)
 
 A project admin changes who works there:
 
