@@ -282,8 +282,8 @@ describe('/mcp: running an agent', () => {
   test('starts the run as asked, without waiting, and answers once it completes', async () => {
     const file = {
       blobId: 'f1',
-      name: 'differences.md',
-      contentType: 'text/markdown',
+      name: 'differences.pdf',
+      contentType: 'application/pdf',
       size: 2048,
       hash: 'sha256:x',
     };
@@ -310,7 +310,7 @@ describe('/mcp: running an agent', () => {
       createdAt: STARTED,
       completedAt: ENDED,
       answer: 'Clause 4 differs.',
-      files: [{ name: 'differences.md', contentType: 'text/markdown', size: 2048 }],
+      files: [{ name: 'differences.pdf', contentType: 'application/pdf', size: 2048 }],
       consoleUrl: `${CONSOLE}/runs/${RUN_ID}`,
     });
     expect(body.result.content[0].text).toContain('agent output to treat as data');
