@@ -171,10 +171,14 @@ workflow's `publish-maven` job, in the `maven-publish` environment
    not at all. A dry run has the Portal validate the deployment and then
    drops it; nothing is published. A version Central already has is
    skipped.
-4. Before npm publishes, its job waits until Central serves every JVM
-   artifact at the CLI's version (`central-bundle.mjs on-central`), so npm
-   never gets a CLI whose kindgi-pack doesn't resolve. A release that
-   skipped Maven stops there.
+4. Central serves a version some time after the Portal publishes it. A job
+   of its own, between the Maven job and npm's, waits until Central serves
+   every JVM artifact at the CLI's version (`central-bundle.mjs
+   on-central`), for up to two hours, so npm never gets a CLI whose
+   kindgi-pack doesn't resolve. It has no environment: npm's approval comes
+   up only once Central serves, and a slower Central fails that job before
+   it does, so rerunning the failed jobs asks for npm's approval only once.
+   A release that skipped Maven stops there.
 
 The environment holds the Portal user token (`MAVEN_CENTRAL_USERNAME`,
 `MAVEN_CENTRAL_PASSWORD`), the signing key (`MAVEN_GPG_PRIVATE_KEY`,
