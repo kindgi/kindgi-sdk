@@ -25,8 +25,8 @@ other people's work.
 1. In claude.ai, open **Settings → Connectors** and choose **Add custom
    connector**.
 2. Name it, for example Kindgi, enter the chat address, and save.
-3. Choose **Connect**. A tab opens Kindgi's sign-in. Sign in as you do for
-   the console.
+3. Choose **Connect**. A tab opens Kindgi. If you aren't signed in there,
+   sign in as you do for the console.
 4. Read the consent page, then choose **Allow**:
    - Its title, **A chat app wants to use Kindgi as** …, names you and your
      workspace.
@@ -39,7 +39,7 @@ other people's work.
      - **Run the agents you're allowed to run, and stop runs you started**
      - **Create, pause and remove your own schedules**
 
-   The page lasts five minutes. If it says the request expired, start again
+   The request lasts five minutes. If the page says it expired, start again
    from claude.ai.
 5. The tab goes back to claude.ai, and the connector shows as connected.
 
@@ -62,6 +62,8 @@ and add it again, claude.ai asks again.
   follows the run to its end and shows its steps, waits and answer as they
   come, so you can keep chatting meanwhile. When it ends, **Put the result in
   the chat** sends the result to the conversation.
+
+  <!-- To confirm: the run view's button name, word for word, once the view is in a build. -->
 - **Stop a run** you started.
 - **Schedules:** create your own ("every Monday at 9 in Berlin"), pause,
   resume and remove them, or start one now. Claude asks for your time zone
@@ -89,4 +91,4 @@ Anything these agents return may appear in your Claude chat.
 In the console, open **My access**. Under **Chat apps**, choose
 **Disconnect** next to Claude.
 
-<!-- To confirm: how the Chat apps list names Claude, what Disconnect ends at once, and whether removing the connector in claude.ai ends Kindgi's grant. -->
+<!-- To confirm: how the Chat apps list names Claude, and what Disconnect ends at once. Kindgi doesn't offer chat apps a revoke endpoint, so removing the connector in claude.ai likely leaves the grant in place; once confirmed, say so here and point to Disconnect. -->

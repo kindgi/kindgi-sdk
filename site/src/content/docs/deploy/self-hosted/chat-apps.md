@@ -20,7 +20,9 @@ person's side. This needs runtime 0.6.0 or later.
   with no public address can't be added to claude.ai.
 - **Sign-in for people.** Connecting signs the person in to Kindgi in their
   browser, with your single sign-on or the email link
-  ([Turn on sign-in](../sign-in/)).
+  ([Turn on sign-in](../sign-in/)). A site's people
+  ([WordPress sites](../../../sites/wordpress/)) can't connect: the consent
+  page tells them their access is managed by the site.
 - **The runtime's settings:** `kindgi.env` for
   [Self-host Kindgi](../self-host/), or the module's `server_env` on
   [Cloud Run](../cloud-run/).
@@ -37,7 +39,7 @@ KINDGI_MCP_SERVER=on
 KINDGI_PUBLIC_URL=https://kindgi.example.com
 ```
 
-<!-- To confirm: KINDGI_MCP_SERVER's final name and values, then a link to its entry in the environment variables reference; and which setting the console links in chat answers are built from. -->
+<!-- To confirm: KINDGI_MCP_SERVER's final name and values, then a link to its entry in the environment variables reference; which setting the console links in chat answers are built from; and the start output line below, word for word. -->
 
 Restart the runtime. Its start output says the endpoint is on:
 
@@ -80,7 +82,9 @@ files. A tenant admin changes it.
 
 Set `KINDGI_TRUSTED_PROXIES`, as
 [Behind a load balancer or ingress](../self-host/#behind-a-load-balancer-or-ingress)
-explains. It matters more with chat apps. Unset, every request counts as
+explains. On Cloud Run behind an external Application Load Balancer, that's
+the module's `trusted_proxies = "2"` ([Operate it](../cloud-run/#operate-it)).
+It matters more with chat apps. Unset, every request counts as
 coming from your proxy, so people's browsers and Claude's servers all share
 one count for each limit the runtime keeps per address:
 
@@ -104,7 +108,7 @@ Claude's servers call these paths, from `160.79.104.0/21`:
 
 - `/mcp`
 - `/.well-known/oauth-*`
-- `/auth/oauth2/token`, `/auth/oauth2/register` and `/auth/oauth2/revoke`
+- `/auth/oauth2/token` and `/auth/oauth2/register`
 - `/auth/jwks`
 
 Open only these to that range. People's browsers reach the rest of `/auth/`
@@ -115,7 +119,7 @@ Anthropic can change the range. Check
 [Anthropic's page](https://claude.com/docs/connectors/building/authentication.md)
 for the current one.
 
-<!-- To confirm: the paths. /.well-known/oauth-* doesn't cover /.well-known/openid-configuration, and /auth/oauth2/introspect stays closed. -->
+<!-- To confirm: the paths. /.well-known/oauth-* doesn't cover /.well-known/openid-configuration; /auth/oauth2/introspect and /auth/oauth2/revoke stay closed. -->
 
 **With nginx** in front, one `location` per path, each admitting only
 Claude's range:
@@ -131,7 +135,7 @@ location ^~ /.well-known/oauth- {
     deny all;
     proxy_pass http://kindgi;
 }
-location ~ ^/auth/oauth2/(token|register|revoke)$ {
+location ~ ^/auth/oauth2/(token|register)$ {
     allow 160.79.104.0/21;
     deny all;
     proxy_pass http://kindgi;
@@ -165,8 +169,17 @@ first:
 gcloud compute security-policies rules create 900 \
   --security-policy=kindgi-front \
   --action=allow \
-  --expression="inIpRange(origin.ip, '160.79.104.0/21') && (request.path == '/mcp' || request.path.startsWith('/.well-known/oauth-') || request.path.matches('^/auth/oauth2/(token|register|revoke)$') || request.path == '/auth/jwks')"
+  --expression="inIpRange(origin.ip, '160.79.104.0/21') && (request.path.startsWith('/.well-known/oauth-') || request.path.matches('^/(mcp|auth/jwks|auth/oauth2/(token|register))$'))"
 ```
 
-`kindgi-front` is your policy's name. Leave the default rule denying
+`kindgi-front` is your policy's name. Keep the rules that admit your own
+people to the console and `/auth/`, and leave the default rule denying
 everything else.
+
+Cloud Armor sees only requests that come through your load balancer. A
+Cloud Run service also answers at its own `run.app` address, so limit the
+runtime's ingress to internal and Cloud Load Balancing
+([Cloud Run: Restrict network endpoint ingress](https://docs.cloud.google.com/run/docs/securing/ingress)),
+or these paths stay open to everyone there.
+
+<!-- To confirm: the Cloud Run module sets the server's ingress to all and has no setting for it, so a change made outside the module goes back on its next apply. Name the module's setting here once it has one. -->
