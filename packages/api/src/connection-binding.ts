@@ -472,8 +472,8 @@ export type ConnectFinishOutcome =
       readonly connection: ConnectionRecord;
       /**
        * It landed on a connection that was already there: the one
-       * `reconnects` named, or the company's of the same account. That
-       * connection keeps its name.
+       * `reconnects` named, or the owner's of the same account, the
+       * company's or the person's. That connection keeps its name.
        */
       readonly reconnected?: boolean;
       /**

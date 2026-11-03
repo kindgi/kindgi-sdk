@@ -1009,6 +1009,40 @@ describe("a tool's set of connections", () => {
     expect(sales).not.toHaveProperty('lastUsedAt');
   });
 
+  test("a call with no agent or flow has no set: one that names a connection is connection-missing, even its need's only one", async () => {
+    const made = setup();
+    const only = made.seed.connection({
+      tenantId,
+      envName,
+      app: 'google',
+      owner: { kind: 'company' },
+      account: { id: 'support@acme.example', label: 'support@acme.example' },
+      label: 'support',
+      permissions: ['gmail.readonly'],
+    }).connectionId;
+    made.retool([tool({ inbox: read })]);
+    const alone = (accounts?: Record<string, string>) =>
+      made.resolve(
+        { inbox: read },
+        { person: null, renew: ['inbox'], ...(accounts !== undefined && { accounts }) },
+      );
+    // Naming none, the call reads the only one.
+    expect(picked(await alone())).toEqual({
+      inbox: { connectionId: only, by: 'only', as: 'company' },
+    });
+    const seen = made.calls.length;
+    expect(seen).toBeGreaterThan(0);
+    expect(await alone({ inbox: only })).toEqual({
+      kind: 'refused',
+      code: 'connection-missing',
+      name: 'inbox',
+      app: 'google',
+      missing: ['gmail.readonly'],
+      message: `"inbox" needs a Google connection, and there's none`,
+    });
+    expect(made.calls).toHaveLength(seen);
+  });
+
   test('a call that names nothing reads the default, whatever version its tool resolves to now', async () => {
     const made = sets();
     const choice = await made.choose(made.sales, {

@@ -18775,7 +18775,7 @@ class ConnectFinish(BaseModel):
     """
     reconnected: bool | None = None
     """
-    Present when `kind` is `connected`. `true`: the finish landed on a connection that was already there, the one `reconnects` named or the company's connection of the same account, and that connection keeps its name. `false`: it made a new one.
+    Present when `kind` is `connected`. `true`: the finish landed on a connection that was already there, the one `reconnects` named or the owner's connection of the same account, the company's or the person's, and that connection keeps its name. `false`: it made a new one.
     """
     label_taken: Annotated[str | None, Field(alias="labelTaken")] = None
     """

@@ -2141,7 +2141,11 @@ describe('connection choices', () => {
    * `triage`; project B the agent `triage` only. The agent has `TOOLS`;
    * the flow, `flowTools`.
    */
-  function choosing(inProject = true, flowTools: readonly TargetTool[] = [tool('acme.inbox')]) {
+  function choosing(
+    inProject = true,
+    flowTools: readonly TargetTool[] = [tool('acme.inbox')],
+    agentTools: readonly TargetTool[] = TOOLS,
+  ) {
     let at = START;
     const made = createInMemoryConnections({
       entries: [google, github],
@@ -2152,7 +2156,7 @@ describe('connection choices', () => {
           id === 'triage' && (projectId === projA || kind === 'agent'),
       }),
       toolsOf: ({ kind }) =>
-        kind === 'agent' ? { tools: TOOLS } : { tools: flowTools, unread: ['acme.gone'] },
+        kind === 'agent' ? { tools: agentTools } : { tools: flowTools, unread: ['acme.gone'] },
     });
     const [googleA, googleB] = [projA, projB].map(
       (project) =>
@@ -2650,6 +2654,14 @@ describe('connection choices', () => {
       ),
     );
     expect(await listed(own, { owners: { company: true, person: 'every' } })).toEqual([]);
+    // The agent's own: its one tool here, acme.inbox, needs Google as the company's.
+    const agent = choosing(true, undefined, [tool('acme.inbox')]);
+    expect(await set(agent, agent.c.ana, { person: ana })).toEqual(
+      refused(
+        "The agent uses Google only as the company's connection: a project admin chooses it for the project, not each person.",
+      ),
+    );
+    expect(await listed(agent, { owners: { company: true, person: 'every' } })).toEqual([]);
   });
 
   test("a target whose tools need the app both ways keeps the company's own choice and a person's", async () => {

@@ -2432,12 +2432,13 @@ export function createInMemoryConnections(
   ): Picked | 'outside' | undefined {
     const bound = mailboxOf(need, input.mailbox);
     if (bound !== undefined) return { by: 'mailbox', connectionId: bound };
-    if (input.target === undefined) return undefined;
+    const named = input.accounts?.[name];
+    // A call with no agent or flow has no set: a name is outside it.
+    if (input.target === undefined) return named === undefined ? undefined : 'outside';
     const target = choiceTarget(input.target);
     const aim = { toolId: input.toolId, need: name };
     const toolChoice = liveChoice(input, target, owner, need.app, aim);
-    const named = input.accounts?.[name];
-    if (named !== undefined) return sets ? namedMemberPick(toolChoice, named) : 'outside';
+    if (named !== undefined) return namedMemberPick(toolChoice, named, sets);
     const chosen = toolChoice ?? liveChoice(input, target, owner, need.app, undefined);
     if (chosen === undefined) return undefined;
     return {
@@ -2448,13 +2449,17 @@ export function createInMemoryConnections(
     };
   }
 
-  /** The member of the tool's live set the call names: `outside` without a set, or not in it. */
+  /**
+   * The member of the tool's live set the call names: `outside` for a tool
+   * that may not take a set (`sets`), without a set, or not in it.
+   */
   function namedMemberPick(
     toolChoice: ConnectionChoiceRecord | undefined,
     named: string,
+    sets: boolean,
   ): Picked | 'outside' {
     const members = toolChoice?.connectionIds ?? [];
-    if (toolChoice === undefined || !members.includes(named)) return 'outside';
+    if (!sets || toolChoice === undefined || !members.includes(named)) return 'outside';
     const { choiceId } = toolChoice;
     return { by: 'named', connectionId: named, choiceId, setSize: members.length };
   }
