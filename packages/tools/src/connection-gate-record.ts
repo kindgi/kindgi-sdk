@@ -31,10 +31,20 @@ export interface RecordedConnection {
  * (`CONNECTION_GATE_RECORD_PREFIX`): the resolver's answer, never a
  * connection's token. Any project reader reads it. An agent's call and a
  * flow's tool step record the same shape; a flow's step never records
- * `wait`.
+ * `wait` or `ran`.
  */
 export type ConnectionGateRecord =
-  | { readonly kind: 'ready'; readonly connections: Readonly<Record<string, RecordedConnection>> }
+  | {
+      readonly kind: 'ready';
+      readonly connections: Readonly<Record<string, RecordedConnection>>;
+      /**
+       * Set by a gate that also records when the call's tool gets these
+       * connections (`kind: 'ran'`): a call with no such record didn't
+       * run. Absent from older records, and from a flow's tool step, whose
+       * ready record is written right before its tool runs.
+       */
+      readonly recordsRan?: true;
+    }
   | { readonly kind: 'wait'; readonly requests: readonly WaitingForConnection[] }
   | {
       readonly kind: 'refused';
@@ -49,19 +59,25 @@ export type ConnectionGateRecord =
       /** With the company's `connection-not-chosen`: its connections, by id and name only. */
       readonly choices?: readonly ConnectionChoiceOption[];
       readonly message: string;
-    };
+    }
+  /**
+   * The call's tool got the connections its gate decided on, and ran on
+   * them: written once per attempt of its step, right before its first
+   * run. A renewed run after the app refused a token writes no other.
+   */
+  | { readonly kind: 'ran' };
 
 /**
  * The resolver's answer as the record keeps it: what it names, never a
  * connection's token. Any project reader reads a run's record, so a
  * person's connection is named by its app and account id, never by their
  * name or address for it. A refusal says whose need it was, from `needs`,
- * unless its `name` isn't one of them.
+ * unless its `name` isn't one of them. A resolver's answer is never `ran`.
  */
 export function connectionGateRecordOf(
   outcome: ResolveConnectionsOutcome,
   needs: Readonly<Record<string, ConnectionNeed>>,
-): ConnectionGateRecord {
+): Exclude<ConnectionGateRecord, { readonly kind: 'ran' }> {
   if (outcome.kind === 'refused') {
     const need = needs[outcome.name];
     return {
