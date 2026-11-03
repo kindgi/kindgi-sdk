@@ -2313,6 +2313,26 @@ describe('several connections of an app', () => {
     expect(validateAgainst('ApprovalConnection', other)).not.toEqual([]);
   });
 
+  test("an approval's connection can give the connection's id, a person's or the company's", () => {
+    const connectionId = '6f1c2b8e-4d3a-4f5e-9a7b-0c1d2e3f4a5b';
+    const shapes = [
+      { app: 'google', appName: 'Google', as: 'person', connectionId },
+      {
+        app: 'google',
+        appName: 'Google',
+        as: 'company',
+        account: 'support@acme.example',
+        name: 'Support',
+        connectionId,
+      },
+    ];
+    for (const shape of shapes) {
+      expect(validateAgainst('ApprovalConnection', shape), shape.as).toEqual([]);
+    }
+    const notAnId = { app: 'google', appName: 'Google', as: 'person', connectionId: 7 };
+    expect(validateAgainst('ApprovalConnection', notAnId)).not.toEqual([]);
+  });
+
   test("a connection's choices: its owner's and a tenant admin's to read; anyone else gets the same 404", async () => {
     const { app, calls, work, school } = severalApp();
     const set = await call(app, 'ben', 'PUT', choices, {

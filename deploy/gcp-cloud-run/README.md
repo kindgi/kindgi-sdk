@@ -425,9 +425,30 @@ server_secret_env = {
 - **An earlier runtime** ignores `KINDGI_TENANCY`. With no tenant id it would seed a new tenant at every start, so upgrade the runtime first.
 - **`"single"`** sets no `KINDGI_TENANCY`. Its deployments get pack services of their own too.
 
+## Behind your own load balancer (`server_ingress`)
+
+By default the server's `run.app` URL takes every caller (the API still requires its bearer token). To serve it from your own domain behind an external Application Load Balancer, with a Cloud Armor policy in front of every path:
+
+```hcl
+server_ingress  = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
+public_url      = "https://kindgi.example.com" # the load balancer's address
+trusted_proxies = "2"
+```
+
+The `run.app` URL then takes only the load balancer's calls and internal ones, so no caller goes around the policy ([Google: Cloud Run ingress](https://docs.cloud.google.com/run/docs/securing/ingress)).
+
+- **Set it here, not with `gcloud run services update --ingress`:** the next apply puts back what the module says.
+- **What the plan needs, and names when it's missing:** `network_mode = "direct"` and `public_url`.
+- **The pack orchestrator** keeps calling the server at its `run.app` URL, through the module's VPC: its Job gets Direct VPC egress with all traffic, on the subnet with Private Google Access, the way the server reaches the internal pack services. The module makes all of it.
+- **Your own calls go through the load balancer:** `server_url` is `public_url` (and so are the commands `upgrade.sh` prints), and so is the key step in `orchestrator_key_steps` ("5. The pack orchestrator"). A Cloud Armor rule that refuses `/v1/system/` refuses minting the orchestrator's key too.
+- **The load balancer is yours,** made outside the module: a serverless network endpoint group for `$N-server` in `region`, a backend service with your Cloud Armor policy, a certificate for `public_url`'s host, and an HTTPS forwarding rule ([Google: an external Application Load Balancer for Cloud Run](https://docs.cloud.google.com/load-balancing/docs/https/setup-global-ext-https-serverless)).
+- **Client addresses:** the load balancer appends the client and then its own address to `X-Forwarded-For`, so `trusted_proxies = "2"` ("Operating it").
+- **On a running deployment** it's one apply. Sign-in with an identity provider sends people back to `public_url`: if it named the `run.app` URL before, register the new callback with each provider first ("7. Turn on sign-in").
+- **The other locks stay:** the bearer token, and Cloud Run IAM unless `server_public` or `server_invoker_iam_disabled`.
+
 ## Testing the module
 
-`terraform init -backend=false && terraform test` runs the tests in `tests/` with a mock Google provider. No credentials are used and no cloud calls are made. `tests/module.tftest.hcl` plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"` with the endpoint tokens' key, the AAD key's pin, an existing repository in the same project and in another, the pack's invoker grants, the client-address setting, the server's own settings (sign-in), the tenancy: `single` and `multi` with each setting it needs, and what each refuses; the routing per deployment and the pack orchestrator: its Job only once its key is set, its schedule, its rights and the pack account's, the key steps, and what the pack settings refuse; `database_instance`: the server's volume, URL secret and grants on another instance, the module's own instance and grant kept, and each refusal; and the database's backups: Cloud SQL's defaults, each setting, and what each refuses. `tests/store-on-later.tftest.hcl` applies, in order, a deployment without a secrets store and the steps that turn one on later: the full plan refused until `secrets_aad_key_version` is set, the targeted apply of what the store stands on, and then the full apply, with the server's new settings.
+`terraform init -backend=false && terraform test` runs the tests in `tests/` with a mock Google provider. No credentials are used and no cloud calls are made. `tests/module.tftest.hcl` plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"` with the endpoint tokens' key, the AAD key's pin, an existing repository in the same project and in another, the pack's invoker grants, the client-address setting, the server's ingress behind a load balancer (what it needs, the Job's VPC egress, and the URLs it names), the server's own settings (sign-in), the tenancy: `single` and `multi` with each setting it needs, and what each refuses; the routing per deployment and the pack orchestrator: its Job only once its key is set, its schedule, its rights and the pack account's, the key steps, and what the pack settings refuse; `database_instance`: the server's volume, URL secret and grants on another instance, the module's own instance and grant kept, and each refusal; and the database's backups: Cloud SQL's defaults, each setting, and what each refuses. `tests/store-on-later.tftest.hcl` applies, in order, a deployment without a secrets store and the steps that turn one on later: the full plan refused until `secrets_aad_key_version` is set, the targeted apply of what the store stands on, and then the full apply, with the server's new settings.
 
 ## Upgrading
 
