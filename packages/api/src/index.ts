@@ -15,6 +15,7 @@ export {
   SESSION_TOKEN_PREFIX,
   bearerAuthMiddleware,
   encodeSessionToken,
+  tokenSignInKey,
   MULTI_TENANT_LOOKUP,
 } from './middleware/auth.js';
 export type {

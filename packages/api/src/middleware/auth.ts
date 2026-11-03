@@ -326,13 +326,19 @@ const DEFAULT_TOUCH_THROTTLE_MS = 60_000;
  * route of its own that must admit a caller exactly as `/v1` does, such
  * as a page that acts for the signed-in person, so that route's checks
  * (expired, revoked, inactive, a revoked key's session, the cookie's
- * origin rule) are this code rather than a copy. Pass it the options
- * `createApp` was given for the same deployment (`sessionStore`,
- * `personCapabilities`, `tokenAdmin` as `apiKeys`, the session config's
- * inactivity timeout, touch throttle and cookie), and mount it on the app
- * `createApp` returns, after the request id it sets on every request.
- * It admits an API key too, so a route that admits only a session checks
- * `c.get('sessionId')` after it.
+ * origin rule) are this code rather than a copy. Pass it the same
+ * `resolveToken` and the options `createApp` was given for the same
+ * deployment (`sessionStore`, `personCapabilities`, `tokenAdmin` as
+ * `apiKeys`, the session config's inactivity timeout, touch throttle and
+ * cookie), and mount it on the app `createApp` returns, after the request
+ * id it sets on every request. Leave out `publicRunTokens` unless the
+ * route serves a public run: without it, a `kgi_pt_` token is a 401.
+ *
+ * It admits an API key too, and a session that token sign-in opened with
+ * one. A route that admits only a session a person signed in to checks
+ * `c.get('sessionId')` after it, and refuses one for which
+ * `tokenSignInKey(c.get('providerId'))` names a key: such a session lasts
+ * only while its key does, so what the route grants must not outlive it.
  */
 export function bearerAuthMiddleware(
   resolve: TokenResolver,
