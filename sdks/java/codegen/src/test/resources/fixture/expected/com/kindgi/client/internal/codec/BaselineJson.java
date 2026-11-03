@@ -5,7 +5,8 @@
 package com.kindgi.client.internal.codec;
 
 import com.fasterxml.jackson.annotation.JsonAnyGetter;
-import com.fasterxml.jackson.annotation.JsonAnySetter;
+import com.fasterxml.jackson.annotation.JsonAutoDetect;
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonValue;
 import com.kindgi.client.models.Baseline;
@@ -71,8 +72,17 @@ final class BaselineJson {
     @JsonDeserialize(
             using = ValueDeserializer.None.class
     )
+    @JsonAutoDetect(
+            fieldVisibility = JsonAutoDetect.Visibility.NONE,
+            getterVisibility = JsonAutoDetect.Visibility.NONE,
+            isGetterVisibility = JsonAutoDetect.Visibility.NONE
+    )
     abstract static class BaselineUnrecognizedMixIn {
-        BaselineUnrecognizedMixIn(@JsonAnySetter Map<String, Object> properties) {
+        @JsonCreator(
+                mode = JsonCreator.Mode.DELEGATING
+        )
+        static Baseline.Unrecognized read(Map<String, Object> properties) {
+            return null;
         }
 
         @JsonAnyGetter
