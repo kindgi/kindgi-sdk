@@ -241,6 +241,7 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         updatedAt: now,
         ...(spec.orgId !== undefined ? { orgId: spec.orgId } : {}),
         ...(spec.description !== undefined ? { description: spec.description } : {}),
+        ...(spec.everyoneCanRun === true && { everyoneCanRun: true }),
       };
       projectRows.set(id, row);
       return { kind: 'ok', projectId: id };
@@ -323,6 +324,7 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
       }
       const nextDescription = patch.description ?? row.description;
       const sortsEndUsers = patch.sortEndUserCorrections ?? row.sortEndUserCorrections === true;
+      const everyoneRuns = patch.everyoneCanRun ?? row.everyoneCanRun === true;
       const next: Project = {
         id: row.id,
         tenantId: row.tenantId,
@@ -335,6 +337,7 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         ...(nextDescription !== undefined ? { description: nextDescription } : {}),
         ...(row.productionSince !== undefined ? { productionSince: row.productionSince } : {}),
         ...(sortsEndUsers && { sortEndUserCorrections: true }),
+        ...(everyoneRuns && { everyoneCanRun: true }),
         ...(row.repoConnectionId !== undefined ? { repoConnectionId: row.repoConnectionId } : {}),
       };
       projectRows.set(projectId, next);

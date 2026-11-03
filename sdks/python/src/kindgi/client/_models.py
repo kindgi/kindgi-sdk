@@ -2526,7 +2526,7 @@ class MustNotCallItem(RootModel[str]):
 
 class CreateCorrectionBody(BaseModel):
     """
-    At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`.
+    At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`. A text of only spaces counts as not given.
     """
 
     model_config = ConfigDict(
@@ -2578,7 +2578,7 @@ class RemoveCorrectionResult(BaseModel):
 
 class AddTestCaseBody(BaseModel):
     """
-    A correction's body on one of the agent's runs. At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`.
+    A correction's body on one of the agent's runs. At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`. A text of only spaces counts as not given.
     """
 
     model_config = ConfigDict(
@@ -9023,9 +9023,9 @@ class AccessPathDirect(BaseModel):
         populate_by_name=True,
     )
     kind: Literal["direct"]
-    role: Annotated[Literal["owner", "admin", "editor", "viewer"] | str, _open.OPEN]
+    role: Annotated[Literal["owner", "admin", "editor", "runner", "viewer"] | str, _open.OPEN]
     """
-    A project role, as the authorization model holds it: `owner` > `admin` > `editor` > `viewer` (a membership stored as `member` is `viewer`).
+    A project role, as the authorization model holds it: `owner` > `admin` > `editor` > `runner` > `viewer` (a membership stored as `member` is `viewer`).
     """
     since: AwareDatetime | None = None
     """
@@ -9041,7 +9041,7 @@ class AccessPathTeam(BaseModel):
     kind: Literal["team"]
     team_id: Annotated[str, Field(alias="teamId")]
     team_name: Annotated[str, Field(alias="teamName")]
-    role: Annotated[Literal["owner", "admin", "editor", "viewer"] | str, _open.OPEN]
+    role: Annotated[Literal["owner", "admin", "editor", "runner", "viewer"] | str, _open.OPEN]
     """
     The role the team holds on the project.
     """
@@ -9075,6 +9075,31 @@ class AccessPathTenantAdmin(BaseModel):
         populate_by_name=True,
     )
     kind: Literal["tenant-admin"]
+
+
+class AccessPathEveryone(BaseModel):
+    """
+    A person in the project's workspace, where the project lets everyone run it (`everyoneCanRun`): what `everyoneCapabilities` names, and no role. Listed on a project where the caller also holds a role; one it reaches this way alone is in `everyoneCanRunProjects` instead.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["everyone"]
+
+
+class MyEveryoneCanRunProject(BaseModel):
+    """
+    A project the caller holds no role on, and may run because it lets everyone in its workspace run it (`everyoneCanRun`): what `everyoneCapabilities` names.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[str, Field(alias="projectId")]
+    name: str
 
 
 class MyOrgAccess(BaseModel):
@@ -9119,7 +9144,7 @@ class RoleActions(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    project: list[Annotated[Literal["read", "write", "admin", "delete"] | str, _open.OPEN]]
+    project: list[Annotated[Literal["read", "write", "admin", "delete", "run"] | str, _open.OPEN]]
     agent: list[
         Annotated[
             Literal["read", "write", "delete", "admin", "execute", "publish", "pin"] | str,
@@ -9151,7 +9176,7 @@ class RoleActions(BaseModel):
 
 class RoleCapabilities(BaseModel):
     """
-    What each project role allows, worked out by the runtime from its authorization model. A client decides an action as `capabilities[project.role][type]` holding it; the server still checks every call. An object can grant more on itself (an agent's own editor), never less, so this is what the caller may do at the least.
+    What each project role allows, worked out by the runtime from its authorization model. A client decides an action as `capabilities[project.role][type]` holding it, or, on a project in `everyoneCanRunProjects` or whose `via` lists `everyone`, `everyoneCapabilities[type]` holding it; the server still checks every call. An object can grant more on itself (an agent's own editor), never less, so this is what the caller may do at the least.
     """
 
     model_config = ConfigDict(
@@ -9161,6 +9186,7 @@ class RoleCapabilities(BaseModel):
     owner: RoleActions
     admin: RoleActions
     editor: RoleActions
+    runner: RoleActions | None = None
     viewer: RoleActions
 
 
@@ -10574,9 +10600,9 @@ class TeamProjectGrant(BaseModel):
     )
     team_id: Annotated[str, Field(alias="teamId")]
     project_id: Annotated[str, Field(alias="projectId")]
-    role: Annotated[Literal["viewer", "editor", "admin"] | str, _open.OPEN]
+    role: Annotated[Literal["viewer", "runner", "editor", "admin"] | str, _open.OPEN]
     """
-    A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project.
+    A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `runner`, which includes `viewer`. A team never owns a project.
     """
     granted_at: Annotated[AwareDatetime | None, Field(alias="grantedAt")] = None
     """
@@ -10602,9 +10628,9 @@ class AddTeamProjectGrantBody(BaseModel):
         populate_by_name=True,
     )
     team_id: Annotated[str, Field(alias="teamId", min_length=1)]
-    role: Annotated[Literal["viewer", "editor", "admin"] | str, _open.OPEN]
+    role: Annotated[Literal["viewer", "runner", "editor", "admin"] | str, _open.OPEN]
     """
-    A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project.
+    A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `runner`, which includes `viewer`. A team never owns a project.
     """
 
 
@@ -10613,9 +10639,9 @@ class UpdateTeamProjectGrantBody(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    role: Annotated[Literal["viewer", "editor", "admin"] | str, _open.OPEN]
+    role: Annotated[Literal["viewer", "runner", "editor", "admin"] | str, _open.OPEN]
     """
-    A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project.
+    A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `runner`, which includes `viewer`. A team never owns a project.
     """
 
 
@@ -10642,7 +10668,9 @@ class ProjectAccessDirect(BaseModel):
         populate_by_name=True,
     )
     kind: Literal["direct"]
-    role: Annotated[Literal["viewer", "editor", "owner", "admin", "member"] | str, _open.OPEN]
+    role: Annotated[
+        Literal["viewer", "runner", "editor", "owner", "admin", "member"] | str, _open.OPEN
+    ]
     """
     Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
     """
@@ -10661,9 +10689,9 @@ class ProjectAccessTeam(BaseModel):
     kind: Literal["team"]
     team_id: Annotated[str, Field(alias="teamId")]
     team_name: Annotated[str | None, Field(alias="teamName")] = None
-    role: Annotated[Literal["viewer", "editor", "admin"] | str, _open.OPEN]
+    role: Annotated[Literal["viewer", "runner", "editor", "admin"] | str, _open.OPEN]
     """
-    A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project.
+    A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `runner`, which includes `viewer`. A team never owns a project.
     """
 
 
@@ -10719,6 +10747,10 @@ class Project(BaseModel):
     sort_end_user_corrections: Annotated[bool | None, Field(alias="sortEndUserCorrections")] = None
     """
     `true`: end users' corrections (an app's, with a `participantId`, and not an expert's) are sorted like the others when they're saved, and a schedule counting everyone's corrections counts them. `false` (the default): they're listed and become test cases, but stay open and unsorted, and never start Improve.
+    """
+    everyone_can_run: Annotated[bool | None, Field(alias="everyoneCanRun")] = None
+    """
+    `true`: everyone in the project's workspace can run this project's agents and flows without a role of their own; service accounts aren't included. That reads nothing more than running takes: the project, its agents and flows with their versions (an agent's owner by id alone), and each person's own runs, conversations and schedules. `false`: only people given a role. A new project has it unless its creator turns it off; existing projects and workspaces keep it `false` until a project admin turns it on. Absent from an older server.
     """
     repo_connection_id: Annotated[str | None, Field(alias="repoConnectionId")] = None
     """
@@ -10784,6 +10816,10 @@ class ProjectSpec(BaseModel):
     description: str | None = None
     org_id: Annotated[str | None, Field(alias="orgId")] = None
     is_default: Annotated[bool | None, Field(alias="isDefault")] = None
+    everyone_can_run: Annotated[bool | None, Field(alias="everyoneCanRun")] = None
+    """
+    Whether everyone in the project's workspace can run its agents and flows (the project's `everyoneCanRun`). `true` when left out; `false` to choose people one by one. Existing projects and workspaces keep it `false` until a project admin turns it on.
+    """
 
 
 class ProjectPatch(BaseModel):
@@ -10801,6 +10837,10 @@ class ProjectPatch(BaseModel):
     sort_end_user_corrections: Annotated[bool | None, Field(alias="sortEndUserCorrections")] = None
     """
     Whether end users' corrections are sorted like the others and count toward a schedule (the project's `sortEndUserCorrections`). Admin on the project.
+    """
+    everyone_can_run: Annotated[bool | None, Field(alias="everyoneCanRun")] = None
+    """
+    Whether everyone in the project's workspace can run its agents and flows (the project's `everyoneCanRun`). Existing projects and workspaces keep it `false` until a project admin turns it on. Admin on the project. A runtime enforcing authorization that can't change the grant with it answers `501 authz-membership-unsupported`, and nothing changes.
     """
 
 
@@ -10821,7 +10861,9 @@ class ProjectMembership(BaseModel):
     )
     project_id: Annotated[str, Field(alias="projectId")]
     user_id: Annotated[str, Field(alias="userId")]
-    role: Annotated[Literal["viewer", "editor", "owner", "admin", "member"] | str, _open.OPEN]
+    role: Annotated[
+        Literal["viewer", "runner", "editor", "owner", "admin", "member"] | str, _open.OPEN
+    ]
     """
     Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
     """
@@ -10852,9 +10894,9 @@ class AddProjectMembershipBody(BaseModel):
     """
     The person's email, as the workspace has it.
     """
-    role: Literal["viewer", "editor", "owner", "admin"]
+    role: Literal["viewer", "runner", "editor", "owner", "admin"]
     """
-    A role to give on a project: `owner`, `admin`, `editor` or `viewer`, each including the ones after it. `member` is refused (400): give `viewer`.
+    A role to give on a project: `owner`, `admin`, `editor`, `runner` or `viewer`, each including the ones after it. A `runner` can run the project's agents and flows: start runs, use their tools inside those runs, stop their own runs, and keep their own schedules. `member` is refused (400): give `viewer`.
     """
 
 
@@ -10863,9 +10905,9 @@ class UpdateProjectMembershipBody(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    role: Literal["viewer", "editor", "owner", "admin"]
+    role: Literal["viewer", "runner", "editor", "owner", "admin"]
     """
-    A role to give on a project: `owner`, `admin`, `editor` or `viewer`, each including the ones after it. `member` is refused (400): give `viewer`.
+    A role to give on a project: `owner`, `admin`, `editor`, `runner` or `viewer`, each including the ones after it. A `runner` can run the project's agents and flows: start runs, use their tools inside those runs, stop their own runs, and keep their own schedules. `member` is refused (400): give `viewer`.
     """
 
 
@@ -10876,7 +10918,9 @@ class AddProjectMembershipResult(BaseModel):
     )
     project_id: Annotated[str, Field(alias="projectId")]
     user_id: Annotated[str, Field(alias="userId")]
-    role: Annotated[Literal["viewer", "editor", "owner", "admin", "member"] | str, _open.OPEN]
+    role: Annotated[
+        Literal["viewer", "runner", "editor", "owner", "admin", "member"] | str, _open.OPEN
+    ]
     """
     Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
     """
@@ -15521,7 +15565,9 @@ class ServiceAccountGrantProject(BaseModel):
     )
     kind: Literal["project"]
     project_id: Annotated[UUID, Field(alias="projectId")]
-    role: Annotated[Literal["viewer", "editor", "owner", "admin", "member"] | str, _open.OPEN]
+    role: Annotated[
+        Literal["viewer", "runner", "editor", "owner", "admin", "member"] | str, _open.OPEN
+    ]
     """
     Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
     """
@@ -15538,9 +15584,9 @@ class ServiceAccountGrantProjectBody(BaseModel):
     )
     kind: Literal["project"]
     project_id: Annotated[UUID, Field(alias="projectId")]
-    role: Literal["viewer", "editor", "owner", "admin"]
+    role: Literal["viewer", "runner", "editor", "owner", "admin"]
     """
-    A role to give on a project: `owner`, `admin`, `editor` or `viewer`, each including the ones after it. `member` is refused (400): give `viewer`.
+    A role to give on a project: `owner`, `admin`, `editor`, `runner` or `viewer`, each including the ones after it. A `runner` can run the project's agents and flows: start runs, use their tools inside those runs, stop their own runs, and keep their own schedules. `member` is refused (400): give `viewer`.
     """
 
 
@@ -16987,7 +17033,9 @@ class PersonProjectRole(BaseModel):
         populate_by_name=True,
     )
     project_id: Annotated[str, Field(alias="projectId")]
-    role: Annotated[Literal["viewer", "editor", "owner", "admin", "member"] | str, _open.OPEN]
+    role: Annotated[
+        Literal["viewer", "runner", "editor", "owner", "admin", "member"] | str, _open.OPEN
+    ]
     """
     Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
     """
@@ -17016,7 +17064,7 @@ class MyProjectAccess(BaseModel):
     )
     project_id: Annotated[str, Field(alias="projectId")]
     name: str
-    role: Annotated[Literal["owner", "admin", "editor", "viewer"] | str, _open.OPEN]
+    role: Annotated[Literal["owner", "admin", "editor", "runner", "viewer"] | str, _open.OPEN]
     """
     The highest role the caller holds on the project, whichever way.
     """
@@ -17026,12 +17074,13 @@ class MyProjectAccess(BaseModel):
             | AccessPathTeam
             | AccessPathOrgAdmin
             | AccessPathTenantAdmin
+            | AccessPathEveryone
             | AccessPathUnrecognized,
             _open.OpenUnion("kind", AccessPathUnrecognized),
         ]
     ]
     """
-    Every way the caller holds a role on it (for "My access").
+    Every way the caller holds a role on it (for "My access"), and `everyone` when the project also lets everyone in its workspace run it.
     """
 
 
@@ -17050,7 +17099,7 @@ class MyTeamAccess(BaseModel):
 
 class MyPermissions(BaseModel):
     """
-    What the caller may do, with its API key's limits applied: tenant admin and member, its reviewer role, its key's limits and capabilities, the projects it may read with its role in each and how it holds it, its orgs and teams, and what each project role allows. Only what the caller may see: nothing names a project it can't read, or anyone else's role.
+    What the caller may do, with its API key's limits applied: tenant admin and member, its reviewer role, its key's limits and capabilities, the projects it may read or run with its role in each and how it holds it, its orgs and teams, what each project role allows, and what everyone in the workspace may do on a project that lets everyone run it. Only what the caller may see: nothing names a project it can neither read nor run, or anyone else's role.
     """
 
     model_config = ConfigDict(
@@ -17070,7 +17119,13 @@ class MyPermissions(BaseModel):
     """
     projects: list[MyProjectAccess]
     """
-    The projects the caller may read, by name.
+    The projects the caller may read, by name. A key limited to a project lists that one alone.
+    """
+    everyone_can_run_projects: Annotated[
+        list[MyEveryoneCanRunProject] | None, Field(alias="everyoneCanRunProjects")
+    ] = None
+    """
+    The projects the caller holds no role on, and may run because each lets everyone in its workspace run it, by name. A key limited to a project lists that one alone. Absent when there are none, and from an older server.
     """
     orgs: list[MyOrgAccess]
     """
@@ -17081,6 +17136,10 @@ class MyPermissions(BaseModel):
     The teams the caller is a member or admin of, by name.
     """
     capabilities: RoleCapabilities
+    everyone_capabilities: Annotated[RoleActions | None, Field(alias="everyoneCapabilities")] = None
+    """
+    What everyone in the workspace may do on a project that lets everyone run it, and on every object of each type in it, by object type: on each project in `everyoneCanRunProjects`, and on each in `projects` whose `via` lists `everyone`, on top of the role held there. Worked out from the authorization model as `capabilities` is. Absent from an older server.
+    """
     read_only_notice: Annotated[str | None, Field(alias="readOnlyNotice", max_length=280)] = None
     """
     The line a console shows a caller who may only view a project, as a tenant admin set it in the workspace config (`kind: 'config'`, key `console.readOnlyNotice`). Plain text on one line, at most 280 characters. Absent when none is set: the console shows its own.
@@ -17346,7 +17405,7 @@ class ProjectAccess(BaseModel):
     """
     A person's email: shown to the project's admins only.
     """
-    role: Annotated[Literal["owner", "admin", "editor", "viewer"] | str, _open.OPEN]
+    role: Annotated[Literal["owner", "admin", "editor", "runner", "viewer"] | str, _open.OPEN]
     """
     The effective role: the highest any way in gives.
     """

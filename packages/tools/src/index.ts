@@ -76,7 +76,13 @@ export type {
   WaitingForConnection,
 } from './connections.js';
 export { REDACTED_TOKEN, withoutConnectionTokens } from './connection-redaction.js';
-export { TOOL_ENV_RECORD_KEY, toolCallRecordKey } from './record-keys.js';
+export { connectionGateRecordOf } from './connection-gate-record.js';
+export type { ConnectionGateRecord, RecordedConnection } from './connection-gate-record.js';
+export {
+  CONNECTION_GATE_RECORD_PREFIX,
+  TOOL_ENV_RECORD_KEY,
+  toolCallRecordKey,
+} from './record-keys.js';
 export { TOOL_IDEMPOTENCY_NAMESPACE, toolIdempotencyKey } from './idempotency-key.js';
 export type { InvokeToolOptions, ToolOutcome } from './invoke.js';
 export { createToolRegistry } from './registry.js';

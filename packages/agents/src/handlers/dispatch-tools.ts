@@ -16,6 +16,7 @@ import {
   withoutConnectionTokens,
 } from '@kindgi/tools';
 import type {
+  RecordedConnection,
   Tool,
   ToolConnection,
   ToolContext,
@@ -36,7 +37,6 @@ import { type EffectiveHitlPolicy, separateApproverFor } from '../hitl-policy.js
 import {
   type ConnectionCallFailure,
   type ConnectionGate,
-  type ConnectionSeen,
   approverNotAReviewerOf,
   connectionApprovalConflict,
   connectionApprovalOf,
@@ -1540,7 +1540,7 @@ async function invokeOne(
   abortSignal: AbortSignal,
   replayEnv: Readonly<Record<string, string>> | undefined,
   connect: Connect | undefined,
-  decided: Readonly<Record<string, ConnectionSeen>> | undefined,
+  decided: Readonly<Record<string, RecordedConnection>> | undefined,
 ): Promise<Invoked> {
   const { ctx, kctx } = step;
   const first = await dispatchOne(step, tool, call, abortSignal, replayEnv, connect);

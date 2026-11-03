@@ -197,7 +197,9 @@ the CLI:
 
 - `kindgi projects create --name=Support --org=<org-id>` makes a project and
   prints it with its id. Its slug is the name as a slug (`support`) unless
-  `--slug` gives one.
+  `--slug` gives one. Everyone in the workspace can run its agents and
+  flows, as its `everyoneCanRun` says
+  ([Everyone can run a project](../../../deploy/authorization/#everyone-can-run-a-project)).
 - `kindgi projects rename <project-id> --name=<name>` renames one, and
   `--slug` changes its slug.
 - `kindgi projects list` lists the projects with their ids.

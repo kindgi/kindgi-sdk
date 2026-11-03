@@ -20,7 +20,8 @@ each `right` or `wrong`:
   it's `wrong`, it says what the run should have done, in `shouldCall` and
   `mustNotCall`, with at least one entry between them.
 - **`answer`** says whether the run's answer was right. When it's `wrong`,
-  it needs `shouldSay`, what the answer should have said, or `why`.
+  it needs `shouldSay`, what the answer should have said, or `why`. A text
+  of only spaces counts as not given.
 - **`items`** correct an answer that is a ranked list, one entry for each
   element: `{ key, pointer?, rank?, verdict }`.
   - **`key`** is your stable id for the element, such as a matched case's
