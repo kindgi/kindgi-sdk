@@ -13,10 +13,16 @@ export {
   PLAIN_SESSION_COOKIE_NAME,
   SESSION_COOKIE_NAME,
   SESSION_TOKEN_PREFIX,
+  bearerAuthMiddleware,
   encodeSessionToken,
   MULTI_TENANT_LOOKUP,
 } from './middleware/auth.js';
-export type { SessionCookieOptions, TokenResolution, TokenResolver } from './middleware/auth.js';
+export type {
+  BearerAuthMiddlewareOptions,
+  SessionCookieOptions,
+  TokenResolution,
+  TokenResolver,
+} from './middleware/auth.js';
 export type {
   ConsoleLink,
   SignInLegalLinks,

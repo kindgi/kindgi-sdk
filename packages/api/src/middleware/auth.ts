@@ -321,6 +321,18 @@ const DEFAULT_TOUCH_THROTTLE_MS = 60_000;
  *   revocation are pulled from the session row.
  * - anything else — caller-plugged static bearer tokens. Verified via
  *   `resolveToken`. Byte-shape-identical with the session-less contract.
+ *
+ * `createApp` mounts it on `/v1/*`. A deployment mounts it itself on a
+ * route of its own that must admit a caller exactly as `/v1` does, such
+ * as a page that acts for the signed-in person, so that route's checks
+ * (expired, revoked, inactive, a revoked key's session, the cookie's
+ * origin rule) are this code rather than a copy. Pass it the options
+ * `createApp` was given for the same deployment (`sessionStore`,
+ * `personCapabilities`, `tokenAdmin` as `apiKeys`, the session config's
+ * inactivity timeout, touch throttle and cookie), and mount it on the app
+ * `createApp` returns, after the request id it sets on every request.
+ * It admits an API key too, so a route that admits only a session checks
+ * `c.get('sessionId')` after it.
  */
 export function bearerAuthMiddleware(
   resolve: TokenResolver,
