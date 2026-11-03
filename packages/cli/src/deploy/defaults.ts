@@ -15,12 +15,18 @@
 
 import { loadEnvelopeReal } from './envelope-loader.js';
 import {
+  countKeptBuildsReal,
   findProjectsReal,
   getDeploymentReal,
+  getPackEnvReal,
+  listEnvironmentOrdersReal,
+  listProjectsReal,
   postDeploymentReal,
+  servedEnvReal,
   syncSecretsReal,
 } from './post.js';
 import type { DeployRunners } from './runners.js';
+import { readDeploySource } from './source.js';
 
 /**
  * Production `DeployRunners`. `runBuild` is intentionally OMITTED here
@@ -41,8 +47,17 @@ export const REAL_DEPLOY_RUNNERS: DeployRunners = {
   syncSecrets: syncSecretsReal,
   // `--project <slug>` only: an id goes as it is.
   findProjects: findProjectsReal,
+  // A refusal into a later environment only: to name the environments on the way.
+  listProjects: listProjectsReal,
+  listEnvironmentOrders: listEnvironmentOrdersReal,
+  // `--sync-secrets` only: the env the runtime keeps its values under.
+  servedEnv: servedEnvReal,
   // `--hosted` only: the wait for the deployment's pack service.
   getDeployment: getDeploymentReal,
+  getPackEnv: getPackEnvReal,
+  countKeptBuilds: countKeptBuildsReal,
+  // Where the pack lives in git: the body's `source`, inside a work tree.
+  readSource: readDeploySource,
   // runBuild deliberately omitted — the command composes it from
   // `ctx.buildRunners` + the exported `runBuild` from
   // `commands/build.ts`.

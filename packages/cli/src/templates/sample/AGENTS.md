@@ -16,6 +16,15 @@ or `OPENROUTER_API_KEY`) and declare its preset
 `'openrouter'`) in `kindgi.config.ts`'s `providers`: `kindgi dev` then
 registers it on every boot, in every worktree. Other providers and
 per-agent model choice: the `kindgi-authoring-providers` skill.
+How much a model thinks (runtime 0.3.0 or later): `thinking` in the
+agent's `modelSettings` block, else the model's registered
+`thinking.default`, else its vendor's own.
+
+Each git worktree runs its own `kindgi dev`, with its own dev workspace,
+user and token, and its own database in the bundled Postgres. When port
+4000 is taken (another worktree's, say), it takes the next free one,
+prints it and records it in `.kindgirc.json`. The getting-started skill
+has the details.
 
 ## Skills
 
@@ -24,7 +33,8 @@ started, tools, guardrails, agents and flows, model providers, MCP servers,
 framework feedback, and guiding the person in using what you built
 (`kindgi-using`). Claude Code loads `.claude/skills/` on its own; Codex and
 Gemini CLI look in `.agents/skills/`; any other coding agent can read
-either. `kindgi skills sync` refreshes both.
+either. After an upgrade, `kindgi dev` refreshes both as it
+starts; `kindgi skills sync` refreshes them any time.
 
 When you diagnose a framework bug (something in Kindgi itself, not in this
 pack's code), append an entry to `FEEDBACK.md` at the pack root via
@@ -39,6 +49,13 @@ Kindgi's console, what an agent did, what it cost, who has access), answer
 from `kindgi`'s read-only commands and give the console link beside it —
 see the `kindgi-using` skill. Deciding approvals, erasing, adding people
 and rating answers stay with the person.
+
+After the agents ship, people correct their answers, and each correction
+becomes a case in the agent's test set. To fix what they corrected, see the
+`kindgi-fix-corrections` skill: a setting or the wording becomes a
+suggested change, checked on that test set; a rule changes in code, with a
+pack test. Pinning stays with the person, and a correction that would
+loosen a rule goes to the agent's owner.
 
 ## Commands for the person's own terminal
 

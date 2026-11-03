@@ -15,7 +15,7 @@ exactly what's sent and said yes.
 Preview it first:
 
 ```sh
-kindgi feedback submit --preview
+pnpm exec kindgi feedback submit --preview
 ```
 
 It prints the report exactly as it would be sent, after
@@ -29,7 +29,7 @@ in `FEEDBACK.md` and preview again. When it's right, send it with the
 preview's digest:
 
 ```sh
-kindgi feedback submit --yes=<digest>
+pnpm exec kindgi feedback submit --yes=<digest>
 ```
 
 It sends only if the report is still exactly what the preview showed. If
@@ -128,17 +128,22 @@ name for one. The preview is the check.
   Kindgi also keeps a count of the reports about the same issue, and what
   became of it, with none of a report's words. That lasts as long as the
   issue's newest report.
-- **Your IP address:** the intake doesn't store it. Cloudflare carries
-  every request to the intake, so it sees your address. Kindgi's request log
-  at Cloudflare keeps it for up to 7 days, and Kindgi counts requests per
-  address there for a minute, to limit them. Google Cloud, where the intake
-  runs, logs only Cloudflare's address.
+- **Your IP address:** the intake doesn't store it. `kindgi feedback`
+  sends to `access.kindgi.com`, which Cloudflare carries, so Cloudflare
+  sees your address. Kindgi's request log there keeps it as long as
+  Cloudflare keeps
+  [Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/),
+  7 days at most, and Kindgi counts requests per address there for a
+  minute, to limit them. Google Cloud, where the intake runs, logs only
+  Cloudflare's address for these. A request that reaches the intake
+  another way, straight at its Google Cloud address, is logged there with
+  its sender's address.
 - **Deleting a report:** withdraw it, as below. Its text is cleared at once.
 
 ## Hear back
 
 ```sh
-kindgi feedback status
+pnpm exec kindgi feedback status
 ```
 
 It asks what became of the reports you sent, and answers with each one's
@@ -162,7 +167,7 @@ session when `FEEDBACK.md` has entries that were sent.
 ## Take a report back
 
 ```sh
-kindgi feedback withdraw 2026-10-15.1
+pnpm exec kindgi feedback withdraw 2026-10-15.1
 ```
 
 Name an entry by its id or hash, or a report by its id (`fbr_…`). The intake

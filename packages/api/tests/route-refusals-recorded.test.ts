@@ -47,25 +47,28 @@ const ID = '00000000-0000-4000-8000-0000000000ff';
  */
 const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'permission-denied',
+  'connection-not-yours',
+  'connection-installation-unreachable',
   'identity-providers-operator-managed',
   'token-sign-in-not-allowed',
   'token-sign-in-off',
   'key-project-mismatch',
-  'judge-class-not-allowed',
+  'corrector-group-not-allowed',
   'host-access-denied',
   'license-operator-only',
   'capability-not-mintable',
   'system-key-on-tenant-route',
   'system-principal-required',
   'system-scope-missing',
+  'system-key-scope-not-served',
 ]);
 
 /**
  * 403s that aren't recorded, by design: they don't refuse the caller. Two
  * more answer `permission-denied` with no principal on the request, so
  * there's no one to record them for: a public run token outside its two
- * progress routes (a run token names a run, not a principal), and judging
- * without a user or a service token (`judgments.ts`).
+ * progress routes (a run token names a run, not a principal), and correcting
+ * without a user or a service token (`corrections.ts`).
  */
 const NOT_A_REFUSAL_OF_THE_CALLER: Readonly<Record<string, string>> = {
   'signer-not-trusted': 'it refuses an artifact, not a caller',
@@ -100,6 +103,7 @@ const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
     'POST /v1/system/keys/{keyId}/revoke system-principal-required',
     'PUT /v1/system/tenants/{tenantId}/production-allowed system-principal-required',
     'PUT /v1/system/tenants/{tenantId}/limits system-principal-required',
+    'GET /v1/system/usage system-principal-required',
   ],
   // An admin key without the capability a write needs; a caller who isn't a reviewer.
   [NO_CAPS_KEY]: [
@@ -113,6 +117,7 @@ const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
     'POST /v1/system/keys/{keyId}/revoke system-principal-required',
     'PUT /v1/system/tenants/{tenantId}/production-allowed system-principal-required',
     'PUT /v1/system/tenants/{tenantId}/limits system-principal-required',
+    'GET /v1/system/usage system-principal-required',
   ],
   // A key limited to a project is never the tenant's admin: it reads no approvals.
   [PROJECT_KEY]: ['GET /v1/approvals'],
@@ -356,8 +361,8 @@ describe('refusals deeper in a route, which an empty body never reaches, are rec
     ]);
   });
 
-  // `judge-class-not-allowed` needs a run and a restricted judge class: its
-  // recording is pinned in judgments-routes.test.ts.
+  // `corrector-group-not-allowed` needs a run and an expert group: its
+  // recording is pinned in corrections-routes.test.ts.
 });
 
 test("a route's details never override the refusal's code, message or what was refused", () => {

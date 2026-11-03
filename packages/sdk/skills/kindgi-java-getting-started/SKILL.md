@@ -10,13 +10,14 @@ description: >
   `kindgi.config.json` yet and the user asks to "add Kindgi", "make an
   agent", "set up a pack", or when you are orienting in a Java pack
   (`kindgi.config.json` with `"language": "java"`) for the first time.
-  Authoring tools, guardrails, agents and flows is covered by
-  kindgi-java-authoring-tools, kindgi-java-authoring-guardrails,
-  kindgi-java-authoring-agents and kindgi-java-authoring-flows; models by
-  kindgi-authoring-providers.
+  Load it too when upgrading a self-hosted deployment, or when asked for
+  a migration script (there is none). Authoring tools, guardrails, agents
+  and flows is covered by kindgi-java-authoring-tools,
+  kindgi-java-authoring-guardrails, kindgi-java-authoring-agents and
+  kindgi-java-authoring-flows; models by kindgi-authoring-providers.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.2"
+version: "0.1.8"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -64,7 +65,7 @@ You need a JDK 17 or later (`JAVA_HOME`). Maven comes with the pack
 (`./mvnw`).
 
 ```sh
-npx --yes @kindgi/cli@0.1 init my-pack --template=java   # or: uvx --from "kindgi-cli>=0.1,<0.2" kindgi init …
+npx --yes @kindgi/cli@0.2 init my-pack --template=java   # or: uvx --from "kindgi-cli>=0.2,<0.3" kindgi init …
 cd my-pack
 ./mvnw test        # the template's tests: the tools, called directly
 ./kindgiw dev      # boots Kindgi locally and runs this pack, recompiling on save
@@ -74,6 +75,21 @@ One `kindgi dev` per pack. When one is already running (the person's
 terminal, say), `kindgi dev` exits with code 3 and prints where it is
 (its pid, the console and the API): use that one. Don't start another,
 and don't stop theirs.
+
+Each linked git worktree runs its own `kindgi dev`, side by side, with its
+own workspace, user and token. In the bundled Postgres it has its own
+database too, `kindgi_<project>__<worktree>`, and its workspace and user are
+named from it; with your own (`--database-url` or `KINDGI_DATABASE_URL`),
+it uses that one. Its `.kindgirc.json`, which `kindgi init` keeps out of
+git, keeps the token, workspace and user. When port 4000 is taken
+(another worktree's `kindgi dev`), it takes the next free one and says so,
+`⚠ port 4000 is in use (another kindgi dev?): using 4001`; that
+worktree's `.kindgirc.json` records it, so the CLI there follows. Read the
+API URL from the banner or `.kindgirc.json`, never assume 4000. A
+`--port` that's taken is refused. The providers the config declares are
+registered in each worktree as it starts. One registered by hand belongs
+to one worktree, and so does an env file git doesn't track, such as
+`.env.local`: copy it into a new worktree.
 
 `kindgi dev` needs Docker and Postgres. It starts Postgres in Docker unless
 `KINDGI_DATABASE_URL` points at yours. It checks the JDK (`JAVA_HOME`'s, or
@@ -88,7 +104,7 @@ reported as `file:line:col`, and the last good code keeps serving.
 In the app's directory (where its `pom.xml` is):
 
 ```sh
-npx --yes @kindgi/cli@0.1 init   # --pack-id=<id> if the app's artifactId doesn't make one
+npx --yes @kindgi/cli@0.2 init   # --pack-id=<id> if the app's artifactId doesn't make one
 ./kindgiw dev
 ```
 
@@ -162,7 +178,10 @@ It takes over at the next turn. That registration is in this project's dev
 database only. To have `kindgi dev` register it on every boot, in every
 worktree and after `--reset`, declare it in `kindgi.config.json`:
 `"providers": [{"preset": "anthropic"}]` (its key, `ANTHROPIC_API_KEY`, comes
-from the env files). Details and other providers: `kindgi-authoring-providers`.
+from the env files). Commit it: it holds the key's name, never the key, and
+it's how a teammate's `kindgi dev`, or another worktree's, gets the same
+provider. Restart `kindgi dev` after adding it: the config isn't watched.
+Details and other providers: `kindgi-authoring-providers`.
 
 To see what Kindgi sees (the index), with no runtime:
 
@@ -232,7 +251,7 @@ Show it in the app's own UI. **Never:**
   gives no database access.
 - **link users to Kindgi's console**, or any Kindgi UI, for this data.
 
-Docs: https://docs.kindgi.com/v0.1/guides/runs/show-runs-in-your-app/
+Docs: https://docs.kindgi.com/v0.3/guides/runs/show-runs-in-your-app/
 
 ## Build an image
 
@@ -250,6 +269,37 @@ image installs them: `"image": {"systemPackages": ["tesseract-ocr"]}`
 deployed pack service missing a required one isn't ready, and its `/readyz`
 names it; one the pack doesn't declare is dropped before the code loads
 (`kindgi dev` keeps it).
+
+## Upgrading a deployment
+
+There's no migration script, and none to write: a self-hosted runtime brings
+its database up to date when it starts, applying the migrations the database
+doesn't have yet, then serving. Migrations only go forward: an upgrade
+starts with a backup of the database, and going back means restoring it and
+running the older version on it.
+
+- **On Cloud Run, a deployment of the module** (on runtime 0.1.8 or later,
+  in any `network_mode`; before the `@kindgi/sdk@0.3.0` tag, `"none"` only):
+  the module's `./upgrade.sh`, as of the `@kindgi/sdk@<version>` tag of the
+  release you're upgrading to, since it knows the steps up to its own
+  release. It takes a `--var-file` for each file the deployment's variables
+  are in. Run `./upgrade.sh --dry-run` first: it changes nothing, and lists
+  what a real run would change. A real run's `yes` applies exactly the
+  saved plan it showed. The module README's Upgrading section has the rest:
+  https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading
+- **Any other Cloud Run deployment:** by hand, staging first, as the Cloud
+  Run page's "Upgrade by hand" section says:
+  https://docs.kindgi.com/v0.3/deploy/self-hosted/cloud-run/#upgrade-by-hand
+- **On Azure Container Apps:** the "Operate it" section of its page:
+  https://docs.kindgi.com/v0.3/deploy/self-hosted/azure-container-apps/#operate-it
+- **Otherwise:** the operate page's upgrade steps:
+  https://docs.kindgi.com/v0.3/deploy/self-hosted/operate/#upgrade-the-runtime
+
+An upgrade changes a running deployment: give the person the commands to run
+in their own terminal (`./upgrade.sh` waits for them to type `yes`).
+
+Not `./kindgiw upgrade`: that moves the pack's own pins (the CLI's and
+kindgi-pack's), not a deployment's runtime.
 
 ## Two things need the human
 

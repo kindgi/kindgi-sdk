@@ -38,6 +38,7 @@ describe('resolveKindgiDependencySpecs', () => {
         source: 'local-checkout',
         sdk: 'link:/kindgi-sdk/packages/sdk',
         cli: 'link:/kindgi/packages/cli',
+        connections: 'link:/kindgi-sdk/packages/connections',
       },
     });
   });
@@ -67,6 +68,7 @@ describe('resolveKindgiDependencySpecs', () => {
       source: 'workspace',
       sdk: 'workspace:*',
       cli: 'workspace:*',
+      connections: 'workspace:*',
     });
   });
 
@@ -94,7 +96,11 @@ describe('resolveKindgiDependencySpecs', () => {
       },
       realpath: identity,
     });
-    expect(r).toEqual({ kind: 'ok', specs: { source: 'published', sdk: '0.4.0', cli: '0.4.0' } });
+    // Every @kindgi/* package is released at one version: connections pins the CLI's.
+    expect(r).toEqual({
+      kind: 'ok',
+      specs: { source: 'published', sdk: '0.4.0', cli: '0.4.0', connections: '0.4.0' },
+    });
   });
 
   test('a published CLI still pointing at workspace:* is a publisher error', async () => {

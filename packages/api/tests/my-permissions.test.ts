@@ -14,14 +14,20 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
-import { type AuthzCheckBinding, type Decision, OBJECT_ACTIONS } from '@kindgi/authz';
-import type { ApiTokenId, ReviewerId, TenantId, UserId } from '@kindgi/types';
+import {
+  type AuthzCheckBinding,
+  CHECK_ONLY_ACTIONS,
+  type Decision,
+  OBJECT_ACTIONS,
+} from '@kindgi/authz';
+import type { ApiTokenId, EnvName, ReviewerId, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
   EnvBinding,
+  LicenseStatusBinding,
   MyAccess,
   MyAccessBinding,
   ReviewerBinding,
@@ -155,15 +161,15 @@ const ALICE_ACCESS: MyAccess = {
   capabilities: { admin: { project: ['read', 'write', 'admin'] } },
 };
 
-/** A tenant config holding only the console's read-only line (or failing to be read). */
-function configWith(notice: string | Error | undefined): EnvBinding {
+/** A tenant config holding only the console's read-only line, under `under` (or failing to be read). */
+function configWith(notice: string | Error | undefined, under = 'default'): EnvBinding {
   return {
-    get: async ({ name }: { name: string }) => {
+    get: async ({ name, envName }: { name: string; envName: string }) => {
       if (notice instanceof Error) throw notice;
-      return notice !== undefined && name === 'console.readOnlyNotice'
+      return notice !== undefined && name === 'console.readOnlyNotice' && envName === under
         ? {
             scope: { kind: 'tenant', tenantId },
-            envName: 'default',
+            envName: under,
             name,
             value: notice,
             revision: 1,
@@ -175,22 +181,42 @@ function configWith(notice: string | Error | undefined): EnvBinding {
   } as unknown as EnvBinding;
 }
 
-function harness(myAccess?: MyAccessBinding, envBinding?: EnvBinding) {
+/** Reads `GET /v1/identity/me/permissions`; `recorded` holds what the authorizer recorded. */
+function harness(
+  myAccess?: MyAccessBinding,
+  envBinding?: EnvBinding,
+  envName?: string,
+  license?: LicenseStatusBinding,
+) {
+  const recorded: Decision[] = [];
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
     runHandler: noopRunHandler,
     reviewerBinding,
+    ...(envName !== undefined && { envName: envName as EnvName }),
     ...(myAccess !== undefined && { myAccess }),
     ...(envBinding !== undefined && { envBinding }),
-    authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding },
+    ...(license !== undefined && { license }),
+    authz: {
+      fgaApiUrl: 'http://fga.invalid',
+      authzCheckBinding: {
+        ...authzCheckBinding,
+        recordDecision: (_principal, _action, _resource, decision) => {
+          recorded.push(decision);
+        },
+      },
+    },
   });
-  return async (token?: string): Promise<{ status: number; body: Record<string, unknown> }> => {
+  const read = async (
+    token?: string,
+  ): Promise<{ status: number; body: Record<string, unknown> }> => {
     const res = await app.request('/v1/identity/me/permissions', {
       headers: token === undefined ? {} : { authorization: `Bearer ${token}` },
     });
     return { status: res.status, body: (await res.json()) as Record<string, unknown> };
   };
+  return Object.assign(read, { recorded });
 }
 
 const store: MyAccessBinding = {
@@ -254,7 +280,7 @@ describe('GET /v1/identity/me/permissions', () => {
       'flow',
       'tool',
       'guardrail',
-      'eval_suite',
+      'test_set',
       'trigger',
       'conversation',
       'secret',
@@ -269,6 +295,29 @@ describe('GET /v1/identity/me/permissions', () => {
     expect(caps.viewer?.run).toEqual(['read']);
     // A role the store said nothing about allows nothing.
     expect(caps.owner?.agent).toEqual([]);
+  });
+
+  test("a project's check-only actions (`call`, `execute`) are never reported", async () => {
+    // The runtime's store reports what the model allows; a project's
+    // check-only actions are asked of a project, never listed for a role.
+    const reporting: MyAccessBinding = {
+      read: async () => ({
+        ...ALICE_ACCESS,
+        capabilities: {
+          admin: { project: ['call', 'read', 'execute', 'write', 'admin', 'delete'] as never },
+        },
+      }),
+    };
+    const caps = (await harness(reporting)(ALICE)).body.capabilities as Record<
+      string,
+      Record<string, string[]>
+    >;
+    expect(caps.admin?.project).toEqual([...OBJECT_ACTIONS.project]);
+    for (const action of CHECK_ONLY_ACTIONS.project ?? []) {
+      expect(OBJECT_ACTIONS.project as readonly string[]).not.toContain(action);
+      expect(caps.admin?.project).not.toContain(action);
+    }
+    // The schema lists exactly OBJECT_ACTIONS (role-capabilities-shape.test.ts).
   });
 
   test('a tenant admin is one', async () => {
@@ -317,6 +366,17 @@ describe('GET /v1/identity/me/permissions', () => {
       expect(r.body.readOnlyNotice).toBe(READ_ONLY);
     });
 
+    test('a tenant setting: read under `default`, whatever env the runtime serves', async () => {
+      // Set before the runtime served `prod`, under `default`: it still shows.
+      expect((await harness(store, configWith(READ_ONLY), 'prod')(BOB)).body).toEqual(
+        expect.objectContaining({ readOnlyNotice: READ_ONLY }),
+      );
+      // Under the served env: not where a setting lives.
+      expect(
+        (await harness(store, configWith(READ_ONLY, 'prod'), 'prod')(BOB)).body.readOnlyNotice,
+      ).toBeUndefined();
+    });
+
     test('absent when none is set, or with no tenant config', async () => {
       expect(
         (await harness(store, configWith(undefined))(BOB)).body.readOnlyNotice,
@@ -354,5 +414,64 @@ describe('GET /v1/identity/me/permissions', () => {
     expect(r.status).toBe(503);
     expect(r.body.error).toMatchObject({ code: 'authz-backend-unavailable' });
     expect(JSON.stringify(r.body)).not.toContain('fga down');
+  });
+});
+
+describe('licenseOperatorOnly: whether GET /v1/license refuses the caller whatever its role', () => {
+  const status = () => ({ mode: 'development' as const });
+  const OTHER_TENANT = randomUUID() as TenantId;
+
+  test('a deployment serving several tenants: true for its tenant admin, and nothing recorded', async () => {
+    const read = harness(store, undefined, undefined, { status, soleTenant: () => null });
+    const answer = await read(ALICE);
+    expect(answer.status).toBe(200);
+    expect(answer.body).toMatchObject({ tenant: { admin: true }, licenseOperatorOnly: true });
+    expect(read.recorded).toEqual([]);
+  });
+
+  test("a deployment that doesn't say it serves one tenant: true", async () => {
+    const read = harness(store, undefined, undefined, { status });
+    expect((await read(ALICE)).body.licenseOperatorOnly).toBe(true);
+  });
+
+  test('a deployment serving another tenant alone: true', async () => {
+    const read = harness(store, undefined, undefined, { status, soleTenant: () => OTHER_TENANT });
+    expect((await read(ALICE)).body.licenseOperatorOnly).toBe(true);
+  });
+
+  test('the one tenant the deployment serves: false, for its admin and its other callers alike', async () => {
+    const read = harness(store, undefined, undefined, { status, soleTenant: async () => tenantId });
+    expect((await read(ALICE)).body).toMatchObject({
+      tenant: { admin: true },
+      licenseOperatorOnly: false,
+    });
+    expect((await read(BOB)).body).toMatchObject({
+      tenant: { admin: false },
+      licenseOperatorOnly: false,
+    });
+  });
+
+  test("the deployment's own token: false, even where the deployment serves several tenants", async () => {
+    const read = harness(store, undefined, undefined, { status, soleTenant: () => null });
+    expect((await read(DEPLOYMENT)).body.licenseOperatorOnly).toBe(false);
+  });
+
+  test('no license: absent', async () => {
+    const answer = await harness(store)(ALICE);
+    expect(answer.status).toBe(200);
+    expect(answer.body).not.toHaveProperty('licenseOperatorOnly');
+  });
+
+  test("tenants that can't be read: absent, and the rest of the answer as ever", async () => {
+    const read = harness(store, undefined, undefined, {
+      status,
+      soleTenant: async () => {
+        throw new Error('connection refused');
+      },
+    });
+    const answer = await read(ALICE);
+    expect(answer.status).toBe(200);
+    expect(answer.body).toMatchObject({ tenantId, tenant: { admin: true } });
+    expect(answer.body).not.toHaveProperty('licenseOperatorOnly');
   });
 });

@@ -163,6 +163,8 @@ async function recordJudgeCall(
     ...(trace.conversationId !== undefined && { conversationId: trace.conversationId }),
     providerId: provider.provider.metadata.id,
     model: provider.model.name,
+    // What the call asks for (above): as little as a thinking model allows.
+    ...(provider.model.thinking !== undefined && { thinkingAsked: 'lowest' as const }),
     ...(provider.provider.metadata.fallback === true && { fallback: true }),
     purpose: guardrailId !== undefined ? `guardrail-judge:${guardrailId}` : 'guardrail-judge',
     occurredAt: new Date().toISOString(),
@@ -192,7 +194,7 @@ async function resolveJudgeProvider(
     if (decision.kind === 'err') {
       const err: JudgeRoutingError = {
         code: 'judge-routing-failed',
-        message: `Explicit judgeProvider "${bindings.judgeProvider.metadata.id}" is not allowed for this tenant: ${decision.error.message}`,
+        message: `Explicit judgeProvider "${bindings.judgeProvider.metadata.id}" is not allowed for this workspace: ${decision.error.message}`,
         guardrailId: '<unknown>' as never,
         cause: decision.error,
       };

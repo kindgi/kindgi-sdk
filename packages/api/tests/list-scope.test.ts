@@ -193,13 +193,13 @@ describe('POST /v1/conversations in a project', () => {
     expect(answer.json).toMatchObject({ projectId });
   });
 
-  test("no projectId: the tenant's Default project, as for a run", async () => {
+  test("no projectId: the tenant's default project, as for a run", async () => {
     const answer = await call('/v1/conversations', open);
     expect(answer.status).toBe(201);
     expect(answer.opened).toEqual([expect.objectContaining({ projectId: defaultProjectId })]);
   });
 
-  test('no projectId and no Default project: opened without one, not refused', async () => {
+  test('no projectId and no default project: opened without one, not refused', async () => {
     const answer = await call('/v1/conversations', open, { defaultProject: false });
     expect(answer.status).toBe(201);
     expect(answer.opened[0]).not.toHaveProperty('projectId');
@@ -211,7 +211,7 @@ describe('POST /v1/conversations in a project', () => {
     expect(answer.status).toBe(400);
     expect(answer.json.error).toMatchObject({
       code: 'bad-input',
-      message: `\`projectId\` "${other}" does not resolve to a project in this tenant`,
+      message: `\`projectId\` "${other}" does not resolve to a project in this workspace`,
     });
     expect(answer.opened).toEqual([]);
   });

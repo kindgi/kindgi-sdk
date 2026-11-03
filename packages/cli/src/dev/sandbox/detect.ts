@@ -21,6 +21,7 @@ import { spawn } from 'node:child_process';
 
 import { docsUrl } from '@kindgi/client/sso-handoff';
 
+import { findOnPath, programPath } from '../../program-path.js';
 import { CLI_VERSION } from '../../version-info.js';
 
 /** The page that says how to set the sandbox up, and what it does, on this CLI's release line. */
@@ -50,36 +51,61 @@ export type ProbeRunner = (program: string, args: readonly string[]) => Promise<
 
 export const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
 
-/** Run a probe to its end: its exit code and stderr, or why it didn't start. */
-export function probeReal(program: string, args: readonly string[]): Promise<ProbeResult> {
+/**
+ * Run a probe to its end, `program` the one on `PATH` (`programPath`): its
+ * exit code and stderr, or why it didn't start.
+ */
+export async function probeReal(program: string, args: readonly string[]): Promise<ProbeResult> {
+  let file: string;
+  try {
+    file = await programPath(program);
+  } catch (err) {
+    return notStarted(err as NodeJS.ErrnoException);
+  }
   return new Promise((resolve) => {
-    const child = spawn(program, [...args], { stdio: ['ignore', 'ignore', 'pipe'] });
+    const child = spawn(file, [...args], { stdio: ['ignore', 'ignore', 'pipe'] });
     let stderr = '';
     child.stderr?.on('data', (chunk: Buffer) => {
       stderr += chunk.toString('utf8');
     });
-    child.once('error', (err: NodeJS.ErrnoException) =>
-      resolve({
-        code: null,
-        stderr: err.message,
-        ...(err.code !== undefined && { errorCode: err.code }),
-      }),
-    );
+    child.once('error', (err: NodeJS.ErrnoException) => resolve(notStarted(err)));
     child.once('close', (code) => resolve({ code, stderr }));
   });
 }
 
+/** A probe that didn't start, or isn't on `PATH`: no exit code, and why. */
+function notStarted(err: NodeJS.ErrnoException): ProbeResult {
+  return {
+    code: null,
+    stderr: err.message,
+    ...(err.code !== undefined && { errorCode: err.code }),
+  };
+}
+
+/**
+ * `env` is the CLI's own: Linux's probe runs the `bwrap` on its `PATH`,
+ * by full path ({@link findOnPath}), the `PATH` the pack service inherits.
+ * The sandbox looks `bwrap` up again on the service's own env when it
+ * starts it, so an app's env file that sets `PATH` is followed there.
+ */
 export async function detectDevSandbox(
   platform: NodeJS.Platform,
   run: ProbeRunner,
+  env: Readonly<Record<string, string | undefined>>,
 ): Promise<SandboxAvailability> {
   if (platform === 'darwin') {
     return seatbeltAvailability(
       await run(SANDBOX_EXEC, ['-p', '(version 1)(allow default)', '/usr/bin/true']),
     );
   }
-  if (platform === 'linux')
-    return bwrapAvailability(await run('bwrap', ['--ro-bind', '/', '/', 'true']));
+  if (platform === 'linux') {
+    const bwrap = await findOnPath('bwrap', env);
+    return bwrapAvailability(
+      bwrap === undefined
+        ? { code: null, stderr: 'spawn bwrap ENOENT', errorCode: 'ENOENT' }
+        : await run(bwrap, ['--ro-bind', '/', '/', 'true']),
+    );
+  }
   if (platform === 'win32') {
     return unavailable(
       'Windows has no sandbox kindgi dev can use',

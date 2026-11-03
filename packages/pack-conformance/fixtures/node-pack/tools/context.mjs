@@ -19,5 +19,9 @@ export default {
     secrets: ctx.secrets ?? {},
     config: ctx.config ?? {},
     ...(ctx.settings !== undefined && { settings: ctx.settings }),
+    ...(ctx.connections !== undefined &&
+      Object.keys(ctx.connections).length > 0 && { connections: ctx.connections }),
+    // A tool that declares neither `storesFiles` nor `readsFiles` never gets its files.
+    ...(ctx.files !== undefined && { files: true }),
   }),
 };

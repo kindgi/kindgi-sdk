@@ -36,6 +36,24 @@ export function errorFetch(
   return recordingFetch([{ status, body }]);
 }
 
+/** A server that answers `204 No Content`: nothing in the body. */
+export function noContentFetch(): FetchStub {
+  const calls: RecordedRequest[] = [];
+  const stub: typeof fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url =
+      typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    const body = typeof init?.body === 'string' ? init.body : undefined;
+    calls.push({
+      url,
+      method: init?.method ?? 'GET',
+      headers: normalizeHeaders(init?.headers),
+      ...(body !== undefined && { body }),
+    });
+    return new Response(null, { status: 204 });
+  };
+  return { fetch: stub, calls };
+}
+
 /**
  * A server that never answers: each call waits until its request is
  * aborted (the client's timeout), then rejects with the abort's reason.

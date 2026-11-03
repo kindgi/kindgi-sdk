@@ -17,7 +17,7 @@ the vendors' published prices. Your provider's invoice is what you pay.
 
 ## Before you start
 
-- **A runtime,** such as `kindgi dev`, with Kindgi 0.1's client: Node 22.12
+- **A runtime,** such as `kindgi dev`, with Kindgi 0.2's client: Node 22.12
   or later, Python 3.11 or later, or Java 17 or later.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set, or a running
   `kindgi dev`, which the client finds.
@@ -171,6 +171,23 @@ Each record is one model call:
 | `projectId`, `agentId`, `agentVersion`, `conversationId` | Where the call belongs. |
 | `providerRequestId` | The provider's id for the request, to quote to its support. Not every provider sends one. |
 | `callId` | The call's id. The model call's node in the turn's [provenance](../trace-an-answer/) has the same `callId`. |
+| `thinking` | How much the call asked its model to think. `asked` is the level it asked for: the agent's model settings, or a guardrail judge's `lowest`. `level` is the level sent, and `sent` the vendor's own fields as they went out. Absent when the call neither asked nor sent one. |
+
+A call to a model that thinks carries what it sent. Here, an agent asked for
+`max` of Gemini 3.8 Flash, whose highest level is `high`:
+
+```json excerpt
+"thinking": { "asked": "max", "level": "high", "sent": { "thinkingLevel": "HIGH" } }
+```
+
+- **`asked` and `level` differ:** the level was rounded to one the model
+  takes, and the turn carried a `thinking-level-adjusted` warning, as
+  [Temperature and thinking](../../models/#temperature-and-thinking)
+  describes.
+- **`asked` without `level`:** nothing was sent, since the model doesn't
+  think or its adapter didn't send the level.
+- **`level` without `asked`:** the call asked none, and got the model's
+  registered `thinking.default`.
 
 To see the usage exactly as the provider sent it, add `includeRawUsage: true`,
 or `include="rawUsage"` in Python. Each record then has `rawUsage`:
@@ -225,6 +242,26 @@ val calls = kindgi.cost().records().list(CostRecordsListParams.builder().rootRun
 
 Each record's `runId` is the agent step's run, and its `rootRunId` is the
 flow's run.
+
+To see what each step cost, read the flow run's provenance record. Once the
+run has finished, `GET /v1/provenance/{runId}` with the flow run's id returns
+`stepUsage` beside the record's graph. It has each step's calls, their cost
+in USD and their tokens, keyed by the step's node id in the record
+(`step:classify`), and it sums every run
+the step started and the runs under those:
+
+```json excerpt
+  "stepUsage": {
+    "step:classify": {"calls": 1, "costUsd": 0, "tokens": {"prompt": 20, "completion": 6, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0}}
+  }
+```
+
+A step that made no model calls has no entry. A step the record has no node
+for has no entry either, such as one cut from a record over its size limit,
+so the entries can sum to less than the whole tree. In a loop, each
+iteration's step has its own entry, and a long loop's folded iterations
+share their `#folded` node's entry.
+[A flow's answers](../trace-an-answer/#a-flows-answers) reads the record.
 
 ## One customer's month
 
@@ -453,7 +490,8 @@ The sum covers only that customer's runs:
 - **Filters** narrow what's summed, as they narrow `cost.usage.query`.
   `flowId` keeps one flow's spend: every record of the run trees whose root
   is a run of that flow, whatever its version. With `groupBy` `day`, that's
-  the flow's spend by day. In Python, it's `flow_id`.
+  the flow's spend by day. In Python, it's `flow_id`. It needs runtime
+  0.1.9 or later: an earlier one ignores it and sums every flow.
 
 A tool can check that a run belongs to the right customer, as
 [Check the run's org](../../tools/write-a-tool/#check-the-runs-org) shows.
@@ -515,43 +553,49 @@ It has no `usage`, and it counts in `run.finished`'s `calls`.
 ## Cost in the console
 
 The console shows the same numbers on three pages: a project's **Cost**, a
-run's **Cost** tab, and the tenant's **Tenant costs**. Days are in UTC, and a
+run's **Cost** page, and **Workspace costs**. Days are in UTC, and a
 failed call costs $0.
 
 ### A project's cost
 
 Anyone who can read the project sees its **Cost** page: what its model calls
 cost over a range, against the range before. The range is **7 days**,
-**30 days**, **90 days**, **12 months** or **Custom**.
+**30 days**, **90 days**, **12 months** or **Custom**. Its pages split the
+cost **By agent**, **By model**, **By flow** or **By kind**. The
+breadcrumbs at the top end on the one you're on, such as
+**Cost › By agent ▾**, and its ▾, **Cost pages**, lists the others.
 
-![A project's Cost page over 30 days: "$24.17 in the last 30 days, 77% more than the 30 days before.", "1,508 model calls · 8.4M tokens", spend by day stacked by agent, and Where it went by agent, with its Columns menu and Support agent at $15.00 (62%), 33% more than the 30 days before.](../../../../assets/cost/cost-30d.png)
+![A project's Cost page over 30 days, its breadcrumbs ending Cost › By agent ▾: "$23.99" and "Last 30 days · 77% more than the 30 days before · 1,503 model calls · 8.4M tokens", spend by day stacked by agent, and Where it went, by agent, with its Columns menu and Support agent at $14.79 (62%), "33% more (was $11.12)".](../../../../assets/cost/cost-30d.png)
 
-- **The headline:** "$24.17 in the last 30 days, 77% more than the 30 days
-  before." and "1,508 model calls · 8.4M tokens".
+- **The headline:** "$23.99", and "Last 30 days · 77% more than the 30 days
+  before · 1,503 model calls · 8.4M tokens".
 - **Spend by day (UTC), by agent:** a stacked chart, with a sentence under
-  it ("the costliest day was 8 Oct ($1.19). Support agent is 62% of it.").
+  it ("the costliest day was 30 Oct ($1.19). Support agent is 62% of it.").
   **Show as a table** gives the numbers. Over 12 months it's by month.
-- **Where it went:** **By agent**, **By model**, **By flow** or **By kind**,
-  the costliest against the range before ("33% more (was $11.28)", "new").
-  An agent's or a model's row filters the page to it. The table sorts by
-  a column's header, and **Columns** chooses which columns it shows.
+- **Where it went, by agent** (or by model, flow or kind): the costliest
+  against the range before ("33% more (was $11.12)", "New").
+  An agent's or a model's row filters the page to it. So does a flow's,
+  and a flow's page opens this page filtered to that flow with **Cost**
+  (both runtime 0.1.9 or later). The table sorts by a column's header, and
+  **Columns** chooses which columns it shows.
 - **Biggest changes:** against the range before, by dollars ("Research
-  agent new: $8.57", "Legacy summarizer −$1.81 (none now)").
-- **Per-turn caps:** each agent with a budget for one turn, and how close its
-  turns came ("Costliest turn $0.14 of $0.12; 36 turns used over 80% of it, 4
-  turns went over.").
+  agent new: $8.62", "Legacy summarizer −$1.81 (none now)").
+- **Per-turn caps:** each agent with a budget for one turn, and how close
+  its turns came: its **Cap a turn**, **Costliest turn**, **Turns over 80%**
+  and **Over the cap**, such as $0.12, $0.14, 35 and 4.
 - **Details:** the token split, and the exact
   [`GET /v1/cost/aggregate`](#one-customers-month) queries the page made.
 
-The range and the breakdown are in the page's address, so a link opens the
-same view.
+The range, the filters and the breakdown are in the page's address, so a
+link opens the same view.
 
 ### A run's cost
 
-Every run's page has a **Cost** tab: the [run's calls](#a-runs-calls), as
+Every run has a **Cost** page, in the ▾ at the end of its breadcrumbs: the
+[run's calls](#a-runs-calls), as
 `cost.usage.query` returns them.
 
-![A flow run's Cost tab: "$0.08 over 7 model calls, its child runs included." and "The costliest call: step 2 of answer · Dev-Echo Agent (large-model), $0.05.", then each child run's calls with step, model, tokens, cost and time.](../../../../assets/cost/run-cost-flow.png)
+![A flow run's Cost page: "$0.08 over 7 model calls, its child runs included." and "The costliest call: step 2 of answer · Dev-Echo Agent (large-model), $0.05.", then each child run's calls with step, model, tokens, cost and time.](../../../../assets/cost/run-cost-flow.png)
 
 - **The total,** with a [flow's child runs](#a-flows-whole-run) included:
   "$0.08 over 7 model calls, its child runs included."
@@ -564,22 +608,23 @@ Every run's page has a **Cost** tab: the [run's calls](#a-runs-calls), as
 - **Details,** for one call: the call's id, the provider and its request
   id, how it finished, its attempts, cache-read tokens and when it was made.
 
-![An agent turn's Cost tab with the first call's Details open: its call id, provider, provider request, finish, attempts and cache-read tokens; the second call failed with "upstream timeout" and cost $0.00.](../../../../assets/cost/run-cost-turn.png)
+![An agent turn's Cost page with the first call's Details open: its call id, provider, provider request, finish, attempts, cache-read tokens and when it was made; the second call failed with "upstream timeout" and cost $0.00.](../../../../assets/cost/run-cost-turn.png)
 
-A flow run's **Overview** tab gives the same total: "Cost: $0.08 over 7
+A flow run's **Overview** page gives the same total: "Cost: $0.08 over 7
 model calls, its child runs included. Each call →".
 
-### The tenant's costs
+### The workspace's costs
 
-Tenant admins see **Tenant costs**: every project's spend, laid out like a
+Tenant admins see **Workspace costs**: every project's spend, laid out like a
 project's Cost page.
 
-![Tenant costs over 30 days: "$48.33 in the last 30 days, 77% more than the 30 days before.", "3,016 model calls · 16.9M tokens", spend by day stacked by project, and Where it went by project: Default and Ops, $24.17 each.](../../../../assets/cost/tenant-costs.png)
+![Tenant costs over 30 days, its breadcrumbs ending Tenant costs › By project ▾: "$47.99" and "Last 30 days · 77% more than the 30 days before · 3,006 model calls · 16.7M tokens", spend by day stacked by project, and Where it went, by project: First Project and Ops, $23.99 each.](../../../../assets/cost/tenant-costs.png)
 
 - **The headline,** and **Spend by day (UTC), by project.**
-- **Where it went:** **By project**, **By org**, **By agent** or **By
-  model**. A project's row opens that project's Cost page at the same range,
-  and an agent's or a model's row filters this page.
+- **Where it went, by project:** its pages, in the ▾ **Cost pages**, are
+  **By project**, **By org**, **By agent** and **By model**. A project's row
+  opens that project's Cost page at the same range, and an agent's or a
+  model's row filters this page.
 - **Biggest changes** and **Details,** as on a project's page.
 
 Anyone else who opens it is pointed to each project's Cost page instead. As

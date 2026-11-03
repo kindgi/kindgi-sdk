@@ -6,7 +6,7 @@ import { RE2JS, RE2JSException, RE2JSSyntaxException } from 're2js';
 import { tenantInputBounds } from './bounds.js';
 
 /**
- * A tenant's pattern, compiled for the engine the process's bounds name.
+ * A workspace's pattern, compiled for the engine the process's bounds name.
  * Both answers are those of the JavaScript `RegExp` it was written as,
  * starting from the beginning of `input` each time (`lastIndex` 0).
  */
@@ -28,7 +28,7 @@ export type CompiledTenantPattern =
   | { readonly kind: 'refused'; readonly reason: string };
 
 /**
- * Compiles a pattern a tenant wrote (a JavaScript regular expression's
+ * Compiles a pattern a workspace wrote (a JavaScript regular expression's
  * source and flags) under the process's bounds: no longer than
  * `patternMaxLength` with its flags, on V8's engine or on RE2's.
  *

@@ -15,13 +15,16 @@ needs from that provider.
 - **Sign-in is on for your runtime, and you're an admin of the workspace,**
   with the `kindgi` CLI set up as [Set up SSO](../#before-you-start) says.
 - **Someone who can create a web application in your identity provider.**
+- **For `kindgi` commands:** Kindgi 0.2's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.2` ([Install](../../../start/install/)). Inside a
+  pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## 1. Get the redirect URI
 
 `start` gives you the redirect URI to enter in your identity provider:
 
 ```sh
-kindgi sso providers start acme-oidc --kind=oidc
+npx --yes @kindgi/cli@0.2 sso providers start acme-oidc --kind=oidc
 ```
 
 - `acme-oidc` is the provider's id in your workspace.
@@ -71,7 +74,7 @@ Store the secret in Kindgi's secret store, by name, so it never travels by
 email or chat:
 
 ```sh
-kindgi secrets set ACME_OIDC_SECRET --env=production --scope=tenant
+npx --yes @kindgi/cli@0.2 secrets set ACME_OIDC_SECRET --env=production --scope=tenant
 ```
 
 - `ACME_OIDC_SECRET` is the secret's name. The registration keeps only this
@@ -103,7 +106,7 @@ Re-enter to confirm:
 `finish` registers the app, and offers it to people at your domains:
 
 ```sh
-kindgi sso providers finish acme-oidc --kind=oidc --issuer=<issuer> \
+npx --yes @kindgi/cli@0.2 sso providers finish acme-oidc --kind=oidc --issuer=<issuer> \
   --client-id=<client id> --client-secret-ref=ACME_OIDC_SECRET --domains=<your domain>
 ```
 

@@ -20,9 +20,9 @@ same key returns the run the first one started.
 - **A registered flow** to start. This guide starts `acme.review-order`; use
   your own flow's id. [Write a flow](../../flows/write-a-flow/) shows how to
   write and register one.
-- **A runtime to start it on,** such as `kindgi dev`, and Kindgi 0.1's CLI.
+- **A runtime to start it on,** such as `kindgi dev`, and Kindgi 0.2's CLI.
 - **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
-  Java 17 or later, with Kindgi 0.1's client, and `KINDGI_API_URL` and
+  Java 17 or later, with Kindgi 0.2's client, and `KINDGI_API_URL` and
   `KINDGI_API_TOKEN` set.
 
 ## Pick a key that names the work
@@ -41,9 +41,36 @@ Starting the same run twice shows what a repeat gets.
 
 Run this twice:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --flow=acme.review-order --input='{"orderId":"A-100"}' --idempotency-key=order-A-100-review
+pnpm exec kindgi runs start --flow=acme.review-order --input='{"orderId":"A-100"}' --idempotency-key=order-A-100-review
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.review-order --input='{"orderId":"A-100"}' --idempotency-key=order-A-100-review
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.review-order --input='{"orderId":"A-100"}' --idempotency-key=order-A-100-review
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.review-order --input='{"orderId":"A-100"}' --idempotency-key=order-A-100-review
+```
+
+</TabItem>
+</Tabs>
 
 - `--flow=acme.review-order` is the id of the flow to start.
 - `--input='{"orderId":"A-100"}'` is the run's input, as JSON.
@@ -242,6 +269,14 @@ refused, and nothing started.
   The clients don't retry it on their own. A request that stops without
   answering, such as when its runtime crashed, frees its key within 30
   seconds.
+- **A request whose key can't be checked doesn't run.** When the store that
+  keeps the keys can't be read, the request is refused as unavailable,
+  `idempotency-store-unavailable`, with `Retry-After: 5`, and nothing starts.
+  Retry with the same key. The Python client retries it on its own, twice by
+  default, waiting as `Retry-After` says; the TypeScript client and the CLI
+  don't. When the first request started the run but its response couldn't
+  be kept, a repeat gets `idempotency-key-in-flight` for up to 30 seconds,
+  and after that it starts another run.
 - **The key must come with the same request.** The same key with a different
   body, such as another input or other options, is refused with a conflict.
   Nothing starts, also while the first request is still running. Bodies are
@@ -249,7 +284,7 @@ refused, and nothing started.
 - **Only an answer that succeeded is kept.** A refused start isn't kept, such
   as one for a flow that isn't registered (`404 flow-not-found`). Once you've
   fixed the cause, the same start with the same key runs.
-- **Keys are kept for 24 hours, per tenant and per caller.** The same key from
+- **Keys are kept for 24 hours, per workspace and per caller.** The same key from
   another person or another API key is their own request, and never gets
   your response.
 - **A response that carries a secret isn't kept.** That's a new API key, a

@@ -1,6 +1,6 @@
 ---
 title: Verify a webhook
-description: Check a webhook's signature against the raw body in TypeScript or Python, reject anything else, and handle each event once.
+description: Check a webhook's signature against the raw body in TypeScript, Python or Java, reject anything else, and handle each event once.
 sidebar:
   order: 2
 ---
@@ -18,10 +18,12 @@ signed it with your secret, against the **raw** body, before you parse it.
 - **A webhook endpoint registered,** with its signing secret stored as
   `ACME_WEBHOOK_SECRET`, as
   [Get a webhook when a run finishes](../receive-run-finished/) shows.
-- **For TypeScript:** Node 22.12 or later, with Kindgi 0.1's
+- **For TypeScript:** Node 22.12 or later, with Kindgi 0.2's
   `@kindgi/sdk`.
-- **For Python:** Python 3.11 or later, with Kindgi 0.1's `kindgi`, and
+- **For Python:** Python 3.11 or later, with Kindgi 0.2's `kindgi`, and
   FastAPI, uvicorn and httpx.
+- **For Java or Scala:** JDK 17 or later, with Kindgi 0.2's
+  `com.kindgi:kindgi-client`. Scala apps call the helper the same way.
 
 ## A receiver
 
@@ -158,12 +160,100 @@ Run it with `ACME_WEBHOOK_SECRET` set: `uv run uvicorn receiver:app --port 8788`
 </TabItem>
 <TabItem label="Java">
 
-Not in the Java SDK. Kindgi's deliveries are [Standard Webhooks](https://www.standardwebhooks.com), so a Standard Webhooks library verifies them with the same secret: see [Other languages](#other-languages).
+Use `Webhooks.verify` from `com.kindgi.client.webhooks`, then
+`Webhooks.parseEvent` for the typed event. `verify` takes your endpoint's one
+signing secret. This receiver uses the JDK's built-in `HttpServer`; with a
+framework (a servlet, Spring), pass the request's headers as a lookup by
+lower-case name and its unparsed body the same way.
+
+```java
+// src/main/java/com/acme/app/Receiver.java
+package com.acme.app;
+
+import com.kindgi.client.KindgiJsonException;
+import com.kindgi.client.models.RunFinishedEvent;
+import com.kindgi.client.models.WebhookEvent;
+import com.kindgi.client.webhooks.VerifiedWebhook;
+import com.kindgi.client.webhooks.WebhookVerificationException;
+import com.kindgi.client.webhooks.Webhooks;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+
+public final class Receiver {
+  private static final String secret = System.getenv("ACME_WEBHOOK_SECRET");
+  private static final Set<String> handled = ConcurrentHashMap.newKeySet(); // use your database in production
+
+  public static void main(String[] args) throws IOException {
+    HttpServer server = HttpServer.create(new InetSocketAddress(8789), 0);
+    server.createContext("/hooks/kindgi", Receiver::handle);
+    server.start();
+    System.out.println("listening on http://localhost:8789/hooks/kindgi");
+  }
+
+  private static void handle(HttpExchange exchange) throws IOException {
+    if (!"POST".equals(exchange.getRequestMethod())) {
+      respond(exchange, 404);
+      return;
+    }
+    byte[] body = exchange.getRequestBody().readAllBytes(); // the raw bytes, unparsed
+
+    VerifiedWebhook delivery;
+    try {
+      // The lookup takes a lower-case header name, like a servlet request's getHeader.
+      delivery = Webhooks.verify(secret, name -> exchange.getRequestHeaders().getFirst(name), body);
+    } catch (WebhookVerificationException err) {
+      System.out.println("rejected: " + err.reason());
+      respond(exchange, 401);
+      return;
+    }
+    if (!handled.add(delivery.id())) {
+      respond(exchange, 204); // a retry of an event you already handled
+      return;
+    }
+
+    WebhookEvent event;
+    try {
+      event = Webhooks.parseEvent(body);
+    } catch (KindgiJsonException err) {
+      // Signed, but a known type whose fields this version can't read: a retry wouldn't read better.
+      System.out.println("skipped: " + err.getMessage());
+      respond(exchange, 204);
+      return;
+    }
+    if (event instanceof RunFinishedEvent finished) {
+      var run = finished.data().run();
+      System.out.println("run finished: " + run.id() + " " + run.flowId() + " " + run.status().asString());
+    } else if (event instanceof WebhookEvent.Unrecognized) {
+      // A newer runtime's event type this version doesn't know: answer 2xx and ignore it.
+      System.out.println("skipped: " + event.type());
+    } else {
+      System.out.println("event: " + event.type());
+    }
+    respond(exchange, 204);
+  }
+
+  private static void respond(HttpExchange exchange, int status) throws IOException {
+    exchange.sendResponseHeaders(status, -1);
+    exchange.close();
+  }
+
+  private Receiver() {}
+}
+```
+
+Run it with `ACME_WEBHOOK_SECRET` set, the way your app runs Java.
 
 </TabItem>
 <TabItem label="Scala">
 
-Not in the Scala SDK. Kindgi's deliveries are [Standard Webhooks](https://www.standardwebhooks.com), so a Standard Webhooks library for the JVM verifies them with the same secret: see [Other languages](#other-languages).
+Scala apps use the Java helper. Call `Webhooks.verify` and
+`Webhooks.parseEvent` from `com.kindgi.client.webhooks` as the Java tab shows —
+pass the request's headers as a `java.util.Map[String, String]` (names match
+case-insensitively) and the unparsed body as `Array[Byte]`.
 
 </TabItem>
 </Tabs>
@@ -291,12 +381,61 @@ Run it with `ACME_WEBHOOK_SECRET` set, while the receiver runs:
 </TabItem>
 <TabItem label="Java">
 
-Not in the Java SDK. Kindgi's deliveries are [Standard Webhooks](https://www.standardwebhooks.com), so a Standard Webhooks library verifies them with the same secret: see [Other languages](#other-languages).
+```java
+// src/main/java/com/acme/app/TestReceiver.java
+package com.acme.app;
+
+import com.kindgi.client.webhooks.Webhooks;
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+
+public final class TestReceiver {
+  public static void main(String[] args) throws IOException, InterruptedException {
+    String body =
+        "{\"id\":\"evt-test-1\",\"type\":\"webhook.test\","
+            + "\"createdAt\":\"2026-10-03T12:00:00.000Z\",\"data\":{\"endpointId\":\"local\"}}";
+    byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+    long timestamp = Instant.now().getEpochSecond();
+
+    HttpClient http = HttpClient.newHttpClient();
+    for (String secret : List.of(System.getenv("ACME_WEBHOOK_SECRET"), Webhooks.generateSecret())) {
+      Map<String, String> signed = Webhooks.signedHeaders(secret, "evt-test-1", timestamp, bytes);
+      HttpRequest.Builder request =
+          HttpRequest.newBuilder(URI.create("http://localhost:8789/hooks/kindgi"))
+              .header("content-type", "application/json")
+              .POST(HttpRequest.BodyPublishers.ofByteArray(bytes));
+      signed.forEach(request::header);
+      HttpResponse<Void> res = http.send(request.build(), HttpResponse.BodyHandlers.discarding());
+      System.out.println(res.statusCode());
+    }
+  }
+
+  private TestReceiver() {}
+}
+```
+
+Run it with `ACME_WEBHOOK_SECRET` set, while the receiver runs, the way your
+app runs Java. It prints each request's status:
+
+```text
+204
+401
+```
 
 </TabItem>
 <TabItem label="Scala">
 
-Not in the Scala SDK. Kindgi's deliveries are [Standard Webhooks](https://www.standardwebhooks.com), so a Standard Webhooks library for the JVM verifies them with the same secret: see [Other languages](#other-languages).
+Scala apps use the Java helper: `Webhooks.generateSecret` for a secret and
+`Webhooks.signedHeaders` for the three signed headers, from
+`com.kindgi.client.webhooks`, as the Java tab shows. Send the same bytes you
+signed.
 
 </TabItem>
 </Tabs>

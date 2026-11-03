@@ -246,6 +246,17 @@ describe('secret writes are recorded at the route', () => {
     expect(docOf(hard)).toMatchObject({ hard: true });
   });
 
+  test('a hard revoke that left a recoverable copy records until when (recoverableUntil)', async () => {
+    const until = '2026-11-22T21:00:00.000Z';
+    const { call, recorded } = harness({
+      revoke: { kind: 'ok', value: { revoked: true, hard: true, recoverableUntil: until } },
+    });
+    expect(await call('DELETE', `/v1/secrets/stripe-key?${queryScope}&hard=true`)).toBe(200);
+    const [event] = await recorded();
+    expect(event).toMatchObject({ kind: 'secret-hard-revoked', outcome: 'succeeded' });
+    expect(docOf(event)).toMatchObject({ hard: true, recoverableUntil: until });
+  });
+
   test('a revoke that changed nothing is not recorded', async () => {
     const { call, recorded } = harness({
       revoke: { kind: 'ok', value: { revoked: false, hard: false } },

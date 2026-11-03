@@ -53,7 +53,7 @@ export type {
   EdgeId,
   EventId,
   FactId,
-  FixProposalId,
+  SuggestedChangeId,
   FlowId,
   InstallationId,
   GuardrailId,

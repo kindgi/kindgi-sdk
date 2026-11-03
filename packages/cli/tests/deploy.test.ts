@@ -23,6 +23,7 @@
  *   - Unsigned envelope refused unless --dry-run.
  */
 
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -32,10 +33,14 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { DEPLOY_ENVELOPE_SCHEMA } from '../src/build/envelope.js';
 import { postDeploymentReal } from '../src/deploy/post.js';
 import type {
+  CountKeptBuildsOptions,
+  CountKeptBuildsResult,
   DeployRunners,
   DeploymentEndpointRecord,
   DeploymentRecord,
+  EnvironmentOrderRow,
   GetDeploymentResult,
+  GetPackEnvResult,
   LoadEnvelopeResult,
   PostDeploymentOptions,
   PostDeploymentResult,
@@ -44,7 +49,10 @@ import type {
   SyncSecretsOptions,
   SyncSecretsResult,
 } from '../src/deploy/runners.js';
+import type { DeploySource } from '../src/deploy/source.js';
+import type { PackEnvNameRecord } from '../src/env/pack-env-hint.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
+import { CLI_VERSION } from '../src/version-info.js';
 import { fakeRateLimitWaits } from './rate-limit-waits.js';
 
 let cwd: string;
@@ -138,10 +146,15 @@ interface Fixtures {
     buildCalls: number;
     syncCalls: number;
     findCalls: number;
+    listCalls: number;
+    /** The endpoint each served-env lookup asked. */
+    servedCalls: string[];
     capturedPost?: PostDeploymentOptions;
     capturedFindSlug?: string;
     capturedBuild?: RunBuildOptions;
     capturedSync?: SyncSecretsOptions;
+    /** The folder `readSource` was asked about. */
+    sourceAsked?: string;
   };
 }
 
@@ -159,6 +172,14 @@ interface FixtureOptions {
   readonly omitSyncRunner?: boolean;
   /** The tenant's projects, for `--project <slug>`; absent: no lookup runner. */
   readonly projects?: readonly { id: string; name: string; slug: string; orgId?: string }[];
+  /** The environment orders the token reads; with `projects`, the reads a refusal into a later environment makes. */
+  readonly orders?: readonly EnvironmentOrderRow[];
+  /** Which of those reads answers an error. */
+  readonly failedList?: 'projects' | 'orders';
+  /** What the runtime says it serves (whoami's `servedEnv`); absent: no lookup runner. */
+  readonly servedEnv?: { readonly envName: string; readonly refusesOtherEnvs: boolean };
+  /** Where `readSource` says the pack lives in git, `null` for nowhere; absent: no such runner. */
+  readonly source?: DeploySource | null;
 }
 
 function makeFixtures(opts: FixtureOptions = {}): Fixtures {
@@ -168,6 +189,8 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
     buildCalls: 0,
     syncCalls: 0,
     findCalls: 0,
+    listCalls: 0,
+    servedCalls: [],
   };
   const envelope = opts.envelope ?? makeEnvelope();
   const runners: DeployRunners = {
@@ -190,6 +213,20 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
       };
     },
   };
+  if (opts.source !== undefined) {
+    const source = opts.source;
+    (runners as { readSource?: DeployRunners['readSource'] }).readSource = async (dir) => {
+      state.sourceAsked = dir;
+      return source ?? undefined;
+    };
+  }
+  if (opts.servedEnv !== undefined) {
+    const served = opts.servedEnv;
+    (runners as { servedEnv?: DeployRunners['servedEnv'] }).servedEnv = async (o) => {
+      state.servedCalls.push(o.endpoint);
+      return served;
+    };
+  }
   if (opts.projects !== undefined) {
     const projects = opts.projects;
     (runners as { findProjects?: DeployRunners['findProjects'] }).findProjects = async (o) => {
@@ -201,6 +238,20 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
           .filter((p) => p.slug === o.slug)
           .map(({ id, name, orgId }) => ({ id, name, ...(orgId !== undefined && { orgId }) })),
       };
+    };
+  }
+  if (opts.projects !== undefined && opts.orders !== undefined) {
+    const { projects, orders } = opts;
+    const failed = { kind: 'error', message: 'GET answered 503' } as const;
+    (runners as { listProjects?: DeployRunners['listProjects'] }).listProjects = async () => {
+      state.listCalls += 1;
+      return opts.failedList === 'projects' ? failed : { kind: 'ok', projects };
+    };
+    (
+      runners as { listEnvironmentOrders?: DeployRunners['listEnvironmentOrders'] }
+    ).listEnvironmentOrders = async () => {
+      state.listCalls += 1;
+      return opts.failedList === 'orders' ? failed : { kind: 'ok', orders };
     };
   }
   if (!opts.omitSyncRunner) {
@@ -466,6 +517,35 @@ describe('kindgi deploy — POST body + Idempotency-Key', () => {
     expect(fixtures2.state.capturedPost?.idempotencyKey).toBe(key);
   });
 
+  test('inside a git work tree, the body says where the pack lives, and the key covers it', async () => {
+    await writeAutoEnvelope();
+    const source: DeploySource = {
+      repo: 'github.com/acme/agents',
+      path: 'packs/support',
+      commit: 'a'.repeat(40),
+      branch: 'main',
+      dirty: false,
+    };
+    const inGit = makeFixtures({ source });
+    await runCli({
+      ...baseInputs(inGit),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`],
+    });
+    expect(inGit.state.sourceAsked).toBe(packDir);
+    expect(inGit.state.capturedPost?.body.source).toEqual(source);
+
+    const outside = makeFixtures({ source: null });
+    await runCli({
+      ...baseInputs(outside),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`],
+    });
+    expect(outside.state.sourceAsked).toBe(packDir);
+    expect(outside.state.capturedPost?.body).not.toHaveProperty('source');
+    expect(outside.state.capturedPost?.idempotencyKey).not.toBe(
+      inGit.state.capturedPost?.idempotencyKey,
+    );
+  });
+
   test('--idempotency-key overrides the derived value', async () => {
     await writeAutoEnvelope();
     const fixtures = makeFixtures();
@@ -510,12 +590,16 @@ describe('kindgi deploy — response handling', () => {
     expect(out.stderr).toContain('201 Created');
     expect(out.stderr).toContain('deploymentId:    dep-created-01');
     expect(out.stderr).toContain('primitives:      1 tool');
+    expect(out.stderr).toContain('Deploy complete.');
+    expect(out.stderr).toContain('already in flight');
+    expect(out.stderr).not.toContain('Nothing new was deployed');
     const summary = JSON.parse(out.stdout) as { outcome: string; deployment: DeploymentRecord };
     expect(summary.outcome).toBe('created');
+    expect(summary).not.toHaveProperty('idempotentReplay');
     expect(summary.deployment.deploymentId).toBe('dep-created-01');
   });
 
-  test('200 OK (idempotent replay) → exit 0, banner notes replay', async () => {
+  test('200 OK (this image was deployed before) → exit 0, banner notes it', async () => {
     await writeAutoEnvelope();
     const fixtures = makeFixtures({
       postResult: {
@@ -529,8 +613,10 @@ describe('kindgi deploy — response handling', () => {
       argv: ['deploy', '--env=staging', `--path=${packDir}`],
     });
     expect(out.exitCode).toBe(0);
-    expect(out.stderr).toContain('200 OK (idempotent replay)');
-    expect(out.stderr).toContain('previously landed');
+    expect(out.stderr).toContain('200 OK (this image was deployed before)');
+    expect(out.stderr).toContain(
+      'was deployed before, so the server answered with that deployment.',
+    );
     const summary = JSON.parse(out.stdout) as { outcome: string };
     expect(summary.outcome).toBe('replayed');
   });
@@ -603,6 +689,137 @@ describe('kindgi deploy — response handling', () => {
     expect(out.stderr).not.toContain('This answer is a replay');
   });
 
+  describe('409 environment-takes-promotions: a deploy into a later environment of its order', () => {
+    const STAGING = '11111111-1111-4111-8111-111111111111';
+    const QA = '22222222-2222-4222-8222-222222222222';
+    const PROD = '33333333-3333-4333-8333-333333333333';
+    const projects = [
+      { id: STAGING, name: 'Staging', slug: 'acme-staging' },
+      { id: QA, name: 'QA', slug: 'acme-qa' },
+      { id: PROD, name: 'Prod', slug: 'acme-prod' },
+    ];
+    const orders = [
+      { entries: [{ position: 0 }] },
+      {
+        entries: [
+          { position: 2, projectId: PROD },
+          { position: 0, projectId: STAGING },
+          { position: 1, projectId: QA },
+        ],
+      },
+    ];
+    const refused = (details: { position: number; firstProjectId?: string }) =>
+      ({
+        kind: 'wire-error',
+        status: 409,
+        error: {
+          code: 'environment-takes-promotions',
+          message:
+            "This project is a later environment of its environment order (position 2), and a later environment takes builds only by promotion from the one before it. Deploy into the order's first environment and promote the build from there. Nothing was deployed.",
+          ...details,
+        },
+      }) as const;
+    /** The pack config: staging (the test default) plus qa and prod, each naming its project. */
+    const environments = (staging: Record<string, unknown>) => ({
+      environments: {
+        staging: { ...staging, project: 'acme-staging' },
+        qa: { endpoint: 'https://api.staging.example.com', project: 'acme-qa' },
+        prod: { endpoint: 'https://api.staging.example.com', project: PROD },
+      },
+    });
+
+    test('names the first environment and prints each promote on the way, from the pack config', async () => {
+      await writeAutoEnvelope();
+      const fixtures = makeFixtures({
+        postResult: refused({ position: 2, firstProjectId: STAGING }),
+        projects,
+        orders,
+      });
+      const staging = (testConfig().environments as { staging: Record<string, unknown> }).staging;
+      const out = await runCli({
+        ...baseInputs(fixtures, {}, environments(staging)),
+        argv: ['deploy', '--env=staging', `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(1);
+      expect(fixtures.state.postCalls).toBe(1);
+      expect(fixtures.state.listCalls).toBe(2);
+      expect(out.stderr).toContain('code:    environment-takes-promotions');
+      expect(out.stderr.replace(/\s+/g, ' ')).toContain(
+        'Builds reach prod only by promotion from the environment before it. A build enters its environment order at staging, the first environment: deploy there, then promote the build one environment at a time.',
+      );
+      expect(out.stderr).toContain(
+        '\n      kindgi promote --from=staging --to=qa\n      kindgi promote --from=qa --to=prod\n',
+      );
+    });
+
+    test("two environments that name one project: the config's first names it", async () => {
+      await writeAutoEnvelope();
+      const fixtures = makeFixtures({
+        postResult: refused({ position: 2, firstProjectId: STAGING }),
+        projects,
+        orders,
+      });
+      const staging = (testConfig().environments as { staging: Record<string, unknown> }).staging;
+      // `preview`, after the others in the config, names staging's project too.
+      const config = {
+        environments: {
+          ...environments(staging).environments,
+          preview: { endpoint: 'https://api.staging.example.com', project: STAGING },
+        },
+      };
+      const out = await runCli({
+        ...baseInputs(fixtures, {}, config),
+        argv: ['deploy', '--env=staging', `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        '\n      kindgi promote --from=staging --to=qa\n      kindgi promote --from=qa --to=prod\n',
+      );
+    });
+
+    test("without the first environment (the caller can't read it), says the rule and where the order is, and reads nothing", async () => {
+      await writeAutoEnvelope();
+      const fixtures = makeFixtures({ postResult: refused({ position: 1 }), projects, orders });
+      const staging = (testConfig().environments as { staging: Record<string, unknown> }).staging;
+      const out = await runCli({
+        ...baseInputs(fixtures, {}, environments(staging)),
+        argv: ['deploy', '--env=staging', `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(1);
+      expect(fixtures.state.listCalls).toBe(0);
+      const text = out.stderr.replace(/\s+/g, ' ');
+      expect(text).toContain(
+        'A build enters an environment order at its first environment and moves on one environment at a time, by promotion. Deploy into the first environment, then promote the build from there, one `kindgi promote --from=<environment> --to=<the next one>` at a time. `kindgi environments list` shows the order.',
+      );
+      expect(out.stderr).not.toContain('      kindgi promote --from=');
+    });
+
+    test.each(['projects', 'orders'] as const)(
+      'when reading the %s fails, says the rule and where the order is',
+      async (failedList) => {
+        await writeAutoEnvelope();
+        const fixtures = makeFixtures({
+          postResult: refused({ position: 2, firstProjectId: STAGING }),
+          projects,
+          orders,
+          failedList,
+        });
+        const staging = (testConfig().environments as { staging: Record<string, unknown> }).staging;
+        const out = await runCli({
+          ...baseInputs(fixtures, {}, environments(staging)),
+          argv: ['deploy', '--env=staging', `--path=${packDir}`],
+        });
+        expect(out.exitCode).toBe(1);
+        expect(fixtures.state.listCalls).toBe(2);
+        expect(out.stderr).toContain('code:    environment-takes-promotions');
+        expect(out.stderr.replace(/\s+/g, ' ')).toContain(
+          '`kindgi environments list` shows the order.',
+        );
+        expect(out.stderr).not.toContain('      kindgi promote --from=');
+      },
+    );
+  });
+
   test('a refusal the server replays (a runtime before 0.1.3): says so, and how to retry', async () => {
     await writeAutoEnvelope();
     const fixtures = makeFixtures({
@@ -624,7 +841,7 @@ describe('kindgi deploy — response handling', () => {
     expect(out.stderr).toContain('with a new key: --idempotency-key <new value>.');
   });
 
-  test('a deployment answered from the record of an earlier request with the same key says so', async () => {
+  test('a deployment answered from the record of an earlier request with the same key says nothing new was deployed', async () => {
     await writeAutoEnvelope();
     const fixtures = makeFixtures();
     const created = fixtures.runners.postDeployment;
@@ -641,8 +858,45 @@ describe('kindgi deploy — response handling', () => {
     });
     expect(out.exitCode).toBe(0);
     expect(out.stderr).toContain(
-      "answered from the server's record of an earlier request with this Idempotency-Key",
+      'Nothing new was deployed: the server answered from its record of an earlier request with this Idempotency-Key',
     );
+    expect(out.stderr).toContain('was built, build it again first.');
+    expect(out.stderr).not.toContain('Deploy complete.');
+    expect(out.stderr).not.toContain('Runs started from now use image');
+    expect(out.stderr).not.toContain('already in flight');
+    const summary = JSON.parse(out.stdout) as { outcome: string; idempotentReplay?: boolean };
+    expect(summary.outcome).toBe('created');
+    expect(summary.idempotentReplay).toBe(true);
+  });
+
+  test('a digest that already landed, answered from the record of an earlier request, says both', async () => {
+    await writeAutoEnvelope();
+    const fixtures = makeFixtures({
+      postResult: {
+        kind: 'replayed',
+        status: 200,
+        idempotentReplay: true,
+        record: makeDeploymentRecord({
+          deploymentId: 'dep-replayed-02',
+          endpoint: { status: 'pending', since: '2026-10-13T08:00:00.000Z' },
+        }),
+      },
+    });
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(0);
+    expect(out.stderr).toContain('Nothing new was deployed');
+    expect(out.stderr).toContain(
+      'was deployed before, so the server answered with that deployment.',
+    );
+    expect(out.stderr).not.toContain('Its pack service');
+    expect(out.stderr).not.toContain('Deploy complete.');
+    expect(out.stderr).not.toContain('already in flight');
+    const summary = JSON.parse(out.stdout) as { outcome: string; idempotentReplay?: boolean };
+    expect(summary.outcome).toBe('replayed');
+    expect(summary.idempotentReplay).toBe(true);
   });
 
   test('5xx → exit 1, retryable hint', async () => {
@@ -777,6 +1031,24 @@ describe("kindgi deploy — the server's rate limit", () => {
     expect(new Set(run.keys).size).toBe(1);
   });
 
+  test("the tenant's hour of image reads is waited out as any limit is; a wait past what it waits fails with the hour's hint", async () => {
+    const hour = (retryAfter: string) =>
+      refusal({ 'Retry-After': retryAfter }, { limit: 'tenant-unpack-hour' });
+    const waited = await deployAgainst([hour('90'), created]);
+    expect(waited.out.exitCode, waited.out.stderr).toBe(0);
+    expect(waited.lines).toEqual([
+      "The server's tenant-unpack-hour limit is reached: sending it again in 90s.\n",
+    ]);
+    expect(waited.keys).toHaveLength(2);
+    const past = await deployAgainst([hour('2400'), created]);
+    expect(past.out.exitCode).toBe(1);
+    expect(past.keys).toHaveLength(1);
+    expect(past.lines).toEqual([]);
+    expect(past.out.stderr.replaceAll(/\s+/g, ' ')).toContain(
+      "This workspace's image reads unpacked as much as the server allows in an hour.",
+    );
+  });
+
   test('a 429 without Retry-After: no wait, it fails at once', async () => {
     const run = await deployAgainst([refusal(), created]);
     expect(run.out.exitCode).toBe(1);
@@ -830,7 +1102,7 @@ describe('kindgi deploy — dry-run + safety gates', () => {
     });
     expect(out.exitCode).toBe(0);
     expect(fixtures.state.postCalls).toBe(0);
-    expect(out.stderr).toContain('Dry run');
+    expect(out.stderr).toContain('  Dry run — would POST the following:\n');
     expect(out.stderr).toContain('curl -X POST');
     expect(out.stderr).toContain('/v1/deployments');
     expect(out.stderr).toContain('Idempotency-Key: sha256:');
@@ -861,6 +1133,81 @@ describe('kindgi deploy — dry-run + safety gates', () => {
     expect(fixtures.state.postCalls).toBe(0);
   });
 
+  test('unsigned envelope + --dry-run: its warning shows under --quiet too', async () => {
+    const unsigned = makeEnvelope();
+    (unsigned as Record<string, unknown>).signature = undefined;
+    (unsigned as Record<string, unknown>).signerKeyId = undefined;
+    (unsigned as Record<string, unknown>).signerPublicKey = undefined;
+    await writeAutoEnvelope();
+    const dir = join(packDir, '.kindgi', 'build');
+    await writeFile(join(dir, 'deploy-envelope.json'), JSON.stringify(unsigned, null, 2), 'utf8');
+    for (const quiet of [false, true]) {
+      const fixtures = makeFixtures({ envelope: unsigned });
+      const out = await runCli({
+        ...baseInputs(fixtures),
+        argv: [
+          'deploy',
+          '--env=staging',
+          '--dry-run',
+          `--path=${packDir}`,
+          ...(quiet ? ['--quiet'] : []),
+        ],
+      });
+      expect(fixtures.state.postCalls).toBe(0);
+      expect(out.stderr).toContain(
+        '  ⚠ Envelope is unsigned — --dry-run is proceeding for inspection only.\n',
+      );
+      expect(out.stderr.includes('Environment:')).toBe(!quiet);
+    }
+  });
+
+  test('unsigned envelope + --dry-run: shows the body less the signature, exits 0', async () => {
+    const unsigned = makeEnvelope();
+    (unsigned as Record<string, unknown>).signature = undefined;
+    (unsigned as Record<string, unknown>).signerKeyId = undefined;
+    (unsigned as Record<string, unknown>).signerPublicKey = undefined;
+    await writeAutoEnvelope();
+    const dir = join(packDir, '.kindgi', 'build');
+    await writeFile(join(dir, 'deploy-envelope.json'), JSON.stringify(unsigned, null, 2), 'utf8');
+    for (const key of [undefined, 'acme-deploy-1']) {
+      const fixtures = makeFixtures({ envelope: unsigned });
+      const out = await runCli({
+        ...baseInputs(fixtures),
+        argv: [
+          'deploy',
+          '--env=staging',
+          '--dry-run',
+          `--path=${packDir}`,
+          ...(key !== undefined ? [`--idempotency-key=${key}`] : []),
+        ],
+      });
+      expect(out.exitCode).toBe(0);
+      expect(fixtures.state.postCalls).toBe(0);
+      expect(out.stderr).not.toContain('Internal error');
+      // The whole lead line: the key is said to be missing only when none was passed.
+      expect(out.stderr).toContain(
+        key === undefined
+          ? '  Dry run — would POST the following, plus the signerKeyId, signerPublicKey and signature a signed build adds, and the Idempotency-Key, which hashes that body:\n'
+          : '  Dry run — would POST the following, plus the signerKeyId, signerPublicKey and signature a signed build adds:\n',
+      );
+      expect(out.stderr).toContain(`"imageRef": "${unsigned.imageRef as string}"`);
+      expect(out.stderr).not.toContain('"signature"');
+      expect(out.stderr).not.toContain('Idempotency-Key: sha256:');
+      expect(out.stderr.includes(`-H "Idempotency-Key: ${key}"`)).toBe(key !== undefined);
+      const summary = JSON.parse(out.stdout) as {
+        dryRun: boolean;
+        idempotencyKey?: string;
+        wouldPost: Record<string, unknown>;
+      };
+      expect(summary.dryRun).toBe(true);
+      expect(summary.idempotencyKey).toBe(key);
+      expect(summary.wouldPost.imageRef).toBe(unsigned.imageRef);
+      expect(summary.wouldPost).not.toHaveProperty('signature');
+      expect(summary.wouldPost).not.toHaveProperty('signerKeyId');
+      expect(summary.wouldPost).not.toHaveProperty('signerPublicKey');
+    }
+  });
+
   test('--tenant mismatch with envelope → refuses to POST', async () => {
     await writeAutoEnvelope();
     const fixtures = makeFixtures();
@@ -871,6 +1218,121 @@ describe('kindgi deploy — dry-run + safety gates', () => {
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('--tenant mismatch');
     expect(fixtures.state.postCalls).toBe(0);
+  });
+});
+
+describe('kindgi deploy — its lines, as they come', () => {
+  /** The same deploy twice: its lines kept for the outcome, then streamed. */
+  async function keptAndStreamed(fixtures: () => Fixtures, argv: readonly string[]) {
+    const kept = await runCli({ ...baseInputs(fixtures()), argv: [...argv] });
+    const streamed: string[] = [];
+    const out = await runCli({
+      ...baseInputs(fixtures(), { progress: (text) => streamed.push(text) }),
+      argv: [...argv],
+    });
+    return { kept, streamed: streamed.join(''), writes: streamed, out };
+  }
+
+  test('streamed, the same text, one line per write, and the outcome leaves it out', async () => {
+    await writeAutoEnvelope();
+    const { kept, streamed, writes, out } = await keptAndStreamed(
+      () => makeFixtures(),
+      ['deploy', '--env=staging', `--path=${packDir}`],
+    );
+    expect(kept.exitCode, kept.stderr).toBe(0);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(writes.every((text) => text.endsWith('\n') && !text.slice(0, -1).includes('\n'))).toBe(
+      true,
+    );
+    expect(streamed).toBe(kept.stderr);
+    expect(streamed).toContain('201 Created');
+    expect(out.stderr).toBe('');
+    expect(JSON.parse(out.stdout)).toEqual(JSON.parse(kept.stdout));
+  });
+
+  /** A deploy that fails: refused by the server, or before it is sent. */
+  const failures = [
+    {
+      failure: 'the server refuses the deployment',
+      envelope: makeEnvelope(),
+      postResult: {
+        kind: 'wire-error',
+        status: 413,
+        error: {
+          code: 'request-too-large',
+          message: 'The request body is over the limit of 2097152 bytes',
+        },
+      } as const,
+      error: 'The request body is over the limit of 2097152 bytes',
+      starts: '  Registering deployment\n    ✗ POST /v1/deployments  →  HTTP 413\n',
+    },
+    {
+      failure: 'the envelope is unsigned',
+      envelope: makeEnvelope({
+        signature: undefined,
+        signerKeyId: undefined,
+        signerPublicKey: undefined,
+      }),
+      postResult: undefined,
+      error: 'deploy-envelope.json is unsigned. The server will refuse the deployment.\n',
+      starts: 'deploy-envelope.json is unsigned.',
+    },
+  ];
+
+  test.each(failures)(
+    'when $failure, the error comes after the lines before it, streamed or kept',
+    async (c) => {
+      await writeAutoEnvelope();
+      const { kept, streamed, out } = await keptAndStreamed(
+        () =>
+          makeFixtures({
+            envelope: c.envelope,
+            ...(c.postResult !== undefined && { postResult: c.postResult }),
+          }),
+        ['deploy', '--env=staging', `--path=${packDir}`],
+      );
+      expect(kept.exitCode).toBe(1);
+      expect(out.exitCode).toBe(1);
+      expect(kept.stderr.startsWith('\n  Environment: staging\n')).toBe(true);
+      expect(kept.stderr.indexOf(c.error)).toBeGreaterThan(kept.stderr.indexOf('  Idempotency:'));
+      expect(`${streamed}${out.stderr}`).toBe(kept.stderr);
+    },
+  );
+
+  test('--quiet: nothing, streamed or kept, and it still deploys', async () => {
+    await writeAutoEnvelope();
+    const made: Fixtures[] = [];
+    const { kept, writes, out } = await keptAndStreamed(() => {
+      const fixtures = makeFixtures();
+      made.push(fixtures);
+      return fixtures;
+    }, ['deploy', '--env=staging', `--path=${packDir}`, '--quiet']);
+    for (const run of [kept, out]) {
+      expect(run.exitCode, run.stderr).toBe(0);
+      expect(run.stdout).toBe('');
+      expect(run.stderr).toBe('');
+    }
+    expect(writes).toEqual([]);
+    expect(made.map((f) => f.state.postCalls)).toEqual([1, 1]);
+  });
+
+  test.each(failures)('--quiet: when $failure, its error alone, streamed or kept', async (c) => {
+    await writeAutoEnvelope();
+    const { kept, writes, out } = await keptAndStreamed(
+      () =>
+        makeFixtures({
+          envelope: c.envelope,
+          ...(c.postResult !== undefined && { postResult: c.postResult }),
+        }),
+      ['deploy', '--env=staging', `--path=${packDir}`, '--quiet'],
+    );
+    expect(writes).toEqual([]);
+    expect(kept.exitCode).toBe(1);
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(kept.stderr);
+    expect(kept.stderr.startsWith(c.starts)).toBe(true);
+    expect(kept.stderr).toContain(c.error);
+    expect(kept.stderr).not.toContain('Environment:');
   });
 });
 
@@ -974,6 +1436,23 @@ describe('kindgi deploy — secrets sync', () => {
     expect(fixtures.state.capturedSync?.body.secrets).toHaveLength(3);
   });
 
+  test('--quiet: secret-shaped keys are warned about all the same', async () => {
+    await writeAutoEnvelope();
+    await writeFile(join(packDir, '.env.staging'), 'STRIPE_KEY=pk_live_x\nHARMLESS=ok\n', 'utf8');
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['deploy', '--env=staging', '--sync-secrets', `--path=${packDir}`, '--quiet'],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(fixtures.state.syncCalls).toBe(1);
+    expect(out.stderr).toBe(
+      '  ! secret-shaped keys detected in .env.staging: STRIPE_KEY\n' +
+        '    Keep secrets out of .env files: store them with `kindgi secrets`.\n' +
+        '    Consider: kindgi secrets set --env=staging <name> <value>\n\n',
+    );
+  });
+
   test('--sync-secrets reads values the way the app does (quotes, comments) and never sends KINDGI_*', async () => {
     await writeAutoEnvelope();
     await writeFile(
@@ -1035,6 +1514,47 @@ describe('kindgi deploy — secrets sync', () => {
     expect(out.stderr).toContain('403 permission-denied');
     expect(out.stderr).toContain('The deployment landed OK');
   });
+
+  test.each([
+    {
+      failure: 'the server refuses it',
+      syncResult: {
+        kind: 'wire-error',
+        status: 403,
+        error: { code: 'permission-denied', message: 'missing secrets:write' },
+      } as const,
+      said: '    ✗ 403 permission-denied: missing secrets:write\n',
+    },
+    {
+      failure: 'it never reaches the server',
+      syncResult: { kind: 'transport-error', message: 'connect ECONNREFUSED' } as const,
+      said: '    ✗ transport error: connect ECONNREFUSED\n',
+    },
+  ])(
+    'a sync that fails ($failure) is an error: said under --quiet too, and the exit code stays 0',
+    async (c) => {
+      const failed = `${c.said}      The deployment landed OK; only the secret sync failed. Retry with\n      \`kindgi deploy --sync-secrets\` (idempotent).\n\n`;
+      for (const quiet of [false, true]) {
+        await writeAutoEnvelope();
+        await writeFile(join(packDir, '.env.staging'), 'FOO=bar\n', 'utf8');
+        const fixtures = makeFixtures({ syncResult: c.syncResult });
+        const out = await runCli({
+          ...baseInputs(fixtures),
+          argv: [
+            'deploy',
+            '--env=staging',
+            '--sync-secrets',
+            `--path=${packDir}`,
+            ...(quiet ? ['--quiet'] : []),
+          ],
+        });
+        expect(out.exitCode, out.stderr).toBe(0);
+        expect(fixtures.state.syncCalls).toBe(1);
+        expect(out.stdout === '').toBe(quiet);
+        expect(quiet ? out.stderr : out.stderr.slice(out.stderr.indexOf('    ✗'))).toBe(failed);
+      }
+    },
+  );
 });
 
 describe('kindgi deploy — envelope validation', () => {
@@ -1143,6 +1663,63 @@ describe("kindgi deploy — the pack service's env (preflight)", () => {
     expect(out.exitCode).toBe(0);
     expect(out.stderr).not.toContain("The pack service's env");
   });
+
+  test.each([
+    {
+      refusal: 'a required name without a value',
+      stagingEnv: { LOG_LEVEL: 'info' },
+      flags: [],
+      error:
+        'kindgi deploy: DATABASE_URL is required by the pack and has no value in environments.staging.env',
+    },
+    {
+      refusal: 'a secret in the clear',
+      stagingEnv: { DATABASE_URL: 'postgres://app:s3cret@db/app' },
+      flags: ['--allow-missing-env'],
+      error:
+        "kindgi deploy: the pack service's env for staging gives a secret in the clear or is malformed (above).",
+    },
+  ])('--quiet: $refusal says the plan, then the error, and nothing else', async (c) => {
+    await writeAutoEnvelope();
+    const fixtures = created();
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, withEnv(c.stagingEnv)),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`, ...c.flags, '--quiet'],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(fixtures.state.postCalls).toBe(0);
+    expect(out.stderr.startsWith("  The pack service's env in staging:\n")).toBe(true);
+    expect(out.stderr).toContain(`\n\n${c.error}`);
+    expect(out.stderr).not.toContain('Environment:');
+    expect(out.stderr).not.toContain('s3cret');
+  });
+
+  test('--quiet: a plan that deploys says its warnings alone, --allow-missing-env among them', async () => {
+    const warnings =
+      "  ⚠ environments.staging.env.EXTRA isn't declared in env.required or env.optional, so it isn't injected\n\n" +
+      '  ⚠ --allow-missing-env: deploying without DATABASE_URL\n\n';
+    for (const quiet of [false, true]) {
+      await writeAutoEnvelope();
+      const fixtures = created();
+      const out = await runCli({
+        ...baseInputs(fixtures, {}, withEnv({ EXTRA: 'x' })),
+        argv: [
+          'deploy',
+          '--env=staging',
+          '--allow-missing-env',
+          `--path=${packDir}`,
+          ...(quiet ? ['--quiet'] : []),
+        ],
+      });
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(fixtures.state.postCalls).toBe(1);
+      if (quiet) expect(out.stderr).toBe(warnings);
+      else {
+        expect(out.stderr).toContain("  The pack service's env in staging:\n");
+        expect(out.stderr).toContain(warnings);
+      }
+    }
+  });
 });
 
 describe('kindgi deploy --project: one project per client', () => {
@@ -1194,7 +1771,7 @@ describe('kindgi deploy --project: one project per client', () => {
     const out = await deploy(fixtures, '--project=initech-shop');
     expect(out.exitCode).not.toBe(0);
     expect(out.stderr).toContain(
-      '--project initech-shop: no project of this tenant has that slug. `kindgi projects list` shows them; `kindgi projects create --name=<name> --slug=initech-shop` makes one.',
+      '--project initech-shop: no project of this workspace has that slug. `kindgi projects list` shows them; `kindgi projects create --name=<name> --slug=initech-shop` makes one.',
     );
     expect(fixtures.state.postCalls).toBe(0);
     // A slug `projects create` wouldn't take isn't offered as one.
@@ -1209,7 +1786,7 @@ describe('kindgi deploy --project: one project per client', () => {
     const fixtures = makeFixtures({ projects });
     const out = await deploy(fixtures, '--project=shop');
     expect(out.exitCode).not.toBe(0);
-    expect(out.stderr).toContain('2 projects of this tenant have that slug');
+    expect(out.stderr).toContain('2 projects of this workspace have that slug');
     expect(out.stderr).toContain('11111111-2222-4333-8444-555555555555');
     expect(out.stderr).toContain('66666666-7777-4888-8999-aaaaaaaaaaaa');
     expect(out.stderr).toContain('Pass the id.');
@@ -1234,6 +1811,18 @@ describe('kindgi deploy --project: one project per client', () => {
     expect(fixtures.state.postCalls).toBe(0);
     const summary = JSON.parse(out.stdout) as { wouldPost?: Record<string, unknown> };
     expect(summary.wouldPost?.projectId).toBe(ACME);
+  });
+
+  test("an unsigned envelope's --dry-run shows the project too", async () => {
+    const unsigned = { signature: undefined, signerKeyId: undefined, signerPublicKey: undefined };
+    await writeAutoEnvelope(unsigned);
+    const fixtures = makeFixtures({ projects, envelope: makeEnvelope(unsigned) });
+    const out = await deploy(fixtures, '--project=acme-shop', '--dry-run');
+    expect(out.exitCode).toBe(0);
+    expect(fixtures.state.postCalls).toBe(0);
+    const summary = JSON.parse(out.stdout) as { wouldPost?: Record<string, unknown> };
+    expect(summary.wouldPost?.projectId).toBe(ACME);
+    expect(summary.wouldPost).not.toHaveProperty('signature');
   });
 });
 
@@ -1338,6 +1927,71 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     expect(summary.packService).toEqual(ready);
   });
 
+  test.each([
+    [
+      'pack-env-secret-capacity',
+      'a name the pack reads from its env is set as a secret, and there is no room for a pack service that can be given one just now',
+    ],
+    [
+      'pack-env-secret-too-large',
+      'a secret the pack reads from its env is over 32 KiB, the most a pack service can be given',
+    ],
+    [
+      'pack-env-name-too-long',
+      'a name the pack reads from its env as a secret is too long to keep as one: shorten it in the pack',
+    ],
+    [
+      'pack-env-secret-unreadable',
+      "a secret the pack reads from its env can't be read just now: the platform's team is told, and it's tried again",
+    ],
+    [
+      'pack-env-secrets-unaudited',
+      "the platform can't give the pack its secrets just now: its team is told, and it's tried again",
+    ],
+    [
+      'pack-env-cloud-secret-unsupported',
+      "a name the pack reads from its env is set to a cloud secret, which this pack service's host can't mount: set it as a value or a secret instead, or ask your operator",
+    ],
+  ])('a pack service waiting on its secrets (%s) says why', async (problem, why) => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(pending(), [pending(problem), ready]);
+    const out = await deploy(run.fixtures, '--hosted', `--project=${PROJECT}`);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain(`    … pending (${problem}): ${why}`);
+  });
+
+  test('streamed, each state goes out when it is seen, not at the end', async () => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(pending(), [pending(), pending('capacity-unavailable'), ready]);
+    const streamed: string[] = [];
+    const atRead: string[] = [];
+    const { getDeployment } = run.fixtures.runners;
+    if (getDeployment === undefined) throw new Error('hostedFixtures reads the deployment');
+    const runners: DeployRunners = {
+      ...run.fixtures.runners,
+      getDeployment: async (o) => {
+        atRead.push(streamed.join(''));
+        return getDeployment(o);
+      },
+    };
+    const out = await runCli({
+      ...baseInputs(
+        { ...run.fixtures, runners },
+        { env: signedIn, progress: (text) => streamed.push(text) },
+        cloud(),
+      ),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`, '--hosted', `--project=${PROJECT}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(atRead).toHaveLength(3);
+    expect(atRead[0]).toContain('201 Created');
+    expect(atRead[0]).toContain('Waiting for the pack service\n');
+    expect(atRead[2]).toContain('    … pending (capacity-unavailable)');
+    expect(atRead[2]).not.toContain('✓ ready');
+    expect(streamed.join('')).toContain('    ✓ ready\n');
+    expect(out.stderr).toBe('');
+  });
+
   test("the env block's `build: 'hosted'` waits too; without either, nothing waits", async () => {
     await writeAutoEnvelope();
     const hosted = hostedFixtures(pending(), [ready]);
@@ -1367,6 +2021,27 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     expect(out.stderr).not.toContain('Waiting for the pack service');
   });
 
+  test("--env=prod with prod's `build: 'hosted'` and no `kindgi dev` file here: hosted, so it waits", async () => {
+    await writeAutoEnvelope();
+    const hosted = hostedFixtures(pending(), [ready]);
+    const out = await runCli({
+      ...baseInputs(
+        hosted.fixtures,
+        { env: signedIn },
+        {
+          environments: {
+            prod: { endpoint: API, build: 'hosted', signingKey: join(home, 'signing-key.pem') },
+          },
+        },
+      ),
+      argv: ['deploy', '--env=prod', `--path=${packDir}`],
+    });
+    expect(existsSync(join(cwd, '.kindgirc.json'))).toBe(false);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(hosted.readIds).toHaveLength(1);
+    expect(out.stderr).toContain('Waiting for the pack service');
+  });
+
   test('a deployment with no pack service of its own has nothing to wait for', async () => {
     await writeAutoEnvelope();
     const run = hostedFixtures(undefined, [ready]);
@@ -1375,13 +2050,133 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     expect(run.readIds).toHaveLength(0);
   });
 
-  test('a cleared pack service from a server that says neither (before 0.1.8.1) fails, naming the deployment', async () => {
+  test("a repeat deploy that doesn't wait says its pack service is asked for, and how to see it ready", async () => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(pending(), [ready], { repeat: true });
+    const out = await deploy(run.fixtures);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(run.readIds).toHaveLength(0);
+    expect(out.stderr).toContain(
+      "  Its pack service is asked for (pending since 2026-10-13T08:00:00.000Z): its tools answer once it's made. `kindgi deployments get dep-01H8XM` says when it's ready.",
+    );
+    expect(out.stderr).not.toContain('Waiting for the pack service');
+  });
+
+  test('a repeat deploy with --hosted waits for its pack service, and says its state there only', async () => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(pending(), [ready], { repeat: true });
+    const out = await deploy(run.fixtures, '--hosted');
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain('Waiting for the pack service');
+    expect(out.stderr).not.toContain('Its pack service is asked for');
+  });
+
+  /** `hostedFixtures` whose runtime counts the kept builds with `answer`, and the reads it was asked. */
+  function counting(run: ReturnType<typeof hostedFixtures>, answer: CountKeptBuildsResult) {
+    const asked: CountKeptBuildsOptions[] = [];
+    const runners: DeployRunners = {
+      ...run.fixtures.runners,
+      countKeptBuilds: async (o) => {
+        asked.push(o);
+        return answer;
+      },
+    };
+    return { fixtures: { ...run.fixtures, runners }, asked };
+  }
+
+  const KEPT_LINES = [
+    '    Each keeps its pack service while something it serves is registered, pinned or',
+    '    running, or until a newer build ships it. To let old ones go, unregister what',
+    '    nothing calls:',
+    '      kindgi tools|agents|flows unregister <id> <version>',
+    '      kindgi guardrails unregister <guardrail-id>',
+    '    `kindgi deployments get <deployment-id>` says what keeps each one.',
+  ];
+
+  test('once its pack service is ready, it says how many builds the project keeps, and how to let old ones go', async () => {
+    await writeAutoEnvelope();
+    const run = counting(hostedFixtures(pending(), [ready]), { kind: 'ok', keptBuilds: 7 });
+    const out = await deploy(run.fixtures, '--hosted', `--project=${PROJECT}`);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(run.asked.map((o) => o.projectId)).toEqual([PROJECT]);
+    const after = out.stderr.slice(out.stderr.indexOf('    ✓ ready'));
+    expect(after.split('\n').slice(2, 9)).toEqual([
+      '  Builds kept in this project: 7',
+      ...KEPT_LINES,
+    ]);
+    expect((JSON.parse(out.stdout) as { keptBuilds?: number }).keptBuilds).toBe(7);
+  });
+
+  test('a deploy that names no project says the workspace’s, as its answer names no project', async () => {
+    await writeAutoEnvelope();
+    const run = counting(hostedFixtures(pending(), [ready]), { kind: 'ok', keptBuilds: 12 });
+    const out = await deploy(run.fixtures, '--hosted');
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(run.asked).toHaveLength(1);
+    expect('projectId' in (run.asked[0] ?? {})).toBe(false);
+    expect(out.stderr).toContain('  Builds kept in this workspace: 12\n');
+  });
+
+  test('a runtime that doesn’t count them (one service for every build, or older) says nothing of them', async () => {
+    await writeAutoEnvelope();
+    const run = counting(hostedFixtures(pending(), [ready]), { kind: 'ok' });
+    const out = await deploy(run.fixtures, '--hosted', `--project=${PROJECT}`);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).not.toContain('Builds kept');
+    const summary = JSON.parse(out.stdout) as object;
+    expect('keptBuilds' in summary || 'keptBuildsError' in summary).toBe(false);
+  });
+
+  test('a count that can’t be read is said, with why, and the deploy still succeeds', async () => {
+    await writeAutoEnvelope();
+    const run = counting(hostedFixtures(pending(), [ready]), {
+      kind: 'error',
+      message: 'GET … answered HTTP 503',
+    });
+    const out = await deploy(run.fixtures, '--hosted', `--project=${PROJECT}`);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain("  Couldn't count the builds kept: GET … answered HTTP 503\n");
+    const summary = JSON.parse(out.stdout) as Record<string, unknown>;
+    expect(summary.keptBuildsError).toBe('GET … answered HTTP 503');
+    expect('keptBuilds' in summary).toBe(false);
+  });
+
+  test('no count when the wait fails, nor without a pack service to wait for', async () => {
+    await writeAutoEnvelope();
+    const failed = counting(hostedFixtures(pending(), [cleared]), { kind: 'ok', keptBuilds: 1 });
+    expect((await deploy(failed.fixtures, '--hosted')).exitCode).toBe(1);
+    expect(failed.asked).toHaveLength(0);
+    const none = counting(hostedFixtures(undefined, [ready]), { kind: 'ok', keptBuilds: 1 });
+    expect((await deploy(none.fixtures, '--hosted')).exitCode).toBe(0);
+    expect(none.asked).toHaveLength(0);
+  });
+
+  test('a cleared pack service from a server that says neither (before 0.1.9) fails, naming the deployment', async () => {
     await writeAutoEnvelope();
     const run = hostedFixtures(pending(), [cleared]);
     const out = await deploy(run.fixtures, '--hosted');
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain(
       "The deployment's pack service was taken down (cleared). deploymentId dep-01H8XM.",
+    );
+  });
+
+  test('--quiet: a wait that ends ready says nothing; one that fails says its error alone', async () => {
+    await writeAutoEnvelope();
+    const waits = hostedFixtures(pending(), [pending('capacity-unavailable'), ready]);
+    const fine = await deploy(waits.fixtures, '--hosted', '--quiet');
+    expect(fine.exitCode, fine.stderr).toBe(0);
+    expect(waits.readIds).toHaveLength(2);
+    expect(fine.stdout).toBe('');
+    expect(fine.stderr).toBe('');
+    const failed = await deploy(
+      hostedFixtures(pending(), [cleared]).fixtures,
+      '--hosted',
+      '--quiet',
+    );
+    expect(failed.exitCode).toBe(1);
+    expect(failed.stderr).toBe(
+      "The deployment's pack service was taken down (cleared). deploymentId dep-01H8XM.\n",
     );
   });
 
@@ -1418,7 +2213,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     expect(out.exitCode).toBe(1);
     expect(run.readIds).toHaveLength(0);
     expect(out.stderr).toContain(
-      "The deployment's pack service was taken down (cleared, superseded): a later deploy ships every tool version and check this one does, so no new call reaches it. deploymentId dep-01H8XM.",
+      "The deployment's pack service was taken down (cleared, superseded): no new call needs it, or a later deploy into its project ships every tool version and check it does. deploymentId dep-01H8XM.",
     );
   });
 
@@ -1551,13 +2346,177 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     expect(plain.fixtures.state.syncCalls).toBe(0);
   });
 
+  test('on a runtime that refuses other envs, --sync-secrets under another env is refused before anything is built or sent', async () => {
+    await writeAutoEnvelope();
+    await writeFile(join(packDir, '.env.staging'), 'FOO=bar\n', 'utf8');
+    const run = hostedFixtures(pending(), [ready], {
+      servedEnv: { envName: 'prod', refusesOtherEnvs: true },
+    });
+    const out = await deploy(run.fixtures, '--hosted', '--sync-secrets');
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      'env-not-served: this runtime keeps its values under `prod` only, so the secrets in .env.staging under `staging` would never be read. Use --env=prod.\n',
+    );
+    expect(run.fixtures.state.servedCalls).toEqual([API]);
+    expect(run.fixtures.state.buildCalls).toBe(0);
+    expect(run.fixtures.state.postCalls).toBe(0);
+    expect(run.fixtures.state.syncCalls).toBe(0);
+  });
+
+  test.each([
+    ['under the env it serves', 'prod', { envName: 'prod', refusesOtherEnvs: true }],
+    ['on a runtime that takes any env', 'staging', { envName: 'prod', refusesOtherEnvs: false }],
+  ])('--sync-secrets %s: synced', async (_, envName, servedEnv) => {
+    await writeAutoEnvelope();
+    await writeFile(join(packDir, `.env.${envName}`), 'FOO=bar\n', 'utf8');
+    const run = hostedFixtures(pending(), [ready], { servedEnv });
+    const out = await runCli({
+      ...baseInputs(
+        run.fixtures,
+        { env: signedIn },
+        {
+          environments: {
+            [envName]: { signingKey: join(home, 'signing-key.pem'), tenantId: 'tenant-acme' },
+          },
+        },
+      ),
+      argv: ['deploy', `--env=${envName}`, '--hosted', '--sync-secrets', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(run.fixtures.state.capturedSync?.body.envName).toBe(envName);
+  });
+
+  test('without --sync-secrets, to an environment that names no project, the runtime is not asked what it serves', async () => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(pending(), [ready], {
+      servedEnv: { envName: 'prod', refusesOtherEnvs: true },
+    });
+    const out = await deploy(run.fixtures, '--hosted');
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(run.fixtures.state.servedCalls).toEqual([]);
+  });
+
+  describe("a pack environment's project, on a runtime that keeps its values under one env", () => {
+    const REFUSES = { envName: 'prod', refusesOtherEnvs: true };
+    const projects = [{ id: PROJECT, name: 'Acme staging 1', slug: 'acme-staging-1' }];
+    /** staging-1 names its project, by slug; staging names none. */
+    const placed = (): Record<string, unknown> => ({
+      environments: {
+        'staging-1': {
+          signingKey: join(home, 'signing-key.pem'),
+          tenantId: 'tenant-acme',
+          project: 'acme-staging-1',
+        },
+        staging: { signingKey: join(home, 'signing-key.pem'), tenantId: 'tenant-acme' },
+      },
+    });
+    const deployTo = (fixtures: Fixtures, env: string, ...flags: string[]) =>
+      runCli({
+        ...baseInputs(fixtures, { env: signedIn }, placed()),
+        argv: ['deploy', `--env=${env}`, '--hosted', `--path=${packDir}`, ...flags],
+      });
+    const body = (fixtures: Fixtures) =>
+      fixtures.state.capturedPost?.body as Record<string, unknown> | undefined;
+
+    test('the deploy goes to that project, and its secrets under the env the runtime serves', async () => {
+      await writeAutoEnvelope();
+      await writeFile(join(packDir, '.env.staging-1'), 'FOO=from-staging-1\n', 'utf8');
+      const run = hostedFixtures(pending(), [ready], { servedEnv: REFUSES, projects });
+      const out = await deployTo(run.fixtures, 'staging-1', '--sync-secrets');
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(run.fixtures.state.servedCalls).toEqual([API]);
+      expect(body(run.fixtures)?.projectId).toBe(PROJECT);
+      expect(run.fixtures.state.capturedSync?.body.envName).toBe('prod');
+      expect(run.fixtures.state.capturedSync?.body.secrets).toEqual([
+        { name: 'FOO', value: 'from-staging-1' },
+      ]);
+      expect(out.stderr).toContain(
+        '  Project:     acme-staging-1  (environments.staging-1.project)\n  Secrets:     under prod, the env the runtime serves\n',
+      );
+    });
+
+    test('without --sync-secrets it still goes to that project, and the build carries it', async () => {
+      const run = hostedFixtures(pending(), [ready], {
+        servedEnv: REFUSES,
+        projects,
+        writeEnvelopeAt: join(packDir, '.kindgi/build/deploy-envelope.json'),
+      });
+      const out = await deployTo(run.fixtures, 'staging-1');
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(body(run.fixtures)?.projectId).toBe(PROJECT);
+      expect(run.fixtures.state.capturedBuild?.buildArgv).toEqual(
+        expect.arrayContaining([`--project=${PROJECT}`]),
+      );
+      expect(run.fixtures.state.syncCalls).toBe(0);
+      expect(out.stderr).not.toContain('Secrets:     under');
+    });
+
+    test('--project naming another project is refused before anything is built or sent', async () => {
+      await writeAutoEnvelope();
+      const other = '9a0b1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d';
+      const run = hostedFixtures(pending(), [ready], { servedEnv: REFUSES, projects });
+      const out = await deployTo(run.fixtures, 'staging-1', `--project=${other}`);
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        `--project ${other} isn't the staging-1 environment's project, acme-staging-1 (environments.staging-1.project). Leave --project out, or deploy with the --env whose project it is.\n`,
+      );
+      expect(run.fixtures.state.buildCalls).toBe(0);
+      expect(run.fixtures.state.postCalls).toBe(0);
+    });
+
+    test('--project naming the same project, by id, is that project', async () => {
+      await writeAutoEnvelope();
+      const run = hostedFixtures(pending(), [ready], { servedEnv: REFUSES, projects });
+      const out = await deployTo(run.fixtures, 'staging-1', `--project=${PROJECT}`);
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(body(run.fixtures)?.projectId).toBe(PROJECT);
+    });
+
+    test('a slug that names no project is refused, saying where it came from', async () => {
+      const run = hostedFixtures(pending(), [ready], { servedEnv: REFUSES, projects: [] });
+      const out = await deployTo(run.fixtures, 'staging-1');
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        'environments.staging-1.project acme-staging-1: no project of this workspace has that slug.',
+      );
+      expect(run.fixtures.state.buildCalls).toBe(0);
+    });
+
+    test('on a runtime that takes any env, the project and the env are as before', async () => {
+      await writeAutoEnvelope();
+      await writeFile(join(packDir, '.env.staging-1'), 'FOO=bar\n', 'utf8');
+      const run = hostedFixtures(pending(), [ready], {
+        servedEnv: { envName: 'prod', refusesOtherEnvs: false },
+        projects,
+      });
+      const out = await deployTo(run.fixtures, 'staging-1', '--sync-secrets');
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(body(run.fixtures)?.projectId).toBeUndefined();
+      expect(run.fixtures.state.capturedSync?.body.envName).toBe('staging-1');
+      expect(run.fixtures.state.findCalls).toBe(0);
+    });
+
+    test('to an environment that names no project, --sync-secrets is refused, saying how to name one', async () => {
+      await writeAutoEnvelope();
+      await writeFile(join(packDir, '.env.staging'), 'FOO=bar\n', 'utf8');
+      const run = hostedFixtures(pending(), [ready], { servedEnv: REFUSES, projects });
+      const out = await deployTo(run.fixtures, 'staging', '--sync-secrets');
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        "The pack's environment staging names no project: add `environments.staging.project` to kindgi.config.ts, and --env=staging stores values in that project.\nThe pack's environments: staging-1 (project acme-staging-1). --env=<one of them> stores a value in its project.\n",
+      );
+      expect(run.fixtures.state.buildCalls).toBe(0);
+      expect(run.fixtures.state.syncCalls).toBe(0);
+    });
+  });
+
   test("a project that isn't there fails before any build", async () => {
     const run = hostedFixtures(pending(), [ready], {
       projects: [{ id: PROJECT, name: 'Acme shop', slug: 'acme-shop' }],
     });
     const out = await deploy(run.fixtures, '--hosted', '--project=initech-shop');
     expect(out.exitCode).not.toBe(0);
-    expect(out.stderr).toContain('no project of this tenant has that slug');
+    expect(out.stderr).toContain('no project of this workspace has that slug');
     expect(run.fixtures.state.buildCalls).toBe(0);
   });
 
@@ -1735,6 +2694,206 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
       });
     });
   });
+
+  describe("the pack service's env on Kindgi Cloud", () => {
+    /** Cloud's env block, with the pack's env declared and staging's `env` block as given. */
+    const declared = (stagingEnv?: Record<string, unknown>): Record<string, unknown> => {
+      const base = cloud();
+      const staging = (base.environments as { staging: Record<string, unknown> }).staging;
+      return {
+        env: { required: ['API_BASE', 'SHOP_URL'], optional: ['LOG_LEVEL'] },
+        environments: {
+          staging: { ...staging, ...(stagingEnv !== undefined && { env: stagingEnv }) },
+        },
+      };
+    };
+    const hostedWith = (fixtures: Fixtures, config: Record<string, unknown>, ...flags: string[]) =>
+      runCli({
+        ...baseInputs(fixtures, { env: signedIn }, config),
+        argv: ['deploy', '--env=staging', `--path=${packDir}`, '--hosted', ...flags],
+      });
+    const name = (n: string, extra: Partial<PackEnvNameRecord> = {}): PackEnvNameRecord => ({
+      name: n,
+      required: true,
+      kind: 'env',
+      scope: { kind: 'project', id: PROJECT },
+      missing: false,
+      ...extra,
+    });
+    const unset = (n: string): PackEnvNameRecord =>
+      name(n, { kind: null, scope: null, missing: true, problem: 'missing' });
+    /** `hostedFixtures`, whose reads of the deployment's env answer `packEnv` in turn (then the last again). */
+    function withPackEnv(
+      run: ReturnType<typeof hostedFixtures>,
+      packEnv: readonly (GetPackEnvResult | readonly PackEnvNameRecord[])[],
+    ) {
+      const reads: string[] = [];
+      const runners: DeployRunners = {
+        ...run.fixtures.runners,
+        getPackEnv: async (o): Promise<GetPackEnvResult> => {
+          reads.push(o.deploymentId);
+          const next = packEnv[Math.min(reads.length - 1, packEnv.length - 1)];
+          if (next === undefined) return { kind: 'not-served' };
+          if (!Array.isArray(next)) return next as GetPackEnvResult;
+          const data = next as readonly PackEnvNameRecord[];
+          return {
+            kind: 'ok',
+            packEnv: {
+              envName: 'prod',
+              data,
+              ...(data.some((n) => n.problem !== undefined) && { problem: 'pack-env-missing' }),
+            },
+          };
+        },
+      };
+      return { ...run, fixtures: { ...run.fixtures, runners }, packEnvReads: reads };
+    }
+
+    test('environments.<env>.env in kindgi.config: refused before anything is built or sent, naming each name and how to set it', async () => {
+      await writeAutoEnvelope();
+      const run = hostedFixtures(pending(), [ready]);
+      const out = await hostedWith(
+        run.fixtures,
+        declared({
+          API_BASE: 'https://api.acme.test',
+          SHOP_URL: { secret: 'acme-shop-url', version: '2' },
+          EXTRA: 'x',
+        }),
+        `--project=${PROJECT}`,
+      );
+      expect(out.exitCode).toBe(1);
+      expect(run.fixtures.state.postCalls).toBe(0);
+      expect(run.fixtures.state.capturedBuild).toBeUndefined();
+      expect(out.stderr).toContain(
+        `kindgi deploy: on Kindgi Cloud the pack service gets the env values set in your workspace, not environments.staging.env in kindgi.config (API_BASE, EXTRA, SHOP_URL). Set each with \`kindgi env set NAME <value> --scope=project:${PROJECT} --env=staging\` (a secret with \`kindgi secrets set NAME --scope=project:${PROJECT} --env=staging\`), then remove environments.staging.env from kindgi.config and deploy again.`,
+      );
+    });
+
+    test('a tenant-wide hosted deploy is told to set them at the tenant; a malformed block is refused too', async () => {
+      await writeAutoEnvelope();
+      const run = hostedFixtures(pending(), [ready]);
+      const out = await hostedWith(run.fixtures, declared({ API_BASE: 'https://api.acme.test' }));
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain('`kindgi env set NAME <value> --scope=tenant --env=staging`');
+      expect(out.stderr).not.toContain('kindgi secrets set');
+      const malformed = hostedFixtures(pending(), [ready]);
+      const bad = await hostedWith(malformed.fixtures, declared({ API_BASE: 42 }));
+      expect(bad.exitCode).toBe(1);
+      expect(malformed.fixtures.state.postCalls).toBe(0);
+      expect(bad.stderr).toContain('not environments.staging.env in kindgi.config. Set each with');
+    });
+
+    test("no environments.<env>.env: kindgi.config's required names aren't checked; the server says what's missing, and it waits", async () => {
+      await writeAutoEnvelope();
+      const run = withPackEnv(
+        hostedFixtures(pending(), [
+          pending('pack-env-missing'),
+          pending('pack-env-missing'),
+          ready,
+        ]),
+        [
+          [unset('API_BASE'), unset('SHOP_URL')],
+          [unset('API_BASE'), unset('SHOP_URL')],
+          [unset('SHOP_URL')],
+        ],
+      );
+      const out = await hostedWith(run.fixtures, declared(), `--project=${PROJECT}`);
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(out.stderr).not.toContain('has no value in environments.staging.env');
+      expect(run.packEnvReads).toEqual(['dep-01H8XM', 'dep-01H8XM']);
+      const waited = out.stderr.slice(out.stderr.indexOf('Waiting for the pack service'));
+      expect(waited.split('\n').slice(0, 5)).toEqual([
+        'Waiting for the pack service',
+        '    … pending',
+        `      API_BASE and SHOP_URL aren't set for prod. Set each with \`kindgi env set NAME <value> --scope=project:${PROJECT} --env=prod\`.`,
+        "    … pending (pack-env-missing): a name the pack needs in its env isn't set",
+        '    ✓ ready',
+      ]);
+    });
+
+    test('a name set only as a secret, or both ways: it says which, and where', async () => {
+      await writeAutoEnvelope();
+      const run = withPackEnv(hostedFixtures(pending(), [ready]), [
+        [
+          name('API_BASE', { kind: 'secret', problem: 'secret-not-yet' }),
+          name('SHOP_URL', {
+            scope: { kind: 'tenant' },
+            problem: 'ambiguous',
+            secretScope: { kind: 'org', id: 'org-1' },
+          }),
+        ],
+      ]);
+      const out = await hostedWith(run.fixtures, declared(), `--project=${PROJECT}`);
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(out.stderr).toContain(
+        "      API_BASE is set only as a secret, which this server keeps out of a pack service's environment: a tool reads it per call (`ctx.secrets`).",
+      );
+      expect(out.stderr).toContain(
+        "      SHOP_URL is set both as a secret (org org-1) and as a plain value (tenant): remove one, so it's clear which the pack service gets.",
+      );
+    });
+
+    test("a server that doesn't give pack services their env: nothing more is said", async () => {
+      await writeAutoEnvelope();
+      const run = withPackEnv(hostedFixtures(pending(), [ready]), [{ kind: 'not-served' }]);
+      const out = await hostedWith(run.fixtures, declared(), `--project=${PROJECT}`);
+      expect(out.exitCode, out.stderr).toBe(0);
+      const waited = out.stderr.slice(out.stderr.indexOf('Waiting for the pack service'));
+      expect(waited.split('\n').slice(0, 3)).toEqual([
+        'Waiting for the pack service',
+        '    … pending',
+        '    ✓ ready',
+      ]);
+    });
+
+    test('a read of where each value is set that fails is said, with why, and not again while the reason is the same; the deploy goes on', async () => {
+      await writeAutoEnvelope();
+      const message =
+        'GET https://api.acme.example/v1/deployments/dep-01H8XM/pack-env answered HTTP 403 (forbidden)';
+      const run = withPackEnv(hostedFixtures(pending(), [pending('pack-env-missing'), ready]), [
+        { kind: 'error', message },
+      ]);
+      const out = await hostedWith(run.fixtures, declared(), `--project=${PROJECT}`);
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(run.packEnvReads).toEqual(['dep-01H8XM', 'dep-01H8XM']);
+      const waited = out.stderr.slice(out.stderr.indexOf('Waiting for the pack service'));
+      expect(waited.split('\n').slice(0, 5)).toEqual([
+        'Waiting for the pack service',
+        '    … pending',
+        `      Couldn't read where each value is set: ${message}`,
+        "    … pending (pack-env-missing): a name the pack needs in its env isn't set",
+        '    ✓ ready',
+      ]);
+    });
+
+    test('a read the stop cuts short says nothing more: the wait says it stopped', async () => {
+      await writeAutoEnvelope();
+      const controller = new AbortController();
+      const run = hostedFixtures(pending(), [ready]);
+      const runners: DeployRunners = {
+        ...run.fixtures.runners,
+        getPackEnv: async (): Promise<GetPackEnvResult> => {
+          controller.abort();
+          return {
+            kind: 'error',
+            message:
+              'GET https://api.acme.example/v1/deployments/dep-01H8XM/pack-env failed: This operation was aborted',
+          };
+        },
+      };
+      const out = await runCli({
+        ...baseInputs(
+          { ...run.fixtures, runners },
+          { env: signedIn, stopSignal: controller.signal },
+          declared(),
+        ),
+        argv: ['deploy', '--env=staging', `--path=${packDir}`, '--hosted', `--project=${PROJECT}`],
+      });
+      expect(out.exitCode, out.stderr).toBe(1);
+      expect(out.stderr).not.toContain("Couldn't read where each value is set");
+      expect(out.stderr).toContain('Stopped waiting for the pack service: pending.');
+    });
+  });
 });
 
 describe("kindgi deploy: the stored API key goes only to the address it's for", () => {
@@ -1834,6 +2993,52 @@ describe("kindgi deploy: the stored API key goes only to the address it's for", 
     expect(fixtures.state.capturedPost).toMatchObject({ endpoint: STAGING, token: STORED });
   });
 
+  test("from a `kindgi dev` folder with no endpoint named: the dev runtime, with the folder's key, and stderr's first line says how to reach the signed-in address", async () => {
+    const dev = 'http://127.0.0.1:4000';
+    await writeAutoEnvelope();
+    await signIn();
+    await folderFile({ apiUrl: dev, token: 'kgi_tk_dev' });
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, noEndpoint()),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(fixtures.state.capturedPost).toMatchObject({ endpoint: dev, token: 'kgi_tk_dev' });
+    expect(out.stderr.split('\n')[0]).toBe(
+      `kindgi deploy goes to the kindgi dev runtime at ${dev} (${join(cwd, '.kindgirc.json')} says so). For ${OWN}, pass --hosted.`,
+    );
+  });
+
+  test('from a `kindgi dev` folder, the dev runtime named by --endpoint or the env block: no line', async () => {
+    const dev = 'http://127.0.0.1:4000';
+    await writeAutoEnvelope();
+    await signIn();
+    await folderFile({ apiUrl: dev, token: 'kgi_tk_dev' });
+    const atDev = {
+      environments: {
+        staging: {
+          endpoint: dev,
+          signingKey: join(home, 'signing-key.pem'),
+          tenantId: 'tenant-acme-staging',
+        },
+      },
+    };
+    for (const [config, flags] of [
+      [noEndpoint(), [`--endpoint=${dev}`]],
+      [atDev, []],
+    ] as const) {
+      const fixtures = makeFixtures();
+      const out = await runCli({
+        ...baseInputs(fixtures, { env: {} }, config),
+        argv: ['deploy', '--env=staging', `--path=${packDir}`, ...flags],
+      });
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(fixtures.state.capturedPost).toMatchObject({ endpoint: dev, token: 'kgi_tk_dev' });
+      expect(out.stderr).not.toContain('goes to the kindgi dev runtime');
+    }
+  });
+
   test("`kindgi dev`'s .kindgirc.json: 127.0.0.1 and localhost are one address, another port isn't", async () => {
     await writeAutoEnvelope();
     await writeFile(
@@ -1927,4 +3132,346 @@ describe("kindgi deploy: the stored API key goes only to the address it's for", 
       expect(fixtures.state.postCalls).toBe(0);
     },
   );
+});
+
+describe('kindgi deploy — a pack with blocks goes only to a runtime that publishes them', () => {
+  const BLOCKS = [
+    { id: 'my-pack.reply', version: '1.0.0', kind: 'prompt', content: { template: 'Hi.' } },
+    { id: 'my-pack.style', version: '1.0.0', kind: 'settings', content: { values: {} } },
+  ];
+
+  /**
+   * A runtime whose `/v1/openapi.json` lists `capabilities` (none: no
+   * entry), and whose check against what runs passes; the URLs asked.
+   */
+  function runtime(capabilities?: readonly string[], status = 200) {
+    const asked: string[] = [];
+    const fetchImpl = (async (url: unknown) => {
+      asked.push(String(url));
+      if (String(url).endsWith('/v1/deployments/check')) {
+        return new Response(JSON.stringify({ replaced: [], notNeeded: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      const info = {
+        title: 'Kindgi Platform API',
+        version: '0.1.0',
+        ...(capabilities !== undefined && { 'x-kindgi-capabilities': capabilities }),
+      };
+      return new Response(JSON.stringify({ openapi: '3.1.0', info }), {
+        status,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+    return { fetchImpl, asked };
+  }
+
+  async function deployWith(
+    fetchImpl: typeof fetch,
+    opts: { blocks?: boolean; argv?: string[] } = {},
+  ) {
+    const index = { ...(makeEnvelope().index as Record<string, unknown>) };
+    if (opts.blocks !== false) index.blocks = BLOCKS;
+    await writeAutoEnvelope({ index });
+    const fixtures = makeFixtures({ envelope: makeEnvelope({ index }) });
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`, ...(opts.argv ?? [])],
+      fetchImpl,
+    });
+    return { out, fixtures };
+  }
+
+  test('a runtime that lists deploy-publishes-pack-blocks takes it; names it does not know are ignored', async () => {
+    const { fetchImpl, asked } = runtime(['some-later-capability', 'deploy-publishes-pack-blocks']);
+    const { out, fixtures } = await deployWith(fetchImpl);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(asked).toEqual([
+      'https://api.staging.example.com/v1/openapi.json',
+      'https://api.staging.example.com/v1/deployments/check',
+    ]);
+    expect(fixtures.state.postCalls).toBe(1);
+  });
+
+  test("a runtime that doesn't is refused before anything is sent, naming this CLI's release", async () => {
+    for (const capabilities of [undefined, ['some-later-capability']]) {
+      const { fetchImpl } = runtime(capabilities);
+      const { out, fixtures } = await deployWith(fetchImpl);
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        `The runtime at https://api.staging.example.com doesn't publish a pack's blocks (2 blocks in its index); deploy to a runtime with Kindgi ${CLI_VERSION} or later, or remove them.`,
+      );
+      expect(fixtures.state.postCalls).toBe(0);
+    }
+  });
+
+  test('a pack without blocks never asks', async () => {
+    const { fetchImpl, asked } = runtime();
+    const { out, fixtures } = await deployWith(fetchImpl, { blocks: false });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(asked).toEqual([]);
+    expect(fixtures.state.postCalls).toBe(1);
+  });
+
+  test("an answer that isn't the document is refused too: the deploy can't tell", async () => {
+    const { fetchImpl } = runtime(undefined, 404);
+    const { out, fixtures } = await deployWith(fetchImpl);
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      "Couldn't read what the runtime at https://api.staging.example.com does (GET /v1/openapi.json: HTTP 404), which a pack with blocks (2 blocks in its index) needs before it deploys.",
+    );
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('--dry-run sends nothing, so asks no capability: only the check against what runs', async () => {
+    const { fetchImpl, asked } = runtime();
+    const { out } = await deployWith(fetchImpl, { argv: ['--dry-run'] });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(asked).toEqual(['https://api.staging.example.com/v1/deployments/check']);
+  });
+
+  test("with no envelope yet, the pack's block files are checked before the build", async () => {
+    await mkdir(join(packDir, 'blocks'), { recursive: true });
+    await writeFile(join(packDir, 'blocks', 'reply.json'), JSON.stringify(BLOCKS[0]), 'utf8');
+    await writeFile(join(packDir, 'blocks', 'style.json'), JSON.stringify(BLOCKS[1]), 'utf8');
+    const { fetchImpl } = runtime();
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`],
+      fetchImpl,
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain("doesn't publish a pack's blocks (blocks/: 2 files)");
+    expect(fixtures.state.buildCalls).toBe(0);
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+});
+
+describe("kindgi deploy — the pack's blocks against what runs", () => {
+  const PROJECT = '0b3f6a9e-7c1d-4e2a-9b8f-1a2b3c4d5e6f';
+  const SANDBOX = '5d6e7f80-1a2b-4c3d-8e9f-0a1b2c3d4e5f';
+  const BLOCKS = [
+    { id: 'my-pack.tone', version: '3.0.0', kind: 'prompt', content: { template: 'Hi.' } },
+    { id: 'my-pack.rules', version: '1.0.0', kind: 'settings', content: { values: {} } },
+  ];
+  const STOP = {
+    blockId: 'my-pack.tone',
+    inFiles: '3.0.0',
+    runs: {
+      version: '4.0.0',
+      projectId: SANDBOX,
+      follows: 'latest',
+      by: { kind: 'user', id: 'usr-ana', name: 'Ana' },
+      at: '2026-11-05T09:12:00.000Z',
+    },
+    pr: { url: 'https://github.com/acme/returns/pull/214' },
+  };
+
+  function json(status: number, body: unknown): Response {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  /** A runtime that publishes a pack's blocks and answers the check `check`; each check body sent is kept. */
+  function runtime(check: { status: number; body: unknown }) {
+    const checks: unknown[] = [];
+    const fetchImpl = (async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/v1/openapi.json')) {
+        return json(200, {
+          openapi: '3.1.0',
+          info: { 'x-kindgi-capabilities': ['deploy-publishes-pack-blocks'] },
+        });
+      }
+      if (u.endsWith('/v1/deployments/check')) {
+        checks.push(JSON.parse(String(init?.body)));
+        return json(check.status, check.body);
+      }
+      if (u.endsWith(`/v1/projects/${SANDBOX}`)) {
+        return json(200, { id: SANDBOX, name: 'Support sandbox', slug: 'support-sandbox' });
+      }
+      return json(404, { error: { code: 'not-found', message: 'Not found', requestId: 'r' } });
+    }) as typeof fetch;
+    return { fetchImpl, checks };
+  }
+
+  async function deployWith(fetchImpl: typeof fetch, argv: readonly string[] = []) {
+    const index = { ...(makeEnvelope().index as Record<string, unknown>), blocks: BLOCKS };
+    await writeAutoEnvelope({ index });
+    const fixtures = makeFixtures({ envelope: makeEnvelope({ index }) });
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`, ...argv],
+      fetchImpl,
+    });
+    return { out, fixtures };
+  }
+
+  const stopAnswer = {
+    status: 409,
+    body: {
+      error: {
+        code: 'deploy-would-put-back-older-blocks',
+        message: 'This deploy would put back older versions of blocks than run now.',
+        details: { blocks: [STOP] },
+        requestId: 'r',
+      },
+    },
+  };
+
+  test("a newer block than the files' that runs now stops the deploy: the table, nothing deployed, exit 1", async () => {
+    const { fetchImpl, checks } = runtime(stopAnswer);
+    const { out, fixtures } = await deployWith(fetchImpl);
+    expect(out.exitCode).toBe(1);
+    expect(checks).toEqual([
+      {
+        agents: ['my-pack.agent'],
+        blocks: [
+          { id: 'my-pack.tone', version: '3.0.0' },
+          { id: 'my-pack.rules', version: '1.0.0' },
+        ],
+      },
+    ]);
+    expect(out.stderr).toContain('  Checking my-pack against what runs…\n');
+    expect(out.stderr).toContain(
+      [
+        '✗ Stopped: this deploy would put back older blocks than run now.',
+        '',
+        '  Block          In your files   Runs now',
+        '  my-pack.tone   3.0.0           4.0.0  latest in Support sandbox (Ana, 11-05)',
+        '',
+        '  Nothing was deployed.',
+        '  To keep the newer versions:  merge https://github.com/acme/returns/pull/214, or run `kindgi blocks pull`, then deploy again.',
+        '  To drop them on purpose:  kindgi deploy --env=staging --replace=my-pack.tone --reason=<why>',
+      ].join('\n'),
+    );
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('--dry-run asks the check too, and a stop exits 1 there as well', async () => {
+    const { fetchImpl, checks } = runtime(stopAnswer);
+    const { out, fixtures } = await deployWith(fetchImpl, ['--dry-run']);
+    expect(out.exitCode).toBe(1);
+    expect(checks).toHaveLength(1);
+    expect(out.stderr).toContain('  Nothing was deployed.');
+    expect(out.stderr).not.toContain('--dry-run set. No request sent.');
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('--replace with --reason: the check and the deploy carry each block with the reason, and it says what it puts back', async () => {
+    const { fetchImpl, checks } = runtime({
+      status: 200,
+      body: {
+        replaced: [{ blockId: 'my-pack.tone', from: '4.0.0', to: '3.0.0' }],
+        notNeeded: ['my-pack.rules'],
+      },
+    });
+    const { out, fixtures } = await deployWith(fetchImpl, [
+      `--project=${PROJECT}`,
+      '--replace=my-pack.tone',
+      '--replace=my-pack.rules',
+      '--reason=v4 was a try in the sandbox',
+    ]);
+    expect(out.exitCode, out.stderr).toBe(0);
+    const replace = [
+      { blockId: 'my-pack.tone', reason: 'v4 was a try in the sandbox' },
+      { blockId: 'my-pack.rules', reason: 'v4 was a try in the sandbox' },
+    ];
+    expect(checks).toEqual([
+      {
+        projectId: PROJECT,
+        agents: ['my-pack.agent'],
+        blocks: [
+          { id: 'my-pack.tone', version: '3.0.0' },
+          { id: 'my-pack.rules', version: '1.0.0' },
+        ],
+        replace,
+      },
+    ]);
+    expect(out.stderr).toContain(
+      '  my-pack.tone: 4.0.0 runs now, 3.0.0 in your files; put back on purpose (--replace)\n',
+    );
+    expect(out.stderr).toContain('  my-pack.rules: nothing newer runs; --replace not needed\n');
+    expect(fixtures.state.postCalls).toBe(1);
+    expect(fixtures.state.capturedPost?.body.projectId).toBe(PROJECT);
+    expect(fixtures.state.capturedPost?.body.replace).toEqual(replace);
+  });
+
+  test('--replace without --reason, or --reason without --replace, asks nothing and deploys nothing', async () => {
+    for (const [argv, said] of [
+      [['--replace=my-pack.tone'], 'say why with --reason=<text>'],
+      [['--reason=why'], 'it goes with --replace=<block>'],
+    ] as const) {
+      const { fetchImpl, checks } = runtime(stopAnswer);
+      const { out, fixtures } = await deployWith(fetchImpl, argv);
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(said);
+      expect(checks).toEqual([]);
+      expect(fixtures.state.loadCalls).toBe(0);
+    }
+  });
+
+  test('a runtime without the check (404, or 501 runs-in-unsupported) deploys as before, and says so in one line', async () => {
+    for (const answer of [
+      { status: 404, body: { error: { code: 'not-found', message: 'Not found', requestId: 'r' } } },
+      {
+        status: 501,
+        body: { error: { code: 'runs-in-unsupported', message: 'No pins', requestId: 'r' } },
+      },
+    ]) {
+      const { fetchImpl } = runtime(answer);
+      const { out, fixtures } = await deployWith(fetchImpl);
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(out.stderr).toContain(
+        "  This runtime doesn't check blocks against what runs: deploying as before.\n",
+      );
+      expect(fixtures.state.postCalls).toBe(1);
+    }
+  });
+
+  const forbidden = {
+    status: 403,
+    body: {
+      error: { code: 'permission-denied', message: 'Needs admin on the workspace', requestId: 'r' },
+    },
+  };
+  const FORBIDDEN_LINE =
+    "  This key can't check blocks against what runs here (403): deploying without the check; a runtime that has it still holds it on the deploy.\n";
+
+  test('a key the check refuses (403) deploys without it, and says so in one line', async () => {
+    const { fetchImpl, checks } = runtime(forbidden);
+    const { out, fixtures } = await deployWith(fetchImpl);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(checks).toHaveLength(1);
+    expect(out.stderr).toContain(FORBIDDEN_LINE);
+    expect(fixtures.state.postCalls).toBe(1);
+  });
+
+  test('--dry-run with a key the check refuses (403) goes on to print the request, sending nothing', async () => {
+    const { fetchImpl } = runtime(forbidden);
+    const { out, fixtures } = await deployWith(fetchImpl, ['--dry-run']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain(FORBIDDEN_LINE);
+    expect(out.stderr).toContain('--dry-run set. No request sent.');
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('a check the runtime refuses for another reason fails the deploy before anything is sent', async () => {
+    const { fetchImpl } = runtime({
+      status: 400,
+      body: {
+        error: { code: 'bad-input', message: '`blocks` must be a list', requestId: 'r' },
+      },
+    });
+    const { out, fixtures } = await deployWith(fetchImpl);
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      "Couldn't check the pack's blocks against what runs (POST /v1/deployments/check): bad-input: `blocks` must be a list",
+    );
+    expect(fixtures.state.postCalls).toBe(0);
+  });
 });

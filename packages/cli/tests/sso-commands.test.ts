@@ -25,8 +25,10 @@ const API = 'https://kindgi.acme.example';
 const CLI = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
   version: string;
 };
+/** This CLI's release line's docs, as `docsUrl` builds them: `/v<major>.<minor>/`. */
+const DOCS_LINE = `https://docs.kindgi.com/v${CLI.version.split('.').slice(0, 2).join('.')}/`;
 /** The guides on this CLI's release line, not the docs' root (which moves on to the next line's). */
-const GUIDES = `https://docs.kindgi.com/v${CLI.version.split('.').slice(0, 2).join('.')}/guides/sso`;
+const GUIDES = `${DOCS_LINE}guides/sso`;
 
 async function run(argv: readonly string[], client: Record<string, unknown>) {
   return runCli({
@@ -143,7 +145,9 @@ describe('kindgi sso providers start', () => {
 /**
  * `start`'s whole output, byte for byte: the docs quote it (the SSO
  * guides), and the console shows the same message for IT. A change to it
- * shows up here as a snapshot diff.
+ * shows up here as a snapshot diff. The release line in its docs link is
+ * `vX.Y` there, so the snapshots hold on every line; the tests above pin
+ * the line itself.
  */
 describe('kindgi sso providers start: the whole message, as the docs quote it', () => {
   const cases: readonly (readonly [
@@ -166,7 +170,9 @@ describe('kindgi sso providers start: the whole message, as the docs quote it', 
       });
       expect(out.exitCode, out.stderr).toBe(0);
       expect(out.stderr).toBe('');
-      await expect(out.stdout).toMatchFileSnapshot(`./__snapshots__/sso-start-${name}.txt`);
+      await expect(
+        out.stdout.replaceAll(DOCS_LINE, 'https://docs.kindgi.com/vX.Y/'),
+      ).toMatchFileSnapshot(`./__snapshots__/sso-start-${name}.txt`);
     });
   }
 });

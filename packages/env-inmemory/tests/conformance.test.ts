@@ -61,6 +61,23 @@ describe('createInMemoryEnvBinding — basic CRUD', () => {
     expect(page.data).toHaveLength(1);
   });
 
+  test('a row keeps its id when set again, and a removed value set again is a new row', async () => {
+    const b = createInMemoryEnvBinding();
+    const at = { scope: tenantScope, envName: staging, name: 'KB_URL' };
+    const set = { ...at, value: 'https://kb.example.com', enqueueTuples: () => [] };
+    await b.set(set);
+    const first = (await b.get(at))?.recordId;
+    expect(typeof first).toBe('string');
+    expect(first).toMatch(/^[0-9a-f-]{36}$/);
+    await b.set(set);
+    expect((await b.get(at))?.recordId).toBe(first);
+    await b.delete(at);
+    await b.set(set);
+    const again = await b.get(at);
+    expect(again?.revision).toBe(1);
+    expect(again?.recordId).not.toBe(first);
+  });
+
   test('set overwrites and bumps revision', async () => {
     const b = createInMemoryEnvBinding();
     await b.set({

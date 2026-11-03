@@ -12,7 +12,7 @@ flows call its tools like your own.
 
 An MCP server you run, or one a vendor runs, can give your agents its tools.
 Register its endpoint with the runtime. Kindgi lists the server's tools and
-registers each one as a tool of your tenant, named
+registers each one as a tool of your workspace, named
 `<endpoint id>.<tool name>`. An endpoint id can't contain `.`, so that
 name splits one way only; a tool name can. Agents and flow steps then call
 it like a tool of your pack.
@@ -25,9 +25,10 @@ API, as this guide shows.
 
 ## Before you start
 
-- **A runtime,** such as `kindgi dev`, with Kindgi 0.1's CLI.
+- **A runtime,** such as `kindgi dev`, with Kindgi 0.2's CLI.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set in your shell: your
-  runtime's URL and its API token. `kindgi dev` prints both.
+  runtime's URL and its API token. With `kindgi dev`, they're `apiUrl` and
+  `token` in the pack's `.kindgirc.json`.
 - **`uv`,** to run the example server.
 - **An agent and a model that calls tools,** to call the server's tools.
   This guide uses `my-pack.order-desk`.
@@ -100,7 +101,7 @@ uv add 'mcp<2'
 
 ## Register the endpoint
 
-Registering the endpoint makes its tools your tenant's. Register it from
+Registering the endpoint makes its tools your workspace's. Register it from
 your app's code. Ask your coding agent: "Register my inventory MCP server
 with the Kindgi runtime, so my agents can use its tools." For reference, the
 code looks like this. This guide's endpoint id is `inventory`:
@@ -131,7 +132,7 @@ console.log(page.data.map((e) => `${e.endpointId} (${e.transport})`));
 [ 'inventory (streamable-http)' ]
 ```
 
-`KINDGI_TENANT_ID` is the id of the tenant your runtime serves.
+`KINDGI_TENANT_ID` is the id of the workspace your runtime serves.
 
 </TabItem>
 <TabItem label="Python">
@@ -240,7 +241,7 @@ Or register it with `curl`:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/mcp/endpoints" \
-  -H "authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
   -d '{"endpointId":"inventory","name":"Inventory","transport":"streamable-http",
        "config":{"transport":"streamable-http","url":"http://localhost:8791/mcp"},
        "scopeKind":"tenant"}'
@@ -257,11 +258,38 @@ The runtime connects, lists the server's tools and registers them. The
     [runtime] <time> INFO  [mcp] MCP endpoint "inventory" synced — 2 published, 0 reinstated, 0 unchanged, 0 retired
 ```
 
-The tools are now your tenant's:
+The tools are now your workspace's:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi tools get inventory.stock_level
+pnpm exec kindgi tools get inventory.stock_level
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi tools get inventory.stock_level
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw tools get inventory.stock_level
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw tools get inventory.stock_level
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -296,6 +324,29 @@ tool's answer is the server's structured content, checked against it.
 Otherwise the answer is the text, parsed as JSON when the text is JSON.
 Servers built with the TypeScript MCP SDK often declare none: their `echo`
 tool answers `"Echo: hi"`.
+
+## Give some projects its tools
+
+The endpoint's scope decides which projects' runs can call its tools.
+Registered for the workspace, as above, the runs in every project can.
+Register it for one org, and only the runs in that org's projects can; for
+one project, only that project's runs can. In TypeScript, the scope is
+`{ kind: 'org', orgId: '<org-id>' }` or
+`{ kind: 'project', projectId: '<project-id>' }`. In the other languages
+and the API, `scopeKind` is `org` or `project`, and `scopeId` its id.
+
+- **Registering needs admin on that scope:** a tenant admin for the workspace,
+  an admin of the org or of the project for theirs.
+- **An endpoint id is unique in the workspace,** whatever its scope, so two
+  orgs' endpoints need two ids, such as `inventory-acme`.
+- **A run in another project** that names one of its tools is refused with
+  `reference-out-of-scope`, as
+  [What a project's runs can use](../../../concepts/projects-packs-values/#what-a-projects-runs-can-use)
+  shows.
+
+One MCP server registered for an org or the workspace gives all their projects
+the same tool, where a pack's own tool serves only its project
+([One tool for several clients](../../../concepts/projects-packs-values/#one-tool-for-several-clients)).
 
 ## Call its tools
 
@@ -347,9 +398,36 @@ Start a turn with a model that calls tools. Here it's Llama 3.1 on Ollama,
 as [Models](../../models/) sets up. `--agent` is the agent, and `--input`
 its input:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=my-pack.order-desk --input='{"userMessage":"How many units of SKU-2 are in stock?"}'
+pnpm exec kindgi runs start --agent=my-pack.order-desk --input='{"userMessage":"How many units of SKU-2 are in stock?"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=my-pack.order-desk --input='{"userMessage":"How many units of SKU-2 are in stock?"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=my-pack.order-desk --input='{"userMessage":"How many units of SKU-2 are in stock?"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=my-pack.order-desk --input='{"userMessage":"How many units of SKU-2 are in stock?"}'
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 "appended": [
@@ -384,8 +462,11 @@ A flow step names it in `ref`, like any tool:
 To send a token, ask your coding agent: "My inventory MCP server wants a
 bearer token." You store the token itself, as below. For reference, it adds
 `secretRef` to the registration.
-Kindgi resolves the secret in the tenant's secrets when it connects, and
-sends it as `Authorization: Bearer <value>`:
+Kindgi reads the secret when it connects, at the scope recorded when the
+endpoint was registered
+([Where values live](../../../concepts/projects-packs-values/#where-values-live)),
+and sends it as `Authorization: Bearer <value>`. For an endpoint registered
+for the workspace, that's the workspace's secrets:
 
 ```json excerpt
 "secretRef": { "envName": "local", "name": "INVENTORY_TOKEN" }
@@ -404,6 +485,17 @@ Store the secret with
 unregister the endpoint and register it again, as
 [When the server changes](#when-the-server-changes) shows.
 
+Whichever way it's sent, a credential the server quotes back in an error
+shows as `[redacted]`: in the tool call's result, the run's events, the
+endpoint's
+[resource and prompt reads](../../../reference/api/operations/tags/mcp/),
+and the logs ([what's looked for](../give-a-tool-a-secret/#store-the-secret)).
+
+A `stdio` server gets no headers, so `secretRef` and `auth` aren't for it:
+it's given its secrets as variables
+([Give a stdio server a secret](#give-a-stdio-server-a-secret)). Those are
+looked for too (runtime 0.4.0 or later), but what's in its `env` isn't.
+
 ### Sign in with a user name and password
 
 For a server that takes HTTP Basic, use `auth` instead of `secretRef`. A
@@ -421,7 +513,7 @@ registration:
 ```
 
 Kindgi sends `Authorization: Basic <base64 of username:password>`, the password
-resolved from the tenant's secrets when it connects. Give the agent its own
+resolved from the workspace's secrets when it connects. Give the agent its own
 WordPress user, with a role that allows only what it should do, and create
 the Application Password on that user's profile.
 
@@ -501,7 +593,7 @@ a secret in two headers, or `Authorization` with a prefix other than
 MCP server wants an API key and a secret, each in a header of its own." For
 reference, it adds this to the registration:
 
-```json
+```json excerpt
 "auth": {
   "scheme": "header",
   "headers": [
@@ -512,10 +604,10 @@ reference, it adds this to the registration:
 ```
 
 Kindgi sends each header as `<name>: <prefix><secret>` on every request, the
-secrets resolved from the tenant's secrets when it connects. Reading the
+secrets resolved from the workspace's secrets when it connects. Reading the
 endpoint back shows the references only:
 
-```json
+```json excerpt
 "auth":{"scheme":"header","headers":[{"name":"X-Api-Key","secretRef":{"name":"INVENTORY_KEY","envName":"local"}},{"name":"X-Api-Secret","prefix":"Secret ","secretRef":{"name":"INVENTORY_SECRET","envName":"local"}}]}
 ```
 
@@ -613,7 +705,7 @@ use `auth` with `scheme: "header"`.
 It keeps working, and:
 - **reads back `[redacted]`** for each such header, its name kept:
 
-  ```json
+  ```json excerpt
   "config":{"url":"http://127.0.0.1:18766/mcp","headers":{"X-Region":"eu","X-Api-Key":"[redacted]","X-Api-Secret":"[redacted]"},"transport":"streamable-http"}
   ```
 - **never follows a redirect**, as an endpoint with `auth` or `secretRef`
@@ -623,7 +715,7 @@ It keeps working, and:
   23:53:20.206 WARN  [mcp] MCP endpoint "inventory-moved" skipped: mcp-auth-failed: MCP endpoint "inventory-moved" redirected (HTTP 307) a request carrying a credential header in its config.headers (X-Api-Key, X-Api-Secret): register the URL it redirects to endpointId=inventory-moved transport=streamable-http
   ```
 - **is named, never its value:** by the runtime at every start (`WARN`
-  `mcp-header-credential`), by its [`check mcp-header-credentials`](../../../deploy/operate/#checks-you-can-run-before-upgrading),
+  `mcp-header-credential`), by its [`check mcp-header-credentials`](../../../deploy/self-hosted/operate/#checks-you-can-run-before-upgrading),
   and by `kindgi doctor` against the runtime it points at:
 
   ```text
@@ -638,6 +730,118 @@ To move one: store each header's value as a secret
 [unregister the endpoint](#when-the-server-changes), and register it again
 with `auth` in place of the header.
 
+## Give a stdio server a secret
+
+A `stdio` server reads its credentials from its environment. Ask your coding
+agent: "My stdio MCP server reads its token from `INVENTORY_TOKEN`." You
+store the token itself, with
+`kindgi secrets set INVENTORY_TOKEN --env=local --scope=tenant`. For
+reference, it adds `secretEnv` to the registration (runtime 0.4.0 or
+later): each variable's name, with the secret its value is read from when
+the runtime starts the server, at the scope recorded when the endpoint was
+registered. The value is never stored with the endpoint, and never read back:
+
+```json excerpt
+"config": { "transport": "stdio", "command": "inventory-mcp", "args": ["--stdio"], "env": { "LOG_LEVEL": "info" } },
+"secretEnv": { "INVENTORY_TOKEN": { "envName": "local", "name": "INVENTORY_TOKEN" } }
+```
+
+The server's process gets the variables in `config.env` and `secretEnv`, and
+from the runtime's own environment only `HOME`, `LOGNAME`, `PATH`, `SHELL`,
+`TERM` and `USER`.
+
+- **1 to 16 variables.** Each name has no `=` or NUL, and isn't in
+  `config.env` too (`invalid-mcp-endpoint`, reason `secret-env-twice`).
+  Otherwise the reason is `invalid-secret-env`.
+- **`stdio` only.** On an HTTP endpoint it's refused (`secret-env-on-http`):
+  send the secret in a header, with `secretRef` or `auth`.
+- **Not `secretRef`.** On a `stdio` endpoint it's refused, since it's sent as
+  a bearer header:
+
+  ```json
+  {"error":{"code":"invalid-mcp-endpoint","message":"endpoint \"inventory-local\" secretRef needs an HTTP transport: it's sent as a bearer header, and a stdio server gets no headers. Give the server its secret as a variable: secretEnv: { <NAME>: { envName, name } }.","details":{"reason":"secret-ref-on-stdio"},…}}
+  ```
+- **Never a model provider's key,** as for `secretRef`
+  (`provider-key-refused`).
+- **A secret that isn't set** fails the endpoint's sync with
+  `mcp-auth-unresolved`, naming the variable and the secret, and the server
+  isn't started:
+
+  ```text
+  12:34:22.054 WARN  [mcp] MCP endpoint "inventory-eu" sync failed: mcp-auth-unresolved: MCP endpoint "inventory-eu": its secretEnv INVENTORY_TOKEN local/INVENTORY_EU_TOKEN at the workspace did not resolve: … endpointId=inventory-eu
+  ```
+
+  Store it, then unregister the endpoint and register it again.
+- **A new value** reaches the server the next time the runtime starts it.
+- **If you roll back** to a runtime older than 0.4.0, an endpoint
+  registered with `secretEnv` before the rollback starts without those
+  variables. The server fails its own calls, and no value is exposed.
+  Registering one with `secretEnv` there is refused (`invalid-mcp-endpoint`,
+  reason `unknown-field`): that runtime doesn't know the field.
+
+### Not in `config.env`
+
+`config.env` is for plain variables: they're stored as given. A variable
+whose name says it holds a credential is refused (runtime 0.4.0 or later;
+`invalid-mcp-endpoint`, reason `credential-in-env`). The refusal names the
+variable, never its value, and shows the `secretEnv` that gives it by
+reference:
+
+```json
+{"error":{"code":"invalid-mcp-endpoint","message":"endpoint \"inventory-local\" puts a credential in config.env (\"INVENTORY_TOKEN\"), where it's stored as given. Store each value as a secret and give it by reference: secretEnv: { INVENTORY_TOKEN: { envName, name } }.","details":{"reason":"credential-in-env"},…}}
+```
+
+The names that count are the ones
+[`config.headers` refuses](#not-in-configheaders), with parts split on `_`
+as well as `-`: `GITHUB_TOKEN`, `OPENAI_API_KEY`, `AWS_SECRET_ACCESS_KEY`,
+`AWS_ACCESS_KEY_ID`, `SLACK_BOT_TOKEN`, `DB_PASSWORD`,
+`GOOGLE_APPLICATION_CREDENTIALS`. `LOG_LEVEL`, `PORT`, `CACHE_KEY` and
+`PARTITION_KEY` are plain: a lone `KEY` doesn't count. The rule doesn't
+catch every secret, such as `DATABASE_URL` with a password in it,
+`PGPASSWORD` or `MYSQL_PWD`: put those in `secretEnv` too.
+
+Every value in `config.env` reads back as `[redacted]` (runtime 0.4.0 or
+later), its name kept, so a workspace's export holds the names, not the values:
+
+```json excerpt
+"config":{"env":{"LOG_LEVEL":"[redacted]"},"args":["--stdio"],"command":"inventory-mcp","transport":"stdio"},"secretEnv":{"INVENTORY_TOKEN":{"name":"INVENTORY_TOKEN","envName":"local"}}
+```
+
+A value of `[redacted]` is refused at registration (runtime 0.4.0 or
+later; `invalid-stdio-env`), so a copy of what `GET` answers can't register
+it by mistake. So is what a process's environment can't carry: an empty
+name, `=` or a NUL in a name, or a NUL in a value.
+
+#### An endpoint registered with one by an earlier runtime
+
+It keeps working, and:
+- **reads back `[redacted]`** for every value in `config.env` (runtime
+  0.4.0 or later):
+
+  ```json excerpt
+  "config":{"env":{"LOG_LEVEL":"[redacted]","INVENTORY_TOKEN":"[redacted]"},"args":["--stdio"],"command":"inventory-mcp","transport":"stdio"}
+  ```
+- **is named, never its value:** by the runtime at every start (runtime
+  0.4.0 or later; `WARN` `mcp-env-credential`), by its
+  [`check mcp-env-credentials`](../../../deploy/self-hosted/operate/#checks-you-can-run-before-upgrading)
+  (runtime 0.4.0 or later), and by `kindgi doctor` against the runtime it
+  points at (the check MCP endpoint env, `mcp-env`):
+
+  ```text
+    ! MCP endpoint env: 2 stdio MCP endpoints keep a credential in plaintext config.env, or a secretRef a stdio server isn't sent, from before that was refused. They still work, but a value in config.env is stored as given, not as a secret.
+        ✗ files-legacy: secretRef (never sent)
+        ✗ inventory-legacy: INVENTORY_TOKEN
+        Fix: Store each value as a secret (kindgi secrets set <NAME> --env=<name> --scope=tenant), then unregister the endpoint and register it again with the variable in secretEnv: { <NAME>: { envName, name } }, and without secretRef.
+  ```
+
+A `stdio` endpoint registered with a `secretRef` is named the same way: a
+stdio server is never sent it, and the runtime (0.4.0 or later) doesn't read
+it.
+
+To move one: store each variable's value as a secret,
+[unregister the endpoint](#when-the-server-changes), and register it again
+with `secretEnv` in place of the variable.
+
 ## Send the run's trace
 
 Ask your coding agent: "I want to match my MCP server's logs to the runs that
@@ -645,7 +849,7 @@ called it." For reference, it adds `"sendTraceparent": true` to the
 registration, and each tool call to the server carries the W3C `traceparent`
 of the run that made it, as a request header. The server's logs can then be
 matched to the run, as [Follow a request or a
-run](../../../deploy/logs/#follow-a-request-or-a-run) shows. Only the ids go:
+run](../../../deploy/self-hosted/logs/#follow-a-request-or-a-run) shows. Only the ids go:
 the trace id and a span id, never the tool's input or output. It's off by
 default, and HTTP transports only. A `stdio` server gets no headers, so `true`
 there is refused with `invalid-mcp-endpoint`, reason
@@ -765,13 +969,13 @@ The runtime lists an endpoint's tools when the endpoint is registered. It
 doesn't watch the server. To pick up new or changed tools, unregister the
 endpoint and register it again. A runtime serving one tenant, the default,
 also lists every endpoint's tools each time it starts, so restarting it works
-too. A runtime [serving many tenants](../../../deploy/serve-many-tenants/)
+too. A runtime [serving many tenants](../../../deploy/self-hosted/serve-many-tenants/)
 (`KINDGI_TENANCY=multi`) lists none when it starts: there, only unregistering
 and registering again does. `inventory` in the path is the endpoint's id:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/mcp/endpoints/inventory/unregister" \
-  -H "authorization: Bearer $KINDGI_API_TOKEN"
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 ```json
@@ -781,12 +985,120 @@ curl -X POST "$KINDGI_API_URL/v1/mcp/endpoints/inventory/unregister" \
 Unregistering retires the endpoint's tools. Registering it again brings them
 back.
 
+With more than one replica, another replica's sync can hold one of the
+endpoint's tools when you unregister it. The unregister then answers first,
+the same way, and the tools are retired in the background. It tries again
+after 30 seconds, then waits twice as long each time, for 15 minutes at
+most. Registering the endpoint again stops it, and the new registration's
+sync takes the tools over. A sync that finds a tool held waits the same way.
+The runtime's log says what happened, with the endpoint's id for `<id>`:
+
+- **At `WARN`, once, when it first waits:**
+  `MCP endpoint "<id>" retire waits: another replica's sync holds tool <tool id>'s lock; trying again in 30 s, for 15 minutes at most`.
+  A sync's line says `sync waits` instead.
+- **At `INFO`, when the endpoint was registered again meanwhile:**
+  `MCP endpoint "<id>" was registered again while its tools were retired: its new registration's sync has them now`,
+  or, for a sync,
+  `MCP endpoint "<id>" sync stopped: the endpoint was registered again or unregistered meanwhile, and that has its tools now`.
+- **At `ERROR`, when it gives up after 15 minutes:**
+  `MCP endpoint "<id>" unregistered, but retiring its tools failed: the MCP catalog sync couldn't lock <tool id>: another replica's sync of it held it for over 15 minutes`.
+  The tools it retired stay retired, and the rest stay in the catalog,
+  where a call fails with `mcp-endpoint-not-found`. To retire them, register
+  the endpoint again, then unregister it. A sync that gives up says
+  `sync failed:` with the same reason.
+- **At `WARN`, at a start:**
+  `MCP endpoint "<id>" skipped: another replica's sync holds tool <tool id>'s lock`.
+  That start leaves the endpoint's tools to the sync that holds the lock.
+
 If the server is down when a tool is called, the call fails and the next one
 reconnects:
 
 ```json excerpt
   "failureMessage": "handler-error: Tool \"inventory.stock_level\" handler threw: mcp-call-failed: MCP endpoint \"inventory\" tool \"stock_level\": tools/call \"stock_level\" failed: fetch failed (the next call reconnects)",
 ```
+
+## When a tool id is taken
+
+An endpoint's tools are filed in your workspace's default project, whatever
+the endpoint's scope. A tool id there is one kind or the other (runtime
+0.1.9 or later): an endpoint's tool, or a tool published to the runtime, by
+`kindgi tools publish` or by a pack's deploy. Only active versions count:
+once one kind's versions are unregistered, the id is free for the other.
+
+- **A publish or a reinstate of the other kind** is refused with a 409,
+  `tool-kind-mismatch`, and nothing is written. Its `details` name the tool
+  and the version, and the endpoint (`endpointId`) when the id is an
+  endpoint's tool. A refused reinstate leaves the version unregistered.
+- **A deploy into the default project** of a pack with a tool whose id is an
+  endpoint's tool's id, such as a pack `inventory` with a tool
+  `inventory.stock_level`, is refused the same way, with `details.primitive`,
+  `details.id` and `details.endpointId`. Nothing is deployed: the deploy
+  rolls back what it had published.
+- **An endpoint that lists a tool whose id a published tool holds** skips
+  that tool and registers the others. The runtime's log says so, at `WARN`,
+  with `endpointId`, `toolName` and `publishedVersion`. Here a pack's tool
+  `inventory.stock_level` 1.0.0 was deployed before the endpoint `inventory`
+  was registered:
+
+```text
+07:53:33.159 WARN  [mcp] MCP endpoint "inventory" tool "stock_level" skipped: its id inventory.stock_level is a tool published here (version 1.0.0), not the endpoint's; unregister that tool's versions to free the id endpointId=inventory toolName=stock_level publishedVersion=1.0.0
+```
+
+A tool published during the sync, after it reads that id's versions and
+before it writes the endpoint's tool, is named without its version; the
+endpoint's tool is skipped all the same.
+
+To fix it, give one of them another id: rename the pack or the tool, or
+register the endpoint under another id. Or free the id: unregister the
+endpoint, as [When the server changes](#when-the-server-changes) shows, or
+the published tool's active versions, then publish, deploy or register
+again:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```sh
+pnpm exec kindgi tools versions inventory.stock_level
+pnpm exec kindgi tools unregister inventory.stock_level 1.0.0
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi tools versions inventory.stock_level
+uv run kindgi tools unregister inventory.stock_level 1.0.0
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw tools versions inventory.stock_level
+./kindgiw tools unregister inventory.stock_level 1.0.0
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw tools versions inventory.stock_level
+./kindgiw tools unregister inventory.stock_level 1.0.0
+```
+
+</TabItem>
+</Tabs>
+
+A pack deployed into another project can't take an endpoint's tool's id
+either, and nothing is deployed. The refusal is `tool-project-mismatch`,
+since a tool stays in the project its first version was published into,
+or `tool-kind-mismatch`.
+
+An id that holds both kinds' active versions from an earlier runtime is
+served as neither, as before. Until every active version of one kind is
+unregistered, a new version of either kind is refused. While a published
+version of the id is active, the endpoint's tool is skipped with the `WARN`
+above.
 
 ## Transports
 
@@ -797,7 +1109,9 @@ reconnects:
 - **`http-sse`**: the older HTTP and Server-Sent Events transport,
   `{ transport: 'http-sse', url, sseUrl?, headers? }`, with `url` the
   server's SSE endpoint (`http://localhost:8793/sse` for the Python SDK).
-- **`stdio`**: `{ transport: 'stdio', command, args?, env? }`. The runtime
+- **`stdio`**: `{ transport: 'stdio', command, args?, env? }`. `env` is for
+  plain variables: a secret goes in `secretEnv`
+  ([Give a stdio server a secret](#give-a-stdio-server-a-secret)). The runtime
   runs the command in its own container, as its own user, under
   `kindgi dev` too. A deployment refuses it, because
   `KINDGI_TENANT_HOST_ACCESS` is `deployed` outside development:

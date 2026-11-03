@@ -62,6 +62,56 @@ Intro text.
     );
   });
 
+  test('a release gathers its prereleases right below, newest first; they keep their sections', () => {
+    const text =
+      '# Acme\n\n## Unreleased\n\n- a fix\n\n## 1.2.0-rc.1\n\n- a later change\n\n## 1.2.0-rc.0\n\n- a change\n- another\n\n## 1.1.0\n\n- old\n\n## 1.1.0-rc.0\n\n- older\n';
+    const gathers = (section) => /^1\.2\.0-rc\.\d+$/.test(section);
+    assert.equal(
+      stampUnreleased(text, '1.2.0', EMPTY, 'C', { gathers }),
+      '# Acme\n\n## Unreleased\n\n## 1.2.0\n\n- a fix\n- a later change\n- a change\n- another\n\n## 1.2.0-rc.1\n\n- a later change\n\n## 1.2.0-rc.0\n\n- a change\n- another\n\n## 1.1.0\n\n- old\n\n## 1.1.0-rc.0\n\n- older\n',
+    );
+  });
+
+  test('a prerelease that said it had nothing adds nothing; with nothing at all, the release says so', () => {
+    const gathers = (section) => section.startsWith('1.2.0-rc.');
+    assert.equal(
+      stampUnreleased(
+        '# Acme\n\n## Unreleased\n\n## 1.2.0-rc.1\n\nNo changes.\n\n## 1.2.0-rc.0\n\n- a change\n',
+        '1.2.0',
+        EMPTY,
+        'C',
+        { gathers },
+      ),
+      '# Acme\n\n## Unreleased\n\n## 1.2.0\n\n- a change\n\n## 1.2.0-rc.1\n\nNo changes.\n\n## 1.2.0-rc.0\n\n- a change\n',
+    );
+    assert.equal(
+      stampUnreleased(
+        '# Acme\n\n## Unreleased\n\n## 1.2.0-rc.0\n\nNo changes.\n',
+        '1.2.0',
+        EMPTY,
+        'C',
+        {
+          gathers,
+        },
+      ),
+      '# Acme\n\n## Unreleased\n\n## 1.2.0\n\nNo changes.\n\n## 1.2.0-rc.0\n\nNo changes.\n',
+    );
+  });
+
+  test('gathering stops at the first section that is not one of its prereleases', () => {
+    const gathers = (section) => section.startsWith('1.2.0-rc.');
+    assert.equal(
+      stampUnreleased(
+        '# Acme\n\n## Unreleased\n\n## 1.2.0-rc.1\n\n- b\n\n## 1.1.1\n\n- a fix\n\n## 1.2.0-rc.0\n\n- a\n',
+        '1.2.0',
+        EMPTY,
+        'C',
+        { gathers },
+      ),
+      '# Acme\n\n## Unreleased\n\n## 1.2.0\n\n- b\n\n## 1.2.0-rc.1\n\n- b\n\n## 1.1.1\n\n- a fix\n\n## 1.2.0-rc.0\n\n- a\n',
+    );
+  });
+
   test('the first release: Unreleased is the only section', () => {
     assert.equal(
       stampUnreleased('# Acme\n\n## Unreleased\n\n- first\n', '0.1.0', EMPTY, 'C'),

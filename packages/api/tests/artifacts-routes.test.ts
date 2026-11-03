@@ -22,6 +22,7 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
+import { validateAgainst } from './support/openapi-schema.js';
 
 const tenantId = '00000000-0000-4000-8000-0000000000a1' as TenantId;
 const P1 = '00000000-0000-4000-8000-0000000000b1';
@@ -42,7 +43,11 @@ const resolveToken: TokenResolver = async (token) =>
       ? { tenantId, userId: 'alice' as UserId, scopes: [], capabilities: [], tokenProjectId: P1 }
       : null;
 
-function memoryBlobs(): BlobStorageBinding & {
+/**
+ * With `s3Address`, each upload gets an S3-compatible address, as a store
+ * serving `/s3` gives it: bucket `artifacts`, the `blobId` as its key.
+ */
+function memoryBlobs(options: { s3Address?: boolean } = {}): BlobStorageBinding & {
   readonly rows: Map<string, BlobMeta>;
   readonly bytes: Map<string, Uint8Array>;
   /** Each blob `get` opened, by id. */
@@ -69,6 +74,7 @@ function memoryBlobs(): BlobStorageBinding & {
         ...(input.projectId !== undefined && { projectId: input.projectId }),
         ...(input.createdBy !== undefined && { createdBy: input.createdBy }),
         createdAt: '2026-10-07T00:00:00.000Z' as Timestamp,
+        ...(options.s3Address === true && { bucket: 'artifacts', key: blobId }),
       };
       rows.set(blobId, meta);
       bytes.set(blobId, body);
@@ -109,9 +115,16 @@ function decision(user: string, action: Action, resource: ResourceRef): Decision
   };
 }
 
-function harness(options: { authz?: boolean; maxBytes?: number; defaultProject?: string } = {}) {
+function harness(
+  options: {
+    authz?: boolean;
+    maxBytes?: number;
+    defaultProject?: string;
+    s3Address?: boolean;
+  } = {},
+) {
   const stubs = createStubAppBindings();
-  const blobs = memoryBlobs();
+  const blobs = memoryBlobs({ s3Address: options.s3Address === true });
   const run = {
     ...stubs.kernelBinding.run,
     getRun: async (_t: TenantId, id: RunId) =>
@@ -222,6 +235,31 @@ describe('artifacts belong to a project', () => {
   });
 });
 
+describe("an artifact answer carries only BlobMeta's properties", () => {
+  test('from a store that gives a blob an S3-compatible address, the upload and the list carry it', async () => {
+    const h = harness({ s3Address: true });
+    const up = await h.upload('alice');
+    expect(up.status, JSON.stringify(up.body)).toBe(201);
+    expect(up.body).toMatchObject({ bucket: 'artifacts', key: up.body.blobId });
+    expect(validateAgainst('BlobMeta', up.body)).toEqual([]);
+    const list = (await h.call('alice', 'GET', '/v1/artifacts')).json();
+    expect(list.data).toEqual([up.body]);
+    expect(validateAgainst('ArtifactCollectionPage', list)).toEqual([]);
+  });
+
+  test('from a store that gives it none, the upload and the list leave it out', async () => {
+    const h = harness();
+    const up = await h.upload('alice');
+    expect(up.status, JSON.stringify(up.body)).toBe(201);
+    expect(up.body).not.toHaveProperty('bucket');
+    expect(up.body).not.toHaveProperty('key');
+    expect(validateAgainst('BlobMeta', up.body)).toEqual([]);
+    const list = (await h.call('alice', 'GET', '/v1/artifacts')).json();
+    expect(list.data).toEqual([up.body]);
+    expect(validateAgainst('ArtifactCollectionPage', list)).toEqual([]);
+  });
+});
+
 describe('reading and deleting', () => {
   async function seeded() {
     const h = harness({ authz: false });
@@ -294,6 +332,67 @@ describe('reading and deleting', () => {
     expect(bob.json().data).toEqual([]);
     const narrowed = await h.call('alice', 'GET', `/v1/artifacts?projectId=${P2}`);
     expect(narrowed.json().data.map((m: BlobMeta) => m.projectId)).toEqual([P2]);
+  });
+});
+
+describe('a download is saved as a file, never opened as a page of this origin', () => {
+  const SAVED = {
+    'x-content-type-options': 'nosniff',
+    'content-security-policy': "default-src 'none'; sandbox",
+  };
+
+  test('GET and HEAD answer an attachment under its whole name, nosniff and sandboxed', async () => {
+    const h = harness();
+    const up = await h.upload('alice', {
+      name: 'résumé (v2) "final".html',
+      contentType: 'text/html; charset=utf-8',
+    });
+    for (const method of ['GET', 'HEAD']) {
+      const res = await h.call('alice', method, `/v1/artifacts/${up.body.blobId}`);
+      expect(res.status, method).toBe(200);
+      expect(res.headers, method).toMatchObject({
+        ...SAVED,
+        'content-type': 'text/html; charset=utf-8',
+        'content-disposition':
+          'attachment; filename="r_sum_ (v2) _final_.html"; ' +
+          "filename*=UTF-8''r%C3%A9sum%C3%A9%20%28v2%29%20%22final%22.html",
+      });
+    }
+  });
+
+  test.each([
+    ['no subtype', 'html'],
+    ['a list', 'text/html, image/png'],
+    ['a line break', 'text/html\r\nx-other: 1'],
+    ['a character outside ASCII', 'text/html; charset=ü'],
+    ['more than 255 characters', `text/plain; x=${'a'.repeat(242)}`],
+    ['a subtype over 127 characters', `application/${'a'.repeat(128)}`],
+  ])('a stored type with %s is served as application/octet-stream', async (_what, stored) => {
+    const h = harness();
+    const blobId = (await h.upload('alice', { name: 'page.html' })).body.blobId as string;
+    const meta = h.blobs.rows.get(blobId) as BlobMeta;
+    h.blobs.rows.set(blobId, { ...meta, contentType: stored });
+    for (const method of ['GET', 'HEAD']) {
+      const res = await h.call('alice', method, `/v1/artifacts/${blobId}`);
+      expect(res.status, method).toBe(200);
+      expect(res.headers, method).toMatchObject({
+        ...SAVED,
+        'content-type': 'application/octet-stream',
+        'content-disposition': `attachment; filename="page.html"; filename*=UTF-8''page.html`,
+      });
+    }
+  });
+
+  test('a stored type of 255 characters, its subtype 127, is served as itself', async () => {
+    const stored = `application/${'b'.repeat(127)}; x=${'a'.repeat(112)}`;
+    expect(stored).toHaveLength(255);
+    const h = harness();
+    const blobId = (await h.upload('alice', { name: 'page.bin' })).body.blobId as string;
+    const meta = h.blobs.rows.get(blobId) as BlobMeta;
+    h.blobs.rows.set(blobId, { ...meta, contentType: stored });
+    const res = await h.call('alice', 'GET', `/v1/artifacts/${blobId}`);
+    expect(res.status).toBe(200);
+    expect(res.headers).toMatchObject({ ...SAVED, 'content-type': stored });
   });
 });
 

@@ -45,11 +45,11 @@ function listOver<T extends { readonly name: string }>(
   return next < matching.length ? { data, nextCursor: String(next) as Cursor } : { data };
 }
 
-function envRows(n: number): EnvRecord[] {
+function envRows(n: number, under: EnvName = envName, prefix = 'ENV'): EnvRecord[] {
   return Array.from({ length: n }, (_, i) => ({
     scope,
-    envName,
-    name: `ENV_${String(i).padStart(2, '0')}`,
+    envName: under,
+    name: `${prefix}_${String(i).padStart(2, '0')}`,
     value: `v${i}`,
     revision: 1,
     createdAt: at,
@@ -57,10 +57,10 @@ function envRows(n: number): EnvRecord[] {
   }));
 }
 
-function secretRows(n: number): SecretRecord[] {
+function secretRows(n: number, under: EnvName = envName): SecretRecord[] {
   return Array.from({ length: n }, (_, i) => ({
     scope,
-    envName,
+    envName: under,
     name: `SECRET_${String(i).padStart(2, '0')}`,
     currentVersion: 1,
     createdAt: at,
@@ -68,15 +68,23 @@ function secretRows(n: number): SecretRecord[] {
   }));
 }
 
-function appWith(env: readonly EnvRecord[], secrets: readonly SecretRecord[]) {
-  const envBinding = { list: async (input) => listOver(env, input) } as EnvBinding;
-  const secretsBinding = { list: async (input) => listOver(secrets, input) } as SecretBinding;
+/** Each binding lists the rows under the env asked for; `served`: the env the runtime serves. */
+function appWith(env: readonly EnvRecord[], secrets: readonly SecretRecord[], served?: EnvName) {
+  const under = <T extends { readonly envName: EnvName }>(rows: readonly T[], at: EnvName) =>
+    rows.filter((r) => r.envName === at);
+  const envBinding = {
+    list: async (input) => listOver(under(env, input.envName), input),
+  } as EnvBinding;
+  const secretsBinding = {
+    list: async (input) => listOver(under(secrets, input.envName), input),
+  } as SecretBinding;
   return createApp({
     ...createStubAppBindings(),
     resolveToken,
     runHandler: {} as RunHandlerBinding,
     envBinding,
     secretsBinding,
+    ...(served !== undefined && { envName: served }),
   });
 }
 
@@ -135,6 +143,25 @@ describe('GET /v1/tenant/config — paging across env + secrets', () => {
     const pages = await readAll(app, 'kind=secret&limit=3');
     expect(pages.map((p) => p.data.length)).toEqual([3, 3, 1]);
     expect(pages.flatMap((p) => p.data.map((e) => e.kind))).toEqual(Array(7).fill('secret'));
+  });
+
+  test("on a runtime serving another env: its values, then the tenant's settings under `default`, then its secrets, each once", async () => {
+    const prod = 'prod' as EnvName;
+    const values = envRows(7, prod);
+    const settings = envRows(4, envName, 'SETTING');
+    const app = appWith([...values, ...settings], secretRows(5, prod), prod);
+    const pages = await readAll(app, 'limit=4');
+    expect(pages.map((p) => p.data.length)).toEqual([4, 4, 4, 4]);
+    expect(pages.flatMap((p) => p.data.map((e) => [e.kind, e.key]))).toEqual([
+      ...values.map((r) => ['env', r.name]),
+      ...settings.map((r) => ['config', r.name]),
+      ...secretRows(5).map((r) => ['secret', r.name]),
+    ]);
+    // `?kind=` narrows to one of them; the values never list as settings.
+    const only = async (kind: string) =>
+      (await readAll(app, `kind=${kind}&limit=3`)).flatMap((p) => p.data.map((e) => e.key));
+    expect(await only('config')).toEqual(settings.map((r) => r.name));
+    expect(await only('env')).toEqual(values.map((r) => r.name));
   });
 
   test('a malformed cursor is 400 bad-input', async () => {

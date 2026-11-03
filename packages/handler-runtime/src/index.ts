@@ -9,11 +9,15 @@ export type {
   HandlerErrorCode,
   HandlerFn,
   HandlerModule,
+  HandlerOutcome,
+  HandlerPause,
+  PauseAnswer,
+  PauseOptions,
   RunCheckOptions,
   RunHandlerOptions,
   ToolInvocationSpec,
 } from './handler-runner.js';
-export { runCheck, runHandler } from './handler-runner.js';
+export { runCheck, runHandler, runHandlerOrPause } from './handler-runner.js';
 
 export type {
   DiscoveryConfig,
@@ -43,6 +47,7 @@ export type {
 } from './kindgi-index.js';
 export {
   PRESET_DECLARATION_SETTINGS,
+  DEFAULT_BLOCKS,
   DEFAULT_DISCOVERY,
   DEFAULT_JAVA_DISCOVERY,
   DEFAULT_SCALA_DISCOVERY,
@@ -54,6 +59,7 @@ export {
   KINDGI_JSON_CONFIG_FILENAME,
   PYPROJECT_FILENAME,
   RESERVED_CHECK_IDS,
+  codePatterns,
   findKindgiConfig,
   isJvmLanguage,
   loadKindgiConfig,
@@ -62,6 +68,24 @@ export {
   main as kindgiIndexMain,
   runIndexer,
 } from './kindgi-index.js';
+export type {
+  BlockFileText,
+  IndexedBlock,
+  PackBlockError,
+  PackBlocks,
+  PackBlockWrite,
+  PackBlockWriteOutcome,
+  PackFilesState,
+} from './pack-blocks.js';
+export {
+  DEPLOY_PUBLISHES_PACK_BLOCKS,
+  blockFileText,
+  blocksFolder,
+  holdsContent,
+  packBlockFiles,
+  readPackBlocks,
+  writePackBlock,
+} from './pack-blocks.js';
 export type {
   PackEnvCheck,
   PackEnvConfig,

@@ -1,0 +1,329 @@
+---
+title: Deploy your agent to Kindgi Cloud
+description: Sign the Kindgi CLI in to your Kindgi Cloud workspace, sign the pack, give it your model key, deploy it with kindgi deploy --hosted, try it and go live. Then change an agent once it's live.
+sidebar:
+  order: 1
+  label: Deploy your agent
+---
+
+This guide puts a pack of yours in your Kindgi Cloud workspace, in its
+default project, and then puts the project in production. Kindgi Cloud
+builds the pack and runs it. On your machine, you need only the Kindgi CLI.
+
+On Kindgi Cloud, your workspace's runtime reads its secrets and model
+providers on `prod`, before and after you go live. So everything here uses
+`--env=prod`.
+
+## Before you start
+
+- **A Kindgi Cloud workspace,** where you're an admin. Whoever
+  [signs up](https://platform.kindgi.com/cloud/signup) is the workspace's
+  first admin.
+- **A pack with an agent,** with its tests passing, and the Kindgi skills
+  that `kindgi init` installs in it. This guide uses the pack `acme-desk`,
+  with the agent `acme-desk.reply-drafter`.
+- **Kindgi 0.2's CLI,** with Node 22.12 or later. You don't need Docker:
+  Kindgi Cloud builds the pack's image.
+- **An API key from your AI provider,** with a spending limit.
+
+## Sign the CLI in
+
+Your coding agent deploys with the CLI's sign-in, so the key never goes
+into the chat.
+
+:::note[What only you do]
+**Make a key for the CLI.** Sign in to the Kindgi Cloud console, at
+[platform.kindgi.com/console](https://platform.kindgi.com/console/). Open
+**API keys** and choose **Create a key**. Under **How far it goes**, choose
+**Admin**. Under **What it can change**, tick **Trust signing keys** and
+**Store secrets**. The secret shows once: **Copy** it.
+
+This key is the one every command in this guide uses. If you also run
+`kindgi dev`, its console and its token belong to the runtime on
+your machine, not to Kindgi Cloud: paste only the key you made here.
+
+**Sign the CLI in, in a terminal of your own,** in the pack's folder. Paste
+the key at the prompt, which doesn't show it:
+
+```sh
+read -rs KINDGI_API_TOKEN && export KINDGI_API_TOKEN
+pnpm exec kindgi auth login --url=https://platform.kindgi.com
+pnpm exec kindgi auth whoami
+```
+
+`auth whoami` checks the key with Kindgi Cloud. The CLI keeps the key in
+`~/.kindgi/config.json`, for that address only. On macOS and Linux, only
+your account can read that file.
+
+If that file already holds a login for another runtime (one you run
+yourself, say), `auth login` keeps it and stops, so its key isn't lost.
+Run it again with `--force` to replace that login. Or keep both: skip
+`auth login`, and `export KINDGI_API_URL=https://platform.kindgi.com` beside
+the key, so this terminal's commands go to Kindgi Cloud.
+:::
+
+## Sign the pack
+
+Kindgi Cloud deploys a pack only when it's signed with a key that your
+workspace trusts.
+
+Ask your coding agent: "Make a signing key for this pack, trust it in my
+Kindgi Cloud workspace, and set it on the pack's `prod` environment." For
+reference, that's two commands:
+
+```sh
+pnpm exec kindgi key create acme-desk --env=prod
+pnpm exec kindgi key trust acme-desk
+```
+
+and the pack's `prod` environment in `kindgi.config.ts`. The config that
+`kindgi init` writes has this block, commented out:
+
+```ts excerpt
+environments: {
+  prod: {
+    build: 'hosted',
+    signingKey: '~/.kindgi/keys/acme-desk.pem',
+  },
+},
+```
+
+- `kindgi key create` writes the key pair to `~/.kindgi/keys/`. The private
+  key stays on your machine.
+- `kindgi key trust` adds its public key to your workspace's trust list.
+  The CLI's key needs **Trust signing keys** for it.
+- `build: 'hosted'` builds the pack on Kindgi Cloud.
+
+## Your model key and its provider
+
+Your agents call their model with your own key. The key and its provider
+both go on `prod`.
+
+:::note[What only you do]
+**Store the key, in your own terminal.** With your AI provider, create an
+API key for this pack. Then store it under the name the table below gives
+for your provider, and paste it at the prompt, twice: the second time
+confirms it.
+
+```sh
+pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=prod --scope=tenant
+```
+
+`--scope=tenant` makes it your whole workspace's key.
+:::
+
+Ask your coding agent: "Register my model provider on `prod`, with the key
+I stored as `ANTHROPIC_API_KEY`." For reference:
+
+```sh
+pnpm exec kindgi providers register --preset=anthropic --env=prod
+```
+
+| Provider | Preset | The key's name |
+| --- | --- | --- |
+| Anthropic | `anthropic` | `ANTHROPIC_API_KEY` |
+| OpenAI | `openai` | `OPENAI_API_KEY` |
+| Gemini API | `gemini-api` | `GEMINI_API_KEY` |
+| Groq | `groq` | `GROQ_API_KEY` |
+| OpenRouter | `openrouter` | `OPENROUTER_API_KEY` |
+
+`kindgi providers presets` lists every preset.
+[Models](../../guides/models/) has the rest, such as Bedrock, Vertex AI
+and Azure OpenAI.
+
+## Deploy
+
+Ask your coding agent: "Deploy the pack to Kindgi Cloud, and wait until
+its pack service is ready." For reference:
+
+```sh
+pnpm exec kindgi deploy --hosted --env=prod
+```
+
+- `--hosted` builds the pack on Kindgi Cloud, deploys what it built, and
+  waits up to 5 minutes for its pack service to be ready, if it has one.
+- `--env=prod` picks the `prod` environment: its signing key.
+- With no `--project`, the pack goes into the default project.
+  `--project=<id-or-slug>` names another.
+
+The deploy prints what it registered, with each agent's version, then
+`Deploy complete.` and which image new runs use. Then it waits:
+`Waiting for the pack service`, a `… <state>` line for each state it
+waits in, and `✓ ready`. Last, it says how many builds keep a pack
+service: `Builds kept in this project: N`. With no `--project`, it's
+`Builds kept in this workspace: N`, the total over the projects you can
+read. The builds of a deploy that names no project count in the default's,
+and the deploy's answer doesn't name that project.
+[Old versions keep their pack service](#old-versions-keep-their-pack-service)
+says what keeps one. With `--json`, the count is `keptBuilds`; a count that
+couldn't be read is `keptBuildsError`, and the deploy still succeeds.
+A pack with no tools and no guardrail checks of its own, such as one of
+agents and flows whose guardrails use only built-in checks, has no pack
+service. Its deploy doesn't wait for one, and prints no `Waiting for the pack
+service`.
+
+## Try it
+
+The project isn't in production yet, so its runs count as staging.
+
+In the Kindgi Cloud console, open **Runs** and choose **Start run**. Under
+**Agent or flow**, choose `acme-desk.reply-drafter`, write a message for it
+under **Message**, and choose **Start run**. The run's page shows **What
+happened**: each step, and then what the agent **Answered**.
+
+From the CLI, the same run is:
+
+```sh
+pnpm exec kindgi runs start --agent=acme-desk.reply-drafter --input='{"userMessage":"Can I still return a jacket I bought five weeks ago?"}'
+```
+
+## Go live
+
+Going live takes two steps, in this order.
+
+**1. Pin the agent's version.** Until an agent has a pinned version,
+each run gets its project's Latest, the version the newest deploy shipped,
+so every deploy changes what runs at once. Pin the version you tried in
+the project. Then later deploys change nothing until you pin a version
+again.
+
+Ask your coding agent: "Pin the version of `acme-desk.reply-drafter` that I
+tried in the default project." For reference:
+
+```sh
+pnpm exec kindgi agents pin acme-desk.reply-drafter <version> --project=<project-id> --reason="The version we tried"
+```
+
+`kindgi projects list` lists the projects, with their ids. In the console,
+the agent's **Pinned versions** page shows where each version is pinned.
+
+**2. Put the project in production.**
+
+:::note[What only you do]
+**Go live.** Open the project's **Dashboard** in the console. Choose
+**Testing mode** at the top of the page, then **Go live**.
+Do this yourself: from then on, the project's runs are real work.
+:::
+
+The Dashboard then says **Live**, and choosing it says since when.
+[Organize by org and project](../../guides/projects/organize-by-org-and-project/)
+says what being in production changes. How many projects can be in
+production at once is in
+[Kindgi Cloud's limits](../limits/#projects-in-production).
+
+A project in production and an agent's pinned version are different things.
+The project's **Go live** says that its runs are real work. An agent's pinned
+version says which version those runs get.
+
+## Change your agent once it's live
+
+Your workspace has one environment, and an agent stays in the project it
+was first deployed to. So you try a new version in the same project, by
+its version, before you pin it.
+
+1. **Deploy the new version** as before. The deploy prints its version
+   number. While the agent has a pinned version, its runs keep getting that
+   version.
+2. **Try the new version by its version number.** In the console, choose
+   it under **Version** in the **Start run** form. From the CLI, it's
+   `kindgi runs start --agent=acme-desk.reply-drafter --agent-version=<new version> --input=…`.
+   This is a real run, in a project in production. It uses your
+   workspace's keys and secrets, and its tools do what they do.
+3. **Try it on your test cases,** if you have some. A run on the test cases
+   replays them with the new version
+   ([Try a version on the test cases](../../guides/improve/compare-an-agent-version/)).
+4. **Pin it:**
+   `kindgi agents pin acme-desk.reply-drafter <new version> --project=<project-id> --reason=…`.
+   Runs get it from the next run, except that a conversation that's
+   already open keeps the version it started with
+   ([Conversations keep their version](../../guides/improve/pinned-versions-reference/#conversations-keep-their-version)).
+5. **Undo it if you need to:**
+   `kindgi agents unpin acme-desk.reply-drafter --project=<project-id> --reason=…`,
+   or pin the earlier version again.
+
+Several new versions can wait at once. Each deploy that changes the code
+registers a version, and you can run any of them by its number. You make
+one of them; the others stay, and you can still run them.
+
+### Old versions keep their pack service
+
+Each build has its own pack service, and a version stays callable by its
+number until you unregister it. So a build keeps its pack service while
+it's the newest in its project to serve something a call can still ask
+for:
+
+- a tool, agent or flow version that's registered, or that a pin or an
+  unfinished run uses;
+- a pack check that a registered guardrail runs;
+- a tool deployed without a version, until a newer build ships it.
+
+`kindgi deployments get <deployment-id>` lists what keeps it, under
+`Kept for:`. To let an old build go, unregister the versions nothing calls:
+
+```sh
+pnpm exec kindgi agents unregister acme-desk.reply-drafter <old version>
+pnpm exec kindgi tools unregister <tool-id> <old version>
+```
+
+Once nothing keeps a build, its pack service goes. Registering one of its
+versions again brings it back. A version that a pin uses keeps its build
+until the pin's own version is unregistered, and one an unfinished run uses
+keeps it until the run finishes. The API says the same: each deployment's
+`endpoint.keptFor`, and `keptBuilds` on `GET /v1/deployments`.
+
+[Release an agent version](../../guides/improve/release-an-agent-version/)
+shows each step, a release for some runs only, and a release gate
+that needs a reviewer.
+[Pinned versions reference](../../guides/improve/pinned-versions-reference/) has
+every rule and refusal.
+
+### Secrets and keys aren't part of a version
+
+A version holds the agent, not its values. Each run reads its secrets and
+model keys when it runs, from your workspace's values on `prod`. So the pinned
+version and every version that's waiting read the same values:
+
+- A new secret that only the new version reads can go in before you
+  pin it.
+- Changing a value that the pinned version reads changes its runs from the
+  next run, before you pin anything else.
+- `kindgi deploy --hosted --env=prod --sync-secrets` writes the pack's
+  `.env.prod` values right after the deploy, into those same values. So it
+  can change what the pinned version reads, though you haven't pinned the new
+  version.
+
+## If something goes wrong
+
+- **The deploy says `No signing key is set.`** The pack's `prod`
+  environment has no `signingKey`. Set it as in
+  [Sign the pack](#sign-the-pack), or pass `--signing-key`.
+- **The deploy is refused with `signer-not-trusted`.** The signing key was
+  never trusted, or it was revoked. Trust it with
+  `kindgi key trust acme-desk`, then deploy again. A revoked key stays
+  revoked: make a new one.
+- **Trusting the key or storing the model key is refused.** The CLI's key
+  lacks **Admin**, **Trust signing keys** or **Store secrets**. Make
+  another key, as in [Sign the CLI in](#sign-the-cli-in), and sign the CLI
+  in with it.
+- **The pack service isn't ready after 5 minutes.** The deployment stays.
+  `kindgi deployments get <deployment-id>` says its state, and why when
+  a reason is recorded (`kindgi deployments list --table` lists your
+  deployments, with their ids). Run the same
+  `kindgi deploy --hosted --env=prod` again: it sends the same deployment
+  and goes on waiting.
+- **Testing mode says `Going live isn't turned on for this workspace yet.`**
+  If it offers **See how to go live**, that link says what comes next.
+  Until then, building and testing work as they are.
+- **Going live is refused at the limit.** Move another project back to
+  testing first, or see
+  [projects in production](../limits/#projects-in-production).
+
+## What's next
+
+- [Kindgi Cloud's limits](../limits/): the limits every workspace has, and
+  how to ask for more.
+- [A project for each client](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project):
+  give each client an org and a project, and deploy a pack of its own into
+  it, made with `kindgi init`.
+- [Ask before a tool runs](../../guides/approvals/ask-before-a-tool-runs/):
+  a person approves before an agent changes something.

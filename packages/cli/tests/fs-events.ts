@@ -9,6 +9,8 @@
 
 import { watch } from 'node:fs';
 
+import { folderGoneWhileRead } from '../src/dev/shared-watch.js';
+
 /**
  * How long to wait for the system to report a change at all. macOS's event
  * daemon can fall far behind on a busy machine, and drops events when it
@@ -40,9 +42,23 @@ export async function untilReported(
   const control = watch(watched.folder, { recursive: watched.recursive }, (_event, filename) => {
     if (filename === watched.name) reportedAt ??= Date.now();
   });
+  // On Linux, Node's recursive watch emits an 'error' for a folder removed
+  // while it's reading it, and goes on; the control needs only the change's
+  // name. Any other error is a failed control: it would report nothing, and
+  // the test would be skipped as if the machine were slow.
+  let failed: unknown;
+  control.on('error', (error) => {
+    if (!folderGoneWhileRead(error)) failed ??= error;
+  });
   const giveUpAt = Date.now() + SYSTEM_REPORTS_WITHIN_MS;
   try {
     while (!reported()) {
+      if (failed !== undefined) {
+        throw new Error(
+          `the control watch failed: ${failed instanceof Error ? failed.message : String(failed)}`,
+          { cause: failed },
+        );
+      }
       if (reportedAt !== undefined && Date.now() > reportedAt + PASSED_ON_WITHIN_MS) {
         throw new Error(
           `the system reported ${watched.name} ${Date.now() - reportedAt} ms ago; the watcher under test hasn't`,

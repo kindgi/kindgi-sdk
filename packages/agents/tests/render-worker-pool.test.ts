@@ -11,6 +11,9 @@
  * are `render-worker.test.ts`'s.
  */
 
+import type { ChildProcess } from 'node:child_process';
+import { EventEmitter } from 'node:events';
+
 import {
   HOSTED_BOUNDS,
   SELF_HOSTED_BOUNDS,
@@ -26,8 +29,10 @@ import { TemplateRenderBudgetError } from '../src/render-budget.js';
 import {
   RENDERER_CLOSED,
   STOP_MARGIN_MS,
+  STOP_SIGKILL_MS,
   WorkerPool,
   type WorkerTemplateRendererOptions,
+  stop,
 } from '../src/render-worker/pool.js';
 import { TemplateRenderError } from '../src/template-renderer.js';
 
@@ -35,6 +40,7 @@ const FAKE = new URL('./fixtures/fake-render-worker.mjs', import.meta.url);
 const SLOW_START = new URL('./fixtures/slow-start-render-worker.mjs', import.meta.url);
 const FAILED_START = new URL('./fixtures/failed-start-render-worker.mjs', import.meta.url);
 const REPORT_ENV = new URL('./fixtures/report-env-render-worker.mjs', import.meta.url);
+const IGNORES_SIGTERM = new URL('./fixtures/ignores-sigterm-render-worker.mjs', import.meta.url);
 
 let restore: (() => void) | undefined;
 const pools: WorkerPool[] = [];
@@ -270,6 +276,43 @@ describe('the render pool', () => {
     await expect(running).resolves.toBe('busy:50');
     await expect(waiting).resolves.toBe('waiting');
     await closed;
+  });
+
+  test('a worker that won’t stop on SIGTERM is SIGKILL’d after the grace, so close() still settles', async () => {
+    const pool = poolOf({ workers: 1 }, withRenderLimit(200), IGNORES_SIGTERM);
+    // Render once, so the worker has fully started and its SIGTERM trap is in place.
+    await expect(render(pool, 'up')).resolves.toBe('up');
+    const started = performance.now();
+    await pool.close();
+    const tookMs = performance.now() - started;
+    // SIGTERM is ignored, so close() can only settle once the SIGKILL
+    // escalation fires after the grace — without it, close() would wait on an
+    // 'exit' that never comes. It settles after the grace, not before it (not
+    // an immediate SIGKILL) and not never (not a hang).
+    expect(tookMs).toBeGreaterThanOrEqual(STOP_SIGKILL_MS - 50);
+    expect(tookMs).toBeLessThan(STOP_SIGKILL_MS + 2_000);
+  });
+
+  test('stop() gives up a bounded time after SIGKILL when a worker never exits', async () => {
+    // A stand-in child that ignores both signals and never emits 'exit' — the
+    // one case the SIGTERM-trapping worker above can't reach, since a real
+    // process does exit on SIGKILL. stop() must still settle: SIGKILL after the
+    // grace, then give up one grace later, so close() can never hang.
+    const signals: (NodeJS.Signals | number | undefined)[] = [];
+    const neverExits = Object.assign(new EventEmitter(), {
+      exitCode: null,
+      signalCode: null,
+      kill: (signal?: NodeJS.Signals | number) => {
+        signals.push(signal);
+        return true;
+      },
+    }) as unknown as ChildProcess;
+    const started = performance.now();
+    await stop(neverExits);
+    const tookMs = performance.now() - started;
+    expect(signals).toContain('SIGKILL');
+    expect(tookMs).toBeGreaterThanOrEqual(2 * STOP_SIGKILL_MS - 100);
+    expect(tookMs).toBeLessThan(2 * STOP_SIGKILL_MS + 1_000);
   });
 
   test('needs 1 or more workers', () => {

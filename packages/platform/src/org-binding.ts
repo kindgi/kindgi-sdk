@@ -49,21 +49,21 @@ export interface OrgListFilter extends Filter {
  */
 export interface OrgBinding {
   /**
-   * Create a new `Org` in the given tenant. Resolves to `ok` with the
+   * Create a new `Org` in the given workspace. Resolves to `ok` with the
    * freshly-assigned `OrgId`, or to `slug-conflict` when another org in
-   * the tenant has `spec.slug`. The binding is responsible for
+   * the workspace has `spec.slug`. The binding is responsible for
    * allocating IDs, timestamps, and slug-uniqueness enforcement within
-   * the tenant.
+   * the workspace.
    */
   create(tenantId: TenantId, spec: OrgSpec): Promise<OrgCreateOutcome>;
   /**
    * Look up an `Org` by id. Returns `undefined` when no row exists in
-   * the given tenant, or when the row exists in a different tenant
-   * (tenant isolation is by construction, never a silent leak).
+   * the given workspace, or when the row exists in a different workspace
+   * (workspace isolation is by construction, never a silent leak).
    */
   get(tenantId: TenantId, orgId: OrgId): Promise<Org | undefined>;
   /**
-   * Cursor-paginated list of orgs within a tenant. Uses the shared
+   * Cursor-paginated list of orgs within a workspace. Uses the shared
    * `Page<Org>` envelope from `@kindgi/types` — consumers loop on
    * `nextCursor` until it's absent.
    */
@@ -71,7 +71,7 @@ export interface OrgBinding {
   /**
    * Partially update an `Org`. Fields absent from `patch` are left
    * unchanged; fields present are set to the new value. Resolves to
-   * `org-not-found` when no org has `orgId` in the tenant, and to
+   * `org-not-found` when no org has `orgId` in the workspace, and to
    * `slug-conflict` when `patch.slug` is another org's slug.
    */
   update(tenantId: TenantId, orgId: OrgId, patch: OrgPatch): Promise<OrgUpdateOutcome>;
@@ -84,28 +84,42 @@ export interface OrgBinding {
    * whose projects leave a deleted org (the Kindgi runtime's: they
    * become projects without an org) answers `slug-conflict` instead
    * when one of them has the slug of a project that has no org, and
-   * deletes nothing. Nothing (`void`): the org is deleted, or wasn't
-   * there (or was already deleted).
+   * deletes nothing. A storage that holds environment orders (the Kindgi
+   * runtime's) answers `org-has-environment-order` instead, naming the
+   * order, when the org is the parent of one, and deletes nothing: a workspace
+   * admin clears the order first. `ok`: the org is deleted, or wasn't there
+   * (or was already deleted — idempotent).
    */
-  // biome-ignore lint/suspicious/noConfusingVoidType: `void`, not `undefined`, so a binding whose `delete` returns `Promise<void>` still conforms.
-  delete(tenantId: TenantId, orgId: OrgId): Promise<void | OrgDeleteConflict>;
+  delete(tenantId: TenantId, orgId: OrgId): Promise<OrgDeleteOutcome>;
 }
 
-/**
- * Why `OrgBinding.delete` deleted nothing: the org's projects would leave
- * it with `slugs` that projects without an org already have. Rename or
- * move them first.
- */
-export interface OrgDeleteConflict {
-  readonly kind: 'slug-conflict';
-  readonly slugs: readonly string[];
-}
+/** What `OrgBinding.delete` did. */
+export type OrgDeleteOutcome =
+  | { readonly kind: 'ok' }
+  | {
+      /**
+       * The org's projects would leave it with `slugs` that projects without
+       * an org already have. Rename or move them first. Nothing is deleted.
+       */
+      readonly kind: 'slug-conflict';
+      readonly slugs: readonly string[];
+    }
+  | {
+      /**
+       * The org is the parent of an environment order, so deleting it would
+       * orphan the order. Refused until a tenant admin clears the order
+       * (`PUT /v1/environment-orders/orgs/{orgId}` with `[]`). The answer
+       * names the order (`details.orderId`). Nothing is deleted.
+       */
+      readonly kind: 'org-has-environment-order';
+      readonly orderId: string;
+    };
 
 /** What `OrgBinding.create` did. */
 export type OrgCreateOutcome =
   | { readonly kind: 'ok'; readonly orgId: OrgId }
   | {
-      /** Another org in the tenant already has this slug. */
+      /** Another org in the workspace already has this slug. */
       readonly kind: 'slug-conflict';
       readonly slug: string;
     };
@@ -114,11 +128,11 @@ export type OrgCreateOutcome =
 export type OrgUpdateOutcome =
   | { readonly kind: 'ok' }
   | {
-      /** No org with this id in the tenant. */
+      /** No org with this id in the workspace. */
       readonly kind: 'org-not-found';
     }
   | {
-      /** Another org in the tenant already has the patched slug. */
+      /** Another org in the workspace already has the patched slug. */
       readonly kind: 'slug-conflict';
       readonly slug: string;
     };

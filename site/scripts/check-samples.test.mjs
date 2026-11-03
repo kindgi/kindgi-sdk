@@ -238,6 +238,7 @@ test("the CLI's launchers, and commands that only mention kindgi", () => {
   assert.deepEqual(args('npx --yes @kindgi/cli@0.1.7 init acme'), ['init', 'acme']);
   assert.deepEqual(args('npx --no -- kindgi runs list'), ['runs', 'list']);
   assert.deepEqual(args('pnpm exec kindgi runs list'), ['runs', 'list']);
+  assert.deepEqual(args('./kindgiw runs list'), ['runs', 'list']);
   assert.deepEqual(args('pnpm dlx @kindgi/cli init acme'), ['init', 'acme']);
   assert.deepEqual(args('uv run --with httpx kindgi runs list'), ['runs', 'list']);
   assert.deepEqual(args('uvx --from "kindgi-cli==0.1.7" kindgi runs list'), ['runs', 'list']);

@@ -6,7 +6,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import {
   type GitLocation,
@@ -17,15 +17,18 @@ import {
   uuidV5,
   uuidV5In,
 } from '../src/dev/project.js';
+import { stubOutGitRepoVars } from './git-env.js';
 
 let root: string;
 
 beforeEach(async () => {
+  stubOutGitRepoVars();
   // realpath: macOS's tmpdir is a symlink, and git prints resolved paths.
   root = await realpath(await mkdtemp(join(tmpdir(), 'kindgi-project-')));
 });
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await rm(root, { recursive: true, force: true });
 });
 

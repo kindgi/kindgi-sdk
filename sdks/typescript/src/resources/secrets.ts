@@ -227,6 +227,16 @@ export type SecretSetOutcome =
 export interface SecretRevokeOutcome {
   readonly revoked: boolean;
   readonly hard: boolean;
+  /**
+   * A hard revoke left a copy your secret manager can still recover
+   * (for example Azure Key Vault's soft delete, when the vault doesn't
+   * allow a purge or the runtime isn't permitted to purge): when the
+   * secret manager purges it on its own, as an ISO 8601 time. Setting the
+   * same name again before then can keep that copy, its values disabled,
+   * until the name is hard-revoked again. Absent on a soft revoke, and when
+   * a hard revoke left nothing recoverable.
+   */
+  readonly recoverableUntil?: string;
 }
 
 /**

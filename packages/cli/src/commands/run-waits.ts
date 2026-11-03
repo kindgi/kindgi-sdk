@@ -7,6 +7,10 @@
  * A run resumes on its own once what it waits for happens, so the
  * command says what that is:
  * - an approval: which one, and the command that decides it;
+ * - another system's answer: a tool's call that paused, answered through
+ *   the link its tool handed on, or here (`--output`);
+ * - a person's connect: an app a tool's call needs, which the person who
+ *   started the run connects from its page or the request's link;
  * - the runtime: a queued start, a child run, a scheduled retry, a lease
  *   another run holds, or a wait this runtime can't attribute;
  * - nothing: the run is running or finished.
@@ -15,17 +19,19 @@
  * `waitingFor` on a suspended run, used as it is. Before that, it's read
  * here from the run's status, its journal's open waits (`wait.suspended`
  * with no `wait.resumed` / `wait.cancelled` after it), and the approvals
- * linked to those waits (`GET /v1/approvals?waitTokenId=`). Each answer
- * has its own exit code; a later "hold" feature takes 5.
+ * linked to those waits (`GET /v1/approvals?waitTokenId=`); a runtime
+ * that old pauses no tool call. Each answer has its own exit code.
  */
+
+import { UsageError } from '../errors.js';
 
 /** The exit code of each answer. 1 and 2 stay the CLI's error and usage codes. */
 export const RESUME_EXIT_CODES = {
   'not-waiting': 0,
   approval: 3,
   runtime: 4,
-  /** Reserved: a run put on hold (a later feature). */
-  held: 5,
+  token: 5,
+  connection: 6,
 } as const;
 
 export interface JournalEntry {
@@ -45,6 +51,36 @@ export interface WaitingApproval {
   readonly waitTokenId?: string;
   /** For a tool call held for review: which tool and call (from `waitingFor`). */
   readonly tool?: { readonly id: string; readonly version: string; readonly callId: string };
+}
+
+/** A wait for another system's answer: a tool's call that paused (`waitingFor.tokens`). */
+export interface WaitingToken {
+  /** The wait's id (`pause:…`): what `--waitpoint` names. Never the link's token. */
+  readonly tokenId: string;
+  /** What the run waits for, as the tool named it. */
+  readonly name?: string;
+  /** The tool whose call waits; `callId` is set for an agent's call. */
+  readonly tool: { readonly id: string; readonly version: string; readonly callId?: string };
+  /** The flow step that waits, for a flow's tool step. */
+  readonly nodeId?: string;
+  readonly createdAt: string;
+  readonly timesOutAt: string;
+}
+
+/** A connect the run waits for: an app a tool's call needs (`waitingFor.connections`). */
+export interface WaitingConnection {
+  /** The tool's name for the connection. */
+  readonly name: string;
+  readonly requestId: string;
+  readonly waitToken: string;
+  readonly app: string;
+  readonly appName: string;
+  /** What each permission asked for allows, in plain words. */
+  readonly says: readonly string[];
+  readonly connectUrl: string;
+  readonly expiresAt: string;
+  /** The person connected this app before, and connects it again. */
+  readonly reconnects?: boolean;
 }
 
 export type RuntimeWait =
@@ -85,6 +121,28 @@ export type RunWaitAnswer =
       readonly approvals: readonly WaitingApproval[];
       /** Other things it waits on too (a child run, …). */
       readonly alsoWaitsOn: readonly RuntimeWait[];
+      /** Answers from other systems it waits for too. */
+      readonly tokens?: readonly WaitingToken[];
+      /** Connects it waits for too. */
+      readonly connections?: readonly WaitingConnection[];
+    }
+  | {
+      readonly kind: 'token';
+      readonly runId: string;
+      readonly status: string;
+      readonly tokens: readonly WaitingToken[];
+      /** Other things it waits on too (a child run, …). */
+      readonly alsoWaitsOn: readonly RuntimeWait[];
+      /** Connects it waits for too. */
+      readonly connections?: readonly WaitingConnection[];
+    }
+  | {
+      readonly kind: 'connection';
+      readonly runId: string;
+      readonly status: string;
+      readonly connections: readonly WaitingConnection[];
+      /** Other things it waits on too (a child run, …). */
+      readonly alsoWaitsOn: readonly RuntimeWait[];
     }
   | {
       readonly kind: 'runtime';
@@ -106,6 +164,10 @@ export interface RunWaitingForWire {
   }[];
   /** The same shapes as `RuntimeWait`. */
   readonly other: readonly unknown[];
+  /** Its waits for another system's answer; absent from a runtime that pauses no tool call. */
+  readonly tokens?: readonly WaitingToken[];
+  /** The connects it waits for; absent when there are none. */
+  readonly connections?: readonly WaitingConnection[];
 }
 
 /** What the answer reads; the CLI passes the client's calls. */
@@ -155,7 +217,17 @@ export async function runWaitAnswer(port: RunWaitPort, runId: string): Promise<R
 /** The runtime's own answer (`waitingFor`), in the same terms. */
 function fromWaitingFor(runId: string, status: string, waiting: RunWaitingForWire): RunWaitAnswer {
   const other = waiting.other as readonly RuntimeWait[];
-  if (waiting.approvals.length === 0) return { kind: 'runtime', runId, status, waits: other };
+  const tokens = waiting.tokens ?? [];
+  const connections = waiting.connections ?? [];
+  const withConnections = connections.length > 0 ? { connections } : {};
+  if (waiting.approvals.length === 0) {
+    if (tokens.length > 0) {
+      return { kind: 'token', runId, status, tokens, alsoWaitsOn: other, ...withConnections };
+    }
+    return connections.length > 0
+      ? { kind: 'connection', runId, status, connections, alsoWaitsOn: other }
+      : { kind: 'runtime', runId, status, waits: other };
+  }
   const approvals: WaitingApproval[] = waiting.approvals.map((a) => ({
     id: a.approvalId,
     ...(a.title !== undefined && { title: a.title }),
@@ -163,8 +235,38 @@ function fromWaitingFor(runId: string, status: string, waiting: RunWaitingForWir
     status: a.status,
     ...(a.tool !== undefined && { tool: a.tool }),
   }));
-  return { kind: 'approval', runId, status, approvals, alsoWaitsOn: other };
+  return {
+    kind: 'approval',
+    runId,
+    status,
+    approvals,
+    alsoWaitsOn: other,
+    ...(tokens.length > 0 && { tokens }),
+    ...withConnections,
+  };
 }
+
+/**
+ * The wait `--output` answers when no `--waitpoint` names one: the run's
+ * only wait for another system's answer. None, or more than one, sends
+ * nothing.
+ */
+export function onlyTokenWait(run: Awaited<ReturnType<RunWaitPort['getRun']>>): string {
+  const tokens = run.waitingFor?.tokens ?? [];
+  const [only] = tokens;
+  if (tokens.length === 1 && only !== undefined) return only.tokenId;
+  if (tokens.length === 0) {
+    throw new Error(
+      `Run ${run.id} (${run.status}) doesn't wait for another system's answer, so nothing was sent. kindgi runs resume ${run.id} says what it waits for.`,
+    );
+  }
+  throw new UsageError(
+    `Run ${run.id} waits for ${tokens.length} answers: name one with --waitpoint=<id> (${tokens.map(tokenLabel).join(', ')}).`,
+  );
+}
+
+const tokenLabel = (t: WaitingToken): string =>
+  t.name !== undefined ? `${t.tokenId}, "${t.name}"` : t.tokenId;
 
 /** A suspended run: what each of its open waits is for. */
 async function suspendedAnswer(
@@ -249,13 +351,54 @@ export function runWaitText(answer: RunWaitAnswer): string {
       (a) =>
         `Run ${runId} waits for approval ${a.id}${a.title !== undefined ? ` ("${a.title}")` : ''}${a.tool !== undefined ? `, holding call ${a.tool.callId} to ${a.tool.id}@${a.tool.version}` : ''}, for a ${a.requiredRole} reviewer or above. It continues once the approval is decided: kindgi approvals complete ${a.id} --decision=approve (or --decision=reject).`,
     );
-    return `${[...lines, ...answer.alsoWaitsOn.map((w) => runtimeWaitText(runId, w))].join('\n')}\n`;
+    return `${[
+      ...lines,
+      ...tokenLines(runId, answer.tokens ?? []),
+      ...connectionLines(runId, answer.connections ?? []),
+      ...answer.alsoWaitsOn.map((w) => runtimeWaitText(runId, w)),
+    ].join('\n')}\n`;
+  }
+  if (answer.kind === 'token') {
+    return `${[
+      ...tokenLines(runId, answer.tokens),
+      ...connectionLines(runId, answer.connections ?? []),
+      ...answer.alsoWaitsOn.map((w) => runtimeWaitText(runId, w)),
+    ].join('\n')}\n`;
+  }
+  if (answer.kind === 'connection') {
+    return `${[
+      ...connectionLines(runId, answer.connections),
+      ...answer.alsoWaitsOn.map((w) => runtimeWaitText(runId, w)),
+    ].join('\n')}\n`;
   }
   const lines = answer.waits.map((w) => runtimeWaitText(runId, w));
   if (answer.approvalsUnavailable !== undefined) {
     lines.push(`(The approvals couldn't be read: ${answer.approvalsUnavailable})`);
   }
   return `${lines.join('\n')}\n`;
+}
+
+/** A line per wait for another system's answer; `--waitpoint` is named when there's more than one. */
+export function tokenLines(runId: string, tokens: readonly WaitingToken[]): string[] {
+  return tokens.map((t) => {
+    const what = t.name !== undefined ? `"${t.name}"` : 'an answer';
+    const step = t.nodeId !== undefined ? ` in step ${t.nodeId}` : '';
+    const which = tokens.length > 1 ? ` --waitpoint=${t.tokenId}` : '';
+    return `Run ${runId} waits for ${what} from another system, for its call to ${t.tool.id}@${t.tool.version}${step}. It continues once that system answers through the link the tool handed on, or: kindgi runs resume ${runId} --output=<json>${which}. It times out at ${t.timesOutAt}.`;
+  });
+}
+
+/** A line per connect it waits for: what it asks for, and where the person connects. */
+export function connectionLines(
+  runId: string,
+  connections: readonly WaitingConnection[],
+): string[] {
+  return connections.map((c) => {
+    const verb = c.reconnects === true ? 'reconnect' : 'connect';
+    const asks = c.says.length > 0 ? ` (it asks for: ${c.says.join('; ')})` : '';
+    // The link goes last, so no full stop runs into it.
+    return `Run ${runId} waits for the person who started it to ${verb} ${c.appName} for its "${c.name}" connection${asks}. It continues once they have, from the run's page or this link, which works until ${c.expiresAt}: ${c.connectUrl}`;
+  });
 }
 
 function runtimeWaitText(runId: string, wait: RuntimeWait): string {

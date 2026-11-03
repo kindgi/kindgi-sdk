@@ -7,14 +7,20 @@ import { describe, expect, test } from 'vitest';
 
 import type { AgentRegistry } from '@kindgi/agents';
 import { createAgentRegistry, defineAgent } from '@kindgi/agents';
+import type { TupleIntent } from '@kindgi/authz';
 import { SELF_HOSTED_BOUNDS } from '@kindgi/bounds';
 import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
-import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
+import type { Cursor, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
-import type { AgentRegistryBinding, RunHandlerBinding, TokenResolver } from '../src/index.js';
+import type {
+  AgentPublishInput,
+  AgentRegistryBinding,
+  RunHandlerBinding,
+  TokenResolver,
+} from '../src/index.js';
 import { expectCompileBudgetRefused } from './support/compile-budget.js';
 import { inMemoryMemory } from './support/in-memory-memory.js';
 
@@ -123,6 +129,7 @@ function bindingFromRegistry(registry: AgentRegistry): AgentRegistryBinding {
       const outcome = registry.unregister(agentId, version as unknown as string);
       return { unregistered: outcome.kind === 'ok' };
     },
+    markLatest: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
     async reinstateVersion({ agentId, version }) {
       return { kind: 'not-found', agentId, version };
     },
@@ -340,6 +347,75 @@ describe('API — agents publish', () => {
     },
   );
 
+  test('autoCloseAfterInactiveSeconds → 400 at its path, saying how a conversation closes, and nothing stored', async () => {
+    const { app } = makeApp();
+    const res = await app.request('/v1/agents', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        ...agentSpec(),
+        conversationPolicy: { historyLimit: 5, autoCloseAfterInactiveSeconds: 600 },
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; details?: { issues?: unknown[] } };
+    };
+    expect(body.error.code).toBe('validation-failed');
+    expect(body.error.details?.issues).toEqual([
+      {
+        path: '/conversationPolicy/autoCloseAfterInactiveSeconds',
+        message:
+          "autoCloseAfterInactiveSeconds isn't supported: a conversation never closes by itself. It closes when someone closes it: Close in the console, kindgi conversations close, or POST /v1/conversations/{id}/close. Leave it out.",
+      },
+    ]);
+    const stored = await app.request('/v1/agents/acme.drafting', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(stored.status).toBe(404);
+  });
+
+  test.each([true, false])(
+    'parallelToolCalls: %s is stored, and the agent answers with it',
+    async (parallelToolCalls) => {
+      const { app } = makeApp();
+      const res = await app.request('/v1/agents', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ ...agentSpec(), parallelToolCalls }),
+      });
+      expect(res.status, await res.clone().text()).toBe(201);
+      const stored = await app.request('/v1/agents/acme.drafting', {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      });
+      expect(stored.status).toBe(200);
+      expect(((await stored.json()) as { parallelToolCalls?: unknown }).parallelToolCalls).toBe(
+        parallelToolCalls,
+      );
+    },
+  );
+
+  test("a parallelToolCalls that isn't true or false → 400 at its path, and nothing stored", async () => {
+    const { app } = makeApp();
+    const res = await app.request('/v1/agents', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ ...agentSpec(), parallelToolCalls: 'false' }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; details?: { issues?: unknown[] } };
+    };
+    expect(body.error.code).toBe('validation-failed');
+    expect(body.error.details?.issues).toEqual([
+      { path: '/parallelToolCalls', message: 'parallelToolCalls must be true or false' },
+    ]);
+    const stored = await app.request('/v1/agents/acme.drafting', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(stored.status).toBe(404);
+  });
+
   test('non-JSON body → 400 bad-input', async () => {
     const { app } = makeApp();
     const res = await app.request('/v1/agents', {
@@ -516,6 +592,94 @@ describe('API — agents versions', () => {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(404);
+  });
+});
+
+describe('API — an agent stored with autoCloseAfterInactiveSeconds, from before it was taken out', () => {
+  test('every answer leaves it out and keeps the rest of the policy; the stored agent keeps it', async () => {
+    const { app, registry } = makeApp();
+    const d = defineAgent({
+      ...agentSpec(),
+      conversationPolicy: { historyLimit: 5, hitlAfterTurns: 3 },
+    });
+    if (d.kind === 'err') throw new Error(d.error.message);
+    const policy = { historyLimit: 5, hitlAfterTurns: 3, autoCloseAfterInactiveSeconds: 600 };
+    registry.register({ ...d.value, conversationPolicy: policy });
+    const read = async (path: string) => {
+      const res = await app.request(path, { headers: { authorization: `Bearer ${TOKEN}` } });
+      expect(res.status).toBe(200);
+      return (await res.json()) as {
+        conversationPolicy?: unknown;
+        data?: { conversationPolicy?: unknown }[];
+      };
+    };
+    const answered = { historyLimit: 5, hitlAfterTurns: 3 };
+    expect((await read('/v1/agents/acme.drafting')).conversationPolicy).toEqual(answered);
+    expect((await read('/v1/agents/acme.drafting/versions/1.0.0')).conversationPolicy).toEqual(
+      answered,
+    );
+    expect(
+      (await read('/v1/agents/acme.drafting/versions')).data?.map((a) => a.conversationPolicy),
+    ).toEqual([answered]);
+    expect((await read('/v1/agents')).data?.map((a) => a.conversationPolicy)).toEqual([answered]);
+    const kept = registry.get(d.value.id, '1.0.0');
+    expect(kept.kind === 'ok' ? kept.value.conversationPolicy : undefined).toEqual(policy);
+  });
+});
+
+describe("API — an agent's output and toolErrors in every answer", () => {
+  /**
+   * Publishes acme.drafting with `field` set to `value` and acme.plain
+   * without it, then reads each through the four answers that carry an
+   * agent: the field as published on the one, absent on the other.
+   */
+  async function answered(field: 'output' | 'toolErrors', value: unknown) {
+    const { app } = makeApp();
+    const publish = async (body: Record<string, unknown>) => {
+      const res = await app.request('/v1/agents', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      expect(res.status).toBe(201);
+    };
+    await publish({ ...agentSpec(), [field]: value });
+    await publish(agentSpec({ id: 'acme.plain' }));
+    const read = async (path: string) => {
+      const res = await app.request(path, { headers: { authorization: `Bearer ${TOKEN}` } });
+      expect(res.status).toBe(200);
+      return (await res.json()) as Record<string, unknown> & {
+        data?: Record<string, unknown>[];
+      };
+    };
+    for (const [id, has] of [
+      ['acme.drafting', true],
+      ['acme.plain', false],
+    ] as const) {
+      const answers = [
+        await read(`/v1/agents/${id}`),
+        await read(`/v1/agents/${id}/versions/1.0.0`),
+        ...((await read(`/v1/agents/${id}/versions`)).data ?? []),
+        ...((await read('/v1/agents')).data ?? []).filter((a) => a.id === id),
+      ];
+      expect(answers).toHaveLength(4);
+      for (const a of answers) {
+        if (has) expect(a[field]).toEqual(value);
+        else expect(a).not.toHaveProperty(field);
+      }
+    }
+  }
+
+  test('output: as published when it is set, absent when it is not', async () => {
+    await answered('output', {
+      schema: { type: 'object', properties: { draft: { type: 'string' } }, required: ['draft'] },
+      name: 'draft',
+      maxRepairs: 2,
+    });
+  });
+
+  test('toolErrors: as published when it is set, absent when it is not', async () => {
+    await answered('toolErrors', { maxRetries: 3, retryOn: ['invalid-arguments', 'tool-error'] });
   });
 });
 
@@ -799,5 +963,80 @@ describe('API — publishing an agent that searches memory by meaning', () => {
     expect(((await res.json()) as { memory?: unknown }).memory).toEqual({
       instructionTypes: ['acme.policy'],
     });
+  });
+});
+
+describe("API — agents publish: who is made the agent's owner", () => {
+  const PERSON = randomUUID() as UserId;
+  const PERSON_KEY = 'agents-owner-person';
+  const ACCOUNT_KEY = 'agents-owner-account';
+
+  /** The app, keeping the entries each publish writes. */
+  function makeOwnerApp() {
+    const inner = bindingFromRegistry(createAgentRegistry());
+    const written: TupleIntent[] = [];
+    const made: Pick<AgentPublishInput, 'madeFor' | 'latestBy'>[] = [];
+    const agentRegistry: AgentRegistryBinding = {
+      ...inner,
+      async publish(input) {
+        made.push({
+          madeFor: input.madeFor,
+          ...(input.latestBy !== undefined && { latestBy: input.latestBy }),
+        });
+        const outcome = await inner.publish(input);
+        if (outcome.kind === 'ok') {
+          written.push(...input.enqueueTuples(outcome.agentId as unknown as string));
+        }
+        return outcome;
+      },
+    };
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken: async (token) => {
+        if (token === PERSON_KEY) return { tenantId, userId: PERSON };
+        if (token === ACCOUNT_KEY) return { tenantId, serviceAccountId: 'sa-ci' };
+        return null;
+      },
+      runHandler,
+      agentRegistry,
+    });
+    const publish = async (key: string) => {
+      const res = await app.request('/v1/agents', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+        body: JSON.stringify(agentSpec()),
+      });
+      expect(res.status).toBe(201);
+    };
+    return { publish, written, made };
+  }
+
+  const owners = (written: readonly TupleIntent[]) =>
+    written.filter((t) => t.relation === 'owner').map((t) => t.user);
+
+  test("a person's key makes them its owner", async () => {
+    const { publish, written } = makeOwnerApp();
+    await publish(PERSON_KEY);
+    expect(owners(written)).toEqual([`user:${PERSON}`]);
+  });
+
+  test('a full publish makes the version Latest in its project, and records who did', async () => {
+    const byPerson = makeOwnerApp();
+    await byPerson.publish(PERSON_KEY);
+    expect(byPerson.made).toEqual([{ madeFor: 'latest', latestBy: { kind: 'user', id: PERSON } }]);
+    const byAccount = makeOwnerApp();
+    await byAccount.publish(ACCOUNT_KEY);
+    expect(byAccount.made).toEqual([
+      { madeFor: 'latest', latestBy: { kind: 'service', id: 'sa-ci' } },
+    ]);
+  });
+
+  test("a service account's key makes no one its owner; its project is still its parent", async () => {
+    const { publish, written } = makeOwnerApp();
+    await publish(ACCOUNT_KEY);
+    expect(owners(written)).toEqual([]);
+    expect(written.filter((t) => t.relation === 'parent').map((t) => t.user)).toEqual([
+      expect.stringMatching(/^project:/),
+    ]);
   });
 });

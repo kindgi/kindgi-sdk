@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { referenceGaps } from './reference/completeness.mjs';
+import { extraLinks } from './reference/errors.mjs';
 import { commandOf, headingId, linkTo } from './reference/mentions.mjs';
 import { operationSlug } from './reference/openapi.mjs';
 import { markFragments } from './reference/packages.mjs';
@@ -126,8 +127,47 @@ test('linkTo is relative to the page as it is served', () => {
   assert.equal(linkTo('reference/env-vars', 'guides/runs/index'), '../../guides/runs/');
 });
 
+test('an error entry\'s own "see also" links each item, or stops naming the one it cannot', () => {
+  const context = {
+    pagesBySlug: new Map([['guides/runs/start-a-run', { title: 'Start a run' }]]),
+    spec: { paths: { '/v1/runs': { get: { operationId: 'runs.list' } } } },
+  };
+  assert.deepEqual(
+    extraLinks(
+      [
+        'GET /v1/runs',
+        '#run-not-found',
+        '#build-job-gone',
+        'reference/cli/runs',
+        'reference/env-vars',
+        'guides/runs/start-a-run',
+      ],
+      context,
+      'database-busy',
+    ),
+    [
+      '[`GET /v1/runs`](../api/operations/runslist/)',
+      '[`run-not-found`](#run-not-found)',
+      '[`build-job-gone`](#build-job-gone)',
+      '[`kindgi runs`](../cli/runs/)',
+      '[Environment variables](../env-vars/)',
+      '[Start a run](../../guides/runs/start-a-run/)',
+    ],
+  );
+  assert.throws(() => extraLinks(['GET /v1/runs', 'guides/gone'], context, 'database-busy'), {
+    message:
+      'database-busy: "see also" names guides/gone, which is no route in the spec, no code on this page and no page',
+  });
+  assert.throws(() => extraLinks(['#run-gone'], context, 'database-busy'), {
+    message: /^database-busy: "see also" names #run-gone,/,
+  });
+  assert.throws(() => extraLinks(['DELETE /v1/runs'], context, 'access.kindgi.com unavailable'), {
+    message: /^access\.kindgi\.com unavailable: "see also" names DELETE \/v1\/runs,/,
+  });
+});
+
 test('headingId and operationSlug follow Starlight and starlight-openapi', () => {
-  assert.equal(headingId('kindgi agents promote'), 'kindgi-agents-promote');
+  assert.equal(headingId('kindgi agents pin'), 'kindgi-agents-pin');
   assert.equal(headingId('KINDGI_API_URL'), 'kindgi_api_url');
   assert.equal(headingId('run-not-found'), 'run-not-found');
   assert.equal(operationSlug('agents.get'), 'agentsget');
@@ -135,10 +175,10 @@ test('headingId and operationSlug follow Starlight and starlight-openapi', () =>
 });
 
 test('commandOf finds the longest command a line runs', () => {
-  const commands = new Set(['agents', 'agents promote', 'runs', 'runs start']);
+  const commands = new Set(['agents', 'agents pin', 'runs', 'runs start']);
   assert.equal(
-    commandOf('kindgi agents promote acme.order-desk 1.0.0 --tenant', commands),
-    'agents promote',
+    commandOf('kindgi agents pin acme.order-desk 1.0.0 --tenant', commands),
+    'agents pin',
   );
   assert.equal(
     commandOf('$ npx --yes @kindgi/cli runs start --agent=acme.order-desk', commands),

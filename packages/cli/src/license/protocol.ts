@@ -14,7 +14,8 @@
  *   SHA-256 of the 32-byte public key.
  * - **The enroll line** the person pastes on access.kindgi.com:
  *   `kgi_lrp_<public key>.<account>.<signature>`, each part base64url; the
- *   account is their GitHub login, lowercased; the signature covers
+ *   account is their GitHub login, lowercased, or an email user's `em-` id;
+ *   the signature covers
  *   `kindgi-license-enroll-v1\n<origin>\n<renewer id>\n<account>`.
  * - **A renewal:** `POST <origin>/v1/renew`, the JSON body
  *   `{"renewerId","ts","nonce"}`, and the header
@@ -99,7 +100,7 @@ export function enrollSigningInput(origin: string, renewerId: string, account: s
   return `kindgi-license-enroll-v1\n${origin}\n${renewerId}\n${account.toLowerCase()}`;
 }
 
-/** The line to paste on access.kindgi.com: made for `account` (a GitHub login) there. */
+/** The line to paste on access.kindgi.com: made for `account` (a GitHub login, or an em- id) there. */
 export function enrollLine(
   key: RenewerKey,
   account: string,

@@ -3,13 +3,30 @@
 
 /** `kindgi artifacts` and `kindgi capabilities`, through the client. */
 
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { runCli } from '../src/main.js';
+
+/** Set, the next links fail with this code, as on a file system with no hard links. */
+const links = vi.hoisted(() => ({ fail: undefined as string | undefined }));
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const real = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...real,
+    link: async (from: string, to: string) => {
+      if (links.fail !== undefined) {
+        throw Object.assign(new Error(`${links.fail}: no link from ${from}`), { code: links.fail });
+      }
+      return real.link(from, to);
+    },
+  };
+});
 
 let home: string;
 let cwd: string;
@@ -18,6 +35,7 @@ beforeEach(async () => {
   cwd = await mkdtemp(join(tmpdir(), 'kindgi-cli-cwd-'));
 });
 afterEach(async () => {
+  links.fail = undefined;
   await rm(home, { recursive: true, force: true });
   await rm(cwd, { recursive: true, force: true });
 });
@@ -35,7 +53,78 @@ const META = {
   createdAt: '2026-10-07T00:00:00Z',
 };
 
-async function run(argv: readonly string[]) {
+const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
+
+/** What the download answers: its body, made fresh for each call, and the name, size and hash its headers give. */
+interface Download {
+  readonly name?: string;
+  readonly body: () => ReadableStream<Uint8Array>;
+  readonly size: number;
+  readonly hash: string;
+  /** Set, called as the download is asked for: the answer comes once it resolves, as a slow server's does. */
+  readonly answered?: () => Promise<void>;
+}
+
+const HELLO: Download = { body: () => new Response('hello').body!, size: 5, hash: sha256('hello') };
+
+/** A file already at the target, not text, so that it is compared byte for byte. */
+const OLD = Buffer.from([0, 255, 16, 10]);
+
+/** A body that sends `sent`, then fails as a dropped connection does. */
+function cutShort(sent: string): () => ReadableStream<Uint8Array> {
+  return () => {
+    let started = false;
+    return new ReadableStream({
+      pull(controller) {
+        if (started) return controller.error(new TypeError('terminated'));
+        started = true;
+        controller.enqueue(new TextEncoder().encode(sent));
+      },
+    });
+  };
+}
+
+/**
+ * A body that sends `hel`, and `lo` only once `release` is called; `waiting`
+ * resolves once it is held, `cancelled` once its reader cancels it.
+ */
+function held(): {
+  body: () => ReadableStream<Uint8Array>;
+  waiting: Promise<void>;
+  release: () => void;
+  cancelled: Promise<void>;
+} {
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let reached: () => void = () => {};
+  const waiting = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+  let cancel: () => void = () => {};
+  const cancelled = new Promise<void>((resolve) => {
+    cancel = resolve;
+  });
+  let sent = false;
+  const body = () =>
+    new ReadableStream<Uint8Array>({
+      cancel,
+      async pull(controller) {
+        if (!sent) {
+          sent = true;
+          return controller.enqueue(new TextEncoder().encode('hel'));
+        }
+        reached();
+        await gate;
+        controller.enqueue(new TextEncoder().encode('lo'));
+        controller.close();
+      },
+    });
+  return { body, waiting, release, cancelled };
+}
+
+async function run(argv: readonly string[], download: Download = HELLO, stopSignal?: AbortSignal) {
   const calls: unknown[][] = [];
   const rec =
     (name: string, value: () => unknown) =>
@@ -60,13 +149,16 @@ async function run(argv: readonly string[]) {
             hash: 'a'.repeat(64),
           })),
           upload: rec('artifacts.upload', () => META),
-          download: rec('artifacts.download', () => ({
-            name: 'report.pdf',
-            contentType: 'application/pdf',
-            size: 5,
-            hash: 'a'.repeat(64),
-            body: new Response('hello').body,
-          })),
+          download: rec('artifacts.download', async () => {
+            await download.answered?.();
+            return {
+              name: download.name ?? 'report.pdf',
+              contentType: 'application/pdf',
+              size: download.size,
+              hash: download.hash,
+              body: download.body(),
+            };
+          }),
           delete: rec('artifacts.delete', () => ({ blobId: 'b-1', deleted: true })),
         },
         capabilities: {
@@ -90,6 +182,7 @@ async function run(argv: readonly string[]) {
           get: rec('capabilities.get', () => ({ id: 'feature:vision' })),
         },
       }) as never,
+    ...(stopSignal !== undefined && { stopSignal }),
   });
   return { out, calls };
 }
@@ -130,7 +223,11 @@ describe('kindgi artifacts', () => {
     const first = await run(['artifacts', 'download', 'b-1']);
     expect(first.out.exitCode, first.out.stderr).toBe(0);
     expect(await readFile(join(cwd, 'report.pdf'), 'utf8')).toBe('hello');
-    expect(JSON.parse(first.out.stdout)).toMatchObject({ blobId: 'b-1', size: 5 });
+    expect(JSON.parse(first.out.stdout)).toMatchObject({
+      blobId: 'b-1',
+      size: 5,
+      hash: sha256('hello'),
+    });
     const again = await run(['artifacts', 'download', 'b-1']);
     expect(again.out.exitCode).toBe(1);
     expect(again.out.stderr).toContain('pass --force');
@@ -139,6 +236,171 @@ describe('kindgi artifacts', () => {
     const other = await run(['artifacts', 'download', 'b-1', '-o', 'copy.pdf']);
     expect(other.out.exitCode).toBe(0);
     expect(await readFile(join(cwd, 'copy.pdf'), 'utf8')).toBe('hello');
+    expect((await readdir(cwd)).sort()).toEqual(['copy.pdf', 'report.pdf']);
+  });
+
+  test('a download that stops part way writes no file, and with --force leaves the old one as it was', async () => {
+    const cut = await run(['artifacts', 'download', 'b-1'], { ...HELLO, body: cutShort('hel') });
+    expect(cut.out.exitCode).toBe(1);
+    expect(cut.out.stderr).toContain(
+      `the download stopped part way (terminated): ${join(cwd, 'report.pdf')} wasn't written`,
+    );
+    expect(await readdir(cwd)).toEqual([]);
+    await writeFile(join(cwd, 'report.pdf'), OLD);
+    const forced = await run(['artifacts', 'download', 'b-1', '--force'], {
+      ...HELLO,
+      body: cutShort('hel'),
+    });
+    expect(forced.out.exitCode).toBe(1);
+    expect(forced.out.stderr).toContain('the download stopped part way');
+    expect(await readFile(join(cwd, 'report.pdf'))).toEqual(OLD);
+    expect(await readdir(cwd)).toEqual(['report.pdf']);
+  });
+
+  test('one Ctrl+C stops a download part way: exit 130, no file and no partial; with --force the old one as it was', async () => {
+    const stopped = 'kindgi artifacts download stopped: no file was written.\n';
+    for (const force of [false, true]) {
+      if (force) await writeFile(join(cwd, 'report.pdf'), OLD);
+      const body = held();
+      const stop = new AbortController();
+      const download = run(
+        ['artifacts', 'download', 'b-1', ...(force ? ['--force'] : [])],
+        { ...HELLO, body: body.body },
+        stop.signal,
+      );
+      await body.waiting;
+      stop.abort();
+      const { out } = await download;
+      expect(out.exitCode, out.stderr).toBe(130);
+      expect(out.stderr).toBe(stopped);
+      expect(out.stdout).toBe('');
+      // The read stops too: the body is cancelled, not left to arrive.
+      await body.cancelled;
+      expect(await readdir(cwd)).toEqual(force ? ['report.pdf'] : []);
+      if (force) expect(await readFile(join(cwd, 'report.pdf'))).toEqual(OLD);
+    }
+  });
+
+  test("one Ctrl+C stops a download still waiting for the server's answer; the body that comes later is cancelled", async () => {
+    let asked: () => void = () => {};
+    const askedFor = new Promise<void>((resolve) => {
+      asked = resolve;
+    });
+    let answer: () => void = () => {};
+    const answers = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    const body = held();
+    const stop = new AbortController();
+    const download = run(
+      ['artifacts', 'download', 'b-1'],
+      {
+        ...HELLO,
+        body: body.body,
+        answered: () => {
+          asked();
+          return answers;
+        },
+      },
+      stop.signal,
+    );
+    await askedFor;
+    stop.abort();
+    const { out, calls } = await download;
+    expect(out.exitCode, out.stderr).toBe(130);
+    expect(out.stderr).toBe('kindgi artifacts download stopped: no file was written.\n');
+    expect(calls.map(([name]) => name)).toEqual(['artifacts.download']);
+    answer();
+    await body.cancelled;
+    expect(await readdir(cwd)).toEqual([]);
+  });
+
+  test('a rename over the target that fails leaves no partial file', async () => {
+    await mkdir(join(cwd, 'report.pdf'));
+    const forced = await run(['artifacts', 'download', 'b-1', '--force']);
+    expect(forced.out.exitCode).toBe(1);
+    expect(await readdir(cwd)).toEqual(['report.pdf']);
+    expect(await readdir(join(cwd, 'report.pdf'))).toEqual([]);
+  });
+
+  test('a file that turns up at the target during the download is kept, and no partial is left; with --force it is replaced', async () => {
+    const target = join(cwd, 'report.pdf');
+    const first = held();
+    const kept = run(['artifacts', 'download', 'b-1'], { ...HELLO, body: first.body });
+    await first.waiting;
+    await writeFile(target, OLD);
+    first.release();
+    const { out } = await kept;
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(`${target} exists: pass --force to overwrite it, or -o <file>`);
+    expect(await readFile(target)).toEqual(OLD);
+    expect(await readdir(cwd)).toEqual(['report.pdf']);
+    await rm(target);
+    const second = held();
+    const forced = run(['artifacts', 'download', 'b-1', '--force'], {
+      ...HELLO,
+      body: second.body,
+    });
+    await second.waiting;
+    await writeFile(target, OLD);
+    second.release();
+    expect((await forced).out.exitCode).toBe(0);
+    expect(await readFile(target, 'utf8')).toBe('hello');
+    expect(await readdir(cwd)).toEqual(['report.pdf']);
+  });
+
+  test('with no hard links, the target is looked for again right before the rename', async () => {
+    links.fail = 'EPERM';
+    const target = join(cwd, 'report.pdf');
+    const written = await run(['artifacts', 'download', 'b-1']);
+    expect(written.out.exitCode, written.out.stderr).toBe(0);
+    expect(await readFile(target, 'utf8')).toBe('hello');
+    expect(await readdir(cwd)).toEqual(['report.pdf']);
+    await rm(target);
+    const late = held();
+    const kept = run(['artifacts', 'download', 'b-1'], { ...HELLO, body: late.body });
+    await late.waiting;
+    await writeFile(target, OLD);
+    late.release();
+    const { out } = await kept;
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(`${target} exists: pass --force`);
+    expect(await readFile(target)).toEqual(OLD);
+    expect(await readdir(cwd)).toEqual(['report.pdf']);
+  });
+
+  test("a name that is no file's (empty, `.` or `..`) gives the file the blob id", async () => {
+    for (const name of ['', '.', '..']) {
+      const got = await run(['artifacts', 'download', 'b-1'], { ...HELLO, name });
+      expect(got.out.exitCode, `${name}: ${got.out.stderr}`).toBe(0);
+      expect(await readFile(join(cwd, 'b-1'), 'utf8')).toBe('hello');
+      expect(await readdir(cwd)).toEqual(['b-1']);
+      await rm(join(cwd, 'b-1'));
+    }
+  });
+
+  test("bytes whose sha256 isn't the one the server sent: no file, and the old one as it was; with no hash sent, the stream's end, and the size and hash of the bytes written", async () => {
+    const wrong = { ...HELLO, body: () => new Response('hellx').body! };
+    const got = await run(['artifacts', 'download', 'b-1'], wrong);
+    expect(got.out.exitCode).toBe(1);
+    expect(got.out.stderr).toContain(
+      `the bytes that arrived have the sha256 ${sha256('hellx')}, not the artifact's ${sha256('hello')}: ${join(cwd, 'report.pdf')} wasn't written`,
+    );
+    expect(await readdir(cwd)).toEqual([]);
+    await writeFile(join(cwd, 'report.pdf'), OLD);
+    const forced = await run(['artifacts', 'download', 'b-1', '--force'], wrong);
+    expect(forced.out.exitCode).toBe(1);
+    expect(await readFile(join(cwd, 'report.pdf'))).toEqual(OLD);
+    expect(await readdir(cwd)).toEqual(['report.pdf']);
+    // As a proxy that compresses the body answers: no length, and here no hash either.
+    const noHash = await run(['artifacts', 'download', 'b-1', '-o', 'no-hash.pdf'], {
+      ...wrong,
+      size: 0,
+      hash: '',
+    });
+    expect(noHash.out.exitCode, noHash.out.stderr).toBe(0);
+    expect(await readFile(join(cwd, 'no-hash.pdf'), 'utf8')).toBe('hellx');
+    expect(JSON.parse(noHash.out.stdout)).toMatchObject({ size: 5, hash: sha256('hellx') });
   });
 
   test('list filters by run, project and type; as a table with each project', async () => {

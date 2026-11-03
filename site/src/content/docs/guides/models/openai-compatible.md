@@ -14,7 +14,7 @@ vLLM, LiteLLM and OpenRouter among them. Kindgi reaches them with one adapter,
 
 ## Before you start
 
-- **A pack** with `kindgi dev` running, from Kindgi 0.1's CLI.
+- **A pack** with `kindgi dev` running, from Kindgi 0.2's CLI.
 - **Ollama running, with the model pulled:** `ollama pull llama3.1`.
 - **An agent,** to try it. This guide uses `acme.order-desk`.
 
@@ -48,7 +48,7 @@ provider `ollama`, and saves its spec in the pack as `ollama.json`:
 Register it. `--spec=@ollama.json` reads the spec from that file:
 
 ```sh
-kindgi providers register --spec=@ollama.json
+pnpm exec kindgi providers register --spec=@ollama.json
 ```
 
 ```text
@@ -68,7 +68,7 @@ Then run an agent. With no other provider registered, Ollama answers.
 `--agent` is the agent, and `--input` its input:
 
 ```sh
-kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
+pnpm exec kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
 ```
 
 ```json
@@ -158,14 +158,23 @@ On the Responses API:
 - a reasoning model's reasoning between tool calls goes back to it with the
   calls;
 - `extraBody` can't set `model`, `input`, `tools`, `text`, `temperature`,
-  `max_output_tokens`, `stream` or `store`, and
-  `"extraBody.reasoning.effort": "low"` sets a reasoning model's effort.
+  `max_output_tokens`, `stream` or `store`.
 
 To keep an OpenAI registration on Chat Completions, set
 `"api": "chat-completions"`: GPT-6.1 Sol and Astra then can't call tools. Its
-`extraBody` fields written for Chat Completions, such as `reasoning_effort`,
-either stay on that API or move to the Responses names, such as
-`extraBody.reasoning.effort`.
+`extraBody` fields written for Chat Completions either stay on that API or
+move to the Responses names.
+
+A model's reasoning effort follows its thinking level: an agent's `thinking`,
+or else the model's `thinking.default`, as
+[Temperature and thinking](../#temperature-and-thinking) shows. It goes as
+`reasoning.effort` on the Responses API and `reasoning_effort` on Chat
+Completions, and wins over the same field in `extraBody`. An effort in
+`extraBody`, such as `"extraBody.reasoning.effort": "low"`, still goes out
+when the model has no `thinking` in its entry, or when the call asks no
+level and the model has no `default`. The call's cost record then names no
+level, since Kindgi didn't set one. Other `extraBody.reasoning` fields go
+out beside the level's effort.
 
 Another value of `api` is refused when you register:
 

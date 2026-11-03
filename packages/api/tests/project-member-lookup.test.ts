@@ -9,7 +9,7 @@
  * admin who can't list the tenant's people adds a member this way.
  *
  * `GET /v1/projects/default` is checked as `GET /v1/projects/{id}` is:
- * someone with a role on another project only can't read the Default.
+ * someone with a role on another project only can't read the default.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -188,7 +188,7 @@ describe.each([false, true])(
         });
         expect(res.status, JSON.stringify(named)).toBe(404);
         expect(res.body.error?.code).toBe('identity-user-not-found');
-        expect(res.body.error?.message).toContain('a member of this tenant');
+        expect(res.body.error?.message).toContain('a member of this workspace');
       }
       expect(await a.members(a.theirs)).toEqual([]);
     });

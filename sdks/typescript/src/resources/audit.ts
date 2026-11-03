@@ -108,7 +108,7 @@ export interface AuthzAuditClient {
 
 export interface AuditResourceClient {
   readonly authz: AuthzAuditClient;
-  /** The tenant's sign-in history. */
+  /** The workspace's sign-in history. */
   readonly signIns: SignInAuditClient;
 }
 

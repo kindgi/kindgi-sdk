@@ -7,7 +7,11 @@ import { describe, expect, test } from 'vitest';
 
 import { SELF_HOSTED_BOUNDS } from '@kindgi/bounds';
 import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
-import { type Guardrail, guardrailConfigProblems } from '@kindgi/guardrails';
+import {
+  type Guardrail,
+  guardrailCheckPointProblems,
+  guardrailConfigProblems,
+} from '@kindgi/guardrails';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
@@ -245,6 +249,42 @@ describe('API — guardrails get', () => {
     const body = (await get.json()) as { id: string; kind: string };
     expect(body.id).toBe('acme.no-fabricated-quotes');
     expect(body.kind).toBe('zero-llm');
+  });
+
+  test('get and list give where it runs and what it sees, as registered', async () => {
+    const { app } = makeApp();
+    const headers = { authorization: `Bearer ${TOKEN}` };
+    const post = (body: Record<string, unknown>) =>
+      app.request('/v1/guardrails', {
+        method: 'POST',
+        headers: { ...headers, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const placed = await post({
+      ...guardrailPostBody({ id: 'acme.no-refunds' }),
+      check: 'never-call-tool',
+      config: { tools: ['acme.woo.refund'] },
+      at: 'before-tool',
+      sees: 'conversation',
+    });
+    expect(placed.status).toBe(201);
+    expect((await post(guardrailPostBody({ id: 'acme.cites' }))).status).toBe(201);
+
+    const get = await app.request('/v1/guardrails/acme.no-refunds', { headers });
+    expect(get.status).toBe(200);
+    expect(await get.json()).toMatchObject({ at: 'before-tool', sees: 'conversation' });
+
+    const list = await app.request('/v1/guardrails', { headers });
+    const [cites, noRefunds] = ((await list.json()) as { data: Record<string, unknown>[] }).data;
+    expect(noRefunds).toMatchObject({
+      id: 'acme.no-refunds',
+      at: 'before-tool',
+      sees: 'conversation',
+    });
+    // One that names neither gives neither: the schema's defaults (final-answer, turn) stand.
+    expect(cites?.id).toBe('acme.cites');
+    expect(cites).not.toHaveProperty('at');
+    expect(cites).not.toHaveProperty('sees');
   });
 
   test('unknown id → 404 guardrail-not-found', async () => {
@@ -528,6 +568,103 @@ describe("API — guardrails register: the config against its check's configSche
     const res = await post(app, { kind: '' });
     expect(res.status).toBe(400);
     expect(called).toBe(false);
+  });
+});
+
+describe("API — guardrails register: the point against its check's points", () => {
+  const post = (app: ReturnType<typeof makeApp>['app'], body: Record<string, unknown>) =>
+    app.request('/v1/guardrails', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ ...guardrailPostBody(), ...body }),
+    });
+  type ErrorBody = { error: { code: string; message: string; details: { issues: unknown[] } } };
+
+  test("a built-in at a point it doesn't run at → 422 guardrail-config-invalid at /at, nothing registered", async () => {
+    // The runtime's check knows nothing of built-ins; the route checks their points itself.
+    const { app, binding } = makeApp({ checkGuardrailConfig: async () => [] });
+    const res = await post(app, {
+      id: 'acme.cites-each-step',
+      check: 'must-cite',
+      at: 'model-step',
+    });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.code).toBe('guardrail-config-invalid');
+    expect(body.error.message).toBe(
+      'Guardrail "acme.cites-each-step" doesn\'t fit check "must-cite": at "model-step" isn\'t one of the check\'s points (final-answer).',
+    );
+    expect(body.error.details.issues).toEqual([
+      { path: '/at', message: 'at "model-step" isn\'t one of the check\'s points (final-answer).' },
+    ]);
+    expect((await binding.list({ tenantId, limit: 10 })).data).toEqual([]);
+  });
+
+  test('a built-in at a point it runs at → 201, with its point and scope.tools', async () => {
+    const { app, binding } = makeApp();
+    const res = await post(app, {
+      id: 'acme.no-refunds',
+      check: 'never-call-tool',
+      config: { tools: ['acme.woo.refund'] },
+      at: 'before-tool',
+      sees: 'conversation',
+      scope: { tools: ['acme.woo.*'] },
+    });
+    expect(res.status).toBe(201);
+    const [stored] = (await binding.list({ tenantId, limit: 10 })).data;
+    expect(stored).toMatchObject({
+      at: 'before-tool',
+      sees: 'conversation',
+      scope: { tools: ['acme.woo.*'] },
+    });
+  });
+
+  test("a pack check's points are the runtime's to check (the hook)", async () => {
+    const { app } = makeApp({
+      checkGuardrailConfig: async ({ guardrail }) =>
+        guardrailCheckPointProblems(guardrail, ['final-answer']),
+    });
+    const res = await post(app, { check: 'my-pack.checks.args', at: 'before-tool' });
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as ErrorBody).error.details.issues).toEqual([
+      {
+        path: '/at',
+        message: 'at "before-tool" isn\'t one of the check\'s points (final-answer).',
+      },
+    ]);
+  });
+
+  test("a body naming its check's points → 400 validation-failed, nothing registered: only a deploy gives a pack check's points", async () => {
+    // A runtime runs a pack check at the points its deploy gave; a guardrail
+    // registered here never widens them.
+    const { app, binding } = makeApp({ checkGuardrailConfig: async () => [] });
+    const guardrail = { check: 'my-pack.checks.args', at: 'before-tool' };
+    const res = await post(app, { ...guardrail, checkPoints: ['before-tool', 'final-answer'] });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.code).toBe('validation-failed');
+    expect(body.error.details.issues).toEqual([
+      { path: '', message: 'must NOT have additional properties' },
+    ]);
+    expect((await binding.list({ tenantId, limit: 10 })).data).toEqual([]);
+    // The same body without them registers: the points were what it refused.
+    expect((await post(app, guardrail)).status).toBe(201);
+  });
+
+  test("what a point can't do → 400 validation-failed", async () => {
+    const { app } = makeApp();
+    const res = await post(app, {
+      check: 'never-call-tool',
+      config: { tools: ['acme.woo.refund'] },
+      at: 'before-tool',
+      action: { 'on-violation': 'escalate', escalateTo: 'senior' },
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.code).toBe('validation-failed');
+    expect(body.error.message).toBe(
+      'Guardrail "acme.no-fabricated-quotes": "escalate" is recorded at the final answer only, not at "before-tool"',
+    );
   });
 });
 

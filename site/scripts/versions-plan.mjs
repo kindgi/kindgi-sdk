@@ -12,7 +12,8 @@
  *     release path: readers of the public site install releases;
  *   - `next`: the newest pre-release newer than every release, if there is
  *     one, for `/next/`. Once its release ships, it's older than the release,
- *     and `/next/` goes away until the next pre-release.
+ *     and `/next/` goes away until the next pre-release. While its line has
+ *     no release, `/vX.Y/` goes to `/next/` (`redirects`).
  */
 
 /** `X.Y.Z[-pre]` → comparable parts; prereleases sort before their release. */
@@ -81,15 +82,24 @@ export function menu({ releases, next }) {
  * `/_redirects`: each release line's path (`/v0.1/`, the path before every
  * release had its own) goes to that line's newest release, page for page.
  *
+ * A line whose only builds are pre-releases (`/v0.2/` while `0.2.0-rc.0` is
+ * on `/next/`) goes to `/next/`, page for page: a pre-release's CLI and
+ * skills link their line's path. It's a 302, so browsers don't keep it: once
+ * the line's first release ships, that release takes the path over with a 301.
+ *
  * @param {ReturnType<typeof plan>} p
  */
-export function redirects({ lines }) {
-  return lines
-    .map(
-      ({ parsed: { line, version } }) =>
-        `/v${line} /v${version}/ 301\n/v${line}/* /v${version}/:splat 301\n`,
-    )
-    .join('');
+export function redirects({ lines, next }) {
+  const rule = (line, to, status) =>
+    `/v${line} ${to} ${status}\n/v${line}/* ${to}:splat ${status}\n`;
+  const upcoming =
+    next !== undefined && !lines.some(({ parsed }) => parsed.line === next.parsed.line)
+      ? [rule(next.parsed.line, '/next/', 302)]
+      : [];
+  return [
+    ...upcoming,
+    ...lines.map(({ parsed: { line, version } }) => rule(line, `/v${version}/`, 301)),
+  ].join('');
 }
 
 /**
@@ -122,6 +132,30 @@ export function headers() {
     '  Content-Type: text/plain; charset=utf-8',
     '',
   ].join('\n');
+}
+
+/**
+ * `/robots.txt`: nothing is disallowed, and it names the sitemap of `/`, the
+ * newest release and the only build search engines list. The other builds
+ * (`/vX.Y.Z/`, `/next/`) say `noindex` in their pages, which a crawler reads
+ * only when it may fetch them: a `Disallow` for them would leave their
+ * addresses listable instead.
+ *
+ * The sitemap is the one `/`'s own `sitemap-index.xml` (Starlight's, from
+ * `site`) is on, so robots.txt can't name one the build didn't make. When
+ * the zone has Cloudflare's managed robots.txt on, Cloudflare puts its own
+ * lines before these.
+ *
+ * @param {string | undefined} sitemapIndex `/sitemap-index.xml`, as built
+ */
+export function robots(sitemapIndex) {
+  const loc = /<loc>\s*([^<\s]+)\s*<\/loc>/.exec(sitemapIndex ?? '')?.[1];
+  if (loc === undefined) {
+    throw new Error(
+      'robots: / has no sitemap-index.xml naming a sitemap (Starlight makes one when astro.config.mjs sets `site`)',
+    );
+  }
+  return `User-agent: *\nAllow: /\n\nSitemap: ${new URL('/sitemap-index.xml', loc).href}\n`;
 }
 
 /** The workspace's lockfile: a release's docs branch may change what only the site installs. */

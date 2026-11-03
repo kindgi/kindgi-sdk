@@ -14,7 +14,10 @@ import {
   type SystemPrincipal,
   type SystemScope,
   holdsSystemScope,
+  isOneTenantDeploymentRoute,
   isSystemCapability,
+  isSystemKeysPath,
+  oneTenantSystemScopes,
 } from '../system.js';
 import type { AppEnv } from '../types.js';
 import type { Authorizer } from './authorize.js';
@@ -115,9 +118,19 @@ export interface SystemPrincipalFenceOptions {
    * How many tenants the runtime serves (default `single`). With `multi`, a
    * tenant's key or session never holds the operator's powers: `kindgi:system`
    * and every `system:*` are dropped from its capabilities, whatever it was
-   * minted with.
+   * minted with. Serving one tenant, a system key holds `system:license`
+   * alone and reaches the license routes alone: under `/v1/system/*`, the
+   * system keys take the deployment's own token.
    */
   readonly tenancy?: 'single' | 'multi';
+  /**
+   * Serving one tenant: whether it runs a pack service per deployment
+   * (`systemDeployments`). A system key may then hold
+   * `ONE_TENANT_DEPLOYMENT_SCOPES` too, its orchestrator's, and reaches
+   * the routes `isOneTenantDeploymentRoute` names under `/v1/system/*`,
+   * each checking its own scope.
+   */
+  readonly servesDeployments?: boolean;
 }
 
 /**
@@ -132,6 +145,14 @@ export interface SystemPrincipalFenceOptions {
  *   many tenants it loses `kindgi:system` and `system:*`, with a warning
  *   naming the key: a key minted before the runtime served many tenants
  *   keeps none of the operator's powers.
+ * - **Serving one tenant,** a system key holds `system:license` alone, and,
+ *   with `servesDeployments`, the orchestrator's scopes
+ *   (`ONE_TENANT_DEPLOYMENT_SCOPES`): one holding anything else (minted
+ *   while the runtime served many tenants, say) is refused on every route,
+ *   `403 system-key-scope-not-served`. It reaches the license routes and,
+ *   with `servesDeployments`, the orchestrator's routes under
+ *   `/v1/system/*`, nothing else there: the system keys take the
+ *   deployment's own token (`403 system-scope-missing`).
  *
  * The record is written once the response is known. An action already
  * taken can't be undone, so a failed write is logged at error level and
@@ -140,7 +161,7 @@ export interface SystemPrincipalFenceOptions {
 export function systemPrincipalFence(
   options: SystemPrincipalFenceOptions = {},
 ): MiddlewareHandler<AppEnv> {
-  const { audit, authorizer, tenancy } = options;
+  const { audit, authorizer, tenancy, servesDeployments = false } = options;
   return async (c, next) => {
     const system = c.get('systemPrincipal');
     if (system === undefined) {
@@ -174,10 +195,66 @@ export function systemPrincipalFence(
       await next();
       return undefined;
     };
-    const refusal = await admitSystemRequest(c, proceed, authorizer);
+    const refusal =
+      (tenancy === 'multi'
+        ? undefined
+        : oneTenantRefusal(c, system, authorizer, servesDeployments)) ??
+      (await admitSystemRequest(c, proceed, authorizer));
     if (audit !== undefined) await recordSystemRequest(c, audit, system, refusal, attemptId);
     return refusal;
   };
+}
+
+/**
+ * Serving one tenant: a system key holding a scope it doesn't serve is
+ * refused outright, and one holding only served scopes is refused under
+ * `/v1/system/*`, where the system keys take the deployment's own token,
+ * except, with `servesDeployments`, on the orchestrator's routes. The
+ * deployment's own token (`boot`) is a system principal on
+ * `/v1/system/keys` alone, and is refused as one anywhere else.
+ */
+function oneTenantRefusal(
+  c: Context<AppEnv>,
+  system: SystemPrincipal,
+  authorizer: Authorizer | undefined,
+  servesDeployments: boolean,
+): Response | undefined {
+  if (system.keyId === 'boot') {
+    if (isSystemKeysPath(c.req.path)) return undefined;
+    return deny(
+      c,
+      authorizer,
+      'system-principal-required',
+      `This runtime serves one tenant, where the deployment's own token is a system principal on /v1/system/keys alone, not on ${c.req.path}.`,
+    );
+  }
+  const servedScopes = oneTenantSystemScopes(servesDeployments);
+  const held = c.get('capabilities') ?? [];
+  const served = held.length > 0 && held.every((cap) => servedScopes.includes(cap as SystemScope));
+  if (!served) {
+    return deny(
+      c,
+      authorizer,
+      'system-key-scope-not-served',
+      `This runtime serves one tenant, where a system key holds ${servedScopes.join(', ')} alone; this one holds ${held.length > 0 ? held.join(', ') : 'no scope'}. Mint one with the deployment's own token (POST /v1/system/keys).`,
+      { scopes: [...held], served: [...servedScopes] },
+    );
+  }
+  if (isSystemPath(c.req.path)) {
+    if (servesDeployments && isOneTenantDeploymentRoute(c.req.method, c.req.path)) {
+      return undefined;
+    }
+    return deny(
+      c,
+      authorizer,
+      'system-scope-missing',
+      servesDeployments
+        ? `This runtime serves one tenant, where a system key reaches only its pack services' routes under /v1/system/*, not ${c.req.method} ${c.req.path}: the system keys take the deployment's own token.`
+        : `This runtime serves one tenant, where a system key reads the license alone and reaches no /v1/system/* route, not ${c.req.path}: the system keys take the deployment's own token.`,
+      { scope: FULL_SYSTEM_CAPABILITY },
+    );
+  }
+  return undefined;
 }
 
 /**
@@ -318,6 +395,30 @@ export function systemScopeExtraRefusal(
   return deny(c, authorizer, 'system-scope-missing', `${why}: that takes ${scope}.`, { scope });
 }
 
+/**
+ * For a request only a key holding `scope` itself may make: the system
+ * principal making it, when its own capabilities include `scope`.
+ * Otherwise the refusal: `kindgi:system` doesn't count (`403
+ * system-scope-missing`, naming `scope`).
+ */
+export function ownSystemScope(
+  c: Context<AppEnv>,
+  scope: SystemScope,
+  why: string,
+  authorizer?: Authorizer,
+): SystemPrincipal | Response {
+  const principal = c.get('systemPrincipal');
+  if (principal === undefined) return principalRequired(c, authorizer);
+  if ((c.get('capabilities') ?? []).includes(scope)) return principal;
+  return deny(
+    c,
+    authorizer,
+    'system-scope-missing',
+    `${why}: that takes a key holding ${scope} itself, which ${FULL_SYSTEM_CAPABILITY} doesn't stand in for.`,
+    { scope },
+  );
+}
+
 /** A route only the full system capability may use: minting system keys. */
 export function requireFullSystem(authorizer?: Authorizer): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
@@ -382,8 +483,14 @@ export interface SystemTenantDirectory {
 export interface SystemTenantOptions {
   /** The scope the route takes, checked again here. */
   readonly scope: SystemScope;
-  /** States the route refuses, each with `409 tenant-<state>`; `purged` always. */
+  /** States the route refuses, each with `409 tenant-<state>`; `purged` always, unless `admitPurged`. */
   readonly refuse?: readonly Exclude<SystemTenantState, 'active' | 'purged'>[];
+  /**
+   * The purge's route only: a purged tenant is let through, so running the
+   * purge again deletes what was written after its mark. Every other route
+   * answers `404 tenant-not-found` for one.
+   */
+  readonly admitPurged?: boolean;
   /** Records a refusal of the caller, as every refusal the API decides itself is. */
   readonly authorizer?: Authorizer;
 }
@@ -393,7 +500,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /**
  * The one way a system route acts in a tenant the path names. It checks the
  * scope again, that the tenant exists and isn't purged (`404
- * tenant-not-found`) and isn't in a refused state (`409 tenant-closing`,
+ * tenant-not-found`; `admitPurged` lets a purged one through, for the
+ * purge's route) and isn't in a refused state (`409 tenant-closing`,
  * `409 tenant-suspended`), and marks the tenant on the access record. Then
  * `fn` runs with the tenant; the route passes that id to its bindings,
  * which act inside the tenant's own row-level security.
@@ -415,7 +523,7 @@ export async function withSystemTenantContext(
   c.set('systemScopeUsed', options.scope);
   c.set('systemTargetTenant', tenantId);
   const found = UUID_RE.test(tenantId) ? await directory.get(tenantId as TenantId) : null;
-  if (found === null || found.state === 'purged') {
+  if (found === null || (found.state === 'purged' && options.admitPurged !== true)) {
     return answer(c, 'tenant-not-found', `No tenant with id "${tenantId}".`, { tenantId });
   }
   if (options.refuse?.includes(found.state as Exclude<SystemTenantState, 'active' | 'purged'>)) {

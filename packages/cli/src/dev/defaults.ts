@@ -30,9 +30,12 @@ import {
   createGlobMatcher,
   discoveryRoots,
   runIndexer as runIndexerReal,
+  writePackBlock,
 } from '@kindgi/handler-runtime';
 import { createPackServiceSupervisor } from '@kindgi/handler-runtime/pack-service';
 
+import { programPath } from '../program-path.js';
+import { blockFilesState } from './block-files-state.js';
 import { type DockerReach, dockerReach, dockerUnreachable } from './blocked.js';
 import { createDevPackBuilder } from './bundler.js';
 import { createJavaPackBuilder } from './java-builder.js';
@@ -158,28 +161,40 @@ export function createPackServiceReal(opts: DevPackServiceOptions): DevPackServi
     return isJvmPackCode(opts.code) ? javaEnv(opts.code, base) : base;
   };
   const { sandbox } = opts;
-  const command = packServiceCommand(opts.code);
+  const [program, ...args] = packServiceCommand(opts.code);
   return createPackServiceSupervisor({
-    // Sandboxed: worked out at every start, for what that start runs.
-    command:
-      sandbox === undefined
-        ? command
-        : async () =>
-            (
-              await sandboxedCommand(sandbox, {
-                packDir: opts.packDir,
-                code: opts.code,
-                command,
-                env: await env(),
-                node: { execPath: process.execPath, entry: resolvePackServiceEntrypoint() },
-                ...(opts.onNotice !== undefined && { onNotice: opts.onNotice }),
-              })
-            ).command,
+    // Worked out at every start: the program on the service's PATH, never
+    // one in the pack's folder (found before a sandbox wraps it, since the
+    // sandbox would look for a bare name itself), and the sandbox for what
+    // that start runs, which gives its own programs by their paths too.
+    command: async () => {
+      const childEnv = await env();
+      const command = [await programPath(program, childEnv), ...args] as const;
+      if (sandbox === undefined) return command;
+      return (
+        await sandboxedCommand(sandbox, {
+          packDir: opts.packDir,
+          code: opts.code,
+          command,
+          env: childEnv,
+          node: { execPath: process.execPath, entry: resolvePackServiceEntrypoint() },
+          ...(opts.onNotice !== undefined && { onNotice: opts.onNotice }),
+        })
+      ).command;
+    },
     moduleRoot: opts.packDir,
     cwd: opts.packDir,
     env,
     onLog: opts.onLog,
     onEvent: opts.onEvent,
+    // A version pinned in the console goes into the pack's own file.
+    writeBlock: async (write) => {
+      const outcome = await writePackBlock(opts.packDir, opts.blocks.pattern, write);
+      if (outcome.kind === 'ok') opts.blocks.onWritten(write, outcome);
+      return outcome;
+    },
+    // And before it's written, which of those files git hasn't committed.
+    blockFilesState: blockFilesState(opts.packDir, opts.blocks.pattern),
     ...(opts.port !== undefined && { port: opts.port }),
     ...(opts.token !== undefined && { token: opts.token }),
   });
@@ -229,6 +244,39 @@ export interface IndexerSandbox {
   readonly onNotice?: (line: string) => void;
 }
 
+/** What an indexer child runs with: the pack, its code, its env, and the sandbox if any. */
+interface IndexerChildContext {
+  readonly packDir: string;
+  readonly code: PackCode;
+  readonly env: Readonly<Record<string, string>>;
+  readonly entry: string;
+  readonly sandbox: IndexerSandbox | undefined;
+}
+
+/**
+ * An indexer child, to its end (`runChild`): its program the one on its
+ * env's PATH, never one in the pack's folder, found before a sandbox
+ * wraps it (the sandbox would look for a bare name itself). No such
+ * program, or a sandbox that can't be set up for it (a program its
+ * wrapper runs isn't on its env's PATH), is the same outcome as a child
+ * that doesn't start.
+ */
+async function runIndexerChild(
+  command: readonly [string, ...string[]],
+  ctx: IndexerChildContext,
+  onOutput?: (line: string, stream: 'stdout' | 'stderr') => void,
+): Promise<ChildRun> {
+  const [program, ...args] = command;
+  let child: Awaited<ReturnType<typeof indexerChild>>;
+  try {
+    child = await indexerChild([await programPath(program, ctx.env), ...args], ctx);
+  } catch (cause) {
+    return { stdout: '', stderr: (cause as Error).message, code: null };
+  }
+  const [cmd, ...rest] = child.command;
+  return runChild(cmd, rest, child.env, onOutput);
+}
+
 /**
  * An indexer child's command, inside the sandbox when there is one (its
  * own profile, its own temp folder, the indexer's output folder the one
@@ -236,13 +284,7 @@ export interface IndexerSandbox {
  */
 async function indexerChild(
   command: readonly [string, ...string[]],
-  ctx: {
-    readonly packDir: string;
-    readonly code: PackCode;
-    readonly env: Readonly<Record<string, string>>;
-    readonly entry: string;
-    readonly sandbox: IndexerSandbox | undefined;
-  },
+  ctx: IndexerChildContext,
 ): Promise<{
   readonly command: readonly [string, ...string[]];
   readonly env: Readonly<Record<string, string>>;
@@ -286,15 +328,18 @@ export async function runPythonIndexer(opts: PythonIndexerOptions): Promise<Inde
     ...(opts.publishedAt !== undefined ? ['--published-at', opts.publishedAt] : []),
     '--json',
   ];
-  const child = await indexerChild([program, ...args], {
-    packDir: opts.packDir,
-    code: { language: 'python', python: opts.python } as PackCode,
-    env: opts.env,
-    entry: indexChildScript(),
-    sandbox: opts.sandbox,
-  });
-  const [cmd, ...rest] = child.command;
-  return indexResultOf(outcomeOfChild(await runChild(cmd, rest, child.env, opts.onOutput)));
+  const run = await runIndexerChild(
+    [program, ...args],
+    {
+      packDir: opts.packDir,
+      code: { language: 'python', python: opts.python } as PackCode,
+      env: opts.env,
+      entry: indexChildScript(),
+      sandbox: opts.sandbox,
+    },
+    opts.onOutput,
+  );
+  return indexResultOf(outcomeOfChild(run));
 }
 
 export interface JavaIndexerOptions {
@@ -330,15 +375,18 @@ export async function runJavaIndexer(opts: JavaIndexerOptions): Promise<IndexRes
     ...(opts.publishedAt !== undefined ? ['--published-at', opts.publishedAt] : []),
     '--json',
   ];
-  const child = await indexerChild([opts.code.java, ...args], {
-    packDir: opts.packDir,
-    code: opts.code,
-    env: javaEnv(opts.code, opts.env),
-    entry: indexChildScript(),
-    sandbox: opts.sandbox,
-  });
-  const [cmd, ...rest] = child.command;
-  return indexResultOf(outcomeOfChild(await runChild(cmd, rest, child.env, opts.onOutput)));
+  const run = await runIndexerChild(
+    [opts.code.java, ...args],
+    {
+      packDir: opts.packDir,
+      code: opts.code,
+      env: javaEnv(opts.code, opts.env),
+      entry: indexChildScript(),
+      sandbox: opts.sandbox,
+    },
+    opts.onOutput,
+  );
+  return indexResultOf(outcomeOfChild(run));
 }
 
 /** The Node indexer child's script: TypeScript from source (tests), else the built one. */
@@ -388,23 +436,29 @@ async function runIndexerInChild(
     '--bundle-map',
     mapPath,
   ];
-  const child = await indexerChild([process.execPath, ...args], {
-    packDir,
-    code: { language: 'node' } as PackCode,
-    env: await env(),
-    entry: script,
-    sandbox,
-  });
-  const [cmd, ...rest] = child.command;
-  return outcomeOfChild(await runChild(cmd, rest, child.env, onOutput));
+  const run = await runIndexerChild(
+    [process.execPath, ...args],
+    {
+      packDir,
+      code: { language: 'node' } as PackCode,
+      env: await env(),
+      entry: script,
+      sandbox,
+    },
+    onOutput,
+  );
+  return outcomeOfChild(run);
 }
 
-/** The outcome an indexer child printed as its last stdout line. */
-function outcomeOfChild(run: {
+/** A child run to its end: its output, and its exit code (`null` when it didn't start). */
+interface ChildRun {
   readonly stdout: string;
   readonly stderr: string;
   readonly code: number | null;
-}): IndexerOutcome {
+}
+
+/** The outcome an indexer child printed as its last stdout line. */
+function outcomeOfChild(run: ChildRun): IndexerOutcome {
   const line = run.stdout.trim().split('\n').pop() ?? '';
   try {
     return JSON.parse(line) as IndexerOutcome;
@@ -421,16 +475,17 @@ function outcomeOfChild(run: {
 }
 
 /**
- * Run an indexer child to the end: its output, and each line of it to
- * `onOutput` as it comes, except its last stdout line when that's the
- * indexer's result (held back until the next line shows it isn't).
+ * Run an indexer child to the end, `command` by its path
+ * (`runIndexerChild`): its output, and each line of it to `onOutput` as
+ * it comes, except its last stdout line when that's the indexer's result
+ * (held back until the next line shows it isn't).
  */
 function runChild(
   command: string,
   args: readonly string[],
   env: Readonly<Record<string, string>>,
   onOutput?: (line: string, stream: 'stdout' | 'stderr') => void,
-): Promise<{ readonly stdout: string; readonly stderr: string; readonly code: number | null }> {
+): Promise<ChildRun> {
   return new Promise((resolvePromise) => {
     const child = spawn(command, [...args], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     child.stdout.setEncoding('utf8');
@@ -1339,7 +1394,7 @@ export const REAL_DEV_RUNNERS: DevRunners = {
   runIndexer: runIndexerReadReal,
   createPackBuilder: createPackBuilderReal,
   createPackService: createPackServiceReal,
-  detectSandbox: () => detectDevSandbox(process.platform, probeReal),
+  detectSandbox: (env) => detectDevSandbox(process.platform, probeReal, env),
   checkPackPython,
   checkPackJvm,
   publishIndex: publishIndexReal,

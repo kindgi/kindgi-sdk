@@ -35,17 +35,37 @@ import inspect
 import json
 import re
 import sys
+import types
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import cache
 from importlib import resources
-from typing import Any, Generic, Literal, NoReturn, ParamSpec, TypeVar, cast, get_type_hints
+from typing import (
+    Any,
+    Generic,
+    Literal,
+    NoReturn,
+    ParamSpec,
+    TypeVar,
+    Union,
+    cast,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from pydantic import TypeAdapter
 from pydantic_core import to_jsonable_python
 
-from .._schema import SchemaValidator, wire_schema
-from .context import ToolContext
+from .._schema import (
+    SchemaValidator,
+    compile_problem,
+    pattern_problem,
+    runtime_compile_problem,
+    wire_schema,
+)
+from .context import PauseAnswer, ToolContext
+from .needs import needs_spec_problem
 from .trace import CheckResult, RunTrace
 
 __all__ = [
@@ -99,12 +119,23 @@ class Tool(Generic[P, R]):
     is_async: bool
     effects: Sequence[Mapping[str, Any]] = ()
     mutating: bool | None = None
-    """`False`: read-only — it runs in a dry run, and approval gates don't ask before it by
-    default. `None` (the default) means it may change something, as `True` does."""
+    """`False`: read-only — it runs in a dry run, approval gates don't ask before it by
+    default, and the calls a model step asks for together to read-only tools run at the same
+    time (unless the agent sets `parallel_tool_calls=False`), but not one to a tool that pauses
+    or declares connections, since it may wait. `None` (the default) means it may change
+    something, as `True` does: each call runs on its own."""
     needs_approval_when_unattended: bool | None = None
     """`True`: each call waits for a person's approval in a run no person started (a webhook, a
     schedule, an event, or a service account's key); a flow's tool step that calls it is refused.
-    A run a person starts is unaffected. `None` (the default) means `False`."""
+    A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project
+    admin's to set) lifts that, in its own runs only. A run a person starts is unaffected.
+    `None` (the default) means `False`."""
+    result_is_outside_data: bool | None = None
+    """`True`: the tool's results are text from outside that nobody checked, such as a mail someone
+    sent or a page a search found. An agent reads each result of the tool as data, not instructions,
+    in that turn and in every later turn's history. It changes what the model is told, not what the
+    tool may do: pair it with approvals for anything an agent could do with what it read. `None`
+    (the default) means `False`."""
     needs: Sequence[Mapping[str, Any]] | None = None
     needs_spec: Mapping[str, Any] | None = None
     sandbox: str | None = None
@@ -112,6 +143,16 @@ class Tool(Generic[P, R]):
     network: Mapping[str, Any] | None = None
     spec: Mapping[str, Any] | None = None
     """A declarative tool's spec (`http_tool`): the runtime runs it; `handler` refuses."""
+    pauses: bool = False
+    """`True`: each call gets a wait token (`ctx.wait_token`), and the handler may return
+    `ctx.pause()` to make the run wait for another system's answer."""
+    stores_files: bool = False
+    """`True`: each call with an idempotency key gets a file store (`ctx.files`), and the
+    handler may store files it fetches, at most 10 a call, and return them in its result's
+    top-level `files`."""
+    reads_files: bool = False
+    """`True`: each call gets `ctx.files.read`, and the handler may read the bytes of a file
+    its run may be shown, by its file value's `artifactId`."""
     module: str = ""
     _input_adapter: TypeAdapter[Any] | None = field(default=None, repr=False)
     _output_adapter: TypeAdapter[Any] | None = field(default=None, repr=False)
@@ -143,19 +184,41 @@ def tool(
     effects: Sequence[Mapping[str, Any]] = (),
     mutating: bool | None = None,
     needs_approval_when_unattended: bool | None = None,
+    result_is_outside_data: bool | None = None,
     needs: Sequence[Mapping[str, Any]] | None = None,
     needs_spec: Mapping[str, Any] | None = None,
     sandbox: str | None = None,
     limits: Mapping[str, Any] | None = None,
     network: Mapping[str, Any] | None = None,
+    pauses: bool = False,
+    stores_files: bool = False,
+    reads_files: bool = False,
 ) -> Callable[[Callable[P, R]], Tool[P, R]]:
     """Declare a tool. The handler is `(input)` or `(input, ctx: ToolContext)`, sync or async.
 
     `version` defaults to the pack's version; `description` to the docstring.
-    `mutating=False` declares it read-only: it runs in a dry run, and an agent's
-    approval gates don't ask before it by default. `needs_approval_when_unattended=True`
+    `mutating=False` declares it read-only: it runs in a dry run, an agent's approval
+    gates don't ask before it by default, and an agent runs a step's calls to read-only
+    tools that come one after another at the same time, up to 8 at once (not one that pauses
+    or declares connections, since it may wait).
+    `needs_approval_when_unattended=True`
     makes each call wait for a person's approval in a run no person started (a webhook, a
-    schedule, an event, or a service account's key).
+    schedule, an event, or a service account's key). `result_is_outside_data=True` says the
+    tool's results are text from outside that nobody checked (a mail someone sent, a page a
+    search found): an agent reads each as data, not instructions.
+
+    `pauses=True` lets a call wait for another system's answer: the handler hands
+    `ctx.wait_token.url` to that system and returns `ctx.pause()`; the answer that system
+    posts becomes the call's result. Annotate the return as `Answer | PauseAnswer`: the
+    output schema is `Answer`'s.
+
+    `stores_files=True` lets a call store files it fetches, such as a mail's attachments:
+    `ctx.files.store(name=…, content_type=…, data=…)` answers the stored file's value, which
+    the handler returns in its result's top-level `files`, and an agent is shown the file.
+
+    `reads_files=True` lets a call read stored files' bytes, such as a PDF an agent was given:
+    `ctx.files.read(artifact_id)` answers the bytes of a file the call's run may be shown, as
+    it was stored, or why there are none.
     """
     annotation_scope = _caller_locals()
 
@@ -179,7 +242,11 @@ def tool(
         if output_type is None:
             raise DefinitionError(f"{where}: annotate the handler's return type or pass output=")
         input_type = _unwrap_awaitable(input_type)
-        output_type = _unwrap_awaitable(output_type)
+        output_type = _without_pause(_unwrap_awaitable(output_type), pauses, where)
+        if needs_spec is not None:
+            problem = needs_spec_problem(needs_spec)
+            if problem is not None:
+                raise DefinitionError(f"{where}: {problem}")
         return Tool(
             id=id,
             handler=handler,
@@ -194,11 +261,15 @@ def tool(
             effects=tuple(effects),
             mutating=mutating,
             needs_approval_when_unattended=needs_approval_when_unattended,
+            result_is_outside_data=result_is_outside_data,
             needs=needs,
             needs_spec=needs_spec,
             sandbox=sandbox,
             limits=limits,
             network=network,
+            pauses=pauses,
+            stores_files=stores_files,
+            reads_files=reads_files,
             module=handler.__module__,
             _input_adapter=_adapter(input_type),
             _output_adapter=_adapter(output_type),
@@ -228,6 +299,7 @@ def http_tool(
     effects: Sequence[Mapping[str, Any]] = (),
     mutating: bool | None = None,
     needs_approval_when_unattended: bool | None = None,
+    result_is_outside_data: bool | None = None,
 ) -> Tool[..., Any]:
     """Declare a tool that is one HTTP request — no handler: the Kindgi runtime makes the call.
 
@@ -302,6 +374,7 @@ def http_tool(
         effects=tuple(effects),
         mutating=mutating,
         needs_approval_when_unattended=needs_approval_when_unattended,
+        result_is_outside_data=result_is_outside_data,
         spec=spec,
         module=_defined_in(1),
         _input_adapter=_adapter(input),
@@ -370,6 +443,8 @@ class Guardrail:
     sandbox: str | None = None
     limits: Mapping[str, Any] | None = None
     network: Mapping[str, Any] | None = None
+    judge_capabilities: Mapping[str, Any] | None = None
+    """An `llm-judge` guardrail's judge: what its model is routed by (wire keys)."""
     module: str = ""
     _config_adapter: TypeAdapter[Any] | None = field(default=None, repr=False)
 
@@ -402,18 +477,24 @@ def guardrail(
     sandbox: str | None = None,
     limits: Mapping[str, Any] | None = None,
     network: Mapping[str, Any] | None = None,
+    judge_capabilities: Mapping[str, Any] | None = None,
 ) -> Callable[[CheckFn], Guardrail]:
     """Declare a guardrail and its check: `(config, trace) -> CheckResult | dict | bool`.
 
     `on_violation` is the action's name (`"halt"`, `"retry"`, `"escalate"`, …);
     pass `action=` for the full object (`{"on-violation": "retry", "retry": {"maxAttempts": 2}}`).
-    In 0.1 the runtime acts only on `"halt"`: the turn fails with `guardrail-violation`.
-    Any other action is recorded on the turn's violations and the turn completes;
-    nothing runs it again, escalates or calls a compensating tool.
+    The runtime acts on `"halt"`: the turn fails with `guardrail-violation`. It acts on
+    `"retry"` too: the answer goes back to the model with the check's reason, for a new
+    one, until the guardrail has failed `maxAttempts` answers (the first one included; 2
+    when left out), and then the turn fails the same way. Any other action is recorded on the turn's
+    violations and the turn completes; in 0.1 nothing escalates or calls a compensating tool.
     `config=` is what the check is configured with, keyed as on the wire (a
     model's aliases); it is checked against the config type here. Without it
     the check gets `{}` — its defaults. The config type comes from the check's
     first annotation or `config_type=`.
+    A `kind="llm-judge"` guardrail is judged by a model, with its `config` (`{"rubric": ...}`),
+    and its check is never called. `judge_capabilities=` is what that model is routed by
+    (`{"needs": [{"feature": "structured-output"}]}`); an llm-judge guardrail needs it.
     """
     annotation_scope = _caller_locals()
 
@@ -436,6 +517,12 @@ def guardrail(
         )
         if not isinstance(resolved_action.get("on-violation"), str):
             raise DefinitionError(f'{where}: action needs a string "on-violation"')
+        if kind == "llm-judge" and judge_capabilities is None:
+            raise DefinitionError(
+                f'{where} is kind "llm-judge" with no judge_capabilities=: name what its judge'
+                " model is routed by"
+                ' (judge_capabilities={"needs": [{"feature": "structured-output"}]})'
+            )
         params = _positional_params(check, where)
         if len(params) != 2:
             raise DefinitionError(
@@ -471,6 +558,7 @@ def guardrail(
             sandbox=sandbox,
             limits=limits,
             network=network,
+            judge_capabilities=None if judge_capabilities is None else dict(judge_capabilities),
             module=check.__module__,
             _config_adapter=adapter,
         )
@@ -530,6 +618,14 @@ class Agent:
     output: Any = None
     tool_errors: Mapping[str, Any] | None = None
     """How turns retry failed tool calls: `{"maxRetries": 2, "retryOn": [...]}`."""
+    parallel_tool_calls: bool | None = None
+    """Whether calls to read-only tools (`mutating=False`, no changing effect) that a model
+    step asks for one after another run at the same time, up to 8 at once. A call to a
+    read-only tool that pauses or declares connections runs on its own, since it may wait.
+    Default: on. `False`: every call runs on its own, in the order the model asked for them.
+    Either way, a step's results reach the conversation and the model in that order, and
+    once a call needs a review, the step's calls that haven't started run one at a time. It
+    doesn't change what the model may ask for."""
     settings: Sequence[Mapping[str, str]] = ()
     """Settings blocks by range: `[{"id": "acme.weights", "version": "^1.0.0"}]`."""
     model_settings: Mapping[str, str] | None = None
@@ -555,6 +651,9 @@ class Agent:
                     f"{where}: instructions must be a string, "
                     'or a prompt block {"prompt", "version"}'
                 )
+        parallel = cast("object", self.parallel_tool_calls)  # a caller may pass any value
+        if parallel is not None and not isinstance(parallel, bool):
+            raise DefinitionError(f"{where}: parallel_tool_calls must be True or False")
 
 
 @dataclass(eq=False)
@@ -630,6 +729,24 @@ def _unwrap_awaitable(annotation: Any) -> Any:
     return annotation
 
 
+def _without_pause(annotation: Any, pauses: bool, where: str) -> Any:
+    """A pausing tool's output type: its return annotation without `PauseAnswer`."""
+    if annotation is PauseAnswer:
+        raise DefinitionError(
+            f"{where}: name the type of the answer beside PauseAnswer"
+            " (`-> Answer | PauseAnswer`), or pass output="
+        )
+    if get_origin(annotation) not in (Union, types.UnionType):
+        return annotation
+    members = get_args(annotation)
+    kept = tuple(member for member in members if member is not PauseAnswer)
+    if len(kept) == len(members):
+        return annotation
+    if not pauses:
+        raise DefinitionError(f"{where} returns a PauseAnswer: declare it with pauses=True")
+    return kept[0] if len(kept) == 1 else Union[kept]  # noqa: UP007
+
+
 def _adapter(annotation: Any) -> TypeAdapter[Any] | None:
     if annotation is None or isinstance(annotation, Mapping):
         return None
@@ -641,6 +758,25 @@ def _schema(source: Any, mode: Any, where: str, what: str) -> dict[str, Any]:
         schema = wire_schema(source, mode)
     except Exception as cause:
         raise DefinitionError(f"{where}: cannot derive the {what} JSON Schema: {cause}") from cause
+    if isinstance(source, Mapping):
+        # A schema given as a dict reaches the index as written: check it the way the runtime
+        # compiles it, so a schema the runtime refuses fails here, not at the deploy or on a dev
+        # server's first call.
+        problem = compile_problem(schema)
+    elif what != "config":
+        # A tool's derived input or output: the runtime compiles it as strictly, when the tool is
+        # registered or deployed, so check it the same way. pydantic checks its data, so a pattern
+        # Python's `re` can't read, such as `\p{L}`, isn't refused, as it is in a dict.
+        problem = runtime_compile_problem(schema)
+    else:
+        # A guardrail config's derived schema: only its patterns, which are the guardrail's,
+        # written for pydantic's engine, so one the runtime refuses fails here, not at the deploy.
+        # The rest is pydantic's, and the runtime checks a config against it non-strict, as the
+        # pack service does with jsonschema: a keyword or a format strict mode doesn't know is
+        # refused nowhere, so it isn't refused here.
+        problem = pattern_problem(schema)
+    if problem is not None:
+        raise DefinitionError(f"{where}: the {what} JSON Schema doesn't compile: {problem}")
     if what == "input" and schema.get("type") != "object":
         # A model calls a tool with an object of arguments.
         raise DefinitionError(

@@ -42,7 +42,10 @@ export interface KeyDirEntry {
 export interface KeyRunners {
   /** Generate a fresh Ed25519 key pair (raw bytes + PEM serialization). */
   readonly generateKeyPair: () => Promise<GeneratedKeyPair>;
-  /** `mkdir -p` with a specific mode (0o700 for the keys dir). */
+  /**
+   * `mkdir -p` with a specific mode (0o700 for the keys dir). A dir
+   * already there that grants more than `mode` is set to it.
+   */
   readonly mkdir: (path: string, mode: number) => Promise<void>;
   /** Write `contents` to `path` with the given mode. Never overwrites — the caller pre-checks. */
   readonly writeFile: (opts: WriteFileOptions) => Promise<void>;

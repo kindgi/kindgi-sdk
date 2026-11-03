@@ -11,9 +11,11 @@ repository). Two files are written, both generated — never edit them:
 - `src/kindgi/client/_models.py`: pydantic v2 models for every component
   schema (datamodel-code-generator). Inline request and response schemas are
   first hoisted into components named after their operation. So are an
-  inline object whose own name would be a component's (`JudgedRunContext`'s
-  `flow` is `JudgedRunContextFlow`), and each member of a union component
-  with a discriminator (`Scope`'s `ScopeTenant`, `ScopeOrg`, `ScopeProject`).
+  inline object whose own name would be a component's (`CorrectedRunContext`'s
+  `flow` is `CorrectedRunContextFlow`), and each member of a union with a
+  discriminator: a union component's after it (`Scope`'s `ScopeTenant`,
+  `ScopeOrg`, `ScopeProject`), an inline union's after its owner and field
+  (`MCPEndpoint`'s `config`: `MCPEndpointConfigStdio`).
 - `src/kindgi/client/_resources.py`: the resource tree, sync and async. An
   operation id `approvals.reviewers.list` becomes
   `client.approvals.reviewers.list(...)`: path parameters positional, query
@@ -24,7 +26,9 @@ repository). Two files are written, both generated — never edit them:
 a component's own model at the component, any other at the fields that lead
 to it from one. Generation fails when a model named after a component isn't
 generated from it, or when a name listed there would move wholly to another
-place or vanish, so no model name changes meaning without an edit to it.
+place or vanish, so no model name changes meaning without an edit to it. A
+name listed at no place was dropped: generation fails when a model would take
+it again, and an inline object it would name takes its owner's name instead.
 
 `--check` regenerates in a temporary directory and fails when the committed
 files differ (the drift test runs it).
@@ -41,6 +45,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -103,7 +108,7 @@ class Operation:
     body: str | None  # model class name
     body_kind: str | None  # json | multipart
     response: str | None  # model class name
-    response_kind: str  # json | sse | binary | empty
+    response_kind: str  # json | sse | binary | byte-stream | empty
     status: int
     # When the 2xx answers carry different models: each status's model
     # class name (`secrets.rotate`: 201 sync, 202 async). Empty otherwise.
@@ -171,9 +176,9 @@ def hoist(doc: dict[str, Any], schema: dict[str, Any], name: str) -> str:
 
 # More Python names for an operation, generated beside its own: the name
 # the other resources use for the same call, so the client's names line
-# up (`eval_suites.unregister`, as `agents.unregister`).
+# up (`test_sets.unregister`, as `agents.unregister`).
 ALIASES: dict[str, tuple[str, ...]] = {
-    "evalSuites.versions.unregister": ("evalSuites.unregister",),
+    "testSets.versions.unregister": ("testSets.unregister",),
 }
 
 # A run stream's follow method, generated beside it: the same call, through
@@ -192,37 +197,13 @@ FOLLOW_DESCRIPTION = (
     "Ends after the terminal event."
 )
 
-
-# Operations a patch release removed from the API: each stays a method that
-# raises, naming its replacement, until the next minor (`id: (release,
-# replacement)`). Old calls still import and fail with a clear message.
-REMOVED: dict[str, tuple[str, str]] = {
-    "proposals.draft": ("0.1.5", "proposals.create"),
-    "proposals.dryRun": ("0.1.5", "proposals.evaluate"),
-    "proposals.submitReview": ("0.1.5", "proposals.request"),
-    "proposals.apply": ("0.1.5", "proposals.request"),
+# A generated resource's hand-written methods: a mixin class in its own
+# module (sync, and the same name after `Async`), calling only the
+# resource's generated methods. `client.corrections.thumbs` is an end user's
+# thumbs up or down, posted with `corrections.create`.
+MIXINS: dict[tuple[str, ...], tuple[str, str]] = {
+    ("corrections",): ("_thumbs", "Thumbs"),
 }
-
-
-def removed_stubs(node: Resource, asynchronous: bool) -> list[str]:
-    out: list[str] = []
-    for op_id, (release, replacement) in REMOVED.items():
-        *resource, method = op_id.split(".")
-        if tuple(resource) != node.path:
-            continue
-        name = snake(method)
-        message = (
-            f"{'.'.join(snake(p) for p in resource)}.{name} was removed in {release}: "
-            f"use client.{'.'.join(snake(p) for p in replacement.split('.'))}"
-        )
-        prefix = "async def" if asynchronous else "def"
-        out += [
-            "",
-            f"    {prefix} {name}(self, *args: Any, **kwargs: Any) -> NoReturn:",
-            f'        """Removed in {release}: use `client.{replacement}`."""',
-            f'        raise InvalidRequestError("{message}", issues=[])',
-        ]
-    return out
 
 
 def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]:
@@ -302,6 +283,9 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
                     )
                 elif content:
                     response_kind = "binary"
+                    if op.get("x-kindgi-streamed"):
+                        # A body handed on as it arrives (`corrections.export`), not read whole.
+                        response_kind = "byte-stream"
                 break
             # The client picks the model by status when the 2xx answers differ,
             # as the Java client does; otherwise every 2xx is the first's model.
@@ -405,9 +389,12 @@ def signature(op: Operation, asynchronous: bool) -> str:
         else f"_models.{op.response}",
         "empty": "None",
         "binary": "bytes",
+        "byte-stream": f"{'AsyncIterator' if asynchronous else 'Iterator'}[bytes]",
         "sse": f"{'AsyncIterator' if asynchronous else 'Iterator'}[_models.{op.response}]",
     }[op.response_kind]
-    prefix = "async def" if asynchronous and op.response_kind != "sse" else "def"
+    prefix = (
+        "async def" if asynchronous and op.response_kind not in ("sse", "byte-stream") else "def"
+    )
     return f"    {prefix} {op.name}({', '.join(parts)}) -> {returns}:"
 
 
@@ -434,6 +421,8 @@ def call(op: Operation, asynchronous: bool) -> str:
         args.append(f"response=_models.{op.response}")
     args.append("timeout=timeout")
     inner = ", ".join(args)
+    if op.response_kind == "byte-stream":
+        return f"        return self._client._stream_bytes({inner})"
     if op.response_kind == "sse":
         return f"        return self._client._{'follow' if op.follow else 'stream'}({inner})"
     keyword_await = "await " if asynchronous else ""
@@ -447,10 +436,12 @@ def render_resource(node: Resource, asynchronous: bool) -> list[str]:
     for child in node.children.values():
         out += render_resource(child, asynchronous)
     title = ".".join(node.path)
+    mixin = MIXINS.get(node.path)
+    bases = f"({'Async' if asynchronous else ''}{mixin[1]})" if mixin is not None else ""
     out += [
         "",
         "",
-        f"class {name}:",
+        f"class {name}{bases}:",
         f'    """`client.{".".join(snake(p) for p in node.path)}` — the `{title}` operations."""',
         "",
         f"    def __init__(self, client: {client}) -> None:",
@@ -463,7 +454,6 @@ def render_resource(node: Resource, asynchronous: bool) -> list[str]:
         )
     for op in node.operations:
         out += ["", signature(op, asynchronous), docstring(op, "        "), call(op, asynchronous)]
-    out += removed_stubs(node, asynchronous)
     return out
 
 
@@ -477,12 +467,15 @@ def render_resources(root: Resource, ops: list[Operation]) -> str:
         "from __future__ import annotations",
         "",
         "from collections.abc import AsyncIterator, Iterator, Mapping, Sequence",
-        "from typing import Any, Literal, NoReturn, cast",
+        "from typing import Any, Literal, cast",
         "from uuid import UUID",
         "",
         "from . import _models",
         "from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _segments",
-        "from ._errors import InvalidRequestError",
+        *(
+            f"from .{module} import Async{mixin}, {mixin}"
+            for module, mixin in sorted(MIXINS.values())
+        ),
         "",
         '__all__ = ["OPERATIONS", "AsyncResources", "Resources"]',
         "",
@@ -572,10 +565,11 @@ def render_models(doc: dict[str, Any], out: Path) -> None:
 # numbers the later ones. So an inline object could take a component's name
 # (an inline `flow` took `Flow`, and the flow graph became `Flow1`), and an
 # inline object added ahead of others of its name renumbers them. Before
-# codegen, the inline objects that would take a component's name, and the
-# members of a union component with a discriminator, become components of
-# their own. After it, each component's model must be generated from that
-# component, and each model must still sit where MODEL_NAMES says it did.
+# codegen, the inline objects that would take a component's name or a dropped
+# one, and the members of each union with a discriminator, become components
+# of their own, and no such union may keep an inline member. After it, each
+# component's model must be generated from that component, and each model
+# must still sit where MODEL_NAMES says it did.
 
 _inflect = inflect.engine()
 
@@ -615,30 +609,64 @@ def discriminator(members: list[Any]) -> str | None:
     return None
 
 
-def name_variants(doc: dict[str, Any]) -> None:
-    """A union component's inline members, named by their discriminator (`ScopeTenant`)."""
-    components = doc["components"]["schemas"]
-    for name, schema in list(components.items()):
-        key = "oneOf" if "oneOf" in schema else "anyOf" if "anyOf" in schema else None
-        prop = discriminator(schema[key]) if key else None
-        if key is None or prop is None:
+def name_members(doc: dict[str, Any], schema: dict[str, Any], name: str) -> list[str]:
+    """A union's inline members, named `name` and their discriminator's value; their names."""
+    key = "oneOf" if "oneOf" in schema else "anyOf" if "anyOf" in schema else None
+    prop = discriminator(schema[key]) if key else None
+    if key is None or prop is None:
+        return []
+    named = []
+    for i, member in enumerate(schema[key]):
+        if not inline_object(member):
             continue
-        for i, member in enumerate(schema[key]):
-            if not inline_object(member):
+        value = single_value(member["properties"][prop])
+        assert value is not None
+        variant = name + pascal(value)
+        if not variant.isidentifier():
+            raise SystemExit(f"gen_client: {name}'s member {variant!r} is no Python name")
+        # Inline, a member took the union's description as its docstring.
+        if "description" not in member and "description" in schema:
+            member = {**member, "description": schema["description"]}
+        named.append(hoist(doc, member, variant))
+        schema[key][i] = {"$ref": f"#/components/schemas/{named[-1]}"}
+    return named
+
+
+def name_variants(doc: dict[str, Any]) -> None:
+    """Each union's inline members, named by their discriminator: a union component's
+    after it (`ScopeTenant`), an inline union's after its owner and field
+    (`MCPEndpointConfigStdio`), as `name_owned` names an inline object."""
+    components = doc["components"]["schemas"]
+
+    def walk(owner: str, schema: dict[str, Any]) -> None:
+        for key in ("allOf", "oneOf", "anyOf"):
+            for member in schema.get(key) or []:
+                if inline_object(member):
+                    walk(owner, member)
+        for prop, value in (schema.get("properties") or {}).items():
+            item = (
+                isinstance(value, dict)
+                and value.get("type") == "array"
+                and isinstance(value.get("items"), dict)
+            )
+            target = value["items"] if item else value
+            if not isinstance(target, dict) or "$ref" in target:
                 continue
-            value = single_value(member["properties"][prop])
-            assert value is not None
-            variant = name + pascal(value)
-            if not variant.isidentifier():
-                raise SystemExit(f"gen_client: {name}'s member {variant!r} is no Python name")
-            # Inline, a member took the union's description as its docstring.
-            if "description" not in member and "description" in schema:
-                member = {**member, "description": schema["description"]}
-            schema[key][i] = {"$ref": f"#/components/schemas/{hoist(doc, member, variant)}"}
+            name = owner + natural_name(prop, item)
+            for member in name_members(doc, target, name):
+                walk(member, components[member])
+            if inline_object(target):
+                walk(name, target)
+
+    for name, schema in list(components.items()):
+        for member in name_members(doc, schema, name):
+            walk(member, components[member])
+        walk(name, schema)
 
 
-def name_owned(doc: dict[str, Any]) -> None:
-    """An inline object whose natural name is a component's, named after its owner too."""
+def name_owned(doc: dict[str, Any], dropped: frozenset[str]) -> None:
+    """An inline object whose natural name is a component's, or one the client dropped,
+    named after its owner too."""
     components = doc["components"]["schemas"]
 
     def walk(owner: str, schema: dict[str, Any]) -> None:
@@ -656,7 +684,7 @@ def name_owned(doc: dict[str, Any]) -> None:
             if not inline_object(target):
                 continue
             natural = natural_name(prop, item)
-            if natural not in components:
+            if natural not in components and natural not in dropped:
                 walk(owner + natural, target)
                 continue
             name = hoist(doc, target, owner + natural)
@@ -671,6 +699,33 @@ def name_owned(doc: dict[str, Any]) -> None:
 
     for name in list(components):
         walk(name, components[name])
+
+
+def check_members_named(doc: dict[str, Any]) -> None:
+    """No union with a discriminator keeps an inline member, which codegen would number. A
+    scan of every node, not `name_variants`' walk, so a union the walk misses fails here."""
+    left: list[str] = []
+
+    def scan(where: str, node: Any) -> None:
+        if isinstance(node, dict):
+            for key in ("oneOf", "anyOf"):
+                members = node.get(key)
+                if isinstance(members, list) and discriminator(members) is not None:
+                    left.append(f"{where}/{key}")
+            for key, value in node.items():
+                scan(f"{where}/{key}", value)
+        elif isinstance(node, list):
+            for i, value in enumerate(node):
+                scan(f"{where}/{i}", value)
+
+    for name, schema in doc["components"]["schemas"].items():
+        scan(name, schema)
+    if left:
+        raise SystemExit(
+            f"gen_client: codegen would number these unions' members: {', '.join(left)}."
+            " name_variants names each union's members by their discriminator: make its walk"
+            " reach these."
+        )
 
 
 def wire_name(stmt: ast.AnnAssign) -> str:
@@ -728,13 +783,15 @@ def member_keys(
     names: list[str],
     models: dict[str, list[tuple[str, ast.expr]]],
     components: dict[str, Any],
+    fallbacks: frozenset[str] = frozenset(),
 ) -> dict[str, str]:
     """How a field tells apart the models its type names: alone, by nothing; in a union, by
     the value of its discriminator (`[kind=ok]`), else by their properties (`{code,kind}`).
     A component sits at its own name, so only the other members' keys must differ."""
     if len(names) == 1:
         return {names[0]: ""}
-    # Each as the schema it was generated from: its properties, a `Literal` one's value.
+    # Each as the schema it was generated from: its properties, a `Literal` one's value. A
+    # union's fallback (`open_responses`) is a component with no tag value of its own.
     members = {
         name: {
             "properties": {
@@ -743,9 +800,10 @@ def member_keys(
             }
         }
         for name in names
+        if name not in fallbacks
     }
     prop = discriminator(list(members.values()))
-    keys = {}
+    keys = {name: "" for name in names if name in fallbacks}
     for name, member in members.items():
         value = member["properties"].get(prop, {}).get("const") if prop else None
         keys[name] = (
@@ -777,10 +835,13 @@ def generated_from(schema: dict[str, Any], fields: list[tuple[str, ast.expr]]) -
     return all(wire in ("=", "root") for wire, _ in fields)
 
 
-def model_locations(doc: dict[str, Any], tree: ast.Module) -> dict[str, list[str]]:
+def model_locations(
+    doc: dict[str, Any], tree: ast.Module, fallbacks: frozenset[str] = frozenset()
+) -> dict[str, list[str]]:
     """Where each model sits. A component's own model sits at its name; any other at each chain
     of fields from one, a field by its wire name and, in a union, by its member
-    (`member_keys`): `JudgedComparisonResult.cases.tool`, `CompleteApprovalResult.resume[kind=ok]`.
+    (`member_keys`): `CorrectedComparisonResult.cases.tool`,
+    `CompleteApprovalResult.resume[kind=ok]`.
     """
     models = model_fields(tree)
     components = doc["components"]["schemas"]
@@ -802,7 +863,7 @@ def model_locations(doc: dict[str, Any], tree: ast.Module) -> dict[str, list[str
             )
             if not named:
                 continue
-            keys = member_keys(f"{owner}.{wire}", named, models, components)
+            keys = member_keys(f"{owner}.{wire}", named, models, components, fallbacks)
             for name in named:
                 parents.setdefault(name, []).append((owner, f"{wire}{keys[name]}"))
 
@@ -828,8 +889,9 @@ def model_locations(doc: dict[str, Any], tree: ast.Module) -> dict[str, list[str
 
 
 def check_model_names(locations: dict[str, list[str]], pinned: dict[str, list[str]]) -> None:
-    """A pinned model name may gain or lose places, but never move wholly or vanish."""
-    gone = sorted(set(pinned) - set(locations))
+    """A pinned model name may gain or lose places, but never move wholly or vanish, and a
+    dropped one (pinned to no place) never names a model again."""
+    gone = sorted(name for name in set(pinned) - set(locations) if pinned[name])
     moved = sorted(
         name
         for name in pinned
@@ -839,8 +901,14 @@ def check_model_names(locations: dict[str, list[str]], pinned: dict[str, list[st
         return
     lines = [f"  {name}: gone, was at {', '.join(pinned[name])}" for name in gone]
     lines += [
+        f"  {name}: dropped, now at {', '.join(locations[name])}"
+        for name in moved
+        if not pinned[name]
+    ]
+    lines += [
         f"  {name}: was at {', '.join(pinned[name])}, now at {', '.join(locations[name])}"
         for name in moved
+        if pinned[name]
     ]
     raise SystemExit(
         "gen_client: these model names would change meaning:\n"
@@ -850,20 +918,531 @@ def check_model_names(locations: dict[str, list[str]], pinned: dict[str, list[st
         " or loses a property. Check what each name names now. Where it's still the same model,"
         f" edit its line in {MODEL_NAMES.relative_to(ROOT)}. Where it's another, name the new"
         " object in the API, or, when the rename is meant, list it in CHANGELOG.md and edit the"
-        " line."
+        " line: a name that goes keeps its line with no places (`[]`), so it stays dropped. A"
+        " dropped name can't name a model again: name the object in the API. Where a component"
+        " takes it, rename the component or, when the name is meant, delete its `[]` line and"
+        " list it in CHANGELOG.md."
     )
 
 
-def render_model_names(locations: dict[str, list[str]]) -> str:
-    """As the repository's JSON formatter lays it out: a list on one line when it fits in 100."""
+def render_model_names(locations: dict[str, list[str]], dropped: frozenset[str]) -> str:
+    """As the repository's JSON formatter lays it out: a list on one line when it fits in 100;
+    a dropped name at no place."""
     rows = []
-    for name, at in sorted(locations.items()):
+    places: dict[str, list[str]] = {name: [] for name in dropped}
+    for name, at in sorted({**places, **locations}.items()):
         row = f"  {json.dumps(name)}: {json.dumps(at)}"
         if len(row) + 1 > 100:
             items = ",\n".join(f"    {json.dumps(a)}" for a in at)
             row = f"  {json.dumps(name)}: [\n{items}\n  ]"
         rows.append(row)
     return "{\n" + ",\n".join(rows) + "\n}\n"
+
+
+# ---------------------------------------------------------------------------
+# Open responses
+# ---------------------------------------------------------------------------
+#
+# A newer runtime may answer with an enum value or a union member this client
+# doesn't know: an additive change. A closed `Literal` would fail the whole
+# response. So before codegen, every enum a response reaches, of any size, is
+# marked (a sentinel value, `OPEN_ENUM`), and every tagged union a response
+# reaches gains a fallback member, `<Union>Unrecognized`: an object with the
+# tag as text, its other fields kept. After it, a marked `Literal` becomes
+# `Annotated[Literal[...] | str, _open.OPEN]` and each union with a fallback
+# is wrapped in `_open.OpenUnion`, which picks a member by its tag and the
+# fallback for any other. Both stay closed in a request the client sends
+# (`kindgi.client._open`). A `const`, the tag any union picks its member by
+# (`union_tags`) and a union without a tag stay as they are: the Java client
+# draws the same line. A union held apart by two fields fails generation, as
+# which one is its tag isn't clear. Then `check_open` fails if a response
+# reaches anything still closed, or if a union picks its member by a field
+# that was opened.
+
+OPEN_ENUM = "x-kindgi-open-enum"
+FALLBACK = "Unrecognized"
+
+
+def refs_in(schema: Any) -> list[str]:
+    """The components `schema` names, at any depth."""
+    if isinstance(schema, dict):
+        found = [schema["$ref"].split("/")[-1]] if isinstance(schema.get("$ref"), str) else []
+        return found + [name for value in schema.values() for name in refs_in(value)]
+    if isinstance(schema, list):
+        return [name for value in schema for name in refs_in(value)]
+    return []
+
+
+def response_components(doc: dict[str, Any], ops: list[Operation]) -> dict[str, str]:
+    """Every component a success response reaches (a JSON answer or a stream's events), to the
+    first operation that reaches it."""
+    components = doc["components"]["schemas"]
+    reached: dict[str, str] = {}
+    for op in ops:
+        stack = [op.response] if op.response and op.response_kind in ("json", "sse") else []
+        stack += list(op.responses.values())
+        while stack:
+            name = stack.pop()
+            if name in reached or name not in components:
+                continue
+            reached[name] = op.id
+            stack += refs_in(components[name])
+    return reached
+
+
+def nodes(schema: Any, path: tuple[Any, ...] = ()) -> Iterator[tuple[tuple[Any, ...], Any]]:
+    """Each schema inside `schema`, by its path from it; a `$ref` is another component's."""
+    if not isinstance(schema, dict) or "$ref" in schema:
+        return
+    yield path, schema
+    for key in ("allOf", "oneOf", "anyOf"):
+        for i, member in enumerate(schema.get(key) or []):
+            yield from nodes(member, (*path, key, i))
+    for prop, value in (schema.get("properties") or {}).items():
+        yield from nodes(value, (*path, "properties", prop))
+    for key in ("items", "additionalProperties"):
+        yield from nodes(schema.get(key), (*path, key))
+
+
+def schemas_in(schema: Any, path: tuple[Any, ...] = ()) -> Iterator[tuple[tuple[Any, ...], Any]]:
+    """Each object inside `schema`, under any key at any depth: wider than `nodes`, so a check
+    by it sees what `nodes` doesn't walk."""
+    if isinstance(schema, dict):
+        yield path, schema
+        for key, value in schema.items():
+            yield from schemas_in(value, (*path, key))
+    elif isinstance(schema, list):
+        for i, value in enumerate(schema):
+            yield from schemas_in(value, (*path, i))
+
+
+def null_schema(schema: Any) -> bool:
+    return isinstance(schema, dict) and schema.get("type") == "null"
+
+
+def tag_values(schema: Any) -> list[str] | None:
+    """A property's fixed values (`const`, or an `enum` of strings), if it has them."""
+    if not isinstance(schema, dict):
+        return None
+    if isinstance(schema.get("const"), str):
+        return [schema["const"]]
+    values = schema.get("enum")
+    if isinstance(values, list) and values and all(isinstance(v, str) for v in values):
+        return values
+    return None
+
+
+def held_apart(doc: dict[str, Any], members: list[Any]) -> list[str]:
+    """The properties each object member of a union holds to values of its own."""
+    objects = [deref(doc, m) for m in members if not null_schema(m)]
+    if len(objects) < 2 or not all(inline_object(o) for o in objects):
+        return []
+    found: list[str] = []
+    for prop in sorted(set.intersection(*(set(o["properties"]) for o in objects))):
+        values = [tag_values(o["properties"][prop]) for o in objects]
+        flat = [v for vs in values if vs is not None for v in vs]
+        if None not in values and len(set(flat)) == len(flat):
+            found.append(prop)
+    return found
+
+
+def union_tag(doc: dict[str, Any], members: list[Any]) -> str | None:
+    """The property each object member of a union holds to values of its own, if one does
+    (`union_tags` fails generation if more than one does)."""
+    return next(iter(held_apart(doc, members)), None)
+
+
+def union_tags(doc: dict[str, Any], ops: list[Operation]) -> set[tuple[str, tuple[Any, ...]]]:
+    """Each field a union picks its member by (its `union_tag`, or its `discriminator`'s
+    property), as `(component, path)`. It stays closed: opened, the union could no longer
+    tell its members apart. A request's union counts too, as a response may reach its
+    members, and so does a method's answer by status (`secrets.rotate`'s, by `kind`).
+
+    A union whose members are held apart by two fields fails generation: only one is its
+    tag, and code that narrows by the other would break when it's opened."""
+    components = doc["components"]["schemas"]
+    tags: set[tuple[str, tuple[Any, ...]]] = set()
+    unclear: set[str] = set()
+    for op in ops:
+        answers = sorted(set(op.responses.values()))
+        held = held_apart(doc, [{"$ref": f"#/components/schemas/{a}"} for a in answers])
+        if len(held) > 1:
+            unclear.add(f"  the answer of {op.id}: {', '.join(held)}")
+        tags |= {(a, ("properties", held[0])) for a in answers if held}
+    for owner in sorted(components):
+        for path, node in nodes(components[owner]):
+            key = "oneOf" if "oneOf" in node else "anyOf" if "anyOf" in node else None
+            if key is None:
+                continue
+            held = held_apart(doc, node[key])
+            if len(held) > 1:
+                unclear.add(f"  the union at {site(owner, path)}: {', '.join(held)}")
+            named = (node.get("discriminator") or {}).get("propertyName")
+            for prop in {p for p in (*held[:1], named) if isinstance(p, str)}:
+                for i, member in enumerate(node[key]):
+                    if "$ref" in member:
+                        tags.add((member["$ref"].split("/")[-1], ("properties", prop)))
+                    elif not null_schema(member):
+                        tags.add((owner, (*path, key, i, "properties", prop)))
+    if unclear:
+        raise SystemExit(
+            "gen_client: a union's members are held apart by more than one field, so"
+            " which one is its tag isn't clear:\n"
+            + "\n".join(sorted(unclear))
+            + "\nGive the union one field its members hold to values of their own."
+        )
+    return tags
+
+
+def fallback_name(owner: str, path: tuple[Any, ...]) -> str:
+    """`<Union>Unrecognized`: the union component's name, or its owner's and its properties'."""
+    props = [path[i + 1] for i, key in enumerate(path[:-1]) if key == "properties"]
+    if not props:
+        return owner + FALLBACK
+    item = path[-1] == "items"
+    return owner + "".join(pascal(p) for p in props[:-1]) + natural_name(props[-1], item) + FALLBACK
+
+
+def open_responses(
+    doc: dict[str, Any],
+    ops: list[Operation],
+    pinned: dict[str, list[str]],
+    tags: set[tuple[str, tuple[Any, ...]]],
+) -> dict[str, str]:
+    """Mark each enum a response reaches, of any size, but a union's tag (`tags`), and give
+    each tagged union one reaches its fallback. Each fallback's name, to the wire name of its
+    union's tag."""
+    components = doc["components"]["schemas"]
+    fallbacks: dict[str, str] = {}
+    for owner in sorted(response_components(doc, ops)):
+        for path, node in list(nodes(components[owner])):
+            key = "oneOf" if "oneOf" in node else "anyOf" if "anyOf" in node else None
+            tag = union_tag(doc, node[key]) if key else None
+            if key is None or tag is None:
+                continue
+            name = fallback_name(owner, path)
+            if name in components:
+                raise SystemExit(f"gen_client: {owner}'s fallback {name} collides with a component")
+            if name in pinned and pinned[name] != [name]:
+                raise SystemExit(
+                    f"gen_client: {owner}'s fallback {name} collides with a model at"
+                    f" {', '.join(pinned[name])} ({MODEL_NAMES.relative_to(ROOT)})"
+                )
+            components[name] = {
+                "type": "object",
+                "description": (
+                    f"A `{tag}` this client doesn't know yet, from a newer runtime: the object"
+                    " as it came, every field kept."
+                ),
+                "properties": {
+                    tag: {"type": "string", "description": f"The `{tag}` it came with."}
+                },
+                "required": [tag],
+                "additionalProperties": True,
+            }
+            ref = {"$ref": f"#/components/schemas/{name}"}
+            members = node[key]
+            node[key] = [*(m for m in members if not null_schema(m)), ref]
+            node[key] += [m for m in members if null_schema(m)]
+            # `OpenUnion` picks the member by its tag; codegen's discriminator would
+            # refuse a member whose tag is text.
+            node.pop("discriminator", None)
+            fallbacks[name] = tag
+    for owner in sorted(response_components(doc, ops)):
+        for path, node in nodes(components[owner]):
+            values = node.get("enum")
+            if (owner, path) in tags or not isinstance(values, list) or OPEN_ENUM in values:
+                continue
+            # One value too: unlike a `const`, an `enum` may gain values.
+            if any(isinstance(v, str) for v in values):
+                node["enum"] = [*(v for v in values if v is not None), OPEN_ENUM]
+                node["enum"] += [v for v in values if v is None]
+    return fallbacks
+
+
+def literal_strings(node: ast.expr) -> list[str] | None:
+    """The strings a `Literal[...]` expression allows, if it's one."""
+    if not (
+        isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "Literal"
+    ):
+        return None
+    elts = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+    return [e.value for e in elts if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+
+
+def union_members(node: ast.expr) -> list[ast.expr]:
+    """The members of an `a | b | c` chain, in order."""
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        return union_members(node.left) + union_members(node.right)
+    return [node]
+
+
+def open_models(text: str, fallbacks: dict[str, str]) -> str:
+    """Codegen's module, each marked `Literal` and each union with a fallback made open."""
+    tree = ast.parse(text)
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    edits: list[tuple[ast.expr, str]] = []
+    for node in ast.walk(tree):
+        values = literal_strings(node) if isinstance(node, ast.expr) else None
+        if values is not None and OPEN_ENUM in values:
+            known = ", ".join(json.dumps(v, ensure_ascii=False) for v in values if v != OPEN_ENUM)
+            edits.append((node, f"Annotated[Literal[{known}] | str, _open.OPEN]"))
+            continue
+        parent = parents.get(node)
+        if not isinstance(node, ast.BinOp) or (
+            isinstance(parent, ast.BinOp) and isinstance(parent.op, ast.BitOr)
+        ):
+            continue
+        members = union_members(node)
+        named = [m.id for m in members if isinstance(m, ast.Name) and m.id in fallbacks]
+        if not named:
+            continue
+        if len(named) > 1:
+            raise SystemExit(f"gen_client: one union with two fallbacks: {ast.unparse(node)}")
+        [fallback] = named
+        objects = [m for m in members if not is_none(m)]
+        union = " | ".join(ast.unparse(m) for m in objects)
+        mark = f"_open.OpenUnion({json.dumps(fallbacks[fallback], ensure_ascii=False)}, {fallback})"
+        opened = f"Annotated[{union}, {mark}]"
+        edits.append((node, opened + (" | None" if len(objects) < len(members) else "")))
+    # By byte offset (`ast` counts columns in UTF-8 bytes), from the end, so earlier
+    # offsets still hold.
+    raw = text.encode("utf-8")
+    starts = [0]
+    for line in raw.splitlines(keepends=True):
+        starts.append(starts[-1] + len(line))
+    spans = sorted(
+        (
+            (starts[n.lineno - 1] + n.col_offset, starts[n.end_lineno - 1] + n.end_col_offset, new)
+            for n, new in edits
+            if n.end_lineno is not None and n.end_col_offset is not None
+        ),
+        reverse=True,
+    )
+    for (_, end, _), (later, _, _) in zip(spans[1:], spans, strict=False):
+        if end > later:
+            raise SystemExit("gen_client: two open edits overlap")
+    for start, end, new in spans:
+        raw = raw[:start] + new.encode("utf-8") + raw[end:]
+    out = raw.decode("utf-8")
+    if edits:
+        pydantic = "\nfrom pydantic import "
+        out = out.replace(pydantic, "\nfrom . import _open" + pydantic, 1)
+    return out
+
+
+def annotated_parts(node: ast.AST) -> tuple[ast.expr, list[ast.expr]] | None:
+    """`Annotated[inner, *metadata]`: its inner type and its metadata."""
+    if not (
+        isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "Annotated"
+        and isinstance(node.slice, ast.Tuple)
+    ):
+        return None
+    inner, *metadata = node.slice.elts
+    return inner, metadata
+
+
+def open_mark(metadata: list[ast.expr]) -> str | None:
+    """`OPEN` for `_open.OPEN`; an `_open.OpenUnion(tag, …)`'s tag; else None."""
+    for mark in metadata:
+        if ast.unparse(mark) == "_open.OPEN":
+            return "OPEN"
+        if isinstance(mark, ast.Call) and ast.unparse(mark.func) == "_open.OpenUnion":
+            tag = mark.args[0]
+            assert isinstance(tag, ast.Constant) and isinstance(tag.value, str)
+            return tag.value
+    return None
+
+
+def site(owner: str, path: tuple[Any, ...]) -> str:
+    """`Secret.state` for a component's property, `TestRunBaseline/oneOf/0` for a member."""
+    out = owner
+    for i, key in enumerate(path):
+        if key != "properties":
+            out += f".{key}" if i and path[i - 1] == "properties" else f"/{key}"
+    return out
+
+
+def is_none(node: ast.expr) -> bool:
+    return isinstance(node, ast.Constant) and node.value is None
+
+
+def fixed_values(annotation: ast.expr) -> tuple[list[str], bool] | None:
+    """A field's fixed values, through `| None` and an alias, and whether they were opened
+    (`Annotated[Literal[...] | str, _open.OPEN]`)."""
+    parts = annotated_parts(annotation)
+    if parts:
+        inner, metadata = parts
+        if open_mark(metadata) == "OPEN":
+            return [v for m in union_members(inner) for v in literal_strings(m) or []], True
+        return fixed_values(inner)
+    members = [m for m in union_members(annotation) if not is_none(m)]
+    if len(members) != 1:
+        return None
+    values = literal_strings(members[0])
+    if values:
+        return values, False
+    return fixed_values(members[0]) if members[0] is not annotation else None
+
+
+def marked_tag(node: ast.expr) -> tuple[ast.expr, str] | None:
+    """An `Annotated` union and the tag it names: its `OpenUnion`'s, or codegen's
+    `Field(discriminator=...)`."""
+    parts = annotated_parts(node)
+    if not parts:
+        return None
+    inner, metadata = parts
+    tag = open_mark(metadata)
+    if tag is not None and tag != "OPEN":
+        return inner, tag
+    for mark in metadata:
+        if isinstance(mark, ast.Call) and ast.unparse(mark.func) == "Field":
+            for kw in mark.keywords:
+                if kw.arg == "discriminator" and isinstance(kw.value, ast.Constant):
+                    return inner, str(kw.value.value)
+    return None
+
+
+def opened_tags(tree: ast.Module, ops: list[Operation]) -> list[str]:
+    """Each opened field a union picks its member by: an `OpenUnion`'s tag, codegen's
+    discriminator, or else the field its members hold to values of their own. A method's
+    answer by status is such a union too: its members are told apart by that field
+    (`answer.kind == "async"`). Opened, it no longer tells them apart."""
+    models = model_fields(tree)
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    unions = [
+        (f"the answer of {op.id}", sorted(set(op.responses.values())), None)
+        for op in ops
+        if len(set(op.responses.values())) > 1
+    ]
+    for owner, rows in models.items():
+        for wire, annotation in rows:
+            for node in ast.walk(annotation):
+                marked = marked_tag(node)
+                if marked:
+                    chain, tag = marked
+                elif isinstance(node, ast.BinOp) and not isinstance(parents.get(node), ast.BinOp):
+                    chain, tag = node, None
+                else:
+                    continue
+                names = [m.id for m in union_members(chain) if isinstance(m, ast.Name)]
+                unions.append((f"the union at {owner}.{wire}", names, tag))
+    found: list[str] = []
+    for place, names, tag in unions:
+        fields = {n: dict(models[n]) for n in names if n in models}
+        if len(fields) < 2:
+            continue
+        for prop in [tag] if tag else sorted(set.intersection(*map(set, fields.values()))):
+            held = [fixed_values(f[prop]) if prop in f else None for f in fields.values()]
+            flat = [v for h in held if h for v in h[0]]
+            if tag is None and not (all(held) and len(set(flat)) == len(flat)):
+                continue
+            found += [
+                f"{name}.{prop}: opened, but {place} picks its member by it"
+                for name, h in zip(fields, held, strict=True)
+                if h and h[1]
+            ]
+            break
+    return sorted(set(found))
+
+
+def check_open(
+    tree: ast.Module,
+    ops: list[Operation],
+    doc: dict[str, Any],
+    tags: set[tuple[str, tuple[Any, ...]]],
+) -> None:
+    """Fail when a response reaches anything closed a newer runtime's value would fail: an
+    `enum` of any size but a union's tag (`tags`) that codegen read without `OPEN_ENUM`, a
+    `Literal` of two or more values not made open, or a union told apart by a tag without its
+    fallback. Fail too when a union picks its member by a field that was opened."""
+    opened = opened_tags(tree, ops)
+    if opened:
+        raise SystemExit(
+            "gen_client: opened, so a union can't tell its members apart:\n"
+            + "\n".join(f"  {o}" for o in opened)
+            + "\nKeep it closed: union_tags."
+        )
+    closed: list[str] = []
+    components = doc["components"]["schemas"]
+    for owner, op_id in sorted(response_components(doc, ops).items()):
+        for path, node in schemas_in(components[owner]):
+            values = node.get("enum")
+            if (
+                isinstance(values, list)
+                and any(isinstance(v, str) for v in values)
+                and OPEN_ENUM not in values
+                and (owner, path) not in tags
+            ):
+                closed.append(f"{site(owner, path)}: an enum ({op_id})")
+    models = model_fields(tree)
+    reached: dict[str, str] = {}
+    for op in ops:
+        stack = [op.response] if op.response and op.response_kind in ("json", "sse") else []
+        stack += list(op.responses.values())
+        while stack:
+            name = stack.pop()
+            if name in reached or name not in models:
+                continue
+            reached[name] = op.id
+            for _, annotation in models[name]:
+                stack += [n.id for n in ast.walk(annotation) if isinstance(n, ast.Name)]
+
+    def unwrapped(annotation: ast.expr) -> ast.expr:
+        parts = annotated_parts(annotation)
+        return parts[0] if parts else annotation
+
+    def tag_of(name: str, wire: str) -> list[str] | None:
+        found = [a for w, a in models.get(name, []) if w == wire]
+        return literal_strings(unwrapped(found[0])) if found else None
+
+    # The members of each open union keep their tags closed: `OpenUnion` routes on them.
+    routed: set[tuple[str, str]] = set()
+    for node in ast.walk(tree):
+        parts = annotated_parts(node)
+        tag = open_mark(parts[1]) if parts else None
+        if parts and tag not in (None, "OPEN"):
+            routed |= {(m.id, tag) for m in union_members(parts[0]) if isinstance(m, ast.Name)}
+
+    for owner, op_id in sorted(reached.items()):
+        for wire, annotation in models[owner]:
+            opened: set[ast.AST] = set()
+            for node in ast.walk(annotation):
+                parts = annotated_parts(node)
+                if parts and open_mark(parts[1]) is not None:
+                    opened |= set(ast.walk(parts[0]))
+            for node in ast.walk(annotation):
+                values = literal_strings(node) if isinstance(node, ast.expr) else None
+                if (
+                    values
+                    and len(values) >= 2
+                    and node not in opened
+                    and (owner, wire) not in routed
+                ):
+                    closed.append(f"{owner}.{wire}: an enum ({op_id})")
+                if not isinstance(node, ast.BinOp) or node in opened:
+                    continue
+                names = [m.id for m in union_members(node) if isinstance(m, ast.Name)]
+                names = [n for n in names if n in models]
+                if len(names) < 2:
+                    continue
+                shared = set.intersection(*({w for w, _ in models[n]} for n in names))
+                for prop in sorted(shared):
+                    values = [tag_of(n, prop) for n in names]
+                    flat = [v for vs in values if vs for v in vs]
+                    if all(values) and len(set(flat)) == len(flat):
+                        closed.append(f"{owner}.{wire}: a union by `{prop}` ({op_id})")
+                        break
+    if closed:
+        raise SystemExit(
+            "gen_client: closed in a response, so a newer runtime's value would fail to parse:\n"
+            + "\n".join(f"  {c}" for c in sorted(set(closed)))
+            + "\nOpen it in open_responses."
+        )
 
 
 def generate_into(openapi: Path, out_dir: Path, names: Path = MODEL_NAMES) -> dict[Path, Path]:
@@ -875,15 +1454,23 @@ def generate_into(openapi: Path, out_dir: Path, names: Path = MODEL_NAMES) -> di
         if op.id in seen:
             raise SystemExit(f"gen_client: duplicate operationId {op.id}")
         seen.add(op.id)
+    pinned = json.loads(names.read_text("utf-8")) if names.is_file() else {}
+    dropped = frozenset(name for name, at in pinned.items() if not at)
     name_variants(doc)
-    name_owned(doc)
+    name_owned(doc, dropped)
+    check_members_named(doc)
+    tags = union_tags(doc, ops)
+    fallbacks = open_responses(doc, ops, pinned, tags)
     out_dir.mkdir(parents=True, exist_ok=True)
     models = out_dir / MODELS
     render_models(doc, models)
-    locations = model_locations(doc, ast.parse(models.read_text("utf-8")))
-    check_model_names(locations, json.loads(names.read_text("utf-8")) if names.is_file() else {})
+    models.write_text(open_models(models.read_text("utf-8"), fallbacks), "utf-8")
+    module = ast.parse(models.read_text("utf-8"))
+    check_open(module, ops, doc, tags)
+    locations = model_locations(doc, module, frozenset(fallbacks))
+    check_model_names(locations, pinned)
     pins = out_dir / names.name
-    pins.write_text(render_model_names(locations), "utf-8")
+    pins.write_text(render_model_names(locations, dropped), "utf-8")
     resources = out_dir / RESOURCES
     resources.write_text(render_resources(tree(ops), ops), "utf-8")
     files = [models, resources]

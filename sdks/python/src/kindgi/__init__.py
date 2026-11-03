@@ -17,7 +17,17 @@ Kindgi runtime (`kindgi dev` does both for you).
 from __future__ import annotations
 
 from ._version import __version__
-from .pack.context import CallCancelled, Cancellation, ToolContext
+from .pack.context import (
+    CallCancelled,
+    Cancellation,
+    ConnectionAccount,
+    ConnectionRejected,
+    PauseAnswer,
+    PauseNotAvailable,
+    ToolConnection,
+    ToolContext,
+    WaitToken,
+)
 from .pack.define import (
     Agent,
     DefinitionError,
@@ -28,22 +38,42 @@ from .pack.define import (
     http_tool,
     tool,
 )
+from .pack.files import (
+    MAX_STORED_FILE_BYTES,
+    MAX_STORED_FILES_PER_CALL,
+    FileReadAnswer,
+    FileStore,
+    FileStoreAnswer,
+    FileStoreError,
+)
 from .pack.trace import CheckResult, ModelCallRecord, RunTrace, ToolCallRecord, ToolResultRecord
 
 __all__ = [
+    "MAX_STORED_FILES_PER_CALL",
+    "MAX_STORED_FILE_BYTES",
     "Agent",
     "CallCancelled",
     "Cancellation",
     "CheckResult",
+    "ConnectionAccount",
+    "ConnectionRejected",
     "DefinitionError",
+    "FileReadAnswer",
+    "FileStore",
+    "FileStoreAnswer",
+    "FileStoreError",
     "Flow",
     "Guardrail",
     "ModelCallRecord",
+    "PauseAnswer",
+    "PauseNotAvailable",
     "RunTrace",
     "Tool",
     "ToolCallRecord",
+    "ToolConnection",
     "ToolContext",
     "ToolResultRecord",
+    "WaitToken",
     "__version__",
     "guardrail",
     "http_tool",

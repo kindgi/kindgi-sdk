@@ -18,7 +18,7 @@ class ScalaPackSuite extends munit.FunSuite {
     "tools/Greet", "tools/Later", "tools/Echo", "tools/Lazy", "tools/Model",
     "guardrails/Checks", "agents/Bot", "flows/Pipeline")
 
-  private def indexPack(): (ju.Map[String, AnyRef], ju.Map[String, AnyRef]) = {
+  private def indexPack(files: Seq[String] = files): (ju.Map[String, AnyRef], ju.Map[String, AnyRef]) = {
     val dir = Files.createTempDirectory("kindgi-scala-pack")
     Files.writeString(dir.resolve("kindgi.config.json"),
       """{"language": "scala", "pack": {"id": "acme", "version": "1.0.0"}}""")
@@ -58,6 +58,15 @@ class ScalaPackSuite extends munit.FunSuite {
     )
   }
 
+  test("an agent that sets autoCloseAfterInactiveSeconds is an error that names it") {
+    val (report, index) = indexPack(Seq("tools/Greet", "agents/Lingers"))
+    val errors = list(report.get("fileErrors")).map(e => s"${e.get("code")}: ${e.get("message")}")
+    assertEquals(errors, Seq(
+      "manifest-validation-failed: src/main/scala/scalapack/agents/Lingers.scala: agent 'acme.lingers' is invalid at" +
+        " /conversationPolicy/autoCloseAfterInactiveSeconds: must NOT be valid"))
+    assertEquals(list(index.get("agents")), Seq.empty)
+  }
+
   test("a guardrail's check runs in a unit test with evaluate") {
     import scalapack.guardrails.Checks
     assert(Checks.minLength.evaluate(Checks.MinLength(3), new RunTrace(ju.Map.of("output", "abc"))).passed)
@@ -78,6 +87,8 @@ class ScalaPackSuite extends munit.FunSuite {
     assertEquals(later.get("needsApprovalWhenUnattended"), java.lang.Boolean.TRUE)
     val echo = list(index.get("tools")).find(_.get("id") == "acme.echo-json").get
     assert(!echo.containsKey("needsApprovalWhenUnattended"))
+    assertEquals(later.get("resultIsOutsideData"), java.lang.Boolean.TRUE)
+    assert(!echo.containsKey("resultIsOutsideData"))
     assertEquals(greet.get("input"), plain(
       """{"type": "object", "additionalProperties": false,
         | "properties": {

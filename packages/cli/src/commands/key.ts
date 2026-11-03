@@ -20,6 +20,8 @@
  * and `revoke` call the runtime through the SDK client (`--url`, `--token`).
  */
 
+import { isAbsolute, relative, resolve, sep } from 'node:path';
+
 import { parsePublicKeyPem, serializePublicKeyBase64 } from '@kindgi/crypto';
 
 import type { CommandContext } from '../context.js';
@@ -34,7 +36,8 @@ import {
   resolveKeyPaths,
 } from '../key/paths.js';
 import type { KeyRunners } from '../key/runners.js';
-import { renderJson } from '../output.js';
+import { renderJson, successNote } from '../output.js';
+import { loadPackConfig } from '../pack-config.js';
 import {
   commandResultFromThrown,
   requiredPositional,
@@ -90,6 +93,96 @@ function validateKeyId(
 // `kindgi key create <keyId> [--env <name>] [--home <dir>]`
 // ---------------------------------------------------------------------
 
+/**
+ * The file `kindgi build` reads for a `signingKey` of `value`: `~` is the
+ * home (not --home's, and '' with no HOME), and a relative path is read
+ * from here.
+ */
+function buildKeyFile(ctx: CommandContext, value: string): string {
+  const home = ctx.home ?? ctx.env.HOME ?? '';
+  return resolve(ctx.cwd, value.startsWith('~') ? `${home}${value.slice(1)}` : value);
+}
+
+/**
+ * The `signingKey` the hint gives for the key at `privPath`: `~/` and its
+ * path under the home when the build reads that as this file, so no one's
+ * home is written into the config; else this file's absolute path (a
+ * --home outside the home, or no HOME).
+ */
+function hintSigningKey(ctx: CommandContext, privPath: string): string {
+  const file = resolve(ctx.cwd, privPath);
+  const home = ctx.home ?? ctx.env.HOME ?? '';
+  if (home !== '') {
+    const rest = relative(resolve(ctx.cwd, home), file);
+    if (rest !== '..' && !rest.startsWith(`..${sep}`) && !isAbsolute(rest)) {
+      const underHome = `~/${rest.split(sep).join('/')}`;
+      if (buildKeyFile(ctx, underHome) === file) return underHome;
+    }
+  }
+  return file;
+}
+
+/** `value` as a single-quoted string in `kindgi.config.ts`. */
+function configString(value: string): string {
+  return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+}
+
+/**
+ * What the `--env` block of the `kindgi.config.ts` here says about signing,
+ * read the way `kindgi build --env=<name>` reads it. `this-key`: the build
+ * will sign with the key just made (its `signingKey` is this key's file, and
+ * its `signerKeyId` is this key's id or unset, so the file's name names it).
+ * `other`: the block has a `signingKey` or `signerKeyId` that isn't this
+ * key's, given as it's written. `unset`: no config, one that won't load, no
+ * such block, or neither field.
+ */
+type EnvKeyState =
+  | { readonly kind: 'this-key' }
+  | { readonly kind: 'other'; readonly signingKey?: string; readonly signerKeyId?: string }
+  | { readonly kind: 'unset' };
+
+async function envKeyState(
+  ctx: CommandContext,
+  envName: string,
+  keyId: string,
+  privPath: string,
+): Promise<EnvKeyState> {
+  let block: unknown;
+  try {
+    const loaded = await loadPackConfig(ctx, ctx.cwd);
+    if (loaded.kind !== 'ok') return { kind: 'unset' };
+    const environments = loaded.config.environments;
+    if (environments === null || typeof environments !== 'object') return { kind: 'unset' };
+    block = (environments as Record<string, unknown>)[envName];
+  } catch {
+    // The hint is a convenience; a config that won't load leaves it as it was.
+    return { kind: 'unset' };
+  }
+  if (block === null || typeof block !== 'object') return { kind: 'unset' };
+  const fields = block as { readonly signingKey?: unknown; readonly signerKeyId?: unknown };
+  const signingKey =
+    typeof fields.signingKey === 'string' && fields.signingKey !== ''
+      ? fields.signingKey
+      : undefined;
+  const signerKeyId =
+    typeof fields.signerKeyId === 'string' && fields.signerKeyId !== ''
+      ? fields.signerKeyId
+      : undefined;
+  if (signingKey === undefined && signerKeyId === undefined) return { kind: 'unset' };
+  const keyFile = signingKey === undefined ? undefined : buildKeyFile(ctx, signingKey);
+  if (
+    keyFile === resolve(ctx.cwd, privPath) &&
+    (signerKeyId === undefined || signerKeyId === keyId)
+  ) {
+    return { kind: 'this-key' };
+  }
+  return {
+    kind: 'other',
+    ...(signingKey !== undefined && { signingKey }),
+    ...(signerKeyId !== undefined && { signerKeyId }),
+  };
+}
+
 const createCmd: LeafCommand = {
   kind: 'leaf',
   name: 'create',
@@ -99,7 +192,7 @@ const createCmd: LeafCommand = {
     env: {
       type: 'string',
       description:
-        'Also print the `signingKey` and `signerKeyId` lines to add to this env block in `kindgi.config.ts`.',
+        'Also print the `signingKey` and `signerKeyId` lines to add to this env block in `kindgi.config.ts`, or say that the block already names this key.',
     },
     home: {
       type: 'string',
@@ -165,14 +258,37 @@ const createCmd: LeafCommand = {
       `    fingerprint:  ${fingerprint}`,
       '',
     ];
-    if (envName !== undefined) {
+    const envKey =
+      envName === undefined || ctx.globals.format === 'quiet'
+        ? undefined
+        : await envKeyState(ctx, envName, keyId, privPath);
+    if (envName !== undefined && envKey?.kind === 'this-key') {
+      banner.push(
+        `  environments.${envName} in kindgi.config.ts already names this key:`,
+        `  \`kindgi build --env=${envName}\` will sign with it.`,
+        '',
+      );
+    } else if (envName !== undefined) {
+      if (envKey?.kind === 'other') {
+        banner.push(
+          `  environments.${envName} in kindgi.config.ts has these now:`,
+          '',
+          ...(envKey.signingKey !== undefined
+            ? [`    signingKey: ${configString(envKey.signingKey)},`]
+            : []),
+          ...(envKey.signerKeyId !== undefined
+            ? [`    signerKeyId: ${configString(envKey.signerKeyId)},`]
+            : []),
+          '',
+        );
+      }
       banner.push(
         `  Next step: add to environments.${envName} in kindgi.config.ts:`,
         '',
         `    ${envName}: {`,
         '      // …existing fields…',
-        `      signingKey: '~/.kindgi/keys/${keyId}.pem',`,
-        `      signerKeyId: '${keyId}',`,
+        `      signingKey: ${configString(hintSigningKey(ctx, privPath))},`,
+        `      signerKeyId: ${configString(keyId)},`,
         '    },',
         '',
         `  Then \`kindgi build --env=${envName}\` will pick up the key.`,
@@ -191,7 +307,10 @@ const createCmd: LeafCommand = {
     const rendered = renderJson(summary, ctx.globals.format);
     return {
       kind: 'ok',
-      rendered: { stdout: rendered.stdout, stderr: `${banner.join('\n')}\n` },
+      rendered: {
+        stdout: rendered.stdout,
+        stderr: successNote(ctx.globals.format, `${banner.join('\n')}\n`),
+      },
     };
   },
 };
@@ -350,7 +469,7 @@ const listCmd: LeafCommand = {
         kind: 'ok',
         rendered: {
           stdout: rendered.stdout,
-          stderr: `\n  (no keys under ${paths.keysDir})\n\n`,
+          stderr: successNote(ctx.globals.format, `\n  (no keys under ${paths.keysDir})\n\n`),
         },
       };
     }
@@ -366,7 +485,10 @@ const listCmd: LeafCommand = {
     const rendered = renderJson(summary, ctx.globals.format);
     return {
       kind: 'ok',
-      rendered: { stdout: rendered.stdout, stderr: `${banner.join('\n')}\n` },
+      rendered: {
+        stdout: rendered.stdout,
+        stderr: successNote(ctx.globals.format, `${banner.join('\n')}\n`),
+      },
     };
   },
 };
@@ -453,7 +575,10 @@ const trustCmd: LeafCommand = {
       ];
       return {
         kind: 'ok',
-        rendered: { stdout: rendered.stdout, stderr: `${banner.join('\n')}\n` },
+        rendered: {
+          stdout: rendered.stdout,
+          stderr: successNote(ctx.globals.format, `${banner.join('\n')}\n`),
+        },
       };
     } catch (err) {
       const failed = commandResultFromThrown(err, ctx, 'kindgi key trust');
@@ -505,7 +630,12 @@ const revokeCmd: LeafCommand = {
             `  ${keyId} wasn't revoked: the runtime doesn't trust a key with that id, or it's revoked already.`,
             '',
           ];
-      return { stdout: rendered.stdout, stderr: `${banner.join('\n')}\n` };
+      // A key that wasn't revoked is a warning: said under --quiet too.
+      const said = `${banner.join('\n')}\n`;
+      return {
+        stdout: rendered.stdout,
+        stderr: result.revoked ? successNote(ctx.globals.format, said) : said,
+      };
     });
   },
 };

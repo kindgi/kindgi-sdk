@@ -229,7 +229,7 @@ describe.each([
       expect(second.body.error?.message).toBe(
         resource === 'project'
           ? 'Another project in its org has the slug "acme" (for a project without an org: another project without one)'
-          : `Another ${resource} in the tenant has the slug "acme"`,
+          : `Another ${resource} in the workspace has the slug "acme"`,
       );
       expect(second.body.error?.details).toEqual({ resource, slug: 'acme' });
     });
@@ -286,7 +286,7 @@ describe.each([
     });
   });
 
-  test('a second Default project → 409 project-default-already-exists', async () => {
+  test('a second default project → 409 project-default-already-exists', async () => {
     const app = makeApp({ authorized });
     await created(app, '/v1/projects', { name: 'Default', slug: 'default', isDefault: true });
     const second = await send(app, 'POST', '/v1/projects', {

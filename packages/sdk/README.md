@@ -31,8 +31,8 @@ Re-exports:
 
 | Symbol | Source | Kind |
 |---|---|---|
-| `defineTool`, `defineToolAsync`, `invokeTool`, `registerToolSpecSynthesizer` | `@kindgi/tools` | value |
-| `Tool`, `ToolManifest`, `ToolContext`, `DefineToolSpec`, `DefinedTool`, `InferInput`, `InferOutput`, `ToolSpec`, `ToolSpecSynthesizer`, `ToolSecretRef`, `HttpToolSpec`, `HttpAuthSpec`, `HttpHeaderSpec`, `HttpMethod`, `HttpRequestBodySpec` | `@kindgi/tools` | type |
+| `defineTool`, `defineToolAsync`, `invokeTool`, `invokeToolForTest`, `toolContextForTest`, `registerToolSpecSynthesizer`, `ConnectionRejectedError`, `isConnectionRejectedError` | `@kindgi/tools` | value |
+| `Tool`, `ToolManifest`, `ToolContext`, `DefineToolSpec`, `DefinedTool`, `InferInput`, `InferOutput`, `ToolSpec`, `ToolSpecSynthesizer`, `ToolSecretRef`, `HttpToolSpec`, `HttpAuthSpec`, `HttpHeaderSpec`, `HttpMethod`, `HttpRequestBodySpec`, `ToolConnection`, `ConnectionNeed`, `ConnectionAccount` | `@kindgi/tools` | type |
 | `defineCheck` | `@kindgi/guardrails` | value |
 | `DefineCheckSpec`, `DefinedCheck`, `InferCheckConfig` | `@kindgi/guardrails` | type |
 | `defineAgent` | `@kindgi/agents` | value |
@@ -89,8 +89,8 @@ Exports:
 
 - `createClient` (above), `KindgiClient`.
 - Every resource client type — `AgentsClient`, `RunsClient`, `ToolsClient`,
-  `ApprovalsClient`, `SupervisorClient`, `ProposalsClient`, `ObservationsClient`,
-  `FlowsClient`, `GuardrailsClient`, `ConversationsClient`, `MemoryClient`,
+  `ApprovalsClient`, `ImproveRunsClient`, `ObservationsClient`, `FlowsClient`,
+  `GuardrailsClient`, `ConversationsClient`, `MemoryClient`,
   `ProvenanceClient`, `TenantClient`, `CostClient`, `CapabilitiesClient`,
   `AdaptersClient`, `PoliciesClient`, `UsersClient`, `TeamsClient`, `OrgsClient`,
   `PacksClient`, `TokensClient`, `McpClient`, `EventsClient`, `ArtifactsClient`,

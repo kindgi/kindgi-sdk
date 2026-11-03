@@ -10,6 +10,7 @@ import type { Cursor, EnvName, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { isReadMethod } from '../read-method.js';
 import type { RotationStatus, RotationStatusStore } from '../rotation-status-store.js';
 import type {
   SecretBinding,
@@ -18,6 +19,7 @@ import type {
   SecretVersionRecord,
 } from '../secrets-binding.js';
 import { isRevokeOldAfterMs, secretNameGrammarRefusal } from '../secrets-binding.js';
+import { type ServedEnvRule, refuseUnservedValue } from '../served-env.js';
 import type { AppEnv } from '../types.js';
 import { capabilityRefusal } from './denied.js';
 import { requireEnvName, requireScope, scopesEqual } from './env.js';
@@ -80,10 +82,16 @@ export interface SecretsRouterOptions {
    * request and the backend's answer, never a value. Absent: none.
    */
   readonly auditEvents?: AuditEventBinding;
+  /**
+   * On a runtime that refuses other envs: a set or rotation under another
+   * env answers `409 env-not-served`, unless a reference reads it there
+   * (`refuseUnservedValue`). Reads and revokes pass. Absent: any env.
+   */
+  readonly servedEnv?: ServedEnvRule;
 }
 
 export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
-  const { secretsBinding, rotationStatusStore, authorizer, auditEvents } = options;
+  const { secretsBinding, rotationStatusStore, authorizer, auditEvents, servedEnv } = options;
   const heartbeatMs = options.sseHeartbeatMs ?? 15_000;
   const r = new Hono<AppEnv>();
 
@@ -114,7 +122,7 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
         });
         return mw(c, next);
       }
-      if (c.req.method === 'GET') {
+      if (isReadMethod(c.req.method)) {
         const mw = authorizer.authorize('admin', scopeFromQuery);
         return mw(c, next);
       }
@@ -441,6 +449,18 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
 
     const setScope = bodyScope.scope;
 
+    const unserved = await refuseUnservedValue(servedEnv, {
+      tenantId,
+      scope: setScope,
+      envName: envNameResult.envName,
+      name: b.name,
+      kind: 'secret',
+    });
+    if (unserved !== undefined) {
+      c.status(statusFor(unserved.code) as never);
+      return c.json(toWireError(unserved, requestId));
+    }
+
     // A secret's name is held to the shared grammar whenever the write would
     // CREATE it. A name that passes the grammar needs no store read. A name
     // that fails it is refused — unless this is an `add-version` to a name the
@@ -606,6 +626,18 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
       );
     }
     const scope: Scope = scopeResult.scope;
+
+    const unserved = await refuseUnservedValue(servedEnv, {
+      tenantId,
+      scope,
+      envName: envNameResult.envName,
+      name,
+      kind: 'secret',
+    });
+    if (unserved !== undefined) {
+      c.status(statusFor(unserved.code) as never);
+      return c.json(toWireError(unserved, requestId));
+    }
 
     if (b.newValue !== undefined && typeof b.newValue !== 'string') {
       c.status(statusFor('bad-input') as never);
@@ -933,11 +965,15 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
         toWireError({ code: outcome.error.code, message: outcome.error.message, name }, requestId),
       );
     }
+    // A hard revoke that left a recoverable copy in the secret manager
+    // says until when, in the answer and on the record.
+    const { recoverableUntil } = outcome.value;
+    const recoverable = recoverableUntil === undefined ? {} : { recoverableUntil };
     // Only a revoke that changed something is recorded.
     if (outcome.value.revoked) {
-      await auditWrite(c, auditEvents, { ...revokeAudit, outcome: 'succeeded' });
+      await auditWrite(c, auditEvents, { ...revokeAudit, outcome: 'succeeded', ...recoverable });
     }
-    return c.json({ revoked: outcome.value.revoked, hard: outcome.value.hard });
+    return c.json({ revoked: outcome.value.revoked, hard: outcome.value.hard, ...recoverable });
   });
 
   return r;

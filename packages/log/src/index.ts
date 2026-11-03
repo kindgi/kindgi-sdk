@@ -29,6 +29,7 @@ export {
 export { type CreateLoggerOptions, createLogger, noopLogger } from './logger.js';
 export { formatJson, formatPretty } from './format.js';
 export { REDACTED, isSecretKey, redactValue, scrubText } from './redact.js';
+export { describeCauses } from './causes.js';
 export {
   type TraceContext,
   childSpan,

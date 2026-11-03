@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: packages/cli/src/templates/**
 
 /**
  * Tests for `runInitAugment` — the augment-mode scaffolder. Uses a
@@ -244,7 +245,12 @@ describe('runInitAugment — end-to-end', () => {
       skillsRoot,
       force: false,
       packageManager: 'pnpm',
-      dependencySpecs: { source: 'local-checkout', sdk: 'link:/k/sdk', cli: 'link:/k/cli' },
+      dependencySpecs: {
+        source: 'local-checkout',
+        sdk: 'link:/k/sdk',
+        cli: 'link:/k/cli',
+        connections: 'link:/k/connections',
+      },
     });
     expect(result.kind).toBe('ok');
     const pkg = JSON.parse(await fileContents(join(root, 'package.json'))) as {
@@ -357,6 +363,24 @@ describe('runInitAugment — end-to-end', () => {
 
     await runInitAugment({ targetDir: root, skillsRoot, force: true });
     expect(await fileContents(userSkillPath)).toBe('# tools skill\n');
+  });
+
+  test("a skill's files a later run rewrote are the only ones it lists as created", async () => {
+    await writePkgJson(root, { name: 'my-app', version: '1.0.0' });
+    const tools = join(skillsRoot, 'kindgi-authoring-tools');
+    // Built so check-refs doesn't read it as a document reference.
+    const topic = `${'path-a'}.md`;
+    await writeFile(join(tools, topic), '# path a\n');
+    await runInitAugment({ targetDir: root, skillsRoot, force: false });
+    await writeFile(join(tools, topic), '# path a, again\n');
+
+    const result = await runInitAugment({ targetDir: root, skillsRoot, force: true });
+    if (result.kind !== 'ok') throw new Error(result.stderr);
+    const { created } = JSON.parse(result.rendered.stdout) as { created: string[] };
+    expect(created.filter((path) => path.includes(join('skills', 'kindgi-')))).toEqual([
+      join(root, '.claude', 'skills', 'kindgi-authoring-tools', topic),
+      join(root, '.agents', 'skills', 'kindgi-authoring-tools', topic),
+    ]);
   });
 
   test('preserves existing .env.local when present', async () => {
@@ -687,8 +711,10 @@ async function nodeTemplates(): Promise<string[]> {
     );
     if (exists) found.push(template);
   }
-  // Never vacuous: the four TypeScript templates are among them.
-  expect(found).toEqual(expect.arrayContaining(['minimal', 'sample', 'woocommerce', 'drupal']));
+  // Never vacuous: the five TypeScript templates are among them.
+  expect(found).toEqual(
+    expect.arrayContaining(['minimal', 'sample', 'woocommerce', 'drupal', 'follow-up']),
+  );
   return found;
 }
 
@@ -744,7 +770,7 @@ describe('runInitAugment — pnpm-workspace.yaml', () => {
       skillsRoot,
       force: false,
       packageManager,
-      dependencySpecs: { source: 'published', sdk: '0.1.0', cli: '0.1.0' },
+      dependencySpecs: { source: 'published', sdk: '0.1.0', cli: '0.1.0', connections: '0.1.0' },
     });
     if (result.kind !== 'ok') throw new Error(result.stderr);
     return {
@@ -817,7 +843,7 @@ describe('runInitAugment — pnpm-workspace.yaml', () => {
       skillsRoot,
       force: false,
       packageManager: 'pnpm',
-      dependencySpecs: { source: 'published', sdk: '0.1.0', cli: '0.1.0' },
+      dependencySpecs: { source: 'published', sdk: '0.1.0', cli: '0.1.0', connections: '0.1.0' },
     });
     expect(result.kind).toBe('ok');
     expect(await fileContents(workspaceFile())).toContain('  esbuild: false\n');
@@ -838,7 +864,7 @@ describe("runInitAugment — npm's allowScripts (T277)", () => {
       skillsRoot,
       force: false,
       packageManager,
-      dependencySpecs: { source: 'published', sdk: '0.1.0', cli: '0.1.0' },
+      dependencySpecs: { source: 'published', sdk: '0.1.0', cli: '0.1.0', connections: '0.1.0' },
     });
     if (result.kind !== 'ok') throw new Error(result.stderr);
     const summary = JSON.parse(result.rendered.stdout) as {

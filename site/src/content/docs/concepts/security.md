@@ -7,8 +7,9 @@ sidebar:
 
 This page explains what keeps each tenant's data and secrets safe in Kindgi,
 so you know what to check before you deploy it. It covers what keeps one
-tenant's data from another's, who may call the API, what a tenant can't make
-the server do, and where secrets live.
+tenant's data from another's and one project's tool code from another's,
+who may call the API, what a tenant can't make the server do, and where
+secrets live.
 
 ## Tenants and isolation
 
@@ -24,6 +25,46 @@ one, it creates a new tenant at every start and prints its id. So set it for
 anything that should keep its data across restarts. For hard separation
 between customers or environments, give each its own runtime and database.
 
+## Your tools' code
+
+Your tools' code runs outside the runtime, in your pack's service, where
+row-level security doesn't reach. What keeps one project's tool code from
+another's is how that service runs:
+
+- **On a runtime you run yourself,** every project's tool calls go to the
+  one pack service the runtime names (`KINDGI_PACK_SERVICE_URL`), by
+  default. One pack's code handles them all, as one identity: whatever the
+  service runs as. Each call is given only the secrets and values its tool
+  declares, for its run (`ctx.secrets`, `ctx.env`). But calls from every
+  project share the service's processes, so code that keeps a value, in a
+  module-level variable say, can hand it to another project's call. And the
+  service's own environment is the same for every call
+  ([Run your pack's service](../../deploy/self-hosted/self-host/#4-run-your-packs-service)).
+  So trust that code with every project the runtime serves. To keep
+  projects apart, give each its own installation, with its own runtime,
+  database and pack service: a testing installation apart from
+  production, say, or one for each customer. A runtime can give each
+  deployment its own pack service instead
+  (`KINDGI_PACK_ROUTING=per-deployment`), whether it serves one tenant or
+  [many](../../deploy/self-hosted/serve-many-tenants/), so no deployment's
+  code shares a process with another's. They all run as the
+  installation's one pack identity, apart from the runtime's: whatever one
+  of them may read, every one may, each other's secrets included. Whatever
+  runs those services records each one's endpoint and gives each its
+  values, secrets included, with system keys holding `system:deployments`
+  and `system:pack-env`. Those keys reach nothing else of the runtime, and
+  the system access record keeps each request they make. Since every one of
+  those services can read what the pack identity can, only the operator
+  sets a name to a secret the cloud holds for them, with a system key
+  holding `system:env-refs`
+  ([Set a name to a cloud secret](../../deploy/self-hosted/serve-many-tenants/#set-a-name-to-a-cloud-secret)).
+- **On Kindgi Cloud,** each deployment's tools' code runs in a pack service
+  of its own, apart from every other workspace's. Up to 3 of a workspace's
+  projects run their tools' code under an identity of their own, so other
+  projects' code can't read their secrets. Past that, projects share one
+  identity within the workspace
+  ([Limits](../../hosted/limits/#projects-with-their-own-tool-identity)).
+
 ## Calling the API
 
 Every `/v1` request carries the deployment's API token, in an
@@ -35,6 +76,12 @@ Tokens are compared in constant time. A wrong or missing token gets `401`:
 ```json
 {"error":{"code":"auth-missing","message":"Bearer token is not recognized","requestId":"req-88fd4597-bed6-4936-9906-83fafe44712d"}}
 ```
+
+The `curl` examples in these docs pass the header as
+`-H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")`. In bash or
+zsh it reaches curl through a pipe, so the token stays out of the process
+list (`ps`), where `-H "Authorization: Bearer $KINDGI_API_TOKEN"` would show
+it.
 
 To rotate the token, restart the runtime with a new value.
 
@@ -56,7 +103,7 @@ agent's turn with `model-invocation-failed`:
 No setting changes it.
 
 The template can render in a worker process instead of the server's own
-(it needs runtime 0.1.8.1 or later): with `KINDGI_TEMPLATE_RENDER_WORKERS`
+(it needs runtime 0.1.9 or later): with `KINDGI_TEMPLATE_RENDER_WORKERS`
 at 1 or more, the default on a runtime serving many tenants
 (`KINDGI_TENANCY=multi`).
 The worker's heap has a cap of its own
@@ -75,7 +122,7 @@ how keys are made and revoked.
 
 People sign in to the console with their email first. The sign-in page then
 offers the ways in the deployment has, which
-[Turn on sign-in](../../deploy/sign-in/) sets up:
+[Turn on sign-in](../../deploy/self-hosted/sign-in/) sets up:
 
 - **Only people already added to a workspace get in,** by an email their
   provider has proved. Nobody is created by signing in, and roles stay
@@ -114,7 +161,7 @@ A public run token is:
 With it, a browser can follow the run. The same request with `curl`:
 
 ```sh
-curl -H "Authorization: Bearer $PUBLIC_TOKEN" "$KINDGI_API_URL/v1/runs/$RUN_ID/progress"
+curl -H @<(printf 'Authorization: Bearer %s\n' "$PUBLIC_TOKEN") "$KINDGI_API_URL/v1/runs/$RUN_ID/progress"
 ```
 
 - `$PUBLIC_TOKEN` is the public run token, such as the run's
@@ -151,7 +198,7 @@ controls that:
   instead. It also refuses connections to the runtime's own host (a loopback
   address) and the cloud metadata endpoints, wherever configuration names a
   host: an image registry, a model provider, an HTTP tool, an MCP server,
-  and a tenant's SSO identity provider. An identity provider
+  and a workspace's SSO identity provider. An identity provider
   whose origin the operator allows in `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`
   connects all the same ([Set up SSO](../../guides/sso/)).
 - **`isolated`** is for a runtime whose tenants don't trust one another. It
@@ -226,7 +273,7 @@ can:
 
 - a model provider's API key, an MCP endpoint's credentials and a webhook
   endpoint's signing secret are each a `secretRef`, a name resolved in the
-  tenant's own secrets when it's needed;
+  workspace's own secrets when it's needed;
 - a tool's code receives the secrets it declares, through its context
   (`ctx.secrets`). In development only, the pack's process also sees the
   values in your env files, since `kindgi dev` reads them for it;
@@ -254,7 +301,7 @@ The runtime's database user needs `CREATEROLE` and must own the runtime's
 database: the runtime uses it to set up the restricted role that requests run
 as. It needn't be a superuser, so managed Postgres services such as Cloud SQL,
 Amazon RDS and AlloyDB work. Create the `vector` extension once, as
-[Self-host](../../deploy/self-host/) shows.
+[Self-host](../../deploy/self-hosted/self-host/) shows.
 :::
 
 - **Development mode is for development.** `KINDGI_DEV=true` turns on
@@ -266,7 +313,7 @@ Amazon RDS and AlloyDB work. Create the `vector` extension once, as
   key that protects stored secrets.
 
 :::note[Access to the runtime image]
-Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
-runtime image's pull credentials, and log in once with `kindgi auth registry`
-(see [Install](../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or your
+email address for a license key. The key is also the runtime image's
+password ([Pull the runtime image](../../deploy/self-hosted/pull-the-runtime-image/)). Questions or trouble: contact@kindgi.com.
 :::

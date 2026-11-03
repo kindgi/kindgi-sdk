@@ -16,19 +16,46 @@ explains what it holds and why.
 
 ## Before you start
 
-- **A run's id,** on a runtime such as `kindgi dev`, with Kindgi 0.1's CLI.
+- **A run's id,** on a runtime such as `kindgi dev`, with Kindgi 0.2's CLI.
   [List runs](../list-runs/) finds one.
 - **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
-  Java 17 or later, with Kindgi 0.1's client, and `KINDGI_API_URL` and
+  Java 17 or later, with Kindgi 0.2's client, and `KINDGI_API_URL` and
   `KINDGI_API_TOKEN` set.
 
 ## Read it from the CLI
 
 The journal shows what the run did, step by step:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs journal <run-id>
+pnpm exec kindgi runs journal <run-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs journal <run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs journal <run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs journal <run-id>
+```
+
+</TabItem>
+</Tabs>
 
 `<run-id>` is the run's id. For a run of `acme.review-order` with order
 `A-200`, it prints:
@@ -87,7 +114,7 @@ before.
 | `run.started`, `run.completed`, `run.failed`, `run.cancelled` | The run's start, with its input, and its end, with its output or why it failed. |
 | `step.started`, `step.completed`, `step.failed` | A step, with the input it got after mapping, its output, or its error. |
 | `edge.evaluated` | An edge and its `decision`. |
-| `step.retry-scheduled` | A failed attempt that will be retried. |
+| `step.retry-scheduled` | A failed attempt that will be retried, or, with `left: true`, a step [left for the run's next resume](../../flows/retry-a-step/#a-step-whose-read-failed). |
 | `iteration.started`, `iteration.completed` | A pass of a loop; the body's steps carry a `loopContext`. |
 | `fanout.dispatched`, `fanout.branch-completed`, `fanout.converged`, … | The branches of a fanout step. |
 | `wait.suspended`, `wait.resumed` | The run stopped to wait, and went on. |
@@ -103,9 +130,36 @@ flow's run as its `parentRunId`, so
 [List runs](../list-runs/#the-runs-inside-a-run) finds it too. Read its
 journal:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs journal <the turn's run id>
+pnpm exec kindgi runs journal <the turn's run id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs journal <the turn's run id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs journal <the turn's run id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs journal <the turn's run id>
+```
+
+</TabItem>
+</Tabs>
 
 `<the turn's run id>` is the turn's `runId`. Its journal has the model calls
 and the tool calls. Each model call has the messages sent, the answer, and
