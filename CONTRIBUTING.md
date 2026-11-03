@@ -170,7 +170,13 @@ workflow's `publish-maven` job, in the `maven-publish` environment
    deployment, so a version's Java and Scala artifacts publish together or
    not at all. A dry run has the Portal validate the deployment and then
    drops it; nothing is published. A version Central already has is
-   skipped.
+   skipped. A request to Central or the Portal that gets no answer, or a
+   408, a 429 or a 5xx, while it checks for that version or waits for the
+   deployment, is tried again with a longer pause each time: the check and
+   the wait each give up after an hour (a dry run's wait, after half an
+   hour). The upload is sent only once. If the job fails after the upload,
+   see the deployment on the Portal before rerunning it: until Central
+   serves the version, a rerun can upload it again.
 4. Central serves a version some time after the Portal publishes it. A job
    of its own, between the Maven job and npm's, waits until Central serves
    every JVM artifact at the CLI's version (`central-bundle.mjs
