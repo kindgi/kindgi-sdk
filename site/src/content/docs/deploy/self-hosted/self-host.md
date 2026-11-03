@@ -527,3 +527,5 @@ it runs.
 - [Deploy on Google Cloud Run](../cloud-run/): the same pieces as Cloud Run
   services, with Cloud SQL, Artifact Registry and Cloud KMS.
 - [Turn on sign-in](../sign-in/), for the console in a real deployment.
+- [Let people use Kindgi from Claude](../chat-apps/): turn on the chat
+  endpoint, and open only what Claude's servers call.
