@@ -10489,7 +10489,7 @@ class TeamPatch(BaseModel):
     description: str | None = None
     org_id: Annotated[str | None, Field(alias="orgId")] = None
     """
-    `null` explicitly re-assigns the team out of any org (cross-org).
+    `null` explicitly re-assigns the team out of any org (cross-org). Naming it, even the current org, needs a tenant admin, as making a team in an org does.
     """
 
 
@@ -10792,7 +10792,7 @@ class ProjectPatch(BaseModel):
     description: str | None = None
     org_id: Annotated[str | None, Field(alias="orgId")] = None
     """
-    `null` explicitly re-assigns the project out of any org (cross-org).
+    `null` explicitly re-assigns the project out of any org (cross-org). Naming it, even the current org, needs a tenant admin, as making a project in an org does.
     """
     sort_end_user_corrections: Annotated[bool | None, Field(alias="sortEndUserCorrections")] = None
     """

@@ -357,8 +357,9 @@ A team is a group of the tenant's people, each in it as a `member` or an
 `slug` and an optional `description`, and holds its `admin` role. Its
 admins, and tenant admins, add and take out its people
 (`…/teams/<team-id>/memberships`), change their roles, and rename it
-(`PATCH /v1/teams/<team-id>`). A team's role on a project reaches everyone
-in it ([Team grants](#team-grants)).
+(`PATCH /v1/teams/<team-id>`). Only a tenant admin moves it into or out of
+an org (`orgId` on that `PATCH`), since the org's admins run it. A team's
+role on a project reaches everyone in it ([Team grants](#team-grants)).
 
 ### In the console: Teams
 

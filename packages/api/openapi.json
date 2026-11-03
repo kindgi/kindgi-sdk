@@ -23258,7 +23258,7 @@
               "string",
               "null"
             ],
-            "description": "`null` explicitly re-assigns the team out of any org (cross-org)."
+            "description": "`null` explicitly re-assigns the team out of any org (cross-org). Naming it, even the current org, needs a tenant admin, as making a team in an org does."
           }
         }
       },
@@ -23864,7 +23864,7 @@
               "string",
               "null"
             ],
-            "description": "`null` explicitly re-assigns the project out of any org (cross-org)."
+            "description": "`null` explicitly re-assigns the project out of any org (cross-org). Naming it, even the current org, needs a tenant admin, as making a project in an org does."
           },
           "sortEndUserCorrections": {
             "type": "boolean",
@@ -61985,6 +61985,16 @@
               }
             }
           },
+          "403": {
+            "description": "No `admin` on the team; or the body names `orgId` (even the current one) and the caller is not a tenant admin, as making a team in an org needs (`permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "team-not-found: no team with that id under this tenant; or org-not-found: `orgId` names no org of the tenant (it never existed, or it was deleted).",
             "content": {
@@ -62964,6 +62974,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `admin` on the project; or the body names `orgId` (even the current one) and the caller is not a tenant admin, as making a project in an org needs (`permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
