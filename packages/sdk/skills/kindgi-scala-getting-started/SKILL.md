@@ -17,7 +17,7 @@ description: >
   kindgi-scala-authoring-flows; models by kindgi-authoring-providers.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.8"
+version: "0.1.9"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -82,7 +82,7 @@ and don't stop theirs.
 Each linked git worktree runs its own `kindgi dev`, side by side, with its
 own workspace, user and token. In the bundled Postgres it has its own
 database too, `kindgi_<project>__<worktree>`, and its workspace and user are
-named from it; with your own (`--database-url` or `KINDGI_DATABASE_URL`),
+named from it; with your own (`KINDGI_DATABASE_URL`),
 it uses that one. Its `.kindgirc.json`, which `kindgi init` keeps out of
 git, keeps the token, workspace and user. When port 4000 is taken
 (another worktree's `kindgi dev`), it takes the next free one and says so,

@@ -153,10 +153,11 @@ One command runs the whole loop on your machine:
   available and with plain `docker` otherwise (the `kindgi-dev` project, with
   the same container, volume and network either way, shared by every
   `kindgi dev` on the machine and left running), or the one you name with
-  `--database-url` / `KINDGI_DATABASE_URL`. The bundled one is published on
-  a random port on `127.0.0.1` only, since its password is a fixed dev one;
-  the runtime container reaches it through `host.docker.internal` (Docker
-  Desktop) or directly (Linux host networking). A `kindgi-dev_postgres`
+  `KINDGI_DATABASE_URL` (in `.kindgi/secrets.env`, say). The bundled one is
+  published on a random port on `127.0.0.1` only, since its password is a
+  fixed dev one; the runtime container reaches it through
+  `host.docker.internal` (Docker Desktop) or directly (Linux host
+  networking). A `kindgi-dev_postgres`
   started by an earlier CLI keeps its old binding (every address) until
   it's recreated: `kindgi dev --recreate-services` with compose, or, without
   compose, `docker rm -f kindgi-dev_postgres` (its data stays in the volume)
@@ -182,12 +183,12 @@ One command runs the whole loop on your machine:
 | Flag | Purpose |
 |---|---|
 | `--port=<n>` | The port the API is reached on, on `127.0.0.1`. Default `4000`, or the next free port when it's taken (another `kindgi dev`, say). A `--port` that's taken is refused. |
-| `--database-url=<url>` | The Postgres to use. Falls back to `KINDGI_DATABASE_URL` (the shell's, then the env files'). Without either, the bundled Postgres. |
-| `--tenant=<id>` | Pin the workspace. Default: the project's dev workspace in the bundled Postgres; with `--database-url`, the previous run's (from `.kindgirc.json`), else a new one. The pack's primitives and registered providers stay with it. |
-| `--dev-token=<token>` | Pin the API token. Default: the previous run's, else a new one. Each flag overrides only its own value: `--dev-token` alone keeps the workspace. |
+| `--database-url=<url>` | The Postgres to use, for a URL with no password (a command line shows in `ps`). Falls back to `KINDGI_DATABASE_URL` (the shell's, then the env files'). Without either, the bundled Postgres. |
+| `--tenant=<id>` | Pin the workspace. Default: the project's dev workspace in the bundled Postgres; with your own Postgres, the previous run's (from `.kindgirc.json`), else a new one. The pack's primitives and registered providers stay with it. |
+| `--dev-token=<token>` | Pin the API token. It's on the command line, where `ps` shows it; once pinned, it's kept in `.kindgirc.json`, so later runs need no flag. Default: the previous run's, else a new one. Each flag overrides only its own value: `--dev-token` alone keeps the workspace. |
 | `--path=<dir>` | The pack root. Default: the current directory. It must have a `kindgi.config.ts`, or a `pyproject.toml` with a `[tool.kindgi]` table. |
 | `--no-watch` | Start, index once, and exit. For smoke tests and CI. |
-| `--reset` | Start the project fresh: drops its database in the bundled Postgres (every pack's dev data in it: runs, approvals, providers, secrets stored there), after asking, and makes a new token. Without a terminal to ask on it refuses, unless `--yes`. A database you pass with `--database-url` is never dropped: only the token is new. (To wipe every project's dev data: `docker compose -p kindgi-dev down -v`; without compose, `docker rm -f kindgi-dev_postgres`, then `docker volume rm kindgi-dev_postgres-data`.) |
+| `--reset` | Start the project fresh: drops its database in the bundled Postgres (every pack's dev data in it: runs, approvals, providers, secrets stored there), after asking, and makes a new token. Without a terminal to ask on it refuses, unless `--yes`. Your own database is never dropped: only the token is new. (To wipe every project's dev data: `docker compose -p kindgi-dev down -v`; without compose, `docker rm -f kindgi-dev_postgres`, then `docker volume rm kindgi-dev_postgres-data`.) |
 | `--yes` | With `--reset`: drop the project's database without asking (for scripts). |
 | `--recreate-services` | Let `docker compose` recreate the bundled Postgres if its definition changed. By default an existing container is reused as it is, so no other `kindgi dev` loses its database. Without compose, an existing container is always reused, and `kindgi dev` says how to recreate it by hand. |
 | `--runtime-image=<ref>` | The runtime image to run. Default: the one this CLI release was tested with. |

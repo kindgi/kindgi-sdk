@@ -2633,7 +2633,7 @@ describe('kindgi dev — the shared services and --reset', () => {
     });
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toBe(
-      "kindgi dev needs Postgres, and couldn't start the bundled one: Docker isn't available: spawn docker ENOENT\n\nOptions:\n  1. Install Docker (Docker Desktop, or Docker Engine on Linux) and make sure it runs: kindgi dev then starts the bundled Postgres itself, with `docker compose` when it's there and plain `docker` otherwise.\n  2. Use your own Postgres (16, with pgvector): pass --database-url=<url>, or set KINDGI_DATABASE_URL.\n",
+      "kindgi dev needs Postgres, and couldn't start the bundled one: Docker isn't available: spawn docker ENOENT\n\nOptions:\n  1. Install Docker (Docker Desktop, or Docker Engine on Linux) and make sure it runs: kindgi dev then starts the bundled Postgres itself, with `docker compose` when it's there and plain `docker` otherwise.\n  2. Use your own Postgres (16, with pgvector): add KINDGI_DATABASE_URL=<url> to .kindgi/secrets.env (Kindgi's own file; your app doesn't load it).\n",
     );
   });
 
@@ -2880,7 +2880,7 @@ describe('kindgi dev — a database per project', () => {
       "✓ Project: acme (the git repository's name; set `project` in the Kindgi config to name it)\n",
     );
     expect(log).toContain(
-      '✓ Database: kindgi_acme (created) in the bundled Postgres; to use your own: --database-url\n',
+      '✓ Database: kindgi_acme (created) in the bundled Postgres; to use your own: KINDGI_DATABASE_URL in .kindgi/secrets.env\n',
     );
     expect(log).toContain('  Project    acme · database kindgi_acme');
   });
@@ -2923,7 +2923,7 @@ describe('kindgi dev — a database per project', () => {
 
   test('another folder owns a database of the same name: refused, naming the way out', async () => {
     const message =
-      'the database kindgi_acme belongs to /elsewhere/acme, another folder whose project is also named "acme". Give this one its own name: set `project` in kindgi.config.ts (or `project` under [tool.kindgi] in pyproject.toml, or in kindgi.config.json), or pass --database-url.';
+      'the database kindgi_acme belongs to /elsewhere/acme, another folder whose project is also named "acme". Give this one its own name: set `project` in kindgi.config.ts (or `project` under [tool.kindgi] in pyproject.toml, or in kindgi.config.json), or use your own Postgres: KINDGI_DATABASE_URL in .kindgi/secrets.env.';
     const { fixtures } = withProjectDatabase({ ensure: { kind: 'refused', message } });
     const { out, opts } = await boot(fixtures);
     expect(out.exitCode).toBe(1);
@@ -3027,6 +3027,71 @@ describe('kindgi dev — a database per project', () => {
       expect(opts?.databaseUrl).toBe('postgres://me@db.internal/mine');
       expect(log).toContain('  --reset: the database you gave is left as it is (never dropped)\n');
     });
+  });
+});
+
+describe('kindgi dev — a password in --database-url', () => {
+  const WARNING =
+    "⚠ --database-url has a password, which ps shows to other users on this machine while kindgi dev runs: put KINDGI_DATABASE_URL in .kindgi/secrets.env instead (Kindgi's own file; your app doesn't load it).";
+
+  /** One boot with these flags and env: everything it wrote, stdout and stderr, live and at the end. */
+  async function bootWrote(flags: readonly string[], env: Record<string, string>): Promise<string> {
+    const writes: string[] = [];
+    const take = (chunk: unknown): boolean => {
+      writes.push(String(chunk));
+      return true;
+    };
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(take);
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(take);
+    try {
+      const out = await runCli({
+        ...baseInputs(makeFixtures()),
+        env,
+        argv: ['dev', '--no-watch', `--path=${packDir}`, ...flags],
+      });
+      expect(out.exitCode).toBe(0);
+      return writes.join('') + out.stdout + out.stderr;
+    } finally {
+      stderr.mockRestore();
+      stdout.mockRestore();
+    }
+  }
+
+  test('warns for a URL with a password, a list of hosts and a URL that does not parse, and goes on', async () => {
+    for (const url of [
+      'postgres://me:flag-secret-pw@db.internal:5432/app',
+      'postgres://me:flag-secret-pw@h1:5432,h2:5432/app',
+      'postgres://me:flag-secret-pw@db internal/app',
+    ]) {
+      expect(await bootWrote([`--database-url=${url}`], {})).toContain(WARNING);
+    }
+  });
+
+  test("no warning for a URL with no password, nor for the shell's KINDGI_DATABASE_URL with one", async () => {
+    expect(
+      await bootWrote(['--database-url=postgres://me@db.internal:5432/app'], {}),
+    ).not.toContain('--database-url has a password');
+    expect(
+      await bootWrote([], { KINDGI_DATABASE_URL: 'postgres://me:flag-secret-pw@db.internal/app' }),
+    ).not.toContain('--database-url has a password');
+  });
+
+  test('an empty password: a list of hosts with ports warns, one host does not', async () => {
+    expect(await bootWrote(['--database-url=postgres://me:@h1:5432,h2:5432/app'], {})).toContain(
+      WARNING,
+    );
+    expect(await bootWrote(['--database-url=postgres://me:@db.internal/app'], {})).not.toContain(
+      '--database-url has a password',
+    );
+  });
+
+  test("the password's text is nowhere in what kindgi dev writes", async () => {
+    for (const url of [
+      'postgres://me:flag-secret-pw@db.internal:5432/app',
+      'postgres://me:flag-secret-pw@h1:5432,h2:5432/app',
+    ]) {
+      expect(await bootWrote([`--database-url=${url}`], {})).not.toContain('flag-secret-pw');
+    }
   });
 });
 
@@ -3980,7 +4045,7 @@ describe('kindgi dev — something around it refuses what it needs (a sandbox)',
     const out = await dev({ ...fixtures, runners }, {}, ['--runtime-url=http://127.0.0.1:4000']);
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toBe(
-      `kindgi dev needs Docker for its Postgres. ${reason}\n  Or use your own Postgres (16, with pgvector): pass --database-url=<url>, or set KINDGI_DATABASE_URL.\n`,
+      `kindgi dev needs Docker for its Postgres. ${reason}\n  Or use your own Postgres (16, with pgvector): add KINDGI_DATABASE_URL=<url> to .kindgi/secrets.env (Kindgi's own file; your app doesn't load it).\n`,
     );
   });
 });
