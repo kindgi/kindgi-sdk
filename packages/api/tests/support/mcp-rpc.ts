@@ -4,8 +4,14 @@
 /**
  * One JSON-RPC request to `/mcp`, as a chat app sends it: the 2025
  * revisions' shape, or 2026-07-28's with its method and name headers and
- * the `_meta` protocol key. Reads a JSON answer or the first SSE event.
+ * the `_meta` envelope's required keys (the protocol version and the
+ * client's capabilities). Reads a JSON answer or the first SSE event.
  */
+
+import {
+  CLIENT_CAPABILITIES_META_KEY,
+  PROTOCOL_VERSION_META_KEY,
+} from '@modelcontextprotocol/server';
 
 export type McpRevision = '2025-11-25' | '2026-07-28';
 
@@ -37,7 +43,10 @@ export function mcpRpc(app: Requests) {
         id: ++id,
         method,
         params: modern
-          ? { ...params, _meta: { 'io.modelcontextprotocol/protocolVersion': version } }
+          ? {
+              ...params,
+              _meta: { [PROTOCOL_VERSION_META_KEY]: version, [CLIENT_CAPABILITIES_META_KEY]: {} },
+            }
           : params,
       }),
     });
