@@ -95,7 +95,7 @@ export interface SiteBinding {
    *
    * A key the site retired, by its thumbprint (never its `kid`), is
    * refused (`key-retired`) unless it's live on the site now; so is one
-   * that another of the tenant's sites at the same origin retired and
+   * that another of the workspace's sites at the same origin retired and
    * holds no live entry for. That refusal comes only once the code checks
    * out, and it doesn't use the code up: the same code works with a new
    * key until it expires.
@@ -305,9 +305,9 @@ export type SiteEnrollOutcome =
   /** The public key isn't an Ed25519 JWK with a `kid`. */
   | { readonly kind: 'invalid-key'; readonly message: string }
   /**
-   * This site, or another site in the tenant at the same address, retired
-   * this key (by its thumbprint), and it isn't live on this site now. The
-   * code isn't used up.
+   * This site, or another site in the workspace at the same address,
+   * retired this key (by its thumbprint), and it isn't live on this site
+   * now. The code isn't used up.
    */
   | { readonly kind: 'key-retired' }
   | { readonly kind: 'rate-limited'; readonly retryAfterSeconds: number };
