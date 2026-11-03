@@ -29,8 +29,9 @@ export interface RecordedConnection {
 /**
  * What a call's connection gate records in the run's journal
  * (`CONNECTION_GATE_RECORD_PREFIX`): the resolver's answer, never a
- * token. Any project reader reads it. An agent's call and a flow's tool
- * step record the same shape; a flow's step never records `wait`.
+ * connection's token. Any project reader reads it. An agent's call and a
+ * flow's tool step record the same shape; a flow's step never records
+ * `wait`.
  */
 export type ConnectionGateRecord =
   | { readonly kind: 'ready'; readonly connections: Readonly<Record<string, RecordedConnection>> }
@@ -52,10 +53,10 @@ export type ConnectionGateRecord =
 
 /**
  * The resolver's answer as the record keeps it: what it names, never a
- * token. Any project reader reads a run's record, so a person's
- * connection is named by its app and account id, never by their name or
- * address for it. A refusal says whose need it was, from `needs`, unless
- * its `name` isn't one of them.
+ * connection's token. Any project reader reads a run's record, so a
+ * person's connection is named by its app and account id, never by their
+ * name or address for it. A refusal says whose need it was, from `needs`,
+ * unless its `name` isn't one of them.
  */
 export function connectionGateRecordOf(
   outcome: ResolveConnectionsOutcome,
