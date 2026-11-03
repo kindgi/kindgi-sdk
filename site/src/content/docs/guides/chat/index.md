@@ -43,8 +43,6 @@ other people's work.
    from claude.ai.
 5. The tab goes back to claude.ai, and the connector shows as connected.
 
-<!-- To confirm: whether the consent page says when the runtime doesn't check permissions per project (anyone signed in can see and run every agent, and Claude gets the same access). If so, a bullet in step 4. -->
-
 If your Kindgi doesn't check permissions per project, anyone signed in can
 see and run every agent there, and Claude gets the same access.
 
