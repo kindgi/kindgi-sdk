@@ -422,59 +422,6 @@ function databaseNamed(databaseUrl: string): string {
   return `${hosts.join(',')}${parts.path}`;
 }
 
-/**
- * The key a database URL `new URL` refuses had before it was named from
- * its split: a hash of the whole URL.
- */
-const HASH_KEY = /^[0-9a-f]{16} tenant /;
-
-/**
- * Until this release, a database URL `new URL` refuses was keyed on 16
- * hex of its sha256, credentials included. On a boot on such a URL, moves
- * each tenant's entries under its old hash to the key from its split
- * (`databaseNamed`), unless that key already has entries. Then, on every
- * boot, deletes every key of the hash's shape: nothing reads them, and
- * each is worked out from a password. A one-time migration of a local
- * file: remove it in 0.7.0.
- */
-export async function moveHashKeyedEntries(
-  path: string,
-  target: DevProvidersTarget,
-): Promise<void> {
-  const file = await readRecordFile(path);
-  if (file === undefined) return;
-  const runtimes: Record<string, OwnedProviders> = { ...file.runtimes };
-  const named = target.kind === 'database' ? hashKeyedDatabase(target.url) : undefined;
-  if (named !== undefined) {
-    const prefix = `${named.hash} tenant `;
-    for (const key of Object.keys(runtimes)) {
-      if (!key.startsWith(prefix)) continue;
-      const moved = `${named.database} tenant ${key.slice(prefix.length)}`;
-      if (Object.keys(runtimes[moved] ?? {}).length === 0) runtimes[moved] = runtimes[key] ?? {};
-    }
-  }
-  const hashed = Object.keys(runtimes).filter((key) => HASH_KEY.test(key));
-  if (hashed.length === 0) return;
-  for (const key of hashed) delete runtimes[key];
-  await writeRecordFile(path, { v: 1, runtimes });
-}
-
-/** The old hash and the new name of a URL whose key moves: one `new URL` refuses and the split names. */
-function hashKeyedDatabase(
-  databaseUrl: string | undefined,
-): { readonly hash: string; readonly database: string } | undefined {
-  if (databaseUrl === undefined) return undefined;
-  try {
-    new URL(databaseUrl);
-    return undefined;
-  } catch {
-    // Keyed on its hash until now: it moves.
-  }
-  const database = databaseNamed(databaseUrl);
-  if (database === 'unknown') return undefined;
-  return { hash: createHash('sha256').update(databaseUrl).digest('hex').slice(0, 16), database };
-}
-
 /** This pack's providers in that runtime and tenant; nothing when the record is missing or unreadable. */
 export async function readOwnedProviders(path: string, key: string): Promise<OwnedProviders> {
   const file = await readRecordFile(path);

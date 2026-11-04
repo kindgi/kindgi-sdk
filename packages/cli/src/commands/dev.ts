@@ -135,7 +135,6 @@ import {
   describeReconcile,
   devProvidersKey,
   devProvidersRecordPath,
-  moveHashKeyedEntries,
   readOwnedProviders,
   reconcileProviders,
   writeOwnedProviders,
@@ -977,14 +976,6 @@ async function runDevForPack(
       : project !== undefined
         ? { kind: 'bundled', database: project.database }
         : { kind: 'database', url: databaseUrl };
-  // Before it's read: entries keyed on a hash of the URL move to its name.
-  await moveHashKeyedEntries(devProvidersRecordPath(args.packDir), providersTarget).catch(
-    (err: unknown) => {
-      emitProblem(
-        `  ⚠ could not update ${join('.kindgi', 'dev', 'providers.json')}: ${(err as Error).message}. Providers this pack registered may read as not its own.`,
-      );
-    },
-  );
   await applyDeclaredProviders({
     client,
     packDir: args.packDir,
