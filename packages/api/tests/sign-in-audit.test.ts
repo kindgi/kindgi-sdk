@@ -370,4 +370,35 @@ describe('GET /v1/audit/sign-ins: chat apps', () => {
       expect(((await res.json()) as Page).data.map((e) => e.id)).toEqual(ids);
     }
   });
+
+  test('only a chat app kind names a client id', async () => {
+    const auditEvents = createInMemoryAuditEventBinding();
+    await auditEvents.append([
+      event('s1', 1, 'signed-in', 'user:u-ann', {
+        providerId: 'google',
+        clientAddress: '203.0.113.8',
+        sessionId: 's-ann-2',
+        clientId: 'chat-client-1',
+      }),
+    ]);
+    const a = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler: {} as RunHandlerBinding,
+      auditEvents,
+    });
+    const page = (await (await get(a, '?userId=u-ann')).json()) as Page;
+    expect(page.data).toEqual([
+      {
+        id: 's1',
+        timestamp: at(1),
+        kind: 'signed-in',
+        outcome: 'succeeded',
+        userId: 'u-ann',
+        method: 'google',
+        clientAddress: '203.0.113.8',
+        sessionId: 's-ann-2',
+      },
+    ]);
+  });
 });
