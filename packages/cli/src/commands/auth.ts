@@ -1,8 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { sameAddress } from '../api-address.js';
-import { type ResolvedConfig, readHomeLogin, saveHomeConfig } from '../config.js';
+import { sameAddress, storedIn } from '../api-address.js';
+import {
+  type ListedLogin,
+  type ResolvedConfig,
+  listHomeLogins,
+  readHomeLogin,
+  removeHomeLogin,
+  saveHomeConfig,
+  saveHomeProfile,
+} from '../config.js';
 import type { CommandContext } from '../context.js';
 import { type DockerRunner, docker } from '../dev/runtime-container.js';
 import {
@@ -32,7 +40,8 @@ import {
   runCloudCli,
   secretStoreFor,
 } from '../license/stores.js';
-import { renderJson } from '../output.js';
+import { type Column, renderJson, renderTable } from '../output.js';
+import { heldNames } from '../profiles.js';
 import { type SaidLine, note, renderLines, warning } from '../progress-lines.js';
 import {
   PromptCancelled,
@@ -47,53 +56,39 @@ const login: LeafCommand = {
   kind: 'leaf',
   name: 'login',
   description:
-    "Persist an API URL + token to ~/.kindgi/config.json. Another address's login there is kept unless --force.",
-  usage: 'kindgi auth login [--url=<url>] [--token=<token>] [--force]',
+    "Persist an API URL + key to ~/.kindgi/config.json: the login without a name, or with --profile a Kindgi login profile's. Another address's login there is kept unless --force.",
+  usage:
+    'kindgi auth login [--profile=<name>] [--url=<url>] [--token-stdin | --token=<token>] [--force]',
   optionSpec: {
+    'token-stdin': {
+      type: 'boolean',
+      description:
+        'Read the API key from stdin, all of it (one trailing newline is dropped), so it lands in no shell history or `ps`: `printf \'%s\' "$KEY" | kindgi auth login --url <url> --token-stdin`.',
+    },
     force: {
       type: 'boolean',
       description:
-        'Replace the login ~/.kindgi/config.json holds for another address: its API key is no longer stored. By default login refuses.',
+        "Replace the login ~/.kindgi/config.json holds for another address (with --profile, that profile's): its API key is no longer stored. By default login refuses.",
     },
   },
   run: async (ctx): Promise<CommandResult> => {
-    const url = ctx.globals.url ?? ctx.config.apiUrl;
-    const token = ctx.globals.token ?? ctx.config.token;
-    if (typeof url !== 'string' || url === '') {
-      return {
-        kind: 'error',
-        stderr: 'Missing --url=<api-url> (or KINDGI_API_URL / existing config).\n',
-        exitCode: 2,
-      };
-    }
-    if (typeof token !== 'string' || token === '') {
-      return {
-        kind: 'error',
-        stderr: 'Missing --token=<api-token> (or KINDGI_API_TOKEN / existing config).\n',
-        exitCode: 2,
-      };
-    }
-    const elsewhere = storedKeyElsewhere(ctx.config, url);
-    if (elsewhere !== undefined) {
-      return {
-        kind: 'error',
-        stderr: `kindgi auth login would save ${elsewhere} as ${url}'s key. A stored key goes only to its own address: give ${url}'s key with --token or KINDGI_API_TOKEN.\n`,
-        exitCode: 2,
-      };
-    }
-    const lost = await loginLost(ctx.home, url, token);
+    const target = await loginTarget(ctx);
+    if (target.kind === 'error') return target;
+    const { url, token } = target;
+    const profile = ctx.config.profile?.name;
+    const lost = await loginLost(ctx.home, profile, url, token);
     if (lost !== undefined && ctx.options.force !== true) {
-      return {
-        kind: 'error',
-        stderr: `${lost.path} holds ${whoseLogin(lost)}. kindgi auth login would replace it with ${url}'s, and its API key would be lost.\nTo keep both, skip the login: set KINDGI_API_URL and KINDGI_API_TOKEN to ${url} and its key in the shell you use it from.\nTo replace it, run again with --force.\n`,
-        exitCode: 2,
-      };
+      return { kind: 'error', stderr: keptLogin(lost, url), exitCode: 2 };
     }
-    const path = await saveHomeConfig({ apiUrl: url, token }, ctx.home);
+    const path =
+      profile === undefined
+        ? await saveHomeConfig({ apiUrl: url, token }, ctx.home)
+        : await saveHomeProfile(profile, { apiUrl: url, token }, ctx.home);
     const rendered = renderJson(
       {
         ok: true,
         wrote: path,
+        ...(profile !== undefined && { profile }),
         apiUrl: url,
         ...(lost !== undefined && { replaced: { apiUrl: lost.apiUrl ?? null } }),
       },
@@ -101,9 +96,7 @@ const login: LeafCommand = {
     );
     if (lost === undefined) return { kind: 'ok', rendered };
     // A key no longer stored is a warning: said under --quiet too.
-    const replaced = warning(
-      `⚠ Replaced ${whoseLogin(lost)} in ${path}: its API key is no longer stored.`,
-    );
+    const replaced = warning(`⚠ ${replacedNote(lost, path)}`);
     return {
       kind: 'ok',
       rendered: { ...rendered, stderr: renderLines([replaced], ctx.globals.format === 'quiet') },
@@ -112,27 +105,144 @@ const login: LeafCommand = {
 };
 
 /**
+ * The address and key login saves: the given ones (`--url`, `--token`,
+ * `--token-stdin`), else the resolved config's (under a profile, the
+ * profile's own). Refused when one is missing, or when a stored key would
+ * be saved for another address.
+ */
+async function loginTarget(
+  ctx: CommandContext,
+): Promise<{ readonly kind: 'ok'; readonly url: string; readonly token: string } | TokenReadError> {
+  const given = await givenKey(ctx);
+  if (given.kind === 'error') return given;
+  const url = ctx.globals.url ?? ctx.config.apiUrl;
+  const token = given.token ?? ctx.config.token;
+  if (typeof url !== 'string' || url === '') {
+    return { kind: 'error', stderr: missingAddress(ctx.config), exitCode: 2 };
+  }
+  if (typeof token !== 'string' || token === '') {
+    return { kind: 'error', stderr: missingKey(ctx.config), exitCode: 2 };
+  }
+  // A key given for login (`--token`, `--token-stdin`) is saved for `url`.
+  const elsewhere = given.token === undefined ? storedKeyElsewhere(ctx.config, url) : undefined;
+  if (elsewhere === undefined) return { kind: 'ok', url, token };
+  const ways =
+    ctx.config.profile === undefined
+      ? '--token-stdin, --token or KINDGI_API_TOKEN'
+      : '--token-stdin or --token';
+  return {
+    kind: 'error',
+    stderr: `kindgi auth login would save ${elsewhere} as ${url}'s key. A stored key goes only to its own address: give ${url}'s key with ${ways}.\n`,
+    exitCode: 2,
+  };
+}
+
+/** The key given for login: `--token`, or all of stdin with `--token-stdin`; none when neither is. */
+async function givenKey(
+  ctx: CommandContext,
+): Promise<{ readonly kind: 'ok'; readonly token?: string } | TokenReadError> {
+  if (ctx.options['token-stdin'] !== true) {
+    const token = ctx.globals.token;
+    return token === undefined ? { kind: 'ok' } : { kind: 'ok', token };
+  }
+  if (ctx.globals.token !== undefined) {
+    return {
+      kind: 'error',
+      stderr: '--token and --token-stdin both give the key: use one.\n',
+      exitCode: 2,
+    };
+  }
+  return readToken(ctx.authLoginSeam ?? {}, true, API_KEY);
+}
+
+/**
+ * Login's refusal for a missing address. A profile's comes from the
+ * profile or `--url`, never KINDGI_API_URL (`--profile` beats it).
+ */
+function missingAddress(config: ResolvedConfig): string {
+  const profile = config.profile?.name;
+  if (profile === undefined) {
+    return 'Missing --url=<api-url> (or KINDGI_API_URL / existing config).\n';
+  }
+  if (config.profileBeat?.includes('KINDGI_API_URL') === true) {
+    return `kindgi auth login --profile ${profile} doesn't read KINDGI_API_URL: give ${profile}'s address with --url.\n`;
+  }
+  return `Missing --url=<api-url>: the profile ${profile} has no address stored, and login takes one only from --url.\n`;
+}
+
+/**
+ * Login's refusal for a missing key. A profile's comes from the profile,
+ * `--token-stdin` or `--token`, never KINDGI_API_TOKEN (`--profile` beats
+ * it). Never shows a key.
+ */
+function missingKey(config: ResolvedConfig): string {
+  const profile = config.profile?.name;
+  if (profile === undefined) {
+    return 'Missing the API key: --token-stdin with it on stdin, or --token=<api-token> (or KINDGI_API_TOKEN / existing config).\n';
+  }
+  if (config.profileBeat?.includes('KINDGI_API_TOKEN') === true) {
+    return `kindgi auth login --profile ${profile} doesn't read KINDGI_API_TOKEN: give ${profile}'s key with --token-stdin.\n`;
+  }
+  return `Missing ${profile}'s key: give it on stdin with --token-stdin, or with --token=<api-token>.\n`;
+}
+
+/** A login `kindgi auth login` would replace, as `loginLost` finds it. */
+interface LostLogin {
+  readonly path: string;
+  /** The profile it is; `undefined` for the login without a name. */
+  readonly profile?: string;
+  readonly apiUrl?: string;
+  /** Why the profile's entry can't be used: then it's replaced whatever it holds. */
+  readonly problem?: string;
+}
+
+/**
  * The login `~/.kindgi/config.json` holds that saving `url`'s would lose:
- * a key for another address, or one with no address stored with it.
- * `undefined` when there's none, when it's for `url` (a new key for the
- * same address replaces it, as before), or when its key is the one being
- * saved (the same server under another name loses nothing).
+ * the one without a name, or `profile`'s. That's a key for another
+ * address, one with no address stored with it, or a profile's entry that
+ * can't be used. `undefined` when there's none, when it's for `url` (a
+ * new key for the same address replaces it, as before), or when its key
+ * is the one being saved (the same server under another name loses
+ * nothing).
  */
 async function loginLost(
   home: string | undefined,
+  profile: string | undefined,
   url: string,
   token: string,
-): Promise<{ readonly path: string; readonly apiUrl?: string } | undefined> {
-  const stored = await readHomeLogin(home);
+): Promise<LostLogin | undefined> {
+  const stored = await readHomeLogin(home, profile);
+  const which = { path: stored.path, ...(profile !== undefined && { profile }) };
+  if (stored.problem !== undefined) return { ...which, problem: stored.problem };
   if (stored.token === undefined || stored.token === token) return undefined;
   if (stored.apiUrl !== undefined && sameAddress(stored.apiUrl, url)) return undefined;
-  return { path: stored.path, ...(stored.apiUrl !== undefined && { apiUrl: stored.apiUrl }) };
+  return { ...which, ...(stored.apiUrl !== undefined && { apiUrl: stored.apiUrl }) };
 }
 
-function whoseLogin(lost: { readonly apiUrl?: string }): string {
-  return lost.apiUrl === undefined
-    ? 'an API key with no address stored with it'
-    : `the login for ${lost.apiUrl}`;
+function whoseLogin(lost: LostLogin): string {
+  const name = lost.profile === undefined ? undefined : `the profile ${lost.profile}`;
+  if (lost.problem !== undefined) {
+    return `${name ?? 'the login without a name'}, which can't be used (${lost.problem})`;
+  }
+  if (lost.apiUrl === undefined) return 'an API key with no address stored with it';
+  return name === undefined ? `the login for ${lost.apiUrl}` : `${name}'s login for ${lost.apiUrl}`;
+}
+
+/** Login's refusal to replace `lost` without --force. */
+function keptLogin(lost: LostLogin, url: string): string {
+  const replace = 'To replace it, run again with --force.\n';
+  if (lost.problem !== undefined) {
+    return `${lost.path} holds ${whoseLogin(lost)}. kindgi auth login would replace it with ${url}'s.\n${replace}`;
+  }
+  const where = lost.profile === undefined ? 'as a profile' : 'under another profile name';
+  return `${lost.path} holds ${whoseLogin(lost)}. kindgi auth login would replace it with ${url}'s, and its API key would be lost.\nTo keep both, save ${url}'s login ${where}: \`kindgi auth login --profile <name> --url ${url} --token-stdin\`, with its key on stdin.\n${replace}`;
+}
+
+/** What a login said it replaced (--force): a warning, under --quiet too. */
+function replacedNote(lost: LostLogin, path: string): string {
+  return lost.problem === undefined
+    ? `Replaced ${whoseLogin(lost)} in ${path}: its API key is no longer stored.`
+    : `Replaced ${whoseLogin(lost)} in ${path}.`;
 }
 
 /**
@@ -146,7 +256,7 @@ function storedKeyElsewhere(config: ResolvedConfig, url: string): string | undef
   const keyAddress = config.keyAddress;
   if (keyAddress !== undefined && sameAddress(keyAddress, url)) return undefined;
   const file = config.files?.token;
-  const stored = file === undefined ? 'the API key stored' : `the API key stored in ${file.path}`;
+  const stored = file === undefined ? 'the API key stored' : storedIn(file);
   return keyAddress === undefined
     ? `${stored}, which has no address stored with it,`
     : `${stored}, which is for ${keyAddress},`;
@@ -188,6 +298,7 @@ const whoami: LeafCommand = {
             apiUrl: base,
             tokenSource: source.token,
             apiUrlSource: source.apiUrl,
+            profile: ctx.config.profile?.name ?? null,
             identity,
           },
           ctx.globals.format,
@@ -222,6 +333,12 @@ export interface RegistryAuthSeam {
    * `--registry`, when given). Tests point it at a registry of their own.
    */
   readonly image?: string;
+}
+
+/** The seam for `kindgi auth login --token-stdin`, so tests give the key without stdin. */
+export interface AuthLoginSeam {
+  /** Reads all of stdin (`--token-stdin`). */
+  readonly readStdin?: () => Promise<string>;
 }
 
 /** A registry host, with an optional port: `quay.io`, `127.0.0.1:5000`, `[::1]:5000`. */
@@ -498,11 +615,14 @@ type TokenReadError = CommandResult & { kind: 'error' };
 
 type TokenRead = { readonly kind: 'ok'; readonly token: string } | TokenReadError;
 
-/** What the login reads: its name in messages, and the prompt for it. */
+/** What a login reads: its name in messages, and the prompt for it (registry's only). */
 interface Secret {
-  readonly noun: 'token' | 'license key';
+  readonly noun: 'token' | 'license key' | 'API key';
   readonly prompt: string;
 }
+
+/** The API key, as `kindgi auth login --token-stdin` reads it: login never prompts. */
+const API_KEY: Secret = { noun: 'API key', prompt: 'API key: ' };
 
 /**
  * The license key, for Kindgi's registry: from `--key-from`'s store, from
@@ -555,12 +675,17 @@ async function readStoredKey(store: SecretStore): Promise<TokenRead> {
   return { kind: 'ok', token: value };
 }
 
+/** What reading a secret takes: stdin, and for registry's hidden prompt a terminal. */
+type SecretInput = Pick<RegistryAuthSeam, 'readStdin' | 'stdinIsTty' | 'tty'>;
+
 /**
- * The token (or license key): all of stdin with `--password-stdin`,
- * otherwise a hidden prompt. It goes only to `docker login`'s stdin.
+ * A secret a login reads: all of stdin with `--password-stdin` (registry)
+ * or `--token-stdin` (`kindgi auth login`), otherwise registry's hidden
+ * prompt. It goes only where its login puts it: `docker login`'s stdin,
+ * or ~/.kindgi/config.json.
  */
 async function readToken(
-  seam: RegistryAuthSeam,
+  seam: SecretInput,
   fromStdin: boolean,
   secret: Secret,
 ): Promise<TokenRead> {
@@ -587,7 +712,7 @@ async function readToken(
 }
 
 /** The hidden prompt, on a terminal only. */
-async function promptToken(seam: RegistryAuthSeam, secret: Secret): Promise<TokenRead> {
+async function promptToken(seam: SecretInput, secret: Secret): Promise<TokenRead> {
   if (!(seam.stdinIsTty ?? stdinIsTty)()) {
     const store = secret.noun === 'license key' ? ", or say where it's kept with --key-from" : '';
     return {
@@ -609,9 +734,94 @@ async function promptToken(seam: RegistryAuthSeam, secret: Secret): Promise<Toke
   }
 }
 
+const logout: LeafCommand = {
+  kind: 'leaf',
+  name: 'logout',
+  description:
+    "Remove a login from ~/.kindgi/config.json: with --profile that Kindgi login profile's, else the one without a name. Its API key is no longer stored.",
+  usage: 'kindgi auth logout [--profile=<name>]',
+  run: async (ctx): Promise<CommandResult> => {
+    const profile = ctx.config.profile?.name;
+    const stored = await readHomeLogin(ctx.home, profile);
+    const holds =
+      profile === undefined
+        ? stored.apiUrl !== undefined || stored.token !== undefined
+        : stored.held === true;
+    if (!holds) {
+      return {
+        kind: 'error',
+        stderr: noLoginToRemove(stored.path, profile, ctx.config),
+        exitCode: 2,
+      };
+    }
+    const path = await removeHomeLogin(profile, ctx.home);
+    return {
+      kind: 'ok',
+      rendered: renderJson(
+        {
+          ok: true,
+          wrote: path,
+          removed: { profile: profile ?? null, apiUrl: stored.apiUrl ?? null },
+        },
+        ctx.globals.format,
+      ),
+    };
+  },
+};
+
+/** Logout's refusal when the file holds no such login: it names the profiles it holds. */
+function noLoginToRemove(
+  path: string,
+  profile: string | undefined,
+  config: ResolvedConfig,
+): string {
+  const held = heldNames(config.profiles ?? []);
+  return profile === undefined
+    ? `${path} holds no login without a name (its profiles: ${held}).\n`
+    : `${path} holds no profile named ${profile} (it holds ${held}).\n`;
+}
+
+const LOGIN_COLUMNS: readonly Column<ListedLogin>[] = [
+  { header: 'PROFILE', get: (l) => l.profile ?? '(none)' },
+  { header: 'API URL', get: (l) => l.apiUrl ?? '' },
+  { header: 'USABLE', get: (l) => (l.usable ? 'yes' : `no: ${l.problem ?? ''}`) },
+];
+
+const list: LeafCommand = {
+  kind: 'leaf',
+  name: 'list',
+  description:
+    'List the logins ~/.kindgi/config.json holds: the one without a name and each Kindgi login profile, with its address and whether it can be used. Never a key.',
+  usage: 'kindgi auth list',
+  run: async (ctx): Promise<CommandResult> => {
+    const listed = await listHomeLogins(ctx.home);
+    if (ctx.globals.format === 'table') {
+      const table = renderTable(listed.logins, LOGIN_COLUMNS);
+      const unread =
+        listed.problem === undefined
+          ? ''
+          : `${listed.path}: ${listed.problem}, so no profile in it can be used.\n`;
+      return { kind: 'ok', rendered: { ...table, stderr: unread } };
+    }
+    return {
+      kind: 'ok',
+      rendered: renderJson(
+        {
+          ok: true,
+          file: listed.path,
+          logins: listed.logins,
+          ...(listed.problem !== undefined && { problem: listed.problem }),
+        },
+        ctx.globals.format,
+      ),
+    };
+  },
+};
+
 export const authCommand: Command = {
   kind: 'group',
   name: 'auth',
-  description: "Manage local auth: the API's URL and token, and the runtime image's registry.",
-  subcommands: [login, whoami, registry],
+  description:
+    "Manage local auth: logins (the API's URL and token, without a name or as Kindgi login profiles), and the runtime image's registry.",
+  subcommands: [login, logout, list, whoami, registry],
 };

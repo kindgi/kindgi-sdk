@@ -40,7 +40,7 @@ import type { KindgiClient, McpEndpoint } from '@kindgi/client';
 import { type Cursor, isCredentialName } from '@kindgi/types';
 
 import { ownAddressKeyElsewhere } from '../api-address.js';
-import type { ResolvedConfig } from '../config.js';
+import { type ResolvedConfig, listHomeLogins } from '../config.js';
 import type { CommandContext } from '../context.js';
 import {
   DEV_GOOGLE_CREDENTIALS_VAR,
@@ -264,7 +264,7 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
       seam.sandbox ?? (() => detectDevSandbox(process.platform, probeReal, ctx.env)),
     ),
   );
-  const apiKey = apiKeyCheck(ctx.config);
+  const apiKey = await withUnusableProfiles(apiKeyCheck(ctx.config), ctx.home);
   checks.push(apiKey);
   // A stored key that isn't for the CLI's address isn't sent (api-key above).
   const keyElsewhere = apiKey.status === 'fail';
@@ -1165,15 +1165,54 @@ function apiKeyCheck(config: ResolvedConfig): DoctorCheck {
   const elsewhere = ownAddressKeyElsewhere(config);
   if (elsewhere === undefined) {
     const file = config.files?.token;
-    return pass(
-      'api-key',
-      `The API key stored${file === undefined ? '' : ` in ${file.path}`} is for ${url}, the address commands go to.`,
-    );
+    const stored =
+      file === undefined
+        ? 'The API key stored'
+        : file.profile === undefined
+          ? `The API key stored in ${file.path}`
+          : `The profile ${file.profile}'s key in ${file.path}`;
+    return pass('api-key', `${stored} is for ${url}, the address commands go to.`);
   }
   return fail(
     'api-key',
     `Every command that needs the API key refuses: it would send ${elsewhere.sends}. ${elsewhere.stored}`.trimEnd(),
     elsewhere.fix,
+  );
+}
+
+/**
+ * The profiles ~/.kindgi/config.json holds that can't be used, or a
+ * `profiles` that isn't an object: a warning on the api-key check, since
+ * a command that names one is refused. A failing check stays as it is.
+ */
+async function withUnusableProfiles(
+  check: DoctorCheck,
+  home: string | undefined,
+): Promise<DoctorCheck> {
+  if (check.status === 'fail') return check;
+  let listed: Awaited<ReturnType<typeof listHomeLogins>>;
+  try {
+    listed = await listHomeLogins(home);
+  } catch {
+    // A file that isn't JSON: every command but this one fails on it, and says so.
+    return check;
+  }
+  const problems = [
+    ...(listed.problem === undefined
+      ? []
+      : [`${listed.path}: ${listed.problem}, so no profile in it can be used.`]),
+    ...listed.logins
+      .filter((login) => login.profile !== null && !login.usable)
+      .map(
+        (login) =>
+          `The profile ${login.profile} in ${listed.path} can't be used: ${login.problem}.`,
+      ),
+  ];
+  if (problems.length === 0) return check;
+  return warn(
+    'api-key',
+    `${check.message} ${problems.join(' ')}`,
+    'Save it again with `kindgi auth login --profile <name> --url <url> --token-stdin --force`, or remove it with `kindgi auth logout --profile <name>`.',
   );
 }
 

@@ -3,14 +3,20 @@
 
 /**
  * Where the CLI may send its API key. A stored key (`kindgi auth login`'s
- * ~/.kindgi/config.json, or `kindgi dev`'s .kindgirc.json) is for the
- * address stored beside it, and goes only there. The key for an address
- * is the one stored with it (`storedKeyFor`); when none is,
+ * ~/.kindgi/config.json, a Kindgi login profile's there, or `kindgi
+ * dev`'s .kindgirc.json) is for the address stored beside it, and goes
+ * only there. The key for an address is the one stored with it
+ * (`storedKeyFor`); when none is,
  * the command is refused before it sends anything, naming both addresses
  * and the file, wherever the address is named (`--url`, KINDGI_API_URL, a
  * folder's .kindgirc.json, an env block's `endpoint`, `--endpoint`). A
  * key given for the command (`--token`, KINDGI_API_TOKEN) goes where the
  * command says.
+ *
+ * A profile's key is reached only by naming the profile (`--profile`,
+ * KINDGI_PROFILE), never by its address: under a profile the stored keys
+ * are that profile's alone, and without one a refusal names the profiles
+ * that hold a key for the address (`profilesHolding`).
  *
  * - **Every command** that sends the key to the CLI's own address
  *   (`ctx.client()`, `ctx.token()`): `ownAddressKeyRefusal`.
@@ -306,7 +312,7 @@ function keyElsewhere(
 }
 
 /** Where a stored key is: "the API key stored in <file>", or "prod's key in <file>" for a profile's. */
-function storedIn(file: ConfigFile): string {
+export function storedIn(file: ConfigFile): string {
   return file.profile === undefined
     ? `the API key stored in ${file.path}`
     : `${file.profile}'s key in ${file.path}`;

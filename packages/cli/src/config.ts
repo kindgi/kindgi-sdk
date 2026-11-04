@@ -484,6 +484,64 @@ export async function readHomeLogin(
   };
 }
 
+/** A login as `kindgi auth list` shows it: never its key. */
+export interface ListedLogin {
+  /** The profile's name; `null` for the login without a name. */
+  readonly profile: string | null;
+  readonly apiUrl: string | null;
+  readonly file: string;
+  readonly usable: boolean;
+  /** Why it can't be used; set only when it can't. */
+  readonly problem?: string;
+}
+
+/**
+ * Every login `~/.kindgi/config.json` holds, for `kindgi auth list`: the
+ * one without a name (when it holds an address or a key), then each
+ * profile in the file's order. Never a key. `problem` says why
+ * `profiles` itself can't be read.
+ */
+export async function listHomeLogins(home: string | undefined = homedir()): Promise<{
+  readonly path: string;
+  readonly logins: readonly ListedLogin[];
+  readonly problem?: string;
+}> {
+  const path = homeConfigPath(home);
+  const raw = await defaultReadFile(path);
+  const parsed = raw === null ? {} : parseJson(raw, path);
+  const apiUrl = typeof parsed.apiUrl === 'string' && parsed.apiUrl !== '' ? parsed.apiUrl : null;
+  const hasKey = typeof parsed.token === 'string' && parsed.token !== '';
+  const unnamedProblem =
+    apiUrl === null ? 'it has no apiUrl' : hasKey ? undefined : 'it has no token';
+  const unnamed: ListedLogin[] =
+    apiUrl === null && !hasKey
+      ? []
+      : [
+          {
+            profile: null,
+            apiUrl,
+            file: path,
+            usable: unnamedProblem === undefined,
+            ...(unnamedProblem !== undefined && { problem: unnamedProblem }),
+          },
+        ];
+  const profiles = readProfiles(parsed.profiles);
+  const named = profiles.summaries.map(
+    (p): ListedLogin => ({
+      profile: p.name,
+      apiUrl: p.apiUrl ?? null,
+      file: path,
+      usable: p.problem === undefined,
+      ...(p.problem !== undefined && { problem: p.problem }),
+    }),
+  );
+  return {
+    path,
+    logins: [...unnamed, ...named],
+    ...(profiles.malformed !== undefined && { problem: profiles.malformed }),
+  };
+}
+
 /** `~/.kindgi/config.json`. */
 export function homeConfigPath(home: string | undefined = homedir()): string {
   return join(home ?? homedir(), '.kindgi', 'config.json');

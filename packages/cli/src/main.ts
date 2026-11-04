@@ -10,7 +10,7 @@ import { HOSTED_BUILD } from './build/hosted.js';
 import type { BuildRunners } from './build/runners.js';
 import { cliPinWarning, readCliPin } from './cli-pin.js';
 import type { ApprovalWaitSeam } from './commands/approval-wait.js';
-import type { RegistryAuthSeam } from './commands/auth.js';
+import type { AuthLoginSeam, RegistryAuthSeam } from './commands/auth.js';
 import type { ConnectionsSeam } from './commands/connections.js';
 import type { DoctorSeam } from './commands/doctor.js';
 import type { EnvInitInputSeam } from './commands/env.js';
@@ -140,6 +140,8 @@ export interface RunCliInputs {
    * substitute fixtures so no real `docker login` runs.
    */
   readonly registryAuthSeam?: RegistryAuthSeam;
+  /** The stdin reader for `kindgi auth login --token-stdin`: tests only. */
+  readonly authLoginSeam?: AuthLoginSeam;
   readonly initSeam?: InitSeam;
   /** `kindgi doctor`'s seams (tools, docker, Node version, image, presets). */
   readonly doctorSeam?: DoctorSeam;
@@ -268,11 +270,12 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     }),
   );
   // A profile that can't be used stops the command before it runs. `kindgi
-  // auth login` saves profiles: a name the file doesn't hold, or holds
-  // malformed or for another address, is its own to handle.
+  // auth login` saves profiles and `kindgi auth logout` removes them: a
+  // name the file doesn't hold, or holds malformed or for another address,
+  // is theirs to handle.
   const refusal = config.profileRefusal;
-  const isLogin = argv[0] === 'auth' && command.name === 'login';
-  if (refusal !== undefined && !(isLogin && LOGIN_HANDLES.has(refusal.kind))) {
+  const handles = argv[0] === 'auth' && SAVE_OR_REMOVE.has(command.name);
+  if (refusal !== undefined && !(handles && LOGIN_HANDLES.has(refusal.kind))) {
     return { stdout: '', stderr: `${refusal.message}\n`, exitCode: 2 };
   }
 
@@ -353,6 +356,7 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     ...(inputs.secretsInputSeam !== undefined ? { secretsInputSeam: inputs.secretsInputSeam } : {}),
     ...(inputs.envInitInputSeam !== undefined ? { envInitInputSeam: inputs.envInitInputSeam } : {}),
     ...(inputs.registryAuthSeam !== undefined ? { registryAuthSeam: inputs.registryAuthSeam } : {}),
+    ...(inputs.authLoginSeam !== undefined ? { authLoginSeam: inputs.authLoginSeam } : {}),
     ...(inputs.initSeam !== undefined ? { initSeam: inputs.initSeam } : {}),
     ...(inputs.doctorSeam !== undefined ? { doctorSeam: inputs.doctorSeam } : {}),
     ...(inputs.openUrl !== undefined ? { openUrl: inputs.openUrl } : {}),
@@ -396,7 +400,10 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
   }
 }
 
-/** The profile refusals `kindgi auth login` handles itself: it saves the profile. */
+/** The `kindgi auth` leaves that save or remove a profile, and so handle the refusals below. */
+const SAVE_OR_REMOVE: ReadonlySet<string> = new Set(['login', 'logout']);
+
+/** The profile refusals `kindgi auth login` and `logout` handle themselves. */
 const LOGIN_HANDLES: ReadonlySet<string> = new Set(['unknown', 'malformed', 'other-address']);
 
 /** `env` without KINDGI_PROFILE: `kindgi dev`'s. */
