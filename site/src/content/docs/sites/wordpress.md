@@ -134,10 +134,12 @@ and `kindgi sites update <site-id>` changes it later:
 
 Each SDK release carries the plugin as `kindgi-<version>.zip`; its source is under
 [`integrations/wordpress/kindgi`](https://github.com/kindgi/kindgi-sdk/tree/main/integrations/wordpress/kindgi).
-It needs WordPress 6.4 or later and PHP 7.4 or later.
+This page is for release `{{kindgi.version}}`, whose plugin needs runtime
+0.1.9 or later, WordPress 6.4 or later and PHP 7.4 or later.
 
-1. **Install it.** Download `kindgi-<version>.zip` from the SDK's
-   [latest release](https://github.com/kindgi/kindgi-sdk/releases/latest),
+1. **Install it.** Download `kindgi-<version>.zip`, the plugin this version
+   of the docs describes, from release
+   [Kindgi SDK `{{kindgi.version}}`](https://github.com/kindgi/kindgi-sdk/releases/tag/%40kindgi/sdk%400.1.9),
    and upload it under **Plugins → Add Plugin → Upload Plugin** (**Add New
    Plugin** before WordPress 6.8). The `.sha256` file next to it checks the
    download (`sha256sum -c`). Or copy the folder to
