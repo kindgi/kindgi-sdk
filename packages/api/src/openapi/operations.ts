@@ -1631,6 +1631,32 @@ const LIMITED_ABOVE_PROJECT_403 = ErrorResponse(
   withLimitedAbove('`permission-denied`: the caller may not make this change.'),
 );
 
+/**
+ * Without an authorization store, a key or session limited to a project
+ * is refused a change to another project's trigger, by the trigger's id.
+ * Each operation it holds says so in its 403.
+ */
+export const LIMITED_TRIGGER_PROJECT =
+  "Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).";
+const withLimitedTrigger = (text: string): string => `${text} ${LIMITED_TRIGGER_PROJECT}`;
+
+/**
+ * Without an authorization store, a key or session limited to a project
+ * is refused a change, by an item's id, that reaches beyond its project:
+ * an item in another project, or served there too, or the workspace's or
+ * an org's. Each operation it holds says so in its 403.
+ */
+export const LIMITED_ITEM_PROJECT =
+  "Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).";
+const withLimitedItem = (text: string): string => `${text} ${LIMITED_ITEM_PROJECT}`;
+const LIMITED_ITEM_403 = ErrorResponse(
+  withLimitedItem('`permission-denied`: the caller may not make this change.'),
+);
+/** A pin: held above the caller's project, and beyond the item's. */
+const LIMITED_PIN_403 = ErrorResponse(
+  withLimitedItem(withLimitedAbove('`permission-denied`: the caller may not make this change.')),
+);
+
 const CommonAuthErrors: Readonly<Record<string, ResponseSpec>> = {
   '401': ErrorResponse('Missing / malformed / expired / revoked bearer token.'),
 };
@@ -1646,12 +1672,23 @@ const CommonMutationErrors: Readonly<Record<string, ResponseSpec>> = {
 
 /** A change a schedule's owner rule refuses (`trigger-owners.ts`). */
 const ScheduleChangeRefused: ResponseSpec = ErrorResponse(
-  "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner.",
+  withLimitedTrigger(
+    "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner.",
+  ),
 );
 
 /** A change a webhook trigger's owner rule refuses (`trigger-owners.ts`). */
 const WebhookChangeRefused: ResponseSpec = ErrorResponse(
-  "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner.",
+  withLimitedTrigger(
+    "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner.",
+  ),
+);
+
+/** A change to a mail trigger its rules refuse (`mail-triggers.ts`). */
+const MailTriggerChangeRefused: ResponseSpec = ErrorResponse(
+  withLimitedTrigger(
+    '`permission-denied`: the caller may not make this change to the mail trigger (the message says what it takes).',
+  ),
 );
 
 /** A read of a tenant-wide setting (`tenantResourceAccess`): a tenant member's; without an authorization store, anyone's. */
@@ -1959,7 +1996,7 @@ function pinnedVersionOperations(kind: PinKindSpec): readonly OperationSpec[] {
       responses: {
         '200': { description: 'Pinned.', schema: ref('PinnedVersionChange') },
         ...CommonMutationErrors,
-        '403': LIMITED_ABOVE_PROJECT_403,
+        '403': LIMITED_PIN_403,
         '400': ErrorResponse(
           `Malformed request body. Or \`scope-invalid\`: a segment scope, since ${noun}s pin per project, org or workspace. Or \`reference-out-of-scope\`: a project scope whose project doesn't reach the ${noun === 'flow' ? 'version' : noun} (\`details.issues\`).${kind.pin400}`,
         ),
@@ -1984,7 +2021,7 @@ function pinnedVersionOperations(kind: PinKindSpec): readonly OperationSpec[] {
       responses: {
         '200': { description: 'Unpinned.', schema: ref('PinnedVersionChange') },
         ...CommonMutationErrors,
-        '403': LIMITED_ABOVE_PROJECT_403,
+        '403': LIMITED_PIN_403,
         '400': ErrorResponse(
           `Malformed request body. Or \`scope-invalid\`: a segment scope, since ${noun}s pin per project, org or workspace.`,
         ),
@@ -4069,6 +4106,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The owner is set.', schema: ref('SetAgentOwnerResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '400': ErrorResponse('The body is not `{ "userId": "…" }`.'),
       '404': ErrorResponse(
         'No agent with that id under this workspace (`agent-not-found`), or no person with that id in it (`identity-user-not-found`).',
@@ -4140,6 +4178,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Case added.', schema: ref('TestCase') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '400': ErrorResponse(
         "Malformed body; the run isn't one of the agent's, or is a comparison's replay; or `item-not-found` (an item's pointer resolves to nothing in the output).",
       ),
@@ -4162,6 +4201,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Retired.', schema: ref('TestCase') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '400': ErrorResponse('`reason` is missing, empty, or over 4000 characters.'),
       '404': ErrorResponse("`test-case-not-found`: the agent's test set has no case by that id."),
       '409': ErrorResponse('`test-case-retired`: the case is retired already.'),
@@ -4179,6 +4219,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterAgentResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead. Or `agent-version-pinned`: the version is the pinned version of the scopes in `details.scopes`; unpin, or pin another version there first.",
       ),
@@ -4199,6 +4240,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstateAgentVersionResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '400': ErrorResponse(
         "`reference-out-of-scope`: the retired version names an item its project doesn't reach (`details.issues`), as publishing it would be refused; it stays retired.",
       ),
@@ -4267,7 +4309,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('PinAnswer'),
       },
       ...CommonMutationErrors,
-      '403': LIMITED_ABOVE_PROJECT_403,
+      '403': LIMITED_PIN_403,
       '400': ErrorResponse(
         "Malformed request body, or the test run isn't a completed comparison: a cancelled or failed one is refused, even with the summary of the cases it got through. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
       ),
@@ -4525,7 +4567,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('PinAnswer'),
       },
       ...CommonMutationErrors,
-      '403': LIMITED_ABOVE_PROJECT_403,
+      '403': LIMITED_PIN_403,
       '409': ErrorResponse(
         "`not-pinned`: the scope has no pin of its own. `release-gate-needs-pin`: the scope has a release gate of its own, and a gated scope keeps its own pin; unregister the gate first, or pin an earlier version instead. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. Or `registry-read-only`: under `kindgi dev`, a pinned version was written into the pack's files; to undo a pin, pin the version before.",
       ),
@@ -4648,6 +4690,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterFlowResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `flow-version-pinned`: the version is pinned in one or more scopes (`details.scopes`); move those pins to another version, or unpin them, first. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
@@ -4668,6 +4711,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstateFlowVersionResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '400': ErrorResponse(
         "`reference-out-of-scope`: the retired version names an item its project doesn't reach (`details.issues`), as publishing it would be refused; it stays retired.",
       ),
@@ -4796,6 +4840,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterToolResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `tool-version-pinned`: the version is pinned in one or more scopes (`details.scopes`); move those pins to another version, or unpin them, first. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
@@ -4816,6 +4861,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstateToolVersionResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `tool-kind-mismatch`: the tool's active versions are of another kind than this one, an MCP endpoint's tool (`details.endpointId`) or tools published here, so it stays unregistered (`details.toolId`, `details.version`). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
@@ -4963,6 +5009,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterGuardrailResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
@@ -6504,7 +6551,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Updated corrector group.', schema: ref('CorrectorGroup') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('`permission-denied`.'),
+      '403': ErrorResponse(withLimitedItem('`permission-denied`.')),
       '404': ErrorResponse('No live corrector group with that id under this workspace.'),
     },
   },
@@ -6521,7 +6568,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Retired.', schema: ref('UnregisterCorrectorGroupResult') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('`permission-denied`.'),
+      '403': ErrorResponse(withLimitedItem('`permission-denied`.')),
       '404': ErrorResponse('No live corrector group with that id under this workspace.'),
     },
   },
@@ -6612,6 +6659,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterMCPEndpointResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '404': ErrorResponse('No MCP endpoint with that id under this workspace.'),
     },
   },
@@ -6686,6 +6734,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Rendered prompt messages.', schema: ref('GetMCPPromptResult') },
       ...CommonAuthErrors,
+      '403': LIMITED_ITEM_403,
       '400': ErrorResponse('Malformed body.'),
       '404': ErrorResponse('No MCP endpoint or prompt with that name.'),
       '502': ErrorResponse('Remote MCP endpoint failed to serve prompts/get.'),
@@ -7216,6 +7265,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterTestSetResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '404': ErrorResponse('No test set at that (id, version) under this workspace.'),
     },
   },
@@ -7233,6 +7283,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstateTestSetVersionResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '404': ErrorResponse('No test set at that (id, version) under this workspace.'),
     },
   },
@@ -7385,7 +7436,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
-      '403': ErrorResponse('`permission-denied`: no `write` on the project.'),
+      '403': ErrorResponse(withLimitedItem('`permission-denied`: no `write` on the project.')),
       '404': ErrorResponse('`block-not-found`, or already unregistered.'),
     },
   },
@@ -7405,7 +7456,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
-      '403': ErrorResponse('`permission-denied`: no `write` on the project.'),
+      '403': ErrorResponse(withLimitedItem('`permission-denied`: no `write` on the project.')),
       '404': ErrorResponse('`block-not-found`.'),
     },
   },
@@ -11302,7 +11353,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'A malformed body, or `runAsProject` with `runAsServiceAccountId`, or a body naming `toolsAllowedUnattended` (`bad-input`).',
       ),
       '403': ErrorResponse(
-        "`permission-denied`: not an admin of the schedule's project, or no `execute` on what it runs, or no `act_as` on the account named.",
+        withLimitedTrigger(
+          "`permission-denied`: not an admin of the schedule's project, or no `execute` on what it runs, or no `act_as` on the account named.",
+        ),
       ),
       '404': ErrorResponse('No cron trigger with that id, or no such service account.'),
       '409': ErrorResponse(
@@ -11331,6 +11384,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Event trigger registered.', schema: ref('EventTriggerRecord') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
     },
   },
   {
@@ -11378,6 +11432,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Updated event trigger.', schema: ref('EventTriggerRecord') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '404': ErrorResponse('No event trigger with that id.'),
     },
   },
@@ -11394,6 +11449,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Paused event trigger.', schema: ref('EventTriggerRecord') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '404': ErrorResponse('No event trigger with that id.'),
     },
   },
@@ -11410,6 +11466,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Resumed event trigger.', schema: ref('EventTriggerRecord') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
       '404': ErrorResponse('No event trigger with that id.'),
     },
   },
@@ -11426,6 +11483,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Tombstone outcome.', schema: ref('EventTriggerUnregisterResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ITEM_403,
     },
   },
   {
@@ -11477,7 +11535,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.register',
     summary: 'Register a webhook trigger',
     description:
-      "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the workspace that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the workspace's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
+      "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the workspace that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the project its API key or session is limited to, else in the workspace's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -11696,7 +11754,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'A malformed body, or `runAsProject` with `runAsServiceAccountId`, or a body naming `toolsAllowedUnattended` (`bad-input`).',
       ),
       '403': ErrorResponse(
-        "`permission-denied`: not an admin of the trigger's project, or no `execute` on its flow, or no `act_as` on the account named.",
+        withLimitedTrigger(
+          "`permission-denied`: not an admin of the trigger's project, or no `execute` on its flow, or no `act_as` on the account named.",
+        ),
       ),
       '404': ErrorResponse('No webhook trigger with that id, or no such service account.'),
       '409': ErrorResponse(
@@ -11715,7 +11775,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mailTriggers.register',
     summary: 'Register a mail trigger',
     description:
-      "Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through a company connection of the app and needs `admin` on the project: `config.mailbox.connectionId` names one of the project's candidates (`GET /v1/connection-choices/candidates`), and with none named the project's only one is stored, several are `409 connection-not-chosen`, and none stores nothing; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the workspace's default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
+      "Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through a company connection of the app and needs `admin` on the project: `config.mailbox.connectionId` names one of the project's candidates (`GET /v1/connection-choices/candidates`), and with none named the project's only one is stored, several are `409 connection-not-chosen`, and none stores nothing; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the project its API key or session is limited to, else in the workspace's default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
     tags: ['mail-triggers'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -11797,6 +11857,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         "A body that fails validation (`bad-input`): `runAsServiceAccountId` or `runAsProject` (the owner changes only by `POST …/owner`), a person's mailbox for a shared trigger, a `connectionId` for a person's mailbox or naming a person's own live connection of the app, or a new target or mailbox without the list it holds. Or `reference-out-of-scope`: the new target isn't the project's to reach. Nothing changes.",
       ),
+      '403': MailTriggerChangeRefused,
       '404': ErrorResponse(
         "No mail trigger with that id. Or the new mailbox's `connectionId` isn't one of the project's company connections of the app (`connection-not-found`, `details.field` `config.mailbox.connectionId`).",
       ),
@@ -11819,6 +11880,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Paused mail trigger.', schema: ref('MailTriggerRecord') },
       ...CommonMutationErrors,
+      '403': MailTriggerChangeRefused,
       '404': ErrorResponse('No mail trigger with that id.'),
     },
   },
@@ -11836,6 +11898,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Resumed mail trigger.', schema: ref('MailTriggerRecord') },
       ...CommonMutationErrors,
+      '403': MailTriggerChangeRefused,
       '404': ErrorResponse('No mail trigger with that id.'),
     },
   },
@@ -11852,6 +11915,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Tombstone outcome.', schema: ref('WebhookTriggerUnregisterResult') },
       ...CommonMutationErrors,
+      '403': MailTriggerChangeRefused,
       '404': ErrorResponse('No mail trigger with that id.'),
     },
   },
@@ -11931,6 +11995,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         "`bad-input`: a body naming `toolsAllowedUnattended`, a service account or `runAsProject` for a person's mailbox, or `runAsProject` with `runAsServiceAccountId`.",
       ),
+      '403': MailTriggerChangeRefused,
       '404': ErrorResponse('No mail trigger with that id, or no such service account.'),
       '409': ErrorResponse(
         "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the trigger runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the trigger runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the Idempotency-Key was reused with a different body, or a resource-state conflict.",

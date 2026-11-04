@@ -341,7 +341,7 @@ const create: LeafCommand = {
     project: {
       type: 'string',
       description:
-        "The schedule's project, by id (default: the workspace's default project). With --improve, the project it improves, which it needs.",
+        "The schedule's project, by id (default: the project the API key or session is limited to, else the workspace's default project). With --improve, the project it improves, which it needs.",
     },
     ...RUN_AS_FLAG,
     ...allowUnattendedFlag('register'),
