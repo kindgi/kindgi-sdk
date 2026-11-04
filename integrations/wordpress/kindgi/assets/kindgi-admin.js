@@ -463,7 +463,8 @@
         { className: 'kindgi-run-body' },
         el('div', { className: 'kindgi-run-head' }, el('strong', {}, name), runState(run)),
         run.summary ? el('p', { className: 'kindgi-run-summary' }, run.summary) : null,
-        waitsFor(run),
+        // Linked to the Inbox for a reviewer only: no one else can open an approval there.
+        waitsFor(run, state.me.reviewerRole !== null),
         run.status === 'failed' ? failedWhy(run) : null,
         run.private === 'orders'
           ? muted(__('What it found shows to people who can edit orders.', 'kindgi'))

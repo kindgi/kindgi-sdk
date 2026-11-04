@@ -391,3 +391,18 @@ test('a waiting run with approvals of its own needs a person; one waiting on som
   assert.equal(pill({ status: 'suspended' }).textContent, 'Waiting');
   assert.equal(pill({ status: 'completed', waiting: [wait] }).textContent, 'Done');
 });
+
+test('what a run waits for links to the Inbox for a reviewer, and reads in words for anyone else', () => {
+  const { cards } = loadCards(null);
+  const run = {
+    id: 'r-1',
+    status: 'suspended',
+    waiting: [{ id: 'ap-hand-off', heading: 'Hand off' }],
+  };
+  const [linked] = cards.waitsFor(run);
+  assert.equal(linked.textContent, 'Waits for approval: Hand off');
+  assert.equal(linked.querySelectorAll('a').length, 1);
+  const [words] = cards.waitsFor(run, false);
+  assert.equal(words.textContent, 'Waits for approval: Hand off');
+  assert.equal(words.querySelectorAll('a').length, 0);
+});

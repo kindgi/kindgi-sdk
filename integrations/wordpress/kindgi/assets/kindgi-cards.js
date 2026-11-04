@@ -215,15 +215,19 @@
     return el('span', { className: `kindgi-state kindgi-state-${tone}` }, words);
   }
 
-  /** What a waiting run waits for: each approval it asked for, linked to its card in the Inbox. */
-  const waitsFor = (run) =>
+  /**
+   * What a waiting run waits for: each approval it asked for, linked to its
+   * card in the Inbox. Unless `linked`, in words only: the Inbox's approvals
+   * are for reviewers, so anyone else reads what the run waits for.
+   */
+  const waitsFor = (run, linked = true) =>
     run.waiting.map((wait) =>
       el(
         'p',
         { className: 'kindgi-run-waits' },
         __('Waits for approval:', 'kindgi'),
         ' ',
-        el('a', { href: approvalUrl(wait.id) }, wait.heading),
+        linked ? el('a', { href: approvalUrl(wait.id) }, wait.heading) : wait.heading,
       ),
     );
 
