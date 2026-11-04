@@ -94,9 +94,10 @@ one count for each limit the runtime keeps per address:
 - **Signing in**, from people's browsers.
 - **Claude's token requests:** 100 every 10 seconds per address.
 - **Registering an app:** 10 an hour per address. claude.ai doesn't register
-  itself; other chat apps can. From runtime 0.7.0, a desktop app can register
-  without saying what kind of app it is when it sends people back to its own
-  scheme, or over `http` to `localhost`, `127.0.0.1` or `[::1]`.
+  itself; other chat apps can. A desktop app can register without saying what
+  kind of app it is when it sends people back to its own scheme, or over
+  `http` to `localhost`, `127.0.0.1` or `[::1]` (this needs runtime 0.7.0 or
+  later).
 
 ## How many people one Claude address serves
 
