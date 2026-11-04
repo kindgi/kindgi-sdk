@@ -311,7 +311,7 @@ object FetchOrder {
   final case class Input(orderId: String)
   final case class Output(id: String, status: String, total: Double)
 
-  val tool: Tool[Input, Output] = Tool[Input, Output]("shop.fetch-order")
+  val tool: Tool[Input, Output] = Tool[Input, Output]("acme.fetch-order")
     .description("Fetch an order by id from the storefront API.")
     .version("0.1.0")
     .readOnly

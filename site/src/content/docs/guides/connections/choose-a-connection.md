@@ -189,14 +189,14 @@ List them over HTTP with
 or `connectionChoices.candidates({ projectId, app })` in the clients
 (`connection_choices.candidates` in Python).
 
-Choose `support` for the agent `acme.mail-helper`:
+Choose `support` for the agent `acme.mail-desk`:
 
 ```sh
-pnpm exec kindgi connection-choices set support --agent=acme.mail-helper
+pnpm exec kindgi connection-choices set support --agent=acme.mail-desk
 ```
 
 ```text
-Chose support at google for agent acme.mail-helper (choice 5d1c9e07-…).
+Chose support at google for agent acme.mail-desk (choice 5d1c9e07-…).
 ```
 
 - **`--flow=<id>`** makes the choice for a flow instead of `--agent`. It's
@@ -208,7 +208,7 @@ Chose support at google for agent acme.mail-helper (choice 5d1c9e07-…).
   for the connection's own app.
 - **Choosing another** replaces the choice, and says which one it was in
   place of:
-  `Chose sales at google for agent acme.mail-helper (choice 8e2a4b13-…), in place of support (choice 5d1c9e07-…).`
+  `Chose sales at google for agent acme.mail-desk (choice 8e2a4b13-…), in place of support (choice 5d1c9e07-…).`
   A choice is never edited: the old one is removed, and the next one has
   the next `version`. Choosing the one it already uses changes nothing.
 - **A run keeps the connection it got through a choice.** Within a run
@@ -301,18 +301,18 @@ flow's choice for that tool. The tool's other calls at the app, and the
 agent's other tools, go on using the agent's or flow's:
 
 ```sh
-pnpm exec kindgi connection-choices set sales --agent=acme.mail-helper --tool=acme.mail.send
+pnpm exec kindgi connection-choices set sales --agent=acme.mail-desk --tool=acme.mail.send
 ```
 
 ```text
-Chose sales at google for tool acme.mail.send of agent acme.mail-helper (choice 1f4d8a62-…).
+Chose sales at google for tool acme.mail.send of agent acme.mail-desk (choice 1f4d8a62-…).
 ```
 
 - **`--need=<name>`** says which of the tool's connections the choice is
   for, by the tool's name for it, when the tool needs two of the app, such
   as a tool that copies from one account to another. With one, you can
   leave it out. The answer names it after the tool, such as
-  `for tool acme.mail.copy (from) of agent acme.mail-helper`.
+  `for tool acme.mail.copy (from) of agent acme.mail-desk`.
 - **It's refused** with `400 bad-input` for a tool the agent or flow
   doesn't have, or that doesn't use the app ("The agent has no tool
   acme.mail.send that uses Google."), for a tool with two needs of the app
@@ -543,7 +543,7 @@ from
 ```json excerpt
 "failure": {
   "code": "connection-not-chosen",
-  "message": "This project has 2 company Google connections (sales, support), and agent acme.mail-helper has no choice of one. …"
+  "message": "This project has 2 company Google connections (sales, support), and agent acme.mail-desk has no choice of one. …"
 }
 ```
 
@@ -551,7 +551,7 @@ A project admin chooses one of them, and the agent's runs use it from
 then on:
 
 ```sh
-pnpm exec kindgi connection-choices set support --agent=acme.mail-helper
+pnpm exec kindgi connection-choices set support --agent=acme.mail-desk
 ```
 
 For a person's connection, it's the same when they have several of the

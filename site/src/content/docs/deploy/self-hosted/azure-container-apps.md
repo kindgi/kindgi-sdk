@@ -535,7 +535,7 @@ Check the runtime answers, lists your pack's tools, and runs a flow:
 ```sh
 curl "$URL/health"                                  # {"ok":true}
 npx --yes @kindgi/cli@0.2 tools list --url "$URL"   # your pack's tools
-npx --yes @kindgi/cli@0.2 runs start --flow=acme.greet-flow --input='{"name":"Azure"}' --url "$URL"
+npx --yes @kindgi/cli@0.2 runs start --flow=acme.greet-person --input='{"name":"Azure"}' --url "$URL"
 ```
 
 `--flow` names the flow to run, and `--input` is its input, as JSON.

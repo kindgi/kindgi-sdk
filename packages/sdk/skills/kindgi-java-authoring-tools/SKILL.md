@@ -330,7 +330,7 @@ public record FetchOrder(String orderId) {}
 public record Order(String id, String status, double total) {}
 
 public static final Tool<FetchOrder, Order> TOOL =
-    Tool.define("shop.fetch-order")
+    Tool.define("acme.fetch-order")
         .description("Fetch an order by id from the storefront API.")
         .version("0.1.0")
         .mutating(false)
