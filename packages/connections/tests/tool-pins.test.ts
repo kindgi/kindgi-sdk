@@ -26,6 +26,9 @@ import {
   googleCalendarEventsList,
   googleCalendarFreeBusy,
   googleCalendarSharedEventsList,
+  googleDriveFileCreate,
+  googleDriveFileGet,
+  googleDriveFilesList,
 } from '../src/google-tools.js';
 import { linkedinPost } from '../src/linkedin-tools.js';
 import {
@@ -104,6 +107,12 @@ const TOOLS = {
   outlookCalendarSharedEventsList: (id: string) => outlookCalendarSharedEventsList({ id }),
   'outlookCalendarSharedEventsList as company': (id: string) =>
     outlookCalendarSharedEventsList({ id, as: 'company' }),
+  googleDriveFilesList: (id: string) => googleDriveFilesList({ id }),
+  'googleDriveFilesList as company': (id: string) => googleDriveFilesList({ id, as: 'company' }),
+  googleDriveFileGet: (id: string) => googleDriveFileGet({ id }),
+  'googleDriveFileGet as company': (id: string) => googleDriveFileGet({ id, as: 'company' }),
+  googleDriveFileCreate: (id: string) => googleDriveFileCreate({ id }),
+  'googleDriveFileCreate as company': (id: string) => googleDriveFileCreate({ id, as: 'company' }),
 } satisfies Record<string, (id: string) => AnyTool>;
 
 /**

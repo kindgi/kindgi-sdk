@@ -61,6 +61,12 @@ Ready-made tools that act with a connection, one subpath per app:
   `outlookCalendarEventCreate`, `googleCalendarEventUpdate` and
   `outlookCalendarEventUpdate` add or change an event and invite the
   people it names.
+- Google Drive, from `@kindgi/connections/google/tools`:
+  `googleDriveFilesList` lists or searches the files, `googleDriveFileGet`
+  stores one as a file the agent is shown, as an attachment tool does (a
+  Google Doc, Sheet, Slides or Drawing read as Markdown, CSV, text or PNG,
+  or as a PDF), and `googleDriveFileCreate` adds a file from text or from a
+  file of the run, with a permission that reaches only the files it added.
 - `@kindgi/connections/github/tools`, on the company's GitHub connection:
   `githubIssuesList`, `githubLabelsList`, and `githubIssuesAddLabels`, which
   adds only labels the repository has.
