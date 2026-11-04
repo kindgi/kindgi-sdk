@@ -1351,7 +1351,7 @@ export const StartRunOptionsSchema: JsonSchema = {
     wait: {
       type: 'boolean',
       description:
-        'When false, respond `202` as soon as the run exists and finish it in the background; poll `GET /v1/runs/{runId}` for its status and output. Default true: respond `201` once the run completes, fails or suspends.',
+        'When false, respond `202` as soon as the run exists and finish it in the background; poll `GET /v1/runs/{runId}` for its status and output. Default true: respond `201` once the run completes, fails or suspends, or with it still `running` when a read failed part-way (poll `GET /v1/runs/{runId}`).',
     },
   },
 };

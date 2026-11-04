@@ -38,9 +38,10 @@ export interface RunsClient {
   /**
    * Start a run. Server returns the full `Run` row so callers observe
    * `status` + `flowId` + `flowVersion` in one round-trip: by default
-   * once the run completes, fails or suspends (201, with `output`);
-   * with `options.wait: false` as soon as it exists (202) — poll
-   * `get(runId)` until it finishes.
+   * once the run completes, fails or suspends (201, with `output`), or,
+   * when a read fails part-way, still `running` (201, no `output`: poll
+   * `get(runId)`); with `options.wait: false` as soon as it exists (202)
+   * — poll `get(runId)` until it finishes.
    *
    * A waited start is bound by the client's timeout (`timeoutMs`, 30 s by
    * default; this call can set its own). When it runs out, the run may
