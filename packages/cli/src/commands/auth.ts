@@ -2,7 +2,13 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { sameAddress } from '../api-address.js';
-import { type ResolvedConfig, readHomeLogin, saveHomeConfig } from '../config.js';
+import {
+  type HomeLogin,
+  type ResolvedConfig,
+  keepsProject,
+  readHomeLogin,
+  saveHomeConfig,
+} from '../config.js';
 import type { CommandContext } from '../context.js';
 import { type DockerRunner, docker } from '../dev/runtime-container.js';
 import {
@@ -89,6 +95,7 @@ const login: LeafCommand = {
         exitCode: 2,
       };
     }
+    const before = await readHomeLogin(ctx.home);
     const path = await saveHomeConfig({ apiUrl: url, token }, ctx.home);
     const rendered = renderJson(
       {
@@ -99,14 +106,11 @@ const login: LeafCommand = {
       },
       ctx.globals.format,
     );
-    if (lost === undefined) return { kind: 'ok', rendered };
-    // A key no longer stored is a warning: said under --quiet too.
-    const replaced = warning(
-      `⚠ Replaced ${whoseLogin(lost)} in ${path}: its API key is no longer stored.`,
-    );
+    const warnings = loginWarnings(path, lost, droppedProject(before, url, token));
+    if (warnings.length === 0) return { kind: 'ok', rendered };
     return {
       kind: 'ok',
-      rendered: { ...rendered, stderr: renderLines([replaced], ctx.globals.format === 'quiet') },
+      rendered: { ...rendered, stderr: renderLines(warnings, ctx.globals.format === 'quiet') },
     };
   },
 };
@@ -127,6 +131,38 @@ async function loginLost(
   if (stored.token === undefined || stored.token === token) return undefined;
   if (stored.apiUrl !== undefined && sameAddress(stored.apiUrl, url)) return undefined;
   return { path: stored.path, ...(stored.apiUrl !== undefined && { apiUrl: stored.apiUrl }) };
+}
+
+/** The project stored beside the key this login replaced: it went with that key (`keepsProject`). */
+function droppedProject(before: HomeLogin, url: string, token: string): string | undefined {
+  return before.project !== undefined && !keepsProject(before, { apiUrl: url, token })
+    ? before.project
+    : undefined;
+}
+
+/**
+ * What a login warns of, under --quiet too: a key no longer stored, and the
+ * project that was stored with the key it replaced.
+ */
+function loginWarnings(
+  path: string,
+  lost: { readonly apiUrl?: string } | undefined,
+  dropped: string | undefined,
+): ReturnType<typeof warning>[] {
+  const lines: ReturnType<typeof warning>[] = [];
+  if (lost !== undefined) {
+    lines.push(
+      warning(`⚠ Replaced ${whoseLogin(lost)} in ${path}: its API key is no longer stored.`),
+    );
+  }
+  if (dropped !== undefined) {
+    lines.push(
+      warning(
+        `⚠ Removed project ${dropped} from ${path}: it was stored with the key this login replaced.`,
+      ),
+    );
+  }
+  return lines;
 }
 
 function whoseLogin(lost: { readonly apiUrl?: string }): string {

@@ -8,6 +8,7 @@ import { KindgiApiError } from '@kindgi/client';
 import type { CommandContext } from '../context.js';
 import { UsageError, formatThrown } from '../errors.js';
 import { type Column, type Rendered, renderJson, renderTable } from '../output.js';
+import { resolveProjectRef } from '../project-ref.js';
 import type { CommandResult } from './types.js';
 
 /**
@@ -267,11 +268,16 @@ export function segmentsFlag(
 }
 
 /**
- * The project a command writes into: `--project=<id>`, or the tenant's
- * default project when the flag is absent.
+ * The project a command writes into: `--project=<id>`, else the project
+ * stored beside the key (`keyProject`: an id, or a slug looked up), else
+ * the tenant's default project.
  */
 export async function projectIdFlag(ctx: CommandContext): Promise<string> {
-  return stringFlag(ctx, 'project') ?? (await ctx.client().projects.getDefault()).id;
+  const flag = stringFlag(ctx, 'project');
+  if (flag !== undefined) return flag;
+  const stored = ctx.config.keyProject;
+  if (stored !== undefined) return resolveProjectRef(ctx, stored);
+  return (await ctx.client().projects.getDefault()).id;
 }
 
 /** The values of a repeatable flag (`multiple: true`), in the order given. */

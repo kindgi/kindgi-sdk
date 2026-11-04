@@ -4,14 +4,15 @@
 import { chmod, mkdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { isLocalAddress, storedKeyFor } from './api-address.js';
+import { isLocalAddress, sameAddress, storedKeyFor } from './api-address.js';
 import { writePrivateFile } from './private-file.js';
 
 /**
  * Resolved configuration used by every command. Precedence at load
  * time is: CLI flag (`--url`, `--token`) > env var
  * (`KINDGI_API_URL`, `KINDGI_API_TOKEN`) > file
- * (`.kindgirc.json` in cwd, then `~/.kindgi/config.json`).
+ * (`.kindgirc.json` in cwd, then `~/.kindgi/config.json`). A file may
+ * also hold a `project` beside its key: see `keyProject`.
  */
 export interface ResolvedConfig {
   readonly apiUrl: string | undefined;
@@ -30,6 +31,14 @@ export interface ResolvedConfig {
    * address the key is for. Set when the key came from a file that has one.
    */
   readonly keyAddress?: string;
+  /**
+   * The project stored beside the key, in the key's own file: an id or a
+   * slug, as `--project` takes. A command that names no project goes into
+   * it (`kindgi deploy`, and the commands that would take the tenant's
+   * default project). Set only when the key came from a file that has one,
+   * so a key given with `--token` or `KINDGI_API_TOKEN` has none.
+   */
+  readonly keyProject?: string;
   /**
    * When the key is a stored one: every key the config files hold, each
    * with the address stored beside it, the home file's before this
@@ -53,10 +62,11 @@ export interface ResolvedConfig {
 
 export type ConfigSource = 'flag' | 'env' | 'file' | 'unset';
 
-/** A key a config file holds, and the address stored beside it, if any. */
+/** A key a config file holds, and the address and project stored beside it, if any. */
 export interface StoredKey {
   readonly token: string;
   readonly apiUrl?: string;
+  readonly project?: string;
   readonly file: ConfigFile;
 }
 
@@ -88,6 +98,8 @@ export interface ConfigInputs {
 interface FileConfig {
   readonly apiUrl?: string;
   readonly token?: string;
+  /** The project for the key beside it: `keyProject`. */
+  readonly project?: string;
   /** `kindgi dev` writes these beside its runtime's address and key. */
   readonly packServicePort?: unknown;
   readonly packServiceToken?: unknown;
@@ -95,7 +107,7 @@ interface FileConfig {
 
 /** A config file that was there, and what it holds. */
 interface ReadConfigFile extends ConfigFile {
-  readonly values: Pick<FileConfig, 'apiUrl' | 'token'>;
+  readonly values: Pick<FileConfig, 'apiUrl' | 'token' | 'project'>;
   /** `kindgi dev` wrote it: it has the pack service's port or token. */
   readonly writtenByDev: boolean;
 }
@@ -166,17 +178,25 @@ function resolveConfig(
     source: { apiUrl: apiUrl.source, token: token.source },
     ...(Object.keys(from).length > 0 && { files: from }),
     ...(key?.apiUrl !== undefined && { keyAddress: key.apiUrl }),
+    ...(key?.project !== undefined && { keyProject: key.project }),
     ...(key !== undefined && { storedKeys: keys }),
   };
 }
 
-/** The keys `files` hold, in their order, each with the address beside it. */
+/** The keys `files` hold, in their order, each with the address and project beside it. */
 function storedKeysOf(files: readonly (ReadConfigFile | undefined)[]): StoredKey[] {
   return files.flatMap((f) => {
     const token = f?.values.token;
     if (f === undefined || token === undefined) return [];
-    const apiUrl = f.values.apiUrl;
-    return [{ token, ...(apiUrl !== undefined && apiUrl !== '' && { apiUrl }), file: fileRef(f) }];
+    const { apiUrl, project } = f.values;
+    return [
+      {
+        token,
+        ...(apiUrl !== undefined && apiUrl !== '' && { apiUrl }),
+        ...(project !== undefined && { project }),
+        file: fileRef(f),
+      },
+    ];
   });
 }
 
@@ -216,6 +236,8 @@ async function readConfigFile(
     values: {
       ...(typeof parsed.apiUrl === 'string' && { apiUrl: parsed.apiUrl }),
       ...(typeof parsed.token === 'string' && { token: parsed.token }),
+      ...(typeof parsed.project === 'string' &&
+        parsed.project !== '' && { project: parsed.project }),
     },
     writtenByDev:
       typeof parsed.packServicePort === 'number' || typeof parsed.packServiceToken === 'string',
@@ -234,11 +256,12 @@ function parseJson(raw: string, path: string): FileConfig {
   }
 }
 
-/** What `~/.kindgi/config.json` holds now: its path, and its address and key, each when there. */
+/** What `~/.kindgi/config.json` holds now: its path, and its address, key and project, each when there. */
 export interface HomeLogin {
   readonly path: string;
   readonly apiUrl?: string;
   readonly token?: string;
+  readonly project?: string;
 }
 
 /** Read `~/.kindgi/config.json` as it is now, as `kindgi auth login` finds it before a save. */
@@ -250,7 +273,23 @@ export async function readHomeLogin(home: string | undefined = homedir()): Promi
     path,
     ...(typeof parsed.apiUrl === 'string' && parsed.apiUrl !== '' && { apiUrl: parsed.apiUrl }),
     ...(typeof parsed.token === 'string' && parsed.token !== '' && { token: parsed.token }),
+    ...(typeof parsed.project === 'string' && parsed.project !== '' && { project: parsed.project }),
   };
+}
+
+/**
+ * Whether a file's `project` stays when `patch` is saved over it: it's the
+ * project for the key beside it, so a new key or address drops it.
+ */
+export function keepsProject(
+  file: Pick<FileConfig, 'apiUrl' | 'token'>,
+  patch: Pick<FileConfig, 'apiUrl' | 'token'>,
+): boolean {
+  return (
+    (patch.token === undefined || patch.token === file.token) &&
+    (patch.apiUrl === undefined ||
+      (file.apiUrl !== undefined && sameAddress(patch.apiUrl, file.apiUrl)))
+  );
 }
 
 /** `~/.kindgi` holds the API key: this account's only. */
@@ -259,7 +298,8 @@ const HOME_DIR_MODE = 0o700;
 /**
  * Persist a config file at `~/.kindgi/config.json`. Called by
  * `kindgi auth login`. Merges with any existing file so a partial
- * write does not clobber other keys.
+ * write does not clobber other keys. A `project` stays only when the
+ * key and address do (`keepsProject`).
  *
  * The file is `0600` and `~/.kindgi` `0700`, an older looser one
  * included: the new text is a new file that replaces the old one
@@ -275,7 +315,8 @@ export async function saveHomeConfig(
   const path = join(resolvedHome, '.kindgi', 'config.json');
   const existing = await defaultReadFile(path);
   const base = existing === null ? {} : (JSON.parse(existing) as FileConfig);
-  const next = { ...base, ...patch };
+  const { project: _dropped, ...withoutProject } = base;
+  const next = { ...(keepsProject(base, patch) ? base : withoutProject), ...patch };
   const text = `${JSON.stringify(next, null, 2)}\n`;
   await mkdir(dirname(path), { recursive: true, mode: HOME_DIR_MODE });
   // One made earlier, by hand or by an older CLI, may be looser.

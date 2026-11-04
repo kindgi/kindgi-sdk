@@ -38,6 +38,7 @@ import { LOCAL_ENV_NAME, type PackEnv, packValues, readPackEnv } from '@kindgi/s
 
 import { deployApiAddress, hostedApiAddress } from '../api-address.js';
 import { describeFiles } from '../build/pack-blocks.js';
+import type { ResolvedConfig } from '../config.js';
 import type { CommandContext } from '../context.js';
 import { isEnvelopeSigned } from '../deploy/envelope-loader.js';
 import { packBlocksRefusal } from '../deploy/pack-blocks-gate.js';
@@ -142,7 +143,7 @@ export const deployCommand: LeafCommand = {
     project: {
       type: 'string',
       description:
-        "The project to deploy into, one per client: its id, or its slug. A slug two orgs share is refused: pass the id. Default: a tenant-wide deploy, into the tenant's default project.",
+        "The project to deploy into, one per client: its id, or its slug. A slug two orgs share is refused: pass the id. Default: the project stored with your key, else a tenant-wide deploy, into the tenant's default project.",
     },
     'idempotency-key': {
       type: 'string',
@@ -251,6 +252,8 @@ interface ResolvedDeployArgs {
   readonly explicitTenantId: string | undefined;
   /** `--project`: an id or a slug, resolved before the POST. */
   readonly projectRef: string | undefined;
+  /** The project stored beside the key this deploy sends (`keyProject`), and the file that holds both. */
+  readonly keyProject: { readonly ref: string; readonly file: string } | undefined;
   /** `--hosted`, or the env block's `build: 'hosted'`: build there, then wait for the pack service. */
   readonly hosted: boolean;
   readonly idempotencyKeyOverride: string | undefined;
@@ -371,6 +374,10 @@ async function deployWith(
   // a hosted build carries the project's id as its label.
   const project = await resolveDeployProject(args, environmentProject, runners, ctx);
   if (project.kind === 'error') return failure(project.message);
+  if (args.projectRef === undefined && environmentProject === undefined && args.keyProject) {
+    line(`  Project:     ${args.keyProject.ref}  (project in ${args.keyProject.file})`);
+    line('');
+  }
   const hostedEnvRefusal = refuseHostedConfigEnv(args, project.id);
   if (hostedEnvRefusal !== undefined) return hostedEnvRefusal;
 
@@ -1231,8 +1238,9 @@ type ProjectOutcome =
 
 /**
  * The project to deploy into: `--project`, else the pack environment's
- * `project` when the runtime keeps its values under one env (`fromEnvironment`).
- * A `--project` that isn't that environment's project is refused.
+ * `project` when the runtime keeps its values under one env (`fromEnvironment`),
+ * else the project stored beside the key. A `--project` that isn't that
+ * environment's project is refused.
  */
 async function resolveDeployProject(
   args: ResolvedDeployArgs,
@@ -1240,6 +1248,10 @@ async function resolveDeployProject(
   runners: DeployRunners,
   ctx: CommandContext,
 ): Promise<ProjectOutcome> {
+  if (args.projectRef === undefined && fromEnvironment === undefined && args.keyProject) {
+    const { ref, file } = args.keyProject;
+    return resolveProject(ref, `project in ${file}`, args, runners, ctx);
+  }
   const flag = await resolveProject(args.projectRef, '--project', args, runners, ctx);
   if (flag.kind === 'error' || fromEnvironment === undefined) return flag;
   const where = `environments.${args.envName}.project`;
@@ -1250,6 +1262,14 @@ async function resolveDeployProject(
     kind: 'error',
     message: `--project ${args.projectRef} isn't the ${args.envName} environment's project, ${fromEnvironment} (${where}). Leave --project out, or deploy with the --env whose project it is.\n`,
   };
+}
+
+/** The project stored beside `config`'s key, with the file that holds both, when there is one. */
+function keyProjectOf(config: ResolvedConfig): ResolvedDeployArgs['keyProject'] {
+  const file = config.files?.token?.path;
+  return config.keyProject !== undefined && file !== undefined
+    ? { ref: config.keyProject, file }
+    : undefined;
 }
 
 /**
@@ -1456,6 +1476,7 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       explicitEnvelope,
       explicitTenantId,
       projectRef,
+      keyProject: keyProjectOf(address.config),
       hosted,
       idempotencyKeyOverride,
       dryRun,

@@ -1757,6 +1757,77 @@ describe('kindgi deploy --project: one project per client', () => {
     expect(body(fixtures)?.projectId).toBeUndefined();
   });
 
+  describe('the project stored with the key', () => {
+    const STAGING = 'https://api.staging.example.com';
+    const homeFile = () => join(home, '.kindgi', 'config.json');
+    /** The key in ~/.kindgi/config.json, for the staging API, with `project` beside it. */
+    const stored = async (project: string) => {
+      await mkdir(join(home, '.kindgi'), { recursive: true });
+      await writeFile(
+        homeFile(),
+        JSON.stringify({ apiUrl: STAGING, token: 'kgi_tk_stored', project }),
+      );
+    };
+    /** No key in the env: the stored one goes. */
+    const deployStored = (fixtures: Fixtures, ...flags: string[]) =>
+      runCli({
+        ...baseInputs(fixtures, { env: {} }),
+        argv: ['deploy', '--env=staging', `--path=${packDir}`, ...flags],
+      });
+
+    test('without --project: the deploy goes into it, and says where it came from', async () => {
+      await writeAutoEnvelope();
+      await stored(GLOBEX);
+      const fixtures = makeFixtures({ projects });
+      const out = await deployStored(fixtures);
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(body(fixtures)?.projectId).toBe(GLOBEX);
+      expect(fixtures.state.findCalls).toBe(0);
+      expect(out.stderr).toContain(`  Project:     ${GLOBEX}  (project in ${homeFile()})\n`);
+    });
+
+    test("a slug is looked up, as --project's is", async () => {
+      await writeAutoEnvelope();
+      await stored('acme-shop');
+      const fixtures = makeFixtures({ projects });
+      const out = await deployStored(fixtures);
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(fixtures.state.capturedFindSlug).toBe('acme-shop');
+      expect(body(fixtures)?.projectId).toBe(ACME);
+    });
+
+    test('--project comes first, and nothing says the stored one', async () => {
+      await writeAutoEnvelope();
+      await stored(GLOBEX);
+      const fixtures = makeFixtures({ projects });
+      const out = await deployStored(fixtures, `--project=${ACME}`);
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(body(fixtures)?.projectId).toBe(ACME);
+      expect(out.stderr).not.toContain('(project in ');
+    });
+
+    test('a key given in the env has no project: tenant-wide, as before', async () => {
+      await writeAutoEnvelope();
+      await stored(GLOBEX);
+      const fixtures = makeFixtures({ projects });
+      const out = await deploy(fixtures);
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(body(fixtures)?.projectId).toBeUndefined();
+    });
+
+    test('a slug of no project is refused, naming the file; nothing is sent', async () => {
+      await writeAutoEnvelope();
+      await stored('initech-shop');
+      const fixtures = makeFixtures({ projects });
+      const out = await deployStored(fixtures);
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        `project in ${homeFile()} initech-shop: no project of this tenant has that slug.`,
+      );
+      expect(fixtures.state.postCalls).toBe(0);
+    });
+  });
+
   test('a slug of no project is refused, saying where to see them and how to make one; nothing is sent', async () => {
     await writeAutoEnvelope();
     const fixtures = makeFixtures({ projects });
@@ -2441,6 +2512,24 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
       const out = await deployTo(run.fixtures, 'staging-1', `--project=${PROJECT}`);
       expect(out.exitCode, out.stderr).toBe(0);
       expect(body(run.fixtures)?.projectId).toBe(PROJECT);
+    });
+
+    test('it comes before the project stored with the key', async () => {
+      await writeAutoEnvelope();
+      await mkdir(join(home, '.kindgi'), { recursive: true });
+      const elsewhere = '9a0b1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d';
+      await writeFile(
+        join(home, '.kindgi', 'config.json'),
+        JSON.stringify({ apiUrl: API, token: 'kgi_tk_stored', project: elsewhere }),
+      );
+      const run = hostedFixtures(pending(), [ready], { servedEnv: REFUSES, projects });
+      const out = await runCli({
+        ...baseInputs(run.fixtures, { env: { KINDGI_API_URL: API } }, placed()),
+        argv: ['deploy', '--env=staging-1', '--hosted', `--path=${packDir}`],
+      });
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(body(run.fixtures)?.projectId).toBe(PROJECT);
+      expect(out.stderr).not.toContain('(project in ');
     });
 
     test('a slug that names no project is refused, saying where it came from', async () => {
