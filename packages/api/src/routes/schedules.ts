@@ -123,7 +123,10 @@ import { UUID_RE } from './uuid-param.js';
 export function schedulesRouter(
   binding: TriggerRegistryBinding,
   authorizer?: Authorizer,
-  /** The tenant's default project: where a schedule that names no project goes. */
+  /**
+   * The tenant's default project: where a schedule that names no project goes
+   * when the caller's key or session is limited to none.
+   */
   projects?: Pick<ProjectBinding, 'getDefault'>,
   /** Where an owner's name is read (`owner.displayName`); see `TriggerOwnerNames`. */
   names?: TriggerOwnerNames,

@@ -78,7 +78,10 @@ import { UUID_RE } from './uuid-param.js';
 
 export interface MailTriggersRouterOptions {
   readonly authorizer?: Authorizer;
-  /** The tenant's default project: where a mail trigger that names no project goes. */
+  /**
+   * The tenant's default project: where a mail trigger that names no project
+   * goes when the caller's key or session is limited to none.
+   */
   readonly projects?: Pick<ProjectBinding, 'getDefault'>;
   /** Where an owner's name is read (`owner.displayName`). */
   readonly names?: TriggerOwnerNames;

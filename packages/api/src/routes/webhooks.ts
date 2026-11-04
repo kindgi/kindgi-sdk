@@ -82,7 +82,8 @@ export interface WebhooksRouterOptions {
   readonly authorizer?: Authorizer;
   /**
    * The tenant's default project, where a webhook trigger that names no
-   * project goes; and a project's org, where its signing secret may be read.
+   * project goes when the caller's key or session is limited to none; and a
+   * project's org, where its signing secret may be read.
    */
   readonly projects?: Pick<ProjectBinding, 'getDefault' | 'get'>;
   /**
