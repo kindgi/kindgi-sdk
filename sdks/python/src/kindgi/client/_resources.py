@@ -1484,11 +1484,12 @@ class RunsResource:
         agent_version: str | None = None,
         flow_id: str | UUID | None = None,
         flow_version: str | None = None,
+        acts_for: Literal["me"] | None = None,
         timeout: float | None = None,
     ) -> _models.RunCollectionPage:
         """List runs. `GET /v1/runs`
 
-        Cursor-paginated. Fixed sort order: `createdAt desc, id desc`.
+        Cursor-paginated. Fixed sort order: `createdAt desc, id desc`. With authorization on, it lists every run in the projects the caller may `read`, and in the projects where they may only `run`, the runs that act for them (`actsFor`); the runtime applies this in its query, so a page is full when there are more. Across projects (no scope, the workspace or an org), those projects come from the authorization store's list, which answers at most 1000 by default: a caller who reads or runs more may miss the runs of some. A workspace admin's list doesn't go through it.
         """
         return self._client._request(
             _OPERATIONS["runs.list"],
@@ -1511,6 +1512,7 @@ class RunsResource:
                 "agentVersion": agent_version,
                 "flowId": flow_id,
                 "flowVersion": flow_version,
+                "actsFor": acts_for,
             },
             headers={},
             response=_models.RunCollectionPage,
@@ -5367,7 +5369,7 @@ class ArtifactsResource:
     ) -> _models.ArtifactCollectionPage:
         """List artifact metadata. `GET /v1/artifacts`
 
-        Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed.
+        Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed; with `?ownerRunId=` of a run of the caller's own (one that acts for them), `run` on the project is enough too.
         """
         return self._client._request(
             _OPERATIONS["artifacts.list"],
@@ -5395,7 +5397,7 @@ class ArtifactsResource:
     ) -> _models.BlobMeta:
         """Upload an artifact. `POST /v1/artifacts`
 
-        Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.
+        Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. A person with `run` there and no `write` may upload a file that names no `ownerRunId`: an input for a run they start, which they may download again. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.
         """
         return self._client._request(
             _OPERATIONS["artifacts.upload"],
@@ -5411,7 +5413,7 @@ class ArtifactsResource:
     def download(self, blob_id: str | UUID, /, *, timeout: float | None = None) -> bytes:
         """Download an artifact (stream). `GET /v1/artifacts/{blobId}`
 
-        Streams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name).
+        Streams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name). Needs `read` on the artifact's project, or `run` there on a file of the caller's own: one they uploaded, or one a run that acts for them stored.
         """
         return self._client._request(
             _OPERATIONS["artifacts.download"],
@@ -11812,11 +11814,12 @@ class AsyncRunsResource:
         agent_version: str | None = None,
         flow_id: str | UUID | None = None,
         flow_version: str | None = None,
+        acts_for: Literal["me"] | None = None,
         timeout: float | None = None,
     ) -> _models.RunCollectionPage:
         """List runs. `GET /v1/runs`
 
-        Cursor-paginated. Fixed sort order: `createdAt desc, id desc`.
+        Cursor-paginated. Fixed sort order: `createdAt desc, id desc`. With authorization on, it lists every run in the projects the caller may `read`, and in the projects where they may only `run`, the runs that act for them (`actsFor`); the runtime applies this in its query, so a page is full when there are more. Across projects (no scope, the workspace or an org), those projects come from the authorization store's list, which answers at most 1000 by default: a caller who reads or runs more may miss the runs of some. A workspace admin's list doesn't go through it.
         """
         return await self._client._request(
             _OPERATIONS["runs.list"],
@@ -11839,6 +11842,7 @@ class AsyncRunsResource:
                 "agentVersion": agent_version,
                 "flowId": flow_id,
                 "flowVersion": flow_version,
+                "actsFor": acts_for,
             },
             headers={},
             response=_models.RunCollectionPage,
@@ -15703,7 +15707,7 @@ class AsyncArtifactsResource:
     ) -> _models.ArtifactCollectionPage:
         """List artifact metadata. `GET /v1/artifacts`
 
-        Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed.
+        Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed; with `?ownerRunId=` of a run of the caller's own (one that acts for them), `run` on the project is enough too.
         """
         return await self._client._request(
             _OPERATIONS["artifacts.list"],
@@ -15731,7 +15735,7 @@ class AsyncArtifactsResource:
     ) -> _models.BlobMeta:
         """Upload an artifact. `POST /v1/artifacts`
 
-        Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.
+        Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. A person with `run` there and no `write` may upload a file that names no `ownerRunId`: an input for a run they start, which they may download again. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.
         """
         return await self._client._request(
             _OPERATIONS["artifacts.upload"],
@@ -15747,7 +15751,7 @@ class AsyncArtifactsResource:
     async def download(self, blob_id: str | UUID, /, *, timeout: float | None = None) -> bytes:
         """Download an artifact (stream). `GET /v1/artifacts/{blobId}`
 
-        Streams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name).
+        Streams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name). Needs `read` on the artifact's project, or `run` there on a file of the caller's own: one they uploaded, or one a run that acts for them stored.
         """
         return await self._client._request(
             _OPERATIONS["artifacts.download"],
