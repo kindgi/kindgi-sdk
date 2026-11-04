@@ -21,7 +21,9 @@ const WRITE_METHODS: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH']);
  *
  * - the path: `/projects/<id>/…`;
  * - the query: `?projectId=<id>`, or `?scopeKind=project&scopeId=<id>`;
- * - a JSON write body: `projectId`, or `scope.projectId`. An upload's
+ * - a JSON write body: `projectId`, `scope.projectId`, `improve.projectId`
+ *   (an Improve schedule's), or `scopeKind: 'project'` with `scopeId`, as
+ *   the query names one (an MCP endpoint's register body). An upload's
  *   body (a route in `ownLimits`) isn't JSON, and isn't read here: the
  *   upload route checks the project its form names.
  *
@@ -143,7 +145,10 @@ async function projectsNamed(req: RequestLike, jsonBody: boolean): Promise<strin
   return named;
 }
 
-/** `projectId` and `scope.projectId` in a JSON body; none when it isn't JSON. */
+/**
+ * `projectId`, `scope.projectId`, `improve.projectId`, and `scopeId`
+ * beside `scopeKind: 'project'` in a JSON body; none when it isn't JSON.
+ */
 async function projectsInBody(req: RequestLike): Promise<string[]> {
   let body: unknown;
   try {
@@ -152,12 +157,26 @@ async function projectsInBody(req: RequestLike): Promise<string[]> {
     return [];
   }
   if (body === null || typeof body !== 'object') return [];
-  const b = body as { readonly projectId?: unknown; readonly scope?: unknown };
+  const b = body as {
+    readonly projectId?: unknown;
+    readonly scope?: unknown;
+    readonly improve?: unknown;
+    readonly scopeKind?: unknown;
+    readonly scopeId?: unknown;
+  };
   const named: string[] = [];
   if (typeof b.projectId === 'string') named.push(b.projectId);
-  const scope = b.scope as { readonly projectId?: unknown } | null | undefined;
-  if (scope !== null && typeof scope === 'object' && typeof scope.projectId === 'string') {
-    named.push(scope.projectId);
+  for (const nested of [b.scope, b.improve]) {
+    const inside = projectIdIn(nested);
+    if (inside !== undefined) named.push(inside);
   }
+  if (b.scopeKind === 'project' && typeof b.scopeId === 'string') named.push(b.scopeId);
   return named;
+}
+
+/** `value.projectId`, when `value` is an object with one. */
+function projectIdIn(value: unknown): string | undefined {
+  if (value === null || typeof value !== 'object') return undefined;
+  const projectId = (value as { readonly projectId?: unknown }).projectId;
+  return typeof projectId === 'string' ? projectId : undefined;
 }

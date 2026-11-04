@@ -17,7 +17,9 @@ import type {
 } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { limitedCaller } from '../middleware/key-project.js';
 import type { AppEnv } from '../types.js';
+import { refused } from './denied.js';
 import { clampLimit } from './pagination.js';
 import { UUID_RE } from './uuid-param.js';
 
@@ -145,6 +147,33 @@ async function getOrder(
   return c.json(readsNone ? { parent: wire.parent, entries: [] } : wire);
 }
 
+/**
+ * A key or session limited to a project never sets an environment order:
+ * an order lists the tenant's or an org's projects (`projectIds`, which the
+ * key-project middleware doesn't read), and an empty one clears them.
+ * Without an authorizer nothing else would hold the key, so it's refused
+ * here, whatever the authorizer.
+ */
+function limitedToProject(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  parent: EnvironmentOrderParent,
+): Response | undefined {
+  const keyProject = c.get('tokenProjectId');
+  if (keyProject === undefined) return undefined;
+  return refused(c, authorizer, {
+    action: 'admin',
+    resource:
+      parent.kind === 'tenant'
+        ? ref('tenant', c.get('tenantId') as unknown as string)
+        : ref('org', parent.orgId as unknown as string),
+    message: `${limitedCaller(c)} is limited to project ${keyProject}; an environment order lists other projects, so a caller limited to one project can't set one`,
+    failing: 'scope',
+    code: 'key-project-mismatch',
+    details: { keyProjectId: keyProject },
+  });
+}
+
 async function setOrder(
   c: Context<AppEnv>,
   binding: EnvironmentOrderBinding,
@@ -154,6 +183,9 @@ async function setOrder(
 ): Promise<Response> {
   const requestId = c.get('requestId');
   const tenantId = c.get('tenantId') as TenantId;
+
+  const limited = limitedToProject(c, authorizer, parent);
+  if (limited !== undefined) return limited;
 
   // Only a tenant admin sets an order (when authorization is configured).
   if (authorizer !== undefined && !(await isTenantAdmin(c, authorizer))) {
