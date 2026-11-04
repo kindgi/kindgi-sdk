@@ -66983,7 +66983,7 @@
             }
           },
           "403": {
-            "description": "Only a tenant admin sets an environment order (`permission-denied`).",
+            "description": "Only a tenant admin sets an environment order (`permission-denied`), and never a key or session limited to a project (`key-project-mismatch`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -67158,7 +67158,7 @@
             }
           },
           "403": {
-            "description": "Only a tenant admin sets an environment order (`permission-denied`).",
+            "description": "Only a tenant admin sets an environment order (`permission-denied`), and never a key or session limited to a project (`key-project-mismatch`).",
             "content": {
               "application/json": {
                 "schema": {

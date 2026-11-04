@@ -10485,7 +10485,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The order as it now stands.', schema: ref('EnvironmentOrder') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('Only a tenant admin sets an environment order (`permission-denied`).'),
+      '403': ErrorResponse(
+        'Only a tenant admin sets an environment order (`permission-denied`), and never a key or session limited to a project (`key-project-mismatch`).',
+      ),
       '409': ErrorResponse(
         'A project in the order already belongs to another one (`project-in-another-order`).',
       ),
@@ -10539,7 +10541,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The order as it now stands.', schema: ref('EnvironmentOrder') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('Only a tenant admin sets an environment order (`permission-denied`).'),
+      '403': ErrorResponse(
+        'Only a tenant admin sets an environment order (`permission-denied`), and never a key or session limited to a project (`key-project-mismatch`).',
+      ),
       '409': ErrorResponse(
         'A project in the order already belongs to another one (`project-in-another-order`).',
       ),
