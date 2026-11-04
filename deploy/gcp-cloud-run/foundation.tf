@@ -24,7 +24,7 @@ locals {
     "run.googleapis.com",
     "secretmanager.googleapis.com",
     "sqladmin.googleapis.com",
-  ], var.vertex_ai ? ["aiplatform.googleapis.com"] : [])
+  ], var.vertex_ai ? ["aiplatform.googleapis.com"] : [], local.license_renewal ? ["monitoring.googleapis.com"] : [])
 
   # The project's number, which Cloud Run's deterministic URLs and Secret
   # Manager's resource names carry.

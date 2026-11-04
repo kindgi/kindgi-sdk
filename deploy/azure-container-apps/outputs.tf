@@ -75,6 +75,6 @@ output "license_enroll_command" {
 }
 
 output "license_renew_command" {
-  description = "Renews the license key by hand or from your own scheduler. With license_renewal_schedule set, the module's job runs it; with license_usage_key_secret, the renewal carries counts of the deployment's use."
+  description = "Renews the license key by hand or from your own scheduler. With license_renewal_schedule set, the module's job runs it; with license_usage_key_secret, the renewal carries counts of the deployment's use and, from runtime 0.7.0, hands a renewed key to the running server."
   value       = "kindgi ${join(" ", local.license_renew_args)}"
 }

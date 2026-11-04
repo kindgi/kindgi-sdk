@@ -802,7 +802,8 @@ run "refuses_the_license_refs_in_server_env" {
 }
 
 # The job's two alerts: a failed execution, and the run line saying the key
-# expires within a week. With action groups, both go there.
+# is inside its warning window, at any days left. With action groups, both go
+# there.
 run "license_renewal_alerts" {
   command = plan
   variables {
@@ -814,8 +815,8 @@ run "license_renewal_alerts" {
     error_message = "A failed execution of the job alerts."
   }
   assert {
-    condition     = strcontains(azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring[0].criteria[0].query, "== \"kindgi-license-renew\"") && strcontains(azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring[0].criteria[0].query, "It expires in (-[0-9]+|[0-6]) days") && azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring[0].scopes == tolist([azurerm_log_analytics_workspace.kindgi.id])
-    error_message = "The job's run line saying the key expires within a week alerts, from the environment's workspace."
+    condition     = strcontains(azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring[0].criteria[0].query, "== \"kindgi-license-renew\"") && strcontains(azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring[0].criteria[0].query, "It expires in -?[0-9]+ days") && azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring[0].scopes == tolist([azurerm_log_analytics_workspace.kindgi.id])
+    error_message = "The job's run line saying the key is inside its warning window alerts, at any days left, from the environment's workspace."
   }
   assert {
     condition     = toset([for a in azurerm_monitor_metric_alert.license_renewal_failed[0].action : a.action_group_id]) == toset(var.alert_action_groups) && toset(azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring[0].action[0].action_groups) == toset(var.alert_action_groups)

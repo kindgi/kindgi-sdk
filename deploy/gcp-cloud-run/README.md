@@ -4,6 +4,7 @@ A Terraform root module that runs Kindgi in one GCP project:
 - the runtime (the API, agent and flow execution) as a Cloud Run service;
 - the pack orchestrator, a Cloud Run Job from the runtime's image that Cloud Scheduler runs once a minute. It gives each pack deployment an IAM-protected Cloud Run service of its own ("5. The pack orchestrator");
 - Kindgi's own Cloud SQL (Postgres 16) instance (unless `database_host_instance` points at an existing one);
+- optionally, a Cloud Run job that renews the license key on a schedule ("8. Renew the license key");
 - everything they stand on: service accounts, an Artifact Registry repository, a KMS key for the runtime's secrets and each pack service's token, and Secret Manager containers.
 
 **Three network shapes** (`network_mode`):
@@ -349,6 +350,69 @@ server_secret_env = {
 - Several ways in share the two maps: with the emailed link too, they hold both sets of settings.
 - The `…_PATH` forms read a file, which this module doesn't mount, so use the value forms.
 
+## 8. Renew the license key
+
+The license key expires, and the server warns before it does: from 30 days before, or fewer if the key sets its own warning (the startup banner, the console and `kindgi doctor`, each with the exact command). The server never calls Kindgi. The deployment renews its own key with `kindgi license renew` when you run it: by hand, from your own scheduler, or on a schedule this module adds.
+
+**Once per deployment, enroll it:**
+
+```sh
+terraform output -raw license_enroll_command
+# kindgi license enroll --for <your GitHub login, or your license subject> --renewer gcp:projects/<project>/secrets/<prefix>-license-renewer
+```
+
+Run that command with `--for` filled in: your GitHub login, or, for a key Kindgi issued, its subject.
+- It makes the deployment's renewer key and keeps it in `$N-license-renewer` (`license_renewer_secret`). The module creates that secret empty, only the renewal job may read it, and the key is never printed.
+- It prints a line to add at access.kindgi.com, signed in as that login. For a key Kindgi issued, send the line to Kindgi instead.
+- Outside Cloud Run the CLI uses your gcloud credentials (`gcloud auth print-access-token`), which must be able to add versions to that secret.
+
+**By hand, or from your own scheduler:** `terraform output -raw license_renew_command` prints the command. It asks access.kindgi.com for this deployment's key, checks the answer offline, and adds a version of `$N-license-key` only when Kindgi answers with a new key. It prints `renewed: …` or `unchanged: …`, and `⚠ It expires in <days> days. …` while the key is inside its warning window.
+
+**On a schedule:** set `license_renewal_schedule`, a cron in UTC, and apply. Enroll first.
+
+```hcl
+license_renewal_schedule = "17 6 * * *" # daily at 06:17 UTC
+```
+
+- **The job:** `$N-license-renewal`, a Cloud Run job on the runtime image that runs the same command, started by Cloud Scheduler. Where `region` has no Cloud Scheduler ([its locations](https://docs.cloud.google.com/scheduler/docs/locations)), set `license_renewal_scheduler_region`; the job still runs in `region`. The runtime image carries the `kindgi` CLI with `license renew` from 0.1.7.
+- **Its identity:** a service account of its own, `$N-renew`. It reads the license key and the renewer key (and the usage key, below), and may add versions to the license key, and nothing else: it can't change, delete or restart anything.
+- **Its network:** in `direct`, it leaves through Cloud NAT like the server, and reaches the server through the module's VPC; in `connector` and `none`, through Cloud Run's own egress.
+- **Its runs:** `gcloud run jobs executions list --job $N-license-renewal --region <region>`.
+- **Alerts:** a failed run, and a run that says the key is inside its warning window (its line `⚠ It expires in <days> days`). That alert follows the key's own warning, so it fires from 30 days before the key expires, or fewer if the key sets them. With `license_usage_key_secret` (below), a third: a run that sent no counts (its line `counts: not sent (<why>)`). A production key's renewals never carry counts, so they never raise it. Each opens an incident in Cloud Monitoring, and `alert_notification_channels` sends them on.
+
+**The server, and the counts (`license_usage_key_secret`):** with a system key holding `system:license` alone, the job renews with `--runtime` (the server's run.app URL) and `--runtime-token` (the key's secret), as `license_renew_command` then does too.
+- For a non-production key, the renewal carries counts of the deployment's use (the docs' Renew the license key page says what they are, under "What renewing sends").
+- From runtime 0.7.0, a renewed key goes to the running server as well, which uses it at once, on every instance, with no restart. If the server refuses it, the run writes nothing and fails, and the failed-run alert fires.
+- It needs a server that takes calls without Cloud Run IAM (`server_public`, or `server_invoker_iam_disabled`): the job sends the system key as a Kindgi bearer only, and Cloud Run refuses a call without a Google ID token before the server sees it. The plan refuses `license_usage_key_secret` otherwise.
+
+Mint the key with the deployment's own token, and keep it in a secret of its own, made before the apply that names it. Terraform never holds the key, and the server gets no access to it:
+
+```sh
+gcloud secrets create $N-license-usage-key --replication-policy=user-managed --locations=<region>
+URL=$(terraform output -raw server_url)
+KEY=$(curl -sS -X POST "$URL/v1/system/keys" \
+  -H @<(printf 'Authorization: Bearer %s\n' "$(gcloud secrets versions access latest --secret=$N-api-token)") \
+  -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"scopes": ["system:license"], "label": "license renewal"}' \
+  | jq -j '.token // error(.error.message)') && [ -n "$KEY" ] \
+  && printf '%s' "$KEY" | gcloud secrets versions add $N-license-usage-key --data-file=-
+unset KEY
+```
+
+Then set `license_usage_key_secret = "<prefix>-license-usage-key"` and apply. The version is added only if a key came back: a refused or failed call prints why and adds none. To list the keys or revoke one, see "A key for the counts" on the docs' Renew the license key page. A server serving one tenant that refuses the mint with `system-principal-required` is older than runtime 0.1.10, which has these keys: until you upgrade it, leave `license_usage_key_secret` empty.
+
+**Check the first run.** A renewal that can't send its counts, or hand the key over, still renews, and says so in its log:
+
+```sh
+gcloud run jobs execute $N-license-renewal --region <region> --wait
+gcloud logging read 'resource.type="cloud_run_job" AND resource.labels.job_name="'$N'-license-renewal"' \
+  --freshness=1h --limit=20 --format='value(textPayload)'
+```
+
+**When the server uses a renewed key:** with `license_usage_key_secret` and runtime 0.7.0 or later, at once (above). Otherwise when Cloud Run next starts an instance, which reads the secret's latest version: a new revision, or a new instance as it scales. A running instance keeps the key it started with and never stops over its key, so nothing breaks in between.
+
+**Stopping:** unset `license_renewal_schedule`, or stop the renewer at access.kindgi.com.
+
 ## The pack services
 
 The orchestrator makes each deployment's service, named `kp-…`, with the `pack_*` settings. Every one runs as the one pack account, `$N-pack`, so whatever one pack may read, each may.
@@ -448,7 +512,7 @@ The `run.app` URL then takes only the load balancer's calls and internal ones, s
 
 ## Testing the module
 
-`terraform init -backend=false && terraform test` runs the tests in `tests/` with a mock Google provider. No credentials are used and no cloud calls are made. `tests/module.tftest.hcl` plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"` with the endpoint tokens' key, the AAD key's pin, an existing repository in the same project and in another, the pack's invoker grants, the client-address setting, the server's ingress behind a load balancer (what it needs, the Job's VPC egress, and the URLs it names), the server's own settings (sign-in), the tenancy: `single` and `multi` with each setting it needs, and what each refuses; the routing per deployment and the pack orchestrator: its Job only once its key is set, its schedule, its rights and the pack account's, the key steps, and what the pack settings refuse; `database_instance`: the server's volume, URL secret and grants on another instance, the module's own instance and grant kept, and each refusal; and the database's backups: Cloud SQL's defaults, each setting, and what each refuses. `tests/store-on-later.tftest.hcl` applies, in order, a deployment without a secrets store and the steps that turn one on later: the full plan refused until `secrets_aad_key_version` is set, the targeted apply of what the store stands on, and then the full apply, with the server's new settings.
+`terraform init -backend=false && terraform test` runs the tests in `tests/` with a mock Google provider. No credentials are used and no cloud calls are made. `tests/module.tftest.hcl` plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"` with the endpoint tokens' key, the AAD key's pin, an existing repository in the same project and in another, the pack's invoker grants, the client-address setting, the server's ingress behind a load balancer (what it needs, the Job's VPC egress, and the URLs it names), the server's own settings (sign-in), the tenancy: `single` and `multi` with each setting it needs, and what each refuses; the routing per deployment and the pack orchestrator: its Job only once its key is set, its schedule, its rights and the pack account's, the key steps, and what the pack settings refuse; `database_instance`: the server's volume, URL secret and grants on another instance, the module's own instance and grant kept, and each refusal; the database's backups: Cloud SQL's defaults, each setting, and what each refuses; and the license renewal: by hand by default, the scheduled job, its grants, its network and its alerts, the usage key's arguments and grant, and what each refuses. `tests/store-on-later.tftest.hcl` applies, in order, a deployment without a secrets store and the steps that turn one on later: the full plan refused until `secrets_aad_key_version` is set, the targeted apply of what the store stands on, and then the full apply, with the server's new settings.
 
 ## Upgrading
 
