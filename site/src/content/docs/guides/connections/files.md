@@ -99,6 +99,8 @@ Each file comes with the same fields as Google's. A folder's `contentType`
 is `inode/directory`, since Microsoft gives a folder none. A file someone
 shared that the person added to their own OneDrive also gives its
 `driveId`, the drive it's kept in, and its `owner` when Microsoft names one.
+What's in such a folder is in that drive, so `oneDriveSharedFilesList` lists
+it, with the folder's `id` and its `driveId`.
 
 ## Files others share, and SharePoint libraries
 
