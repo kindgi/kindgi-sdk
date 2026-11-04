@@ -36,7 +36,7 @@ can't change agents, settings or other people's work.
      choose **Cancel**.
    - Two permissions, both ticked. Untick one if you don't want Claude to
      have it:
-     - **Follow your runs and see their results**
+     - **Follow runs you can see in Kindgi, and see their results**
      - **Run the agents and flows you're allowed to run, and follow their
        runs**
 
