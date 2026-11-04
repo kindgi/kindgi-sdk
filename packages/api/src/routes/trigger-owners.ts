@@ -520,7 +520,7 @@ export async function recordOwnerSet(args: {
   readonly tenantId: TenantId;
   readonly projectId?: ProjectId;
   readonly triggerId: string;
-  readonly triggerKind: 'webhook' | 'cron' | 'mail';
+  readonly triggerKind: 'webhook' | 'cron' | 'mail' | 'text';
   readonly from?: TriggerOwner;
   readonly to: TriggerOwner;
   readonly by: string | undefined;
@@ -586,7 +586,8 @@ export type TriggerOwnerChange =
  * project admin), as `trigger-changed-for-owner`: what was done, and on an
  * update the names of the fields changed, the target before and after, a
  * webhook's signing secret's name before and after, a mail trigger's
- * mailbox and folder before and after, and the trigger's version after it
+ * mailbox and folder before and after, a text trigger's connection before
+ * and after, and the trigger's version after it
  * (the version record holds the definition it made). Never an input's
  * value, and never what a run did. The owner stays, so its runs keep
  * acting as them; the entry is the durable record of who changed it. A
@@ -597,7 +598,7 @@ export async function recordChangeForOwner(args: {
   readonly tenantId: TenantId;
   readonly projectId?: ProjectId;
   readonly triggerId: string;
-  readonly triggerKind: 'webhook' | 'cron' | 'mail';
+  readonly triggerKind: 'webhook' | 'cron' | 'mail' | 'text';
   readonly owner: TriggerOwner;
   readonly by: string | undefined;
   readonly change: Exclude<TriggerOwnerChange, 'taken-over'>;
@@ -606,6 +607,7 @@ export async function recordChangeForOwner(args: {
   readonly hmacSecretName?: { readonly before: string; readonly after: string };
   readonly mailbox?: { readonly before: unknown; readonly after: unknown };
   readonly folder?: { readonly before: unknown; readonly after: unknown };
+  readonly connectionId?: { readonly before: string; readonly after: string };
   /** On an update: the trigger's version after it (`TriggerVersionRecord`). */
   readonly version?: number;
   readonly correlationId: string;
@@ -630,6 +632,7 @@ export async function recordChangeForOwner(args: {
       ...(args.hmacSecretName !== undefined && { hmacSecretName: args.hmacSecretName }),
       ...(args.mailbox !== undefined && { mailbox: args.mailbox }),
       ...(args.folder !== undefined && { folder: args.folder }),
+      ...(args.connectionId !== undefined && { connectionId: args.connectionId }),
       ...(args.version !== undefined && { version: args.version }),
     },
     ...(log !== undefined && { log }),
@@ -645,7 +648,7 @@ export interface TriggerOwnerNotice {
   readonly tenantId: TenantId;
   readonly projectId?: ProjectId;
   readonly triggerId: string;
-  readonly triggerKind: 'cron' | 'webhook' | 'mail';
+  readonly triggerKind: 'cron' | 'webhook' | 'mail' | 'text';
   /** The trigger's label, when it has one. */
   readonly label?: string;
   /** The person told: the owner, or the former owner after a take-over. */
@@ -662,7 +665,8 @@ export interface TriggerOwnerNotice {
    * schedule's `cronExpression`, `timezone`, `catchUp`, `overlap` and
    * `startingDeadlineSeconds`, a webhook's `signature`, `deliveryIdHeader`,
    * `bodyLimitBytes` and `rateLimitPerMinute`, a mail trigger's `mailbox`,
-   * `folder`, `pollSeconds` and `runsPerHour`. Never their values.
+   * `folder`, `pollSeconds` and `runsPerHour`, a text trigger's
+   * `connectionId`, `runsPerHour` and `perSenderPerHour`. Never their values.
    */
   readonly fields?: readonly string[];
 }
@@ -730,9 +734,9 @@ export async function ownerRuleRefused(
 }
 
 /** How a 403 names a trigger's kind. */
-type TriggerWord = 'schedule' | 'webhook trigger' | 'mail trigger';
+type TriggerWord = 'schedule' | 'webhook trigger' | 'mail trigger' | 'text trigger';
 
-/** A schedule, webhook or mail trigger, as the owner rule reads it. */
+/** A schedule, webhook, mail or text trigger, as the owner rule reads it. */
 export interface OwnedTrigger {
   readonly tenantId: TenantId;
   readonly triggerId: string;
@@ -800,13 +804,14 @@ export async function noteChangeForOwner(
     readonly auditEvents: EmitAuditEventArgs['auditEvents'];
     readonly notices: TriggerOwnerNotices | undefined;
     readonly trigger: OwnedTrigger;
-    readonly triggerKind: 'webhook' | 'cron' | 'mail';
+    readonly triggerKind: 'webhook' | 'cron' | 'mail' | 'text';
     readonly change: Exclude<TriggerOwnerChange, 'taken-over'>;
     readonly fields?: readonly string[];
     readonly target?: { readonly before: unknown; readonly after: unknown };
     readonly hmacSecretName?: { readonly before: string; readonly after: string };
     readonly mailbox?: { readonly before: unknown; readonly after: unknown };
     readonly folder?: { readonly before: unknown; readonly after: unknown };
+    readonly connectionId?: { readonly before: string; readonly after: string };
     /** On an update: the trigger's version after it. */
     readonly version?: number;
   },
@@ -830,6 +835,7 @@ export async function noteChangeForOwner(
     ...(args.hmacSecretName !== undefined && { hmacSecretName: args.hmacSecretName }),
     ...(args.mailbox !== undefined && { mailbox: args.mailbox }),
     ...(args.folder !== undefined && { folder: args.folder }),
+    ...(args.connectionId !== undefined && { connectionId: args.connectionId }),
     ...(args.version !== undefined && { version: args.version }),
     correlationId: c.get('requestId'),
     log: c.get('log'),
@@ -857,7 +863,7 @@ export function tellTakenOver(
   c: Context<AppEnv>,
   notices: TriggerOwnerNotices | undefined,
   trigger: OwnedTrigger,
-  triggerKind: 'webhook' | 'cron' | 'mail',
+  triggerKind: 'webhook' | 'cron' | 'mail' | 'text',
 ): void {
   if (trigger.owner.kind !== 'user' || callerOwns(c, trigger.owner)) return;
   tellOwner(c, notices, {

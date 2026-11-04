@@ -78,7 +78,7 @@ class OtherItem(BaseModel):
 
 class RunTrigger(BaseModel):
     """
-    Set on a run a trigger started: the trigger and the fire that started it. Absent on other runs. `kind` is the trigger's kind: `schedule`, `event`, `webhook` (an inbound webhook) or `mail` (new mail in a mailbox).
+    Set on a run a trigger started: the trigger and the fire that started it. Absent on other runs. `kind` is the trigger's kind: `schedule`, `event`, `webhook` (an inbound webhook), `mail` (new mail in a mailbox) or `text` (a text to a business number).
     """
 
     model_config = ConfigDict(
@@ -86,7 +86,7 @@ class RunTrigger(BaseModel):
         populate_by_name=True,
     )
     trigger_id: Annotated[UUID, Field(alias="triggerId")]
-    kind: Annotated[Literal["schedule", "event", "webhook", "mail"] | str, _open.OPEN]
+    kind: Annotated[Literal["schedule", "event", "webhook", "mail", "text"] | str, _open.OPEN]
     fire_id: Annotated[str, Field(alias="fireId")]
     """
     The fire that started the run: one entry of the trigger's fire history.
@@ -11820,6 +11820,247 @@ class MailTriggerCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
+class TextTriggerRecord(BaseModel):
+    """
+    A text trigger: each text (SMS or WhatsApp) to its business number starts a run of its agent or flow, with the text as the run's input, as its owner. A flow's input is `{ text, thread }`: `text` is `{ from, channel, body, receivedAt }` (`channel` `sms` or `whatsapp`), and `thread` is `{ connectionId, channel, sender }`. In such a run, every call that changes something waits for a person's yes unless the trigger lists it (`toolsAllowedUnattended`); sending a text always waits.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    trigger_id: Annotated[str, Field(alias="triggerId")]
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    """
+    The trigger's project: its runs are this project's.
+    """
+    owner: TriggerOwner
+    """
+    Who its runs act as, with their connections. A service account owns a shared trigger: one named with `runAsServiceAccountId`, or the project's own (`runAsProject`, `isProjectAccount`). Registered without either, the caller owns it. No edit moves it; only a take-over (`POST /v1/text-triggers/{triggerId}/owner`) does.
+    """
+    connection_id: Annotated[UUID, Field(alias="connectionId")]
+    """
+    The connection the texts come in on: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`), one per business number. A person's own connection is `400 bad-input`, and any other `404 connection-not-found`. One live text trigger answers a connection: another on it is `409 trigger-connection-taken`, which names that trigger (`details.heldBy`).
+    """
+    runs_per_hour: Annotated[int, Field(alias="runsPerHour", ge=1, le=600)]
+    """
+    The most runs its texts start in an hour (default 60). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.
+    """
+    per_sender_per_hour: Annotated[int, Field(alias="perSenderPerHour", ge=1, le=60)]
+    """
+    The most runs one sender's texts start in an hour (default 10). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.
+    """
+    label: str | None
+    status: Annotated[Literal["active", "paused"] | str, _open.OPEN]
+    """
+    Lifecycle status. Only `active` triggers fire. Tombstoned rows are excluded from every read path.
+    """
+    status_reason: Annotated[str | None, Field(alias="statusReason")] = None
+    """
+    Why it isn't answering as it should: `connection-missing` (its connection is gone or lapsed; it answers again once it's back), `owner-refused` (its owner was removed or may no longer run the target; its texts are refused until that changes or an admin takes it over), or why the runtime paused it.
+    """
+    version: Annotated[int | None, Field(ge=1)] = None
+    """
+    The trigger's newest version (`GET /v1/text-triggers/{triggerId}/versions`): one more for each change to what it runs, as whom, or on which number at what pace. Absent until its first version.
+    """
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a text started asks for one for every call that changes something. Never `texts.send`. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+    last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+
+
+class RegisterTextTriggerBodyConfig(BaseModel):
+    """
+    A new text trigger's connection and pace.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    connection_id: Annotated[UUID, Field(alias="connectionId")]
+    """
+    The connection the texts come in on: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`), one per business number. A person's own connection is `400 bad-input`, and any other `404 connection-not-found`. One live text trigger answers a connection: another on it is `409 trigger-connection-taken`, which names that trigger (`details.heldBy`).
+    """
+    runs_per_hour: Annotated[int | None, Field(alias="runsPerHour", ge=1, le=600)] = None
+    """
+    The most runs its texts start in an hour (default 60). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.
+    """
+    per_sender_per_hour: Annotated[int | None, Field(alias="perSenderPerHour", ge=1, le=60)] = None
+    """
+    The most runs one sender's texts start in an hour (default 10). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.
+    """
+
+
+class PatchTextTriggerBodyConfig(BaseModel):
+    """
+    A text trigger's connection or pace, to change. An absent field keeps its value.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    connection_id: Annotated[UUID | None, Field(alias="connectionId")] = None
+    """
+    The connection the texts come in on: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`), one per business number. A person's own connection is `400 bad-input`, and any other `404 connection-not-found`. One live text trigger answers a connection: another on it is `409 trigger-connection-taken`, which names that trigger (`details.heldBy`).
+    """
+    runs_per_hour: Annotated[int | None, Field(alias="runsPerHour", ge=1, le=600)] = None
+    """
+    The most runs its texts start in an hour (default 60). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.
+    """
+    per_sender_per_hour: Annotated[int | None, Field(alias="perSenderPerHour", ge=1, le=60)] = None
+    """
+    The most runs one sender's texts start in an hour (default 10). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.
+    """
+
+
+class RegisterTextTriggerBody(BaseModel):
+    """
+    Name what it runs: `flowId` with `flowVersion`, or `agentId` (with an optional `agentVersion`). Its runs' input is the text, so it takes none. The number is the company's: it needs `admin` on the project, and `execute` on what it runs.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The trigger's project. Absent: the workspace's default project.
+    """
+    run_as_service_account_id: Annotated[
+        str | None, Field(alias="runAsServiceAccountId", min_length=1)
+    ] = None
+    """
+    A service account that owns the trigger, so it's shared, named by id instead of the caller. Needs `act_as` on that account, which a tenant admin holds, and the account must itself hold the access the target needs. With an authorization store, that's checked when the account is named, and again when the trigger's target changes: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it.
+    """
+    run_as_project: Annotated[bool | None, Field(alias="runAsProject")] = None
+    """
+    `true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. It runs only what the project's editors can. With an authorization store, that's checked when it's named, and again when the trigger's target changes: if it can't run the target, the request is refused (`409 trigger-owner-cannot-run-target`). Not with `runAsServiceAccountId`, or without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.
+    """
+    config: RegisterTextTriggerBodyConfig
+    label: str | None = None
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project. Never `texts.send` (400): sending a text always waits. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+
+
+class PatchTextTriggerBody(BaseModel):
+    """
+    Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), its connection, pace or label. Every change takes `admin` on the trigger's project. The owner stays.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    config: PatchTextTriggerBodyConfig | None = None
+    label: str | None = None
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    Replaces the list (`[]` clears it; absent keeps it). Never `texts.send` (400). A new target (not just a version) or another connection while it lists any must name it again, as it is or `[]`. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+
+
+class TextFire(BaseModel):
+    """
+    One text a text trigger was given and what came of it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    fire_id: Annotated[str, Field(alias="fireId")]
+    trigger_id: Annotated[str, Field(alias="triggerId")]
+    fired_at: Annotated[AwareDatetime, Field(alias="firedAt")]
+    outcome: Annotated[
+        Literal["pending", "started", "skipped", "refused", "failed"] | str, _open.OPEN
+    ]
+    """
+    `pending` while its run starts. `skipped`: no run started, as `detail` says. `refused`: over the trigger's `runsPerHour` or `perSenderPerHour` (`over-limit:`), or its connection missing or lapsed (`connection-missing:` and why); a refused text doesn't run later. `failed`: the run couldn't start.
+    """
+    run_id: Annotated[UUID | None, Field(alias="runId")] = None
+    """
+    The run it started.
+    """
+    version: Annotated[int | None, Field(ge=1)] = None
+    """
+    The trigger's version its run started with: the newest when it started. Absent until the run starts.
+    """
+    detail: str | None = None
+    """
+    Why it was skipped, refused or failed.
+    """
+    counts_toward_pause: Annotated[bool | None, Field(alias="countsTowardPause")] = None
+    """
+    Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for `over-limit:` and `connection-missing:` refusals: the limit passes, and connecting again ends a missing connection. Skips never count.
+    """
+
+
+class TextFirePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[TextFire]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class TextTriggerCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[TextTriggerRecord]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
 class MailTriggerDefinition(BaseModel):
     """
     What a mail trigger's version runs, as whom, and which mailbox it reads at what pace, as its record names them, and never its state (status, next or last fire).
@@ -11909,6 +12150,98 @@ class MailTriggerVersionPage(BaseModel):
         populate_by_name=True,
     )
     data: list[MailTriggerVersion]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class TextTriggerDefinition(BaseModel):
+    """
+    What a text trigger's version runs, as whom, and which number it answers at what pace, as its record names them, and never its state (status, next or last fire).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    """
+    The trigger's project: its runs are this project's.
+    """
+    owner: TriggerOwner
+    """
+    Who its runs act as, with their connections. A service account owns a shared trigger: one named with `runAsServiceAccountId`, or the project's own (`runAsProject`, `isProjectAccount`). Registered without either, the caller owns it. No edit moves it; only a take-over (`POST /v1/text-triggers/{triggerId}/owner`) does.
+    """
+    connection_id: Annotated[UUID, Field(alias="connectionId")]
+    """
+    The connection the texts come in on: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`), one per business number. A person's own connection is `400 bad-input`, and any other `404 connection-not-found`. One live text trigger answers a connection: another on it is `409 trigger-connection-taken`, which names that trigger (`details.heldBy`).
+    """
+    runs_per_hour: Annotated[int, Field(alias="runsPerHour", ge=1, le=600)]
+    """
+    The most runs its texts start in an hour (default 60). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.
+    """
+    per_sender_per_hour: Annotated[int, Field(alias="perSenderPerHour", ge=1, le=60)]
+    """
+    The most runs one sender's texts start in an hour (default 10). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.
+    """
+    label: str | None
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a text started asks for one for every call that changes something. Never `texts.send`. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+
+
+class TextTriggerVersion(BaseModel):
+    """
+    One version of a text trigger: what it was from `createdAt` until the next. A text's run uses the newest when it starts, and keeps it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    trigger_id: Annotated[str, Field(alias="triggerId")]
+    version: Annotated[int, Field(ge=1)]
+    """
+    Counts from 1, one more for each version.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    created_by: Annotated[str | None, Field(alias="createdBy")] = None
+    """
+    Who made the change, as audit records name an actor (`user:<id>`, `service_account:<id>`, …). Absent on a version the runtime made (`first-fire`, `unversioned-edit`, `pin`).
+    """
+    cause: Annotated[
+        Literal["register", "edit", "owner", "first-fire", "unversioned-edit", "pin"] | str,
+        _open.OPEN,
+    ]
+    """
+    What made the version: `register` (the trigger's first), `edit` (a change to it), `owner` (a take-over to another owner), `first-fire` (the runtime's, at the first fire of a trigger from before versions, or a mail trigger's first look at its mailbox), `unversioned-edit` (the runtime's, at a fire or a mail trigger's look at its mailbox, or just before an edit or take-over, when the trigger's definition isn't its newest version's, as when a release from before versions changed it during an upgrade) or `pin` (the runtime's, when it fixed a mail trigger to the one connection it could use).
+    """
+    definition: TextTriggerDefinition
+
+
+class TextTriggerVersionPage(BaseModel):
+    """
+    Newest first.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[TextTriggerVersion]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 

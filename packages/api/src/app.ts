@@ -221,6 +221,7 @@ import { teamsRouter } from './routes/teams.js';
 import { type EgressAddresses, tenantRouter } from './routes/tenant.js';
 import { testRunsRouters } from './routes/test-runs.js';
 import { testSetsRouter } from './routes/test-sets.js';
+import { textTriggersRouter } from './routes/text-triggers.js';
 import { tokenSignInRouter } from './routes/token-sign-in.js';
 import { tokensRouter } from './routes/tokens.js';
 import { toolFilesRouter } from './routes/tool-files.js';
@@ -897,7 +898,8 @@ export interface CreateAppInput {
   readonly adapterFactories?: AdapterFactoryRegistry;
   /**
    * Optional. When present, mounts the trigger admin surfaces at
-   * `/v1/schedules/*`, `/v1/event-triggers/*`, and `/v1/webhooks/*`.
+   * `/v1/schedules/*`, `/v1/event-triggers/*`, `/v1/webhooks/*`,
+   * `/v1/mail-triggers/*` and `/v1/text-triggers/*`.
    * Kernel runtime primitives (cron/event/webhook schedulers) do the
    * firing; this binding satisfies the CRUD surface over the stored
    * triggers.
@@ -909,14 +911,14 @@ export interface CreateAppInput {
   /**
    * The trigger kinds whose admin surface mounts with `triggerRegistry`:
    * `cron` → `/v1/schedules`, `event` → `/v1/event-triggers`, `webhook` →
-   * `/v1/webhooks`, `mail` → `/v1/mail-triggers`. Absent: all four. A
-   * runtime that fires only some kinds lists those, so nobody registers a
-   * trigger that would never fire.
+   * `/v1/webhooks`, `mail` → `/v1/mail-triggers`, and `text` at
+   * `/v1/text-triggers`. Absent: all five. A runtime that fires only some
+   * kinds lists those, so nobody registers a trigger that would never fire.
    */
   readonly triggerKinds?: readonly TriggerKind[];
   /**
    * Optional. Tells a person when a project admin changes, pauses,
-   * resumes, fires, deletes or takes over a schedule, webhook or mail
+   * resumes, fires, deletes or takes over a schedule, webhook, mail or text
    * trigger they own (the runtime emails them). Called once the change is made,
    * never awaited; a failure is logged. Absent: the change is only
    * audited (`trigger-changed-for-owner`).
@@ -2268,7 +2270,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       adaptersRouter(input.adapterRegistry, input.adapterFactories, authorizer),
     );
   }
-  // Trigger admin surfaces. Four sibling routers over the same
+  // Trigger admin surfaces. Sibling routers over the same
   // `TriggerRegistryBinding` — each pins its own kind. The inbound
   // webhook receiver is outside the bearer chain (`/v1/hooks`, below).
   if (input.triggerRegistry !== undefined) {
@@ -2354,6 +2356,34 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           }),
           // The company connection a company mailbox reads with, checked
           // against the project's candidates, as connection choices are.
+          ...(input.connections !== undefined &&
+            servedEnv !== undefined && {
+              connections: { binding: input.connections, envName: servedEnv },
+            }),
+        }),
+      );
+    }
+    if (kinds.has('text')) {
+      v1.route(
+        '/text-triggers',
+        textTriggersRouter(input.triggerRegistry, {
+          ...(authorizer !== undefined && { authorizer }),
+          ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+          names: {
+            ...(input.identityDirectory !== undefined && { directory: input.identityDirectory }),
+            ...(input.serviceAccountBinding !== undefined && {
+              serviceAccounts: input.serviceAccountBinding,
+            }),
+          },
+          ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+          ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+          ...(itemRights !== undefined && { itemRights }),
+          targetTools,
+          ...(input.triggerOwnerNotices !== undefined && {
+            ownerNotices: input.triggerOwnerNotices,
+          }),
+          // The company connection of app `texts` the texts come in on,
+          // checked against the project's candidates, as mail's is.
           ...(input.connections !== undefined &&
             servedEnv !== undefined && {
               connections: { binding: input.connections, envName: servedEnv },

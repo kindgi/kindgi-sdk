@@ -221,6 +221,10 @@
       "description": "Mail triggers: each new mail in a mailbox's folder starts a run of an agent or a flow, as the trigger's owner. A thread's mail runs one at a time, and each run continues the thread's conversation."
     },
     {
+      "name": "text-triggers",
+      "description": "Text triggers: each text (SMS or WhatsApp) to a business number starts a run of an agent or a flow, as the trigger's owner. The number is a company connection of app `texts`, and one live text trigger answers it."
+    },
+    {
       "name": "webhook-endpoints",
       "description": "Outbound webhooks: endpoints the platform sends signed events to (`run.finished` when a top-level run, not a replay, completes, fails or is cancelled), their delivery log, redelivery and a test event. Signed in the Standard Webhooks format with a secret the endpoint references by name (`secretRef`); delivered at least once, so receivers deduplicate on `webhook-id`. Event bodies are under `webhooks`. Not to be confused with `/v1/webhooks`, which are inbound triggers. Caller-plugged via `WebhookEndpointBinding`."
     },
@@ -619,6 +623,7 @@
           "trigger-version-not-found": 404,
           "trigger-invalid-config": 400,
           "trigger-webhook-id-conflict": 409,
+          "trigger-connection-taken": 409,
           "trigger-already-in-state": 409,
           "trigger-register-failed": 500,
           "trigger-update-failed": 500,
@@ -956,7 +961,7 @@
           "kind",
           "fireId"
         ],
-        "description": "Set on a run a trigger started: the trigger and the fire that started it. Absent on other runs. `kind` is the trigger's kind: `schedule`, `event`, `webhook` (an inbound webhook) or `mail` (new mail in a mailbox).",
+        "description": "Set on a run a trigger started: the trigger and the fire that started it. Absent on other runs. `kind` is the trigger's kind: `schedule`, `event`, `webhook` (an inbound webhook), `mail` (new mail in a mailbox) or `text` (a text to a business number).",
         "properties": {
           "triggerId": {
             "type": "string",
@@ -968,7 +973,8 @@
               "schedule",
               "event",
               "webhook",
-              "mail"
+              "mail",
+              "text"
             ]
           },
           "fireId": {
@@ -27185,6 +27191,368 @@
           }
         }
       },
+      "TextTriggerRecord": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A text trigger: each text (SMS or WhatsApp) to its business number starts a run of its agent or flow, with the text as the run's input, as its owner. A flow's input is `{ text, thread }`: `text` is `{ from, channel, body, receivedAt }` (`channel` `sms` or `whatsapp`), and `thread` is `{ connectionId, channel, sender }`. In such a run, every call that changes something waits for a person's yes unless the trigger lists it (`toolsAllowedUnattended`); sending a text always waits.",
+        "required": [
+          "triggerId",
+          "projectId",
+          "owner",
+          "connectionId",
+          "runsPerHour",
+          "perSenderPerHour",
+          "label",
+          "status",
+          "lastFiredAt",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "triggerId": {
+            "type": "string"
+          },
+          "flowId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Run a flow (with `flowVersion`)."
+          },
+          "flowVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "agentId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Run an agent (instead of a flow): at `agentVersion`, else its pinned version."
+          },
+          "agentVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The trigger's project: its runs are this project's."
+          },
+          "owner": {
+            "$ref": "#/components/schemas/TriggerOwner",
+            "description": "Who its runs act as, with their connections. A service account owns a shared trigger: one named with `runAsServiceAccountId`, or the project's own (`runAsProject`, `isProjectAccount`). Registered without either, the caller owns it. No edit moves it; only a take-over (`POST /v1/text-triggers/{triggerId}/owner`) does."
+          },
+          "connectionId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The connection the texts come in on: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`), one per business number. A person's own connection is `400 bad-input`, and any other `404 connection-not-found`. One live text trigger answers a connection: another on it is `409 trigger-connection-taken`, which names that trigger (`details.heldBy`)."
+          },
+          "runsPerHour": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 600,
+            "description": "The most runs its texts start in an hour (default 60). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later."
+          },
+          "perSenderPerHour": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 60,
+            "description": "The most runs one sender's texts start in an hour (default 10). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later."
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/TriggerStatus"
+          },
+          "statusReason": {
+            "type": "string",
+            "description": "Why it isn't answering as it should: `connection-missing` (its connection is gone or lapsed; it answers again once it's back), `owner-refused` (its owner was removed or may no longer run the target; its texts are refused until that changes or an admin takes it over), or why the runtime paused it."
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The trigger's newest version (`GET /v1/text-triggers/{triggerId}/versions`): one more for each change to what it runs, as whom, or on which number at what pace. Absent until its first version."
+          },
+          "toolsAllowedUnattended": {
+            "type": "array",
+            "maxItems": 100,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a text started asks for one for every call that changes something. Never `texts.send`. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
+          },
+          "lastFiredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "RegisterTextTriggerBodyConfig": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A new text trigger's connection and pace.",
+        "required": [
+          "connectionId"
+        ],
+        "properties": {
+          "connectionId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The connection the texts come in on: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`), one per business number. A person's own connection is `400 bad-input`, and any other `404 connection-not-found`. One live text trigger answers a connection: another on it is `409 trigger-connection-taken`, which names that trigger (`details.heldBy`)."
+          },
+          "runsPerHour": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 600,
+            "description": "The most runs its texts start in an hour (default 60). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later."
+          },
+          "perSenderPerHour": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 60,
+            "description": "The most runs one sender's texts start in an hour (default 10). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later."
+          }
+        }
+      },
+      "PatchTextTriggerBodyConfig": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A text trigger's connection or pace, to change. An absent field keeps its value.",
+        "properties": {
+          "connectionId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The connection the texts come in on: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`), one per business number. A person's own connection is `400 bad-input`, and any other `404 connection-not-found`. One live text trigger answers a connection: another on it is `409 trigger-connection-taken`, which names that trigger (`details.heldBy`)."
+          },
+          "runsPerHour": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 600,
+            "description": "The most runs its texts start in an hour (default 60). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later."
+          },
+          "perSenderPerHour": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 60,
+            "description": "The most runs one sender's texts start in an hour (default 10). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later."
+          }
+        }
+      },
+      "RegisterTextTriggerBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Name what it runs: `flowId` with `flowVersion`, or `agentId` (with an optional `agentVersion`). Its runs' input is the text, so it takes none. The number is the company's: it needs `admin` on the project, and `execute` on what it runs.",
+        "required": [
+          "config"
+        ],
+        "properties": {
+          "flowId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Run a flow (with `flowVersion`)."
+          },
+          "flowVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "agentId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Run an agent (instead of a flow): at `agentVersion`, else its pinned version."
+          },
+          "agentVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The trigger's project. Absent: the workspace's default project."
+          },
+          "runAsServiceAccountId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A service account that owns the trigger, so it's shared, named by id instead of the caller. Needs `act_as` on that account, which a tenant admin holds, and the account must itself hold the access the target needs. With an authorization store, that's checked when the account is named, and again when the trigger's target changes: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it."
+          },
+          "runAsProject": {
+            "type": "boolean",
+            "description": "`true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. It runs only what the project's editors can. With an authorization store, that's checked when it's named, and again when the trigger's target changes: if it can't run the target, the request is refused (`409 trigger-owner-cannot-run-target`). Not with `runAsServiceAccountId`, or without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says."
+          },
+          "config": {
+            "$ref": "#/components/schemas/RegisterTextTriggerBodyConfig"
+          },
+          "label": {
+            "type": "string"
+          },
+          "toolsAllowedUnattended": {
+            "type": "array",
+            "maxItems": 100,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project. Never `texts.send` (400): sending a text always waits. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
+          }
+        }
+      },
+      "PatchTextTriggerBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), its connection, pace or label. Every change takes `admin` on the trigger's project. The owner stays.",
+        "properties": {
+          "flowId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Run a flow (with `flowVersion`)."
+          },
+          "flowVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "agentId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Run an agent (instead of a flow): at `agentVersion`, else its pinned version."
+          },
+          "agentVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "config": {
+            "$ref": "#/components/schemas/PatchTextTriggerBodyConfig"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "toolsAllowedUnattended": {
+            "type": "array",
+            "maxItems": 100,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Replaces the list (`[]` clears it; absent keeps it). Never `texts.send` (400). A new target (not just a version) or another connection while it lists any must name it again, as it is or `[]`. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
+          }
+        }
+      },
+      "TextFire": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "One text a text trigger was given and what came of it.",
+        "required": [
+          "fireId",
+          "triggerId",
+          "firedAt",
+          "outcome"
+        ],
+        "properties": {
+          "fireId": {
+            "type": "string"
+          },
+          "triggerId": {
+            "type": "string"
+          },
+          "firedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "started",
+              "skipped",
+              "refused",
+              "failed"
+            ],
+            "description": "`pending` while its run starts. `skipped`: no run started, as `detail` says. `refused`: over the trigger's `runsPerHour` or `perSenderPerHour` (`over-limit:`), or its connection missing or lapsed (`connection-missing:` and why); a refused text doesn't run later. `failed`: the run couldn't start."
+          },
+          "runId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The run it started."
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The trigger's version its run started with: the newest when it started. Absent until the run starts."
+          },
+          "detail": {
+            "type": "string",
+            "description": "Why it was skipped, refused or failed."
+          },
+          "countsTowardPause": {
+            "type": "boolean",
+            "description": "Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for `over-limit:` and `connection-missing:` refusals: the limit passes, and connecting again ends a missing connection. Skips never count."
+          }
+        }
+      },
+      "TextFirePage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TextFire"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "TextTriggerCollectionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TextTriggerRecord"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
       "TriggerVersionCause": {
         "type": "string",
         "enum": [
@@ -27636,6 +28004,141 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/MailTriggerVersion"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "TextTriggerDefinition": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "What a text trigger's version runs, as whom, and which number it answers at what pace, as its record names them, and never its state (status, next or last fire).",
+        "required": [
+          "projectId",
+          "owner",
+          "connectionId",
+          "runsPerHour",
+          "perSenderPerHour",
+          "label"
+        ],
+        "properties": {
+          "flowId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Run a flow (with `flowVersion`)."
+          },
+          "flowVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "agentId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Run an agent (instead of a flow): at `agentVersion`, else its pinned version."
+          },
+          "agentVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The trigger's project: its runs are this project's."
+          },
+          "owner": {
+            "$ref": "#/components/schemas/TriggerOwner",
+            "description": "Who its runs act as, with their connections. A service account owns a shared trigger: one named with `runAsServiceAccountId`, or the project's own (`runAsProject`, `isProjectAccount`). Registered without either, the caller owns it. No edit moves it; only a take-over (`POST /v1/text-triggers/{triggerId}/owner`) does."
+          },
+          "connectionId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The connection the texts come in on: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`), one per business number. A person's own connection is `400 bad-input`, and any other `404 connection-not-found`. One live text trigger answers a connection: another on it is `409 trigger-connection-taken`, which names that trigger (`details.heldBy`)."
+          },
+          "runsPerHour": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 600,
+            "description": "The most runs its texts start in an hour (default 60). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later."
+          },
+          "perSenderPerHour": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 60,
+            "description": "The most runs one sender's texts start in an hour (default 10). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later."
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "toolsAllowedUnattended": {
+            "type": "array",
+            "maxItems": 100,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a text started asks for one for every call that changes something. Never `texts.send`. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
+          }
+        }
+      },
+      "TextTriggerVersion": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "One version of a text trigger: what it was from `createdAt` until the next. A text's run uses the newest when it starts, and keeps it.",
+        "required": [
+          "triggerId",
+          "version",
+          "createdAt",
+          "cause",
+          "definition"
+        ],
+        "properties": {
+          "triggerId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Counts from 1, one more for each version."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdBy": {
+            "type": "string",
+            "description": "Who made the change, as audit records name an actor (`user:<id>`, `service_account:<id>`, …). Absent on a version the runtime made (`first-fire`, `unversioned-edit`, `pin`)."
+          },
+          "cause": {
+            "$ref": "#/components/schemas/TriggerVersionCause"
+          },
+          "definition": {
+            "$ref": "#/components/schemas/TextTriggerDefinition"
+          }
+        }
+      },
+      "TextTriggerVersionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Newest first.",
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TextTriggerVersion"
             }
           },
           "hasMore": {
@@ -72799,6 +73302,1161 @@
           }
         },
         "description": "The only way a mail trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next poll; on a person's mailbox, the mailbox becomes the caller's own, and the next poll starts afresh. Needs `admin` on the trigger's project and `execute` on its target. On the company's mailbox, name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account, and the account must itself hold what its target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project. It runs only what the project's editors can, and is checked the same way. The trigger keeps its `toolsAllowedUnattended`; a body naming it is refused (change it with PATCH).",
+        "parameters": [
+          {
+            "name": "triggerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TakeTriggerOwnerBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/text-triggers": {
+      "post": {
+        "operationId": "textTriggers.register",
+        "summary": "Register a text trigger",
+        "tags": [
+          "text-triggers"
+        ],
+        "responses": {
+          "201": {
+            "description": "Text trigger registered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TextTriggerRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A body that fails validation (`bad-input`): no target or two, a `config` with anything but `connectionId`, `runsPerHour` and `perSenderPerHour`, a limit out of its range, a `connectionId` naming a person's own live connection of the app, `texts.send` in `toolsAllowedUnattended`, or `runAsProject` with `runAsServiceAccountId` or with no project. Or `reference-out-of-scope`: what it runs isn't the project's to reach (`details.issues`, at `/target`), and nothing is registered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`config.connectionId` isn't one of the project's company connections of app `texts`, the same answer as for one that doesn't exist (`connection-not-found`, `details.field` `config.connectionId`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another live text trigger answers the connection (`trigger-connection-taken`: `details.heldBy` is its id). Or `runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the trigger runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the trigger runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the Idempotency-Key was reused with a different body, or a resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`trigger-operation-unsupported`: `runAsProject` on a runtime that can't make a project's own account.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Each text (SMS or WhatsApp) to the business number starts a run of the trigger's agent or flow, with the text as the run's input, as the trigger's owner. A flow's input is `{ text, thread }`: `text` is `{ from, channel, body, receivedAt }` (`channel` `sms` or `whatsapp`), and `thread` is `{ connectionId, channel, sender }`. `config.connectionId` names the number: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`). One live text trigger answers a connection, so another on it is `409 trigger-connection-taken`. The number is the company's: registering needs `admin` on the project, and `execute` on what it runs. `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). A trigger that names no `projectId` goes in the workspace's default project. In its runs, every call that changes something waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, it never names `texts.send`, and it's audited (`trigger-tools-allowed-unattended-set`).",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterTextTriggerBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "textTriggers.list",
+        "summary": "List text triggers",
+        "tags": [
+          "text-triggers"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of text triggers.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TextTriggerCollectionPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The workspace's text triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/TriggerStatus"
+            },
+            "required": false,
+            "description": "Filter to triggers at a specific status. Values: `active | paused`."
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "description": "Only this project's text triggers."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/text-triggers/{triggerId}": {
+      "get": {
+        "operationId": "textTriggers.get",
+        "summary": "Fetch a text trigger",
+        "tags": [
+          "text-triggers"
+        ],
+        "responses": {
+          "200": {
+            "description": "Text trigger record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TextTriggerRecord"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No text trigger with that id, or the row was tombstoned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "triggerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "TriggerId — the trigger id (a UUID)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "textTriggers.update",
+        "summary": "Update a text trigger",
+        "tags": [
+          "text-triggers"
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated text trigger.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TextTriggerRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A body that fails validation (`bad-input`): `runAsServiceAccountId` or `runAsProject` (the owner changes only by `POST /v1/text-triggers/{triggerId}/owner`), a limit out of its range, a `connectionId` naming a person's own live connection of the app, `texts.send` in `toolsAllowedUnattended`, or a new target or connection without the list it holds. Or `reference-out-of-scope`: the new target isn't the project's to reach. Nothing changes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No text trigger with that id. Or the new `connectionId` isn't one of the project's company connections of app `texts` (`connection-not-found`, `details.field` `config.connectionId`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another live text trigger answers the new connection (`trigger-connection-taken`: `details.heldBy` is its id). Or a new target the trigger's owner can't run (`trigger-owner-cannot-run-target`), with an authorization store. Or an Idempotency-Key reused with a different body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its connection, pace or label (`null` clears it). Another connection is checked as at registration, and one another live text trigger answers is `409 trigger-connection-taken`. The number is the company's, so every change takes `admin` on the project. No edit moves the owner: a project admin's change to a person's trigger keeps its owner, so its runs go on acting as that person, and it's audited as `trigger-changed-for-owner`, naming the trigger's version after it. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), never names `texts.send`, and a new target or connection while it lists any must name it again.",
+        "parameters": [
+          {
+            "name": "triggerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchTextTriggerBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/text-triggers/{triggerId}/pause": {
+      "post": {
+        "operationId": "textTriggers.pause",
+        "summary": "Pause a text trigger",
+        "tags": [
+          "text-triggers"
+        ],
+        "responses": {
+          "200": {
+            "description": "Paused text trigger.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TextTriggerRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No text trigger with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A paused trigger answers no texts: one that comes in while it's paused never starts a run. It still holds its connection. A personal trigger's pause is its owner's or a project admin's; a shared one's needs `write` on the project.",
+        "parameters": [
+          {
+            "name": "triggerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/text-triggers/{triggerId}/resume": {
+      "post": {
+        "operationId": "textTriggers.resume",
+        "summary": "Resume a text trigger",
+        "tags": [
+          "text-triggers"
+        ],
+        "responses": {
+          "200": {
+            "description": "Resumed text trigger.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TextTriggerRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No text trigger with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "It answers the texts that come in from now on, on the connection it kept while paused. Who may resume it is as for a pause.",
+        "parameters": [
+          {
+            "name": "triggerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/text-triggers/{triggerId}/unregister": {
+      "post": {
+        "operationId": "textTriggers.unregister",
+        "summary": "Soft-delete a text trigger (tombstone)",
+        "tags": [
+          "text-triggers"
+        ],
+        "responses": {
+          "200": {
+            "description": "Tombstone outcome.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookTriggerUnregisterResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No text trigger with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Who may unregister it is as for a pause. Its connection is free for another text trigger.",
+        "parameters": [
+          {
+            "name": "triggerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/text-triggers/{triggerId}/fires": {
+      "get": {
+        "operationId": "textTriggers.fires",
+        "summary": "A text trigger's texts",
+        "tags": [
+          "text-triggers"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of the trigger's texts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TextFirePage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No text trigger with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`trigger-operation-unsupported`: this deployment keeps no fire history.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Newest first: each text the trigger was given and what came of it (`TextFire`): the run it started, or why it was skipped, refused or failed.",
+        "parameters": [
+          {
+            "name": "triggerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/text-triggers/{triggerId}/versions": {
+      "get": {
+        "operationId": "textTriggers.listVersions",
+        "summary": "A text trigger's versions",
+        "tags": [
+          "text-triggers"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of versions, newest first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TextTriggerVersionPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No text trigger with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Newest first: each version of the text trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A text's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). Whoever can read the text trigger can read its versions.",
+        "parameters": [
+          {
+            "name": "triggerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/text-triggers/{triggerId}/versions/{version}": {
+      "get": {
+        "operationId": "textTriggers.getVersion",
+        "summary": "Fetch one version of a text trigger",
+        "tags": [
+          "text-triggers"
+        ],
+        "responses": {
+          "200": {
+            "description": "The version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TextTriggerVersion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`version` isn't a positive integer (`bad-input`, `details.field`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No text trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "triggerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "required": true,
+            "description": "The version's number: 1 for the trigger's first, one more for each after."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/text-triggers/{triggerId}/owner": {
+      "post": {
+        "operationId": "textTriggers.takeOwnership",
+        "summary": "Take over a text trigger",
+        "tags": [
+          "text-triggers"
+        ],
+        "responses": {
+          "200": {
+            "description": "The trigger, with its new owner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TextTriggerRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`bad-input`: a body naming `toolsAllowedUnattended`, or `runAsProject` with `runAsServiceAccountId`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No text trigger with that id, or no such service account.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the trigger runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the trigger runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the Idempotency-Key was reused with a different body, or a resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`trigger-operation-unsupported`: this deployment can't change a trigger's owner, or can't make a project's own account (`runAsProject`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The only way a text trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next text. Needs `admin` on the trigger's project and `execute` on its target. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account, and the account must itself hold what its target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project. It runs only what the project's editors can, and is checked the same way. The trigger keeps its connection and its `toolsAllowedUnattended`; a body naming the list is refused (change it with PATCH).",
         "parameters": [
           {
             "name": "triggerId",

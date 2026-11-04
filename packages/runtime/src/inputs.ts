@@ -83,7 +83,7 @@ export interface RunReplayRef {
 }
 
 /** Every value of `RunTriggerRef.kind`. */
-export const RUN_TRIGGER_KINDS = ['schedule', 'event', 'webhook', 'mail'] as const;
+export const RUN_TRIGGER_KINDS = ['schedule', 'event', 'webhook', 'mail', 'text'] as const;
 
 /**
  * Marks a run a trigger started: the trigger, the fire that started it,

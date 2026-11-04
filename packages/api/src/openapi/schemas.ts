@@ -206,7 +206,7 @@ export const RunTriggerSchema: JsonSchema = {
   additionalProperties: false,
   required: ['triggerId', 'kind', 'fireId'],
   description:
-    "Set on a run a trigger started: the trigger and the fire that started it. Absent on other runs. `kind` is the trigger's kind: `schedule`, `event`, `webhook` (an inbound webhook) or `mail` (new mail in a mailbox).",
+    "Set on a run a trigger started: the trigger and the fire that started it. Absent on other runs. `kind` is the trigger's kind: `schedule`, `event`, `webhook` (an inbound webhook), `mail` (new mail in a mailbox) or `text` (a text to a business number).",
   properties: {
     triggerId: { type: 'string', format: 'uuid' },
     kind: { type: 'string', enum: [...RUN_TRIGGER_KINDS] },
@@ -16444,6 +16444,205 @@ export const MailTriggerCollectionPageSchema: JsonSchema = {
   },
 };
 
+// ---------- text triggers (texts to a business number start runs) ----------
+
+const TEXT_TRIGGER_CONFIG_PROPERTIES: Record<string, JsonSchema> = {
+  connectionId: {
+    type: 'string',
+    format: 'uuid',
+    description:
+      "The connection the texts come in on: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`), one per business number. A person's own connection is `400 bad-input`, and any other `404 connection-not-found`. One live text trigger answers a connection: another on it is `409 trigger-connection-taken`, which names that trigger (`details.heldBy`).",
+  },
+  runsPerHour: {
+    type: 'integer',
+    minimum: 1,
+    maximum: 600,
+    description:
+      "The most runs its texts start in an hour (default 60). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.",
+  },
+  perSenderPerHour: {
+    type: 'integer',
+    minimum: 1,
+    maximum: 60,
+    description:
+      "The most runs one sender's texts start in an hour (default 10). Past it, a text's fire is `refused` (`detail` starts `over-limit:`), and that text doesn't run later.",
+  },
+};
+
+export const TextTriggerRecordSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "A text trigger: each text (SMS or WhatsApp) to its business number starts a run of its agent or flow, with the text as the run's input, as its owner. A flow's input is `{ text, thread }`: `text` is `{ from, channel, body, receivedAt }` (`channel` `sms` or `whatsapp`), and `thread` is `{ connectionId, channel, sender }`. In such a run, every call that changes something waits for a person's yes unless the trigger lists it (`toolsAllowedUnattended`); sending a text always waits.",
+  required: [
+    'triggerId',
+    'projectId',
+    'owner',
+    'connectionId',
+    'runsPerHour',
+    'perSenderPerHour',
+    'label',
+    'status',
+    'lastFiredAt',
+    'createdAt',
+    'updatedAt',
+  ],
+  properties: {
+    triggerId: { type: 'string' },
+    ...MAIL_TRIGGER_TARGET_PROPERTIES,
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The trigger's project: its runs are this project's.",
+    },
+    owner: {
+      $ref: '#/components/schemas/TriggerOwner',
+      description:
+        "Who its runs act as, with their connections. A service account owns a shared trigger: one named with `runAsServiceAccountId`, or the project's own (`runAsProject`, `isProjectAccount`). Registered without either, the caller owns it. No edit moves it; only a take-over (`POST /v1/text-triggers/{triggerId}/owner`) does.",
+    },
+    ...TEXT_TRIGGER_CONFIG_PROPERTIES,
+    label: { type: ['string', 'null'] },
+    status: { $ref: '#/components/schemas/TriggerStatus' },
+    statusReason: {
+      type: 'string',
+      description:
+        "Why it isn't answering as it should: `connection-missing` (its connection is gone or lapsed; it answers again once it's back), `owner-refused` (its owner was removed or may no longer run the target; its texts are refused until that changes or an admin takes it over), or why the runtime paused it.",
+    },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's newest version (`GET /v1/text-triggers/{triggerId}/versions`): one more for each change to what it runs, as whom, or on which number at what pace. Absent until its first version.",
+    },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a text started asks for one for every call that changes something. Never `texts.send`. Absent: none.",
+    ),
+    lastFiredAt: { type: ['string', 'null'], format: 'date-time' },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+/** A new text trigger's connection and pace. */
+export const RegisterTextTriggerBodyConfigSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: "A new text trigger's connection and pace.",
+  required: ['connectionId'],
+  properties: TEXT_TRIGGER_CONFIG_PROPERTIES,
+};
+
+/** A text trigger's connection or pace, to change; an absent field keeps its value. */
+export const PatchTextTriggerBodyConfigSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: "A text trigger's connection or pace, to change. An absent field keeps its value.",
+  properties: TEXT_TRIGGER_CONFIG_PROPERTIES,
+};
+
+export const RegisterTextTriggerBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "Name what it runs: `flowId` with `flowVersion`, or `agentId` (with an optional `agentVersion`). Its runs' input is the text, so it takes none. The number is the company's: it needs `admin` on the project, and `execute` on what it runs.",
+  required: ['config'],
+  properties: {
+    ...MAIL_TRIGGER_TARGET_PROPERTIES,
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The trigger's project. Absent: the workspace's default project.",
+    },
+    runAsServiceAccountId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "A service account that owns the trigger, so it's shared, named by id instead of the caller. Needs `act_as` on that account, which a tenant admin holds, and the account must itself hold the access the target needs. With an authorization store, that's checked when the account is named, and again when the trigger's target changes: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it.",
+    },
+    runAsProject: {
+      type: 'boolean',
+      description:
+        "`true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. It runs only what the project's editors can. With an authorization store, that's checked when it's named, and again when the trigger's target changes: if it can't run the target, the request is refused (`409 trigger-owner-cannot-run-target`). Not with `runAsServiceAccountId`, or without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.",
+    },
+    config: { $ref: '#/components/schemas/RegisterTextTriggerBodyConfig' },
+    label: { type: 'string' },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project. Never `texts.send` (400): sending a text always waits.",
+    ),
+  },
+};
+
+export const PatchTextTriggerBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), its connection, pace or label. Every change takes `admin` on the trigger's project. The owner stays.",
+  properties: {
+    ...MAIL_TRIGGER_TARGET_PROPERTIES,
+    config: { $ref: '#/components/schemas/PatchTextTriggerBodyConfig' },
+    label: { type: ['string', 'null'] },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      'Replaces the list (`[]` clears it; absent keeps it). Never `texts.send` (400). A new target (not just a version) or another connection while it lists any must name it again, as it is or `[]`.',
+    ),
+  },
+};
+
+export const TextFireSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'One text a text trigger was given and what came of it.',
+  required: ['fireId', 'triggerId', 'firedAt', 'outcome'],
+  properties: {
+    fireId: { type: 'string' },
+    triggerId: { type: 'string' },
+    firedAt: { type: 'string', format: 'date-time' },
+    outcome: {
+      type: 'string',
+      enum: ['pending', 'started', 'skipped', 'refused', 'failed'],
+      description:
+        "`pending` while its run starts. `skipped`: no run started, as `detail` says. `refused`: over the trigger's `runsPerHour` or `perSenderPerHour` (`over-limit:`), or its connection missing or lapsed (`connection-missing:` and why); a refused text doesn't run later. `failed`: the run couldn't start.",
+    },
+    runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's version its run started with: the newest when it started. Absent until the run starts.",
+    },
+    detail: {
+      type: 'string',
+      description: 'Why it was skipped, refused or failed.',
+    },
+    countsTowardPause: {
+      type: 'boolean',
+      description:
+        "Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for `over-limit:` and `connection-missing:` refusals: the limit passes, and connecting again ends a missing connection. Skips never count.",
+    },
+  },
+};
+
+export const TextFirePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/TextFire' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const TextTriggerCollectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/TextTriggerRecord' } },
+    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
 // ---------- trigger versions (every kind) ----------
 
 export const TriggerVersionCauseSchema: JsonSchema = {
@@ -16656,6 +16855,34 @@ export const MailTriggerVersionSchema: JsonSchema = triggerVersionSchema(
 
 export const MailTriggerVersionPageSchema: JsonSchema =
   triggerVersionPageSchema('MailTriggerVersion');
+
+export const TextTriggerDefinitionSchema: JsonSchema = triggerDefinitionSchema(
+  TextTriggerRecordSchema,
+  `What a text trigger's version runs, as whom, and which number it answers at what pace, as its record names them, ${VERSION_DEFINITION}`,
+  [
+    'flowId',
+    'flowVersion',
+    'agentId',
+    'agentVersion',
+    'projectId',
+    'owner',
+    'connectionId',
+    'runsPerHour',
+    'perSenderPerHour',
+    'label',
+    'toolsAllowedUnattended',
+  ],
+  ['projectId', 'owner', 'connectionId', 'runsPerHour', 'perSenderPerHour', 'label'],
+);
+
+export const TextTriggerVersionSchema: JsonSchema = triggerVersionSchema(
+  { triggerId: { type: 'string' } },
+  'TextTriggerDefinition',
+  "One version of a text trigger: what it was from `createdAt` until the next. A text's run uses the newest when it starts, and keeps it.",
+);
+
+export const TextTriggerVersionPageSchema: JsonSchema =
+  triggerVersionPageSchema('TextTriggerVersion');
 
 // ---------- outbound webhook endpoints ----------
 
@@ -18798,6 +19025,14 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['MailFire', MailFireSchema],
   ['MailFirePage', MailFirePageSchema],
   ['MailTriggerCollectionPage', MailTriggerCollectionPageSchema],
+  ['TextTriggerRecord', TextTriggerRecordSchema],
+  ['RegisterTextTriggerBodyConfig', RegisterTextTriggerBodyConfigSchema],
+  ['PatchTextTriggerBodyConfig', PatchTextTriggerBodyConfigSchema],
+  ['RegisterTextTriggerBody', RegisterTextTriggerBodySchema],
+  ['PatchTextTriggerBody', PatchTextTriggerBodySchema],
+  ['TextFire', TextFireSchema],
+  ['TextFirePage', TextFirePageSchema],
+  ['TextTriggerCollectionPage', TextTriggerCollectionPageSchema],
   ['TriggerVersionCause', TriggerVersionCauseSchema],
   ['ScheduleDefinition', ScheduleDefinitionSchema],
   ['ScheduleVersion', ScheduleVersionSchema],
@@ -18811,6 +19046,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['MailTriggerDefinition', MailTriggerDefinitionSchema],
   ['MailTriggerVersion', MailTriggerVersionSchema],
   ['MailTriggerVersionPage', MailTriggerVersionPageSchema],
+  ['TextTriggerDefinition', TextTriggerDefinitionSchema],
+  ['TextTriggerVersion', TextTriggerVersionSchema],
+  ['TextTriggerVersionPage', TextTriggerVersionPageSchema],
   // Outbound webhook endpoints.
   ['WebhookEventType', WebhookEventTypeSchema],
   ['WebhookEndpointFilter', WebhookEndpointFilterSchema],

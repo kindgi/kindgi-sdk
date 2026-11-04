@@ -11870,6 +11870,240 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
     },
   },
+  // ---------- text triggers (trigger surface) ----------
+  {
+    method: 'post',
+    honoPath: '/v1/text-triggers',
+    openapiPath: '/v1/text-triggers',
+    operationId: 'textTriggers.register',
+    summary: 'Register a text trigger',
+    description:
+      "Each text (SMS or WhatsApp) to the business number starts a run of the trigger's agent or flow, with the text as the run's input, as the trigger's owner. A flow's input is `{ text, thread }`: `text` is `{ from, channel, body, receivedAt }` (`channel` `sms` or `whatsapp`), and `thread` is `{ connectionId, channel, sender }`. `config.connectionId` names the number: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`). One live text trigger answers a connection, so another on it is `409 trigger-connection-taken`. The number is the company's: registering needs `admin` on the project, and `execute` on what it runs. `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). A trigger that names no `projectId` goes in the workspace's default project. In its runs, every call that changes something waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, it never names `texts.send`, and it's audited (`trigger-tools-allowed-unattended-set`).",
+    tags: ['text-triggers'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('RegisterTextTriggerBody') },
+    responses: {
+      '201': { description: 'Text trigger registered.', schema: ref('TextTriggerRecord') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A body that fails validation (`bad-input`): no target or two, a `config` with anything but `connectionId`, `runsPerHour` and `perSenderPerHour`, a limit out of its range, a `connectionId` naming a person's own live connection of the app, `texts.send` in `toolsAllowedUnattended`, or `runAsProject` with `runAsServiceAccountId` or with no project. Or `reference-out-of-scope`: what it runs isn't the project's to reach (`details.issues`, at `/target`), and nothing is registered.",
+      ),
+      '409': ErrorResponse(
+        "Another live text trigger answers the connection (`trigger-connection-taken`: `details.heldBy` is its id). Or `runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the trigger runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the trigger runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the Idempotency-Key was reused with a different body, or a resource-state conflict.",
+      ),
+      '404': ErrorResponse(
+        "`config.connectionId` isn't one of the project's company connections of app `texts`, the same answer as for one that doesn't exist (`connection-not-found`, `details.field` `config.connectionId`).",
+      ),
+      '501': ErrorResponse(
+        "`trigger-operation-unsupported`: `runAsProject` on a runtime that can't make a project's own account.",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/text-triggers',
+    openapiPath: '/v1/text-triggers',
+    operationId: 'textTriggers.list',
+    summary: 'List text triggers',
+    description:
+      "The workspace's text triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).",
+    tags: ['text-triggers'],
+    security: 'bearer',
+    parameters: [
+      LimitQueryParam,
+      CursorQueryParam,
+      TriggerStatusFilterQueryParam,
+      {
+        name: 'projectId',
+        in: 'query',
+        required: false,
+        description: "Only this project's text triggers.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+    ],
+    responses: {
+      '200': { description: 'Page of text triggers.', schema: ref('TextTriggerCollectionPage') },
+      ...CommonAuthErrors,
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/text-triggers/:triggerId',
+    openapiPath: '/v1/text-triggers/{triggerId}',
+    operationId: 'textTriggers.get',
+    summary: 'Fetch a text trigger',
+    tags: ['text-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam],
+    responses: {
+      '200': { description: 'Text trigger record.', schema: ref('TextTriggerRecord') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No text trigger with that id, or the row was tombstoned.'),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/text-triggers/:triggerId',
+    openapiPath: '/v1/text-triggers/{triggerId}',
+    operationId: 'textTriggers.update',
+    summary: 'Update a text trigger',
+    description:
+      "Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its connection, pace or label (`null` clears it). Another connection is checked as at registration, and one another live text trigger answers is `409 trigger-connection-taken`. The number is the company's, so every change takes `admin` on the project. No edit moves the owner: a project admin's change to a person's trigger keeps its owner, so its runs go on acting as that person, and it's audited as `trigger-changed-for-owner`, naming the trigger's version after it. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), never names `texts.send`, and a new target or connection while it lists any must name it again.",
+    tags: ['text-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('PatchTextTriggerBody') },
+    responses: {
+      '200': { description: 'Updated text trigger.', schema: ref('TextTriggerRecord') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A body that fails validation (`bad-input`): `runAsServiceAccountId` or `runAsProject` (the owner changes only by `POST /v1/text-triggers/{triggerId}/owner`), a limit out of its range, a `connectionId` naming a person's own live connection of the app, `texts.send` in `toolsAllowedUnattended`, or a new target or connection without the list it holds. Or `reference-out-of-scope`: the new target isn't the project's to reach. Nothing changes.",
+      ),
+      '404': ErrorResponse(
+        "No text trigger with that id. Or the new `connectionId` isn't one of the project's company connections of app `texts` (`connection-not-found`, `details.field` `config.connectionId`).",
+      ),
+      '409': ErrorResponse(
+        "Another live text trigger answers the new connection (`trigger-connection-taken`: `details.heldBy` is its id). Or a new target the trigger's owner can't run (`trigger-owner-cannot-run-target`), with an authorization store. Or an Idempotency-Key reused with a different body.",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/text-triggers/:triggerId/pause',
+    openapiPath: '/v1/text-triggers/{triggerId}/pause',
+    operationId: 'textTriggers.pause',
+    summary: 'Pause a text trigger',
+    description:
+      "A paused trigger answers no texts: one that comes in while it's paused never starts a run. It still holds its connection. A personal trigger's pause is its owner's or a project admin's; a shared one's needs `write` on the project.",
+    tags: ['text-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'Paused text trigger.', schema: ref('TextTriggerRecord') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No text trigger with that id.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/text-triggers/:triggerId/resume',
+    openapiPath: '/v1/text-triggers/{triggerId}/resume',
+    operationId: 'textTriggers.resume',
+    summary: 'Resume a text trigger',
+    description:
+      'It answers the texts that come in from now on, on the connection it kept while paused. Who may resume it is as for a pause.',
+    tags: ['text-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'Resumed text trigger.', schema: ref('TextTriggerRecord') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No text trigger with that id.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/text-triggers/:triggerId/unregister',
+    openapiPath: '/v1/text-triggers/{triggerId}/unregister',
+    operationId: 'textTriggers.unregister',
+    summary: 'Soft-delete a text trigger (tombstone)',
+    description:
+      'Who may unregister it is as for a pause. Its connection is free for another text trigger.',
+    tags: ['text-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'Tombstone outcome.', schema: ref('WebhookTriggerUnregisterResult') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No text trigger with that id.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/text-triggers/:triggerId/fires',
+    openapiPath: '/v1/text-triggers/{triggerId}/fires',
+    operationId: 'textTriggers.fires',
+    summary: "A text trigger's texts",
+    description:
+      'Newest first: each text the trigger was given and what came of it (`TextFire`): the run it started, or why it was skipped, refused or failed.',
+    tags: ['text-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: "Page of the trigger's texts.", schema: ref('TextFirePage') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No text trigger with that id.'),
+      '501': ErrorResponse(
+        '`trigger-operation-unsupported`: this deployment keeps no fire history.',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/text-triggers/:triggerId/versions',
+    openapiPath: '/v1/text-triggers/{triggerId}/versions',
+    operationId: 'textTriggers.listVersions',
+    summary: "A text trigger's versions",
+    description:
+      "Newest first: each version of the text trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A text's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). Whoever can read the text trigger can read its versions.",
+    tags: ['text-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': {
+        description: 'Page of versions, newest first.',
+        schema: ref('TextTriggerVersionPage'),
+      },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No text trigger with that id.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/text-triggers/:triggerId/versions/:version',
+    openapiPath: '/v1/text-triggers/{triggerId}/versions/{version}',
+    operationId: 'textTriggers.getVersion',
+    summary: 'Fetch one version of a text trigger',
+    tags: ['text-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, TriggerVersionPathParam],
+    responses: {
+      '200': { description: 'The version.', schema: ref('TextTriggerVersion') },
+      '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
+      ...CommonAuthErrors,
+      '404': ErrorResponse(
+        'No text trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/text-triggers/:triggerId/owner',
+    openapiPath: '/v1/text-triggers/{triggerId}/owner',
+    operationId: 'textTriggers.takeOwnership',
+    summary: 'Take over a text trigger',
+    description:
+      "The only way a text trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next text. Needs `admin` on the trigger's project and `execute` on its target. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account, and the account must itself hold what its target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project. It runs only what the project's editors can, and is checked the same way. The trigger keeps its connection and its `toolsAllowedUnattended`; a body naming the list is refused (change it with PATCH).",
+    tags: ['text-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('TakeTriggerOwnerBody') },
+    responses: {
+      '200': { description: 'The trigger, with its new owner.', schema: ref('TextTriggerRecord') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        '`bad-input`: a body naming `toolsAllowedUnattended`, or `runAsProject` with `runAsServiceAccountId`.',
+      ),
+      '404': ErrorResponse('No text trigger with that id, or no such service account.'),
+      '409': ErrorResponse(
+        "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the trigger runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the trigger runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the Idempotency-Key was reused with a different body, or a resource-state conflict.",
+      ),
+      '501': ErrorResponse(
+        "`trigger-operation-unsupported`: this deployment can't change a trigger's owner, or can't make a project's own account (`runAsProject`).",
+      ),
+    },
+  },
   {
     method: 'post',
     honoPath: '/v1/hooks/:tenantId/:webhookId',

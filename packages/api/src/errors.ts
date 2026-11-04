@@ -685,6 +685,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'trigger-version-not-found': 404,
   'trigger-invalid-config': 400,
   'trigger-webhook-id-conflict': 409,
+  /** Another live text trigger answers the connection (`details.heldBy`). */
+  'trigger-connection-taken': 409,
   'trigger-already-in-state': 409,
   'trigger-register-failed': 500,
   'trigger-update-failed': 500,

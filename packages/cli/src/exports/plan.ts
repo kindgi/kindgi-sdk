@@ -505,6 +505,25 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     covers: ['/v1/mail-triggers/{triggerId}/versions/{version}'],
   },
   {
+    name: 'text-triggers',
+    route: '/v1/text-triggers',
+    paging: cursor,
+    covers: ['/v1/text-triggers/{triggerId}'],
+  },
+  {
+    name: 'text-trigger-fires',
+    route: '/v1/text-triggers/{triggerId}/fires',
+    paging: cursor,
+    parent: { kind: 'text-triggers', params: { triggerId: 'triggerId' } },
+  },
+  {
+    name: 'text-trigger-versions',
+    route: '/v1/text-triggers/{triggerId}/versions',
+    paging: cursor,
+    parent: { kind: 'text-triggers', params: { triggerId: 'triggerId' } },
+    covers: ['/v1/text-triggers/{triggerId}/versions/{version}'],
+  },
+  {
     name: 'webhook-endpoints',
     route: '/v1/webhook-endpoints',
     paging: cursor,

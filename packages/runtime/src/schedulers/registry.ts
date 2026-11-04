@@ -19,6 +19,7 @@ import type {
   CronTriggerConfig,
   EventTriggerConfig,
   MailTriggerConfig,
+  TextTriggerConfig,
   WebhookTriggerConfig,
 } from './types.js';
 
@@ -227,6 +228,17 @@ export const MAIL_TRIGGER_LIMITS = {
   runsPerHour: { default: 60, min: 1, max: 600 },
 } as const;
 
+// ---------- text triggers: texts to a business number start runs ----------
+
+/** What a text trigger runs: an agent, or a flow at an exact version. */
+export type TextTriggerTarget = Extract<TriggerTarget, { readonly kind: 'agent' | 'flow' }>;
+
+/** A text trigger's run pace: the default when it sets none, and the range it may set. */
+export const TEXT_TRIGGER_LIMITS = {
+  runsPerHour: { default: 60, min: 1, max: 600 },
+  perSenderPerHour: { default: 10, min: 1, max: 60 },
+} as const;
+
 /** The webhook trigger the receiver found: active, paused, or unregistered. */
 export interface FoundWebhookTrigger extends WebhookTriggerRecord {
   readonly unregistered: boolean;
@@ -292,8 +304,9 @@ export interface TriggerFire {
    * `mail`: a mail trigger's row. Its mail's fires, and a `cursor-reset`
    * (`skipped`, `detail` starting `cursor-reset:`) when it couldn't read
    * on from where it was and started again.
+   * `text`: a text trigger's row, one fire per text that came in.
    */
-  readonly kind: 'schedule' | 'event' | 'webhook' | 'mail';
+  readonly kind: 'schedule' | 'event' | 'webhook' | 'mail' | 'text';
   /** A schedule's fire: the occurrence it is for. */
   readonly scheduledFor?: string;
   readonly firedAt: string;
@@ -321,7 +334,9 @@ export interface TriggerFire {
    * `pending` while an earlier mail of its thread waits or that mail's run
    * hasn't finished (`detail` starts `thread-busy:`), and starts once its
    * thread is free. It's `skipped` with `mail-already-given:` when an
-   * earlier run of its thread already had its mail.
+   * earlier run of its thread already had its mail. A text trigger's text
+   * is `refused` over the trigger's `runsPerHour` or `perSenderPerHour`
+   * (`detail` starts `over-limit:`), and it doesn't run later.
    */
   readonly outcome:
     | 'pending'
@@ -345,8 +360,9 @@ export interface TriggerFire {
   /**
    * Whether it counted toward the trigger's auto-pause (5 in a row by
    * default). `false` for a refusal for a limit, such as the workspace's runs
-   * pending (`detail` starts `rate-limited:`), or a mail trigger's
-   * `runsPerHour` (`over-limit:`): the limit passes, and the
+   * pending (`detail` starts `rate-limited:`), a mail trigger's
+   * `runsPerHour`, or a text trigger's `runsPerHour` or `perSenderPerHour`
+   * (`over-limit:`): the limit passes, and the
    * trigger isn't at fault. `false` too for a mail trigger's
    * `connection-missing:`, which the trigger's `statusReason` says and
    * connecting again ends, and for its `no-thread-id`, a mail the app gave
@@ -382,7 +398,8 @@ export type RegisterTriggerInput =
   | RegisterCronTriggerInput
   | RegisterEventTriggerInput
   | RegisterWebhookTriggerInput
-  | RegisterMailTriggerInput;
+  | RegisterMailTriggerInput
+  | RegisterTextTriggerInput;
 
 export interface RegisterCronTriggerInput {
   readonly kind: 'cron';
@@ -511,13 +528,46 @@ export interface RegisterMailTriggerInput {
   readonly toolsAllowedUnattended?: readonly string[];
 }
 
+/**
+ * A text trigger: each text that comes in to its connection's number
+ * starts a run of its target, with the text as the run's input. In a
+ * text-started run, every call that changes something waits for a person's
+ * yes, unless `toolsAllowedUnattended` lists its tool.
+ */
+export interface RegisterTextTriggerInput {
+  readonly kind: 'text';
+  readonly tenantId: TenantId;
+  /** As `RegisterCronTriggerInput.by`. */
+  readonly by: string;
+  readonly target: TextTriggerTarget;
+  /** The trigger's project; absent, the workspace's default project. */
+  readonly projectId?: ProjectId;
+  /** Who its runs act as: the principal registering it, or a service account the route allowed. */
+  readonly owner: TriggerOwner;
+  /**
+   * Stored as given. The route has checked `connectionId`: a live company
+   * connection of app `texts` in the trigger's project. Refused
+   * (`trigger-connection-taken`) when another live text trigger answers
+   * the connection.
+   */
+  readonly config: TextTriggerConfig;
+  readonly label?: string;
+  /**
+   * As `RegisterCronTriggerInput.toolsAllowedUnattended`: a listed tool's
+   * calls run without a person's yes in its runs. Anyone who can text the
+   * number writes those runs' input. Never `texts.send`. Absent: none.
+   */
+  readonly toolsAllowedUnattended?: readonly string[];
+}
+
 // ---------- update (discriminated on kind) ----------
 
 export type UpdateTriggerInput =
   | UpdateCronTriggerInput
   | UpdateEventTriggerInput
   | UpdateWebhookTriggerInput
-  | UpdateMailTriggerInput;
+  | UpdateMailTriggerInput
+  | UpdateTextTriggerInput;
 
 /**
  * An update that changes the trigger's definition makes its next version
@@ -581,6 +631,20 @@ export interface UpdateMailTriggerInput extends Omit<UpdateBase, 'flowVersion'> 
   readonly config?: Partial<MailTriggerConfig>;
   /** Run something else: another agent or agent version, another flow version. */
   readonly target?: MailTriggerTarget;
+  /** As `UpdateCronTriggerInput.toolsAllowedUnattended`. */
+  readonly toolsAllowedUnattended?: readonly string[];
+}
+
+export interface UpdateTextTriggerInput extends Omit<UpdateBase, 'flowVersion'> {
+  readonly kind: 'text';
+  /**
+   * The fields given replace the trigger's. Another `connectionId` the
+   * route checked (as at registration); refused
+   * (`trigger-connection-taken`) when another live text trigger answers it.
+   */
+  readonly config?: Partial<TextTriggerConfig>;
+  /** Run something else: another agent or agent version, another flow version. */
+  readonly target?: TextTriggerTarget;
   /** As `UpdateCronTriggerInput.toolsAllowedUnattended`. */
   readonly toolsAllowedUnattended?: readonly string[];
 }
@@ -706,11 +770,37 @@ export interface MailTriggerRecord extends TriggerRecordBase {
   readonly toolsAllowedUnattended?: readonly string[];
 }
 
+export interface TextTriggerRecord extends TriggerRecordBase {
+  readonly kind: 'text';
+  readonly target: TextTriggerTarget;
+  readonly projectId: ProjectId;
+  readonly owner: TriggerOwner;
+  /**
+   * As registered, with `runsPerHour` and `perSenderPerHour` filled in from
+   * {@link TEXT_TRIGGER_LIMITS}.
+   */
+  readonly config: TextTriggerConfig & {
+    readonly runsPerHour: number;
+    readonly perSenderPerHour: number;
+  };
+  /**
+   * Why it isn't answering as it should: `connection-missing` (its
+   * connection is gone or lapsed; texts that come in are refused until
+   * it's back), `owner-refused` (its owner was removed or may no longer run
+   * the target; texts start nothing until that changes or an admin takes
+   * it over), or why the runtime paused it.
+   */
+  readonly statusReason?: string;
+  /** As `CronTriggerRecord.toolsAllowedUnattended`. */
+  readonly toolsAllowedUnattended?: readonly string[];
+}
+
 export type TriggerRecord =
   | CronTriggerRecord
   | EventTriggerRecord
   | WebhookTriggerRecord
-  | MailTriggerRecord;
+  | MailTriggerRecord
+  | TextTriggerRecord;
 
 // ---------- list + get + lifecycle ----------
 
@@ -719,8 +809,8 @@ export interface ListTriggersInput {
   readonly kind?: TriggerKind;
   readonly status?: 'active' | 'paused';
   /**
-   * Only the triggers in this project: schedules, webhook triggers and
-   * mail triggers, which each have one (event triggers never match). A registry that
+   * Only the triggers in this project: schedules, webhook triggers, mail
+   * triggers and text triggers, which each have one (event triggers never match). A registry that
    * ignores it lists more: the routes keep only these.
    */
   readonly projectId?: ProjectId;
@@ -817,6 +907,12 @@ export type MailTriggerDefinition = Pick<
   'target' | 'projectId' | 'owner' | 'config' | 'label' | 'toolsAllowedUnattended'
 >;
 
+/** A text trigger's definition, as {@link CronTriggerDefinition}. */
+export type TextTriggerDefinition = Pick<
+  TextTriggerRecord,
+  'target' | 'projectId' | 'owner' | 'config' | 'label' | 'toolsAllowedUnattended'
+>;
+
 interface TriggerVersionBase {
   readonly triggerId: TriggerId;
   /** From 1, one more for each version of the trigger. */
@@ -850,6 +946,11 @@ export interface MailTriggerVersionRecord extends TriggerVersionBase {
   readonly definition: MailTriggerDefinition;
 }
 
+export interface TextTriggerVersionRecord extends TriggerVersionBase {
+  readonly kind: 'text';
+  readonly definition: TextTriggerDefinition;
+}
+
 /**
  * One version of a trigger: its definition as it was, who made it and
  * why. Never changed once made, and kept with every input it had. A
@@ -860,7 +961,8 @@ export type TriggerVersionRecord =
   | CronTriggerVersionRecord
   | EventTriggerVersionRecord
   | WebhookTriggerVersionRecord
-  | MailTriggerVersionRecord;
+  | MailTriggerVersionRecord
+  | TextTriggerVersionRecord;
 
 export interface ListTriggerVersionsInput {
   readonly tenantId: TenantId;
@@ -882,18 +984,31 @@ export interface GetTriggerVersionInput {
 
 // ---------- errors ----------
 
+/**
+ * `trigger-connection-taken`: another live text trigger (active or paused)
+ * already answers the text trigger's connection; `heldBy` names it.
+ */
 export interface RegisterTriggerError {
   readonly code:
     | 'trigger-invalid-config'
     | 'trigger-webhook-id-conflict'
+    | 'trigger-connection-taken'
     | 'trigger-register-failed';
   readonly message: string;
+  /** With `trigger-connection-taken`: the text trigger that answers the connection. */
+  readonly heldBy?: TriggerId;
 }
 
 export interface UpdateTriggerError {
-  readonly code: 'trigger-not-found' | 'trigger-invalid-config' | 'trigger-update-failed';
+  readonly code:
+    | 'trigger-not-found'
+    | 'trigger-invalid-config'
+    | 'trigger-connection-taken'
+    | 'trigger-update-failed';
   readonly message: string;
   readonly triggerId: TriggerId;
+  /** As `RegisterTriggerError.heldBy`. */
+  readonly heldBy?: TriggerId;
 }
 
 export interface TriggerLifecycleError {
@@ -902,5 +1017,5 @@ export interface TriggerLifecycleError {
   readonly triggerId: TriggerId;
 }
 
-export const TRIGGER_KINDS = ['cron', 'event', 'webhook', 'mail'] as const;
+export const TRIGGER_KINDS = ['cron', 'event', 'webhook', 'mail', 'text'] as const;
 export type TriggerKind = (typeof TRIGGER_KINDS)[number];

@@ -1242,6 +1242,41 @@ OPERATIONS: dict[str, Operation] = {
     "mailTriggers.takeOwnership": Operation(
         "mailTriggers.takeOwnership", "POST", "/v1/mail-triggers/{triggerId}/owner", "json", True
     ),
+    "textTriggers.list": Operation("textTriggers.list", "GET", "/v1/text-triggers", "json", False),
+    "textTriggers.register": Operation(
+        "textTriggers.register", "POST", "/v1/text-triggers", "json", True
+    ),
+    "textTriggers.get": Operation(
+        "textTriggers.get", "GET", "/v1/text-triggers/{triggerId}", "json", False
+    ),
+    "textTriggers.update": Operation(
+        "textTriggers.update", "PATCH", "/v1/text-triggers/{triggerId}", "json", True
+    ),
+    "textTriggers.pause": Operation(
+        "textTriggers.pause", "POST", "/v1/text-triggers/{triggerId}/pause", "json", True
+    ),
+    "textTriggers.resume": Operation(
+        "textTriggers.resume", "POST", "/v1/text-triggers/{triggerId}/resume", "json", True
+    ),
+    "textTriggers.unregister": Operation(
+        "textTriggers.unregister", "POST", "/v1/text-triggers/{triggerId}/unregister", "json", True
+    ),
+    "textTriggers.fires": Operation(
+        "textTriggers.fires", "GET", "/v1/text-triggers/{triggerId}/fires", "json", False
+    ),
+    "textTriggers.listVersions": Operation(
+        "textTriggers.listVersions", "GET", "/v1/text-triggers/{triggerId}/versions", "json", False
+    ),
+    "textTriggers.getVersion": Operation(
+        "textTriggers.getVersion",
+        "GET",
+        "/v1/text-triggers/{triggerId}/versions/{version}",
+        "json",
+        False,
+    ),
+    "textTriggers.takeOwnership": Operation(
+        "textTriggers.takeOwnership", "POST", "/v1/text-triggers/{triggerId}/owner", "json", True
+    ),
     "webhookEndpoints.list": Operation(
         "webhookEndpoints.list", "GET", "/v1/webhook-endpoints", "json", False
     ),
@@ -11068,6 +11103,240 @@ class MailTriggersResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.TakeTriggerOwnerBody, body, fields),
             response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+
+class TextTriggersResource:
+    """`client.text_triggers` — the `textTriggers` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        status: Literal["active", "paused"] | None = None,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.TextTriggerCollectionPage:
+        """List text triggers. `GET /v1/text-triggers`
+
+        The workspace's text triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
+        """
+        return self._client._request(
+            _OPERATIONS["textTriggers.list"],
+            path={},
+            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
+            headers={},
+            response=_models.TextTriggerCollectionPage,
+            timeout=timeout,
+        )
+
+    def register(
+        self,
+        body: _models.RegisterTextTriggerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TextTriggerRecord:
+        """Register a text trigger. `POST /v1/text-triggers`
+
+        Each text (SMS or WhatsApp) to the business number starts a run of the trigger's agent or flow, with the text as the run's input, as the trigger's owner. A flow's input is `{ text, thread }`: `text` is `{ from, channel, body, receivedAt }` (`channel` `sms` or `whatsapp`), and `thread` is `{ connectionId, channel, sender }`. `config.connectionId` names the number: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`). One live text trigger answers a connection, so another on it is `409 trigger-connection-taken`. The number is the company's: registering needs `admin` on the project, and `execute` on what it runs. `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). A trigger that names no `projectId` goes in the workspace's default project. In its runs, every call that changes something waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, it never names `texts.send`, and it's audited (`trigger-tools-allowed-unattended-set`).
+        """
+        return self._client._request(
+            _OPERATIONS["textTriggers.register"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RegisterTextTriggerBody, body, fields),
+            response=_models.TextTriggerRecord,
+            timeout=timeout,
+        )
+
+    def get(
+        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.TextTriggerRecord:
+        """Fetch a text trigger. `GET /v1/text-triggers/{triggerId}`"""
+        return self._client._request(
+            _OPERATIONS["textTriggers.get"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={},
+            response=_models.TextTriggerRecord,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        trigger_id: str | UUID,
+        body: _models.PatchTextTriggerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TextTriggerRecord:
+        """Update a text trigger. `PATCH /v1/text-triggers/{triggerId}`
+
+        Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its connection, pace or label (`null` clears it). Another connection is checked as at registration, and one another live text trigger answers is `409 trigger-connection-taken`. The number is the company's, so every change takes `admin` on the project. No edit moves the owner: a project admin's change to a person's trigger keeps its owner, so its runs go on acting as that person, and it's audited as `trigger-changed-for-owner`, naming the trigger's version after it. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), never names `texts.send`, and a new target or connection while it lists any must name it again.
+        """
+        return self._client._request(
+            _OPERATIONS["textTriggers.update"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PatchTextTriggerBody, body, fields),
+            response=_models.TextTriggerRecord,
+            timeout=timeout,
+        )
+
+    def pause(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.TextTriggerRecord:
+        """Pause a text trigger. `POST /v1/text-triggers/{triggerId}/pause`
+
+        A paused trigger answers no texts: one that comes in while it's paused never starts a run. It still holds its connection. A personal trigger's pause is its owner's or a project admin's; a shared one's needs `write` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["textTriggers.pause"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.TextTriggerRecord,
+            timeout=timeout,
+        )
+
+    def resume(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.TextTriggerRecord:
+        """Resume a text trigger. `POST /v1/text-triggers/{triggerId}/resume`
+
+        It answers the texts that come in from now on, on the connection it kept while paused. Who may resume it is as for a pause.
+        """
+        return self._client._request(
+            _OPERATIONS["textTriggers.resume"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.TextTriggerRecord,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.WebhookTriggerUnregisterResult:
+        """Soft-delete a text trigger (tombstone). `POST /v1/text-triggers/{triggerId}/unregister`
+
+        Who may unregister it is as for a pause. Its connection is free for another text trigger.
+        """
+        return self._client._request(
+            _OPERATIONS["textTriggers.unregister"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.WebhookTriggerUnregisterResult,
+            timeout=timeout,
+        )
+
+    def fires(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.TextFirePage:
+        """A text trigger's texts. `GET /v1/text-triggers/{triggerId}/fires`
+
+        Newest first: each text the trigger was given and what came of it (`TextFire`): the run it started, or why it was skipped, refused or failed.
+        """
+        return self._client._request(
+            _OPERATIONS["textTriggers.fires"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.TextFirePage,
+            timeout=timeout,
+        )
+
+    def list_versions(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.TextTriggerVersionPage:
+        """A text trigger's versions. `GET /v1/text-triggers/{triggerId}/versions`
+
+        Newest first: each version of the text trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A text's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). Whoever can read the text trigger can read its versions.
+        """
+        return self._client._request(
+            _OPERATIONS["textTriggers.listVersions"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.TextTriggerVersionPage,
+            timeout=timeout,
+        )
+
+    def get_version(
+        self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
+    ) -> _models.TextTriggerVersion:
+        """Fetch one version of a text trigger. `GET /v1/text-triggers/{triggerId}/versions/{version}`"""
+        return self._client._request(
+            _OPERATIONS["textTriggers.getVersion"],
+            path={"triggerId": trigger_id, "version": version},
+            query={},
+            headers={},
+            response=_models.TextTriggerVersion,
+            timeout=timeout,
+        )
+
+    def take_ownership(
+        self,
+        trigger_id: str | UUID,
+        body: _models.TakeTriggerOwnerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TextTriggerRecord:
+        """Take over a text trigger. `POST /v1/text-triggers/{triggerId}/owner`
+
+        The only way a text trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next text. Needs `admin` on the trigger's project and `execute` on its target. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account, and the account must itself hold what its target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project. It runs only what the project's editors can, and is checked the same way. The trigger keeps its connection and its `toolsAllowedUnattended`; a body naming the list is refused (change it with PATCH).
+        """
+        return self._client._request(
+            _OPERATIONS["textTriggers.takeOwnership"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TakeTriggerOwnerBody, body, fields),
+            response=_models.TextTriggerRecord,
             timeout=timeout,
         )
 
@@ -21422,6 +21691,240 @@ class AsyncMailTriggersResource:
         )
 
 
+class AsyncTextTriggersResource:
+    """`client.text_triggers` — the `textTriggers` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        status: Literal["active", "paused"] | None = None,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.TextTriggerCollectionPage:
+        """List text triggers. `GET /v1/text-triggers`
+
+        The workspace's text triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
+        """
+        return await self._client._request(
+            _OPERATIONS["textTriggers.list"],
+            path={},
+            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
+            headers={},
+            response=_models.TextTriggerCollectionPage,
+            timeout=timeout,
+        )
+
+    async def register(
+        self,
+        body: _models.RegisterTextTriggerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TextTriggerRecord:
+        """Register a text trigger. `POST /v1/text-triggers`
+
+        Each text (SMS or WhatsApp) to the business number starts a run of the trigger's agent or flow, with the text as the run's input, as the trigger's owner. A flow's input is `{ text, thread }`: `text` is `{ from, channel, body, receivedAt }` (`channel` `sms` or `whatsapp`), and `thread` is `{ connectionId, channel, sender }`. `config.connectionId` names the number: one of the project's company connections of app `texts` (`GET /v1/connection-choices/candidates`). One live text trigger answers a connection, so another on it is `409 trigger-connection-taken`. The number is the company's: registering needs `admin` on the project, and `execute` on what it runs. `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). A trigger that names no `projectId` goes in the workspace's default project. In its runs, every call that changes something waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, it never names `texts.send`, and it's audited (`trigger-tools-allowed-unattended-set`).
+        """
+        return await self._client._request(
+            _OPERATIONS["textTriggers.register"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RegisterTextTriggerBody, body, fields),
+            response=_models.TextTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.TextTriggerRecord:
+        """Fetch a text trigger. `GET /v1/text-triggers/{triggerId}`"""
+        return await self._client._request(
+            _OPERATIONS["textTriggers.get"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={},
+            response=_models.TextTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        trigger_id: str | UUID,
+        body: _models.PatchTextTriggerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TextTriggerRecord:
+        """Update a text trigger. `PATCH /v1/text-triggers/{triggerId}`
+
+        Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its connection, pace or label (`null` clears it). Another connection is checked as at registration, and one another live text trigger answers is `409 trigger-connection-taken`. The number is the company's, so every change takes `admin` on the project. No edit moves the owner: a project admin's change to a person's trigger keeps its owner, so its runs go on acting as that person, and it's audited as `trigger-changed-for-owner`, naming the trigger's version after it. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), never names `texts.send`, and a new target or connection while it lists any must name it again.
+        """
+        return await self._client._request(
+            _OPERATIONS["textTriggers.update"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PatchTextTriggerBody, body, fields),
+            response=_models.TextTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def pause(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.TextTriggerRecord:
+        """Pause a text trigger. `POST /v1/text-triggers/{triggerId}/pause`
+
+        A paused trigger answers no texts: one that comes in while it's paused never starts a run. It still holds its connection. A personal trigger's pause is its owner's or a project admin's; a shared one's needs `write` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["textTriggers.pause"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.TextTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def resume(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.TextTriggerRecord:
+        """Resume a text trigger. `POST /v1/text-triggers/{triggerId}/resume`
+
+        It answers the texts that come in from now on, on the connection it kept while paused. Who may resume it is as for a pause.
+        """
+        return await self._client._request(
+            _OPERATIONS["textTriggers.resume"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.TextTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.WebhookTriggerUnregisterResult:
+        """Soft-delete a text trigger (tombstone). `POST /v1/text-triggers/{triggerId}/unregister`
+
+        Who may unregister it is as for a pause. Its connection is free for another text trigger.
+        """
+        return await self._client._request(
+            _OPERATIONS["textTriggers.unregister"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.WebhookTriggerUnregisterResult,
+            timeout=timeout,
+        )
+
+    async def fires(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.TextFirePage:
+        """A text trigger's texts. `GET /v1/text-triggers/{triggerId}/fires`
+
+        Newest first: each text the trigger was given and what came of it (`TextFire`): the run it started, or why it was skipped, refused or failed.
+        """
+        return await self._client._request(
+            _OPERATIONS["textTriggers.fires"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.TextFirePage,
+            timeout=timeout,
+        )
+
+    async def list_versions(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.TextTriggerVersionPage:
+        """A text trigger's versions. `GET /v1/text-triggers/{triggerId}/versions`
+
+        Newest first: each version of the text trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A text's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). Whoever can read the text trigger can read its versions.
+        """
+        return await self._client._request(
+            _OPERATIONS["textTriggers.listVersions"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.TextTriggerVersionPage,
+            timeout=timeout,
+        )
+
+    async def get_version(
+        self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
+    ) -> _models.TextTriggerVersion:
+        """Fetch one version of a text trigger. `GET /v1/text-triggers/{triggerId}/versions/{version}`"""
+        return await self._client._request(
+            _OPERATIONS["textTriggers.getVersion"],
+            path={"triggerId": trigger_id, "version": version},
+            query={},
+            headers={},
+            response=_models.TextTriggerVersion,
+            timeout=timeout,
+        )
+
+    async def take_ownership(
+        self,
+        trigger_id: str | UUID,
+        body: _models.TakeTriggerOwnerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TextTriggerRecord:
+        """Take over a text trigger. `POST /v1/text-triggers/{triggerId}/owner`
+
+        The only way a text trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next text. Needs `admin` on the trigger's project and `execute` on its target. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account, and the account must itself hold what its target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project. It runs only what the project's editors can, and is checked the same way. The trigger keeps its connection and its `toolsAllowedUnattended`; a body naming the list is refused (change it with PATCH).
+        """
+        return await self._client._request(
+            _OPERATIONS["textTriggers.takeOwnership"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TakeTriggerOwnerBody, body, fields),
+            response=_models.TextTriggerRecord,
+            timeout=timeout,
+        )
+
+
 class AsyncWebhookEndpointsResource:
     """`client.webhook_endpoints` — the `webhookEndpoints` operations."""
 
@@ -22162,6 +22665,7 @@ class Resources:
     schedules: SchedulesResource
     webhooks: WebhooksResource
     mail_triggers: MailTriggersResource
+    text_triggers: TextTriggersResource
     webhook_endpoints: WebhookEndpointsResource
     connection_entries: ConnectionEntriesResource
     connection_apps: ConnectionAppsResource
@@ -22225,6 +22729,7 @@ class Resources:
         self.schedules = SchedulesResource(client)
         self.webhooks = WebhooksResource(client)
         self.mail_triggers = MailTriggersResource(client)
+        self.text_triggers = TextTriggersResource(client)
         self.webhook_endpoints = WebhookEndpointsResource(client)
         self.connection_entries = ConnectionEntriesResource(client)
         self.connection_apps = ConnectionAppsResource(client)
@@ -22290,6 +22795,7 @@ class AsyncResources:
     schedules: AsyncSchedulesResource
     webhooks: AsyncWebhooksResource
     mail_triggers: AsyncMailTriggersResource
+    text_triggers: AsyncTextTriggersResource
     webhook_endpoints: AsyncWebhookEndpointsResource
     connection_entries: AsyncConnectionEntriesResource
     connection_apps: AsyncConnectionAppsResource
@@ -22353,6 +22859,7 @@ class AsyncResources:
         self.schedules = AsyncSchedulesResource(client)
         self.webhooks = AsyncWebhooksResource(client)
         self.mail_triggers = AsyncMailTriggersResource(client)
+        self.text_triggers = AsyncTextTriggersResource(client)
         self.webhook_endpoints = AsyncWebhookEndpointsResource(client)
         self.connection_entries = AsyncConnectionEntriesResource(client)
         self.connection_apps = AsyncConnectionAppsResource(client)

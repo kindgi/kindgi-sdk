@@ -146,6 +146,8 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "Run an agent or a flow on a schedule: a cron expression in a timezone. Each occurrence is one fire, which starts one run as the schedule's owner (re-checked at every fire), through the same path as `POST /v1/runs`; a run a schedule started names it (`Run.trigger`). After a gap, `catchUp` runs once for the latest missed occurrence (or skips them), never once per missed one; `overlap` skips an occurrence while the previous run is still going. `GET …/fires` is the schedule's history; `run-now` fires it outside the schedule. Mounted when the deployment fires schedules.",
   'mail-triggers':
     "Mail triggers: each new mail in a mailbox's folder starts a run of an agent or a flow, as the trigger's owner. A thread's mail runs one at a time, and each run continues the thread's conversation.",
+  'text-triggers':
+    "Text triggers: each text (SMS or WhatsApp) to a business number starts a run of an agent or a flow, as the trigger's owner. The number is a company connection of app `texts`, and one live text trigger answers it.",
   'webhook-endpoints':
     'Outbound webhooks: endpoints the platform sends signed events to (`run.finished` when a top-level run, not a replay, completes, fails or is cancelled), their delivery log, redelivery and a test event. Signed in the Standard Webhooks format with a secret the endpoint references by name (`secretRef`); delivered at least once, so receivers deduplicate on `webhook-id`. Event bodies are under `webhooks`. Not to be confused with `/v1/webhooks`, which are inbound triggers. Caller-plugged via `WebhookEndpointBinding`.',
   connections:
