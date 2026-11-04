@@ -150,7 +150,9 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
 - **With `firstAdmin`,** that person becomes the tenant's admin and member by
   email, and signs in with the runtime's own sign-in
   ([Turn on sign-in](../sign-in/)). No key comes back: once signed in, they
-  make the tenant's keys ([API keys](../../people-and-keys/#api-keys)).
+  make the tenant's keys ([API keys](../../people-and-keys/#api-keys)). They
+  make the tenant's other admins
+  ([Someone who signs in](../../people-and-keys/#someone-who-signs-in)).
 - **Without `firstAdmin`,** the answer carries the tenant's first admin key,
   once. Store it, because nothing shows it again. Only the full capability
   creates a tenant that way.
