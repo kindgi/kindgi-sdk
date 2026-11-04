@@ -205,7 +205,7 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   `revoked:` line:
 
   ```sh
-  npx --yes @kindgi/cli@0.2 tokens revoke <key id>
+  npx --yes @kindgi/cli@0.4 tokens revoke <key id>
   ```
 
   A key that's already revoked stays revoked, and the sessions it left end,

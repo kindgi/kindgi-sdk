@@ -240,7 +240,7 @@ console's **Connections** page, or from a terminal, by its id from
 `kindgi connections list`:
 
 ```sh
-npx --yes @kindgi/cli@0.2 connections disconnect <connection-id>
+npx --yes @kindgi/cli@0.4 connections disconnect <connection-id>
 ```
 
 It asks first, unless `--yes`, and prints what was done. Kindgi then:
