@@ -33,6 +33,7 @@
     muted,
     empty,
     stepWords,
+    answerText,
     callsSoFar,
     askUrl,
     approvalUrl,
@@ -1209,13 +1210,13 @@
     return li;
   }
 
-  /** What a tool answered, folded: its raw result. */
+  /** What a tool answered, folded: words as they are, anything else as JSON (`answerText`). */
   const answerOf = (m) =>
     el(
       'details',
       { className: 'kindgi-answer' },
       el('summary', {}, __('What it answered', 'kindgi')),
-      el('pre', {}, JSON.stringify(m.result, null, 2)),
+      el('pre', {}, answerText(m.result)),
     );
 
   /** The tools a message calls, a step each: the answer to its call takes its place when it comes. */

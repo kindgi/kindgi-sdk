@@ -372,6 +372,15 @@
   }
 
   /**
+   * What a tool answered, as the conversation folds it under its step: an
+   * answer in words as it is, line by line (a guardrail's note on a result
+   * it withheld is one); any other answer as indented JSON.
+   */
+  function answerText(result) {
+    return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+  }
+
+  /**
    * A running turn's calls so far, in the order the agent asked for them:
    * the calls from before (`calls`), with what a poll of the run brings
    * (its `steps` and `answers`). Each call is listed once, however often a
@@ -841,6 +850,7 @@
     empty,
     toolName,
     stepWords,
+    answerText,
     callsSoFar,
     askUrl,
     approvalUrl,
