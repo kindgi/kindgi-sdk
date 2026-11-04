@@ -80,10 +80,11 @@ const UNATTENDED: readonly (RunStartedBy | undefined)[] = [
   'webhook',
   'event',
   'mail',
+  'text',
   undefined,
 ];
 /** The runs a trigger with a `toolsAllowedUnattended` list started. */
-const LISTABLE = ['webhook', 'schedule', 'mail'] as const;
+const LISTABLE = ['webhook', 'schedule', 'mail', 'text'] as const;
 
 describe('runIsAttended', () => {
   test('only a person counts', () => {
@@ -106,7 +107,7 @@ describe('needsPersonsYesUnattended — the one rule the gate and the runtime sh
     }
   });
 
-  test("only a webhook's, a schedule's or a mail trigger's run has a list: on any other, one lifts nothing", () => {
+  test("only a webhook's, a schedule's, a mail trigger's or a text trigger's run has a list: on any other, one lifts nothing", () => {
     for (const by of ['key', 'event', undefined] as const) {
       expect(needsPersonsYesUnattended(declared, by, ['pack.refund'])).toBe(true);
     }
@@ -458,6 +459,62 @@ describe('the unattended rule, case by case', () => {
       personMailbox,
       'persons-connection',
     ],
+    [
+      "a text's run: an unlisted change with no connection waits",
+      refund,
+      'text',
+      undefined,
+      undefined,
+      'text-change',
+    ],
+    [
+      "a text's run: a listed change with no connection runs",
+      refund,
+      'text',
+      ['pack.refund'],
+      undefined,
+      undefined,
+    ],
+    [
+      "a text's run: a company read runs, a text having no mailbox",
+      companyGithubRead,
+      'text',
+      undefined,
+      undefined,
+      undefined,
+    ],
+    [
+      "a text's run, its list naming another tool: the change still waits",
+      refund,
+      'text',
+      ['pack.other'],
+      undefined,
+      'text-change',
+    ],
+    [
+      "a text's run: an unlisted reply tool waits",
+      companyOutlookReply,
+      'text',
+      undefined,
+      undefined,
+      'declared',
+    ],
+    [
+      "a text's run: a listed reply tool runs",
+      companyOutlookReply,
+      'text',
+      ['pack.reply'],
+      undefined,
+      undefined,
+    ],
+    [
+      "a text's run: a change with a person's connection waits for the connection first",
+      { ...personsRead, mutating: true },
+      'text',
+      undefined,
+      undefined,
+      'persons-connection',
+    ],
   ];
 
   test.each(cases)('%s', (_, tool, startedBy, listed, mailbox, reason) => {
@@ -692,6 +749,16 @@ describe('dispatch-tools — a turn no person started', () => {
     expect(unlisted.waits).toHaveLength(1);
     const listed = await dispatchStartedBy('mail', {}, ['pack.refund']);
     expect([listed.enqueued, listed.waits, listed.ran]).toEqual([[], [], [{ order: '7' }]]);
+  });
+
+  test("in a text's turn, a change waits unless the trigger lists it, though it declares nothing", async () => {
+    const unlisted = await dispatchStartedBy('text', {});
+    expect(unlisted.enqueued).toHaveLength(1);
+    expect(unlisted.waits).toHaveLength(1);
+    const listed = await dispatchStartedBy('text', {}, ['pack.refund']);
+    expect([listed.enqueued, listed.waits, listed.ran]).toEqual([[], [], [{ order: '7' }]]);
+    const read = await dispatchStartedBy('text', { mutating: false });
+    expect([read.enqueued, read.waits, read.ran]).toEqual([[], [], [{ order: '7' }]]);
   });
 
   test("in a mail's turn, a read of another app's company connection runs at once; one of the mailbox's own waits", async () => {
