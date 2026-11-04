@@ -286,17 +286,7 @@ final class Kindgi_Rest {
 		if ( is_wp_error( $readable ) ) {
 			return $readable;
 		}
-		$path  = '/v1/conversations/' . rawurlencode( $request['id'] ) . '/messages';
-		$pages = self::newest_messages(
-			static function ( ?string $cursor ) use ( $path ) {
-				$query = array( 'limit' => self::MESSAGES_SHOWN );
-				if ( null !== $cursor ) {
-					$query['cursor'] = $cursor;
-				}
-				$answer = Kindgi_Api::body( wp_get_current_user(), 'GET', $path, $query );
-				return is_wp_error( $answer ) ? $answer : $answer['body'];
-			}
-		);
+		$pages = self::newest_of( (string) $request['id'] );
 		if ( is_wp_error( $pages ) ) {
 			return $pages;
 		}
@@ -366,6 +356,26 @@ final class Kindgi_Rest {
 		);
 	}
 
+	/**
+	 * A conversation's newest messages, read as this person
+	 * (`newest_messages`).
+	 *
+	 * @return array{rows: array, earlier: bool}|WP_Error
+	 */
+	private static function newest_of( string $conversation_id ) {
+		$path = '/v1/conversations/' . rawurlencode( $conversation_id ) . '/messages';
+		return self::newest_messages(
+			static function ( ?string $cursor ) use ( $path ) {
+				$query = array( 'limit' => self::MESSAGES_SHOWN );
+				if ( null !== $cursor ) {
+					$query['cursor'] = $cursor;
+				}
+				$answer = Kindgi_Api::body( wp_get_current_user(), 'GET', $path, $query );
+				return is_wp_error( $answer ) ? $answer : $answer['body'];
+			}
+		);
+	}
+
 	/** A turn: the person's message to the conversation's agent, started and followed by polling. */
 	public static function turn( WP_REST_Request $request ) {
 		$user         = wp_get_current_user();
@@ -420,52 +430,27 @@ final class Kindgi_Rest {
 		}
 		// The tools the agent called, by name, and what each answered, which the
 		// person's conversation shows them anyway: nothing else of the journal
-		// reaches the browser. A call is its model call's; the loop's later steps
-		// carry the same message. Its answer is the tool step's, as the
-		// conversation keeps it (`messages()`).
+		// reaches the browser.
 		// `since` is exclusive: the next poll asks for what came after the last entry seen.
-		$steps   = array();
-		$answers = array();
-		$seen    = array();
-		$last    = (int) $request['since'];
-		foreach ( self::list_of( $journal['body']['data'] ?? null ) as $entry ) {
-			$last = max( $last, (int) ( $entry['sequence'] ?? 0 ) );
-			if ( 'step.completed' !== ( $entry['kind'] ?? '' ) ) {
-				continue;
-			}
-			$node   = $entry['nodeId'] ?? null;
-			$output = $entry['payload']['output'] ?? null;
-			if ( 'model-call' === $node ) {
-				foreach ( self::list_of( $output['message']['toolCalls'] ?? null ) as $call ) {
-					$id = is_string( $call['id'] ?? null ) ? $call['id'] : null;
-					if ( ! is_string( $call['name'] ?? null ) || isset( $seen[ 'call:' . $id ] ) ) {
-						continue;
-					}
-					if ( null !== $id ) {
-						$seen[ 'call:' . $id ] = true;
-					}
-					$steps[] = array(
-						'callId' => $id,
-						'toolId' => $call['name'],
-						'at'     => (string) ( $entry['timestamp'] ?? '' ),
-					);
-				}
-			} elseif ( 'dispatch-tools' === $node ) {
-				foreach ( self::list_of( $output['iterationAppended'] ?? null ) as $m ) {
-					$id = is_string( $m['toolCall']['invocationId'] ?? null ) ? $m['toolCall']['invocationId'] : null;
-					if ( 'tool' !== ( $m['role'] ?? '' ) || null === $id || isset( $seen[ 'answer:' . $id ] ) ) {
-						continue;
-					}
-					$seen[ 'answer:' . $id ] = true;
-					$answers[]               = array(
-						'callId' => $id,
-						'toolId' => is_string( $m['toolCall']['toolId'] ?? null ) ? $m['toolCall']['toolId'] : null,
-						'result' => $m['content'] ?? null,
-					);
+		$turn = self::turn_steps( self::list_of( $journal['body']['data'] ?? null ), (int) $request['since'] );
+		$r    = $run['body'];
+		// A turn that waits for a person, or failed, can have calls that ran but
+		// whose answers its journal doesn't hold: a step journals them only once
+		// all its calls are done, and not at all when it fails. The conversation
+		// keeps each as it comes, so they're read there, from when the turn
+		// started. Only then: a running turn's fast polls never ask more.
+		$conversation = is_string( $r['agent']['conversationId'] ?? null ) ? $r['agent']['conversationId'] : null;
+		$started      = strtotime( (string) ( $r['createdAt'] ?? '' ) );
+		if ( null !== $conversation && false !== $started && in_array( $r['status'] ?? null, array( 'suspended', 'failed' ), true ) ) {
+			$pages    = self::newest_of( $conversation );
+			$answered = array_column( $turn['answers'], 'callId' );
+			foreach ( is_wp_error( $pages ) ? array() : $pages['rows'] as $m ) {
+				$answer = self::answer_of( $m );
+				if ( null !== $answer && strtotime( (string) ( $m['createdAt'] ?? '' ) ) >= $started && ! in_array( $answer['callId'], $answered, true ) ) {
+					$turn['answers'][] = $answer;
 				}
 			}
 		}
-		$r       = $run['body'];
 		$waiting = array();
 		foreach ( self::list_of( $r['waitingFor']['approvals'] ?? null ) as $a ) {
 			$tool      = is_string( $a['tool']['id'] ?? null ) ? $a['tool']['id'] : null;
@@ -483,10 +468,119 @@ final class Kindgi_Rest {
 			'conversationId' => is_string( $r['agent']['conversationId'] ?? null ) ? $r['agent']['conversationId'] : null,
 			'failureMessage' => is_string( $r['failureMessage'] ?? null ) ? $r['failureMessage'] : null,
 			'waitingFor'     => $waiting,
-			'steps'          => $steps,
-			'answers'        => $answers,
-			'since'          => $last,
+			'steps'          => $turn['steps'],
+			'answers'        => $turn['answers'],
+			'since'          => $turn['since'],
 		);
+	}
+
+	/**
+	 * What a turn's journal entries say of its tool calls: each call the
+	 * agent asked for, once, and each call's answer, once.
+	 *
+	 * - A call is its model call's. The loop's later steps carry the same
+	 *   message, and a reply's calls run only when it ended asking for tools
+	 *   (`finishReason` `tool-use`), so no other reply's are listed.
+	 * - An answer is the tool step's, as the conversation keeps it
+	 *   (`answer_of`). A reply guardrails sent back is never kept, and none of
+	 *   its calls ran: their answers, which say so, are in the loop's next
+	 *   messages.
+	 *
+	 * @param array $entries Journal entries, oldest first.
+	 * @param int   $since   The last sequence seen before them.
+	 * @return array{steps: array, answers: array, since: int}
+	 */
+	private static function turn_steps( array $entries, int $since ): array {
+		$steps   = array();
+		$answers = array();
+		$seen    = array();
+		foreach ( $entries as $entry ) {
+			$since = max( $since, (int) ( $entry['sequence'] ?? 0 ) );
+			if ( 'step.completed' !== ( $entry['kind'] ?? '' ) ) {
+				continue;
+			}
+			$node   = (string) ( $entry['nodeId'] ?? '' );
+			$output = is_array( $entry['payload']['output'] ?? null ) ? $entry['payload']['output'] : array();
+			$calls  = 'tool-use' === ( $output['finishReason'] ?? null ) ? self::list_of( $output['message']['toolCalls'] ?? null ) : array();
+			if ( self::is_node( $node, 'model-call' ) ) {
+				foreach ( $calls as $call ) {
+					$id = is_string( $call['id'] ?? null ) ? $call['id'] : null;
+					if ( ! is_string( $call['name'] ?? null ) || ( null !== $id && isset( $seen[ 'call:' . $id ] ) ) ) {
+						continue;
+					}
+					$seen[ 'call:' . $id ] = true;
+					$steps[]               = array(
+						'callId' => $id,
+						'toolId' => $call['name'],
+						'at'     => (string) ( $entry['timestamp'] ?? '' ),
+					);
+				}
+			} elseif ( self::is_node( $node, 'dispatch-tools' ) ) {
+				$kept  = self::list_of( $output['iterationAppended'] ?? null );
+				$found = array_map( array( self::class, 'answer_of' ), $kept );
+				if ( array() === $kept ) {
+					// Nothing kept, not even the reply: guardrails sent it back.
+					$found = self::unrun( $calls, self::list_of( $output['nextMessages'] ?? null ) );
+				}
+				foreach ( $found as $answer ) {
+					if ( null !== $answer && ! isset( $seen[ 'answer:' . $answer['callId'] ] ) ) {
+						$seen[ 'answer:' . $answer['callId'] ] = true;
+						$answers[]                             = $answer;
+					}
+				}
+			}
+		}
+		return array(
+			'steps'   => $steps,
+			'answers' => $answers,
+			'since'   => $since,
+		);
+	}
+
+	/**
+	 * The answers a sent-back reply's calls got in the loop's next messages,
+	 * each saying it didn't run (Kindgi's `{ status: 'denied', reason }`, as
+	 * JSON).
+	 */
+	private static function unrun( array $calls, array $next ): array {
+		$answers = array();
+		foreach ( $calls as $call ) {
+			foreach ( $next as $m ) {
+				if ( 'tool' === ( $m['role'] ?? '' ) && is_string( $call['id'] ?? null ) && ( $m['toolCallId'] ?? null ) === $call['id'] ) {
+					$result    = is_string( $m['content'] ?? null ) ? json_decode( $m['content'], true ) : null;
+					$answers[] = array(
+						'callId' => $call['id'],
+						'toolId' => is_string( $call['name'] ?? null ) ? $call['name'] : null,
+						'result' => is_array( $result ) ? $result : ( $m['content'] ?? null ),
+					);
+				}
+			}
+		}
+		return $answers;
+	}
+
+	/**
+	 * A tool's answer, as the conversation keeps it (`messages()`): the call
+	 * it answers, its tool and what it returned. Null for any other message.
+	 */
+	private static function answer_of( array $m ): ?array {
+		$id = $m['toolCall']['invocationId'] ?? null;
+		if ( 'tool' !== ( $m['role'] ?? '' ) || ! is_string( $id ) ) {
+			return null;
+		}
+		return array(
+			'callId' => $id,
+			'toolId' => is_string( $m['toolCall']['toolId'] ?? null ) ? $m['toolCall']['toolId'] : null,
+			'result' => $m['content'] ?? null,
+		);
+	}
+
+	/**
+	 * Whether a journal entry's node is this step of an agent's loop: at the
+	 * top, or inside a flow, which puts its own step's id in front.
+	 */
+	private static function is_node( string $node, string $name ): bool {
+		return $node === $name || substr( $node, -strlen( $name ) - 1 ) === '/' . $name;
 	}
 
 	/**

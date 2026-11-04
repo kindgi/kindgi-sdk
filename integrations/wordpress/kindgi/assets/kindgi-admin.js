@@ -1191,6 +1191,24 @@
     );
   }
 
+  /**
+   * A running turn's line for a call (`stepOf`, its answer not folded in),
+   * kept by the call's id (`lines`): the same line until the call's answer
+   * comes, then a new one in its place; a new call's line, not yet listed.
+   * Lines change only when their call does, so the live region reads each
+   * change once.
+   */
+  function lineOf(lines, call, index) {
+    const key = call.callId ?? `#${index}`;
+    const answered = call.answer !== undefined;
+    const had = lines.get(key);
+    if (had !== undefined && (had.answered || !answered)) return had.li;
+    const li = stepOf(call.toolId, call.callId, call.answer, { folded: false });
+    had?.li.replaceWith(li);
+    lines.set(key, { li, answered });
+    return li;
+  }
+
   /** What a tool answered, folded: its raw result. */
   const answerOf = (m) =>
     el(
@@ -1332,6 +1350,7 @@
     let since = 0;
     let delay = pollMs;
     let calls = [];
+    const lines = new Map();
     const steps = el('ul', { className: 'kindgi-steps' });
     const waits = el('div');
     const shown = new Map();
@@ -1356,9 +1375,11 @@
       if (view !== state.view) return null;
       since = run.since;
       calls = callsSoFar(calls, run.steps, run.answers);
-      steps.replaceChildren(
-        // Each call once, in the conversation's words: Used, Couldn't use, or still Asked to use.
-        ...calls.map((call) => stepOf(call.toolId, call.callId, call.answer, { folded: false })),
+      steps.append(
+        // New calls' lines only: an answer replaces its own call's line in place (`lineOf`).
+        ...calls
+          .map((call, index) => lineOf(lines, call, index))
+          .filter((li) => li.parentNode !== steps),
       );
       showWaits(waits, shown, run.waitingFor);
       // Waiting for a person: the approval's box says so, not the dots.

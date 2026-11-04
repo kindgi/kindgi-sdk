@@ -350,38 +350,6 @@ test('a call whose approval was rejected says so, with the reason when one was g
   });
 });
 
-test("a tool's own answer reads as used, whatever its fields", () => {
-  const { cards } = loadCards(null);
-  for (const result of [
-    { status: 'denied', reason: 'Card declined.', orderId: 18 },
-    { status: 'rejected', by: 'bank' },
-    { status: 'failed', error: { code: 'card-declined', message: 'Card declined.' } },
-    { status: 'failed', error: 'Card declined.' },
-    {
-      kindgi: 'retry',
-      status: 'failed',
-      error: { message: 'Card declined.' },
-      instruction: 'Again.',
-    },
-    // Guardrails' note on a call that ran, its result withheld.
-    note(['pii'], "This call ran, but its result is withheld: it didn't pass this guardrail.", [
-      '- pii: It names a person.',
-    ]),
-    '[kindgi:guardrail-retry] ["pii"]',
-    "[kindgi:guardrail-retry] not ids\nThis call didn't run: it didn't pass this guardrail.\nDon't make this call again.",
-    { orders: [] },
-    [],
-    'done',
-    null,
-  ]) {
-    assert.deepEqual(stepOf(cards, 'woo.find-orders', { result }), {
-      ran: true,
-      line: 'Used Find orders',
-      why: null,
-    });
-  }
-});
-
 /** A running turn's calls so far, as plain fields: made in the script's own realm. */
 const callsOf = (cards, ...args) => JSON.parse(JSON.stringify(cards.callsSoFar(...args)));
 
@@ -443,7 +411,7 @@ test('a call a poll brings again, as when the turn is followed from its start on
   assert.deepEqual(again[0].answer, { result: { orders: [] } });
 });
 
-test("an answer to a call the list hasn't seen goes at its end, and calls with no id are each their own", () => {
+test("an answer to a call the list hasn't seen is another turn's, so it's left out; calls with no id are each their own", () => {
   const { cards } = loadCards(null);
   const calls = callsOf(
     cards,
@@ -459,7 +427,38 @@ test("an answer to a call the list hasn't seen goes at its end, and calls with n
     [
       [null, 'acme.reply', true],
       [null, 'acme.reply', true],
-      ['call-7', 'woo.find-orders', false],
     ],
   );
+});
+
+test("a tool's own answer reads as used, whatever its fields", () => {
+  const { cards } = loadCards(null);
+  for (const result of [
+    { status: 'denied', reason: 'Card declined.', orderId: 18 },
+    { status: 'rejected', by: 'bank' },
+    { status: 'failed', error: { code: 'card-declined', message: 'Card declined.' } },
+    { status: 'failed', error: 'Card declined.' },
+    {
+      kindgi: 'retry',
+      status: 'failed',
+      error: { message: 'Card declined.' },
+      instruction: 'Again.',
+    },
+    // Guardrails' note on a call that ran, its result withheld.
+    note(['pii'], "This call ran, but its result is withheld: it didn't pass this guardrail.", [
+      '- pii: It names a person.',
+    ]),
+    '[kindgi:guardrail-retry] ["pii"]',
+    "[kindgi:guardrail-retry] not ids\nThis call didn't run: it didn't pass this guardrail.\nDon't make this call again.",
+    { orders: [] },
+    [],
+    'done',
+    null,
+  ]) {
+    assert.deepEqual(stepOf(cards, 'woo.find-orders', { result }), {
+      ran: true,
+      line: 'Used Find orders',
+      why: null,
+    });
+  }
 });
