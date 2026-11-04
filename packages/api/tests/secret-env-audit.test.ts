@@ -82,7 +82,11 @@ function harness(
         kind: 'ok',
         record: { ...RECORD, name: 'KB_URL', revision: 4 },
       },
-    delete: async () => answers.envDelete ?? { deleted: true },
+    delete: async () => {
+      // An Error is thrown, as a store whose storage failed throws.
+      if (answers.envDelete instanceof Error) throw answers.envDelete;
+      return answers.envDelete ?? { deleted: true };
+    },
   } as unknown as EnvBinding;
   const app = createApp({
     ...createStubAppBindings(),
@@ -293,6 +297,22 @@ describe('env writes are recorded at the route', () => {
     expect(await none.call('DELETE', `/v1/env/KB_URL?${queryScope}`)).toBe(200);
     expect(await none.recorded()).toEqual([]);
   });
+
+  test('a delete that throws: env-deleted, failed, with the 500 it is answered; never the error', async () => {
+    const { call, recorded } = harness({ envDelete: new Error('the env store is unreachable') });
+    expect(await call('DELETE', `/v1/env/KB_URL?${queryScope}`)).toBe(500);
+    const events = await recorded();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      kind: 'env-deleted',
+      projectId,
+      actor: 'user:alice',
+      correlationId: 'req-123',
+      outcome: 'failed',
+    });
+    expect(docOf(events[0])).toMatchObject({ name: 'KB_URL', errorCode: 'internal-server-error' });
+    expect(JSON.stringify(events)).not.toContain('unreachable');
+  });
 });
 
 describe('best effort', () => {
@@ -310,6 +330,28 @@ describe('best effort', () => {
     } as AuditEventBinding;
     const { call } = harness({}, failing);
     expect(await call('POST', '/v1/secrets', setBody())).toBe(201);
+  });
+
+  test("a delete that throws, whose record fails too: still the delete's 500, with its error logged", async () => {
+    const lines: string[] = [];
+    const failing = {
+      ...createInMemoryAuditEventBinding(),
+      append: async () => {
+        throw new Error('audit store down');
+      },
+    } as AuditEventBinding;
+    const { call } = harness(
+      { envDelete: new Error('the env store is unreachable') },
+      failing,
+      lines,
+    );
+    expect(await call('DELETE', `/v1/env/KB_URL?${queryScope}`)).toBe(500);
+    const records = lines.map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(records.filter((r) => r.subsystem === 'audit')).toEqual([
+      expect.objectContaining({ level: 'warn', kind: 'env-deleted', requestId: 'req-123' }),
+    ]);
+    const unhandled = records.find((r) => r.message === 'unhandled error');
+    expect((unhandled?.err as { message: string }).message).toBe('the env store is unreachable');
   });
 
   test("a failed append is logged at warn through the app's logger (subsystem audit), with the request", async () => {

@@ -352,6 +352,25 @@ describe('DELETE and GET /v1/system/tenants/:tenantId/env', () => {
     expect(JSON.stringify(deletes)).not.toContain('projects/');
   });
 
+  test('a delete that throws answers the 500, and is recorded as failed, marked a cloud secret', async () => {
+    const t = makeApp();
+    t.cloudSecrets.delete = async () => {
+      throw new Error('the cloud secret store is unreachable');
+    };
+    const failed = await t.call('kgi_sy_env_refs', 'DELETE', at(active, 'A_KEY'));
+    expect(failed.status).toBe(500);
+    expect(t.code(failed)).toBe('internal-server-error');
+    const deletes = (await t.recorded(active)).filter((e) => e.kind === 'env-deleted');
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0]).toMatchObject({ outcome: 'failed' });
+    expect(docOf(deletes[0])).toMatchObject({
+      name: 'A_KEY',
+      cloudSecret: true,
+      errorCode: 'internal-server-error',
+    });
+    expect(JSON.stringify(deletes)).not.toContain('unreachable');
+  });
+
   test('a page at a time, by cursor', async () => {
     const t = makeApp();
     for (const name of ['A_KEY', 'B_KEY', 'C_KEY']) {
