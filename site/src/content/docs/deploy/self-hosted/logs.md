@@ -52,7 +52,8 @@ A subsystem no part of the runtime logs under only warns:
 ## The subsystems
 
 `boot`, `http`, `authz`, `runs`, `provenance` (runtime 0.3.0 or later),
-`kernel`, `leases`, `approvals`, `retention`, `audit`, `webhooks`, `mcp`,
+`kernel`, `leases`, `approvals`, `retention`, `audit`, `webhooks`,
+`destinations` (runtime 0.7.0 or later), `mcp`,
 `providers`, `promotions`, `pinned-versions` (runtime 0.3.0 or later),
 `block-version-prs` (runtime 0.4.0 or later), `tools`, `guardrails`,
 `pack`, `pack-orchestrator` (runtime 0.4.0 or later, for the
@@ -62,7 +63,8 @@ A subsystem no part of the runtime logs under only warns:
 `openfga`, `sso`, `tenants`, `improvement-passes`,
 `api-keys`, and `connections` (runtime 0.2.0 or later), with these nested
 ones: `kernel.waitpoints`, `kernel.sweeper`,
-`webhooks.worker`, `authz.outbox`, `approvals.notifier`, `audit.retention`,
+`webhooks.worker`, `destinations.worker` (runtime 0.7.0 or later),
+`authz.outbox`, `approvals.notifier`, `audit.retention`,
 `mcp.headers`, `mcp.env` (runtime 0.4.0 or later), `providers.keys`,
 `providers.prune`, `secrets.scopes` and `tenants.purge` (runtime 0.1.10 or
 later).
