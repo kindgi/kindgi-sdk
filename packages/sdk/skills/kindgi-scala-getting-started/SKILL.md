@@ -168,8 +168,8 @@ escaped (`my-pack` becomes `mypack`). `kindgi.config.json` also takes
 With `kindgi dev` running, from another terminal in the pack directory:
 
 ```sh
-./kindgiw runs start --agent=my-pack.echo-agent --input='{"userMessage":"Ada"}'
-./kindgiw runs start --flow=my-pack.echo-flow --input='{"message":"Ada"}'
+./kindgiw runs start --agent=my-pack.greeter --input='{"userMessage":"Ada"}'
+./kindgiw runs start --flow=my-pack.greet-person --input='{"message":"Ada"}'
 ```
 
 The agent's answer comes from `dev-echo`, a **fallback** provider a new pack
@@ -207,7 +207,7 @@ A flow is data: nodes and edges (`flow.schema.json`). A node's ref may be
 the `Tool` itself:
 
 ```scala
-val flow: Flow = Flow("acme.ledger.record-flow")
+val flow: Flow = Flow("acme.record-expense")
   .version("0.1.0")
   .toolNode("record", RecordExpense.tool)
   .edge("e-start", "$start", "record")
@@ -233,7 +233,7 @@ import scala.jdk.CollectionConverters._
 
 val client = Kindgi.create()   // KINDGI_API_URL + KINDGI_API_TOKEN; in dev, the running kindgi dev
 val run = client.runs().start(StartRunBody.WithAgent.builder()
-  .agent("my-pack.echo-agent")
+  .agent("my-pack.greeter")
   .input(Map[String, AnyRef]("userMessage" -> "Ada").asJava)
   .build())
 val events = client.runs().follow(run.id())
@@ -334,8 +334,10 @@ kindgi-pack-scala's), not a deployment's runtime.
 
 ## Two things need the human
 
-- **The pack id and version** in `kindgi.config.json`. The id prefixes every
-  primitive (`<pack-id>.<name>`): pick it once.
+- **The pack id and version** in `kindgi.config.json`. The id names the app
+  or the business, once, and prefixes every primitive (`<pack-id>.<name>`).
+  Names inside the pack don't repeat it, and an agent's or a flow's name has
+  no dot of its own. Pick it once.
 - **Model credentials.** Ask for the key; never invent or hard-code one.
 
 ## Commands for the person's own terminal

@@ -59,7 +59,7 @@ import type { AgentId, Semver } from '@kindgi/sdk/types';
 const defined = defineAgent({
   id: 'acme.brief-writer' as AgentId,
   version: '0.1.0' as Semver,
-  name: 'Brief Writer',
+  name: 'Brief writer',
   description:
     'Drafts appellate briefs from a case file. Cites precedents; escalates novel legal questions.',
   instructions:
@@ -85,11 +85,28 @@ if (defined.kind === 'err') {
 export default defined.value;
 ```
 
+## Naming
+
+1. **An agent is named for its role:** a noun for who does the work, as
+   you'd name a colleague. `brief-writer`, `order-desk`.
+2. **A flow is named for its job:** the verb first, then the object.
+   `review-order`, never `order-review`.
+3. **The pack id names the app or the business, once.** Names inside the
+   pack don't repeat it.
+4. **No placeholder words** (`agent`, `flow`, `echo`, `assistant`,
+   `helper`, `main`, `demo`), unless the word is the job itself.
+5. **One word per thing.** An agent and a flow about one object use the
+   same noun: `triage-ticket` runs `ticket-classifier`.
+6. **The display name is the id in words, in sentence case,** adding only
+   a, an or the: `review-order` is "Review an order".
+7. **An id is `<pack-id>.<name>`:** the pack's own id, a dot, and a
+   kebab-case name with no dot. `kindgi dev` and `kindgi build` warn about
+   any other shape. An id is hard to change once something calls it, so
+   settle it while it's new.
+
 ## Field-by-field
 
-- **`id`** — `<pack-id>.<agent-name>`: the pack's own id, a dot, and a
-  kebab-case name with no dot. `kindgi dev` and `kindgi build` warn
-  about any other shape.
+- **`id`** — `<pack-id>.<name>`; see Naming above.
 - **`version`** — Semver. Runs pin to a specific version; upgrading
   the agent doesn't retroactively rewrite in-flight conversations.
 - **`instructions`** — LiquidJS template. `{{ variable }}` substitutes

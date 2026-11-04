@@ -18,8 +18,8 @@ still change in a later release without the usual deprecation period.
 │   ├── tools/Echo.java                      # Tool.define — records in, records out
 │   ├── tools/Greet.java                     # Tool.define
 │   ├── guardrails/ResponseNotEmpty.java     # Guardrail.define — a zero-LLM check over the run
-│   ├── agents/EchoAgent.java                # Agent.define — data
-│   └── flows/EchoFlow.java                  # Flow.define — data
+│   ├── agents/Greeter.java                     # Agent.define — data
+│   └── flows/GreetPerson.java                   # Flow.define — data
 └── src/test/java/{{JAVA_PACKAGE_PATH}}/ToolsTest.java   # the tools, called directly
 ```
 
@@ -36,7 +36,7 @@ kindgi dev       # boots Kindgi locally, compiles and runs this pack, recompilin
 Then, from another terminal:
 
 ```sh
-kindgi runs start --agent={{PACK_ID}}.echo-agent --input='{"userMessage":"hi"}'
+kindgi runs start --agent={{PACK_ID}}.greeter --input='{"userMessage":"hi"}'
 ```
 
 `kindgi dev` uses `JAVA_HOME`'s JDK (or `dev.javaHome` in `kindgi.config.json`)

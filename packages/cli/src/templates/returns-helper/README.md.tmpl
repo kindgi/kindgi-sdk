@@ -21,7 +21,7 @@ Improve, pin its suggested change, and watch the correction become Fixed.
 │   ├── find-order/index.ts       # looks an order up
 │   └── refund/index.ts           # refunds within the window; the limit is in code
 ├── agents/
-│   └── returns-helper/index.ts   # pins the three blocks by range
+│   └── returns-desk/index.ts   # pins the three blocks by range
 └── blocks/
     ├── tone.json + tone.liquid   # its instructions (a prompt block)
     ├── refund-rules.json         # returnWindowDays (a settings block)
@@ -42,7 +42,7 @@ A-1004 (on its way).
 ```
 
 Put one model provider's key in `.env` first (see `AGENTS.md`): without
-one, `kindgi dev`'s fallback only echoes a tool's answer. The helper
+one, `kindgi dev`'s fallback only echoes a tool's answer. The desk
 prefers the model `blocks/returns-model.json` names, Anthropic's
 `claude-sonnet-5-5`, and that model also judges answers in the loop
 below. For another provider, put its id and one of its models in
@@ -55,14 +55,14 @@ below. For another provider, put its id and one of its models in
 With `kindgi dev` running, sign in to the console it prints and open the
 default project, where `kindgi dev` places the pack's agents.
 
-1. **Correct a run.** On the returns helper's page, start a run: "The
+1. **Correct a run.** On the returns desk's page, start a run: "The
    seam on my tent from order A-1003 tore. Can I get my money back?" The
-   refund tool refuses (over the limit), and the helper says a person
+   refund tool refuses (over the limit), and the desk says a person
    will follow up. On the run's page, open **Corrections** and correct the
    answer only: it should say when, "a person from the store replies
    within one working day".
 2. **See it sorted.** A correction of the answer alone goes to Improve:
-   `{{KINDGI}} corrections list --agent={{PACK_ID}}.returns-helper` shows
+   `{{KINDGI}} corrections list --agent={{PACK_ID}}.returns-desk` shows
    it `open`, with `sortedTo: "improve"`. **Corrections** > **To fix**
    lists it too.
 3. **See it in the test set.** The agent's **Test set** page lists the
@@ -80,7 +80,7 @@ its files. Then:
 
 5. **Run Improve.** Ask whether it's ready, with the default project's id
    (`{{KINDGI}} projects list`):
-   `{{KINDGI}} improve runs start --agent={{PACK_ID}}.returns-helper --project=<project-id> --check`,
+   `{{KINDGI}} improve runs start --agent={{PACK_ID}}.returns-desk --project=<project-id> --check`,
    then run it without `--check`. It tries other wording for the `tone`
    block, on the test set. The model named in `returns-model.json` writes
    the wording, and judges whether each new answer says what the correction
@@ -100,7 +100,7 @@ its files. Then:
 7. **Watch it become Fixed.** Once the pin is approved and its test run
    has ended, the correction reads Fixed, in the version the pin made.
 8. **Go back.** Pin the version before, as on a deployed runtime:
-   `{{KINDGI}} agents pin {{PACK_ID}}.returns-helper {{PACK_VERSION}} --tenant --reason="Going back"`.
+   `{{KINDGI}} agents pin {{PACK_ID}}.returns-desk {{PACK_VERSION}} --tenant --reason="Going back"`.
    It writes the files back as they were right before the pin, and
    `kindgi dev` reloads them. Its test run checks that version, so the
    correction reopens if it fails there. Going back with git works too,

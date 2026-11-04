@@ -196,6 +196,25 @@ object TriageTicket {
   while the pack's other primitives keep serving. Whether a step's tool or
   agent exists is checked when a run starts (see "Running a flow").
 
+## Naming
+
+1. **An agent is named for its role:** a noun for who does the work, as
+   you'd name a colleague. `brief-writer`, `order-desk`.
+2. **A flow is named for its job:** the verb first, then the object.
+   `review-order`, never `order-review`.
+3. **The pack id names the app or the business, once.** Names inside the
+   pack don't repeat it.
+4. **No placeholder words** (`agent`, `flow`, `echo`, `assistant`,
+   `helper`, `main`, `demo`), unless the word is the job itself.
+5. **One word per thing.** An agent and a flow about one object use the
+   same noun: `triage-ticket` runs `ticket-classifier`.
+6. **The display name is the id in words, in sentence case,** adding only
+   a, an or the: `review-order` is "Review an order".
+7. **An id is `<pack-id>.<name>`:** the pack's own id, a dot, and a
+   kebab-case name with no dot. `kindgi dev` and `kindgi build` warn about
+   any other shape. An id is hard to change once something calls it, so
+   settle it while it's new.
+
 ## Nodes
 
 - **A tool step** (`"kind" -> "tool"`) runs the tool `ref`.

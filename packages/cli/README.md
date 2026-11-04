@@ -56,9 +56,9 @@ API URL and token to `.kindgirc.json` there, so every command run in the
 pack talks to it):
 
 ```sh
-pnpm exec kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
-pnpm exec kindgi runs start --flow=my-pack.echo-flow --input='{"name":"Ada"}'
-pnpm exec kindgi runs start --flow=my-pack.echo-flow --input='{"name":"Ada"}' --dry-run
+pnpm exec kindgi runs start --agent=my-pack.greeter --input='{"userMessage":"hi"}'
+pnpm exec kindgi runs start --flow=my-pack.greet-person --input='{"name":"Ada"}'
+pnpm exec kindgi runs start --flow=my-pack.greet-person --input='{"name":"Ada"}' --dry-run
 ```
 
 ## `kindgi init`
@@ -365,7 +365,7 @@ request field; dots nest).
   Origins    …
 
   Try it (from another terminal, cd to the pack dir first):
-    pnpm exec kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+    pnpm exec kindgi runs start --agent=my-pack.greeter --input='{"userMessage":"hi"}'
     pnpm exec kindgi runs stream <run-id>
 
   Watching /path/to/my-pack

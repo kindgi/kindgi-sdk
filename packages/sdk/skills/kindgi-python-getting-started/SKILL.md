@@ -144,7 +144,7 @@ The `[tool.kindgi]` keys are the ones `kindgi.config.ts` takes —
 With `kindgi dev` running, from another terminal in the pack directory:
 
 ```sh
-uv run kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"Ada"}'
+uv run kindgi runs start --agent=my-pack.greeter --input='{"userMessage":"Ada"}'
 ```
 
 The answer comes from `dev-echo`, a **fallback** provider a new pack
@@ -191,7 +191,7 @@ from kindgi import Flow
 from ..tools.ledger import record_expense
 
 record = Flow(
-    id="acme.ledger.record-flow",
+    id="acme.record-expense",
     version="0.1.0",
     nodes=[{"id": "record", "kind": "tool", "ref": record_expense}],
     edges=[
@@ -216,7 +216,7 @@ branches, loops and agent steps → `kindgi-python-authoring-flows`.
 from kindgi.client import Kindgi
 
 client = Kindgi()  # KINDGI_API_URL + KINDGI_API_TOKEN, or Kindgi(url, token=…)
-run = client.runs.start(agent="my-pack.echo-agent", input={"userMessage": "Ada"})
+run = client.runs.start(agent="my-pack.greeter", input={"userMessage": "Ada"})
 print(run.status, run.output["response"]["content"])
 for event in client.runs.follow(run.id):  # to the run's end, reconnecting
     print(event.kind)
@@ -352,8 +352,10 @@ in their own terminal (`./upgrade.sh` waits for them to type `yes`).
 
 ## Two things need the human
 
-- **The pack id and version** in `[tool.kindgi.pack]`. The id prefixes
-  every primitive (`<pack-id>.<name>`); pick it once.
+- **The pack id and version** in `[tool.kindgi.pack]`. The id names
+  the app or the business, once, and prefixes every primitive
+  (`<pack-id>.<name>`). Names inside the pack don't repeat it, and an
+  agent's or a flow's name has no dot of its own. Pick it once.
 - **Model credentials.** Ask for the key; never invent or hard-code one.
 
 ## Commands for the person's own terminal

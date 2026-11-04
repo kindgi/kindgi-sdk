@@ -66,7 +66,7 @@ class AsyncKindgi(AsyncClientBase, AsyncResources):
     """The Kindgi API, with asyncio.
 
     async with AsyncKindgi() as client:
-        run = await client.runs.start(flow="acme.ledger.record-flow", input={...})
+        run = await client.runs.start(flow="acme.record-expense", input={...})
         async for event in client.runs.follow(run.id):  # to the run's end
             ...
 

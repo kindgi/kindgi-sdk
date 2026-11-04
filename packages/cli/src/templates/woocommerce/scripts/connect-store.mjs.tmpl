@@ -584,7 +584,7 @@ async function main() {
   say(
     opts.target.includes('--hosted')
       ? `Connected: the pack's tools in ${opts.env} sign in to the store as ${AGENT_USER}.`
-      : `Connected. Try the store agent: {{KINDGI}} runs start --agent=${PACK}.store-agent --input='{"userMessage":"Which orders are still processing?"}'`,
+      : `Connected. Try the order desk: {{KINDGI}} runs start --agent=${PACK}.order-desk --input='{"userMessage":"Which orders are still processing?"}'`,
   );
 }
 
