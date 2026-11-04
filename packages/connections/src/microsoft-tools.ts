@@ -80,6 +80,7 @@ export {
   outlookCalendarEventUpdate,
   outlookCalendarEventsList,
   outlookCalendarFreeBusy,
+  outlookCalendarSharedEventsList,
 } from './microsoft-calendar-tools.js';
 
 /** A mail address. Line breaks and list separators are refused, as for every mail tool. */

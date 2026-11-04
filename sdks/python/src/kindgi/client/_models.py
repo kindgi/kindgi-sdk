@@ -12652,7 +12652,7 @@ class ApprovalApprover(BaseModel):
 
 class ApprovalConnection(BaseModel):
     """
-    The connection the call would use: the person's own, or else the company's connection the call was gated on, which it then runs with or doesn't run (`connection-changed`). A person's account isn't named: show "this person's <appName> account".
+    The connection the call would use: the person's own, or else the company's connection the call was gated on, which it then runs with or doesn't run (`connection-changed`). A person's account isn't named: show "this person's <appName> account", and, to whoever may read the connection (`GET /v1/connections/{connectionId}`), its account.
     """
 
     model_config = ConfigDict(
@@ -12677,6 +12677,10 @@ class ApprovalConnection(BaseModel):
     name: str | None = None
     """
     The company connection's name: its label, else the account's label. A person's own connection has none.
+    """
+    connection_id: Annotated[UUID | None, Field(alias="connectionId")] = None
+    """
+    The connection's id. Whoever may read the connection (its person, a tenant admin) looks its account up by it: `GET /v1/connections/{connectionId}`. Absent from older approvals.
     """
 
 

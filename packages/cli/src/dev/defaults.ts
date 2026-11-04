@@ -59,6 +59,7 @@ import {
   postgresSpecFromCompose,
   startPostgresContainer,
 } from './postgres-container.js';
+import { hostAndPort, joinPostgresUrl, postgresUrlParts } from './postgres-url.js';
 import { bundledSqlRunner, createProjectDatabases } from './project-database.js';
 import { createPythonPackBuilder } from './python-builder.js';
 import type {
@@ -721,17 +722,45 @@ export function startApiServerReal(opts: StartApiServerOptions): Promise<Running
 /**
  * Postgres as the container reaches it. Through the alias the container
  * can't see the host's loopback, and a database connection isn't HTTP
- * (the runtime's alias covers HTTP only), so a loopback host becomes
- * `host.docker.internal` here.
+ * (the runtime's alias covers HTTP only), so each loopback host of the
+ * address, and of libpq's `?host=`, becomes `host.docker.internal` here,
+ * its port kept. Each host of a list is checked on its own, and the rest
+ * of the URL stays byte for byte. A URL that isn't a postgres:// one
+ * comes back unchanged, for the runtime to refuse in its own words.
  */
 export function databaseUrlFrom(url: string, network: RuntimeNetwork): string {
   if (network === 'host-network') return url;
-  const parsed = new URL(url);
-  const host = parsed.hostname.replace(/^\[(.*)\]$/, '$1');
-  if (host === 'localhost' || host === '::1' || host.startsWith('127.')) {
-    parsed.hostname = 'host.docker.internal';
-  }
-  return parsed.toString();
+  const parts = postgresUrlParts(url);
+  if (parts === undefined) return url;
+  return joinPostgresUrl({
+    ...parts,
+    hosts: parts.hosts.map(reachedFromContainer),
+    query: parts.query === undefined ? undefined : hostParameterFromContainer(parts.query),
+  });
+}
+
+/** An address entry as the container reaches it: a loopback host reads `host.docker.internal`. */
+function reachedFromContainer(entry: string): string {
+  const { host, port } = hostAndPort(entry);
+  const name = host.replace(/^\[(.*)\]$/, '$1').toLowerCase();
+  if (name !== 'localhost' && name !== '::1' && !name.startsWith('127.')) return entry;
+  return port === undefined ? 'host.docker.internal' : `host.docker.internal:${port}`;
+}
+
+/**
+ * libpq's `?host=` with each loopback entry rewritten. A socket directory
+ * (`/…`) and every other parameter stay as written.
+ */
+function hostParameterFromContainer(query: string): string {
+  return query
+    .split('&')
+    .map((pair) => {
+      if (!pair.startsWith('host=')) return pair;
+      const value = pair.slice('host='.length);
+      if (value.startsWith('/')) return pair;
+      return `host=${value.split(',').map(reachedFromContainer).join(',')}`;
+    })
+    .join('&');
 }
 
 /**

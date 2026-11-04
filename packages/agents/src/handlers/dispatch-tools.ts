@@ -45,6 +45,7 @@ import {
   connectionPersonOf,
   freshConnections,
   gateConnections,
+  recordRan,
   rejectedAgainOf,
   rejectedConnectionOf,
 } from './connection-gate.js';
@@ -1800,7 +1801,8 @@ const TOOL_PAUSE_RECORD_PREFIX = 'tool-pause:';
  * The call's tokens are asked (`connect`) only when the tool runs: the
  * step the answer resumes reads the pause back and runs nothing, so a
  * connection that lapsed while it waited doesn't lose the answer. A call
- * its connections stop runs nothing (`not-connected`).
+ * its connections stop runs nothing (`not-connected`); one they're handed
+ * to records that it was handed them first (`recordRan`).
  *
  * The tool runs with `args`: the call's input, without the `accounts` its
  * turn offered it (`toolArguments`).
@@ -1825,6 +1827,7 @@ async function callOrWait(
   if (tool.pauses !== true) {
     const ready = await connectedContext(toolCtx, connect);
     if (ready.kind === 'failed') return { kind: 'not-connected', failure: ready.failure };
+    if (ready.connections !== undefined) await recordRan(kctx, call);
     const result = await invokeTool(tool, args, ready.toolCtx);
     return {
       kind: 'called',
@@ -1847,7 +1850,10 @@ async function callOrWait(
         answered.failure = ready.failure;
         return undefined;
       }
-      if (ready.connections !== undefined) answered.connections = ready.connections;
+      if (ready.connections !== undefined) {
+        answered.connections = ready.connections;
+        await recordRan(kctx, call);
+      }
       const outcome = await invokeToolOrPause(tool, args, ready.toolCtx);
       if (outcome.kind === 'pause') return outcome.pause;
       answered.result = outcome;
