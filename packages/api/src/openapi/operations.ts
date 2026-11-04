@@ -5226,7 +5226,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The new revision.', schema: ref('Fact') },
       ...CommonMutationErrors,
-      '403': ErrorResponse("`permission-denied`: the caller may not write in the fact's scope."),
+      '403': ErrorResponse(
+        withLimitedAbove("`permission-denied`: the caller may not write in the fact's scope."),
+      ),
       '404': ErrorResponse('No fact with that id the caller may see, or it was deleted.'),
       '409': ErrorResponse(
         '`fact-changed`: the current revision is not `expectVersion` (`details.currentVersion`); `legal-hold`: the fact is under legal hold.',
@@ -5248,7 +5250,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The closed revision.', schema: ref('Fact') },
       ...CommonAuthErrors,
       '400': ErrorResponse('`expectVersion` is not a revision number.'),
-      '403': ErrorResponse("`permission-denied`: the caller may not write in the fact's scope."),
+      '403': ErrorResponse(
+        withLimitedAbove("`permission-denied`: the caller may not write in the fact's scope."),
+      ),
       '404': ErrorResponse('No fact with that id the caller may see, or it was deleted.'),
       '409': ErrorResponse(
         '`fact-changed`: the current revision is not `expectVersion`; `legal-hold`: the fact is under legal hold.',
@@ -5273,7 +5277,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The verified revision.', schema: ref('Fact') },
       ...CommonMutationErrors,
-      '403': ErrorResponse("`permission-denied`: the caller may not write in the fact's scope."),
+      '403': ErrorResponse(
+        withLimitedAbove("`permission-denied`: the caller may not write in the fact's scope."),
+      ),
       '404': ErrorResponse('No fact with that id the caller may see, or it was deleted.'),
       '409': ErrorResponse(
         '`fact-changed`: the current revision is not `expectVersion`; `legal-hold`: the fact is under legal hold.',
@@ -10147,7 +10153,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        "Not a tenant admin (`permission-denied`); the workspace isn't allowed to put projects in production (`production-not-allowed`, `details.projectId`, `details.next` when the runtime names one); or its projects in production are at its limit (`production-limit-reached`, `details.limit` `projects-in-production`, `details.projectsInProduction` the limit, `details.inProduction` the count, `details.projectId`, `details.next` when the runtime names one).",
+        withLimitedAbove(
+          "Not a tenant admin (`permission-denied`); the workspace isn't allowed to put projects in production (`production-not-allowed`, `details.projectId`, `details.next` when the runtime names one); or its projects in production are at its limit (`production-limit-reached`, `details.limit` `projects-in-production`, `details.projectsInProduction` the limit, `details.inProduction` the count, `details.projectId`, `details.next` when the runtime names one).",
+        ),
       ),
       '404': ErrorResponse('No project with that id under this workspace (`project-not-found`).'),
       '501': ErrorResponse(

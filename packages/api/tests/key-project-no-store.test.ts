@@ -25,13 +25,17 @@ const P1 = randomUUID();
 const ORG = randomUUID();
 const TEAM = randomUUID();
 const USER = randomUUID();
+/** A workspace-wide fact, the one the memory stub finds by its id. */
+const FACT = randomUUID();
 const LIMITED = 'kgi_ak_test_limited_to_p1';
 const UNLIMITED = 'kgi_ak_test_not_limited';
+const MEMBER = 'kgi_ak_test_member_not_limited';
 const SESSION = 'kgi_ak_test_session_limited_to_p1';
 
 const resolveToken: TokenResolver = async (token) => {
   if (token === LIMITED) return { tenantId, tokenProjectId: P1 };
   if (token === SESSION) return { tenantId, tokenProjectId: P1, sessionId: 'ses-acme' as never };
+  if (token === MEMBER) return { tenantId, tokenRole: 'member' };
   return token === UNLIMITED ? { tenantId } : null;
 };
 
@@ -85,8 +89,13 @@ function recorded<T extends object>(name: string, target: T): T {
 function appWith(store: boolean) {
   const { authz, sites, ...rest } = fullAppInput();
   const input: Record<string, unknown> = { ...rest, resolveToken };
+  input.memory = {
+    ...rest.memory,
+    getFact: async ({ factId }: { factId: string }) =>
+      factId === FACT ? { factId, scope: { tenantId } } : null,
+  };
   for (const name of ROUTE_BINDINGS) input[name] = recorded(name, input[name] as object);
-  return createApp((store ? { ...input, authz, sites } : input) as CreateAppInput);
+  return createApp((store ? { ...input, authz, sites } : input) as unknown as CreateAppInput);
 }
 
 const noStore = appWith(false);
@@ -175,6 +184,12 @@ const ABOVE: readonly Row[] = [
   row('project move to an org', 'PATCH /v1/projects/{projectId}', `/v1/projects/${P1}`, {
     orgId: ORG,
   }),
+  row(
+    'project in production',
+    'PUT /v1/projects/{projectId}/production',
+    `/v1/projects/${P1}/production`,
+    { production: true },
+  ),
   row('agent publish, tenant-wide', 'POST /v1/agents', '/v1/agents', {}),
   row('tool register, tenant-wide', 'POST /v1/tools', '/v1/tools', {}),
   row('flow publish, tenant-wide', 'POST /v1/flows', '/v1/flows', {}),
@@ -226,6 +241,23 @@ const ABOVE: readonly Row[] = [
     content: 'x',
     scope: { tenantId },
   }),
+  row(
+    'memory fact supersede, tenant-wide',
+    'POST /v1/memory/facts/{factId}/supersede',
+    `/v1/memory/facts/${FACT}/supersede`,
+    { content: 'y' },
+  ),
+  row(
+    'memory fact delete, tenant-wide',
+    'DELETE /v1/memory/facts/{factId}',
+    `/v1/memory/facts/${FACT}`,
+  ),
+  row(
+    'memory fact verify, tenant-wide',
+    'POST /v1/memory/facts/{factId}/verify',
+    `/v1/memory/facts/${FACT}/verify`,
+    {},
+  ),
   ...pins('agent', 'acme.agent', { kind: 'tenant' }, 'tenant-wide'),
   ...pins('tool', 'acme.tool', { kind: 'tenant' }, 'tenant-wide'),
   ...pins('flow', 'acme.flow', { kind: 'tenant' }, 'tenant-wide'),
@@ -351,6 +383,15 @@ describe('a key limited to a project, with no authorization store', () => {
     expect(res.body.error?.code).not.toBe('key-project-mismatch');
   });
 
+  test('a member key limited to no project is not refused either, as before', async () => {
+    const res = await send(
+      noStore,
+      MEMBER,
+      row('', 'PATCH /v1/tenant', '/v1/tenant', { name: 'acme' }),
+    );
+    expect(res.body.error?.code).not.toBe('key-project-mismatch');
+  });
+
   test('a write that is not refused reaches its binding, so the rows above see one', async () => {
     const res = await send(
       noStore,
@@ -374,7 +415,7 @@ describe('a key limited to a project, with no authorization store', () => {
     }
   });
 
-  test('a write to an item by its id is not refused', async () => {
+  test('a write to an item by its id, other than a memory fact, is not refused', async () => {
     const res = await send(noStore, LIMITED, {
       method: 'POST',
       path: `/v1/mcp/endpoints/${randomUUID()}/unregister`,

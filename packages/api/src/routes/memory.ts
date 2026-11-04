@@ -259,6 +259,8 @@ export function memoryRouter(binding: MemoryBinding, access: MemoryAccessDeps = 
     const readers = await memoryReadersFor(c, access);
     const current = await binding.getFact({ tenantId, factId, readers });
     if (current === null) return { kind: 'response', response: failNotFound(c, factId) };
+    const held = memoryLimitRefusal(c, access, current.scope);
+    if (held !== undefined) return { kind: 'response', response: held };
     const refused = await memoryWriteProblem(c, access, current.scope);
     if (refused !== undefined) {
       return { kind: 'response', response: fail(c, 'permission-denied', refused) };
