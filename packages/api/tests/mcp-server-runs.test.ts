@@ -590,10 +590,8 @@ describe('/mcp: no list changes under a client', () => {
     expect(res.status).toBe(200);
     expect(ended).toBe(true);
     expect(frames).toHaveLength(2);
-    expect(frames[0]).toMatchObject({
-      method: 'notifications/subscriptions/acknowledged',
-      params: { notifications: {} },
-    });
+    expect(frames[0]).toMatchObject({ method: 'notifications/subscriptions/acknowledged' });
+    expect(frames[0]?.params.notifications).toEqual({});
     expect(frames[1]).toMatchObject({ id: 1, result: { resultType: 'complete' } });
   });
 });
