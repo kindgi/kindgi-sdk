@@ -47,6 +47,7 @@ const guideAreas = [
   ['Approvals', 'approvals'],
   ['Secrets and env', 'secrets'],
   ['Connections', 'connections'],
+  ['Chat apps', 'chat'],
   ['Sign-in', 'sso'],
   ['Cost and provenance', 'observability'],
   ['Improve', 'improve'],

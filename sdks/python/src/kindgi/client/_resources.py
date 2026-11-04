@@ -4519,7 +4519,7 @@ class ConversationsResource:
     ) -> _models.Conversation:
         """Close a conversation. `POST /v1/conversations/{conversationId}/close`
 
-        Idempotent: closing an already-closed conversation returns 200 with the current row (no timestamp bump).
+        Idempotent: closing an already-closed conversation returns 200 with the current row (no timestamp bump). Someone who may run the conversation's project (`run`) without `write` there, as a runner, or anyone where the project lets everyone in its workspace run it, closes only the conversations they opened.
         """
         return self._client._request(
             _OPERATIONS["conversations.close"],
@@ -14855,7 +14855,7 @@ class AsyncConversationsResource:
     ) -> _models.Conversation:
         """Close a conversation. `POST /v1/conversations/{conversationId}/close`
 
-        Idempotent: closing an already-closed conversation returns 200 with the current row (no timestamp bump).
+        Idempotent: closing an already-closed conversation returns 200 with the current row (no timestamp bump). Someone who may run the conversation's project (`run`) without `write` there, as a runner, or anyone where the project lets everyone in its workspace run it, closes only the conversations they opened.
         """
         return await self._client._request(
             _OPERATIONS["conversations.close"],

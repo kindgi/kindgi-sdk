@@ -5017,7 +5017,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'conversations.close',
     summary: 'Close a conversation',
     description:
-      'Idempotent: closing an already-closed conversation returns 200 with the current row (no timestamp bump).',
+      "Idempotent: closing an already-closed conversation returns 200 with the current row (no timestamp bump). Someone who may run the conversation's project (`run`) without `write` there, as a runner, or anyone where the project lets everyone in its workspace run it, closes only the conversations they opened.",
     tags: ['conversations'],
     security: 'bearer',
     parameters: [ConversationIdPathParam, IdempotencyKeyParam],
@@ -5029,7 +5029,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '400': ErrorResponse('`conversationId` is not a conversation id (a UUID).'),
       '403': ErrorResponse(
-        "The caller can read the conversation, and has no `execute` on its agent or, for an agent more than one project serves, no `call` on the conversation's project (`caller` or `editor`). Closing one doesn't take reading it.",
+        "The caller can read the conversation, and has no `execute` on its agent or, for an agent more than one project serves, no `call` on the conversation's project (`caller` or `editor`); or may run its project (`run`) without `write` there, and someone else opened it. Closing one doesn't take reading it.",
       ),
       '404': ErrorResponse(
         "No conversation with that id under this workspace, or one the caller may not close and can't read: the same answer, byte for byte.",

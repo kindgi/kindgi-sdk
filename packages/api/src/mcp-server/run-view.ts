@@ -8,10 +8,10 @@
  * `kindgi.run_state` through the chat app every few seconds: no tool call
  * stays open, so the chat app's time limit on a call doesn't apply.
  *
- * When the run ends, the view puts a short note in the model's context, and
- * a button asks Claude, as the person, to look at the result. That message
- * names the run and carries none of its answer: an agent's answer is data,
- * never something the person said.
+ * When the run ends, the view puts a short note in the model's context. It
+ * never sends a message as the person: a chat app asks the person to
+ * confirm one a view sends, and Claude follows the run itself with
+ * `kindgi.run_state`.
  */
 
 export const RUN_VIEW_URI = 'ui://kindgi/run.html';
@@ -62,7 +62,6 @@ export const RUN_VIEW_HTML = `<!doctype html>
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
   button { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; }
   button.link { border: none; padding: 0; color: var(--accent); text-decoration: underline; }
-  button:disabled { opacity: 0.5; cursor: default; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -83,9 +82,7 @@ export const RUN_VIEW_HTML = `<!doctype html>
     <ul id="fileList"></ul>
   </section>
   <div class="row">
-    <button id="ask" type="button" hidden>Ask Claude about the result</button>
     <button id="open" type="button" class="link" hidden>Open in Kindgi</button>
-    <span id="sent" class="muted"></span>
   </div>
 </main>
 <script>
@@ -161,7 +158,6 @@ export const RUN_VIEW_HTML = `<!doctype html>
 
   function finished() {
     clearTimeout(timer);
-    $("ask").hidden = false;
     if (told) return;
     told = true;
     var note = "Kindgi run " + state.runId + " (" + state.name + ") ended: " + state.status + ".";
@@ -212,17 +208,6 @@ export const RUN_VIEW_HTML = `<!doctype html>
   }
 
   $("open").addEventListener("click", function () { openLink(state && state.consoleUrl); });
-  $("ask").addEventListener("click", function () {
-    if (!state) return;
-    $("ask").disabled = true;
-    request("ui/message", {
-      role: "user",
-      content: [{ type: "text", text: "Look at the result of Kindgi run " + state.runId + " and tell me what it found." }]
-    }).then(function () { $("sent").textContent = "Asked."; }, function () {
-      $("ask").disabled = false;
-      $("sent").textContent = "The chat didn't take it. Ask about run " + state.runId + " yourself.";
-    });
-  });
 
   new ResizeObserver(function () {
     notify("ui/notifications/size-changed", {

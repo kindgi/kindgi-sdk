@@ -32,7 +32,13 @@ import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './paginati
 import { participantRefusal } from './participant-access.js';
 import { readableOrRun } from './runner-reach.js';
 import { parseListScope } from './scope-params.js';
-import { conversationNotFound, hiddenOr, ownConversationIn, unreadable } from './turn-access.js';
+import {
+  conversationNotFound,
+  hiddenOr,
+  othersCloseRefusal,
+  ownConversationIn,
+  unreadable,
+} from './turn-access.js';
 import { refuseMalformedUuidParam } from './uuid-param.js';
 
 const PROJECT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -66,8 +72,10 @@ export function conversationsRouter(
    * With one: reading a conversation or its messages needs `read` on its
    * project (its agent, for one from before projects), or, for one the
    * caller opened in a project, `run` there; opening or closing
-   * one needs `execute` on its agent, as starting a run does; unregistering
-   * one needs `write` on its project (or agent). A caller refused on a
+   * one needs `execute` on its agent, as starting a run does, and closing
+   * one someone else opened, for a caller who may `run` its project, needs
+   * `write` there as well (`othersCloseRefusal`); unregistering one needs
+   * `write` on its project (or agent). A caller refused on a
    * conversation they can't read gets the answer for one that doesn't
    * exist (`hiddenOr`); one who can read it keeps the 403.
    */
@@ -390,6 +398,23 @@ export function conversationsRouter(
     if (refused !== undefined) {
       return hiddenOr(c, authorizer, conversationId, existing.value, refused);
     }
+    // One someone else opened: `write` as well, for a caller who may `run`
+    // its project, as stopping another person's run takes.
+    const notTheirs = await othersCloseRefusal(
+      c,
+      authorizer,
+      conversationId,
+      existing.value,
+      async () =>
+        (
+          await agentRegistry?.getVersion({
+            tenantId,
+            agentId: existing.value.agentId,
+            version: existing.value.agentVersion,
+          })
+        )?.projectId as unknown as string | undefined,
+    );
+    if (notTheirs !== undefined) return notTheirs;
     // Close is idempotent — closing an already-closed conversation
     // returns 200 with the current row, no error and no timestamp bump.
     if (existing.value.closedAt !== undefined) {

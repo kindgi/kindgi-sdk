@@ -1,0 +1,5 @@
+---
+"@kindgi/api": patch
+---
+
+**A runner, and anyone where a project lets everyone in its workspace run it, closes only the conversations they opened.** Closing someone else's conversation, or one that names no opener (`POST /v1/conversations/{conversationId}/close`), takes `write` on its project from a caller who may run the project (`run`), as stopping someone else's run does. A viewer of a project that lets everyone run it is held to the same. Refused, a caller who can't read the conversation gets `404 conversation-not-found`, the same as one that doesn't exist, and one who can read it gets `403 permission-denied`; either way the refusal is recorded. An editor and up close any conversation, as before, and so does a caller with `execute` on the agent or the project's `call` and no `run`, such as an app's backend. A conversation from before projects is checked where the agent version it was opened with is filed, with `write` on its agent. The other routes that act on an existing conversation or run already keep such a person to their own.
