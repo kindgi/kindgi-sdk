@@ -288,7 +288,7 @@ const project = await kindgi.projects.create({ orgId: org.id, slug: 'support', n
 
 // Each run for that customer names the project.
 await kindgi.runs.start({
-  agent: 'acme-ops.echo-agent',
+  agent: 'acme-ops.greeter',
   input: { userMessage: 'Echo hello.' },
   projectId: project.id,
 });
@@ -323,7 +323,7 @@ project = kindgi.projects.create(org_id=str(org.id), slug="support", name="Suppo
 
 # Each run for that customer names the project.
 kindgi.runs.start(
-    agent="acme-ops.echo-agent",
+    agent="acme-ops.greeter",
     input={"userMessage": "Echo hello."},
     project_id=project.id,
 )
@@ -373,7 +373,7 @@ public final class CustomerCost {
 
     // Each run for that customer names the project.
     kindgi.runs().start(StartRunBody.WithAgent.builder()
-        .agent("acme-ops.echo-agent")
+        .agent("acme-ops.greeter")
         .input(Map.of("userMessage", "Echo hello."))
         .projectId(UUID.fromString(project.id()))
         .build());
@@ -421,7 +421,7 @@ object CustomerCost {
 
     // Each run for that customer names the project.
     kindgi.runs().start(StartRunBody.WithAgent.builder()
-      .agent("acme-ops.echo-agent")
+      .agent("acme-ops.greeter")
       .input(Map("userMessage" -> "Echo hello.").asJava)
       .projectId(UUID.fromString(project.id))
       .build())
@@ -510,7 +510,7 @@ run's total under `data.run.usage`:
     "run": {
       "id": "695492e1-0569-48cf-bf5b-e92170ebcd38",
       "projectId": "cb742f19-68f2-4594-9cd6-b555617dc851",
-      "flowId": "acme-ops.echo-flow",
+      "flowId": "acme-ops.greet-person",
       "flowVersion": "0.1.0",
       "status": "completed",
       "dryRun": false,

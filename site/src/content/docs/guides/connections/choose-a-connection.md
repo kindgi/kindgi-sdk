@@ -350,7 +350,7 @@ tool.
 
 Say a person keeps a calendar in each of five Google accounts, named
 `work`, `home`, `school`, `club` and `acme-board`, and their assistant
-agent `acme.assistant` lists events with `acme.calendar.events` (the
+agent `acme.calendar-keeper` lists events with `acme.calendar.events` (the
 ready-made `googleCalendarEventsList`) and adds them with
 `acme.calendar.create` (`googleCalendarEventCreate`). To have it answer
 with one view of all five:
@@ -368,11 +368,11 @@ with one view of all five:
 2. **Give the list tool all five,** with `work` as its default:
 
    ```sh
-   pnpm exec kindgi connection-choices set work home school club acme-board --agent=acme.assistant --tool=acme.calendar.events --default=work --mine
+   pnpm exec kindgi connection-choices set work home school club acme-board --agent=acme.calendar-keeper --tool=acme.calendar.events --default=work --mine
    ```
 
    ```text
-   Chose your work, home, school, club and acme-board at google for tool acme.calendar.events of agent acme.assistant, work by default (choice 6a9b2c4d-…).
+   Chose your work, home, school, club and acme-board at google for tool acme.calendar.events of agent acme.calendar-keeper, work by default (choice 6a9b2c4d-…).
    ```
 3. **Ask for the week across all of them.** The agent calls
    `acme.calendar.events` once for each account, naming it, and answers
@@ -475,7 +475,7 @@ does, for an agent, a flow or one of its tools, one connection or a set,
 and it overrides their main:
 
 ```sh
-pnpm exec kindgi connection-choices set home --agent=acme.assistant --mine
+pnpm exec kindgi connection-choices set home --agent=acme.calendar-keeper --mine
 ```
 
 - **Only you set and remove your own choices,** and you need only what you

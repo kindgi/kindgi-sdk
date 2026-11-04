@@ -142,14 +142,14 @@ person before every post." For reference, the agent looks like this:
 <TabItem label="TypeScript">
 
 ```ts
-// agents/status-agent/index.ts
+// agents/status-reporter/index.ts
 import { defineAgent } from '@kindgi/sdk/define';
 import type { AgentId, Semver } from '@kindgi/sdk/types';
 
 const defined = defineAgent({
-  id: 'acme-ops.status-agent' as AgentId,
+  id: 'acme-ops.status-reporter' as AgentId,
   version: '0.1.0' as Semver,
-  name: 'Status Agent',
+  name: 'Status reporter',
   description: 'Posts status updates.',
   instructions: 'Post the update the user gives you with acme-ops.post-update.',
   capabilities: [{ needs: [{ feature: 'tool-use' as const }] }],
@@ -184,9 +184,9 @@ from ..tools.greet import greet
 from ..tools.post_update import post_update
 
 status_agent = Agent(
-    id="acme-ops.status-agent",
+    id="acme-ops.status-reporter",
     version="0.1.0",
-    name="Status Agent",
+    name="Status reporter",
     description="Posts status updates.",
     instructions="Post the update the user gives you with acme-ops.post-update.",
     capabilities=[{"needs": [{"feature": "tool-use"}]}],
@@ -215,9 +215,9 @@ import java.util.List;
 import java.util.Map;
 
 public final class StatusAgent {
-  public static final Agent AGENT = Agent.define("acme-ops.status-agent")
+  public static final Agent AGENT = Agent.define("acme-ops.status-reporter")
       .version("0.1.0")
-      .name("Status Agent")
+      .name("Status reporter")
       .description("Posts status updates.")
       .instructions("Post the update the user gives you with acme-ops.post-update.")
       .capability(Map.of("needs", List.of(Map.of("feature", "tool-use"))))
@@ -242,9 +242,9 @@ import acmeops.tools.{Greet, PostUpdate}
 import com.kindgi.pack.scaladsl._
 
 object StatusAgent {
-  val agent: Agent = Agent("acme-ops.status-agent")
+  val agent: Agent = Agent("acme-ops.status-reporter")
     .version("0.1.0")
-    .name("Status Agent")
+    .name("Status reporter")
     .description("Posts status updates.")
     .instructions("Post the update the user gives you with acme-ops.post-update.")
     .capability(Map("needs" -> Seq(Map("feature" -> "tool-use"))))
@@ -542,28 +542,28 @@ its input:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+pnpm exec kindgi runs start --agent=acme-ops.status-reporter --input='{"userMessage":"Checkout is back to normal."}'
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+uv run kindgi runs start --agent=acme-ops.status-reporter --input='{"userMessage":"Checkout is back to normal."}'
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+./kindgiw runs start --agent=acme-ops.status-reporter --input='{"userMessage":"Checkout is back to normal."}'
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+./kindgiw runs start --agent=acme-ops.status-reporter --input='{"userMessage":"Checkout is back to normal."}'
 ```
 
 </TabItem>
@@ -629,7 +629,7 @@ uv run kindgi approvals list --status=pending
       "subjectRef": {
         …
         "toolId": "acme-ops.post-update",
-        "agentId": "acme-ops.status-agent",
+        "agentId": "acme-ops.status-reporter",
         …
         "arguments": {
           "message": "Checkout is back to normal."

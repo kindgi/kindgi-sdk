@@ -30,7 +30,7 @@ code, and install the dependencies:
 ```sh tutorial=run
 uvx --from "kindgi-cli>=0.2,<0.3" kindgi init acme-desk --template=python
 cd acme-desk
-rm tools/echo.py tools/greet.py agents/echo_agent.py flows/echo_flow.py guardrails/response_not_empty.py tests/test_tools.py
+rm tools/echo.py tools/greet.py agents/greeter.py flows/greet_person.py guardrails/response_not_empty.py tests/test_tools.py
 mkdir support && touch support/__init__.py
 uv sync
 ```
@@ -148,7 +148,7 @@ The agent reads a ticket with `get_ticket`, and answers in a shape your flow
 can act on. Write it:
 
 ```python tutorial=write
-# agents/triage.py
+# agents/ticket_classifier.py
 from typing import Literal
 
 from pydantic import BaseModel
@@ -164,10 +164,10 @@ class Triage(BaseModel):
     reply: str
 
 
-triage = Agent(
-    id="acme-desk.triage",
+ticket_classifier = Agent(
+    id="acme-desk.ticket-classifier",
     version="0.1.0",
-    name="Triage",
+    name="Ticket classifier",
     description="Classifies a support ticket and drafts a first reply.",
     instructions=(
         "You triage support tickets. Read the ticket with the get-ticket tool, then answer "
@@ -195,10 +195,10 @@ The flow runs the agent, then escalates the ticket or records the reply,
 depending on the agent's answer. Write it:
 
 ```python tutorial=write
-# flows/handle_ticket.py
+# flows/triage_ticket.py
 from kindgi import Flow
 
-from ..agents.triage import triage
+from ..agents.ticket_classifier import ticket_classifier
 from ..tools.tickets import add_note
 
 IS_URGENT = {
@@ -207,16 +207,16 @@ IS_URGENT = {
     "right": {"literal": "urgent"},
 }
 
-handle_ticket = Flow(
-    id="acme-desk.handle-ticket",
+triage_ticket = Flow(
+    id="acme-desk.triage-ticket",
     version="0.1.0",
-    name="Handle a ticket",
+    name="Triage a ticket",
     description="Triages a ticket, then escalates it or records the drafted reply.",
     nodes=[
         {
             "id": "triage",
             "kind": "agent",
-            "ref": triage,
+            "ref": ticket_classifier,
             "inputMapping": {"ticketId": {"path": "runInput.ticketId"}},
         },
         {
@@ -330,10 +330,10 @@ provider's default model.
 Running the agent on its own shows its answer before the flow acts on it:
 
 ```sh
-uv run kindgi runs start --agent=acme-desk.triage --input='{"userMessage":"Triage ticket T-101"}'
+uv run kindgi runs start --agent=acme-desk.ticket-classifier --input='{"userMessage":"Triage ticket T-101"}'
 ```
 
-- `--agent=acme-desk.triage` is the agent to run.
+- `--agent=acme-desk.ticket-classifier` is the agent to run.
 - `--input` is the turn's input, as JSON: `userMessage` is what the agent is
   asked.
 
@@ -359,8 +359,8 @@ the run's page, with each step, the tool call and the cost, run
 The flow acts on the agent's answer. Run it once for each ticket:
 
 ```sh
-uv run kindgi runs start --flow=acme-desk.handle-ticket --input='{"ticketId":"T-100"}'
-uv run kindgi runs start --flow=acme-desk.handle-ticket --input='{"ticketId":"T-101"}'
+uv run kindgi runs start --flow=acme-desk.triage-ticket --input='{"ticketId":"T-100"}'
+uv run kindgi runs start --flow=acme-desk.triage-ticket --input='{"ticketId":"T-101"}'
 ```
 
 `--flow` is the flow to run, and `--input` its run's input.

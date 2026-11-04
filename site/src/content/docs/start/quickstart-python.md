@@ -52,8 +52,8 @@ my-pack/
 ├── pyproject.toml                    # [tool.kindgi]: the pack's id, version and folders
 ├── tools/echo.py, tools/greet.py     # @tool
 ├── guardrails/response_not_empty.py  # @guardrail
-├── agents/echo_agent.py              # Agent(...)
-├── flows/echo_flow.py                # Flow(...)
+├── agents/greeter.py                 # Agent(...)
+├── flows/greet_person.py             # Flow(...)
 ├── tests/test_tools.py
 ├── .claude/skills/                   # skills for your coding agent
 └── .agents/skills/                   # the same, where Codex and Gemini CLI look
@@ -100,11 +100,11 @@ page, click **Sign in as seeded user**.
 In a second terminal, in `my-pack`:
 
 ```sh tutorial=run
-uv run kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"Ada"}'
-uv run kindgi runs start --flow=my-pack.echo-flow --input='{"message":"Ada"}'
+uv run kindgi runs start --agent=my-pack.greeter --input='{"userMessage":"Ada"}'
+uv run kindgi runs start --flow=my-pack.greet-person --input='{"message":"Ada"}'
 ```
 
-- `--agent=my-pack.echo-agent` and `--flow=my-pack.echo-flow` name what to
+- `--agent=my-pack.greeter` and `--flow=my-pack.greet-person` name what to
   run, by its id.
 - `--input` is the run's input, as JSON. An agent takes the person's message
   as `userMessage`.
@@ -169,17 +169,17 @@ def echo(input: EchoInput) -> Echo:
 An agent is data, and it refers to the tools themselves, not to strings:
 
 ```python
-# agents/echo_agent.py
+# agents/greeter.py
 from kindgi import Agent
 
 from ..guardrails.response_not_empty import response_not_empty
 from ..tools.echo import echo
 from ..tools.greet import greet
 
-echo_agent = Agent(
-    id="my-pack.echo-agent",
+greeter = Agent(
+    id="my-pack.greeter",
     version="0.1.0",
-    name="Echo Agent",
+    name="Greeter",
     description="Uses the pack's echo and greet tools; the response-not-empty guardrail guards the output.",
     instructions=(
         "For each user message: if the user sends a name, greet them with the greet tool. "

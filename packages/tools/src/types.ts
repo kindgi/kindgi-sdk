@@ -367,7 +367,7 @@ export interface ToolManifest {
   /**
    * Globally-unique tool identifier. Convention: `<pack-id>.<tool-name>`
    * (kebab-case, dot-namespaced) — e.g. `acme.verify-citation`,
-   * `demo.echo`. The `<pack-id>` prefix scopes the tool to its pack;
+   * `shop.fetch-order`. The `<pack-id>` prefix scopes the tool to its pack;
    * `<tool-name>` names the operation. Enforced as a `ToolId` brand;
    * `defineTool` refuses ids that don't match the convention.
    */

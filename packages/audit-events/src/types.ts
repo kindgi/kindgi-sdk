@@ -45,7 +45,7 @@ export interface AuditEvent {
   readonly timestamp: Timestamp;
   /**
    * Human/agent/service subject that caused this event.
-   * Convention: `<type>:<id>` — `user:u-1042`, `agent:demo.echo`,
+   * Convention: `<type>:<id>` — `user:u-1042`, `agent:acme.brief-writer`,
    * `service_account:migrator`, `user:system` for framework-internal
    * actions. Present on every event.
    */
