@@ -503,3 +503,92 @@ describe('removing a number', () => {
     });
   });
 });
+
+describe('keyHolders: the live texts registrations holding a key', () => {
+  const textsToken = (name: string) => ({
+    provider: 'telnyx',
+    apiKey: { envName, name },
+    publicKey: PUBLIC_KEY,
+  });
+  const listed = async (made: ReturnType<typeof createInMemoryConnections>, name: string) =>
+    (await made.binding.listApps({ tenantId, limit: 100 })).data
+      .filter((app) => app.token?.apiKey.name === name)
+      .map((app) => app.appId);
+
+  test('answers what the full listing gives, over OAuth, token and removed registrations', async () => {
+    const made = createInMemoryConnections({
+      entries: [google, texts],
+      publicUrl: 'https://kindgi.acme.example/',
+    });
+    // One project each: a project uses one registration of an app.
+    const seed = (name: string, project: string) =>
+      made.seed.app({
+        tenantId,
+        app: 'texts',
+        token: textsToken(name),
+        projects: [project as ProjectId],
+        by: admin,
+      });
+    const first = seed(API_KEY.name, 'p-one');
+    // Two creates that raced: both hold the key.
+    const raced = seed(API_KEY.name, 'p-two');
+    seed('ACME_TEXTS_KEY_2', 'p-three');
+    made.seed.app({
+      tenantId,
+      app: 'google',
+      oauth2: { clientId: 'acme.apps.googleusercontent.com', clientSecret: API_KEY },
+      by: admin,
+    });
+    const gone = seed('ACME_TEXTS_KEY_OLD', 'p-four');
+    expect(
+      await made.binding.removeApp({
+        tenantId,
+        appId: gone.appId,
+        withConnections: false,
+        by: admin,
+      }),
+    ).toMatchObject({ kind: 'ok' });
+    for (const name of [API_KEY.name, 'ACME_TEXTS_KEY_2', 'ACME_TEXTS_KEY_OLD', 'ACME_UNHELD']) {
+      expect(await made.binding.keyHolders?.({ tenantId, name }), name).toEqual(
+        await listed(made, name),
+      );
+    }
+    expect(await made.binding.keyHolders?.({ tenantId, name: API_KEY.name })).toEqual([
+      first.appId,
+      raced.appId,
+    ]);
+    expect(await made.binding.keyHolders?.({ tenantId, name: 'ACME_TEXTS_KEY_OLD' })).toEqual([]);
+  });
+
+  test("another tenant's registration holds nothing in this one", async () => {
+    const made = setup();
+    const other = '00000000-0000-4000-8000-0000000000bb' as TenantId;
+    made.seed.app({
+      tenantId: other,
+      app: 'texts',
+      token: textsToken('ACME_OTHER_KEY'),
+      by: { kind: 'user', id: 'user-admin', tenantId: other },
+    });
+    expect(await made.binding.keyHolders?.({ tenantId, name: 'ACME_OTHER_KEY' })).toEqual([]);
+    expect(
+      await made.binding.keyHolders?.({ tenantId: other, name: 'ACME_OTHER_KEY' }),
+    ).toHaveLength(1);
+  });
+
+  test('a registration whose removal stopped on inbound-restore-failed still holds its key; removed, it frees it', async () => {
+    let answer: 'ok' | 'failed' = 'failed';
+    const made = setup({ restoreInbound: () => answer });
+    made.seed.inbound({ number: NUMBER, host: 'hooks.acme.example' });
+    await connected(made, { replaceInbound: true });
+    const appId = made.textsApp.appId;
+    expect(
+      await made.binding.removeApp({ tenantId, appId, withConnections: true, by: admin }),
+    ).toMatchObject({ kind: 'err', error: { code: 'inbound-restore-failed' } });
+    expect(await made.binding.keyHolders?.({ tenantId, name: API_KEY.name })).toEqual([appId]);
+    answer = 'ok';
+    expect(
+      await made.binding.removeApp({ tenantId, appId, withConnections: true, by: admin }),
+    ).toMatchObject({ kind: 'ok' });
+    expect(await made.binding.keyHolders?.({ tenantId, name: API_KEY.name })).toEqual([]);
+  });
+});

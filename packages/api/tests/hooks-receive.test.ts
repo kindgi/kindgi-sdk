@@ -27,6 +27,7 @@ import type { EnvName, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { createApp } from '../src/index.js';
 import type {
+  ConnectionBinding,
   ProviderRegistryBinding,
   RunHandlerBinding,
   SecretBinding,
@@ -69,6 +70,8 @@ function setup(
     webhookReceivesPerMinute?: number;
     tenantStates?: TenantStateBinding;
     projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
+    /** Texts registrations' account keys, by name, with the registrations holding each. */
+    textsKeys?: Map<string, string[]>;
   } = {},
 ) {
   const registry = createInMemoryTriggerRegistry({ defaultProjectId: PROJECT as never });
@@ -134,6 +137,20 @@ function setup(
     },
   } as unknown as SecretBinding;
   const logLines: string[] = [];
+  // Each name the connection binding was asked the holders of.
+  const keyHolderReads: string[] = [];
+  const textsKeys = options.textsKeys;
+  const connections =
+    textsKeys === undefined
+      ? undefined
+      : ({
+          entries: () => [],
+          listApps: async () => ({ data: [] }),
+          keyHolders: async ({ name }: { name: string }) => {
+            keyHolderReads.push(name);
+            return textsKeys.get(name) ?? [];
+          },
+        } as unknown as ConnectionBinding);
   const providerRegistry = {
     resolveForRuntime: async () => [
       { metadata: { id: 'acme-llm' }, secretRef: { name: PROVIDER_KEY } },
@@ -161,6 +178,7 @@ function setup(
     triggerRegistry: registry,
     secretsBinding: secrets,
     providerRegistry,
+    ...(connections !== undefined && { connections }),
     resolveToken,
     runHandler: {} as RunHandlerBinding,
     webhookReceiver: {
@@ -243,6 +261,7 @@ function setup(
     fires,
     stored,
     resolved,
+    keyHolderReads,
     logLines,
     answers,
     writeSecret,
@@ -499,6 +518,20 @@ describe('a request that does not prove its sender', () => {
       hmacSecretName: PROVIDER_KEY,
     });
     expect(res).toMatchObject({ status: 400, body: { error: { code: 'provider-key-refused' } } });
+  });
+
+  test("a texts registration's account key, held only after the trigger was written: unread at receive, kept unavailable for the TTL", async () => {
+    const textsKeys = new Map<string, string[]>();
+    const { register, deliver, fires, resolved, keyHolderReads } = setup({ textsKeys });
+    const t = await register(WOO);
+    textsKeys.set(WOO_SECRET, ['acme-texts-app']);
+    const before = keyHolderReads.length;
+    for (let i = 0; i < 5; i++) {
+      expect((await deliver(t.webhookId, ORDER, wooHeaders(ORDER, `t${i}`))).status).toBe(401);
+    }
+    expect(resolved.filter((n) => n === WOO_SECRET)).toEqual([]);
+    expect(keyHolderReads.slice(before)).toEqual([WOO_SECRET]);
+    expect(await fires(t.triggerId)).toEqual([]);
   });
 
   test('refusals past 20 a minute only count, on the trigger; the audit takes the first 20', async () => {

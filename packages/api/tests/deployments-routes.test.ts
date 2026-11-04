@@ -1342,6 +1342,121 @@ describe('POST /v1/deployments — happy path', () => {
     expect(await toolRegistry.get({ tenantId, toolId: 'acme.sms' as never })).toBeNull();
   });
 
+  describe("a name its pack declares in `env` that's a texts registration's account key", () => {
+    /** A connection binding listing one live texts registration per [appId, key name]. */
+    const holding = (held: readonly (readonly [string, string])[]) =>
+      ({
+        entries: () => [],
+        listApps: async () => ({
+          data: held.map(([appId, name]) => ({
+            appId,
+            tenantId,
+            app: 'texts',
+            token: {
+              provider: 'telnyx',
+              apiKey: { envName: 'prod', name },
+              publicKey: `${'A'.repeat(43)}=`,
+            },
+          })),
+        }),
+      }) as never;
+    const packIndex = (
+      env: { readonly required: readonly string[]; readonly optional: readonly string[] },
+      secrets: readonly string[] = [],
+    ) => ({
+      v: 1,
+      packId: 'acme.aperture',
+      packVersion: '1.0.0',
+      artifactVersion: '20260920.1',
+      publishedAt: '2026-09-20T14:32:07.104Z',
+      tools: [
+        {
+          id: 'acme.lookup',
+          description: 'Look an order up.',
+          version: '1.0.0',
+          input: { type: 'object' },
+          output: { type: 'object' },
+          modulePath: './tools/lookup.js',
+          ...(secrets.length > 0 && {
+            needsSpec: {
+              secrets: Object.fromEntries(secrets.map((name) => [name, { type: 'string' }])),
+            },
+          }),
+        },
+      ],
+      guardrails: [],
+      env,
+    });
+    const deploy = async (index: unknown, connections: unknown) => {
+      const fixture = buildSignedDeploy({ index: index as never });
+      const { app, deploymentRegistry } = makeApp({
+        fixture,
+        extra: { connections, envName: 'prod' as never },
+      });
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(fixture.wire),
+      });
+      return { res, deploymentRegistry };
+    };
+
+    // Both lists are sorted, as the build writes them: `required` is checked
+    // first, then `optional`, each in that order.
+    test.each([
+      [
+        'one in optional, one in required: the required one, though the optional sorts first',
+        { required: ['ACME_SMS_KEY', 'API_BASE'], optional: ['ACME_ALPHA_KEY'] },
+      ],
+      [
+        'two in required: the first of them',
+        { required: ['ACME_SMS_KEY', 'ACME_TELNYX_KEY'], optional: [] },
+      ],
+    ])('is refused, 400 connection-key-refused, naming the first held, %s', async (_why, env) => {
+      const { res, deploymentRegistry } = await deploy(
+        packIndex(env),
+        holding([
+          ['acme-alpha-app', 'ACME_ALPHA_KEY'],
+          ['acme-texts-app', 'ACME_TELNYX_KEY'],
+          ['acme-sms-app', 'ACME_SMS_KEY'],
+        ]),
+      );
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        error: {
+          code: 'connection-key-refused',
+          message:
+            '`ACME_SMS_KEY` is the account key of connection app registration "acme-sms-app": a pack\'s env never names it, since that key reaches the whole provider account. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account',
+          details: { secret: 'ACME_SMS_KEY', appId: 'acme-sms-app' },
+          requestId: expect.any(String),
+        },
+      });
+      expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+    });
+
+    test("a tool naming the key answers first, with the tool's validation issue", async () => {
+      const { res } = await deploy(
+        packIndex({ required: ['ACME_TELNYX_KEY'], optional: [] }, ['ACME_TELNYX_KEY']),
+        holding([['acme-texts-app', 'ACME_TELNYX_KEY']]),
+      );
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as {
+        error: { code: string; details: { issues: unknown[] } };
+      };
+      expect(body.error.code).toBe('deployment-validation-failed');
+      expect(body.error.details.issues).toMatchObject([
+        { primitive: 'tool', id: 'acme.lookup', path: '/secrets/ACME_TELNYX_KEY' },
+      ]);
+    });
+
+    test('a name no live registration holds deploys, keeping the declaration', async () => {
+      const env = { required: ['ACME_TELNYX_KEY', 'API_BASE'], optional: [] };
+      const { res } = await deploy(packIndex(env), holding([['acme-sms-app', 'ACME_SMS_KEY']]));
+      expect(res.status).toBe(201);
+      expect(((await res.json()) as { packEnv?: unknown }).packEnv).toEqual(env);
+    });
+  });
+
   test('a tool naming a reserved `kindgi.` secret is refused, with no provider registered', async () => {
     const fixture = buildSignedDeploy({
       index: {
