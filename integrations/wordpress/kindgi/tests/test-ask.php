@@ -233,8 +233,13 @@ function test_ask_a_turn_that_waits_or_failed_takes_its_calls_answers_from_the_c
 		'status'    => 'suspended',
 		'createdAt' => '2026-11-04T09:00:00Z',
 	);
+	$park    = array(
+		'sequence' => 3,
+		'kind'     => 'wait.suspended',
+		'nodeId'   => 'dispatch-tools',
+	);
 	kindgi_test_answer( 200, kindgi_test_run( $waiting ) );
-	kindgi_test_answer( 200, array( 'data' => array( kindgi_test_round()[0] ) ) );
+	kindgi_test_answer( 200, array( 'data' => array( kindgi_test_round()[0], $park ) ) );
 	kindgi_test_answer(
 		200,
 		array(
@@ -267,6 +272,32 @@ function test_ask_a_turn_that_waits_or_failed_takes_its_calls_answers_from_the_c
 	);
 	kindgi_assert_same( 3, count( $GLOBALS['kindgi_test']['requests'] ), 'the run, its journal, then its conversation' );
 	kindgi_assert( false !== strpos( $GLOBALS['kindgi_test']['requests'][2][0], '/v1/conversations/c-1/messages' ), "the turn's own conversation" );
+	kindgi_assert_same( 3, $turn['since'], 'the park seen' );
+
+	kindgi_test_jane_at_work();
+	$still = kindgi_test_poll( $waiting, array(), 3 );
+	kindgi_assert_same( array(), $still['answers'], 'the same wait, polled again: nothing new' );
+	kindgi_assert_same( 2, count( $GLOBALS['kindgi_test']['requests'] ), "the run and its journal only: the conversation doesn't change while the turn waits, so it was read once" );
+
+	kindgi_test_jane_at_work();
+	kindgi_test_answer( 200, kindgi_test_run( array( 'status' => 'running' ) + $waiting ) );
+	kindgi_test_answer( 200, array( 'data' => array( $park ) ) );
+	kindgi_test_answer(
+		200,
+		array(
+			'data'    => array( kindgi_test_tool_message( 5, 'call-1', 'woo.find-orders', KINDGI_TEST_ORDERS ) ),
+			'hasMore' => false,
+		)
+	);
+	$parking = Kindgi_Rest::run(
+		new WP_REST_Request(
+			array(
+				'id'    => 'r-1',
+				'since' => 2,
+			)
+		)
+	);
+	kindgi_assert_same( array( 'call-1' ), array_column( $parking['answers'], 'callId' ), 'the park in the journal, though the run read just before said it still ran: the conversation is read on that poll' );
 
 	kindgi_test_jane_at_work();
 	kindgi_test_answer( 200, kindgi_test_run( array( 'status' => 'failed' ) + $waiting ) );
