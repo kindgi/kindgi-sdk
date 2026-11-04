@@ -26,16 +26,16 @@ with the pack.
 ## 1. Create the pack
 
 ```sh tutorial=run
-npx --yes @kindgi/cli@0.2 init my-pack --template=java
+npx --yes @kindgi/cli@0.4 init my-pack --template=java
 cd my-pack
 ./mvnw -q test    # the template's tests: the tools, called directly
 ```
 
-- `npx --yes @kindgi/cli@0.2` runs the newest 0.2 release of the Kindgi CLI,
-  the line these docs describe, without installing it
-  ([Check this machine](../install/#check-this-machine) says how). `@0.2` is
-  optional: `npx --yes @kindgi/cli init my-pack --template=java` runs the
-  newest release, which may be on a later line than these docs.
+- `npx --yes @kindgi/cli@0.4` runs the Kindgi CLI these docs describe,
+  without installing it
+  ([Check this machine](../install/#check-this-machine) says how). The
+  version is optional: `npx --yes @kindgi/cli init my-pack --template=java`
+  runs the newest release, which may be on a later line than these docs.
 - `init my-pack` makes the pack in a new folder, `my-pack`.
 - `--template=java` makes it a Java pack, with examples.
 - `./mvnw -q test` runs the template's tests with the pack's own Maven, quietly (`-q`).
@@ -50,7 +50,7 @@ pass:
 ```
 
 Without Node, run `init` from PyPI instead:
-`uvx --from "kindgi-cli>=0.2,<0.3" kindgi init my-pack --template=java`.
+`uvx --from "kindgi-cli>=0.4,<0.5" kindgi init my-pack --template=java`.
 
 The pack is a Maven project. Its config is `kindgi.config.json`; its tools,
 guardrails, agents and flows are classes in four packages:

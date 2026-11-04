@@ -56,6 +56,9 @@ jobs:
       - name: References (docs exist in this repository; no internal process notes)
         run: pnpm run check:refs
 
+      - name: The docs, skills and READMEs install the CLI of their own line
+        run: pnpm run check:cli-line
+
       - name: No package dependency cycles
         run: pnpm run check:cycles
 

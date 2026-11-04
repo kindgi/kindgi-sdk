@@ -20,7 +20,7 @@
  * to paste, printed as it is.
  *
  * A command run before there's a project starts the CLI from the registry,
- * `npx --yes @kindgi/cli@0.2 …` or `uvx --from "kindgi-cli>=0.2,<0.3" kindgi …`:
+ * `npx --yes @kindgi/cli@X.Y …` or `uvx --from "kindgi-cli>=X.Y,<…" kindgi …`:
  * there `kindgi` is a package name or an argument, so it's fine too. Every
  * page is read, the coding agents' setup page included.
  *
