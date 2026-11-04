@@ -338,9 +338,10 @@ export interface FileToCreate {
 
 /**
  * A create's bytes, name and type: `text` as given, or `file`'s bytes
- * read from the run's files. A `file` must name a type a stored file may
- * have, the one it was stored as; a file the run may not be shown, or
- * whose bytes are gone or changed, is refused, saying why.
+ * read from the run's files. A `file`'s type is the one its file value
+ * gives, since the run's files answer bytes only, and must be a type a
+ * stored file may have; a file the run may not be shown, or whose bytes
+ * are gone or changed, is refused, saying why.
  */
 export async function fileToCreate(
   ctx: ToolContext,
