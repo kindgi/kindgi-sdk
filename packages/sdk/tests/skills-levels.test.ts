@@ -40,25 +40,25 @@ const CONTENTS_FROM_LINES = 100;
 
 /** The skills not split yet, and the most bytes each one's entry may hold. */
 const NOT_YET_LEVELED: Readonly<Record<string, { readonly bytes: number }>> = {
-  'kindgi-authoring-agents': { bytes: 19_740 },
-  'kindgi-authoring-flows': { bytes: 14_587 },
+  'kindgi-authoring-agents': { bytes: 19_737 },
+  'kindgi-authoring-flows': { bytes: 14_590 },
   'kindgi-authoring-guardrails': { bytes: 25_914 },
   'kindgi-getting-started': { bytes: 19_522 },
   'kindgi-java-authoring-agents': { bytes: 16_099 },
-  'kindgi-java-authoring-flows': { bytes: 19_957 },
+  'kindgi-java-authoring-flows': { bytes: 19_952 },
   'kindgi-java-authoring-guardrails': { bytes: 12_522 },
   'kindgi-java-authoring-tools': { bytes: 26_786 },
-  'kindgi-java-getting-started': { bytes: 18_022 },
+  'kindgi-java-getting-started': { bytes: 18_027 },
   'kindgi-python-authoring-agents': { bytes: 16_937 },
-  'kindgi-python-authoring-flows': { bytes: 16_336 },
+  'kindgi-python-authoring-flows': { bytes: 16_339 },
   'kindgi-python-authoring-guardrails': { bytes: 11_605 },
   'kindgi-python-authoring-tools': { bytes: 27_237 },
-  'kindgi-python-getting-started': { bytes: 19_316 },
+  'kindgi-python-getting-started': { bytes: 19_321 },
   'kindgi-scala-authoring-agents': { bytes: 15_988 },
-  'kindgi-scala-authoring-flows': { bytes: 18_747 },
+  'kindgi-scala-authoring-flows': { bytes: 18_742 },
   'kindgi-scala-authoring-guardrails': { bytes: 12_213 },
   'kindgi-scala-authoring-tools': { bytes: 25_245 },
-  'kindgi-scala-getting-started': { bytes: 19_349 },
+  'kindgi-scala-getting-started': { bytes: 19_354 },
   'kindgi-using': { bytes: 15_851 },
 };
 

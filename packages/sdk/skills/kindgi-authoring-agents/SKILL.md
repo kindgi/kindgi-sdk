@@ -352,7 +352,7 @@ fix: a setting or wording as a suggested change, a rule in code.
 - Type surface: `hover any @kindgi/sdk/define export` in your editor
   for full JSDoc.
 - API reference: https://docs.kindgi.com/v0.4/reference/typescript/sdk/kindgi/sdk/define/ (every `define*` spec, field by field).
-- Common patterns: the `sample` template's `agents/echo-agent`
+- Common patterns: the `sample` template's `agents/greeter`
   demonstrates the smallest tool-calling shape.
 
 ## When the framework itself is the problem

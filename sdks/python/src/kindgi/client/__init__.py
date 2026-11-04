@@ -6,7 +6,7 @@
     from kindgi.client import Kindgi
 
     client = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN; in development, the running kindgi dev
-    run = client.runs.start(flow="acme.record-expense", input={"vendor": "Acme"})
+    run = client.runs.start(flow="acme.ledger.book-expense", input={"vendor": "Acme"})
     print(run.status, run.output)
 
 Every operation of the API (`@kindgi/api/openapi.json`) is a method: the

@@ -316,7 +316,7 @@ the output), not on every save.
 ## Common mistakes
 
 1. **Building a flow without asking what goes in and comes out.** The
-   pack's `echo_flow` proves the runtime works. It isn't a template for
+   pack's `greet_person` proves the runtime works. It isn't a template for
    the user's flow.
 2. **A second comparison for "otherwise".** On a path that may be
    missing, `eq` is false and `ne` is true, and `lt`/`gt` are both false,

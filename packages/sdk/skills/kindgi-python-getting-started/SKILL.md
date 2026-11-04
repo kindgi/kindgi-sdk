@@ -128,8 +128,8 @@ my-pack/
 ├── pyproject.toml                     # [tool.kindgi] — id, version, (discovery, dev, environments)
 ├── tools/echo.py, tools/greet.py      # @tool
 ├── guardrails/response_not_empty.py   # @guardrail
-├── agents/echo_agent.py               # Agent(...)
-├── flows/echo_flow.py                 # Flow(...)
+├── agents/greeter.py                  # Agent(...)
+├── flows/greet_person.py              # Flow(...)
 ├── tests/test_tools.py                # the tools and the check, called directly
 ├── README.md
 ├── .claude/skills/                    # these skills (`kindgi skills sync` refreshes them)
@@ -191,7 +191,7 @@ from kindgi import Flow
 from ..tools.ledger import record_expense
 
 record = Flow(
-    id="acme.record-expense",
+    id="acme.ledger.book-expense",
     version="0.1.0",
     nodes=[{"id": "record", "kind": "tool", "ref": record_expense}],
     edges=[

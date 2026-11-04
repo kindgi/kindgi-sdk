@@ -222,7 +222,7 @@ from kindgi import Flow
 from ..tools.ledger import record_expense
 
 record = Flow(
-    id="acme.record-expense",
+    id="acme.ledger.book-expense",
     version="1.0.0",
     nodes=[{"id": "record", "kind": "tool", "ref": record_expense}],
     edges=[
@@ -299,7 +299,7 @@ from kindgi.client import GuardrailViolationError, Kindgi, paginate
 client = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN — or Kindgi(url, token=…)
 
 run = client.runs.start(
-    flow="acme.record-expense", input={"vendor": "Acme", "amountCents": 1299}
+    flow="acme.ledger.book-expense", input={"vendor": "Acme", "amountCents": 1299}
 )
 print(run.status, run.output)
 

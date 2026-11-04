@@ -26,4 +26,4 @@ Their folders, files and classes follow: `agents/greeter/`, `Greeter.java`, `gre
 - The display name is the id in words, in sentence case.
 - An id is the pack's own id, a dot, and a kebab-case name with no dot.
 
-The examples follow the rules (`acme.record-expense`, "Brief writer", "Triage a ticket"). So do the `Agent.id` and `Flow.id` comments, and the Python and Java SDKs' examples.
+The examples follow the rules (`acme.ledger.book-expense`, "Brief writer", "Triage a ticket"). So do the `Agent.id` and `Flow.id` comments, and the Python and Java SDKs' examples.

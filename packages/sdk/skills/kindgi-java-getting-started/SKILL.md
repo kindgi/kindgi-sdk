@@ -140,8 +140,8 @@ my-pack/
 ├── src/main/java/mypack/
 │   ├── tools/Echo.java, tools/Greet.java    # Tool.define(...)
 │   ├── guardrails/ResponseNotEmpty.java     # Guardrail.define(...)
-│   ├── agents/EchoAgent.java                # Agent.define(...)
-│   └── flows/EchoFlow.java                  # Flow.define(...)
+│   ├── agents/Greeter.java                  # Agent.define(...)
+│   └── flows/GreetPerson.java               # Flow.define(...)
 ├── src/test/java/mypack/ToolsTest.java      # the tools, called directly
 ├── .claude/skills/                          # these skills (`./kindgiw skills sync` refreshes them)
 └── .agents/skills/                          # the same skills, where Codex and Gemini CLI look
@@ -196,7 +196,7 @@ A flow is data: nodes and edges (`flow.schema.json`). A node's ref may be
 the `Tool` itself:
 
 ```java
-public static final Flow FLOW = Flow.define("acme.record-expense")
+public static final Flow FLOW = Flow.define("acme.ledger.book-expense")
     .version("0.1.0")
     .toolNode("record", RecordExpense.TOOL)
     .edge("e-start", "$start", "record")

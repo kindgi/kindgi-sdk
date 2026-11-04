@@ -163,7 +163,7 @@ public final class TriageTicket {
 
   public static final Flow FLOW = Flow.define("acme.triage-ticket")
       .version("0.1.0")
-      .set("name", "Triage a support ticket")
+      .set("name", "Triage a ticket")
       .set("description", "Parses a ticket, classifies it, looks billing up when needed, drafts a reply.")
       .node(Map.of("id", "parse", "kind", "tool", "ref", Tickets.PARSE,
           "inputMapping", Map.of("ticket", Map.of("path", "runInput.ticket"))))
@@ -385,7 +385,7 @@ input or the output), not on every save.
 ## Common mistakes
 
 1. **Building a flow without asking what goes in and comes out.** The pack's
-   `EchoFlow` proves the runtime works. It isn't a template for the user's
+   `GreetPerson` proves the runtime works. It isn't a template for the user's
    flow.
 2. **A second comparison for "otherwise".** On a path that may be missing,
    `eq` is false and `ne` is true, and `lt`/`gt` are both false, so a

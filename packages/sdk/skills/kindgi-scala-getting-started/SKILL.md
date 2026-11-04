@@ -152,8 +152,8 @@ my-pack/
 ├── src/main/scala/mypack/
 │   ├── tools/Echo.scala, tools/Greet.scala  # Tool[Input, Output](...)
 │   ├── guardrails/ResponseNotEmpty.scala    # Guardrail[Config](...)
-│   ├── agents/EchoAgent.scala               # Agent(...)
-│   └── flows/EchoFlow.scala                 # Flow(...)
+│   ├── agents/Greeter.scala                 # Agent(...)
+│   └── flows/GreetPerson.scala              # Flow(...)
 ├── src/test/scala/mypack/ToolsSuite.scala   # the tools, called directly (munit)
 ├── .claude/skills/                          # these skills (`./kindgiw skills sync` refreshes them)
 └── .agents/skills/                          # the same skills, where Codex and Gemini CLI look
@@ -207,7 +207,7 @@ A flow is data: nodes and edges (`flow.schema.json`). A node's ref may be
 the `Tool` itself:
 
 ```scala
-val flow: Flow = Flow("acme.record-expense")
+val flow: Flow = Flow("acme.ledger.book-expense")
   .version("0.1.0")
   .toolNode("record", RecordExpense.tool)
   .edge("e-start", "$start", "record")
