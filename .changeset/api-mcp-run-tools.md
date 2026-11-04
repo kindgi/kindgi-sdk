@@ -6,6 +6,7 @@
 
 - **One tool per agent or flow** whose author exposed it (`mcp.expose`) and that the person can see. It needs the `kindgi:run` scope.
   - A call starts the run as the person, with an idempotency key, so a chat app's retry doesn't start a second run.
+  - It names no project. The run lands where the runtime puts it: for an agent, the conversation's project when the call continues one, else the agent's own; for a flow, its own. It needs what a start from the API that names no project needs: the right to run the item, and for an item more than one project serves, the right to run it in the project the run lands in. Naming a project asks `write` on it, which no chat scope holds.
   - It waits up to 25 seconds. A longer run goes on in Kindgi, and the call answers with the run's state, so no call stays open past a chat app's time limit.
   - A run the person may not start answers the route's refusal in words.
 - **`kindgi.run_state`** reads a run as the person: whether it goes on, what it waits for, and its answer and files once it ends.

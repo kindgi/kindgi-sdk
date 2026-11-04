@@ -194,12 +194,13 @@ const SHARED_LIST_SAYS: Readonly<Record<CalendarOwner, string>> = {
 
 /**
  * What an events list reads, by its reach: the account's calendars, or
- * with the wider permission (Microsoft's for a shared calendar's copy in
- * the account's mailbox) those others share with it too.
+ * with the wider permission (Microsoft's for every calendar the account
+ * can open, those shared with it or delegated to it included) those
+ * others share with it too.
  */
 const LIST_REACH = {
   own: { says: LIST_SAYS, version: '1.1.0', permission: 'calendars.readbasic' },
-  shared: { says: SHARED_LIST_SAYS, version: '1.0.0', permission: 'calendars.read' },
+  shared: { says: SHARED_LIST_SAYS, version: '1.1.0', permission: 'calendars.read.shared' },
 } as const;
 
 const outlookCalendarEventsListSpec = (
@@ -443,8 +444,8 @@ export function outlookCalendarEventsList(
  * A tool, under the id the pack names, that lists the events in a window
  * on the call's Outlook calendars, those others share with the account
  * included: the person's, or the company's with `as: 'company'`. It asks
- * for `calendars.read` (Calendars.Read), wider than the events list's
- * `calendars.readbasic`.
+ * for `calendars.read.shared` (Calendars.Read.Shared), wider than the
+ * events list's `calendars.readbasic`.
  */
 export function outlookCalendarSharedEventsList(
   options: CalendarToolOptions,

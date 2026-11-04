@@ -324,6 +324,15 @@ const RunFlowVersionQueryParam: ParameterSpec = {
   schema: { type: 'string', minLength: 1 },
 };
 
+const RunActsForQueryParam: ParameterSpec = {
+  name: 'actsFor',
+  in: 'query',
+  required: false,
+  description:
+    "`me`: only the runs that act for the caller (the run's `actsFor`); none for a caller who acts for no one.",
+  schema: { type: 'string', enum: ['me'] },
+};
+
 const ItemProjectQueryParam: ParameterSpec = {
   name: 'projectId',
   in: 'query',
@@ -2069,7 +2078,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/runs',
     operationId: 'runs.list',
     summary: 'List runs',
-    description: 'Cursor-paginated. Fixed sort order: `createdAt desc, id desc`.',
+    description:
+      "Cursor-paginated. Fixed sort order: `createdAt desc, id desc`. With authorization on, it lists every run in the projects the caller may `read`, and in the projects where they may only `run`, the runs that act for them (`actsFor`); the runtime applies this in its query, so a page is full when there are more. Across projects (no scope, the workspace or an org), those projects come from the authorization store's list, which answers at most 1000 by default: a caller who reads or runs more may miss the runs of some. A workspace admin's list doesn't go through it.",
     tags: ['runs'],
     security: 'bearer',
     parameters: [
@@ -2090,6 +2100,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       RunAgentVersionQueryParam,
       RunFlowIdQueryParam,
       RunFlowVersionQueryParam,
+      RunActsForQueryParam,
     ],
     responses: {
       '200': { description: 'Page of runs.', schema: ref('RunCollectionPage') },
@@ -5837,7 +5848,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.list',
     summary: 'List artifact metadata',
     description:
-      'Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed.',
+      "Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed; with `?ownerRunId=` of a run of the caller's own (one that acts for them), `run` on the project is enough too.",
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [
@@ -5878,7 +5889,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.upload',
     summary: 'Upload an artifact',
     description:
-      "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.",
+      "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. A person with `run` there and no `write` may upload a file that names no `ownerRunId`: an input for a run they start, which they may download again. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.",
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -5898,7 +5909,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed multipart body, bad tag JSON, hash mismatch, declared size mismatch, or a `projectId` that isn't the owner run's.",
       ),
       '403': ErrorResponse(
-        "No `write` on the project (`permission-denied`), or the caller's API key is limited to another project (`key-project-mismatch`).",
+        "No `write` on the project, and no `run` there for an upload of the caller's own that names no run (`permission-denied`); or the caller's API key is limited to another project (`key-project-mismatch`).",
       ),
       '404': ErrorResponse('No such owner run (`run-not-found`).'),
       '413': ErrorResponse(
@@ -5913,7 +5924,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.download',
     summary: 'Download an artifact (stream)',
     description:
-      "Streams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name).",
+      "Streams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name). Needs `read` on the artifact's project, or `run` there on a file of the caller's own: one they uploaded, or one a run that acts for them stored.",
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [
@@ -5933,7 +5944,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonAuthErrors,
       '404': ErrorResponse(
-        "No blob with that id under this workspace, or one in a project the caller can't read.",
+        "No blob with that id under this workspace, or one in a project the caller can't read that isn't a file of their own.",
       ),
     },
   },
@@ -5944,7 +5955,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.head',
     summary: 'Fetch artifact metadata (no body)',
     description:
-      'Same headers as GET, empty body. 200 when the blob exists, 404 when unknown. The response headers are the authoritative payload.',
+      'Same headers as GET, empty body, checked as GET is. 200 when the blob exists, 404 when unknown. The response headers are the authoritative payload.',
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [
@@ -5988,7 +5999,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Delete acknowledged.', schema: ref('DeleteArtifactResult') },
       ...CommonMutationErrors,
       '403': ErrorResponse('No `write` on its project (`permission-denied`).'),
-      '404': ErrorResponse("An artifact in a project the caller can't read (`blob-not-found`)."),
+      '404': ErrorResponse(
+        "An artifact in a project the caller can't read that isn't a file of their own (`blob-not-found`).",
+      ),
     },
   },
 

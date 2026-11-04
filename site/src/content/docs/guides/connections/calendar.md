@@ -161,7 +161,7 @@ review your registration, not Kindgi's.
     app" screen and takes at most 100 accounts, as for Gmail
     ([Google](../google/#1-create-the-client-in-the-google-cloud-console)).
 - **Microsoft:** `Calendars.ReadBasic` to list events and calendars and for
-  free/busy, `Calendars.Read` for the shared list, and
+  free/busy, `Calendars.Read.Shared` for the shared list, and
   `Calendars.ReadWrite` to add and change. None needs an admin's consent
   by default. Your directory may still ask for it
   ([Admin consent](../microsoft/#admin-consent)).
@@ -181,7 +181,7 @@ The same goes for Google's calendars list on a connection made before it
 came: the connection lacks `calendar.calendarlist.readonly` until the
 person allows it. A list or a free/busy with `calendarIds` needs nothing
 new, and neither does Outlook's calendars list. A shared list needs its own
-permission, `calendar.events.readonly` or `Calendars.Read`, which a
+permission, `calendar.events.readonly` or `Calendars.Read.Shared`, which a
 connection lacks until the person allows it.
 
 ## Limits

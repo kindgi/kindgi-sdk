@@ -503,15 +503,15 @@ describe('outlook calendar events list, several calendars', () => {
 describe('outlook calendar shared events list', () => {
   const shared = outlookCalendarSharedEventsList({ id: 'acme.calendar.shared-list' });
 
-  it('asks for Calendars.Read, and is the events list otherwise', () => {
+  it('asks for Calendars.Read.Shared, and is the events list otherwise', () => {
     expect(shared).toMatchObject({
-      version: '1.0.0',
+      version: '1.1.0',
       mutating: false,
       resultIsOutsideData: true,
       network: { kind: 'allowlist', hosts: ['graph.microsoft.com'] },
       needsSpec: {
         connections: {
-          calendar: { app: 'microsoft', permissions: ['calendars.read'], as: 'person' },
+          calendar: { app: 'microsoft', permissions: ['calendars.read.shared'], as: 'person' },
         },
       },
     });
@@ -529,7 +529,7 @@ describe('outlook calendar shared events list', () => {
     });
     expect(company.needsSpec?.connections?.calendar).toEqual({
       app: 'microsoft',
-      permissions: ['calendars.read'],
+      permissions: ['calendars.read.shared'],
       as: 'company',
     });
     expect(company.description).toContain(

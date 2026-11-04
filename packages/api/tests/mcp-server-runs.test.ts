@@ -353,10 +353,11 @@ describe('/mcp: running an agent', () => {
     expect(start?.path).toBe('/v1/runs');
     expect(start?.body).toMatchObject({
       agent: 'acme.clauses',
-      projectId: PROJECT,
       input: { userMessage: 'Compare them.', parameters: { jurisdiction: 'DE' } },
       options: { wait: false },
     });
+    // It lands in the agent's own project, unnamed: naming it asks `write`.
+    expect(start?.body).not.toHaveProperty('projectId');
     expect(start?.idempotencyKey).toMatch(/^[0-9a-f]{64}$/);
     expect(body.result.isError).toBeUndefined();
     expect(body.result.structuredContent).toEqual({

@@ -27,7 +27,7 @@ directory, which you register with Kindgi once.
 - **The `kindgi` CLI reaches your runtime as you,** with the runtime's address
   exported as `KINDGI_API_URL` and your API key as `KINDGI_API_TOKEN`
   ([People and keys](../../../deploy/people-and-keys/#api-keys)). Kindgi
-  0.2's CLI runs from any folder as `npx --yes @kindgi/cli@0.2`
+  0.2's CLI runs from any folder as `npx --yes @kindgi/cli@0.4`
   ([Install](../../../start/install/)).
 
 ## 1. Choose who can connect
@@ -77,7 +77,7 @@ In the [Microsoft Entra admin center](https://entra.microsoft.com):
    your tools need, `Mail.Send` to send mail and `Mail.Read` to read it,
    and both to reply. For the [calendar tools](../calendar/), add
    `Calendars.ReadBasic` to list events and calendars and for free/busy,
-   `Calendars.Read` to list events on calendars others share, and
+   `Calendars.Read.Shared` to list events on calendars others share, and
    `Calendars.ReadWrite` to add and change them. Then choose **Add
    permissions**. Kindgi asks for
    `offline_access` to keep access between sign-ins, and for `User.Read` to
@@ -108,7 +108,7 @@ The secret goes into Kindgi's secret store under a name, never into a
 registration or a chat:
 
 ```sh
-npx --yes @kindgi/cli@0.2 secrets set ACME_MICROSOFT_CONNECT_SECRET --env=production --scope=tenant
+npx --yes @kindgi/cli@0.4 secrets set ACME_MICROSOFT_CONNECT_SECRET --env=production --scope=tenant
 ```
 
 - `ACME_MICROSOFT_CONNECT_SECRET` is the secret's name. The registration
@@ -136,7 +136,7 @@ step 2.
 Or register it from the command line:
 
 ```sh
-npx --yes @kindgi/cli@0.2 connection-apps add microsoft --client-id=<client-id> --client-secret-ref=production/ACME_MICROSOFT_CONNECT_SECRET --tenant=<directory>
+npx --yes @kindgi/cli@0.4 connection-apps add microsoft --client-id=<client-id> --client-secret-ref=production/ACME_MICROSOFT_CONNECT_SECRET --tenant=<directory>
 ```
 
 `<directory>` is the directory from step 1. The command prints the
@@ -222,7 +222,7 @@ Before yours expires:
 2. **Store it as a new version** under the same name:
 
    ```sh
-   npx --yes @kindgi/cli@0.2 secrets set ACME_MICROSOFT_CONNECT_SECRET --env=production --scope=tenant --write-mode=add-version
+   npx --yes @kindgi/cli@0.4 secrets set ACME_MICROSOFT_CONNECT_SECRET --env=production --scope=tenant --write-mode=add-version
    ```
 
    Connections keep working: Kindgi uses the new secret from the next
