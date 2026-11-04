@@ -38,9 +38,13 @@ export function standingOf(claims: LicenseClaims, now: number): LicenseStanding 
   return { kind: 'expired' };
 }
 
-/** A key from access.kindgi.com (`gh-<id>`, `dom-<domain>`), not one Kindgi issued by hand. */
+/** A key from access.kindgi.com (`gh-<id>`, `em-<id>`, `dom-<domain>`), not one Kindgi issued by hand. */
 export function isSelfServe(subject: string): boolean {
-  return /^gh-\d+$/.test(subject) || /^dom-[a-z0-9.-]+$/.test(subject);
+  return (
+    /^gh-\d+$/.test(subject) ||
+    /^em-[a-z2-7]{26}$/.test(subject) ||
+    /^dom-[a-z0-9.-]+$/.test(subject)
+  );
 }
 
 /**

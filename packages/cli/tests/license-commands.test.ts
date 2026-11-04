@@ -417,11 +417,12 @@ describe('kindgi license renew', () => {
 
   // By the key's subject, as `kindgi doctor` and the runtime's banner say it:
   // a key Kindgi issued (any use) is extended with Kindgi; a self-serve one
-  // (`gh-…`, `dom-…`, any use) comes from signing in.
+  // (`gh-…`, `em-…`, `dom-…`, any use) comes from signing in.
   test.each([
     ['Kindgi issued, production', 'acme-prod', 'production', 'contact'],
     ['Kindgi issued, non-production', 'acme-eval', 'non-production', 'contact'],
     ['self-serve, production (a company domain)', 'dom-acme.example', 'production', 'sign in'],
+    ['self-serve, an email sign-in', 'em-kqzt3xw7mfa2rb5ndl6hpye4cv', 'non-production', 'sign in'],
   ])("a key %s: the warning's next step", async (_label, sub, use, next) => {
     const soon = licenseKey({ sub, name: 'Acme Corp', use, exp: NOW / 1000 + 10 * DAY });
     const { dir, renewer } = await enrolled(soon);
