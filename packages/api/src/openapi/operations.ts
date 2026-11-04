@@ -1719,11 +1719,11 @@ const ENV_NOT_SERVED_REFERENCE =
 
 /** A secret a write names that is a texts connection app registration's account key. */
 const CONNECTION_KEY_REFUSED =
-  '`connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Store the key under its own name (the same value is fine) and name that.';
+  '`connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account.';
 
 /** A texts registration's key named by another user of the secret (POST and PATCH /v1/connection-apps). */
 const CONNECTION_KEY_IN_USE =
-  "`connection-key-in-use`: `token.apiKey` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger or another connection app registration uses; `details.secret` names it and `details.usedBy` lists each (`kind`, `id`, a tool's `version`). A texts registration's key is used by its registration only: store it under its own name. Nothing is stored.";
+  "`connection-key-in-use`: `token.apiKey` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger or another connection app registration uses; `details.secret` names it and `details.usedBy` lists each (`kind`, `id`, a tool's `version`). A texts registration's key is used by its registration only: give the registration a new API key from the provider, stored under a name of its own. If the secret holds this account's key, what uses it already reaches the whole account: rotate it at the provider. Nothing is stored.";
 
 /** The 409 a write answers anyway, and `env-not-served`. */
 function conflictOrEnvNotServed(text: string): ResponseSpec {

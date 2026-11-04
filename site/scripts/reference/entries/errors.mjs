@@ -3601,7 +3601,7 @@ export const ERROR_ENTRIES = {
   },
   'connection-key-refused': {
     description:
-      "The request names the account key of a texts connection app registration (its `token.apiKey`) as a secret for something that isn't that registration, such as a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a model provider or another connection app registration. The key reaches the whole provider account, so only its registration names it. Store the key under its own name (the same value is fine) and use that name. Nothing is stored.",
+      "The request names the account key of a texts connection app registration (its `token.apiKey`) as a secret for something that isn't that registration, such as a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a model provider or another connection app registration. The key reaches the whole provider account, so only its registration names it. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Nothing is stored.",
     details: [
       {
         key: 'secret',
@@ -4298,7 +4298,7 @@ export const ERROR_ENTRIES = {
   },
   'connection-key-in-use': {
     description:
-      "The API key a texts registration names (`token.apiKey`) is a secret already used by a tool, MCP endpoint, webhook endpoint, webhook trigger or another connection app registration. The key reaches the whole provider account, so it is the registration's alone: store it under a name of its own. Nothing is stored.",
+      "The API key a texts registration names (`token.apiKey`) is a secret already used by a tool, MCP endpoint, webhook endpoint, webhook trigger or another connection app registration. The key reaches the whole provider account, so it is the registration's alone: give the registration a new API key from the provider, stored under a name of its own. If the secret holds this account's key, what uses it already reaches the whole account: rotate it at the provider. Nothing is stored.",
     details: [
       {
         key: 'secret',

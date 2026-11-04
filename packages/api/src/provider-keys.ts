@@ -119,7 +119,7 @@ export function connectionKeyRefusal(
 } {
   return {
     code: 'connection-key-refused',
-    message: `\`${name}\` is the account key of connection app registration "${appId}": ${user} never names it, since that key reaches the whole provider account. Store the key under its own name (the same value is fine) and use that name`,
+    message: `\`${name}\` is the account key of connection app registration "${appId}": ${user} never names it, since that key reaches the whole provider account. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account`,
     secret: name,
     appId,
   };
@@ -150,7 +150,7 @@ export interface SecretUsersDeps {
 }
 
 /** A page's worth, and how many pages at most: past that, the call-time refusal still holds. */
-const PAGE = 100;
+export const PAGE = 100;
 const MAX_PAGES = 100;
 
 export async function* pages<T>(

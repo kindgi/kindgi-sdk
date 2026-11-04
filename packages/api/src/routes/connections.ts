@@ -38,6 +38,7 @@ import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
 import {
   type ConnectionKeys,
+  PAGE,
   type ProviderKeys,
   type SecretUse,
   pages,
@@ -77,8 +78,6 @@ const MINUTE_MS = 60_000;
 const E164_RE = /^\+[1-9][0-9]{6,14}$/;
 /** Base64 of exactly 32 bytes (an Ed25519 public key): 43 characters and one `=`. */
 const PUBLIC_KEY_RE = /^[A-Za-z0-9+/]{43}=$/;
-/** The registrations read at once, page after page, for the secrets the others name. */
-const APPS_PAGE = 100;
 
 const CONNECTION_STATES: ReadonlySet<string> = new Set([
   'working',
@@ -175,7 +174,7 @@ export function connectionAppsRouter(
     const out: SecretUse[] =
       options.secretUsers === undefined ? [] : [...(await options.secretUsers(tenantId, name))];
     for await (const app of pages((cursor) =>
-      binding.listApps({ tenantId, limit: APPS_PAGE, ...(cursor !== undefined && { cursor }) }),
+      binding.listApps({ tenantId, limit: PAGE, ...(cursor !== undefined && { cursor }) }),
     )) {
       if (app.appId !== ownAppId && secretNamesOf(app).includes(name)) {
         out.push({ kind: 'connection-app', id: app.appId });
@@ -207,7 +206,7 @@ export function connectionAppsRouter(
       return answer(
         c,
         'connection-key-in-use',
-        `\`${keyName}\` is used by ${usedBy.map((u) => `${u.kind} "${u.id}"`).join(', ')}: a texts registration's key is used by its registration only. Store the key under its own name, or give each of them a key of its own (the same value is fine)`,
+        `\`${keyName}\` is used by ${usedBy.map((u) => `${u.kind} "${u.id}"`).join(', ')}: a texts registration's key is used by its registration only. Give the registration a new API key from the provider, stored under a name of its own. If \`${keyName}\` holds this account's key, what uses it already reaches the whole account: rotate it at the provider`,
         { secret: keyName, usedBy },
       );
     }

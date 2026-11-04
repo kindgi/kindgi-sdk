@@ -338,7 +338,7 @@ describe('refuseSecretNames: reserved names, then provider keys, then connection
     expect(refusal).toEqual({
       code: 'connection-key-refused',
       message:
-        '`ACME_TELNYX_KEY` is the account key of connection app registration "app-texts": a tool never names it, since that key reaches the whole provider account. Store the key under its own name (the same value is fine) and use that name',
+        '`ACME_TELNYX_KEY` is the account key of connection app registration "app-texts": a tool never names it, since that key reaches the whole provider account. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account',
       secret: 'ACME_TELNYX_KEY',
       appId: 'app-texts',
     });

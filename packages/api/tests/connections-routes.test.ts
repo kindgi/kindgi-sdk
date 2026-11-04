@@ -2605,10 +2605,14 @@ describe("a texts connection: a number, with the provider account's key", () => 
       app: 'texts',
       token: shared,
     });
-    expect([refused.status, refused.json.error?.code, refused.json.error?.details]).toEqual([
+    expect([refused.status, refused.json.error]).toEqual([
       409,
-      'connection-key-in-use',
-      { secret: 'ACME_SHARED_KEY', usedBy: [{ kind: 'webhook-endpoint', id: 'whe-1' }] },
+      expect.objectContaining({
+        code: 'connection-key-in-use',
+        message:
+          '`ACME_SHARED_KEY` is used by webhook-endpoint "whe-1": a texts registration\'s key is used by its registration only. Give the registration a new API key from the provider, stored under a name of its own. If `ACME_SHARED_KEY` holds this account\'s key, what uses it already reaches the whole account: rotate it at the provider',
+        details: { secret: 'ACME_SHARED_KEY', usedBy: [{ kind: 'webhook-endpoint', id: 'whe-1' }] },
+      }),
     ]);
     expect(calls.createApp).toBeUndefined();
 
@@ -2647,7 +2651,7 @@ describe("a texts connection: a number, with the provider account's key", () => 
   }
   const CLIENT_ID = 'acme-client.apps.googleusercontent.com';
   const KEY_REFUSED = (appId: string) =>
-    `\`ACME_TELNYX_KEY\` is the account key of connection app registration "${appId}": a connection app never names it, since that key reaches the whole provider account. Store the key under its own name (the same value is fine) and use that name`;
+    `\`ACME_TELNYX_KEY\` is the account key of connection app registration "${appId}": a connection app never names it, since that key reaches the whole provider account. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account`;
 
   test('a second texts registration on the same key, or an OAuth registration naming it: 400 connection-key-refused, naming the first, and nothing is stored', async () => {
     const { app, calls } = makeApp({ entries: ENTRIES });
