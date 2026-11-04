@@ -100,7 +100,8 @@ Within about a lease plus a sweep:
   `Interrupted: its parent run had ended (failed), so nothing waits for it.`
   So an approval inside a cancelled flow can't run its tools.
 - **A run whose parent run was deleted is failed too:** its parent ended,
-  and retention removed it before a sweep got to this run:
+  and [retention](../../deploy/retention/) removed it before a sweep got
+  to this run:
   `Interrupted: a run it was part of was deleted, so nothing waits for it.`
 
 A new run gets at least a minute before a sweep can pick it up, whatever
