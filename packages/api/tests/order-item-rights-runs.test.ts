@@ -46,6 +46,15 @@ const SOLO = 'acme.solo';
 const IN_PROD = randomUUID();
 const IN_STAGING = randomUUID();
 const IN_OTHER = randomUUID();
+/** In prod too: one each of its runners opened. */
+const RUNNERS_IN_PROD = randomUUID();
+const EVERYONES_IN_PROD = randomUUID();
+/** Who opened each conversation in prod. */
+const OPENED_IN_PROD: Record<string, string> = {
+  [IN_PROD]: 'user:prod',
+  [RUNNERS_IN_PROD]: 'user:prod-runner',
+  [EVERYONES_IN_PROD]: 'user:prod-everyone',
+};
 
 function rows(): ItemRow[] {
   return (['agent', 'flow', 'test_set'] as const).flatMap((kind): ItemRow[] => [
@@ -70,6 +79,10 @@ const PEOPLE: Record<string, readonly Grant[]> = {
   staging: on(STAGING, 'read', 'call', 'execute'),
   /** Calls agents in prod, and doesn't read it: an app's backend. */
   'prod-caller': on(PROD, 'call'),
+  /** Runs prod, and isn't an editor there: a runner. */
+  'prod-runner': on(PROD, 'read', 'call', 'run'),
+  /** Runs prod, as prod lets everyone in the workspace, and doesn't read it. */
+  'prod-everyone': on(PROD, 'call', 'run'),
   /** Calls in both. */
   both: [...on(STAGING, 'read', 'call', 'execute'), ...on(PROD, 'read', 'call', 'execute')],
   /** Today's rights on `acme.desk` and no project's: no longer enough in its projects. */
@@ -178,8 +191,8 @@ function harness(opts: { served?: boolean; projects?: readonly ProjectId[] } = {
   const conversationBinding = {
     ...stubs.conversationBinding,
     getConversation: async (_t: TenantId, id: string) =>
-      id === IN_PROD
-        ? { kind: 'ok', value: conversation(IN_PROD, PROD, 'user:prod') }
+      OPENED_IN_PROD[id] !== undefined
+        ? { kind: 'ok', value: conversation(id, PROD, OPENED_IN_PROD[id]) }
         : id === IN_STAGING
           ? { kind: 'ok', value: conversation(IN_STAGING, STAGING) }
           : id === IN_OTHER
@@ -662,6 +675,37 @@ describe('conversations with an agent an order carries', () => {
     expect(conversations, caller.text).toEqual([`close ${IN_PROD}`]);
     const prod = await call('prod', 'POST', `/v1/conversations/${IN_PROD}/close`);
     expect(conversations, prod.text).toEqual([`close ${IN_PROD}`, `close ${IN_PROD}`]);
+  });
+
+  test("one who may run prod without write there closes only its own: another person's is the 403, or, unread, the 404 a missing one gets", async () => {
+    const { call, conversations } = harness();
+    const runner = await call('prod-runner', 'POST', `/v1/conversations/${IN_PROD}/close`);
+    expect(runner.status, runner.text).toBe(403);
+    expect(runner.body.error.message).toBe(
+      'Closing a conversation someone else opened takes write on its project',
+    );
+    expect(runner.asked).toEqual(
+      ['call', 'run', 'write', 'read'].map((a) => `prod-runner ${a} project:${PROD}`),
+    );
+    const everyone = await call('prod-everyone', 'POST', `/v1/conversations/${IN_PROD}/close`);
+    const staging = await call('staging', 'POST', `/v1/conversations/${IN_PROD}/close`);
+    expect(everyone.status, everyone.text).toBe(404);
+    expect(everyone.text).toBe(staging.text);
+    expect(everyone.asked).toEqual(
+      ['call', 'run', 'write', 'read'].map((a) => `prod-everyone ${a} project:${PROD}`),
+    );
+    expect(conversations).toEqual([]);
+    // Their own: through on prod's call, nothing more asked.
+    const own = await call('prod-runner', 'POST', `/v1/conversations/${RUNNERS_IN_PROD}/close`);
+    expect(own.asked).toEqual([`prod-runner call project:${PROD}`]);
+    await call('prod-everyone', 'POST', `/v1/conversations/${EVERYONES_IN_PROD}/close`);
+    // With write there as well, any.
+    await call('prod-ops', 'POST', `/v1/conversations/${IN_PROD}/close`);
+    expect(conversations).toEqual([
+      `close ${RUNNERS_IN_PROD}`,
+      `close ${EVERYONES_IN_PROD}`,
+      `close ${IN_PROD}`,
+    ]);
   });
 
   test('an agent with one project: execute on it, as before', async () => {
