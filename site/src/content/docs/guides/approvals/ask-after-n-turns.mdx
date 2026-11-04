@@ -18,7 +18,7 @@ wait for a reviewer before it starts.
 ## Before you start
 
 - **An agent,** in a pack on a runtime such as `kindgi dev`, with Kindgi
-  0.1's CLI. This guide uses `acme-ops.echo-agent`, from a sample pack named
+  0.1's CLI. This guide uses `acme-ops.greeter`, from a sample pack named
   `acme-ops` (`kindgi init acme-ops --template=sample`).
 - **A reviewer's role.** Under `kindgi dev`, you're an `admin` reviewer.
   [Decide an approval](../decide-an-approval/) shows how to become one
@@ -34,7 +34,7 @@ For reference, it adds a limit like this:
 <TabItem label="TypeScript">
 
 ```ts excerpt
-// in agents/echo-agent/index.ts
+// in agents/greeter/index.ts
   conversationPolicy: { historyLimit: 10, hitl: { afterTurns: 2 } },
 ```
 
@@ -42,7 +42,7 @@ For reference, it adds a limit like this:
 <TabItem label="Python">
 
 ```python excerpt
-# in agents/echo_agent.py
+# in agents/greeter.py
     conversation_policy={"historyLimit": 10, "hitl": {"afterTurns": 2}},
 ```
 
@@ -50,7 +50,7 @@ For reference, it adds a limit like this:
 <TabItem label="Java">
 
 ```java excerpt
-// in src/main/java/acmeops/agents/EchoAgent.java
+// in src/main/java/acmeops/agents/Greeter.java
       .set("conversationPolicy", Map.of("historyLimit", 10, "hitl", Map.of("afterTurns", 2)))
 ```
 
@@ -58,7 +58,7 @@ For reference, it adds a limit like this:
 <TabItem label="Scala">
 
 ```scala excerpt
-// in src/main/scala/acmeops/agents/EchoAgent.scala
+// in src/main/scala/acmeops/agents/Greeter.scala
     .set("conversationPolicy", Map("historyLimit" -> 10, "hitl" -> Map("afterTurns" -> 2)))
 ```
 
@@ -78,36 +78,36 @@ turn returns, in its `output`:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi runs start --agent=acme-ops.echo-agent --input='{"userMessage":"My order is late."}'
-pnpm exec kindgi runs start --agent=acme-ops.echo-agent --input='{"userMessage":"It was due Monday.","conversationId":"<conversation-id>"}'
-pnpm exec kindgi runs start --agent=acme-ops.echo-agent --input='{"userMessage":"Can you refund it?","conversationId":"<conversation-id>"}'
+pnpm exec kindgi runs start --agent=acme-ops.greeter --input='{"userMessage":"My order is late."}'
+pnpm exec kindgi runs start --agent=acme-ops.greeter --input='{"userMessage":"It was due Monday.","conversationId":"<conversation-id>"}'
+pnpm exec kindgi runs start --agent=acme-ops.greeter --input='{"userMessage":"Can you refund it?","conversationId":"<conversation-id>"}'
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi runs start --agent=acme-ops.echo-agent --input='{"userMessage":"My order is late."}'
-uv run kindgi runs start --agent=acme-ops.echo-agent --input='{"userMessage":"It was due Monday.","conversationId":"<conversation-id>"}'
-uv run kindgi runs start --agent=acme-ops.echo-agent --input='{"userMessage":"Can you refund it?","conversationId":"<conversation-id>"}'
+uv run kindgi runs start --agent=acme-ops.greeter --input='{"userMessage":"My order is late."}'
+uv run kindgi runs start --agent=acme-ops.greeter --input='{"userMessage":"It was due Monday.","conversationId":"<conversation-id>"}'
+uv run kindgi runs start --agent=acme-ops.greeter --input='{"userMessage":"Can you refund it?","conversationId":"<conversation-id>"}'
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw runs start --agent=acme-ops.echo-agent --input='{"userMessage":"My order is late."}'
-./kindgiw runs start --agent=acme-ops.echo-agent --input='{"userMessage":"It was due Monday.","conversationId":"<conversation-id>"}'
-./kindgiw runs start --agent=acme-ops.echo-agent --input='{"userMessage":"Can you refund it?","conversationId":"<conversation-id>"}'
+./kindgiw runs start --agent=acme-ops.greeter --input='{"userMessage":"My order is late."}'
+./kindgiw runs start --agent=acme-ops.greeter --input='{"userMessage":"It was due Monday.","conversationId":"<conversation-id>"}'
+./kindgiw runs start --agent=acme-ops.greeter --input='{"userMessage":"Can you refund it?","conversationId":"<conversation-id>"}'
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw runs start --agent=acme-ops.echo-agent --input='{"userMessage":"My order is late."}'
-./kindgiw runs start --agent=acme-ops.echo-agent --input='{"userMessage":"It was due Monday.","conversationId":"<conversation-id>"}'
-./kindgiw runs start --agent=acme-ops.echo-agent --input='{"userMessage":"Can you refund it?","conversationId":"<conversation-id>"}'
+./kindgiw runs start --agent=acme-ops.greeter --input='{"userMessage":"My order is late."}'
+./kindgiw runs start --agent=acme-ops.greeter --input='{"userMessage":"It was due Monday.","conversationId":"<conversation-id>"}'
+./kindgiw runs start --agent=acme-ops.greeter --input='{"userMessage":"Can you refund it?","conversationId":"<conversation-id>"}'
 ```
 
 </TabItem>
@@ -166,7 +166,7 @@ uv run kindgi approvals list --status=pending
       …
       "subjectKind": "agent-turn:session-hitl-gate",
       "subjectRef": {
-        "agentId": "acme-ops.echo-agent",
+        "agentId": "acme-ops.greeter",
         "threshold": 2,
         "turnCount": 2,
         "agentVersion": "0.1.0",
@@ -174,7 +174,7 @@ uv run kindgi approvals list --status=pending
       },
       "requiredRole": "standard",
       "status": "pending",
-      "title": "HITL review required for Echo Agent",
+      "title": "HITL review required for Greeter",
       "description": "Conversation reached HITL threshold: 2 turns >= 2",
       "provenanceRef": {
         "runId": "0c424165-fc78-4563-965f-5ca9ba0ec4a9"

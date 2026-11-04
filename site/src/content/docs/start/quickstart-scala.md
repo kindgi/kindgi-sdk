@@ -64,8 +64,8 @@ my-pack/
 ├── src/main/scala/mypack/
 │   ├── tools/Echo.scala, tools/Greet.scala    # Tool[Input, Output](...)
 │   ├── guardrails/ResponseNotEmpty.scala      # Guardrail[Config](...)
-│   ├── agents/EchoAgent.scala                 # Agent(...)
-│   └── flows/EchoFlow.scala                   # Flow(...)
+│   ├── agents/Greeter.scala                   # Agent(...)
+│   └── flows/GreetPerson.scala                # Flow(...)
 └── src/test/scala/mypack/ToolsSuite.scala
 ```
 
@@ -117,11 +117,11 @@ When the pack is loaded and the runtime is up, it says so:
 In a second terminal, in `my-pack`:
 
 ```sh tutorial=run
-./kindgiw runs start --agent=my-pack.echo-agent --input='{"userMessage":"Ada"}'
-./kindgiw runs start --flow=my-pack.echo-flow --input='{"message":"Ada"}'
+./kindgiw runs start --agent=my-pack.greeter --input='{"userMessage":"Ada"}'
+./kindgiw runs start --flow=my-pack.greet-person --input='{"message":"Ada"}'
 ```
 
-- `--agent=my-pack.echo-agent` and `--flow=my-pack.echo-flow` name what to
+- `--agent=my-pack.greeter` and `--flow=my-pack.greet-person` name what to
   run, by its id.
 - `--input` is the run's input, as JSON. An agent takes the person's message
   as `userMessage`.
@@ -182,10 +182,10 @@ futures uses `handlerAsync`, which takes a `Future`.
 An agent is data, and it refers to the tools and the guardrail themselves:
 
 ```scala excerpt
-// in src/main/scala/mypack/agents/EchoAgent.scala
-val agent: Agent = Agent("my-pack.echo-agent")
+// in src/main/scala/mypack/agents/Greeter.scala
+val agent: Agent = Agent("my-pack.greeter")
   .version("0.1.0")
-  .name("Echo Agent")
+  .name("Greeter")
   .instructions(
     "For each user message: if the user sends a name, greet them with the greet tool. " +
       "Otherwise echo their message with the echo tool. Quote the tool result verbatim.")

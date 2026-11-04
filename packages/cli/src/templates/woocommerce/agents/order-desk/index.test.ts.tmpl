@@ -1,4 +1,4 @@
-// {{PACK_ID}}.store-agent — what it's told about the tools that wait for a
+// {{PACK_ID}}.order-desk — what it's told about the tools that wait for a
 // person. The model never sees the approval: a call that waited comes back
 // with its result once a person decided. So the instructions say what a
 // result means, for exactly the tools the approval policy holds back. They
@@ -48,7 +48,7 @@ function names(text: string, id: string): boolean {
   return new RegExp(`(?<![\\w.-])${escaped}(?![\\w-])`).test(text);
 }
 
-describe('{{PACK_ID}}.store-agent', () => {
+describe('{{PACK_ID}}.order-desk', () => {
   test('its instructions name every tool that waits for a person, and say which results mean it was done', () => {
     const instructions = instructionsText();
     const policy = storeAgent.conversationPolicy?.hitl?.tools;

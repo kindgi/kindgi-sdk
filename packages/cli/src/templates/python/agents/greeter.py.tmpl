@@ -1,4 +1,4 @@
-"""{{PACK_ID}}.echo-agent — uses both tools; the response-not-empty guardrail guards its answer."""
+"""{{PACK_ID}}.greeter — uses both tools; the response-not-empty guardrail guards its answer."""
 
 from kindgi import Agent
 
@@ -6,10 +6,10 @@ from ..guardrails.response_not_empty import response_not_empty
 from ..tools.echo import echo
 from ..tools.greet import greet
 
-echo_agent = Agent(
-    id="{{PACK_ID}}.echo-agent",
+greeter = Agent(
+    id="{{PACK_ID}}.greeter",
     version="{{PACK_VERSION}}",
-    name="Echo Agent",
+    name="Greeter",
     description="Uses the pack's echo and greet tools; the response-not-empty guardrail guards the output.",
     instructions=(
         "For each user message: if the user sends a name, greet them with the greet tool. "

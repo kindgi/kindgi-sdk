@@ -535,12 +535,12 @@ Check the runtime answers, lists your pack's tools, and runs a flow:
 ```sh
 curl "$URL/health"                                  # {"ok":true}
 npx --yes @kindgi/cli@0.4 tools list --url "$URL"   # your pack's tools
-npx --yes @kindgi/cli@0.4 runs start --flow=acme.greet-flow --input='{"name":"Azure"}' --url "$URL"
+npx --yes @kindgi/cli@0.4 runs start --flow=acme.greet-person --input='{"name":"Azure"}' --url "$URL"
 ```
 
 `--flow` names the flow to run, and `--input` is its input, as JSON.
 
-In the verification run, that flow (one tool step) completed in 399 ms, start
+In the verification run, a flow with one tool step completed in 399 ms, start
 to finish, with the output `{"greeting":"Hello, Azure!"}`.
 
 ## 7. Turn on sign-in

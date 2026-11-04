@@ -1,4 +1,4 @@
-// {{PACK_ID}}.content-reviewer — what its instructions may name. The event
+// {{PACK_ID}}.article-reviewer — what its instructions may name. The event
 // is outside input, and an editor writes its title, so the instructions
 // interpolate only fields the check types and works out itself; the title
 // reaches the reviewer in its message, as data. Liquid itself lists every
@@ -13,7 +13,7 @@ import reviewer from './index.js';
 /** The checked event's fields that no editor writes (`check-content-event`). */
 const TYPED = ['change', 'nodeId', 'revisionId', 'moderationState', 'flags', 'houseStyle'];
 
-describe('{{PACK_ID}}.content-reviewer', () => {
+describe('{{PACK_ID}}.article-reviewer', () => {
   test("its instructions interpolate the event's typed fields only", () => {
     const instructions = reviewer.instructions;
     if (typeof instructions !== 'string') throw new Error('expected inline instructions');

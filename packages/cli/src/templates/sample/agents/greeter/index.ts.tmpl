@@ -1,4 +1,4 @@
-// {{PACK_ID}}.echo-agent — pulls in the echo and greet tools + the response-not-empty
+// {{PACK_ID}}.greeter — pulls in the echo and greet tools + the response-not-empty
 // guardrail. The agent shape is pure metadata; every field is either a
 // primitive or a reference to a registered substrate object.
 
@@ -6,9 +6,9 @@ import { defineAgent } from '@kindgi/sdk/define';
 import type { AgentId, GuardrailId, Semver } from '@kindgi/sdk/types';
 
 const defined = defineAgent({
-  id: '{{PACK_ID}}.echo-agent' as AgentId,
+  id: '{{PACK_ID}}.greeter' as AgentId,
   version: '{{PACK_VERSION}}' as Semver,
-  name: 'Echo Agent',
+  name: 'Greeter',
   description:
     'Uses the pack\'s echo + greet tools; the response-not-empty guardrail guards the output.',
   instructions:
@@ -27,7 +27,7 @@ const defined = defineAgent({
 
 if (defined.kind === 'err') {
   throw new Error(
-    `{{PACK_ID}}.echo-agent failed to compile: ${defined.error.message}`,
+    `{{PACK_ID}}.greeter failed to compile: ${defined.error.message}`,
   );
 }
 

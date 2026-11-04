@@ -40,7 +40,7 @@ it's in: its `projectId`, with the runtime 0.1.6 or later. A pack
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set, or a running
   `kindgi dev`, which the client finds.
 - **An agent,** to run in the customer's project. This guide uses
-  `acme-ops.echo-agent`.
+  `acme-ops.greeter`.
 
 ## Give a customer an org and a project
 
@@ -64,7 +64,7 @@ const project = await kindgi.projects.create({ orgId: org.id, slug: 'support', n
 
 // The customer's work runs in its project.
 const run = await kindgi.runs.start({
-  agent: 'acme-ops.echo-agent',
+  agent: 'acme-ops.greeter',
   input: { userMessage: 'Echo hello.' },
   projectId: project.id,
 });
@@ -89,7 +89,7 @@ project = kindgi.projects.create(org_id=str(org.id), slug="support", name="Suppo
 
 # The customer's work runs in its project.
 run = kindgi.runs.start(
-    agent="acme-ops.echo-agent",
+    agent="acme-ops.greeter",
     input={"userMessage": "Echo hello."},
     project_id=project.id,
 )
@@ -130,7 +130,7 @@ public final class CustomerOrg {
 
     // The customer's work runs in its project.
     Run run = kindgi.runs().start(StartRunBody.WithAgent.builder()
-        .agent("acme-ops.echo-agent")
+        .agent("acme-ops.greeter")
         .input(Map.of("userMessage", "Echo hello."))
         .projectId(UUID.fromString(project.id()))
         .build());
@@ -170,7 +170,7 @@ object CustomerOrg {
 
     // The customer's work runs in its project.
     val run = kindgi.runs().start(StartRunBody.WithAgent.builder()
-      .agent("acme-ops.echo-agent")
+      .agent("acme-ops.greeter")
       .input(Map("userMessage" -> "Echo hello.").asJava)
       .projectId(UUID.fromString(project.id))
       .build())
