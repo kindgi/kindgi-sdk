@@ -131,6 +131,14 @@ describe('offLine', () => {
       ['@kindgi/cli@0', 'kindgi-cli>=0.4'],
     );
   });
+
+  test('finds a phrase wrapped over two lines, and names it on one', () => {
+    const wrapped = "From Kindgi\n0.2's CLI, and Kindgi 0.2's\nclient.";
+    assert.deepEqual(offLine(wrapped, ON_04), [
+      { line: 1, found: "Kindgi 0.2's CLI", want: "Kindgi 0.4's CLI" },
+      { line: 2, found: "Kindgi 0.2's client", want: "Kindgi 0.5's client" },
+    ]);
+  });
 });
 
 describe('moveToLine', () => {
@@ -155,6 +163,13 @@ describe('moveToLine', () => {
       text: 'From Kindgi 0.4’s CLI.',
       moved: 1,
     });
+  });
+
+  test('moves a wrapped phrase, keeping its break and indent', () => {
+    const wrapped = "- From Kindgi\n  0.2's CLI, and the Kindgi 0.2\n  CLI.";
+    const moved = "- From Kindgi\n  0.4's CLI, and the Kindgi 0.4\n  CLI.";
+    assert.deepEqual(moveToLine(wrapped, ON_04), { text: moved, moved: 2 });
+    assert.deepEqual(moveToLine(moved, ON_04), { text: moved, moved: 0 });
   });
 
   test('leaves a placeholder, printed output and a bare package alone', () => {
