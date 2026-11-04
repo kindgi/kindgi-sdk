@@ -8,6 +8,10 @@ sidebar:
 This guide backs up a self-hosted runtime's database and restores it into a
 fresh one, with every erasure still in force.
 
+An export (`kindgi exports create`) isn't a backup: it's the workspace's own
+copy of its records, and no runtime loads one. To bring a runtime back,
+restore its database, as below.
+
 ## Before you start
 
 - **A runtime running as [Self-host Kindgi](../self-host/) sets it up:** the
