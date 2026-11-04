@@ -135,8 +135,8 @@ shows the key but doesn't renew it. A deployment is renewing the key when its
 last `kindgi license renew`, in the last 7 days, got a key back or was held
 for review (`held-for-review`), or when it was added in the last 7 days and
 hasn't run one yet. Once the key has expired, signing in renews it. To renew
-by signing in again, select **Stop renewing** next to the deployment there.
-Each person can stop only the deployments they added.
+by signing in again, select **Stop renewing** next to each deployment renewing
+it there. Each person can stop only the deployments they added.
 
 ## 3. Renew
 
