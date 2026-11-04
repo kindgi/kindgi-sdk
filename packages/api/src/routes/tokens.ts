@@ -36,7 +36,7 @@ import { parseTimeInput } from './time-input.js';
  *   list, read and revoke the keys that act for them. A caller with
  *   limits (a key or a session limited to a project, or with the
  *   `member` role) lists, reads and revokes only those within its limits:
- *   the keys it could have minted.
+ *   the keys no wider than itself, every key it can mint among them.
  * - **Someone else's:** only a tenant admin (`admin` on the tenant when
  *   authorization is on, otherwise the `tenant-admin` scope) mints keys
  *   for another principal, and sees and revokes every key. A tenant admin

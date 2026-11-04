@@ -26,10 +26,11 @@ import type {
 /**
  * A caller with limits (a key or a session limited to a project, or with
  * the `member` role) lists, reads and revokes only its owner's keys within
- * those limits: the keys it could have minted, itself among them. One of
- * the owner's keys beyond them is refused, 403, naming only the caller's
- * limit; someone else's still reads as missing. The same with and without
- * an authorization store, and for a caller without limits nothing changes.
+ * those limits: the keys no wider than itself, every key it can mint among
+ * them. One of the owner's keys beyond them is refused, 403, naming only
+ * the caller's limit; someone else's still reads as missing. The same with
+ * and without an authorization store, and for a caller without limits
+ * nothing changes.
  */
 
 const tenantId = randomUUID() as TenantId;
@@ -337,6 +338,13 @@ describe.each([
         const r = await h.call(token, 'POST', `/v1/tokens/${key.tokenId}/revoke`);
         expect(r.status).toBe(403);
         expect(r.body.error?.code).toBe(code);
+        // Refused as an admin action, where a read is refused as `read`.
+        expect(r.body.error?.details).toEqual({
+          action: 'admin',
+          resource: `tenant:${tenantId}`,
+          reason: r.body.error?.message,
+          ...(code === 'key-project-mismatch' && { keyProjectId: P1 }),
+        });
         expect(h.keys.get(key.tokenId)?.revokedAt).toBeUndefined();
       }
       const other = await h.call(token, 'POST', `/v1/tokens/${h.bobs.tokenId}/revoke`);
