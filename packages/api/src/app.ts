@@ -1634,10 +1634,19 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   }
 
+  const tenantHierarchyBinding: TenantHierarchyBinding = input.tenantHierarchyBinding;
+  // Each tenant's own limits, when the runtime sets them: its API requests
+  // a minute count on `/v1`, `/s3` and `/mcp`.
+  const tenantLimiter =
+    input.tenantLimits !== undefined
+      ? createTenantLimiter(tenantHierarchyBinding, input.tenantLimits)
+      : undefined;
+
   // Kindgi as an MCP server: its own token check (a 401 that says where to
   // sign in), then each tool a `/v1` request in this process as the person.
+  // Each JSON-RPC message counts once, and its tools' `/v1` calls on that.
   if (input.mcpServer !== undefined) {
-    mountMcpServer(app, input.mcpServer, MCP_TOOL_SETS);
+    mountMcpServer(app, input.mcpServer, MCP_TOOL_SETS, tenantLimiter);
   }
 
   // ---------- authenticated `/v1/*` routes ----------
@@ -1729,12 +1738,6 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // Page cursors are sealed at the edge, for every list.
   if (input.cursorSealer !== undefined) v1.use('*', sealedCursors(input.cursorSealer));
 
-  const tenantHierarchyBinding: TenantHierarchyBinding = input.tenantHierarchyBinding;
-  // Each tenant's own limits, when the runtime sets them.
-  const tenantLimiter =
-    input.tenantLimits !== undefined
-      ? createTenantLimiter(tenantHierarchyBinding, input.tenantLimits)
-      : undefined;
   if (tenantLimiter !== undefined) v1.use('*', tenantApiRequestLimit(tenantLimiter));
   v1.use('*', idempotencyMiddleware(input.idempotencyStore ?? createInMemoryIdempotencyStore()));
   // A `projectId` in a write's body that the route can't use is refused
