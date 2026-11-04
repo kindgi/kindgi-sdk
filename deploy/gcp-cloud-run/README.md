@@ -382,7 +382,7 @@ license_renewal_schedule = "17 6 * * *" # daily at 06:17 UTC
 
 **The server, and the counts (`license_usage_key_secret`):** with a system key holding `system:license` alone, the job renews with `--runtime` (the server's run.app URL) and `--runtime-token` (the key's secret), as `license_renew_command` then does too.
 - For a non-production key, the renewal carries counts of the deployment's use (the docs' Renew the license key page says what they are, under "What renewing sends").
-- From runtime 0.7.0, a renewed key goes to the running server as well, which uses it at once, on every instance, with no restart. If the server refuses it, the run writes nothing and fails, and the failed-run alert fires.
+- From runtime 0.7.0, a renewed key goes to the running server as well, and every instance uses it within about a minute, with no restart. If the server refuses it, the run writes nothing and fails, and the failed-run alert fires.
 - It needs a server that takes calls without Cloud Run IAM (`server_public`, or `server_invoker_iam_disabled`): the job sends the system key as a Kindgi bearer only, and Cloud Run refuses a call without a Google ID token before the server sees it. The plan refuses `license_usage_key_secret` otherwise.
 
 Mint the key with the deployment's own token, and keep it in a secret of its own, made before the apply that names it. Terraform never holds the key, and the server gets no access to it:

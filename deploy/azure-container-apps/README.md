@@ -297,7 +297,7 @@ $(terraform output -raw license_enroll_command)   # fill in --for first
   - **Two alerts come with it:** a failed run, and a key inside its warning window (the run's own line, `⚠ It expires in N days`). That alert follows the key's own warning, so it fires from 30 days before the key expires, or fewer if the key sets them. With `license_usage_key_secret` (below), a third: a run that sent no counts (its line `counts: not sent (<why>)`). A production key's renewals never carry counts, so they never raise it. They go to the action groups in `alert_action_groups`; with none, they fire in Azure Monitor only.
 - **The server, and counts of the deployment's use:** mint a system key holding `system:license` alone with the deployment's own token, put it in the vault, then set `license_usage_key_secret` to its secret's name and apply. The job then reads that secret too, and renews with `--runtime` (the server) and `--runtime-token` (that secret), as `license_renew_command` does. Terraform never holds the key, and the server gets no access to it.
   - For a non-production key, the renewal carries counts of the deployment's use (the docs' Renew the license key page says what they are, under "What renewing sends").
-  - From runtime 0.7.0, a renewed key goes to the running server as well, which uses it at once, on every replica, with no restart. If the server refuses it, the run writes nothing and fails, and the failed-run alert fires.
+  - From runtime 0.7.0, a renewed key goes to the running server as well, and every instance uses it within about a minute, with no restart. If the server refuses it, the run writes nothing and fails, and the failed-run alert fires.
 
   ```sh
   # Off in this shell: az's log file, if it's on, records each request's body.
