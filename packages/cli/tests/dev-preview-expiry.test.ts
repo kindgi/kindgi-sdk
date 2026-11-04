@@ -72,13 +72,16 @@ test("a status it can't read says nothing, and never stops kindgi dev", async ()
           throw new Error('route-not-found');
         },
         usage: notUsed,
+        replace: notUsed,
       },
     }),
   ).toBeUndefined();
   const status = preview(20, 'expiring');
-  expect(await readLicenseStatus({ license: { get: async () => status, usage: notUsed } })).toBe(
-    status,
-  );
+  expect(
+    await readLicenseStatus({
+      license: { get: async () => status, usage: notUsed, replace: notUsed },
+    }),
+  ).toBe(status);
 });
 
 describe('a runtime that refused to start because its preview build is past its end', () => {

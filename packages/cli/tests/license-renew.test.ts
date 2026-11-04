@@ -23,7 +23,7 @@ import {
   generateRenewerKey,
   renewSigningInput,
 } from '../src/license/protocol.js';
-import { renewLicense } from '../src/license/renew.js';
+import { type PushAnswer, atLeast, renewLicense } from '../src/license/renew.js';
 import { SecretRefError, secretStoreFor } from '../src/license/stores.js';
 
 const ORIGIN = 'https://access.kindgi.com';
@@ -301,6 +301,210 @@ describe('a renewal', () => {
       deps(s.fetchImpl),
     );
     expect(out).toMatchObject({ kind: 'refused', status: 401 });
+  });
+});
+
+describe('which key is newer', () => {
+  test('the same expiry and an earlier iat: a rolled-back key, never written', async () => {
+    const current = licenseKey({ iat: NOW / 1000 - 2 * DAY });
+    const d = deployment(current);
+    const older = licenseKey({ iat: NOW / 1000 - 3 * DAY });
+    const s = service(d.renewer, () => ({ status: 200, body: { licenseKey: older } }));
+    const out = await renewLicense(d.input, deps(s.fetchImpl));
+    expect(out.kind === 'failed' && out.message).toContain(
+      'it expires with the current one and was issued before it',
+    );
+    expect(readFileSync(d.env, 'utf8')).toContain(`KINDGI_LICENSE_KEY=${current}\n`);
+  });
+
+  test('the same expiry and a later iat: newer, written', async () => {
+    const d = deployment(licenseKey());
+    const next = licenseKey({ iat: NOW / 1000 });
+    const s = service(d.renewer, () => ({ status: 200, body: { licenseKey: next } }));
+    expect(await renewLicense(d.input, deps(s.fetchImpl))).toMatchObject({ kind: 'renewed' });
+    expect(readFileSync(d.env, 'utf8')).toContain(`KINDGI_LICENSE_KEY=${next}\n`);
+  });
+
+  test('signed for longer than its kid allows: too-long, never written', async () => {
+    const current = licenseKey();
+    const d = deployment(current);
+    const next = licenseKey({ iat: NOW / 1000, exp: NOW / 1000 + 46 * DAY });
+    const s = service(d.renewer, () => ({ status: 200, body: { licenseKey: next } }));
+    const out = await renewLicense(d.input, {
+      ...deps(s.fetchImpl),
+      maxDays: { 'test-lk': 45 },
+    });
+    expect(out.kind === 'failed' && out.message).toContain(
+      'it was signed for longer than its signing key allows (too-long)',
+    );
+    expect(readFileSync(d.env, 'utf8')).toContain(`KINDGI_LICENSE_KEY=${current}\n`);
+  });
+
+  test('a current key past its cap: renewed like any other, by a key within it', async () => {
+    // 45 days, under a cap of 44.
+    const d = deployment(licenseKey());
+    const next = licenseKey({ iat: NOW / 1000, exp: NOW / 1000 + 44 * DAY });
+    const s = service(d.renewer, () => ({ status: 200, body: { licenseKey: next } }));
+    const out = await renewLicense(d.input, { ...deps(s.fetchImpl), maxDays: { 'test-lk': 44 } });
+    expect(out).toMatchObject({ kind: 'renewed' });
+    expect(readFileSync(d.env, 'utf8')).toContain(`KINDGI_LICENSE_KEY=${next}\n`);
+  });
+});
+
+describe('a new key handed to the running server first (--runtime)', () => {
+  /** A second `kid`, for a renewal that changes it: signed by the same key here. */
+  const PLAN_KID = 'test-lk-plan';
+  const twoKids = { ...publicKeys, [PLAN_KID]: publicKeys['test-lk'] };
+
+  /**
+   * A renewal that answers a new key (signed with `nextKid`), with a server
+   * that answers `answer`, recording what it saw.
+   */
+  async function pushed(
+    answer: PushAnswer,
+    minimumRuntime: Readonly<Record<string, string>> = {},
+    nextKid = 'test-lk',
+  ) {
+    const current = licenseKey();
+    const d = deployment(current);
+    const next = licenseKey({ kid: nextKid, iat: NOW / 1000, exp: NOW / 1000 + 45 * DAY });
+    const s = service(d.renewer, () => ({ status: 200, body: { licenseKey: next } }));
+    const handed: { key: string; file: string }[] = [];
+    const out = await renewLicense(
+      {
+        ...d.input,
+        push: async (key) => {
+          handed.push({ key, file: readFileSync(d.env, 'utf8') });
+          return answer;
+        },
+      },
+      { ...deps(s.fetchImpl), publicKeys: twoKids, minimumRuntime },
+    );
+    return { out, current, next, handed, file: () => readFileSync(d.env, 'utf8') };
+  }
+
+  test('taken: written after the server took it, and it runs it now', async () => {
+    const { out, current, next, handed, file } = await pushed({ kind: 'taken' });
+    expect(out).toMatchObject({ kind: 'renewed', runtime: { kind: 'taken' } });
+    expect(handed).toHaveLength(1);
+    expect(handed[0]?.key).toBe(next);
+    // Handed over before anything was written.
+    expect(handed[0]?.file).toContain(`KINDGI_LICENSE_KEY=${current}\n`);
+    expect(file()).toContain(`KINDGI_LICENSE_KEY=${next}\n`);
+  });
+
+  test('refused by the server: never written, whatever the key, saying why', async () => {
+    for (const minimumRuntime of [{}, { [PLAN_KID]: '0.7.0' }]) {
+      const { out, current, file } = await pushed(
+        { kind: 'refused', error: 'license-key-refused', message: 'The key is older.' },
+        minimumRuntime,
+        PLAN_KID,
+      );
+      expect(out.kind).toBe('failed');
+      expect(out.kind === 'failed' && out.message).toContain(
+        "The runtime refused the new key (license-key-refused): The key is older. It wasn't written.",
+      );
+      expect(file()).toContain(`KINDGI_LICENSE_KEY=${current}\n`);
+    }
+  });
+
+  test("a server that can't take one, or wasn't handed it: written for its next start, unless the key needs a later runtime", async () => {
+    for (const answer of [
+      { kind: 'absent', said: 'https://kindgi.acme.example has no PUT' },
+      { kind: 'not-handed', said: "https://kindgi.acme.example couldn't be asked" },
+    ] as const) {
+      for (const [label, minimumRuntime] of [
+        ['no minimum', {}],
+        // A runtime that can't take a key can't say its release: a minimum
+        // before 0.7.0 is written as it always was.
+        ['a minimum before 0.7.0, rising', { [PLAN_KID]: '0.1.8' }],
+        // The runtime that started with the current key starts with this one:
+        // a server down for want of a new key gets it.
+        ['0.7.0, as the current key needs', { 'test-lk': '0.7.0', [PLAN_KID]: '0.7.0' }],
+        ['0.7.0, lower than the current key needs', { 'test-lk': '0.8.0', [PLAN_KID]: '0.7.0' }],
+      ] as const) {
+        const { out, next, file } = await pushed(answer, minimumRuntime, PLAN_KID);
+        expect(out, `${answer.kind}, ${label}`).toMatchObject({
+          kind: 'renewed',
+          runtime: { kind: 'next-start', said: answer.said },
+        });
+        expect(file(), `${answer.kind}, ${label}`).toContain(`KINDGI_LICENSE_KEY=${next}\n`);
+      }
+    }
+  });
+
+  test("a key that needs a runtime which takes keys: never written beside one that can't", async () => {
+    const absent = await pushed(
+      { kind: 'absent', said: 'https://kindgi.acme.example has no PUT' },
+      { [PLAN_KID]: '0.7.0' },
+      PLAN_KID,
+    );
+    expect(absent.out.kind === 'failed' && absent.out.message).toContain(
+      "The new key needs runtime 0.7.0 or later, and the runtime didn't take it (https://kindgi.acme.example has no PUT), so it wasn't written.",
+    );
+    expect(absent.out.kind === 'failed' && absent.out.message).toContain(
+      'Upgrade the runtime first, then run renew again.',
+    );
+    expect(absent.file()).toContain(`KINDGI_LICENSE_KEY=${absent.current}\n`);
+    // Rising from a minimum of its own.
+    const notHanded = await pushed(
+      { kind: 'not-handed', said: "https://kindgi.acme.example couldn't be asked" },
+      { 'test-lk': '0.7.0', [PLAN_KID]: '0.8.1' },
+      PLAN_KID,
+    );
+    expect(notHanded.out.kind === 'failed' && notHanded.out.message).toContain(
+      'Run renew again once the runtime takes it.',
+    );
+    expect(notHanded.file()).toContain(`KINDGI_LICENSE_KEY=${notHanded.current}\n`);
+  });
+
+  test("without a server to hand it to: written, saying the runtime a key needs when an older one can't check it", async () => {
+    for (const [minimumRuntime, needs] of [
+      [{}, undefined],
+      [{ [PLAN_KID]: '0.1.8' }, undefined],
+      [{ [PLAN_KID]: '0.7.0' }, '0.7.0'],
+      [{ 'test-lk': '0.7.0', [PLAN_KID]: '0.7.0' }, undefined],
+    ] as const) {
+      const d = deployment(licenseKey());
+      const next = licenseKey({ kid: PLAN_KID, iat: NOW / 1000, exp: NOW / 1000 + 45 * DAY });
+      const s = service(d.renewer, () => ({ status: 200, body: { licenseKey: next } }));
+      const out = await renewLicense(d.input, {
+        ...deps(s.fetchImpl),
+        publicKeys: twoKids,
+        minimumRuntime,
+      });
+      expect(out.kind).toBe('renewed');
+      expect(out.kind === 'renewed' && out.needsRuntime).toBe(needs);
+      expect(readFileSync(d.env, 'utf8')).toContain(`KINDGI_LICENSE_KEY=${next}\n`);
+    }
+  });
+
+  test('the same key: nothing handed over, nothing written', async () => {
+    const key = licenseKey();
+    const d = deployment(key);
+    const s = service(d.renewer, () => ({ status: 200, body: { licenseKey: key } }));
+    let handed = 0;
+    const out = await renewLicense(
+      {
+        ...d.input,
+        push: async () => {
+          handed++;
+          return { kind: 'taken' };
+        },
+      },
+      deps(s.fetchImpl),
+    );
+    expect(out.kind).toBe('unchanged');
+    expect(handed).toBe(0);
+  });
+
+  test('which release is later: by major, minor, then patch', () => {
+    expect(atLeast('0.7.0', '0.7.0')).toBe(true);
+    expect(atLeast('0.10.0', '0.7.0')).toBe(true);
+    expect(atLeast('1.0.0', '0.7.0')).toBe(true);
+    expect(atLeast('0.7.1', '0.7.0')).toBe(true);
+    expect(atLeast('0.6.9', '0.7.0')).toBe(false);
+    expect(atLeast('0.1.8', '0.7.0')).toBe(false);
   });
 });
 

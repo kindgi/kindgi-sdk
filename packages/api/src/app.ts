@@ -638,6 +638,8 @@ export interface CreateAppInput {
    * tenant's admins read the countdown the console warns with, from 30
    * days before the key expires; anyone else is refused. Without it the
    * route isn't mounted (404), as on a deployment that doesn't report it.
+   * With its `replace`, `PUT /v1/license` hands the running server a
+   * renewed key, for the deployment's own token or a `system:license` key.
    */
   readonly license?: LicenseStatusBinding;
   /**

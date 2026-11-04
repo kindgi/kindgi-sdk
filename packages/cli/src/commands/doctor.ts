@@ -178,6 +178,10 @@ export interface DoctorSeam {
   readonly now?: () => number;
   /** The license signing keys trusted (tests). Default: those a released runtime trusts. */
   readonly licensePublicKeys?: Readonly<Record<string, string>>;
+  /** The longest each license `kid` may run, in whole days (tests). Default: `LICENSE_KEY_MAX_DAYS`. */
+  readonly licenseMaxDays?: Readonly<Record<string, number>>;
+  /** The `kid`s whose keys renew by command (tests). Default: `PLAN_LICENSE_KEY_IDS`. */
+  readonly planLicenseKeyIds?: readonly string[];
   /** Whether `kindgi dev` can sandbox the pack service here. Default: tried, as `kindgi dev` does. */
   readonly sandbox?: () => Promise<SandboxAvailability>;
 }
@@ -421,11 +425,18 @@ async function licenseKeyCheck(
       ? `--key ${await ref('KINDGI_LICENSE_KEY_REF', '<where KINDGI_LICENSE_KEY is kept>')}`
       : `--env-file ${shellWord(relative(cwd, envFile) || 'kindgi.env')}`;
   const renew = `kindgi license renew ${keyArg} --renewer ${renewer}`;
-  const checked =
-    seam.licensePublicKeys !== undefined
-      ? checkLicenseKey(key, seam.licensePublicKeys)
-      : checkLicenseKey(key);
+  const checked = checkLicenseKey(key, seam.licensePublicKeys, seam.licenseMaxDays);
   if (checked.kind === 'err') {
+    // Renewing replaces it: renewal reads the current key without the cap.
+    const uncapped =
+      checked.reason === 'too-long' ? checkLicenseKey(key, seam.licensePublicKeys, {}) : undefined;
+    if (uncapped?.kind === 'ok') {
+      return fail(
+        'license',
+        `The key in ${where} was signed for longer than its signing key allows: the runtime won't start with it.`,
+        renewAdvice(uncapped.claims, renew, seam.planLicenseKeyIds),
+      );
+    }
     return checked.reason === 'unknown-key'
       ? warn(
           'license',
@@ -442,7 +453,7 @@ async function licenseKeyCheck(
   const what = `${claims.name}'s ${claims.use} key`;
   const standing = standingOf(claims, (seam.now ?? Date.now)());
   const day = (d: Date) => d.toISOString().slice(0, 10);
-  const advice = renewAdvice(claims, renew);
+  const advice = renewAdvice(claims, renew, seam.planLicenseKeyIds);
   switch (standing.kind) {
     case 'valid':
       return pass(

@@ -515,6 +515,7 @@
           "identity-providers-operator-managed": 403,
           "identity-providers-need-secrets-store": 409,
           "license-operator-only": 403,
+          "license-key-refused": 409,
           "invalid-provider-config": 400,
           "auth-not-session-token": 400,
           "second-factor-required": 403,
@@ -5868,6 +5869,64 @@
           },
           "preview": {
             "$ref": "#/components/schemas/LicensePreview"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/LicenseLimits"
+          }
+        }
+      },
+      "LicenseLimits": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "What the key limits, and how much of it is in use: set only when the key carries limits (a production key's). A count it doesn't name isn't limited. Only the deployment's own token, or a system key holding `system:license`, reads it.",
+        "properties": {
+          "flows": {
+            "$ref": "#/components/schemas/LicenseLimit"
+          },
+          "agents": {
+            "$ref": "#/components/schemas/LicenseLimit"
+          }
+        }
+      },
+      "LicenseLimit": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "plan",
+          "most",
+          "inUse"
+        ],
+        "description": "One count the key limits.",
+        "properties": {
+          "plan": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The number the key carries."
+          },
+          "most": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The most this runtime runs: past it, it refuses new ones."
+          },
+          "inUse": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "How many it counts now."
+          }
+        }
+      },
+      "LicenseKeyBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "description": "The whole license key, `kgi_lk_…`."
           }
         }
       },
@@ -32456,7 +32515,7 @@
             }
           }
         },
-        "description": "A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. On a runtime serving one tenant, only the deployment's own token reaches the system keys, and a key holds `system:license` alone: it reads `GET /v1/license` and `GET /v1/license/usage`, for the license renewal, and every other route refuses it.",
+        "description": "A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. On a runtime serving one tenant, only the deployment's own token reaches the system keys, and a key holds `system:license` alone: it reads `GET /v1/license` and `GET /v1/license/usage`, and hands the running server a renewed key (`PUT /v1/license`), for the license renewal, and every other route refuses it.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -48107,6 +48166,91 @@
           }
         },
         "description": "Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`), or a system key holding `system:license` (the renewal job's), reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused: `GET /v1/identity/me/permissions` says so before asking (`licenseOperatorOnly`, with `tenant.admin`). A deployment that doesn't report it answers 404.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "license.replace",
+        "summary": "Hand the running server a renewed license key",
+        "tags": [
+          "system"
+        ],
+        "responses": {
+          "200": {
+            "description": "The license status, with the new key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LicenseStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body isn't `{ \"key\": \"kgi_lk_…\" }` (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the deployment's own token or a system key holding `system:license` (`license-operator-only`). On a runtime serving one tenant, a system key holding anything but `system:license` (`system-key-scope-not-served`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The server checked the key and refused it (`license-key-refused`; `error.details.reason`: `malformed`, `unknown-key`, `bad-signature`, `too-long`, `other-licensee`, `other-use` or `older`). It runs on with the key it has.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "What the renewal hands the deployment's running server (`kindgi license renew --runtime`), so it runs the new key without a restart. The server checks the key offline, as it does at a start: signed by a key it trusts, for the same licensee and use as the key it runs, and newer (a later `exp`, or the same `exp` and an `iat` no earlier). The same key again is taken as it is. It answers the license status with the new key. Only the deployment's own token (`KINDGI_API_TOKEN`), or a system key holding `system:license`, hands it a key; anyone else is refused (`license-operator-only`), and the refusal recorded, before the body is read. A deployment that doesn't take a key this way answers 404.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LicenseKeyBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []

@@ -32,7 +32,11 @@ export type {
   SignInOptionsRateLimit,
 } from './routes/sign-in-options.js';
 export type {
+  LicenseKeyRefusal,
+  LicenseLimit,
+  LicenseLimits,
   LicensePreview,
+  LicenseReplaced,
   LicenseStatus,
   LicenseStatusBinding,
   LicenseUsage,

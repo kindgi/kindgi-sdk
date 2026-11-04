@@ -14,7 +14,10 @@ import { describe, expect, test } from 'vitest';
 
 import {
   KINDGI_LICENSE_PUBLIC_KEYS,
+  LICENSE_KEY_MAX_DAYS,
+  LICENSE_KEY_MINIMUM_RUNTIME,
   LICENSE_KEY_PREFIX,
+  PLAN_LICENSE_KEY_IDS,
   checkLicenseKey,
 } from '../src/license/license-key.js';
 import {
@@ -134,6 +137,87 @@ describe('a license key, checked offline', () => {
         kind: 'err',
         reason: 'malformed',
       });
+    }
+  });
+
+  test("warn and lim: read when the key sets them, a lim member this CLI doesn't know left out", () => {
+    const production = { ...payload, sub: 'acme-prod', use: 'production' };
+    const read = checkLicenseKey(
+      keyFor({ ...production, warn: 5, lim: { flows: 3, agents: 10, tenants: 2 } }),
+      publicKeys,
+    );
+    expect(read).toMatchObject({
+      kind: 'ok',
+      claims: { warnDays: 5, limits: { flows: 3, agents: 10 } },
+    });
+    expect(read.kind === 'ok' && read.claims.limits).toEqual({ flows: 3, agents: 10 });
+    expect(
+      checkLicenseKey(keyFor({ ...production, lim: { agents: 2 } }), publicKeys),
+    ).toMatchObject({
+      claims: { limits: { agents: 2 } },
+    });
+    // A key without them says neither.
+    const plain = checkLicenseKey(keyFor(production), publicKeys);
+    expect(plain.kind === 'ok' && Object.keys(plain.claims)).not.toContain('warnDays');
+    expect(plain.kind === 'ok' && Object.keys(plain.claims)).not.toContain('limits');
+  });
+
+  test('a warn or lim the runtime refuses is malformed: so is lim on a non-production key', () => {
+    const production = { ...payload, sub: 'acme-prod', use: 'production' };
+    for (const bad of [
+      { ...production, warn: 0 },
+      { ...production, warn: 31 },
+      { ...production, warn: 2.5 },
+      { ...production, warn: '5' },
+      { ...production, warn: null },
+      { ...production, lim: [3, 10] },
+      { ...production, lim: null },
+      { ...production, lim: 3 },
+      { ...production, lim: { flows: 0 } },
+      { ...production, lim: { agents: 100_001 } },
+      { ...production, lim: { flows: 1.5 } },
+      { ...production, lim: { flows: '3' } },
+      { ...payload, lim: { flows: 3 } },
+    ]) {
+      expect(checkLicenseKey(keyFor(bad), publicKeys), JSON.stringify(bad)).toMatchObject({
+        kind: 'err',
+        reason: 'malformed',
+      });
+    }
+    expect(checkLicenseKey(keyFor({ ...production, warn: 30, lim: {} }), publicKeys)).toMatchObject(
+      {
+        kind: 'ok',
+        claims: { warnDays: 30, limits: {} },
+      },
+    );
+  });
+
+  test("a kid with a cap: a key signed for longer is too-long, once it's Kindgi's", () => {
+    const cap = { 'test-lk': 45 };
+    const ok = { ...payload, exp: payload.iat + 45 * 86_400 };
+    expect(checkLicenseKey(keyFor(ok), publicKeys, cap).kind).toBe('ok');
+    expect(checkLicenseKey(keyFor({ ...ok, exp: ok.exp + 1 }), publicKeys, cap)).toEqual({
+      kind: 'err',
+      reason: 'too-long',
+    });
+    // Signed by anyone else, it's that first.
+    const other = generateKeyPairSync('ed25519').privateKey;
+    expect(checkLicenseKey(keyFor({ ...ok, exp: ok.exp + 1 }, other), publicKeys, cap)).toEqual({
+      kind: 'err',
+      reason: 'bad-signature',
+    });
+    // A kid without one isn't capped.
+    expect(checkLicenseKey(keyFor({ ...ok, exp: ok.exp + 400 * 86_400 }), publicKeys).kind).toBe(
+      'ok',
+    );
+  });
+
+  test("the plan kids, caps and minimum runtimes, as the runtime's copies have them", () => {
+    expect(PLAN_LICENSE_KEY_IDS).toEqual([]);
+    expect(LICENSE_KEY_MAX_DAYS).toEqual({});
+    expect(LICENSE_KEY_MINIMUM_RUNTIME).toEqual({ 'lk-2026-p2': '0.1.8' });
+    for (const kid of [...PLAN_LICENSE_KEY_IDS, ...Object.keys(LICENSE_KEY_MAX_DAYS)]) {
+      expect(KINDGI_LICENSE_PUBLIC_KEYS, kid).toHaveProperty(kid);
     }
   });
 

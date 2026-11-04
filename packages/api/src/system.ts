@@ -17,7 +17,7 @@ import type { TenantId } from '@kindgi/types';
  * system principal on `/v1/system/keys` alone, where it mints, lists and
  * revokes the system keys (`TokenResolution.systemKeysOperator`), and a
  * system key holds `system:license` alone: it reads the deployment's
- * license, nothing else.
+ * license and hands the running server a renewed key, nothing else.
  */
 export interface SystemPrincipal {
   /** The system key's id, or `boot` for the deployment's own token. */
@@ -81,7 +81,7 @@ export const SYSTEM_SCOPES = [
   'system:env-refs',
   /** Usage across tenants: counts and sums only. */
   'system:usage:read',
-  /** The deployment's license: reading it, for its renewal. */
+  /** The deployment's license: reading it, and handing the running server a renewed key, for its renewal. */
   'system:license',
 ] as const;
 
@@ -186,5 +186,6 @@ export const SYSTEM_PRINCIPAL_ALLOWED_ROUTES: readonly {
   readonly scope: SystemScope;
 }[] = [
   { method: 'GET', path: '/v1/license', scope: 'system:license' },
+  { method: 'PUT', path: '/v1/license', scope: 'system:license' },
   { method: 'GET', path: '/v1/license/usage', scope: 'system:license' },
 ];
