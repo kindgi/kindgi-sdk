@@ -1,5 +1,5 @@
 ---
-"@kindgi/cli": minor
+"@kindgi/cli": patch
 "@kindgi/types": patch
 "@kindgi/sdk": patch
 ---
