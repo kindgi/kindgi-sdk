@@ -1343,6 +1343,7 @@ async function reachedBy(
 ): Promise<readonly ProjectId[]> {
   switch (check.rule) {
     case 'on':
+      // Always the key's own: refuseOtherProjectForKey refuses a scope naming another first.
       return [check.projectId as unknown as ProjectId];
     case 'every':
       return projects;
