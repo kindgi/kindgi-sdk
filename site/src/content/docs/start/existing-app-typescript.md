@@ -68,9 +68,9 @@ Done in 4.9s using pnpm v10.28.0
   them ES modules;
 - **the SDK and the CLI,** at the CLI's own version: `@kindgi/sdk` (a
   dependency) and `@kindgi/cli` (a devDependency);
-- **`zod`,** at the version Kindgi is tested with. That's `4.6.5` exactly if
+- **`zod`,** at the version Kindgi is tested with. That's `4.6.7` exactly if
   your app pins exact versions or its package manager saves them, otherwise
-  `^4.6.5`. If your app already has `zod`, `init` keeps it;
+  `^4.6.7`. If your app already has `zod`, `init` keeps it;
 - **the tests `kindgi test` runs:** `vitest` and `vite` in
   `devDependencies`, pinned the same way, and a vitest config
   ([Test your tools](#test-your-tools));
