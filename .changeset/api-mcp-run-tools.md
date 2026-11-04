@@ -8,9 +8,12 @@
   - A call starts the run as the person, with an idempotency key, so a chat app's retry doesn't start a second run.
   - It waits up to 25 seconds. A longer run goes on in Kindgi, and the call answers with the run's state, so no call stays open past a chat app's time limit.
   - A run the person may not start answers the route's refusal in words.
-- **The run view** (`ui://kindgi/run.html`, an MCP Apps resource) follows the run to its end, through `kindgi.run_state`, which only the view calls.
+- **`kindgi.run_state`** reads a run as the person: whether it goes on, what it waits for, and its answer and files once it ends.
+  - Claude waits for a run that goes on with it: `waitSeconds` (at most 25) answers as soon as the run ends or waits for someone, and Claude calls again until it ends. A run tool's answer for a run that goes on says so.
+  - The run view calls it with no wait.
+- **The run view** (`ui://kindgi/run.html`, an MCP Apps resource) follows the run to its end, through `kindgi.run_state`.
   - It shows what the run waits for, with console links.
   - When the run is done, its answer: at most 8,000 characters, with the rest in the console.
   - Its files' names.
-  - A button that asks the chat about the result. The message names the run only, never its answer.
+  - When the run ends, a short note in the model's context. The view never sends a message as the person.
 - **What a chat sees of a run.** Answer text is marked as agent output, to treat as data. A chat never gets the start answer's access token, an agent's instructions, an approval's context, or a connect link. A connect starts from the console.
