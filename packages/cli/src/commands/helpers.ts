@@ -276,8 +276,25 @@ export async function projectIdFlag(ctx: CommandContext): Promise<string> {
   const flag = stringFlag(ctx, 'project');
   if (flag !== undefined) return flag;
   const stored = ctx.config.keyProject;
-  if (stored !== undefined) return resolveProjectRef(ctx, stored);
+  if (stored !== undefined) return storedProjectId(ctx, stored);
   return (await ctx.client().projects.getDefault()).id;
+}
+
+/**
+ * The project stored beside the key, as an id. A slug that names no
+ * project, or several, is refused naming the file it came from: the
+ * person never typed it.
+ */
+async function storedProjectId(ctx: CommandContext, ref: string): Promise<string> {
+  try {
+    return await resolveProjectRef(ctx, ref);
+  } catch (thrown) {
+    if (!(thrown instanceof UsageError)) throw thrown;
+    const file = ctx.config.files?.token?.path ?? 'your config file';
+    throw new UsageError(
+      `The project stored with your key in ${file}: ${thrown.message} Put the id there, or pass --project.`,
+    );
+  }
 }
 
 /** The values of a repeatable flag (`multiple: true`), in the order given. */

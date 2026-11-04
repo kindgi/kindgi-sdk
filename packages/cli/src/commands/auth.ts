@@ -133,7 +133,10 @@ async function loginLost(
   return { path: stored.path, ...(stored.apiUrl !== undefined && { apiUrl: stored.apiUrl }) };
 }
 
-/** The project stored beside the key this login replaced: it went with that key (`keepsProject`). */
+/**
+ * The project stored beside the login this one replaced: it went with that
+ * key and address (`keepsProject`).
+ */
 function droppedProject(before: HomeLogin, url: string, token: string): string | undefined {
   return before.project !== undefined && !keepsProject(before, { apiUrl: url, token })
     ? before.project
@@ -142,7 +145,7 @@ function droppedProject(before: HomeLogin, url: string, token: string): string |
 
 /**
  * What a login warns of, under --quiet too: a key no longer stored, and the
- * project that was stored with the key it replaced.
+ * project that was stored with the login it replaced.
  */
 function loginWarnings(
   path: string,
@@ -158,7 +161,7 @@ function loginWarnings(
   if (dropped !== undefined) {
     lines.push(
       warning(
-        `⚠ Removed project ${dropped} from ${path}: it was stored with the key this login replaced.`,
+        `⚠ Removed project ${dropped} from ${path}: it was stored with the login this one replaced.`,
       ),
     );
   }

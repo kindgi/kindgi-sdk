@@ -75,7 +75,8 @@ export const CLI_DEFAULTS = {
     'idempotency-key': 'a hash of the request body',
     out: '`.kindgi/build` under the pack root',
     path: 'the current directory',
-    project: "none: a tenant-wide deploy, into the tenant's default project",
+    project:
+      "the project stored with your key, else none: a tenant-wide deploy, into the tenant's default project",
     'published-at': 'for an inline build: the build time',
     reason: 'none; required with `--replace`, and only with it',
     'registry-push-creds': 'none',
@@ -324,7 +325,7 @@ export const CLI_DEFAULTS = {
     name: 'none',
   },
   'agents publish': {
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
     spec: 'required',
   },
   'agents owner': {
@@ -393,7 +394,7 @@ export const CLI_DEFAULTS = {
   },
   'tools publish': {
     manifest: 'required',
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
   },
   'tools versions': {
     cursor: 'none',
@@ -427,7 +428,7 @@ export const CLI_DEFAULTS = {
     name: 'none',
   },
   'guardrails register': {
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
     spec: 'required',
   },
   'memory facts list': {
@@ -573,7 +574,7 @@ export const CLI_DEFAULTS = {
     name: 'none',
   },
   'flows publish': {
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
     spec: 'required',
   },
   'flows versions': {
@@ -758,22 +759,22 @@ export const CLI_DEFAULTS = {
     'new-people-per-day': '`20`',
     origin: 'required',
     'people-cap': '`50`',
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
     'reviewer-ceiling': '`standard`',
     'role-map':
       'both default roles may ask, and decide as `standard` reviewers; with `--allowed-role` alone, the entries of the roles it allows',
     vouching: '`on`',
   },
   'sites code': {
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
   },
   'sites list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
   },
   'sites get': {
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
   },
   'sites update': {
     'allowed-role': 'unchanged',
@@ -782,25 +783,25 @@ export const CLI_DEFAULTS = {
     'new-people-per-day': 'unchanged',
     origin: 'unchanged',
     'people-cap': 'unchanged',
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
     'reviewer-ceiling': 'unchanged',
     'role-map': 'unchanged; with `--allowed-role` alone, the entries of the roles still allowed',
     vouching: 'unchanged',
   },
   'sites pause': {
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
   },
   'sites resume': {
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
   },
   'sites revoke-key': {
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
   },
   'sites restore-person': {
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
   },
   'sites unregister': {
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
   },
   'approvals list': {
     'assigned-to': 'none (all approvals your role can see)',
@@ -899,7 +900,7 @@ export const CLI_DEFAULTS = {
     weight: 'unchanged',
   },
   'queue-rules create': {
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
     name: 'required',
     agent: 'none (runs of any agent)',
     flow: 'none (runs of any flow)',
@@ -913,15 +914,15 @@ export const CLI_DEFAULTS = {
     'queue-since': 'none',
   },
   'queue-rules list': {
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
     limit: '`25` (at most `100`)',
     cursor: 'none',
   },
   'queue-rules show': {
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
   },
   'queue-rules update': {
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
     name: 'unchanged',
     agent: 'unchanged (any match flag replaces `when` whole)',
     flow: 'unchanged (any match flag replaces `when` whole)',
@@ -932,19 +933,19 @@ export const CLI_DEFAULTS = {
     group: 'unchanged',
   },
   'queue-rules remove': {
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
   },
   'queue-rules versions': {
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
     limit: '`25` (at most `100`)',
     cursor: 'none',
   },
   'queue-rules results': {
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
     since: 'none (every result)',
   },
   'queue-rules preview': {
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
     agent: 'none (runs of any agent)',
     flow: 'none (runs of any flow)',
     'agent-version': 'none (any version)',
@@ -954,12 +955,12 @@ export const CLI_DEFAULTS = {
     rule: 'none (preview the given flags, not an existing rule)',
   },
   'queue-rules queue-recent': {
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
     last: 'none (give `--last` and/or `--since`)',
     since: 'none (give `--last` and/or `--since`)',
   },
   'expert-queue list': {
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
     state: 'none (every state)',
     agent: 'none',
     rule: 'none',
@@ -970,11 +971,11 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
   },
   'expert-queue dismiss': {
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
     reason: 'none',
   },
   'expert-queue reopen': {
-    project: "the tenant's default project",
+    project: "the project stored with your key, else the tenant's default project",
   },
   'test-runs start': {
     project: 'required',
@@ -1206,7 +1207,7 @@ export const GLOBAL_FLAG_DEFAULTS = {
   json: 'on when no format flag is given: pretty JSON (commands for people, such as `kindgi dev`, print JSON only when asked)',
   table: 'off; a command with no table prints JSON',
   token:
-    "`KINDGI_API_TOKEN`, then a stored key: `./.kindgirc.json`'s, then `~/.kindgi/config.json`'s, and when those are for different addresses, the one stored with the API URL. A stored key goes only to the address stored with it: a command that would send it elsewhere is refused before it sends anything. With `--hosted`, a `kindgi dev` runtime's `./.kindgirc.json` isn't read. None of them set: a command that calls the API fails",
+    "`KINDGI_API_TOKEN`, then a stored key: `./.kindgirc.json`'s, then `~/.kindgi/config.json`'s, and when those are for different addresses, the one stored with the API URL. A stored key goes only to the address stored with it: a command that would send it elsewhere is refused before it sends anything. A `project` stored beside a key (an id or a slug) goes with it, as the default `--project` of `kindgi deploy` and of the commands that would take the tenant's default project. With `--hosted`, a `kindgi dev` runtime's `./.kindgirc.json` isn't read. None of them set: a command that calls the API fails",
   url: "`KINDGI_API_URL`, then `./.kindgirc.json`, then `~/.kindgi/config.json`; with `--hosted`, a `kindgi dev` runtime's `./.kindgirc.json` isn't read. None of them set: a command that calls the API fails",
 };
 

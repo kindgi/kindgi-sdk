@@ -1039,7 +1039,8 @@ register`, `tools publish`, `sites`, `expert-queue` and `queue-rules`).
 `--project` comes first. It goes with that key only: a key given with
 `--token` or `KINDGI_API_TOKEN` has no project, and `kindgi auth login`
 with another key or address removes it, and says so. `kindgi deploy` names
-it: `Project: <project>  (project in <file>)`.
+it: `Project: <project>  (project in <file>)`. `kindgi dev` writes its
+`./.kindgirc.json` anew at each start, so that file keeps no project.
 
 ### The runtime image's registry
 

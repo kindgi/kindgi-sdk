@@ -105,6 +105,17 @@ describe('a command that would take the tenant default project', () => {
     expect(registeredIn(calls)).toEqual([PROJECT]);
   });
 
+  test('a stored slug of no project is refused, naming the file it came from', async () => {
+    await signedIn({ project: 'no-such-shop' });
+    const { out, calls } = await register();
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain(
+      `The project stored with your key in ${homeFile()}: No project of this tenant has the slug "no-such-shop".`,
+    );
+    expect(out.stderr).toContain('Put the id there, or pass --project.');
+    expect(calls.map((c) => c[0])).toEqual(['list']);
+  });
+
   test('--project comes first', async () => {
     await signedIn({ project: PROJECT });
     const { out, calls } = await register([`--project=${DEFAULT_PROJECT}`]);
@@ -166,9 +177,21 @@ describe('kindgi auth login and the project stored with the key', () => {
     expect(out.exitCode, out.stderr).toBe(0);
     expect(await saved()).toEqual({ apiUrl: SIGNED_IN, token: NEW_KEY });
     expect(out.stderr).toContain(
-      `⚠ Removed project ${PROJECT} from ${homeFile()}: it was stored with the key this login replaced.`,
+      `⚠ Removed project ${PROJECT} from ${homeFile()}: it was stored with the login this one replaced.`,
     );
     expect(out.stderr).not.toContain(NEW_KEY);
+    expect(out.stderr).not.toContain(HOME_KEY);
+  });
+
+  test('the same key for another address drops it too, and says so', async () => {
+    await signedIn({ project: PROJECT });
+    const out = await login([`--url=${OTHER}`], { KINDGI_API_TOKEN: HOME_KEY });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(await saved()).toEqual({ apiUrl: OTHER, token: HOME_KEY });
+    expect(out.stderr).toContain(
+      `⚠ Removed project ${PROJECT} from ${homeFile()}: it was stored with the login this one replaced.`,
+    );
+    expect(out.stderr).not.toContain('Replaced');
     expect(out.stderr).not.toContain(HOME_KEY);
   });
 
