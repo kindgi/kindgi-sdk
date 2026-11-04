@@ -130,7 +130,8 @@ export interface TurnContext {
   userMessage?: ConversationMessage;
   /**
    * Populated by `render-prompt` — the rendered system-instructions
-   * string that seeds the first model call.
+   * string that seeds the first model call. A resumed turn takes it from
+   * `render-prompt`'s journaled output (`rehydrateTurnContext`).
    */
   renderedPrompt?: string;
   /**
