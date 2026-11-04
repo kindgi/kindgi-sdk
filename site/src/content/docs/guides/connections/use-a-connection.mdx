@@ -438,7 +438,10 @@ input:
 - **Anything else** fails the call with `connection-missing`, naming the
   app and what's missing: a person's connection in a run they didn't
   start, and the company's connection in any run, since only an admin
-  connects it.
+  connects it. To allow a permission before the next run, use
+  **Ask Google for more** on the connection's page in the console, or
+  `kindgi connections connect --reconnect`
+  ([Choose a connection](../choose-a-connection/)).
 - **A flow's tool step can't wait,** so it fails with `connection-missing`
   the same way.
 - **Several of the company's connections of the app, and no choice,** fail
