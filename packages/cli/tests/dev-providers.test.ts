@@ -7,6 +7,7 @@
  * providers this pack registered.
  */
 
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -21,6 +22,7 @@ import {
   declaredProviders,
   describeReconcile,
   devProvidersKey,
+  moveHashKeyedEntries,
   readOwnedProviders,
   reconcileProviders,
   writeOwnedProviders,
@@ -467,6 +469,35 @@ describe('the record', () => {
     expect(devProvidersKey({ kind: 'runtime', url: 'http://127.0.0.1:4811/' }, 't-1')).toBe(
       'runtime http://127.0.0.1:4811 tenant t-1',
     );
+    // A list without ports: `new URL` reads it, so its key stays as it was.
+    expect(
+      devProvidersKey(
+        { kind: 'database', url: 'postgres://me:pw@127.0.0.1,db.internal/app' },
+        't-1',
+      ),
+    ).toBe('127.0.0.1,db.internal:5432/app tenant t-1');
+  });
+
+  test('a URL new URL refuses is keyed on its hosts, ports and database, never its password', () => {
+    const key = (url: string): string => devProvidersKey({ kind: 'database', url }, 't-1');
+    expect(key('postgres://me:list-secret-pw@h1:5432,h2/app')).toBe(
+      'h1:5432,h2:5432/app tenant t-1',
+    );
+    expect(key('postgres://me:list-secret-pw@h1:5432,h2:5432/app')).not.toContain('list-secret');
+    expect(key('postgres://me:other-pw@h1:5432,h2:5432/app')).toBe(
+      key('postgres://me:list-secret-pw@h1:5432,h2:5432/app'),
+    );
+    // libpq's `?host=`: its list, with `?port=`, else the address's first port.
+    expect(key('postgres://me:pw@/app?host=h1,h2&port=5433')).toBe(
+      'h1:5433,h2:5433/app tenant t-1',
+    );
+    expect(key('postgres://me:pw@h1:5433,h2:5433/app?host=h3')).toBe('h3:5433/app tenant t-1');
+    // A socket directory, as written, then the database.
+    expect(key('postgres://me:pw@/app?host=/var/run/postgresql')).toBe(
+      '/var/run/postgresql/app tenant t-1',
+    );
+    // A host read out of the password (a raw `/` in it): no key from it.
+    expect(key('postgres://me:pa/ss@h1:5432,h2:5432/app')).toBe('unknown tenant t-1');
   });
 
   test('read back per key; an emptied key is dropped; an unreadable record owns nothing', async () => {
@@ -481,5 +512,82 @@ describe('the record', () => {
 
     await writeFile(path, '{ not json');
     expect(await readOwnedProviders(path, 'b')).toEqual({});
+  });
+});
+
+describe('the record keyed on a hash of the URL, moved once', () => {
+  const URL_ = 'postgres://me:pw@h1:5432,h2:5432/app';
+  const oldHash = (url: string): string =>
+    createHash('sha256').update(url).digest('hex').slice(0, 16);
+  const owned = (n: number): OwnedProviders => ({
+    [`p-${n}`]: { declared: `sha256:${n}`, registered: `sha256:${n}` },
+  });
+  let dir: string;
+  let path: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'kindgi-dev-providers-move-'));
+    path = join(dir, 'providers.json');
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+  const record = async (): Promise<unknown> => JSON.parse(await readFile(path, 'utf8'));
+  const seed = async (runtimes: Record<string, OwnedProviders>): Promise<void> => {
+    await writeFile(path, `${JSON.stringify({ v: 1, runtimes })}\n`);
+  };
+
+  test("each tenant's entries move to the key from the split, and no hash key is left", async () => {
+    await seed({
+      [`${oldHash(URL_)} tenant t-1`]: owned(1),
+      [`${oldHash(URL_)} tenant t-2`]: owned(2),
+      [`${oldHash('postgres://me:old-pw@h1:5432,h2:5432/app')} tenant t-1`]: owned(3),
+      [`${oldHash('postgres://me:pw@h9:5432,h8:5432/other')} tenant t-2`]: owned(4),
+      'db.internal:5432/app tenant t-1': owned(5),
+    });
+    await moveHashKeyedEntries(path, { kind: 'database', url: URL_ });
+    expect(await record()).toEqual({
+      v: 1,
+      runtimes: {
+        'h1:5432,h2:5432/app tenant t-1': owned(1),
+        'h1:5432,h2:5432/app tenant t-2': owned(2),
+        'db.internal:5432/app tenant t-1': owned(5),
+      },
+    });
+    expect(devProvidersKey({ kind: 'database', url: URL_ }, 't-2')).toBe(
+      'h1:5432,h2:5432/app tenant t-2',
+    );
+  });
+
+  test('a new key that has entries keeps them; the hash key goes either way', async () => {
+    await seed({
+      [`${oldHash(URL_)} tenant t-1`]: owned(1),
+      'h1:5432,h2:5432/app tenant t-1': owned(6),
+    });
+    await moveHashKeyedEntries(path, { kind: 'database', url: URL_ });
+    expect(await record()).toEqual({
+      v: 1,
+      runtimes: { 'h1:5432,h2:5432/app tenant t-1': owned(6) },
+    });
+  });
+
+  test('every other boot sweeps the hash keys; a record with none, or no record, is not written', async () => {
+    await seed({
+      [`${oldHash(URL_)} tenant t-1`]: owned(1),
+      'bundled kindgi_acme tenant t-1': owned(7),
+    });
+    await moveHashKeyedEntries(path, { kind: 'bundled', database: 'kindgi_acme' });
+    expect(await record()).toEqual({
+      v: 1,
+      runtimes: { 'bundled kindgi_acme tenant t-1': owned(7) },
+    });
+
+    const untouched = `${JSON.stringify({ v: 1, runtimes: { 'bundled kindgi_acme tenant t-1': owned(7) } })}  \n`;
+    await writeFile(path, untouched);
+    await moveHashKeyedEntries(path, { kind: 'database', url: URL_ });
+    expect(await readFile(path, 'utf8')).toBe(untouched);
+
+    const missing = join(dir, 'missing.json');
+    await moveHashKeyedEntries(missing, { kind: 'database', url: URL_ });
+    await expect(readFile(missing, 'utf8')).rejects.toThrow();
   });
 });
