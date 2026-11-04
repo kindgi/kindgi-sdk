@@ -160,7 +160,6 @@ interface AgentJson {
   readonly id: string;
   readonly name: string;
   readonly description?: string;
-  readonly projectId?: string;
   readonly parameters?: readonly ParameterJson[];
   readonly mcp?: McpExposure;
   readonly unregisteredAt?: string;
@@ -179,7 +178,6 @@ interface FlowJson {
   readonly id: string;
   readonly name?: string;
   readonly description?: string;
-  readonly projectId?: string;
   readonly mcp?: McpExposure;
   readonly unregisteredAt?: string;
 }
@@ -251,9 +249,12 @@ function registerAgentTool(
         context,
         wait,
         agent.id,
+        // No project named: the run lands where the runtime puts it (the
+        // conversation's project, else the agent's own) and is checked for
+        // running there. Naming one asks `write` on it, which no chat scope
+        // holds (`scopes.ts`).
         {
           agent: agent.id,
-          ...(agent.projectId !== undefined && { projectId: agent.projectId }),
           input: {
             userMessage: args.message,
             ...(args.conversationId !== undefined && { conversationId: args.conversationId }),
@@ -294,9 +295,9 @@ function registerFlowTool(
         context,
         wait,
         name,
+        // No project named, as for an agent: the flow's own.
         {
           flow: flow.id,
-          ...(flow.projectId !== undefined && { projectId: flow.projectId }),
           input: args.input ?? {},
           options: { wait: false },
         },
