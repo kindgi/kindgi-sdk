@@ -40,9 +40,11 @@ import type {
 import { OPERATIONS, createApp } from '../src/index.js';
 import type {
   AgentPinBindings,
+  AgentRegistryBinding,
   CorrectionRegistryBinding,
   CreateAppInput,
   ItemProjectsBinding,
+  MCPClientProbeBinding,
   MCPEndpointRegistryBinding,
   OrderItemKind,
   PinnedVersionBinding,
@@ -52,7 +54,7 @@ import type {
 } from '../src/index.js';
 import { LIMITED_ITEM_PROJECT } from '../src/openapi/operations.js';
 import { createInMemoryTriggerRegistry, createStubAppBindings } from '../src/testing/index.js';
-import { noLatest } from './support/latest.js';
+import { highestAsLatest } from './support/latest.js';
 import { type ItemRow, itemProjects } from './support/order-items.js';
 
 const tenantId = randomUUID() as TenantId;
@@ -209,11 +211,14 @@ function recordingRest<T extends object>(
   });
 }
 
-/** Agent pins: the pin and the unpin recorded. */
-function agentPins(changed: string[]): AgentPinBindings {
+/**
+ * Agent pins: the pin and the unpin recorded. Latest is the highest
+ * version, so a scope runs one and a pin there gets to its change.
+ */
+function agentPins(changed: string[], agents: Pick<AgentRegistryBinding, 'get'>): AgentPinBindings {
   return {
     pinned: { resolve: async () => null, list: async () => [] },
-    latest: noLatest,
+    latest: highestAsLatest(agents),
     changes: recordingRest(
       { list: async () => ({ data: [] }), get: async () => null },
       changed,
@@ -375,11 +380,13 @@ function harness(
     kernelBinding: { ...stubs.kernelBinding, run: runBinding },
     resolveToken,
     runHandler: {} as RunHandlerBinding,
-    agentPins: agentPins(changed),
+    agentPins: agentPins(changed, registries.agentRegistry as unknown as AgentRegistryBinding),
     pinnedVersions: pinnedVersions(changed),
     correctionRegistry: corrections(changed),
     triggerRegistry: triggers,
     mcpEndpointRegistry: mcpEndpoints(changed, opts.scopeOf ?? 'wired'),
+    // Its every call recorded: a prompt's get is the one a held route makes.
+    mcpClientProbe: recordingRest({}, changed) as unknown as MCPClientProbeBinding,
     ...(mode === 'served' && { itemProjects: opts.items ?? itemProjects(rows()) }),
     ...(mode === 'store' && {
       authz: {
@@ -459,6 +466,9 @@ type Row = {
 
 const ITEM = { away: AWAY, home: HOME } as const;
 const pinBody = { version: '1.0.0', scope: project(P1) };
+/** A pin's body: an agent's scope follows its Latest (`agentPins`), so its pin says to stop. */
+const pinBodyOf = (kind: 'agent' | 'flow' | 'tool') =>
+  kind === 'agent' ? { ...pinBody, stopFollowingLatest: true } : pinBody;
 
 /** One row per change by id that a store holds and, until now, nothing held without one. */
 const HELD: readonly Row[] = [
@@ -476,7 +486,7 @@ const HELD: readonly Row[] = [
     op: 'PUT /v1/agents/{agentId}/owner',
     method: 'PUT',
     word: 'the agent',
-    to: async (_h, side) => ({ path: `/v1/agents/${ITEM[side]}/owner`, body: {} }),
+    to: async (_h, side) => ({ path: `/v1/agents/${ITEM[side]}/owner`, body: { userId: USER } }),
   },
   {
     label: 'guardrail unregister',
@@ -494,7 +504,7 @@ const HELD: readonly Row[] = [
       word: k.word,
       to: async (_h, side) => ({
         path: `${k.base}/${ITEM[side]}/pinned/${verb}`,
-        body: verb === 'pin' ? pinBody : { scope: project(P1) },
+        body: verb === 'pin' ? pinBodyOf(kind) : { scope: project(P1) },
       }),
     }));
   }),
@@ -625,6 +635,7 @@ describe.each([
   test.each(HELD)("$label, on the key project's own item: not refused", async (r) => {
     const res = await sendRow(h, LIMITED, r, 'home');
     expect(res.body.error?.code).not.toBe('key-project-mismatch');
+    expect(res.changed).not.toEqual([]);
   });
 
   test.each(HELD)('$label, by a key limited to no project: not refused', async (r) => {
@@ -760,8 +771,14 @@ describe('an item more than one project serves, with no store: what a store asks
     '%s: a pin in the key project is not refused',
     async (kind) => {
       const k = KINDS.find((x) => x.kind === kind) as (typeof KINDS)[number];
-      const res = await served.send(LIMITED, 'POST', `${k.base}/${SHARED}/pinned/pin`, pinBody);
+      const res = await served.send(
+        LIMITED,
+        'POST',
+        `${k.base}/${SHARED}/pinned/pin`,
+        pinBodyOf(kind),
+      );
       expect(res.body.error?.code).not.toBe('key-project-mismatch');
+      expect(res.changed).not.toEqual([]);
     },
   );
 
