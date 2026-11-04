@@ -9,7 +9,7 @@
   - It waits up to 25 seconds. A longer run goes on in Kindgi, and the call answers with the run's state, so no call stays open past a chat app's time limit.
   - A run the person may not start answers the route's refusal in words.
 - **`kindgi.run_state`** reads a run as the person: whether it goes on, what it waits for, and its answer and files once it ends.
-  - Claude waits for a run that goes on with it: `waitSeconds` (at most 25) answers as soon as the run ends or waits for someone, and Claude calls again until it ends. A run tool's answer for a run that goes on says so.
+  - A chat app's model waits for a run that goes on with it: `waitSeconds` (at most 25) answers as soon as the run ends or waits for someone, and the model calls again until it ends. A run tool's answer for a run that goes on says so.
   - The run view calls it with no wait.
 - **The run view** (`ui://kindgi/run.html`, an MCP Apps resource) follows the run to its end, through `kindgi.run_state`.
   - It shows what the run waits for, with console links.

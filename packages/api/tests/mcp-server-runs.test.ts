@@ -16,7 +16,7 @@ import type { TenantId, UserId } from '@kindgi/types';
 
 import type { TokenResolution } from '../src/index.js';
 import { mountMcpServer } from '../src/mcp-server/endpoint.js';
-import { agentTools, runStateTools } from '../src/mcp-server/run-tools.js';
+import { type RunWait, agentTools, runStateTools } from '../src/mcp-server/run-tools.js';
 import { RUN_VIEW_HTML, RUN_VIEW_MIME, RUN_VIEW_URI } from '../src/mcp-server/run-view.js';
 import type { AppEnv } from '../src/types.js';
 import { mcpRpc } from './support/mcp-rpc.js';
@@ -100,6 +100,8 @@ interface HarnessOptions {
   readonly refuseStart?: 400 | 403 | 404 | 429;
   readonly agentPages?: readonly (readonly Json[])[];
   readonly files?: readonly Json[];
+  /** The run tools' wait; `WAIT` by default. */
+  readonly wait?: RunWait;
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -184,7 +186,7 @@ function harness(options: HarnessOptions = {}) {
       consoleUrl: CONSOLE,
       version: '0.0.0-test',
     },
-    [runStateTools(WAIT), agentTools(WAIT)],
+    [runStateTools(options.wait ?? WAIT), agentTools(options.wait ?? WAIT)],
   );
   return {
     rpc: mcpRpc(app),
@@ -484,6 +486,8 @@ describe('/mcp: run_state and the run view', () => {
   test('with a wait, run_state answers as soon as the run ends', async () => {
     const { rpc, checks } = harness({
       runs: [agentRun(), agentRun(), completed({ response: { content: 'Clause 4 differs.' } })],
+      // A cap with room for 3 checks on a busy machine: the run ends at the 3rd.
+      wait: { ...WAIT, waitMs: 5_000 },
     });
     const { body } = await rpc('chat-read', 'tools/call', {
       name: 'kindgi.run_state',

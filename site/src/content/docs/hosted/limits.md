@@ -47,6 +47,9 @@ retry-after: 33
 {"error":{"code":"rate-limit-exceeded","message":"This workspace's limit on API requests a minute is reached: try again in 33 s.","details":{"limit":"api-requests"},"requestId":"req-…"}}
 ```
 
+A chat app's run wait reads the run about once a second, and each read
+counts toward this limit.
+
 ### Webhook receives
 
 Each trigger also has a limit of its own, checked first: 600 deliveries a
