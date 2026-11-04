@@ -5,7 +5,8 @@
  * `guardProviderKeys`: what hands secrets to tools and endpoints never
  * gets a model provider's key. `resolve` answers `provider-key-refused`,
  * `getVersion` throws it, and every other secret, and every other method,
- * reaches the store as before.
+ * reaches the store as before. `connectionKeysOf` and `refuseSecretNames`:
+ * a texts registration's account key is its registration's only.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -14,9 +15,16 @@ import { describe, expect, test } from 'vitest';
 
 import type { Cursor, EnvName, TenantId } from '@kindgi/types';
 
-import { guardProviderKeys } from '../src/index.js';
-import type { EnvNamesInput, ProviderKeys, SecretBinding } from '../src/index.js';
-import { usersOfSecret } from '../src/provider-keys.js';
+import { connectionKeysOf, guardProviderKeys } from '../src/index.js';
+import type {
+  ConnectionAppRecord,
+  ConnectionBinding,
+  ConnectionKeys,
+  EnvNamesInput,
+  ProviderKeys,
+  SecretBinding,
+} from '../src/index.js';
+import { refuseSecretNames, usersOfSecret } from '../src/provider-keys.js';
 
 const tenantId = randomUUID() as TenantId;
 const scope = { kind: 'tenant', tenantId } as const;
@@ -196,5 +204,212 @@ describe('usersOfSecret: MCP endpoints', () => {
       { kind: 'mcp-endpoint', id: 'acme.oauth' },
       { kind: 'mcp-endpoint', id: 'acme.header' },
     ]);
+  });
+});
+
+/** A registration of `app`, with a texts account key when `apiKey` is given. */
+function registration(
+  appId: string,
+  opts: { readonly apiKey?: string; readonly clientSecret?: string; readonly removed?: boolean },
+): ConnectionAppRecord & { readonly removedAt?: string } {
+  return {
+    appId,
+    tenantId,
+    app: opts.apiKey !== undefined ? 'texts' : 'google',
+    ...(opts.clientSecret !== undefined && {
+      oauth2: { clientId: 'acme-client', clientSecret: { envName, name: opts.clientSecret } },
+    }),
+    ...(opts.apiKey !== undefined && {
+      token: {
+        provider: 'telnyx',
+        apiKey: { envName, name: opts.apiKey },
+        publicKey: `${'A'.repeat(43)}=`,
+      },
+    }),
+    ...(opts.removed === true && { removedAt: '2026-01-01T00:00:00.000Z' }),
+  } as ConnectionAppRecord & { readonly removedAt?: string };
+}
+
+/**
+ * A binding whose `listApps` serves `perPage` records a page, live ones
+ * only unless asked for removed ones too, as a binding's does.
+ */
+function connectionBinding(
+  apps: readonly (ConnectionAppRecord & { readonly removedAt?: string })[],
+  perPage: number,
+): { binding: ConnectionBinding; asked: { cursor?: string; includeRemoved?: boolean }[] } {
+  const asked: { cursor?: string; includeRemoved?: boolean }[] = [];
+  const binding = {
+    listApps: async (input: {
+      tenantId: TenantId;
+      limit: number;
+      cursor?: Cursor;
+      includeRemoved?: boolean;
+    }) => {
+      asked.push({
+        ...(input.cursor !== undefined && { cursor: input.cursor as string }),
+        ...(input.includeRemoved !== undefined && { includeRemoved: input.includeRemoved }),
+      });
+      const listed = apps.filter(
+        (app) =>
+          app.tenantId === input.tenantId &&
+          (input.includeRemoved === true || app.removedAt === undefined),
+      );
+      const start = input.cursor === undefined ? 0 : Number(input.cursor);
+      const end = start + perPage;
+      return {
+        data: listed.slice(start, end),
+        ...(end < listed.length && { nextCursor: String(end) as Cursor }),
+      };
+    },
+  } as unknown as ConnectionBinding;
+  return { binding, asked };
+}
+
+describe('connectionKeysOf', () => {
+  test("each live texts registration's key, with the appIds of the registrations holding it: an OAuth secret isn't one, and a removed registration frees its key", async () => {
+    const { binding, asked } = connectionBinding(
+      [
+        registration('app-texts', { apiKey: 'ACME_TELNYX_KEY' }),
+        registration('app-google', { clientSecret: 'ACME_GOOGLE_CLIENT_SECRET' }),
+        registration('app-gone', { apiKey: 'ACME_OLD_TELNYX_KEY', removed: true }),
+      ],
+      100,
+    );
+    const keys = await connectionKeysOf(binding).of(tenantId);
+    expect([...keys]).toEqual([['ACME_TELNYX_KEY', ['app-texts']]]);
+    expect(asked.every((a) => a.includeRemoved !== true)).toBe(true);
+  });
+
+  test('every page is read: a key on the last page is found', async () => {
+    const { binding, asked } = connectionBinding(
+      [
+        registration('app-google', { clientSecret: 'ACME_GOOGLE_CLIENT_SECRET' }),
+        registration('app-gone', { apiKey: 'ACME_OLD_TELNYX_KEY', removed: true }),
+        registration('app-github', { clientSecret: 'ACME_GITHUB_CLIENT_SECRET' }),
+        registration('app-texts', { apiKey: 'ACME_TELNYX_KEY' }),
+      ],
+      1,
+    );
+    const keys = await connectionKeysOf(binding).of(tenantId);
+    expect([...keys]).toEqual([['ACME_TELNYX_KEY', ['app-texts']]]);
+    expect(asked.map((a) => a.cursor)).toEqual([undefined, '1', '2']);
+  });
+
+  test("another tenant's registrations are not read", async () => {
+    const { binding } = connectionBinding(
+      [registration('app-texts', { apiKey: 'ACME_TELNYX_KEY' })],
+      100,
+    );
+    expect((await connectionKeysOf(binding).of(randomUUID() as TenantId)).size).toBe(0);
+  });
+
+  test("without a connection binding, no secret is a registration's key", async () => {
+    expect((await connectionKeysOf(undefined).of(tenantId)).size).toBe(0);
+  });
+});
+
+describe('refuseSecretNames: reserved names, then provider keys, then connection keys', () => {
+  const providerKeys: ProviderKeys = {
+    of: async () => new Map([['ANTHROPIC_API_KEY', 'anthropic']]),
+  };
+  function countingKeys(): { keys: ConnectionKeys; reads: number[] } {
+    const reads: number[] = [];
+    return {
+      keys: {
+        of: async () => {
+          reads.push(1);
+          return new Map([['ACME_TELNYX_KEY', ['app-texts']]]);
+        },
+      },
+      reads,
+    };
+  }
+
+  test("a texts registration's key is refused, naming the secret and the registration, from one read of the keys", async () => {
+    const { keys, reads } = countingKeys();
+    const refusal = await refuseSecretNames(
+      providerKeys,
+      tenantId,
+      ['ACME_SHOP_KEY', 'ACME_TELNYX_KEY'],
+      'a tool',
+      { keys },
+    );
+    expect(refusal).toEqual({
+      code: 'connection-key-refused',
+      message:
+        '`ACME_TELNYX_KEY` is the account key of connection app registration "app-texts": a tool never names it, since that key reaches the whole provider account. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account',
+      secret: 'ACME_TELNYX_KEY',
+      appId: 'app-texts',
+    });
+    expect(reads).toHaveLength(1);
+  });
+
+  test('a reserved name is refused first, then a provider key, then a connection key', async () => {
+    const { keys } = countingKeys();
+    const all = ['ACME_TELNYX_KEY', 'ANTHROPIC_API_KEY', 'kindgi.internal'];
+    expect(await refuseSecretNames(providerKeys, tenantId, all, 'a tool', { keys })).toMatchObject({
+      code: 'reserved-name-prefix',
+      secret: 'kindgi.internal',
+    });
+    expect(
+      await refuseSecretNames(providerKeys, tenantId, all.slice(0, 2), 'a tool', { keys }),
+    ).toMatchObject({ code: 'provider-key-refused', secret: 'ANTHROPIC_API_KEY' });
+    expect(
+      await refuseSecretNames(providerKeys, tenantId, all.slice(0, 1), 'a tool', { keys }),
+    ).toMatchObject({ code: 'connection-key-refused', secret: 'ACME_TELNYX_KEY' });
+  });
+
+  test('a registration names its own key; another registration does not', async () => {
+    const { keys } = countingKeys();
+    expect(
+      await refuseSecretNames(providerKeys, tenantId, ['ACME_TELNYX_KEY'], 'a connection app', {
+        keys,
+        ownAppId: 'app-texts',
+      }),
+    ).toBeUndefined();
+    expect(
+      await refuseSecretNames(providerKeys, tenantId, ['ACME_TELNYX_KEY'], 'a connection app', {
+        keys,
+        ownAppId: 'app-other',
+      }),
+    ).toMatchObject({ code: 'connection-key-refused', appId: 'app-texts' });
+  });
+
+  test('a key two live registrations hold is refused to each of them, naming the other', async () => {
+    const { binding } = connectionBinding(
+      [
+        registration('app-texts', { apiKey: 'ACME_TELNYX_KEY' }),
+        registration('app-texts-2', { apiKey: 'ACME_TELNYX_KEY' }),
+      ],
+      1,
+    );
+    const keys = connectionKeysOf(binding);
+    expect([...(await keys.of(tenantId))]).toEqual([
+      ['ACME_TELNYX_KEY', ['app-texts', 'app-texts-2']],
+    ]);
+    expect(
+      await refuseSecretNames(providerKeys, tenantId, ['ACME_TELNYX_KEY'], 'a connection app', {
+        keys,
+        ownAppId: 'app-texts',
+      }),
+    ).toMatchObject({ code: 'connection-key-refused', appId: 'app-texts-2' });
+    expect(
+      await refuseSecretNames(providerKeys, tenantId, ['ACME_TELNYX_KEY'], 'a connection app', {
+        keys,
+        ownAppId: 'app-texts-2',
+      }),
+    ).toMatchObject({ code: 'connection-key-refused', appId: 'app-texts' });
+  });
+
+  test('without connection keys, a name is not checked against them', async () => {
+    expect(
+      await refuseSecretNames(providerKeys, tenantId, ['ACME_TELNYX_KEY'], 'a tool'),
+    ).toBeUndefined();
+    expect(
+      await refuseSecretNames(providerKeys, tenantId, ['ACME_TELNYX_KEY'], 'a tool', {
+        keys: undefined,
+      }),
+    ).toBeUndefined();
   });
 });

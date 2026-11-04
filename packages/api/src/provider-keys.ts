@@ -4,6 +4,7 @@
 import { toolSecretNames } from '@kindgi/tools';
 import type { Cursor, TenantId } from '@kindgi/types';
 
+import type { ConnectionBinding } from './connection-binding.js';
 import { type MCPEndpointRegistryBinding, mcpEndpointSecretNames } from './mcp-endpoint-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
 import { RESERVED_SECRET_NAME_PREFIX, type SecretBinding } from './secrets-binding.js';
@@ -36,13 +37,55 @@ export function providerKeysOf(registry: ProviderRegistryBinding | undefined): P
   };
 }
 
+/**
+ * A texts registration's key (`token.apiKey`) reaches the whole provider
+ * account, so it's used by its registration only: no tool, MCP endpoint,
+ * webhook endpoint, webhook trigger, model provider or other connection app
+ * registration may name a secret that a live token registration of the
+ * tenant references. These checks refuse it where the name is written.
+ */
+export interface ConnectionKeys {
+  /**
+   * Each secret a live token registration of the tenant references
+   * (`token.apiKey.name`), with the `appId` of every live registration that
+   * names it, in listing order: two creates that raced can both hold one key.
+   */
+  of(tenantId: TenantId): Promise<ReadonlyMap<string, readonly string[]>>;
+}
+
+/**
+ * Reads every page of `binding.listApps`, which lists live registrations
+ * only: a removed one frees its key. A binding's `listApps` must carry
+ * `token` on a token registration's record, or its key isn't seen.
+ */
+export function connectionKeysOf(binding: ConnectionBinding | undefined): ConnectionKeys {
+  return {
+    async of(tenantId) {
+      const out = new Map<string, string[]>();
+      // Without a connection binding there's no registration whose key could clash.
+      if (binding === undefined) return out;
+      for await (const app of pages((cursor) =>
+        binding.listApps({ tenantId, limit: PAGE, ...(cursor !== undefined && { cursor }) }),
+      )) {
+        if (app.token === undefined) continue;
+        const name = app.token.apiKey.name;
+        const appIds = out.get(name);
+        if (appIds === undefined) out.set(name, [app.appId]);
+        else appIds.push(app.appId);
+      }
+      return out;
+    },
+  };
+}
+
 /** What may name a secret, in the words a refusal uses. */
 export type SecretUser =
   | 'a tool'
   | 'an MCP endpoint'
   | 'a webhook endpoint'
   | 'a webhook trigger'
-  | 'a connection app';
+  | 'a connection app'
+  | 'a model provider';
 
 /** Why `name` can't be used by `user`: it's model provider `providerId`'s key. */
 export function providerKeyRefusal(
@@ -63,9 +106,36 @@ export function providerKeyRefusal(
   };
 }
 
-/** Something that uses a secret by name: a tool (its current version), an endpoint, or a webhook trigger. */
+/** Why `name` can't be used by `user`: it's connection app registration `appId`'s account key. */
+export function connectionKeyRefusal(
+  name: string,
+  appId: string,
+  user: SecretUser,
+): {
+  readonly code: 'connection-key-refused';
+  readonly message: string;
+  readonly secret: string;
+  readonly appId: string;
+} {
+  return {
+    code: 'connection-key-refused',
+    message: `\`${name}\` is the account key of connection app registration "${appId}": ${user} never names it, since that key reaches the whole provider account. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account`,
+    secret: name,
+    appId,
+  };
+}
+
+/**
+ * Something that uses a secret by name: a tool (its current version), an
+ * endpoint, a webhook trigger, or a connection app registration.
+ */
 export interface SecretUse {
-  readonly kind: 'tool' | 'mcp-endpoint' | 'webhook-endpoint' | 'webhook-trigger';
+  readonly kind:
+    | 'tool'
+    | 'mcp-endpoint'
+    | 'webhook-endpoint'
+    | 'webhook-trigger'
+    | 'connection-app';
   readonly id: string;
   readonly version?: string;
 }
@@ -80,7 +150,7 @@ export interface SecretUsersDeps {
 }
 
 /** A page's worth, and how many pages at most: past that, the call-time refusal still holds. */
-const PAGE = 100;
+export const PAGE = 100;
 const MAX_PAGES = 100;
 
 export async function* pages<T>(
@@ -191,21 +261,55 @@ async function refuseProviderKeys(
 }
 
 /**
+ * The first secret in `names` that's a texts registration's account key,
+ * refused for `user`, naming a registration other than `ownAppId`: its own key
+ * is its to name, unless another live registration holds it too.
+ */
+async function refuseConnectionKeys(
+  keys: ConnectionKeys | undefined,
+  ownAppId: string | undefined,
+  tenantId: TenantId,
+  names: readonly string[],
+  user: SecretUser,
+): Promise<ReturnType<typeof connectionKeyRefusal> | undefined> {
+  if (keys === undefined || names.length === 0) return undefined;
+  const owned = await keys.of(tenantId);
+  for (const name of names) {
+    const other = owned.get(name)?.find((appId) => appId !== ownAppId);
+    if (other !== undefined) return connectionKeyRefusal(name, other, user);
+  }
+  return undefined;
+}
+
+/**
  * The first secret in `names` that `user` can't name: one under the reserved
- * `kindgi.` prefix, then a model provider's key. Every registration that names
- * secrets checks them here, so none gets one check without the other.
+ * `kindgi.` prefix, then a model provider's key, then a texts registration's
+ * account key (`connections.keys`) that a registration other than
+ * `connections.ownAppId` holds. Every registration that names secrets checks
+ * them here, so none gets one check without the others.
  */
 export async function refuseSecretNames(
   keys: ProviderKeys | undefined,
   tenantId: TenantId,
   names: readonly string[],
   user: SecretUser,
+  connections?: {
+    readonly keys?: ConnectionKeys | undefined;
+    /** The registration being changed (a `PATCH`'s `:appId`): its own key is its to name. */
+    readonly ownAppId?: string | undefined;
+  },
 ): Promise<
-  ReturnType<typeof reservedNameRefusal> | ReturnType<typeof providerKeyRefusal> | undefined
+  | ReturnType<typeof reservedNameRefusal>
+  | ReturnType<typeof providerKeyRefusal>
+  | ReturnType<typeof connectionKeyRefusal>
+  | undefined
 > {
   const reserved = names.find((name) => name.startsWith(RESERVED_SECRET_NAME_PREFIX));
   if (reserved !== undefined) return reservedNameRefusal(reserved, user);
-  return refuseProviderKeys(keys, tenantId, names, user);
+  return (
+    (await refuseProviderKeys(keys, tenantId, names, user)) ??
+    refuseConnectionKeys(connections?.keys, connections?.ownAppId, tenantId, names, user)
+  );
 }
 
 /**

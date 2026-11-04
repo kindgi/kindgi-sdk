@@ -383,6 +383,7 @@ export type {
   ConnectionStartResult,
   ConnectionsClient,
   CreateConnectionAppInput,
+  DisconnectOptions,
   FinishConnectInput,
   ListConnectionAppsFilter,
   ListConnectionCandidatesInput,
@@ -450,6 +451,21 @@ export type {
   UnregisterMailTriggerResult,
   UpdateMailTriggerInput,
 } from './resources/mail-triggers.js';
+export type {
+  ListTextFiresFilter,
+  ListTextTriggerVersionsFilter,
+  ListTextTriggersFilter,
+  RegisterTextTriggerInput,
+  TextFire,
+  TextFirePage,
+  TextTrigger,
+  TextTriggerPage,
+  TextTriggerVersion,
+  TextTriggerVersionPage,
+  TextTriggersClient,
+  UnregisterTextTriggerResult,
+  UpdateTextTriggerInput,
+} from './resources/text-triggers.js';
 export type {
   ListSigningKeysFilter,
   RevokeSigningKeyResult,

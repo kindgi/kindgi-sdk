@@ -67,6 +67,10 @@ export type ConnectionOwnerKind = 'member' | 'company';
  *     refused. One the app gives anyway is used as under `'required'`.
  * - `github-app`: a GitHub App's installation, with its tokens made from
  *   the app's private key.
+ * - `token`: an account's credential, kept on the registration by
+ *   reference. No person signs in. A connect names the account (for
+ *   texts, a number), and the server looks it up with the credential.
+ *   `providers` are the providers a registration may name, each once.
  */
 export type SignIn =
   | {
@@ -81,13 +85,22 @@ export type SignIn =
       readonly tenant?: { readonly default?: string };
       readonly refreshToken?: 'required' | 'optional';
     }
-  | { readonly kind: 'github-app' };
+  | { readonly kind: 'github-app' }
+  | {
+      readonly kind: 'token';
+      readonly providers: readonly [TokenProvider, ...TokenProvider[]];
+    };
+
+/** A provider a `token` sign-in's registration names: whose credential it keeps. */
+export type TokenProvider = 'telnyx';
 
 export interface AppPermission {
   /**
    * The app's own scope or permission: a Google scope URL, `'issues:write'`.
    * One, with no space or comma: the scopes an app grants are read split on
-   * both.
+   * both. For a `token` sign-in it is the permission's own key
+   * (`texts.reply`): the app has no scopes, since the credential reaches
+   * the whole account, so the server checks the permission.
    */
   readonly grants: string;
   /** Plain words for the person asked: `'Send mail as you'`. */
@@ -119,6 +132,10 @@ export interface AppPermission {
  *   `scopes` are asked for besides the permissions' own; each is one, with
  *   no space or comma, as a permission's `grants` is. `url` can't hold
  *   `{tenant}`.
+ * - `number`: the number the connect names, looked up at the provider
+ *   with the registration's credential. The provider's id for the number
+ *   is the id, and the number in E.164 is its label. Only with a `token`
+ *   sign-in, which takes no other.
  */
 export type AccountLookup =
   | {
@@ -133,16 +150,19 @@ export type AccountLookup =
       readonly scopes: readonly string[];
       readonly id: string;
       readonly label: readonly [string, ...string[]];
-    };
+    }
+  | { readonly kind: 'number' };
 
 /** How access is withdrawn, and how the app tells the server it was. */
 export interface AppRemoval {
   /**
    * How a disconnect withdraws access at the app: `oauth2-revoke` needs an
    * `oauth2` sign-in with a `revokeUrl`; `github-installation-token`, a
-   * `github-app` one.
+   * `github-app` one; `restore-inbound`, a `token` one: a removal puts the
+   * number's inbound back where it was before the connect, or clears what
+   * Kindgi set.
    */
-  readonly revoke?: 'oauth2-revoke' | 'github-installation-token';
+  readonly revoke?: 'oauth2-revoke' | 'github-installation-token' | 'restore-inbound';
   /**
    * Whether the app's revoke withdraws everything the person granted the
    * registration, not only this connection's permissions. Google's does.

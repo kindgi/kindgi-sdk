@@ -37,7 +37,11 @@ const resolveToken: TokenResolver = async (token) =>
       ? { tenantId: TENANT, userId: 'user-1' as UserId, scopes: ['tenant-admin'] }
       : null;
 
-function setup(nameRefusal?: SecretBinding['nameRefusal']) {
+/** `texts`: the runtime has connections, with a live texts registration whose key is `acme-telnyx-key`. */
+function setup(
+  nameRefusal?: SecretBinding['nameRefusal'],
+  opts: { readonly texts?: boolean } = {},
+) {
   const registry = createInMemoryTriggerRegistry({ defaultProjectId: DEFAULT_PROJECT as never });
   const app = createApp({
     ...createStubAppBindings(),
@@ -55,6 +59,25 @@ function setup(nameRefusal?: SecretBinding['nameRefusal']) {
     resolveToken,
     runHandler: {} as RunHandlerBinding,
     webhookReceiver: { envName: 'test' as EnvName },
+    ...(opts.texts === true && {
+      connections: {
+        entries: () => [],
+        listApps: async () => ({
+          data: [
+            {
+              appId: 'acme-texts-app',
+              tenantId: TENANT,
+              app: 'texts',
+              token: {
+                provider: 'telnyx',
+                apiKey: { envName: 'test', name: 'acme-telnyx-key' },
+                publicKey: `${'A'.repeat(43)}=`,
+              },
+            },
+          ],
+        }),
+      } as never,
+    }),
   });
   const call = async (method: string, path: string, body?: unknown, token = TOKEN) => {
     const res = await app.request(`/v1/webhooks${path}`, {
@@ -156,6 +179,18 @@ describe('registering a webhook trigger', () => {
     expect(res).toMatchObject({ status: 400, body: { error: { code: 'provider-key-refused' } } });
   });
 
+  test("refuses a texts registration's account key as its secret, and registers nothing", async () => {
+    const { call, base } = setup(undefined, { texts: true });
+    const res = await call('POST', '', { ...base, hmacSecretName: 'acme-telnyx-key' });
+    expect([res.status, res.body.error?.code, res.body.error?.details]).toEqual([
+      400,
+      'connection-key-refused',
+      { secret: 'acme-telnyx-key', appId: 'acme-texts-app' },
+    ]);
+    expect(res.body.error.message).toContain('a webhook trigger never names it');
+    expect((await call('GET', '')).body.data).toEqual([]);
+  });
+
   test('refuses a reserved `kindgi.` name as its secret, named or generated', async () => {
     const { call, base } = setup();
     const named = await call('POST', '', { ...base, hmacSecretName: 'kindgi.webhook' });
@@ -229,6 +264,14 @@ describe('changing a webhook trigger', () => {
     const sw = await call('PATCH', `/${t.triggerId}`, { signature: { kind: 'standard-webhooks' } });
     expect(sw.status).toBe(400);
     expect(sw.body.error.message).toContain('`webhook-id`');
+  });
+
+  test("refuses a texts registration's account key as its new secret, and keeps the old one", async () => {
+    const { call, base } = setup(undefined, { texts: true });
+    const t = (await call('POST', '', base)).body;
+    const res = await call('PATCH', `/${t.triggerId}`, { hmacSecretName: 'acme-telnyx-key' });
+    expect([res.status, res.body.error?.code]).toEqual([400, 'connection-key-refused']);
+    expect((await call('GET', `/${t.triggerId}`)).body.hmacSecretName).toBe('acme-hmac');
   });
 });
 
