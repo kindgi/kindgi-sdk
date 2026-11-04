@@ -23,7 +23,7 @@ import { type PinnedVersionsClient, makePinnedVersionsClient } from './pinned-ve
  */
 export interface ToolsClient {
   /**
-   * Paginated list of tools available in the caller's tenant. Only
+   * Paginated list of tools available in the caller's workspace. Only
    * currently-active tools appear (i.e., tools with at least one
    * non-tombstoned version). Fully-retired tools drop from the list
    * but retain their identity — `get(id)` still resolves them to a
@@ -88,7 +88,7 @@ export interface ToolsClient {
 
   /**
    * Pinned versions: which version an agent or flow version made in a
-   * project locks the tool at, per project, org or tenant. Without a pin
+   * project locks the tool at, per project, org or workspace. Without a pin
    * covering the project, it locks the newest version (an agent: the
    * newest in its reference's range). A version already made keeps its
    * lock.
@@ -121,7 +121,7 @@ export interface ToolVersionsClient {
   /**
    * Fetch a specific tool version by exact semver. Returns
    * `404 tool-not-found` when the (id, version) pair isn't registered
-   * under this tenant.
+   * under this workspace.
    *
    * @wire `GET /v1/tools/{toolId}/versions/{version}`
    */

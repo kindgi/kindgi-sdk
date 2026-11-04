@@ -38,7 +38,7 @@ const creator = 'user-1' as UserId;
 const principal = principalFromToken({ tenantId, userId: creator });
 
 // A project binding calls this inside its write transaction with the new row id:
-// a `parent` tuple (tenant:acme → project) plus an `owner` tuple for the creator.
+// a `parent` tuple (workspace:acme → project) plus an `owner` tuple for the creator.
 const enqueueTuples: TupleEnqueueHook = (rowId) =>
   tuplesForCreate({ kind: 'project', id: rowId as ProjectId, tenantId }, creator);
 

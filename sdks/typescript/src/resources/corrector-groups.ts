@@ -14,7 +14,7 @@ import type {
 
 /**
  * Corrector groups resource: the deployment's named kinds of person who corrects
- * ("expert", "user", ...), each with a weight, scoped to the tenant, a
+ * ("expert", "user", ...), each with a weight, scoped to the workspace, a
  * project, or an agent in a project.
  */
 export interface CorrectorGroupsClient {

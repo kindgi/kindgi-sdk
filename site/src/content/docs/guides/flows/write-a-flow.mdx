@@ -606,7 +606,7 @@ object ProcessOrder {
 
 The shape is checked when the file loads: ids, edges between steps that
 exist, `$start` and `$end`, no cycles. That the tools and the agent exist is
-checked when a run starts: a run of a flow that names a tool your tenant
+checked when a run starts: a run of a flow that names a tool your workspace
 doesn't have is refused before anything runs.
 
 ## Run it
@@ -768,7 +768,7 @@ back**, and the version's own page says "1.0.0 is retired", since when, and
 "Runs that name it are refused, and runs that name no version don't use
 it.", with **Bring back**.
 
-![Version 1.0.0's page: "1.0.0 (retired): 2 steps: 2 agents.", then "1.0.0 is retired", since when, that runs naming it are refused and runs naming no version don't use it, and Bring back, above its graph; under Versions, 1.0.0 is marked retired and shown, with Bring back.](../../../../assets/flows/flow-retired-version.png)
+![Version 1.0.0's page: the version, 1.0.0, marked Retired, with "Latest is 2.0.0"; then "1.0.0 is retired", since when, that runs naming it are refused and runs naming no version don't use it, and Bring back, above its graph of two agent steps; under Versions, 1.0.0 is marked Retired and This version, with Bring back.](../../../../assets/flows/flow-retired-version.png)
 
 Retiring a flow's only version in use says "It is the only version in use:
 the Flows list shows the flow only under Show retired, and runs that name no

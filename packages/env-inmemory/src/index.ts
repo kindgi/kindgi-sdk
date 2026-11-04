@@ -67,7 +67,7 @@ export interface InMemoryEnvBindingOptions {
    *
    * `tenantId` + `projectId` must be provided alongside — emission is
    * enabled only when all three are set, and every emitted record is
-   * attributed to this tenant + project.
+   * attributed to this workspace + project.
    */
   readonly auditEvents?: AuditEventBinding;
   readonly tenantId?: TenantId;

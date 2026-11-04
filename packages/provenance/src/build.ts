@@ -14,7 +14,7 @@ import type { KeyProvider, Provenance, ProvenanceEdge, ProvenanceNode } from './
  * `finalize(keyProvider)` produces a signed `Provenance` ready to hand to
  * a `ProvenanceEmitBinding`.
  *
- * Not tenant-scoped internally — the tenantId set at construction is
+ * Not workspace-scoped internally — the tenantId set at construction is
  * embedded in the final record. Not thread-safe; callers hold one builder
  * per run and don't share it across concurrent runs.
  */

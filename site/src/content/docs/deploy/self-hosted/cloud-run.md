@@ -806,7 +806,9 @@ A deployment registered before the runtime routed per deployment, with the
 module's earlier single pack service, has no routes: its tool calls answer
 `pack-route-missing`. Deploy it again. The same image is enough, with
 `--idempotency-key <new value>` so the runtime doesn't answer it as it did
-the earlier deploy.
+the earlier deploy. The deploy answers with that same deployment and says
+its pack service is asked for, and `kindgi deployments get <deployment-id>`
+says when it's ready.
 
 To deploy a client's pack into its own project, add `--project <id or slug>` ([Deploy a client's pack into its project](../../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
 

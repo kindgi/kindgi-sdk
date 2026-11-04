@@ -10,7 +10,7 @@ sign-ins and API keys, and your pipelines have service accounts. With
 [authorization](../authorization/) on, each has a role, with only what they
 need. You can also remove someone in one step.
 
-A tenant has **people**, each with their own sign-in and API keys. It also
+A workspace has **people**, each with their own sign-in and API keys. It also
 has **service accounts**, which act for a pipeline or an app. A **tenant
 admin** adds them. With authorization on, what each may do is kept in
 OpenFGA, and the first tenant admin is the runtime's seed user:
@@ -41,10 +41,10 @@ as `KINDGI_SEED_USER_ID`, are Kindgi's.
 
 With authorization on:
 
-- **A tenant admin** does everything in the tenant. They add and remove
-  people, make keys for anyone, and change tenant-wide settings: providers,
+- **A tenant admin** does everything in the workspace. They add and remove
+  people, make keys for anyone, and change workspace-wide settings: providers,
   policies, signing keys, deployments and identity providers.
-- **A tenant member** reads the tenant's settings, not its projects: its
+- **A tenant member** reads the workspace's settings, not its projects: its
   providers, policies, adapters and signing keys. Everyone you add is one.
   A deployment is read in the project it serves: a member lists and reads
   only those in projects they read. One deployed without a project is the
@@ -56,22 +56,22 @@ With authorization on:
   unless you make it one.
 - **A capability** is needed on top of the role to trust signing keys
   (`signing-keys:write`) and to write secrets and environment values
-  (`secrets:write`, `env:write` and the like). A tenant's first admin, the
+  (`secrets:write`, `env:write` and the like). A workspace's first admin, the
   person it was created with on a runtime serving many tenants, holds every
   one but `secrets:reveal`, and no other person holds any. A key carries
   those it was made with ([API keys](#api-keys)).
 
 Lists hold only what the caller may read.
 
-:::caution[One company per tenant]
-Everyone in a tenant reads its settings. Give people from different
-companies different tenants, not different projects of one tenant.
+:::caution[One company per workspace]
+Everyone in a workspace reads its settings. Give people from different
+companies different workspaces, not different projects of one workspace.
 :::
 
 ## Without authorization
 
 A runtime without an authorization store, with no `KINDGI_OPENFGA_API_URL`,
-suits one tenant whose people trust each other: one operator, or a small
+suits one workspace whose people trust each other: one operator, or a small
 team. `kindgi dev` runs this way. Serving many tenants needs authorization:
 with `KINDGI_TENANCY=multi`, the runtime doesn't start without a store.
 
@@ -79,7 +79,7 @@ with `KINDGI_TENANCY=multi`, the runtime doesn't start without a store.
   its agents, runs, conversations and deployments. Writing secrets and
   environment values still takes its capability: a key made with it
   carries it, and a sign-in carries none ([API keys](#api-keys)).
-- **Tenant settings are the tenant admin's.** Anyone reads the tenant's
+- **Workspace settings are the tenant admin's.** Anyone reads the workspace's
   policies, model providers, adapters, identity providers and signing keys,
   and only the tenant admin changes them. Webhook endpoints and compliance
   evidence are the tenant admin's to read too, as are people, keys for
@@ -103,7 +103,7 @@ access, or more than one person needs to be a tenant admin.
 
 ## Add a person
 
-Adding a person gives them a place in the tenant, so they can sign in and
+Adding a person gives them a place in the workspace, so they can sign in and
 get keys:
 
 ```sh
@@ -111,7 +111,7 @@ npx --yes @kindgi/cli@0.2 people add --name="Sam Rivera" --email=sam@acme.exampl
 ```
 
 - `--name` is their name, as people see it.
-- `--email` is the email they sign in with. It's unique among the tenant's
+- `--email` is the email they sign in with. It's unique among the workspace's
   people. A person added with one is [invited](#their-invitation).
 - `--no-invite` doesn't email them the invitation, for when you tell them
   yourself. They're still invited.
@@ -125,7 +125,7 @@ With sign-in off, nobody is [invited](#their-invitation):
   "displayName": "Sam Rivera",
   "email": "sam@acme.example"
 }
-Added to the tenant: they can read its settings. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then their first key: kindgi tokens create --for=user:002ee784-0b05-47fb-918e-34d192be94c1
+Added to the workspace: they can read its settings. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then their first key: kindgi tokens create --for=user:002ee784-0b05-47fb-918e-34d192be94c1
 ```
 
 An email another person already has is refused with
@@ -152,11 +152,11 @@ project admin added a viewer as `GUS@acme.test`:
 {"projectId":"ea6e0f95-301e-4017-b2d4-82590cc6ec64","userId":"74e4beb8-6aa4-47ef-9f2a-e0245ee62343","role":"viewer"}
 ```
 
-Someone who isn't one of the tenant's people, or who was removed, isn't
+Someone who isn't one of the workspace's people, or who was removed, isn't
 added:
 
 ```json
-{"error":{"code":"identity-user-not-found","message":"No one with email \"outsider@example.com\" is a member of this tenant","requestId":"req-304865e8-9499-48cd-afca-2f8c87e8f05d"}}
+{"error":{"code":"identity-user-not-found","message":"No one with email \"outsider@example.com\" is a member of this workspace","requestId":"req-304865e8-9499-48cd-afca-2f8c87e8f05d"}}
 ```
 
 In the TypeScript client, it's
@@ -176,9 +176,9 @@ invitation read:
 
 ```text
 From: Kindgi <sign-in@acme-live.example>
-Subject: You're invited to Default tenant on Kindgi
+Subject: You're invited to Default workspace on Kindgi
 
-seed-user added you to Default tenant on Kindgi.
+seed-user added you to Default workspace on Kindgi.
 
 Sign in with this email address here:
 
@@ -212,7 +212,7 @@ stderr whether it went out:
     "sent": true
   }
 }
-Added to the tenant: they can read its settings. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then their first key: kindgi tokens create --for=user:f9054f5f-3a4b-40af-8aa9-317c32eead7c
+Added to the workspace: they can read its settings. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then their first key: kindgi tokens create --for=user:f9054f5f-3a4b-40af-8aa9-317c32eead7c
 The invitation went to ann@acme.test: they sign in with it before it expires (2026-10-24T15:06:45.522Z).
 ```
 
@@ -230,7 +230,7 @@ does the line on stderr:
 | `not-requested` | `--no-invite` (`sendInvite: false`). |
 | `not-configured` | The runtime has no sign-in email sender, so there's no emailed link: they sign in through Google, Microsoft, GitHub or the workspace's identity provider, with that email. |
 | `send-failed` | The mail server refused it or didn't answer. |
-| `capped` | The tenant, or the whole deployment, has sent as many invitation emails as it may in 24 hours (below). |
+| `capped` | The workspace, or the whole deployment, has sent as many invitation emails as it may in 24 hours (below). |
 | `no-email` | They have no email, so they aren't invited. |
 
 With `--no-invite`, the line reads:
@@ -250,10 +250,10 @@ npx --yes @kindgi/cli@0.2 people invite <user-id>
 Someone who has joined, or was never invited, is refused with
 `409 identity-user-not-invited`. Sending one person's again within a
 minute, more than 5 times in 24 hours, or past the invitation emails the
-tenant, or the whole deployment, may send in 24 hours, is refused with
+workspace, or the whole deployment, may send in 24 hours, is refused with
 `429 invite-capped` and a `Retry-After`, and changes nothing.
 
-In 24 hours a tenant sends at most 100 invitation emails, or 10 while it
+In 24 hours a workspace sends at most 100 invitation emails, or 10 while it
 isn't allowed [production](../../guides/projects/organize-by-org-and-project/#put-a-project-in-production)
 (with `KINDGI_PRODUCTION_GATE` set to `on`). The whole deployment sends at
 most 500 by default, all its tenants together
@@ -287,7 +287,7 @@ sends it again, and `users.list({ pending: true })` lists the invited.
 
 ## Make someone a tenant admin
 
-A tenant admin can do everything in the tenant. `grant` makes someone one,
+A tenant admin can do everything in the workspace. `grant` makes someone one,
 and `ungrant` takes it away:
 
 ```sh
@@ -338,7 +338,7 @@ capabilities makes new keys with them
 their own keys, once they're an admin again, or one made for another
 tenant admin or a service account that's one. Before you revoke the last
 key that carries a capability, or let it expire, make its replacement with
-it. If the first admin doesn't hold a capability and no key in the tenant
+it. If the first admin doesn't hold a capability and no key in the workspace
 carries it, contact support.
 
 Make the key that carries these capabilities for a service account that's
@@ -376,7 +376,7 @@ a role.
   limited to.
 - **`tokenCapabilities`:** what your token itself carries for secret, env and
   signing-key writes. A sign-in session carries the ones you hold as a person.
-  A tenant's first admin, the person it was created with, holds every one but
+  A workspace's first admin, the person it was created with, holds every one but
   `secrets:reveal`; no one else holds any. An API key carries those it was
   minted with, none by default, and only ones its minter holds.
 - **`projects`:** each project you may read, with your highest role in it and
@@ -399,7 +399,7 @@ a role.
   couldn't read its tenants just then, and on an older runtime: ask
   `GET /v1/license` as before.
 - **`readOnlyNotice`:** the line the console shows someone who may only
-  view a project, when a tenant admin set one. It's in the tenant config,
+  view a project, when a tenant admin set one. It's in the workspace's config,
   `kind: 'config'`, key `console.readOnlyNotice`, plain text on one line, at
   most 280 characters.
 
@@ -445,7 +445,7 @@ Make longer-lived keys with one of those, such as the 90-day key in
 
 - **For someone else,** as a tenant admin only: `--for=user:<user-id>` or
   `--for=sa:<service-account-id>`.
-- **`--role=member`,** the default, takes no admin action on the tenant,
+- **`--role=member`,** the default, takes no admin action on the workspace,
   even for a tenant admin. A project admin's member key still manages that
   project's members. **`--role=admin`** is made only by a tenant admin, and
   only for a tenant admin. For anyone else, it's refused with
@@ -513,7 +513,7 @@ For automation, use a service account's key: its runs count as unattended,
 so a tool that needs a person's yes when no one is watching waits for one
 ([When no person started the run](../../guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run)).
 
-- **A tenant's first admin key is a service account's.** It's the key
+- **A workspace's first admin key is a service account's.** It's the key
   `POST /v1/system/tenants` answers with when it names no `firstAdmin`, so
   the runs it starts count as unattended. For the work you start yourself,
   add yourself as a person ([Add a person](#add-a-person)) and use a key of
@@ -564,17 +564,17 @@ once. You can grant `--tenant-admin`, `--tenant-member` and
 and `ungrant`.
 
 CI's deploys name that project, with `kindgi deploy --project <id or slug>`.
-A deploy that names no project is tenant-wide, which needs `admin` on the
-tenant, so this key is refused.
+A deploy that names no project is workspace-wide, which needs `admin` on the
+workspace, so this key is refused.
 
 On Kindgi Cloud, CI needs a tenant admin's key instead, because Kindgi
 Cloud builds a pack only with one: an account made with `--tenant-admin`,
 and a key made with `--role=admin` and no `--project`. The key needs no
 capability: add `--capability=secrets:write` only when CI runs
-`kindgi deploy --sync-secrets`. That key reaches the whole tenant, so keep
+`kindgi deploy --sync-secrets`. That key reaches the whole workspace, so keep
 it in CI's deploy step only.
 
-Give `--tenant-member` only to an account whose job reads the tenant's
+Give `--tenant-member` only to an account whose job reads the workspace's
 settings. Without it, such a read is refused, and the refusal says how to
 grant it.
 
@@ -633,12 +633,12 @@ runtime can't make a project's own account."
 For an account used across projects, with other grants, or with keys for
 an app, make one of your own, as above.
 
-## Who sees the tenant's people
+## Who sees the workspace's people
 
 Only a tenant admin lists them. Anyone else gets:
 
 ```json
-{"error":{"code":"permission-denied","message":"Only a tenant admin lists the tenant's people","requestId":"req-6f9ecda9-4a1d-4ef4-83a8-c91d5c78e47f"}}
+{"error":{"code":"permission-denied","message":"Only a tenant admin lists the workspace's people","requestId":"req-6f9ecda9-4a1d-4ef4-83a8-c91d5c78e47f"}}
 ```
 
 A person's record and sessions are for a tenant admin, or that person.
@@ -672,7 +672,7 @@ In one step, before it answers, their API keys are revoked, their sessions
 end, and every grant, membership and capability is taken away, with what
 their creates gave them: `owner` on each agent, flow, tool, guardrail and
 test set they made, and `admin` on an org they made (runtime 0.1.9 or
-later). What they made stays. The tenant's admins still manage all of it,
+later). What they made stays. The workspace's admins still manage all of it,
 and an org's admins what's in their org; no one becomes its owner. The next
 request with Sam's key:
 
@@ -694,7 +694,7 @@ The fire's `detail`, in `kindgi schedules fires` or `kindgi webhooks fires`,
 says why:
 
 ```text
-The owner user:… was removed from the tenant, so flow acme.digest@1.0.0 no longer runs as them: take the schedule over, or delete it.
+The owner user:… was removed from the workspace, so flow acme.digest@1.0.0 no longer runs as them: take the schedule over, or delete it.
 ```
 
 To keep one running, take it over, before or after you remove them:
@@ -730,19 +730,19 @@ It's refused for yourself and for the seed user, with
   `signing-keys:write`. A key that trusts signing keys is an **Admin** key,
   under **How far it goes**, with **Trust signing keys** ticked.
 
-  ![The API keys page: one key, labelled laptop, acting as Sam Rivera with the member role, never used, expiring a month after it was made, with a Revoke button.](../../../assets/people/api-keys.png)
+  ![The API keys page: "Keys for apps and pipelines belong to a service account; a person's key goes to them. To add someone, see People."; then one key, labelled laptop, acting as Sam Rivera with the member role on every project it can reach, never used, expiring a month after it was made, with a Revoke icon.](../../../assets/people/api-keys.png)
 - **Service accounts,** for tenant admins: create one with its grants,
   change them, make it a key, or unregister it.
 
-  ![The Service accounts page: acme-ci, "Deploys from CI", admin on the default project, with no active keys yet.](../../../assets/people/service-accounts.png)
+  ![The Service accounts page: acme-ci, "Deploys from CI", admin on First Project, with no active keys yet.](../../../assets/people/service-accounts.png)
 
 A project you have no role on shows **No access**, with the projects you can
 open.
 
 ### People
 
-**People**, for tenant admins, lists the tenant's people: each one's access
-in words, such as "reads the tenant's settings, viewer on Support, member
+**People**, for tenant admins, lists the workspace's people: each one's access
+in words, such as "reads the workspace's settings, viewer on Support, member
 of team Support crew, standard reviewer", their active keys, when they were
 last active, and when they were added. Access is what each was granted
 directly: what a team's role gives on a project isn't listed there. A
@@ -752,22 +752,22 @@ order the list, and the page's address keeps them.
 Someone [invited](#their-invitation) who hasn't signed in yet is marked
 **(invited)**, and **(invitation expired)** once its 7 days pass:
 
-![The People page with five people: Lee Park (invitation expired), added 9 days ago; the seed user (you), admin reviewer; and Ann Lee, Bo Chen and Kim Ito, each (invited), with no role yet, added just now.](../../../assets/people/people-invites.png)
+![The People page with five people: Lee Park (invitation expired), added 9 days ago; the seed user (you), tenant admin and admin reviewer; and Ann Lee, Bo Chen and Kim Ito, each (invited), reading the workspace's settings, added just now.](../../../assets/people/people-invites.png)
 
-![The People page: "8 people in this tenant", a People who were removed checkbox, Columns and Add a person; each person with their email, their access in words (the seed user: tenant admin, owner on Support and Billing, admin of team Support crew, admin reviewer; Ada Lovelace: reads the tenant's settings, viewer on Support, member of team Support crew, standard reviewer; Sam Rivera: reads the tenant's settings), their active keys, when they were last active and when they were added.](../../../assets/people/people.png)
+![The People page: a People who were removed checkbox, Search, Columns and Add a person; each person with their email, their access in words (the seed user: tenant admin, owner on Support, owner on Billing, admin of team Support crew, admin reviewer; Ada Lovelace: reads the workspace's settings, viewer on Support, member of team Support crew, standard reviewer; Sam Rivera: reads the workspace's settings), their active keys, when they were last active and when they were added.](../../../assets/people/people.png)
 
 **Add a person** adds someone with their access in one step: "Give them
 their access now, in the same step." It takes a name, an optional email
-("One person per email in this tenant."), project roles, teams, a reviewer
+("One person per email in this workspace."), project roles, teams, a reviewer
 tier, and tenant admin.
 
-![The Add a person dialog: a name and an email, a viewer role on Billing, the team Support crew as a member, no reviewer role, and the Tenant admin checkbox, with an Add button.](../../../assets/people/add-person.png)
+![The Add a person dialog: a name and an email ("One person per email in this workspace."), a viewer role on Billing, the team Support crew as a member, no reviewer role, and the checkbox "Tenant admin: they administer the whole workspace", with an Add button.](../../../assets/people/add-person.png)
 
 Each part is a step of its own. When they all work, the person's page
 opens. When one doesn't, the dialog says how each went:
 
 - **They weren't added,** such as for an email someone has: "Sam Rivera
-  wasn't added.", each step with why ("Someone in this tenant already has
+  wasn't added.", each step with why ("Someone in this workspace already has
   that email.") or "not tried: they weren't added", and **Change and try
   again**.
 - **They were added, but not everything was given:** the steps that failed
@@ -791,31 +791,31 @@ where you may:
   what it gives, such as "Also changes it: registers and runs agents,
   corrects answers, publishes." for an editor.
 - **Reviewer:** their tier, or none; **Take off the roster**.
-- **Tenant admin:** making or unmaking one. "A tenant always keeps one
+- **Tenant admin:** making or unmaking one. "A workspace always keeps one
   admin: removing the only one is refused."
 
 Taking something away asks first: "Take Ada Lovelace off Support? From
 their next request on, they can't work in Support. Their other access, and
 what they did there, stay." The page also lists their keys, with **Make a
 key for** them, where they're signed in, their sign-ins, and **Remove from
-the tenant**.
+the workspace**.
 
 Until they first sign in, their page has an **Invitation** section: when
 it's open until and when it was emailed, or when it expired ("they can't
 sign in until it's sent again"). **Send it again** opens it for 7 days from
 then ("Renewed: open for 7 days from now."), and says whether it went out;
 for an open one never emailed, it's **Send the invitation**. **Remove
-from the tenant** reads **Revoke the invitation**: "They haven't signed in: revoking
-removes them from the tenant, so the invitation no longer lets them in.
+from the workspace** reads **Revoke the invitation**: "They haven't signed in: revoking
+removes them from the workspace, so the invitation no longer lets them in.
 Adding their email again invites them anew."
 
-![Ann Lee's page before they signed in: no keys and nothing they may do yet; Invitation: "They haven't signed in yet. Their invitation is open until 24 Oct 2026, 11:06 AM EDT; emailed 17 Oct 2026, 11:06 AM EDT.", with Send it again; then Revoke the invitation, with its button.](../../../assets/people/person-invitation.png)
+![Ann Lee's page before they signed in: no keys; What they may do: "They read the workspace's settings, nothing more"; no second factor; Invitation: "They haven't signed in yet. Their invitation is open until 10 Nov 2026, 12:01 PM EST; emailed 3 Nov 2026, 12:01 PM EST.", with Send it again; then Revoke the invitation, with its button.](../../../assets/people/person-invitation.png)
 
-![Ada Lovelace's page as a tenant admin: "1 active key acts as Ada Lovelace" with Make a key for Ada Lovelace; What they may do: Support (viewer) and Support crew (member), each with Take away; Reviewer: Standard, with Take off the roster; Tenant admin: No, with Make tenant admin; Give access (a project, a role); then Signed in, Their keys (ada-laptop, expiring in 3 days, with Revoke), Sign-ins, and Remove from the tenant.](../../../assets/people/person.png)
+![Ada Lovelace's page as a tenant admin: "1 active key acts as Ada Lovelace" with Make a key for Ada Lovelace; What they may do: Support (viewer) and Support crew (member), each with Take away; Reviewer: Standard, with Take off the roster; Tenant admin: No, with Make tenant admin; Give access (a project, a role); then Signed in, Their keys (ada-laptop, expiring in 3 days, with a Revoke icon), Sign-ins, and Remove from the workspace.](../../../assets/people/person.png)
 
 ### What needs you
 
-A tenant admin's home in the tenant starts with what needs a look, such as
+A tenant admin's home in the workspace starts with what needs a look, such as
 "8 people in 3 projects and 1 team. 3 people have no project of their own;
 1 key expires this week.", or "Nothing needs you right now.":
 
@@ -828,7 +828,7 @@ A tenant admin's home in the tenant starts with what needs a look, such as
   recorded as denied, with **All refused requests**. "Someone refused may be
   missing access they need."
 
-![The tenant's home as a tenant admin. What needs you: "8 people in 3 projects and 1 team. 3 people have no project of their own; 1 key expires this week."; No project of their own: Ben Okafor, Sam Rivera and Eddie Park; Keys: "ada-laptop expires in 3 d"; Recently refused: a person refused admin on the tenant, just now. Below: the projects, and the tenant's sections.](../../../assets/people/tenant-home.png)
+![The workspace's home as a tenant admin. What needs you: "8 people in 3 projects and 1 team. 3 people have no project of their own; 1 key expires this week."; No project of their own: Ben Okafor, Sam Rivera and Eddie Park; Keys: "ada-laptop expires in 3d"; Recently refused: "Ada Lovelace: admin on the workspace", just now. Below: the projects, and Workspace administration, the sections that cover every project.](../../../assets/people/workspace-home.png)
 
 It counts everyone, and never says all is clear before it has read
 everything. While a read is still coming in, it says so, such as "Still

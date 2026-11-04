@@ -52,6 +52,7 @@ import { throwAgentTurnFailure } from './errors.js';
 import { bindRunFiles } from './files.js';
 import { readGateDecision } from './gate-decision.js';
 import { addModelWarnings } from './model-call.js';
+import { offerAccounts } from './offer-accounts.js';
 import type { StepPointsOutput } from './point-gate.js';
 import { rehydrateReplay } from './replay.js';
 import type { PinnedBlockVersions } from './resolve-blocks.js';
@@ -178,6 +179,7 @@ export async function rehydrateTurnContext(
     setup.blockVersions,
     setup.guardrails,
   );
+  await offerAccounts(ctx, runId);
 
   const userMessage = outputOf<{ readonly sequence: number }>(steps, 'persist-user-message');
   if (userMessage !== undefined) {

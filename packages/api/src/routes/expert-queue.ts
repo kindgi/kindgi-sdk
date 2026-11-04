@@ -26,6 +26,7 @@ import type {
   QueueRuleSpec,
 } from '../expert-queue-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { isReadMethod } from '../read-method.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
 import type { AppEnv } from '../types.js';
@@ -66,7 +67,7 @@ export function expertQueueRouter(
       return fail(c, 'bad-input', `"${projectId}" isn't a project id`);
     }
     if (authorizer !== undefined) {
-      const action = c.req.method === 'GET' ? 'read' : 'write';
+      const action = isReadMethod(c.req.method) ? 'read' : 'write';
       let allowed = false;
       const answer = await authorizer.authorize(action, () => ref('project', projectId))(
         c,

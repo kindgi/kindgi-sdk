@@ -15,6 +15,7 @@ MAIL = {
     "appName": "Google",
     "accessToken": TOKEN,
     "account": {"id": "g-1", "label": "ana@acme.example"},
+    "name": "Ana's mail",
     "expiresAt": "2026-10-23T01:00:00.000Z",
 }
 
@@ -30,6 +31,7 @@ def test_the_context_reads_connections_by_the_tools_name() -> None:
         access_token=TOKEN,
         account=ConnectionAccount(id="g-1", label="ana@acme.example"),
         expires_at="2026-10-23T01:00:00.000Z",
+        name="Ana's mail",
     )
 
 
@@ -61,6 +63,14 @@ def test_without_an_expiry_it_is_none() -> None:
     plain = {k: v for k, v in MAIL.items() if k != "expiresAt"}
     connection = ToolConnection.from_wire(plain)
     assert connection is not None and connection.expires_at is None
+
+
+def test_without_a_name_or_with_one_that_is_not_text_it_is_none() -> None:
+    # A runtime before pack protocol 2.11.0 sends no name.
+    older = ToolConnection.from_wire({k: v for k, v in MAIL.items() if k != "name"})
+    assert older is not None and older.name is None
+    odd = ToolConnection.from_wire({**MAIL, "name": 7})
+    assert odd is not None and odd.name is None and odd.connection_id == "c-1"
 
 
 def test_a_rejection_names_the_connection_and_says_why() -> None:

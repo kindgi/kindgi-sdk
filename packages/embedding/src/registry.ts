@@ -20,8 +20,8 @@ import type { EmbeddingProvider } from './types.js';
  * retrieval) reads from the registry instead of receiving a provider
  * per call.
  *
- * Not tenant-scoped — providers are process-global. Which model a
- * tenant is allowed to use is a separate concern, outside the registry.
+ * Not workspace-scoped — providers are process-global. Which model a
+ * workspace is allowed to use is a separate concern, outside the registry.
  */
 export interface EmbeddingProviderRegistry {
   /**

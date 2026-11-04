@@ -4,7 +4,7 @@ Storage contract for Kindgi artifacts (blobs). `BlobStorageBinding` is the inter
 
 ## Purpose
 
-Keep storage out of the API package while giving both wire surfaces one store. Every blob has two addresses kept in a single metadata record: a `blobId` (used by `/v1/artifacts/*`) and a `(bucket, key)` pair (used by `/s3/*`). Uploads through `put` get a synthetic `(bucket, key)` so they are also reachable over S3, and `head(blobId)` and `headByKey(bucket, key)` return the same `BlobMeta` for the same blob. Every method takes `tenantId` explicitly so adapters can partition storage per tenant. Cursors and continuation tokens are opaque and adapter-defined.
+Keep storage out of the API package while giving both wire surfaces one store. Every blob has two addresses kept in a single metadata record: a `blobId` (used by `/v1/artifacts/*`) and a `(bucket, key)` pair (used by `/s3/*`). Uploads through `put` get a synthetic `(bucket, key)` so they are also reachable over S3, and `head(blobId)` and `headByKey(bucket, key)` return the same `BlobMeta` for the same blob. Every method takes `tenantId` explicitly so adapters can partition storage per workspace. Cursors and continuation tokens are opaque and adapter-defined.
 
 Contract rules adapters follow:
 

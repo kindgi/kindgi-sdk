@@ -43,7 +43,7 @@ export interface FileToStore {
 /**
  * Why a store kept nothing: `type` (the bytes aren't a type a model is
  * shown), `size` (over the type's limit), `limit` (the call has stored
- * `MAX_STORED_FILES_PER_CALL` files), or `storage` (the tenant's storage
+ * `MAX_STORED_FILES_PER_CALL` files), or `storage` (the workspace's storage
  * is full).
  */
 export type FileNotStoredReason = Extract<

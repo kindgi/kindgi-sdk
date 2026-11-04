@@ -53,7 +53,7 @@ Schemas reference each other by `$id` (e.g. `pack.schema.json` →
 | `pack.schema.json` | Pack manifest — installable vertical application |
 | `pack-index.schema.json` | Pack index — the `index.json` a pack build emits; what a runtime registers and a pack service loads |
 | `pack-protocol.schema.json` | Pack protocol v2 — the messages a runtime exchanges with a pack service (any language) |
-| `policy.schema.json` | Tenant policy — access control and scope rules |
+| `policy.schema.json` | Workspace policy — access control and scope rules |
 | `provenance.schema.json` | Causal DAG — signed, portable, verifiable outside the runtime |
 | `run-event.schema.json` | Kernel run lifecycle events (SSE stream) |
 | `signed-export.schema.json` | Signed export — the envelope of every signed export (audit bundle, provenance, compliance evidence): the signed bytes, the signature, the key |

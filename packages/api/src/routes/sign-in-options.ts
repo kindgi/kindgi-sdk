@@ -122,7 +122,7 @@ export function checkConsoleLinks(links: readonly ConsoleLink[] | undefined): vo
     const shown = label.trim();
     if (shown === '' || shown.length > MAX_CONSOLE_LINK_LABEL || hasHiddenCharacters(shown)) {
       throw new Error(
-        `createApp: consoleLinks[${i}].label must be 1 to ${MAX_CONSOLE_LINK_LABEL} characters, with no control or format character.`,
+        `createApp: consoleLinks[${i}].label must be 1 to ${MAX_CONSOLE_LINK_LABEL} characters, with no control, format or invisible character.`,
       );
     }
     const first = placeOf.get(shown);

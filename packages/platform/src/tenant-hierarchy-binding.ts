@@ -32,7 +32,7 @@ export interface CreateOrgParams {
   /**
    * The person who creates it, made its admin. Absent when no person is
    * behind the key (a service account's): no one is made
-   * its admin, and the tenant's admins reach it through its parent.
+   * its admin, and the workspace's admins reach it through its parent.
    */
   readonly creatorUserId?: UserId;
   readonly spec: OrgSpec;
@@ -47,7 +47,7 @@ export interface CreateTeamParams {
   /**
    * The person who creates it, made its admin. Absent when no person is
    * behind the key (a service account's): no one is made
-   * its admin, and the tenant's admins reach it through its parent.
+   * its admin, and the workspace's admins reach it through its parent.
    */
   readonly creatorUserId?: UserId;
   readonly spec: TeamSpec;
@@ -55,7 +55,7 @@ export interface CreateTeamParams {
 
 export type CreateTeamError =
   | { readonly code: 'slug-conflict'; readonly message: string; readonly cause?: unknown }
-  /** `spec.orgId` isn't the tenant's: it never existed, or it was deleted. */
+  /** `spec.orgId` isn't the workspace's: it never existed, or it was deleted. */
   | { readonly code: 'org-not-found'; readonly message: string; readonly orgId: OrgId }
   | { readonly code: 'insert-failed'; readonly message: string; readonly cause?: unknown };
 
@@ -71,7 +71,7 @@ export interface CreateProjectParams {
   /**
    * The person who creates it, made its owner. Absent when no person is
    * behind the key (a service account's): no one is made
-   * its owner, and the tenant's admins reach it through its parent.
+   * its owner, and the workspace's admins reach it through its parent.
    */
   readonly creatorUserId?: UserId;
   readonly spec: ProjectSpec;
@@ -79,7 +79,7 @@ export interface CreateProjectParams {
 
 export type CreateProjectError =
   | { readonly code: 'slug-conflict'; readonly message: string; readonly cause?: unknown }
-  /** `spec.orgId` isn't the tenant's: it never existed, or it was deleted. */
+  /** `spec.orgId` isn't the workspace's: it never existed, or it was deleted. */
   | { readonly code: 'org-not-found'; readonly message: string; readonly orgId: OrgId }
   | { readonly code: 'default-conflict'; readonly message: string; readonly cause?: unknown }
   | { readonly code: 'insert-failed'; readonly message: string; readonly cause?: unknown };
@@ -93,7 +93,7 @@ export interface AddProjectMemberParams {
 
 export type AddTeamMemberError =
   | {
-      /** No team with this id in the tenant. */
+      /** No team with this id in the workspace. */
       readonly code: 'team-not-found';
       readonly message: string;
     }
@@ -115,7 +115,7 @@ export type AddTeamMemberError =
 
 export type AddProjectMemberError =
   | {
-      /** No project with this id in the tenant. */
+      /** No project with this id in the workspace. */
       readonly code: 'project-not-found';
       readonly message: string;
     }
@@ -207,7 +207,7 @@ export interface MembershipWriteError {
 }
 
 /**
- * Tenant-summary read shape returned by `getTenant`. Only the fields
+ * Workspace-summary read shape returned by `getTenant`. Only the fields
  * the `/v1/tenant` GET route surfaces — id / name / slug / createdAt /
  * updatedAt. Timestamps are ISO 8601 strings; impls that hold Date
  * objects convert at the boundary.
@@ -219,15 +219,15 @@ export interface TenantSummary {
   readonly createdAt: string;
   readonly updatedAt: string;
   /**
-   * Whether the tenant may put projects in production. Absent means
+   * Whether the workspace may put projects in production. Absent means
    * allowed: a runtime that doesn't gate production leaves it out. The
    * production route checks it only when its gate is on.
    */
   readonly productionAllowed?: boolean;
-  /** The tenant's limits that are set. Absent when none is. */
+  /** The workspace's limits that are set. Absent when none is. */
   readonly limits?: TenantLimits;
   /**
-   * Where the tenant stands, on a runtime serving many tenants: `closing`
+   * Where the workspace stands, on a runtime serving many workspaces: `closing`
    * (readable and exportable for its window, nothing runs) or `suspended`
    * (the same, reversibly). `closing` wins. Absent: active.
    */
@@ -235,20 +235,20 @@ export interface TenantSummary {
 }
 
 /**
- * A tenant's limits, each absent while it isn't set (and then not
+ * A workspace's limits, each absent while it isn't set (and then not
  * enforced). Set per tenant by the system API; a self-hosted runtime
  * sets none unless its operator does.
  */
 export interface TenantLimits {
   /** API requests a minute, as a token bucket. Past it: 429 `rate-limit-exceeded`. */
   readonly apiRequestsPerMinute?: number;
-  /** Webhook deliveries received a minute, across the tenant's triggers. Past it: 429. */
+  /** Webhook deliveries received a minute, across the workspace's triggers. Past it: 429. */
   readonly webhookReceivesPerMinute?: number;
   /** Runs executing at once. Past it, a new run waits as `pending`. */
   readonly runsAtOnce?: number;
   /** Runs waiting as `pending`. Past it, a new run is refused with 429. */
   readonly runsPending?: number;
-  /** Tool calls in flight to the tenant's pack services. Past it, a call waits for a slot. */
+  /** Tool calls in flight to the workspace's pack services. Past it, a call waits for a slot. */
   readonly toolCallsInFlight?: number;
   /** Approvals waiting for a decision. Past it, the step that asks fails, naming the limit. */
   readonly approvalsPending?: number;
@@ -261,7 +261,7 @@ export interface TenantLimits {
   readonly projectsInProduction?: number;
 }
 
-/** A tenant's new name, slug, or both (`renameTenant`). A field left out stays as it is. */
+/** A workspace's new name, slug, or both (`renameTenant`). A field left out stays as it is. */
 export interface RenameTenantParams {
   readonly tenantId: TenantId;
   readonly name?: string;
@@ -269,24 +269,24 @@ export interface RenameTenantParams {
 }
 
 /**
- * How a rename ended. The checks and the write are one change, so a tenant
- * that starts closing, or a slug another tenant takes, while it runs is
+ * How a rename ended. The checks and the write are one change, so a workspace
+ * that starts closing, or a slug another workspace takes, while it runs is
  * refused, never written over.
  */
 export type RenameTenantOutcome =
   /** Renamed, or already so: the same values again change nothing, `updatedAt` included. */
   | { readonly kind: 'ok' }
-  /** No tenant with that id, or a purged one. */
+  /** No workspace with that id, or a purged one. */
   | { readonly kind: 'tenant-not-found' }
   | { readonly kind: 'tenant-closing' }
   /** Its setup hasn't finished: the create request that finishes it finds it by its slug. */
   | { readonly kind: 'tenant-setup-pending' }
-  /** Another tenant has the slug: a purged one, or one whose setup is pending, included. */
+  /** Another workspace has the slug: a purged one, or one whose setup is pending, included. */
   | { readonly kind: 'slug-taken' }
   /**
-   * The deployment's verified sign-in domains name this tenant by its
+   * The deployment's verified sign-in domains name this workspace by its
    * current `slug` (`domains`, each `<domain>:<slug>` entry's domain), so
-   * after the rename the server would find no tenant by it when it next
+   * after the rename the server would find no workspace by it when it next
    * starts.
    */
   | {
@@ -297,13 +297,13 @@ export type RenameTenantOutcome =
     }
   /**
    * The deployment's verified sign-in domains name the new slug, so the
-   * server's next start would give those domains to this tenant. The
-   * entries aren't given: they aren't this tenant's.
+   * server's next start would give those domains to this workspace. The
+   * entries aren't given: they aren't this workspace's.
    */
   | { readonly kind: 'slug-in-config'; readonly names: 'new' };
 
 /**
- * Tenant-hierarchy CRUD binding. Every route that creates orgs /
+ * Workspace-hierarchy CRUD binding. Every route that creates orgs /
  * teams / projects or adds members writes atomically: entity insert
  * + FGA parent/owner tuples in the same transaction.
  *
@@ -368,15 +368,15 @@ export interface TenantHierarchyBinding {
     params: DeleteTeamParams,
   ): Promise<Result<{ readonly deleted: boolean }, MembershipWriteError>>;
   /**
-   * Look up a tenant by id. Returns `null` when no tenant exists.
-   * Not itself tenant-scoped: it is how a caller finds out which
-   * tenant it is operating as.
+   * Look up a workspace by id. Returns `null` when no workspace exists.
+   * Not itself workspace-scoped: it is how a caller finds out which
+   * workspace it is operating as.
    */
   getTenant(tenantId: TenantId): Promise<TenantSummary | null>;
   /**
-   * Rename a tenant: its name, its slug, or both. Its id stays, so
+   * Rename a workspace: its name, its slug, or both. Its id stays, so
    * everything that names it by id keeps working. The checks (purged,
-   * closing, setup pending, a slug another tenant has, a slug the
+   * closing, setup pending, a slug another workspace has, a slug the
    * deployment's sign-in settings name) and the write are one change.
    * `PATCH /v1/tenant` and `PATCH /v1/system/tenants/{tenantId}` mount
    * only with it.

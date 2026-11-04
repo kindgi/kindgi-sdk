@@ -113,7 +113,7 @@ describe('resolveTurnHitlPolicy', () => {
     expect(error).toBeInstanceOf(AgentTurnFailure);
     expect((error as AgentTurnFailure).payload).toEqual({
       code: 'tenant-policy-unavailable',
-      message: "The tenant's hitl policy could not be applied: policy store unreachable",
+      message: "The workspace's hitl policy could not be applied: policy store unreachable",
       policyKind: 'hitl',
     });
   });

@@ -23,7 +23,7 @@ import { pickVersion } from './versions.js';
  * and dispatch resolves at run start via `resolve(id, range)` (npm-
  * compatible semver grammar, by `pickVersion`'s rule).
  *
- * Not tenant-scoped. Multi-tenant deployments hold one registry per
+ * Not workspace-scoped. Multi-tenant deployments hold one registry per
  * tenant or encode tenancy into tool ids. Cross-tenant tool sharing goes
  * through the policy engine, not through registry design.
  */
@@ -69,9 +69,9 @@ export interface ToolRegistry {
   /** Return every version registered under `id`, sorted descending. */
   versions(id: ToolId): readonly string[];
   /**
-   * The registry for one tenant: lookups on the returned registry
+   * The registry for one workspace: lookups on the returned registry
    * (`get`, `getVersion`, `resolve`, `list`, …) answer for `tenantId`
-   * only. Multi-tenant implementations load that tenant's tools (e.g.
+   * only. Multi-tenant implementations load that workspace's tools (e.g.
    * from a persistent store, cached) and return a view bound to it —
    * never shared per-call state, so concurrent turns of different
    * tenants cannot see each other's tools. A single-tenant registry
@@ -80,11 +80,11 @@ export interface ToolRegistry {
    */
   forTenant(tenantId: TenantId): Promise<ToolRegistry>;
   /**
-   * The registry for one project of a tenant: only the tools a run in
+   * The registry for one project of a workspace: only the tools a run in
    * `projectId` may reach (the deployment's rule; the Kindgi runtime's:
    * the project's own, and an MCP endpoint's scoped to it, its org or the
-   * tenant). Callers that resolve a run's tools use it when present, else
-   * `forTenant`. Absent: every tool of the tenant is reachable.
+   * workspace). Callers that resolve a run's tools use it when present, else
+   * `forTenant`. Absent: every tool of the workspace is reachable.
    */
   forProject?(input: {
     readonly tenantId: TenantId;
@@ -95,8 +95,8 @@ export interface ToolRegistry {
    * Optional cache invalidation. Storage-backed implementations call
    * this from the write path (`POST /v1/tools`, unregister, reinstate)
    * so the next `forTenant(tenantId)` re-reads from the persistent
-   * store. Without it, tools published after a tenant was loaded stay
-   * invisible to that tenant's cached view. In-memory implementations
+   * store. Without it, tools published after a workspace was loaded stay
+   * invisible to that workspace's cached view. In-memory implementations
    * leave it undefined — there is no cache to invalidate.
    */
   readonly invalidate?: (tenantId: TenantId) => void;

@@ -36,7 +36,7 @@ import {
 } from '../src/dev/sandbox/policy.js';
 import { seatbeltProfile } from '../src/dev/sandbox/seatbelt.js';
 import { devSandboxSettings } from '../src/dev/sandbox/settings.js';
-import { findOnPath } from '../src/git.js';
+import { findOnPath } from '../src/program-path.js';
 
 const PATHS = { packDir: '/work/app', home: '/home/me' };
 const ON = { mode: 'on', source: 'default', allowRead: [], allowUnixSockets: [] } as const;

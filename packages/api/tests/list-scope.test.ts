@@ -211,7 +211,7 @@ describe('POST /v1/conversations in a project', () => {
     expect(answer.status).toBe(400);
     expect(answer.json.error).toMatchObject({
       code: 'bad-input',
-      message: `\`projectId\` "${other}" does not resolve to a project in this tenant`,
+      message: `\`projectId\` "${other}" does not resolve to a project in this workspace`,
     });
     expect(answer.opened).toEqual([]);
   });

@@ -214,7 +214,7 @@ export const buildCommand: LeafCommand = {
     tenant: {
       type: 'string',
       description:
-        "The tenant the signature names. Default: the env block's `tenantId`, else `KINDGI_TENANT_ID`, else with `--hosted` your key's own tenant.",
+        "The workspace the signature names. Default: the env block's `tenantId`, else `KINDGI_TENANT_ID`, else with `--hosted` your key's own workspace.",
     },
     'signing-key': {
       type: 'string',
@@ -1555,7 +1555,7 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
         .tenantId as unknown as string;
     } catch (err) {
       return failure(
-        `kindgi build --hosted couldn't read your key's tenant from ${hostedService.apiUrl}: ${(err as Error).message}\n`,
+        `kindgi build --hosted couldn't read your key's workspace from ${hostedService.apiUrl}: ${(err as Error).message}\n`,
       );
     }
   }

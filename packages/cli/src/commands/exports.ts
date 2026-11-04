@@ -188,7 +188,7 @@ async function caller(
   };
   if (typeof me.tenantId !== 'string' || me.tenantId === '') {
     throw new Error(
-      'GET /v1/identity/whoami answered no tenantId, so the export has no tenant to name.',
+      'GET /v1/identity/whoami answered no tenantId, so the export has no workspace to name.',
     );
   }
   // A server that answers no `tenantAdmin` says it by the key, as its admin
