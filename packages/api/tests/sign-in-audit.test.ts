@@ -103,6 +103,7 @@ interface SignIn {
   readonly reason?: string;
   readonly sessionId?: string;
   readonly byUserId?: string;
+  readonly clientId?: string;
 }
 interface Page {
   readonly data: readonly SignIn[];
@@ -281,6 +282,92 @@ describe('GET /v1/audit/sign-ins: second factors', () => {
       const res = await get(a, `?kind=${kind}`);
       expect(res.status).toBe(200);
       expect(((await res.json()) as Page).data.map((e) => e.id)).toEqual([id]);
+    }
+  });
+});
+
+describe('GET /v1/audit/sign-ins: chat apps', () => {
+  // As the runtime writes them: a connect and a disconnect by the person; a
+  // refused renewal anonymous, about the person.
+  async function appWithChatApps() {
+    const auditEvents = createInMemoryAuditEventBinding();
+    await auditEvents.append([
+      event('c1', 1, 'chat-app-connected', 'user:u-ann', {
+        clientId: 'chat-client-1',
+        scopes: ['openid', 'offline_access'],
+        secondFactorMet: true,
+        clientAddress: '198.51.100.30',
+      }),
+      {
+        ...event(
+          'c2',
+          2,
+          'chat-app-refresh-refused',
+          'user:system',
+          { personId: 'u-ann', clientId: 'chat-client-1', reason: 'second-factor' },
+          'denied',
+        ),
+        subject: 'user:u-ann',
+      },
+      event('c3', 3, 'chat-app-disconnected', 'user:u-ann', {
+        clientId: 'chat-client-1',
+        revokedCount: 1,
+        clientAddress: '198.51.100.31',
+      }),
+      // Another person's connect.
+      event('c4', 4, 'chat-app-connected', 'user:u-bo', { clientId: 'chat-client-2' }),
+    ]);
+    return createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler: {} as RunHandlerBinding,
+      auditEvents,
+    });
+  }
+
+  test("a chat app connected, refused and disconnected is the person's sign-in history, naming the chat app", async () => {
+    const page = (await (await get(await appWithChatApps(), '?userId=u-ann')).json()) as Page;
+    expect(page.data).toEqual([
+      {
+        id: 'c1',
+        timestamp: expect.any(String),
+        kind: 'chat-app-connected',
+        outcome: 'succeeded',
+        userId: 'u-ann',
+        clientAddress: '198.51.100.30',
+        clientId: 'chat-client-1',
+      },
+      {
+        id: 'c2',
+        timestamp: expect.any(String),
+        kind: 'chat-app-refresh-refused',
+        outcome: 'denied',
+        userId: 'u-ann',
+        reason: 'second-factor',
+        clientId: 'chat-client-1',
+      },
+      {
+        id: 'c3',
+        timestamp: expect.any(String),
+        kind: 'chat-app-disconnected',
+        outcome: 'succeeded',
+        userId: 'u-ann',
+        clientAddress: '198.51.100.31',
+        clientId: 'chat-client-1',
+      },
+    ]);
+  });
+
+  test('?kind= takes each of them', async () => {
+    const a = await appWithChatApps();
+    for (const [kind, ids] of [
+      ['chat-app-connected', ['c1', 'c4']],
+      ['chat-app-refresh-refused', ['c2']],
+      ['chat-app-disconnected', ['c3']],
+    ] as const) {
+      const res = await get(a, `?kind=${kind}`);
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as Page).data.map((e) => e.id)).toEqual(ids);
     }
   });
 });
