@@ -159,7 +159,11 @@ function makeInMemoryBinding(options: BindingOptions = {}): DestinationBinding &
     rows,
     async create(input) {
       if (options.mailOff === true && input.kind === 'email') {
-        return { kind: 'kind-off', destinationKind: 'email', setting: 'KINDGI_MAIL_FROM' };
+        return {
+          kind: 'kind-off',
+          destinationKind: 'email',
+          setting: 'KINDGI_AUTH_EMAIL_SMTP_URL',
+        };
       }
       const refusal = refusalOf(input);
       if (refusal !== undefined) return refusal;
@@ -495,8 +499,8 @@ describe("the binding's refusals", () => {
     expect(res.status).toBe(400);
     expect(res.json.error).toMatchObject({
       code: 'bad-input',
-      message: '`email` destinations need `KINDGI_MAIL_FROM`',
-      details: { destinationKind: 'email', setting: 'KINDGI_MAIL_FROM' },
+      message: '`email` destinations need `KINDGI_AUTH_EMAIL_SMTP_URL`',
+      details: { destinationKind: 'email', setting: 'KINDGI_AUTH_EMAIL_SMTP_URL' },
     });
   });
 
@@ -820,6 +824,25 @@ describe('who may call', () => {
     expect(res.status).toBe(403);
     expect(errorCode(res.json)).toBe('permission-denied');
   });
+
+  test.each([
+    ['GET', '/v1/destinations/d', 'destinationId'],
+    ['PATCH', '/v1/destinations/d', 'destinationId'],
+    ['DELETE', '/v1/destinations/d', 'destinationId'],
+    ['GET', '/v1/destinations/d/deliveries', 'destinationId'],
+    ['POST', `/v1/destinations/d/deliveries/${randomUUID()}/redeliver`, 'destinationId'],
+    ['POST', `/v1/destinations/${randomUUID()}/deliveries/x/redeliver`, 'deliveryId'],
+    ['POST', '/v1/destinations/d/test', 'destinationId'],
+  ])(
+    '%s %s: an id that is not a UUID is 400 for an admin, naming `%s`',
+    async (method, path, param) => {
+      const { app } = makeApp();
+      const res = await call(app, method, path, method === 'PATCH' ? { name: 'x' } : undefined);
+      expect(res.status).toBe(400);
+      expect(errorCode(res.json)).toBe('bad-input');
+      expect(errorOf(res.json).message).toContain(`\`${param}\` must be`);
+    },
+  );
 
   test("a project's list: what its schedules may use, enough to pick one", async () => {
     const { app } = makeApp();

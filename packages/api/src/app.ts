@@ -37,7 +37,7 @@ import type { CostBinding } from './cost-binding.js';
 import type { CursorSealer } from './cursor-seal.js';
 import type { DeploymentBinding } from './deployment-binding.js';
 import type { DeploymentValuesDeps } from './deployment-values.js';
-import type { DestinationBinding } from './destination-binding.js';
+import type { DestinationBinding, ResultEmail } from './destination-binding.js';
 import type { EnvBinding, EnvCloudSecretBinding } from './env-binding.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 import type { WireErrorBody } from './errors.js';
@@ -940,6 +940,12 @@ export interface CreateAppInput {
    * the queue and the senders; see `DestinationBinding`.
    */
   readonly destinations?: DestinationBinding;
+  /**
+   * Optional. Whether this deployment sends email, which a schedule's
+   * `sendResultsTo: [{ to: 'me' }]` needs: off, a save naming `me` is
+   * refused with the setting named. Absent: it does.
+   */
+  readonly resultEmail?: ResultEmail;
   /**
    * Optional. When present, mounts connections: tools acting with a
    * member's own account at another app, or the company's.
@@ -2311,6 +2317,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           targetTools,
           input.triggerOwnerNotices,
           input.destinations,
+          input.resultEmail,
         ),
       );
     }

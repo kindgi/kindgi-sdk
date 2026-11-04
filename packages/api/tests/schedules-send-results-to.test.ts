@@ -30,6 +30,7 @@ import type {
   Destination,
   DestinationBinding,
   DestinationDelivery,
+  ResultEmail,
   ScheduleDeliveryListInput,
 } from '../src/destination-binding.js';
 import { createApp } from '../src/index.js';
@@ -102,7 +103,7 @@ function destinationsWith(deliveries: readonly DestinationDelivery[] = []) {
   return { binding, asked };
 }
 
-function app(destinations?: DestinationBinding) {
+function app(destinations?: DestinationBinding, resultEmail?: ResultEmail) {
   const registry = createInMemoryTriggerRegistry({ defaultProjectId: PROJECT });
   const built = createApp({
     ...createStubAppBindings(),
@@ -110,9 +111,12 @@ function app(destinations?: DestinationBinding) {
     runHandler: {} as RunHandlerBinding,
     triggerRegistry: registry,
     ...(destinations !== undefined && { destinations }),
+    ...(resultEmail !== undefined && { resultEmail }),
   });
   return { built, registry };
 }
+
+const NO_MAIL: ResultEmail = { on: false, setting: 'KINDGI_AUTH_EMAIL_SMTP_URL' };
 
 // It names its project: this app has no projects binding to find the
 // default one, and a destination for some projects is checked against it.
@@ -191,6 +195,27 @@ describe('registering a schedule with sendResultsTo', () => {
     const me = await register(built, { sendResultsTo: [{ to: 'me', on: ['failed'] }] });
     expect(me.status).toBe(201);
     expect(me.body.sendResultsTo).toEqual([{ to: 'me', on: ['failed'] }]);
+  });
+
+  test('`me` where this deployment sends no email: refused, naming the setting, and nothing is registered', async () => {
+    const { built } = app(destinationsWith().binding, NO_MAIL);
+    const refused = await register(built, { sendResultsTo: [{ to: 'me' }] });
+    expect(refused.status).toBe(400);
+    expect(JSON.stringify(refused.body)).toContain(
+      'this deployment sends no email: `me` needs `KINDGI_AUTH_EMAIL_SMTP_URL`',
+    );
+    const listed = await built.request('/v1/schedules', send('GET'));
+    expect(((await listed.json()) as { data: unknown[] }).data).toHaveLength(0);
+    const ours = await register(built, { sendResultsTo: [{ to: OURS.destinationId }] });
+    expect(ours.status).toBe(201);
+  });
+
+  test('no destinations and no email: a destination is refused without naming `me`', async () => {
+    const { built } = app(undefined, NO_MAIL);
+    const refused = await register(built, { sendResultsTo: [{ to: ANY.destinationId }] });
+    expect(refused.status).toBe(400);
+    expect(JSON.stringify(refused.body)).toContain('this deployment has no destinations');
+    expect(JSON.stringify(refused.body)).not.toContain('send to `me` instead');
   });
 });
 

@@ -9,7 +9,7 @@ import {
 } from '@kindgi/runtime';
 import type { DestinationId, ProjectId, TenantId } from '@kindgi/types';
 
-import type { DestinationBinding } from '../destination-binding.js';
+import type { DestinationBinding, ResultEmail } from '../destination-binding.js';
 import { UUID_RE } from './uuid-param.js';
 
 /** The most places one schedule's results go. */
@@ -66,7 +66,8 @@ function parseTarget(item: unknown, at: string): ScheduleResultTarget | string {
   }
   const on = parseOn(fields.on, `${at}.on`);
   if (typeof on === 'string') return on;
-  return { to: to as DestinationId | 'me', on };
+  // One spelling per id, so a case change is neither a second place nor a new version.
+  return { to: (to === 'me' ? to : to.toLowerCase()) as DestinationId | 'me', on };
 }
 
 /** `on`: absent for every event, or a non-empty list of them, each named once. */
@@ -84,7 +85,8 @@ function parseOn(raw: unknown, at: string): readonly ScheduleResultEvent[] | str
  * Why a schedule can't send its results where `targets` say, or
  * `undefined` when it can: each destination must exist (not removed) and
  * be one the schedule's project may use, and `me` needs an owner who is a
- * person, since it is their own email.
+ * person, since it is their own email, and a deployment that sends email
+ * (`resultEmail`; absent: it does).
  */
 export async function sendResultsToProblem(
   destinations: Pick<DestinationBinding, 'get'> | undefined,
@@ -92,21 +94,47 @@ export async function sendResultsToProblem(
   projectId: ProjectId | undefined,
   owner: TriggerOwner,
   targets: readonly ScheduleResultTarget[],
+  resultEmail?: ResultEmail,
 ): Promise<string | undefined> {
+  // A refused destination names `me` instead only where `me` would be taken.
+  const meTaken = meProblem(owner, 0, resultEmail) === undefined;
   for (const [i, target] of targets.entries()) {
     const problem =
       target.to === 'me'
-        ? meProblem(owner, i)
-        : await destinationProblem(destinations, tenantId, projectId, target.to, i);
+        ? meProblem(owner, i, resultEmail)
+        : await destinationProblem(destinations, tenantId, projectId, target.to, i, meTaken);
     if (problem !== undefined) return problem;
   }
   return undefined;
 }
 
-function meProblem(owner: TriggerOwner, i: number): string | undefined {
-  return owner.kind === 'user'
+/**
+ * Why `owner` can't own a schedule whose results go to `targets`, or
+ * `undefined`: `me` is its owner's own email, which a service account
+ * doesn't have. An owner change is checked with it, as a save is.
+ */
+export function sendResultsToOwnerProblem(
+  owner: TriggerOwner,
+  targets: readonly ScheduleResultTarget[],
+): string | undefined {
+  const i = targets.findIndex((target) => target.to === 'me');
+  return i === -1 || owner.kind === 'user'
     ? undefined
-    : `\`sendResultsTo[${i}].to\` is \`me\`, its owner's own email, but this schedule runs as a service account, which has none: name a destination instead`;
+    : `\`sendResultsTo[${i}].to\` is \`me\`, its owner's own email, and a service account has none: change \`sendResultsTo\` with PATCH first`;
+}
+
+function meProblem(
+  owner: TriggerOwner,
+  i: number,
+  resultEmail: ResultEmail | undefined,
+): string | undefined {
+  if (owner.kind !== 'user') {
+    return `\`sendResultsTo[${i}].to\` is \`me\`, its owner's own email, but this schedule runs as a service account, which has none: name a destination instead`;
+  }
+  if (resultEmail !== undefined && !resultEmail.on) {
+    return `\`sendResultsTo[${i}].to\` is \`me\`, its owner's own email, but this deployment sends no email: \`me\` needs \`${resultEmail.setting}\``;
+  }
+  return undefined;
 }
 
 async function destinationProblem(
@@ -115,9 +143,11 @@ async function destinationProblem(
   projectId: ProjectId | undefined,
   destinationId: DestinationId,
   i: number,
+  meTaken: boolean,
 ): Promise<string | undefined> {
   if (destinations === undefined) {
-    return `\`sendResultsTo[${i}].to\` names a destination, but this deployment has no destinations: send to \`me\` instead`;
+    const no = `\`sendResultsTo[${i}].to\` names a destination, but this deployment has no destinations`;
+    return meTaken ? `${no}: send to \`me\` instead` : no;
   }
   const found = await destinations.get({ tenantId, destinationId });
   if (found === null) {

@@ -41,7 +41,7 @@ import { deniedBy } from './denied.js';
 import { clampLimit } from './pagination.js';
 import { parseSecretRef } from './secret-ref.js';
 import { tenantAdminAccess } from './tenant-access.js';
-import { UUID_RE } from './uuid-param.js';
+import { UUID_RE, refuseMalformedUuidParam } from './uuid-param.js';
 
 const MAX_NAME_LENGTH = 100;
 const MAX_URL_LENGTH = 2048;
@@ -80,6 +80,10 @@ export function destinationsRouter(
   const r = new Hono<AppEnv>();
   // What they send carries project data out of Kindgi: an admin's.
   const admin = tenantAdminAccess(authorizer);
+  // A malformed id is a 400 before the store's uuid cast would fail it as
+  // a 500, and after `admin`, so a caller who isn't one still gets 403.
+  const destinationIdChecked = refuseMalformedUuidParam('destinationId', 'a destination id');
+  const deliveryIdChecked = refuseMalformedUuidParam('deliveryId', 'a delivery id');
 
   // ---------- POST / (create) ----------
   r.post('/', admin, async (c) => {
@@ -119,7 +123,7 @@ export function destinationsRouter(
   });
 
   // ---------- GET /:destinationId ----------
-  r.get('/:destinationId', admin, async (c) => {
+  r.get('/:destinationId', admin, destinationIdChecked, async (c) => {
     const requestId = c.get('requestId');
     const at = destinationRef(c);
     const destination = await binding.get(at);
@@ -128,7 +132,7 @@ export function destinationsRouter(
   });
 
   // ---------- PATCH /:destinationId ----------
-  r.patch('/:destinationId', admin, async (c) => {
+  r.patch('/:destinationId', admin, destinationIdChecked, async (c) => {
     const requestId = c.get('requestId');
     const at = destinationRef(c);
     const body = await readJsonObject(c);
@@ -150,7 +154,7 @@ export function destinationsRouter(
   });
 
   // ---------- DELETE /:destinationId (soft delete) ----------
-  r.delete('/:destinationId', admin, async (c) => {
+  r.delete('/:destinationId', admin, destinationIdChecked, async (c) => {
     const at = destinationRef(c);
     const { removed } = await binding.remove(at);
     if (!removed) return destinationNotFound(c, c.get('requestId'), at.destinationId);
@@ -158,7 +162,7 @@ export function destinationsRouter(
   });
 
   // ---------- GET /:destinationId/deliveries ----------
-  r.get('/:destinationId/deliveries', admin, async (c) => {
+  r.get('/:destinationId/deliveries', admin, destinationIdChecked, async (c) => {
     const requestId = c.get('requestId');
     const at = destinationRef(c);
     const statusRaw = c.req.query('status');
@@ -187,15 +191,21 @@ export function destinationsRouter(
   });
 
   // ---------- POST /:destinationId/deliveries/:deliveryId/redeliver ----------
-  r.post('/:destinationId/deliveries/:deliveryId/redeliver', admin, async (c) => {
-    const at = destinationRef(c);
-    const deliveryId = c.req.param('deliveryId') as DestinationDeliveryId;
-    const outcome = await binding.redeliver({ ...at, deliveryId });
-    return deliveryResponse(c, outcome, at.destinationId, deliveryId);
-  });
+  r.post(
+    '/:destinationId/deliveries/:deliveryId/redeliver',
+    admin,
+    destinationIdChecked,
+    deliveryIdChecked,
+    async (c) => {
+      const at = destinationRef(c);
+      const deliveryId = c.req.param('deliveryId') as DestinationDeliveryId;
+      const outcome = await binding.redeliver({ ...at, deliveryId });
+      return deliveryResponse(c, outcome, at.destinationId, deliveryId);
+    },
+  );
 
   // ---------- POST /:destinationId/test ----------
-  r.post('/:destinationId/test', admin, async (c) => {
+  r.post('/:destinationId/test', admin, destinationIdChecked, async (c) => {
     const at = destinationRef(c);
     const outcome = await binding.sendTest(at);
     return deliveryResponse(c, outcome, at.destinationId);
@@ -633,7 +643,7 @@ async function readJsonObject(
 /**
  * A destination as the API shows it, field by field, so nothing else a
  * binding's record holds (its URL) is ever sent. `project`: without
- * `people`, `urlRef` and `secretRef`.
+ * `people`, `host`, `urlRef`, `secretRef` and `projects`.
  */
 function serializeDestination(destination: Destination, view: View): Record<string, unknown> {
   const admin = view === 'admin';

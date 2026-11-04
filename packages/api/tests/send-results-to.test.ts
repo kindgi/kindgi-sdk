@@ -6,7 +6,7 @@
  * and why a save is refused. At most five places, each a destination id or
  * `me`, named once; `on` defaults to every event. A destination must exist
  * and be one the schedule's project may use; `me` needs an owner who is a
- * person.
+ * person, and a deployment that sends email.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -22,6 +22,7 @@ import {
   parseSendResultsTo,
   sameResultTargets,
   sendResultsToJson,
+  sendResultsToOwnerProblem,
   sendResultsToProblem,
 } from '../src/routes/send-results-to.js';
 
@@ -92,6 +93,17 @@ describe('parseSendResultsTo', () => {
     expect(parsed.kind === 'err' && parsed.message).toContain(message);
   });
 
+  test('a destination id is kept in lowercase, so one id in two cases is named twice', () => {
+    const id = randomUUID();
+    expect(parseSendResultsTo({ sendResultsTo: [{ to: id.toUpperCase() }] })).toEqual({
+      kind: 'ok',
+      value: [{ to: id, on: SCHEDULE_RESULT_EVENTS }],
+    });
+    const twice = parseSendResultsTo({ sendResultsTo: [{ to: id }, { to: id.toUpperCase() }] });
+    expect(twice.kind === 'err' && twice.message).toContain('`sendResultsTo[1].to`');
+    expect(twice.kind === 'err' && twice.message).toContain('is named twice');
+  });
+
   test(`takes at most ${SEND_RESULTS_TO_MAX} places`, () => {
     const places = Array.from({ length: SEND_RESULTS_TO_MAX + 1 }, () => ({ to: randomUUID() }));
     const parsed = parseSendResultsTo({ sendResultsTo: places });
@@ -131,6 +143,39 @@ describe('sendResultsToProblem', () => {
     expect(problem).toContain('send to `me` instead');
   });
 
+  test('`me` on a deployment that sends no email is refused, naming the setting', async () => {
+    const problem = await sendResultsToProblem(
+      destinations(),
+      tenantId,
+      PROJECT,
+      PERSON,
+      [{ to: 'me', on }],
+      { on: false, setting: 'KINDGI_AUTH_EMAIL_SMTP_URL' },
+    );
+    expect(problem).toBe(
+      "`sendResultsTo[0].to` is `me`, its owner's own email, but this deployment sends no email: `me` needs `KINDGI_AUTH_EMAIL_SMTP_URL`",
+    );
+    expect(
+      await sendResultsToProblem(destinations(), tenantId, PROJECT, PERSON, [{ to: 'me', on }], {
+        on: true,
+      }),
+    ).toBeUndefined();
+  });
+
+  test('`me` is named instead of a destination only where `me` would be taken', async () => {
+    const to = randomUUID() as DestinationId;
+    const noMail = await sendResultsToProblem(undefined, tenantId, PROJECT, PERSON, [{ to, on }], {
+      on: false,
+      setting: 'KINDGI_AUTH_EMAIL_SMTP_URL',
+    });
+    const bot = await sendResultsToProblem(undefined, tenantId, PROJECT, BOT, [{ to, on }]);
+    for (const problem of [noMail, bot]) {
+      expect(problem).toBe(
+        '`sendResultsTo[0].to` names a destination, but this deployment has no destinations',
+      );
+    }
+  });
+
   test('an unknown or removed destination is refused by id', async () => {
     const id = randomUUID() as DestinationId;
     const problem = await sendResultsToProblem(destinations(), tenantId, PROJECT, PERSON, [
@@ -146,6 +191,29 @@ describe('sendResultsToProblem', () => {
       { to: theirs.destinationId, on },
     ]);
     expect(problem).toContain(`destination "acme ops" isn't for this schedule's project`);
+  });
+});
+
+describe('sendResultsToOwnerProblem', () => {
+  const on = SCHEDULE_RESULT_EVENTS;
+
+  test('a service account can not own a schedule that sends to `me`', () => {
+    expect(
+      sendResultsToOwnerProblem(BOT, [
+        { to: randomUUID() as DestinationId, on },
+        { to: 'me', on },
+      ]),
+    ).toBe(
+      "`sendResultsTo[1].to` is `me`, its owner's own email, and a service account has none: change `sendResultsTo` with PATCH first",
+    );
+  });
+
+  test('a person may own it, and anyone may own one without `me`', () => {
+    expect(sendResultsToOwnerProblem(PERSON, [{ to: 'me', on }])).toBeUndefined();
+    expect(
+      sendResultsToOwnerProblem(BOT, [{ to: randomUUID() as DestinationId, on }]),
+    ).toBeUndefined();
+    expect(sendResultsToOwnerProblem(BOT, [])).toBeUndefined();
   });
 });
 

@@ -11283,7 +11283,7 @@ class ScheduleResultTargetInput(BaseModel):
     )
     to: str
     """
-    A destination's id, or `me`: the schedule's owner's own email, when the owner is a person.
+    A destination's id, or `me`: the schedule's owner's own email, when the owner is a person and the deployment sends email.
     """
     on: Annotated[
         list[Annotated[Literal["completed", "failed", "cancelled", "waiting"] | str, _open.OPEN]]
@@ -18361,7 +18361,7 @@ class RegisterScheduleBody(BaseModel):
         list[ScheduleResultTargetInput] | None, Field(alias="sendResultsTo", max_length=5)
     ] = None
     """
-    Where its results go, at most five places, each named once: a destination the schedule's project may use, or `me` when its owner is a person. Absent or `[]`: nowhere.
+    Where its results go, at most five places, each named once: a destination the schedule's project may use, or `me` when its owner is a person and the deployment sends email. Absent or `[]`: nowhere.
     """
 
 

@@ -535,6 +535,7 @@ export type {
   DestinationStatus,
   DestinationUpdateInput,
   DestinationUpdateOutcome,
+  ResultEmail,
   ScheduleDeliveryListInput,
 } from './destination-binding.js';
 export type {

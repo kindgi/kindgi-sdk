@@ -17,8 +17,8 @@
  *
  * A workspace admin's. A member who can run in a project lists the ones
  * its schedules may use with `list({ projectId })`, without their
- * `people`, `urlRef` and `secretRef`. A runtime before Kindgi 0.7.0
- * doesn't serve these routes.
+ * `people`, `host`, `urlRef`, `secretRef` and `projects`. A runtime
+ * before Kindgi 0.7.0 doesn't serve these routes.
  */
 
 import type {

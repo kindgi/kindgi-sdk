@@ -226,7 +226,7 @@
     },
     {
       "name": "destinations",
-      "description": "Where schedules send their results: an email to workspace members, a Slack, Teams, Google Chat or Discord channel, or a signed webhook. A destination's URL is write-only, kept in the secrets store and never returned; `host` and `urlRef` say where it goes. Each send is a delivery, with its log, redelivery and a test message. A workspace admin's; a member who can run in a project lists the ones its schedules may use (`?projectId=`), without their people and secret references. Caller-plugged via `DestinationBinding`."
+      "description": "Where schedules send their results: an email to workspace members, a Slack, Teams, Google Chat or Discord channel, or a signed webhook. A destination's URL is write-only, kept in the secrets store and never returned; `host` and `urlRef` say where it goes. Each send is a delivery, with its log, redelivery and a test message. A workspace admin's; a member who can run in a project lists the ones its schedules may use (`?projectId=`), without where they send or who they're for: no `people`, `host`, `urlRef`, `secretRef` or `projects`. Caller-plugged via `DestinationBinding`."
     },
     {
       "name": "connections",
@@ -25687,7 +25687,7 @@
         "properties": {
           "to": {
             "type": "string",
-            "description": "A destination's id, or `me`: the schedule's owner's own email, when the owner is a person."
+            "description": "A destination's id, or `me`: the schedule's owner's own email, when the owner is a person and the deployment sends email."
           },
           "on": {
             "type": "array",
@@ -26124,7 +26124,7 @@
             "items": {
               "$ref": "#/components/schemas/ScheduleResultTargetInput"
             },
-            "description": "Where its results go, at most five places, each named once: a destination the schedule's project may use, or `me` when its owner is a person. Absent or `[]`: nowhere."
+            "description": "Where its results go, at most five places, each named once: a destination the schedule's project may use, or `me` when its owner is a person and the deployment sends email. Absent or `[]`: nowhere."
           }
         }
       },
@@ -71049,7 +71049,7 @@
             }
           },
           "400": {
-            "description": "A malformed body, or `runAsProject` with `runAsServiceAccountId`, or a body naming `toolsAllowedUnattended` (`bad-input`).",
+            "description": "A malformed body, or `runAsProject` with `runAsServiceAccountId`, or a body naming `toolsAllowedUnattended`, or a service account or the project's own account named while `sendResultsTo` has `me`, its owner's own email (`bad-input`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -75093,7 +75093,7 @@
             }
           }
         },
-        "description": "A tenant admin's. With `projectId`: the destinations that project's schedules may use, for anyone who may make a schedule there (`run` on the project), without `people`, `urlRef` and `secretRef`.",
+        "description": "A tenant admin's. With `projectId`: the destinations that project's schedules may use, for anyone who may make a schedule there (`run` on the project), without `people`, `host`, `urlRef`, `secretRef` and `projects`.",
         "parameters": [
           {
             "name": "projectId",
@@ -75103,7 +75103,7 @@
               "format": "uuid"
             },
             "required": false,
-            "description": "Only the destinations this project's schedules may use. With it, anyone who may make a schedule in the project lists them, without `people`, `urlRef` and `secretRef`; a tenant admin sees every field."
+            "description": "Only the destinations this project's schedules may use. With it, anyone who may make a schedule in the project lists them, without `people`, `host`, `urlRef`, `secretRef` and `projects`; a tenant admin sees every field."
           },
           {
             "name": "limit",
@@ -75148,6 +75148,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Destination"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`destinationId` is not a destination id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
                 }
               }
             }
@@ -75198,7 +75208,8 @@
             "name": "destinationId",
             "in": "path",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "format": "uuid"
             },
             "required": true,
             "description": "The destination id."
@@ -75228,7 +75239,7 @@
             }
           },
           "400": {
-            "description": "Malformed body, unknown field (`unknown-field`), `kind` given, or fields that don't fit the kind (`bad-input`); the deployment lacks what the kind needs; a person in `people` is no member of the workspace; the URL is refused (`destination-url-refused`); a secret `urlRef` or `secretRef` names does not exist (`destination-secret-not-found`), the signing secret is too weak (`destination-secret-too-weak`), it's a model provider's key (`provider-key-refused`), or it's under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
+            "description": "`destinationId` is not a destination id (a UUID); malformed body, unknown field (`unknown-field`), `kind` given, or fields that don't fit the kind (`bad-input`); the deployment lacks what the kind needs; a person in `people` is no member of the workspace; the URL is refused (`destination-url-refused`); a secret `urlRef` or `secretRef` names does not exist (`destination-secret-not-found`), the signing secret is too weak (`destination-secret-too-weak`), it's a model provider's key (`provider-key-refused`), or it's under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -75314,7 +75325,8 @@
             "name": "destinationId",
             "in": "path",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "format": "uuid"
             },
             "required": true,
             "description": "The destination id."
@@ -75357,7 +75369,7 @@
             "description": "Removed. No body."
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "`destinationId` is not a destination id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -75433,7 +75445,8 @@
             "name": "destinationId",
             "in": "path",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "format": "uuid"
             },
             "required": true,
             "description": "The destination id."
@@ -75475,7 +75488,7 @@
             }
           },
           "400": {
-            "description": "Unknown `status` (`bad-input`).",
+            "description": "`destinationId` is not a destination id (a UUID), or an unknown `status` (`bad-input`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -75531,7 +75544,8 @@
             "name": "destinationId",
             "in": "path",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "format": "uuid"
             },
             "required": true,
             "description": "The destination id."
@@ -75593,7 +75607,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "`destinationId` is not a destination id, or `deliveryId` a delivery id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -75663,13 +75677,14 @@
             }
           }
         },
-        "description": "Queues the delivery again now, whatever its status: its attempts start over, and so does its retry window.",
+        "description": "Queues the delivery again now, whatever its status: its attempts start over, and so does its retry window. It's checked again as when it was queued (`destination-removed`, `not-for-this-project`) and as when it's sent (`no-access`), so a delivery skipped for one of those is skipped again with that reason. One skipped for `rate-cap` goes.",
         "parameters": [
           {
             "name": "destinationId",
             "in": "path",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "format": "uuid"
             },
             "required": true,
             "description": "The destination id."
@@ -75678,7 +75693,8 @@
             "name": "deliveryId",
             "in": "path",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "format": "uuid"
             },
             "required": true,
             "description": "The delivery id."
@@ -75720,7 +75736,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "`destinationId` is not a destination id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -75796,7 +75812,8 @@
             "name": "destinationId",
             "in": "path",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "format": "uuid"
             },
             "required": true,
             "description": "The destination id."

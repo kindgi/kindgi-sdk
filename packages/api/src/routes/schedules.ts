@@ -15,6 +15,7 @@ import {
   DESTINATION_DELIVERY_STATUSES,
   type DestinationBinding,
   type DestinationDeliveryStatus,
+  type ResultEmail,
 } from '../destination-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, runIn, writeWhereMade } from '../item-rights.js';
@@ -47,6 +48,7 @@ import {
   parseSendResultsTo,
   sameResultTargets,
   sendResultsToJson,
+  sendResultsToOwnerProblem,
   sendResultsToProblem,
 } from './send-results-to.js';
 import {
@@ -151,6 +153,8 @@ export function schedulesRouter(
   ownerNotices?: TriggerOwnerNotices,
   /** Where `sendResultsTo`'s destinations are read, and its deliveries listed; absent → only `me`. */
   destinations?: Pick<DestinationBinding, 'get' | 'listScheduleDeliveries'>,
+  /** Whether this deployment sends email, which `me` needs; absent: it does. */
+  resultEmail?: ResultEmail,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -485,6 +489,7 @@ export function schedulesRouter(
             project as ProjectId | undefined,
             owner,
             results.value,
+            resultEmail,
           )
         : undefined;
     if (resultsProblem !== undefined) return bad(c, requestId, resultsProblem);
@@ -758,6 +763,7 @@ export function schedulesRouter(
             found.value.projectId as ProjectId | undefined,
             found.value.owner,
             nextResults,
+            resultEmail,
           );
     if (resultsProblem !== undefined) return bad(c, requestId, resultsProblem);
 
@@ -1052,6 +1058,12 @@ export function schedulesRouter(
       triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
     );
     if (resolved.kind === 'refused') return resolved.response;
+    // `me` is its owner's own email: as at a save, a service account can't own it.
+    const resultsProblem = sendResultsToOwnerProblem(
+      resolved.owner,
+      found.value.sendResultsTo ?? [],
+    );
+    if (resultsProblem !== undefined) return bad(c, requestId, resultsProblem);
     const { tenantId, triggerId } = found.value;
     const previousOwner = found.value.owner;
     const result = await binding.setOwner({

@@ -1243,7 +1243,7 @@ const DestinationIdPathParam: ParameterSpec = {
   in: 'path',
   required: true,
   description: 'The destination id.',
-  schema: { type: 'string' },
+  schema: { type: 'string', format: 'uuid' },
 };
 
 const DestinationDeliveryIdPathParam: ParameterSpec = {
@@ -1251,7 +1251,7 @@ const DestinationDeliveryIdPathParam: ParameterSpec = {
   in: 'path',
   required: true,
   description: 'The delivery id.',
-  schema: { type: 'string' },
+  schema: { type: 'string', format: 'uuid' },
 };
 
 const DestinationDeliveryStatusQueryParam: ParameterSpec = {
@@ -1267,7 +1267,7 @@ const DestinationProjectIdQueryParam: ParameterSpec = {
   in: 'query',
   required: false,
   description:
-    "Only the destinations this project's schedules may use. With it, anyone who may make a schedule in the project lists them, without `people`, `urlRef` and `secretRef`; a tenant admin sees every field.",
+    "Only the destinations this project's schedules may use. With it, anyone who may make a schedule in the project lists them, without `people`, `host`, `urlRef`, `secretRef` and `projects`; a tenant admin sees every field.",
   schema: { type: 'string', format: 'uuid' },
 };
 
@@ -11331,7 +11331,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The schedule, with its new owner.', schema: ref('ScheduleRecord') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        'A malformed body, or `runAsProject` with `runAsServiceAccountId`, or a body naming `toolsAllowedUnattended` (`bad-input`).',
+        "A malformed body, or `runAsProject` with `runAsServiceAccountId`, or a body naming `toolsAllowedUnattended`, or a service account or the project's own account named while `sendResultsTo` has `me`, its owner's own email (`bad-input`).",
       ),
       '403': ErrorResponse(
         "`permission-denied`: not an admin of the schedule's project, or no `execute` on what it runs, or no `act_as` on the account named.",
@@ -12389,7 +12389,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'destinations.list',
     summary: 'List destinations',
     description:
-      "A tenant admin's. With `projectId`: the destinations that project's schedules may use, for anyone who may make a schedule there (`run` on the project), without `people`, `urlRef` and `secretRef`.",
+      "A tenant admin's. With `projectId`: the destinations that project's schedules may use, for anyone who may make a schedule there (`run` on the project), without `people`, `host`, `urlRef`, `secretRef` and `projects`.",
     tags: ['destinations'],
     security: 'bearer',
     parameters: [DestinationProjectIdQueryParam, LimitQueryParam, CursorQueryParam],
@@ -12415,6 +12415,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The destination.', schema: ref('Destination') },
       ...CommonAuthErrors,
       ...TenantAdminErrors,
+      '400': ErrorResponse('`destinationId` is not a destination id (a UUID).'),
       '404': ErrorResponse(
         'No destination with that id, or it was removed (`destination-not-found`).',
       ),
@@ -12437,7 +12438,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       ...TenantAdminErrors,
       '400': ErrorResponse(
-        "Malformed body, unknown field (`unknown-field`), `kind` given, or fields that don't fit the kind (`bad-input`); the deployment lacks what the kind needs; a person in `people` is no member of the workspace; the URL is refused (`destination-url-refused`); a secret `urlRef` or `secretRef` names does not exist (`destination-secret-not-found`), the signing secret is too weak (`destination-secret-too-weak`), it's a model provider's key (`provider-key-refused`), or it's under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
+        "`destinationId` is not a destination id (a UUID); malformed body, unknown field (`unknown-field`), `kind` given, or fields that don't fit the kind (`bad-input`); the deployment lacks what the kind needs; a person in `people` is no member of the workspace; the URL is refused (`destination-url-refused`); a secret `urlRef` or `secretRef` names does not exist (`destination-secret-not-found`), the signing secret is too weak (`destination-secret-too-weak`), it's a model provider's key (`provider-key-refused`), or it's under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
       ),
       '404': ErrorResponse(
         'No destination with that id (`destination-not-found`), or a project in `projects` does not exist (`project-not-found`).',
@@ -12460,6 +12461,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '204': { description: 'Removed. No body.' },
       ...CommonMutationErrors,
       ...TenantAdminErrors,
+      '400': ErrorResponse('`destinationId` is not a destination id (a UUID).'),
       '404': ErrorResponse(
         'No destination with that id, or it was removed already (`destination-not-found`).',
       ),
@@ -12487,7 +12489,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonAuthErrors,
       ...TenantAdminErrors,
-      '400': ErrorResponse('Unknown `status` (`bad-input`).'),
+      '400': ErrorResponse(
+        '`destinationId` is not a destination id (a UUID), or an unknown `status` (`bad-input`).',
+      ),
       '404': ErrorResponse('No destination with that id (`destination-not-found`).'),
     },
   },
@@ -12498,7 +12502,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'destinations.redeliver',
     summary: 'Redeliver a message',
     description:
-      'Queues the delivery again now, whatever its status: its attempts start over, and so does its retry window.',
+      "Queues the delivery again now, whatever its status: its attempts start over, and so does its retry window. It's checked again as when it was queued (`destination-removed`, `not-for-this-project`) and as when it's sent (`no-access`), so a delivery skipped for one of those is skipped again with that reason. One skipped for `rate-cap` goes.",
     tags: ['destinations'],
     security: 'bearer',
     parameters: [DestinationIdPathParam, DestinationDeliveryIdPathParam, IdempotencyKeyParam],
@@ -12506,6 +12510,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '202': { description: 'Queued.', schema: ref('DestinationDelivery') },
       ...CommonMutationErrors,
       ...TenantAdminErrors,
+      '400': ErrorResponse(
+        '`destinationId` is not a destination id, or `deliveryId` a delivery id (a UUID).',
+      ),
       '404': ErrorResponse(
         'No destination with that id (`destination-not-found`), or no delivery with that id for it (`destination-delivery-not-found`).',
       ),
@@ -12526,6 +12533,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '202': { description: 'Queued.', schema: ref('DestinationDelivery') },
       ...CommonMutationErrors,
       ...TenantAdminErrors,
+      '400': ErrorResponse('`destinationId` is not a destination id (a UUID).'),
       '404': ErrorResponse('No destination with that id (`destination-not-found`).'),
     },
   },

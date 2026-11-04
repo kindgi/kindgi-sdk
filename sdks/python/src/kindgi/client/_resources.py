@@ -11339,7 +11339,7 @@ class DestinationsResource:
     ) -> _models.DestinationCollectionPage:
         """List destinations. `GET /v1/destinations`
 
-        A tenant admin's. With `projectId`: the destinations that project's schedules may use, for anyone who may make a schedule there (`run` on the project), without `people`, `urlRef` and `secretRef`.
+        A tenant admin's. With `projectId`: the destinations that project's schedules may use, for anyone who may make a schedule there (`run` on the project), without `people`, `host`, `urlRef`, `secretRef` and `projects`.
         """
         return self._client._request(
             _OPERATIONS["destinations.list"],
@@ -11464,7 +11464,7 @@ class DestinationsResource:
     ) -> _models.DestinationDelivery:
         """Redeliver a message. `POST /v1/destinations/{destinationId}/deliveries/{deliveryId}/redeliver`
 
-        Queues the delivery again now, whatever its status: its attempts start over, and so does its retry window.
+        Queues the delivery again now, whatever its status: its attempts start over, and so does its retry window. It's checked again as when it was queued (`destination-removed`, `not-for-this-project`) and as when it's sent (`no-access`), so a delivery skipped for one of those is skipped again with that reason. One skipped for `rate-cap` goes.
         """
         return self._client._request(
             _OPERATIONS["destinations.redeliver"],
@@ -21897,7 +21897,7 @@ class AsyncDestinationsResource:
     ) -> _models.DestinationCollectionPage:
         """List destinations. `GET /v1/destinations`
 
-        A tenant admin's. With `projectId`: the destinations that project's schedules may use, for anyone who may make a schedule there (`run` on the project), without `people`, `urlRef` and `secretRef`.
+        A tenant admin's. With `projectId`: the destinations that project's schedules may use, for anyone who may make a schedule there (`run` on the project), without `people`, `host`, `urlRef`, `secretRef` and `projects`.
         """
         return await self._client._request(
             _OPERATIONS["destinations.list"],
@@ -22022,7 +22022,7 @@ class AsyncDestinationsResource:
     ) -> _models.DestinationDelivery:
         """Redeliver a message. `POST /v1/destinations/{destinationId}/deliveries/{deliveryId}/redeliver`
 
-        Queues the delivery again now, whatever its status: its attempts start over, and so does its retry window.
+        Queues the delivery again now, whatever its status: its attempts start over, and so does its retry window. It's checked again as when it was queued (`destination-removed`, `not-for-this-project`) and as when it's sent (`no-access`), so a delivery skipped for one of those is skipped again with that reason. One skipped for `rate-cap` goes.
         """
         return await self._client._request(
             _OPERATIONS["destinations.redeliver"],

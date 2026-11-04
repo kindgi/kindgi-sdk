@@ -72,7 +72,10 @@ export interface DestinationBinding {
   listDeliveries(input: DestinationDeliveryListInput): Promise<DestinationDeliveryListOutcome>;
   /**
    * Queue a delivery again now, whatever its status: attempts start over,
-   * and so does its retry window.
+   * and so does its retry window. It's checked again as when it was queued
+   * (`destination-removed`, `not-for-this-project`) and as when it's sent
+   * (`no-access`), so a delivery skipped for one of those is skipped again
+   * with that reason. One skipped for `rate-cap` goes.
    */
   redeliver(input: DestinationDeliveryRef): Promise<DestinationDeliveryOutcome>;
   /**
@@ -231,6 +234,14 @@ export type DestinationUpdateOutcome =
   | { readonly kind: 'ok'; readonly destination: Destination }
   | { readonly kind: 'not-found' }
   | DestinationRefusal;
+
+/**
+ * Whether this deployment can send a schedule's results to `me`, its
+ * owner's own email: on, or off with the setting it needs (a save that
+ * names `me` is refused naming it, as `kind-off` names an `email`
+ * destination's).
+ */
+export type ResultEmail = { readonly on: true } | { readonly on: false; readonly setting: string };
 
 // ---------- deliveries ----------
 

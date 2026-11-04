@@ -15270,7 +15270,7 @@ export const ScheduleResultTargetInputSchema: JsonSchema = {
     to: {
       type: 'string',
       description:
-        "A destination's id, or `me`: the schedule's owner's own email, when the owner is a person.",
+        "A destination's id, or `me`: the schedule's owner's own email, when the owner is a person and the deployment sends email.",
     },
     on: {
       type: 'array',
@@ -15666,7 +15666,7 @@ export const RegisterScheduleBodySchema: JsonSchema = {
       maxItems: 5,
       items: { $ref: '#/components/schemas/ScheduleResultTargetInput' },
       description:
-        "Where its results go, at most five places, each named once: a destination the schedule's project may use, or `me` when its owner is a person. Absent or `[]`: nowhere.",
+        "Where its results go, at most five places, each named once: a destination the schedule's project may use, or `me` when its owner is a person and the deployment sends email. Absent or `[]`: nowhere.",
     },
   },
 };
