@@ -11,8 +11,23 @@
  * (`conversationPolicy.hitl.tools` in `@kindgi/agents`).
  */
 
-/** How a tool call is gated, loosest first. */
+/**
+ * How a tool call is gated, loosest first: the order the stricter of two
+ * gates is picked by. `ask_on_first_use` and `always_ask` both ask before
+ * each call.
+ */
 export const TOOL_HITL_MODES = ['never_ask', 'ask_on_first_use', 'always_ask'] as const;
+/**
+ * A tool's gate:
+ *
+ * - `never_ask`: each call runs without asking. An agent's default for a
+ *   tool marked read-only (`mutating: false`).
+ * - `ask_on_first_use`: each call waits for an approval, as with
+ *   `always_ask`. An approval isn't remembered for a later call, not even
+ *   one with the same arguments. An agent's default for a tool that isn't
+ *   marked read-only.
+ * - `always_ask`: each call waits for an approval.
+ */
 export type ToolHitlMode = (typeof TOOL_HITL_MODES)[number];
 
 /** Reviewer roles, lowest first. */

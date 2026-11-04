@@ -12,7 +12,7 @@
 //   2. `agent.conversationPolicy.hitl.tools.default` — agent-wide default
 //   3. per-tool default from `Tool.mutating` — safe fallback
 //        - `mutating: false`  → `never_ask`
-//        - `mutating: true` or absent → `ask_on_first_use` (defaults safer)
+//        - `mutating: true` or absent → `ask_on_first_use`, which asks before each call (defaults safer)
 //
 // The effective-policy resolver (`hitl-policy.ts`) layers the tenant
 // cap on top.
@@ -60,15 +60,15 @@ export function resolveToolHitl(agent: Agent, tool: Tool): ResolvedToolHitl {
   // 3. Per-tool default from Tool.mutating — only reached when
   // `hitl.tools` is present (opt-in) but neither an override nor a
   // default matches. Read-only tools skip the gate; mutating tools
-  // ask on first use.
+  // ask before each call.
   const mode: ToolHitlMode = tool.mutating === false ? 'never_ask' : 'ask_on_first_use';
   return { mode, requiredRole: defaultRole };
 }
 
 /**
- * Deterministic hash of tool arguments — used as the cache key for
- * `ask_on_first_use`. Sorted-key JSON so reordered args don't produce
- * a different hash.
+ * Deterministic hash of tool arguments, part of a call's wait token, so
+ * a replay of the call lands on the same token. Sorted-key JSON so
+ * reordered args don't produce a different hash.
  */
 export function hashToolArgs(args: unknown): string {
   return createHash('sha256').update(canonicalStringify(args)).digest('hex').slice(0, 40);
@@ -141,18 +141,3 @@ export function computeConnectWaitToken(input: {
 export type ConnectWaitResult =
   | { readonly kind: 'connected'; readonly connectionId: string }
   | { readonly kind: 'declined'; readonly missing?: readonly string[] };
-
-/**
- * In-conversation cache of decisions for `ask_on_first_use`. Persisted
- * on `agent_conversations.metadata.hitlToolDecisions` — a flat map of
- * `${toolId}:${argsHash}` → decision. Read/write goes through the
- * conversation row's metadata via the standard update path.
- */
-export interface ToolDecisionCacheKey {
-  readonly toolId: string;
-  readonly argsHash: string;
-}
-
-export function cacheKeyFor(key: ToolDecisionCacheKey): string {
-  return `${key.toolId}:${key.argsHash}`;
-}
