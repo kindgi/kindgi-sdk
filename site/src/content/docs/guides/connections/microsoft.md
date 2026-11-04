@@ -78,7 +78,11 @@ In the [Microsoft Entra admin center](https://entra.microsoft.com):
    and both to reply. For the [calendar tools](../calendar/), add
    `Calendars.ReadBasic` to list events and calendars and for free/busy,
    `Calendars.Read.Shared` to list events on calendars others share, and
-   `Calendars.ReadWrite` to add and change them. Then choose **Add
+   `Calendars.ReadWrite` to add and change them. For the
+   [file tools](../files/), add `Files.Read` to list the person's own
+   OneDrive, `Files.ReadWrite` to add files to it, `Files.Read.All` to list
+   the files others share and a SharePoint library's, and `Sites.Read.All`
+   to find SharePoint sites and their libraries. Then choose **Add
    permissions**. Kindgi asks for
    `offline_access` to keep access between sign-ins, and for `User.Read` to
    learn whose account it is.
@@ -101,6 +105,14 @@ Cloud Application Administrator or Application Administrator role:
 **Entra ID → Enterprise apps → All applications**, pick the app, then
 **Security → Permissions → Grant admin consent**
 ([Microsoft: Grant tenant-wide admin consent](https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/grant-admin-consent)).
+
+A new directory starts on Microsoft's own setting. It lets people allow a
+permission themselves, except those on Microsoft's list, which include
+reading mail, calendars, the files others share, and SharePoint:
+`Mail.Read`, the `Calendars` permissions, `Files.Read.All` and
+`Sites.Read.All` need an admin's consent once there. `Files.Read` and
+`Files.ReadWrite` don't
+([Microsoft: Manage app consent policies](https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/manage-app-consent-policies)).
 
 ## 3. Store the client secret
 
@@ -239,13 +251,18 @@ mailbox:
 - **10,000 calls in 10 minutes,** Microsoft Graph's limit for one app and
   one mailbox
   ([Microsoft: Throttling limits](https://learn.microsoft.com/en-us/graph/throttling-limits)).
+- **3,000 calls in 5 minutes** for OneDrive and SharePoint, SharePoint
+  Online's default for one person
+  ([Microsoft: Avoid getting throttled or blocked in SharePoint Online](https://learn.microsoft.com/en-us/sharepoint/dev/general-development/how-to-avoid-getting-throttled-or-blocked-in-sharepoint-online)),
+  kept for a personal OneDrive too.
 
 The ready-made tools that read mail or a calendar count only against
 the second. A calendar create or update counts against both, as it can
-send meeting requests. A call whose `toolId` the entry doesn't list takes
-1 unit of each, so your own
-tool's calls to Graph through
-[`appFetch`](../use-a-connection/#read-the-token) count as sends too.
+send meeting requests. The [file tools](../files/) count only against
+the third. A call whose `toolId` the entry doesn't list takes 1 unit of
+each, so your own tool's calls to Graph through
+[`appFetch`](../use-a-connection/#read-the-token) count as sends and as
+file calls too.
 
 Microsoft enforces its other limits itself, such as 4 calls at once to a
 mailbox: a call over one is refused with a time to wait, and `appFetch`

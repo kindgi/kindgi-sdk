@@ -162,8 +162,9 @@ review your registration, not Kindgi's.
     ([Google](../google/#1-create-the-client-in-the-google-cloud-console)).
 - **Microsoft:** `Calendars.ReadBasic` to list events and calendars and for
   free/busy, `Calendars.Read.Shared` for the shared list, and
-  `Calendars.ReadWrite` to add and change. None needs an admin's consent
-  by default. Your directory may still ask for it
+  `Calendars.ReadWrite` to add and change. Whether people may allow them
+  themselves is your directory's setting: on Microsoft's own setting, which
+  a new directory starts on, they need an admin's consent once
   ([Admin consent](../microsoft/#admin-consent)).
 
 ## A connection made before
