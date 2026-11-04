@@ -35,6 +35,12 @@ const ADMIN = 'license-route-admin';
 const MEMBER = 'license-route-member';
 /** An admin of another tenant of the same deployment. */
 const OTHER_ADMIN = 'license-route-other-admin';
+/**
+ * A key limited to a project, minted holding `kindgi:system` before such a
+ * mint was refused: it reads as any key of its tenant does, never as the
+ * operator.
+ */
+const SYSTEM_IN_PROJECT = 'license-route-system-in-project';
 
 const resolveToken: TokenResolver = async (token) => {
   if (token === SYSTEM) {
@@ -43,6 +49,14 @@ const resolveToken: TokenResolver = async (token) => {
   if (token === ADMIN) return { tenantId: TENANT, userId: 'u-admin' as UserId, capabilities: [] };
   if (token === MEMBER) return { tenantId: TENANT, userId: 'u-member' as UserId };
   if (token === OTHER_ADMIN) return { tenantId: OTHER_TENANT, userId: 'u-other' as UserId };
+  if (token === SYSTEM_IN_PROJECT) {
+    return {
+      tenantId: TENANT,
+      userId: 'u-sys' as UserId,
+      tokenProjectId: 'p-1',
+      capabilities: ['kindgi:system'],
+    };
+  }
   return null;
 };
 
@@ -215,6 +229,11 @@ describe('GET /v1/license: the admins of the one tenant a deployment serves', ()
   test.each([
     ['without an authorizer: any caller of the tenant', false, MEMBER],
     ["with one: the tenant's admin", true, ADMIN],
+    [
+      'without an authorizer: a key limited to a project, holding kindgi:system',
+      false,
+      SYSTEM_IN_PROJECT,
+    ],
   ])('%s reads the countdown, nothing of the operator’s', async (_what, authz, token) => {
     const { get, recorded } = makeApp(
       { status: () => expiring(12), soleTenant: () => TENANT },
@@ -367,6 +386,18 @@ describe('GET /v1/identity/me/permissions says what GET /v1/license does (licens
   });
 });
 
+test('a key limited to a project, holding kindgi:system, never reads it as the operator', async () => {
+  // Serving several: refused whatever its role, as every tenant's key, and
+  // `GET /v1/identity/me/permissions` says so.
+  const { get } = makeApp({ status: () => expiring(12), soleTenant: () => null }, { authz: true });
+  const mine = await get(SYSTEM_IN_PROJECT, '/v1/identity/me/permissions');
+  expect(mine.body.licenseOperatorOnly).toBe(true);
+  const refused = await get(SYSTEM_IN_PROJECT);
+  expect(refused.status).toBe(403);
+  expect(refused.body.error).toMatchObject({ code: 'license-operator-only' });
+  expectNothingOfTheOperators(refused);
+});
+
 test('signed in only; not mounted without a binding', async () => {
   expect((await makeApp({ status: () => ({ mode: 'development' }) }).get()).status).toBe(401);
   expect((await makeApp(undefined).get(SYSTEM)).status).toBe(404);
@@ -456,7 +487,7 @@ describe("GET /v1/license/usage: the deployment's use, for its key's renewal", (
     const { binding, periods } = counting();
     const soleTenant: LicenseStatusBinding = { ...binding, soleTenant: () => TENANT };
     const app = makeApp(soleTenant, { authz: true });
-    for (const token of [ADMIN, MEMBER, OTHER_ADMIN]) {
+    for (const token of [ADMIN, MEMBER, OTHER_ADMIN, SYSTEM_IN_PROJECT]) {
       const answer = await app.get(token, SINCE);
       expect(answer.status, token).toBe(403);
       expect(answer.body.error, token).toMatchObject({
@@ -476,7 +507,12 @@ describe("GET /v1/license/usage: the deployment's use, for its key's renewal", (
           "The deployment's use counts every tenant's: only its operator reads it, with the deployment's own token or a system key holding system:license.",
       }),
     });
-    expect(app.recorded).toEqual([refusedRead('t-1'), refusedRead('t-1'), refusedRead('t-2')]);
+    expect(app.recorded).toEqual([
+      refusedRead('t-1'),
+      refusedRead('t-1'),
+      refusedRead('t-2'),
+      refusedRead('t-1'),
+    ]);
     expect(periods).toHaveLength(0);
   });
 

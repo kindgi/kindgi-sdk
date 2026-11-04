@@ -469,6 +469,8 @@ Make longer-lived keys with one of those, such as the 90-day key in
   promotion reads one project and writes another, so a key limited to a
   project is refused the same way on every promotion
   ([A promote key for each later environment](../ship-from-ci/#a-promote-key-for-each-later-environment)).
+  A key limited to a project can't carry `kindgi:system`: that mint is
+  refused, `403 capability-not-mintable`.
 - **`--capability=<cap>`,** repeatable, puts a capability on the key, such as
   `signing-keys:write` or `secrets:write`
   ([Who can do what](#who-can-do-what)). You can give only those you hold,
