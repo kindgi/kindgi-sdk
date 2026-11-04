@@ -12498,7 +12498,7 @@ class ConnectionTokenApp(BaseModel):
     """
     api_key: Annotated[ConnectionSecretRef, Field(alias="apiKey")]
     """
-    The provider account's API key. Not a reserved `kindgi.` name, not a model provider's key, and not a secret a tool, an MCP endpoint, a webhook endpoint or a webhook trigger uses (`409 connection-key-in-use`).
+    The provider account's API key. Not a reserved `kindgi.` name, not a model provider's key, and not a secret a tool, an MCP endpoint, a webhook endpoint, a webhook trigger or another connection app registration uses (`409 connection-key-in-use`). Only this registration names it: a tool, an endpoint, a webhook trigger, a model provider or another registration that names it is refused (`400 connection-key-refused`).
     """
     public_key: Annotated[str, Field(alias="publicKey", pattern="^[A-Za-z0-9+/]{43}=$")]
     """

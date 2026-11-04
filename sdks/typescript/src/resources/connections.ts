@@ -153,8 +153,9 @@ export interface ConnectionAppsClient {
   /**
    * @wire POST /v1/connection-apps — `clientSecret` and the like name secrets you stored
    * first. A `token` entry (`texts`) takes `token` instead: the provider, its API key
-   * (a secret no tool, MCP endpoint or webhook uses, else `connection-key-in-use`) and
-   * its public key.
+   * (a secret no tool, MCP endpoint, webhook or other registration uses, else
+   * `connection-key-in-use`) and its public key. Only this registration names that key
+   * afterwards: anything else that names it is refused with `connection-key-refused`.
    */
   create(input: CreateConnectionAppInput, options?: MutationOptions): Promise<ConnectionApp>;
   /** @wire GET /v1/connection-apps/:appId */

@@ -28,7 +28,7 @@ import type {
   ProviderRuntimeEntry,
   ProviderSecretRef,
 } from '../provider-binding.js';
-import type { SecretUse } from '../provider-keys.js';
+import { type ConnectionKeys, type SecretUse, connectionKeyRefusal } from '../provider-keys.js';
 import { RESERVED_SECRET_NAME_PREFIX } from '../secrets-binding.js';
 import { type ServedEnvRule, refuseUnservedReference } from '../served-env.js';
 import type { AppEnv } from '../types.js';
@@ -76,6 +76,11 @@ export function providersRouter(
   options: {
     /** What in the tenant uses a secret: a provider's key can't be one of them. */
     readonly secretUsers?: (tenantId: TenantId, name: string) => Promise<readonly SecretUse[]>;
+    /**
+     * A texts registration's account key is never named here
+     * (`connection-key-refused`); absent, not checked.
+     */
+    readonly connectionKeys?: ConnectionKeys;
     /**
      * On a runtime that refuses other envs: a registration whose
      * `secret_ref` names another env answers `409 env-not-served`
@@ -317,10 +322,22 @@ export function providersRouter(
       return c.json(toWireError(unserved, requestId));
     }
 
+    // A texts registration's account key reaches the whole provider account:
+    // it's that registration's only, never a model provider's.
+    const keyName = secretRefResult.value?.name;
+    const keyOwner =
+      keyName === undefined || options.connectionKeys === undefined
+        ? undefined
+        : (await options.connectionKeys.of(tenantId)).get(keyName)?.[0];
+    if (keyName !== undefined && keyOwner !== undefined) {
+      const refusal = connectionKeyRefusal(keyName, keyOwner, 'a model provider');
+      c.status(statusFor(refusal.code) as never);
+      return c.json(toWireError(refusal, requestId));
+    }
+
     // A model provider's key is used by its provider only: a key a tool, an
     // endpoint or a webhook trigger already uses would be taken from it, so
     // say so now.
-    const keyName = secretRefResult.value?.name;
     const usedBy =
       keyName === undefined || options.secretUsers === undefined
         ? []

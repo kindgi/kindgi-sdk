@@ -16,7 +16,7 @@ import { github } from '@kindgi/connections/github';
 import { google } from '@kindgi/connections/google';
 import { microsoft } from '@kindgi/connections/microsoft';
 import { texts } from '@kindgi/connections/texts';
-import type { EnvName, TenantId, UserId } from '@kindgi/types';
+import type { Cursor, EnvName, TenantId, UserId } from '@kindgi/types';
 
 import type {
   ConnectRequestCreateInput,
@@ -200,14 +200,19 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
   };
   const binding: ConnectionBinding = {
     entries: () => entries,
+    // A page of `limit` at a time; the cursor is where the next page starts.
     async listApps(input) {
       seen('listApps', input);
+      const listed = [...apps.values()].filter(
+        (a) =>
+          a.tenantId === input.tenantId &&
+          (input.includeRemoved === true || a.removedAt === undefined),
+      );
+      const start = input.cursor === undefined ? 0 : Number(input.cursor);
+      const end = start + input.limit;
       return {
-        data: [...apps.values()].filter(
-          (a) =>
-            a.tenantId === input.tenantId &&
-            (input.includeRemoved === true || a.removedAt === undefined),
-        ),
+        data: listed.slice(start, end),
+        ...(end < listed.length && { nextCursor: String(end) as Cursor }),
       };
     },
     async getApp({ tenantId, appId }) {
@@ -249,8 +254,26 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
         },
       };
     },
+    // A registration whose number's old inbound can't be put back is kept,
+    // its connection `removing`; otherwise it's removed.
     async removeApp(input) {
       seen('removeApp', input);
+      const app = apps.get(input.appId);
+      const stuck = [...connections.values()].find(
+        (c) => c.appId === input.appId && c.state !== 'removed' && c.account.label === STUCK_NUMBER,
+      );
+      if (app !== undefined && input.withConnections && stuck !== undefined) {
+        connections.set(stuck.connectionId, { ...stuck, state: 'removing' });
+        return {
+          kind: 'err',
+          error: {
+            code: 'inbound-restore-failed',
+            message: `${STUCK_NUMBER}'s old inbound couldn't be put back`,
+            profile: 'Acme support',
+          } as never,
+        };
+      }
+      if (app !== undefined) apps.set(input.appId, { ...app, removedAt: at });
       return { kind: 'ok', value: { connectionsRemoved: input.withConnections ? 2 : 0 } };
     },
     async list(input) {
@@ -593,7 +616,7 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
     return connection;
   }
 
-  return { binding, calls, connected, requests, choices };
+  return { binding, calls, connected, requests, choices, apps };
 }
 
 const runHandler = {} as RunHandlerBinding;
@@ -606,9 +629,12 @@ function makeApp(
     entries?: readonly AppEntry[];
     /** The webhook endpoints, whose secrets a registration's key can't be. */
     webhookEndpoints?: readonly { endpointId: string; secretRef: typeof SECRET }[];
+    /** Mount `/v1/tools`, publishing into `published`. */
+    tools?: boolean;
   } = {},
 ) {
   const memory = memoryBinding(options.entries);
+  const published: unknown[] = [];
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
@@ -635,8 +661,19 @@ function makeApp(
     ...(options.authzCheckBinding !== undefined && {
       authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding: options.authzCheckBinding },
     }),
+    ...(options.tools === true && {
+      toolRegistry: {
+        list: async () => ({ data: [] }),
+        headExists: async () => false,
+        get: async () => null,
+        publish: async (input: { tool: { id: string; version: string } }) => {
+          published.push(input);
+          return { kind: 'ok', toolId: input.tool.id, version: input.tool.version };
+        },
+      } as never,
+    }),
   });
-  return { app, ...memory };
+  return { app, published, ...memory };
 }
 
 type App = ReturnType<typeof makeApp>['app'];
@@ -2476,8 +2513,8 @@ describe("a texts connection: a number, with the provider account's key", () => 
   const ENTRIES = [google, github, texts];
   const PUBLIC_KEY = Buffer.alloc(32, 7).toString('base64');
   const TOKEN = {
-    provider: 'telnyx',
-    apiKey: { envName: 'local', name: 'ACME_TELNYX_KEY' },
+    provider: 'telnyx' as const,
+    apiKey: { envName: 'local' as EnvName, name: 'ACME_TELNYX_KEY' },
     publicKey: PUBLIC_KEY,
   };
   const NUMBER = '+15551234567';
@@ -2586,6 +2623,215 @@ describe("a texts connection: a number, with the provider account's key", () => 
     });
     expect([moved.status, moved.json.error?.code]).toEqual([409, 'connection-key-in-use']);
     expect(calls.updateApp).toBeUndefined();
+  });
+
+  /** A live registration put straight into the store, as one made earlier would be. */
+  function seed(
+    apps: Map<string, ConnectionAppRecord>,
+    record: Omit<
+      ConnectionAppRecord,
+      'appId' | 'tenantId' | 'redirectUrl' | 'noticesUrl' | 'createdAt' | 'updatedAt'
+    >,
+  ): string {
+    const appId = randomUUID();
+    apps.set(appId, {
+      appId,
+      tenantId: tenantA,
+      redirectUrl: 'https://kindgi.acme.example/console/connect/callback',
+      noticesUrl: `https://kindgi.acme.example/v1/connection-notices/${tenantA}/${appId}`,
+      createdAt: at,
+      updatedAt: at,
+      ...record,
+    });
+    return appId;
+  }
+  const CLIENT_ID = 'acme-client.apps.googleusercontent.com';
+  const KEY_REFUSED = (appId: string) =>
+    `\`ACME_TELNYX_KEY\` is the account key of connection app registration "${appId}": a connection app never names it, since that key reaches the whole provider account. Store the key under its own name (the same value is fine) and use that name`;
+
+  test('a second texts registration on the same key, or an OAuth registration naming it: 400 connection-key-refused, naming the first, and nothing is stored', async () => {
+    const { app, calls } = makeApp({ entries: ENTRIES });
+    const first = await call(app, 'admin', 'POST', '/v1/connection-apps', {
+      app: 'texts',
+      token: TOKEN,
+    });
+    expect(first.status).toBe(201);
+    const second = await call(app, 'admin', 'POST', '/v1/connection-apps', {
+      app: 'texts',
+      token: TOKEN,
+    });
+    expect([second.status, second.json.error]).toEqual([
+      400,
+      expect.objectContaining({
+        code: 'connection-key-refused',
+        message: KEY_REFUSED(first.json.appId),
+        details: { secret: 'ACME_TELNYX_KEY', appId: first.json.appId },
+      }),
+    ]);
+    const oauth = await call(app, 'admin', 'POST', '/v1/connection-apps', {
+      app: 'google',
+      oauth2: { clientId: CLIENT_ID, clientSecret: TOKEN.apiKey },
+    });
+    expect([oauth.status, oauth.json.error?.code, oauth.json.error?.details]).toEqual([
+      400,
+      'connection-key-refused',
+      { secret: 'ACME_TELNYX_KEY', appId: first.json.appId },
+    ]);
+    expect(calls.createApp).toHaveLength(1);
+  });
+
+  test("an update of the texts registration keeps its own key; another registration's moving onto it is refused", async () => {
+    const { app, calls } = makeApp({ entries: ENTRIES });
+    const first = await call(app, 'admin', 'POST', '/v1/connection-apps', {
+      app: 'texts',
+      token: TOKEN,
+    });
+    const kept = await call(app, 'admin', 'PATCH', `/v1/connection-apps/${first.json.appId}`, {
+      label: 'Support line',
+      token: TOKEN,
+    });
+    expect(kept.status, JSON.stringify(kept.json)).toBe(200);
+    const other = await call(app, 'admin', 'POST', '/v1/connection-apps', {
+      app: 'texts',
+      token: { ...TOKEN, apiKey: { envName: 'local', name: 'ACME_SALES_TELNYX_KEY' } },
+    });
+    expect(other.status).toBe(201);
+    const moved = await call(app, 'admin', 'PATCH', `/v1/connection-apps/${other.json.appId}`, {
+      token: TOKEN,
+    });
+    expect([moved.status, moved.json.error?.code, moved.json.error?.details]).toEqual([
+      400,
+      'connection-key-refused',
+      { secret: 'ACME_TELNYX_KEY', appId: first.json.appId },
+    ]);
+    expect(calls.updateApp).toHaveLength(1);
+  });
+
+  test('a key two registrations already hold, as two creates that raced leave it: an update of one keeping it is refused, naming the other', async () => {
+    const { app, apps, calls } = makeApp({ entries: ENTRIES });
+    const firstId = seed(apps, { app: 'texts', token: TOKEN });
+    const secondId = seed(apps, { app: 'texts', token: TOKEN });
+    const kept = await call(app, 'admin', 'PATCH', `/v1/connection-apps/${firstId}`, {
+      label: 'Support line',
+      token: TOKEN,
+    });
+    expect([kept.status, kept.json.error?.code, kept.json.error?.details]).toEqual([
+      400,
+      'connection-key-refused',
+      { secret: 'ACME_TELNYX_KEY', appId: secondId },
+    ]);
+    expect(calls.updateApp).toBeUndefined();
+  });
+
+  test('a removed texts registration frees its key', async () => {
+    const { app } = makeApp({ entries: ENTRIES });
+    const first = await call(app, 'admin', 'POST', '/v1/connection-apps', {
+      app: 'texts',
+      token: TOKEN,
+    });
+    const removed = await call(app, 'admin', 'DELETE', `/v1/connection-apps/${first.json.appId}`);
+    expect(removed.status).toBe(200);
+    const again = await call(app, 'admin', 'POST', '/v1/connection-apps', {
+      app: 'texts',
+      token: TOKEN,
+    });
+    expect(again.status, JSON.stringify(again.json)).toBe(201);
+  });
+
+  test('a texts key another registration names as a secret: 409 connection-key-in-use, naming that registration', async () => {
+    const { app, calls } = makeApp({ entries: ENTRIES });
+    const oauth = await call(app, 'admin', 'POST', '/v1/connection-apps', {
+      app: 'google',
+      oauth2: { clientId: CLIENT_ID, clientSecret: SECRET },
+    });
+    expect(oauth.status).toBe(201);
+    const refused = await call(app, 'admin', 'POST', '/v1/connection-apps', {
+      app: 'texts',
+      token: { ...TOKEN, apiKey: SECRET },
+    });
+    expect([refused.status, refused.json.error?.code, refused.json.error?.details]).toEqual([
+      409,
+      'connection-key-in-use',
+      { secret: SECRET.name, usedBy: [{ kind: 'connection-app', id: oauth.json.appId }] },
+    ]);
+    expect(calls.createApp).toHaveLength(1);
+  });
+
+  test('a clash past the first page of registrations is found, either way', async () => {
+    const { app, apps, calls } = makeApp({ entries: ENTRIES });
+    for (let i = 0; i < 100; i++) {
+      seed(apps, {
+        app: 'google',
+        oauth2: {
+          clientId: `acme-${i}.apps.googleusercontent.com`,
+          clientSecret: { envName: 'local' as EnvName, name: `ACME_CLIENT_SECRET_${i}` },
+        },
+      });
+    }
+    const textsId = seed(apps, { app: 'texts', token: TOKEN });
+    const oauthId = seed(apps, {
+      app: 'google',
+      oauth2: {
+        clientId: CLIENT_ID,
+        clientSecret: { envName: 'local' as EnvName, name: 'ACME_LAST_SECRET' },
+      },
+    });
+    const named = await call(app, 'admin', 'POST', '/v1/connection-apps', {
+      app: 'google',
+      oauth2: { clientId: CLIENT_ID, clientSecret: TOKEN.apiKey },
+    });
+    expect([named.status, named.json.error?.code, named.json.error?.details]).toEqual([
+      400,
+      'connection-key-refused',
+      { secret: 'ACME_TELNYX_KEY', appId: textsId },
+    ]);
+    const used = await call(app, 'admin', 'POST', '/v1/connection-apps', {
+      app: 'texts',
+      token: { ...TOKEN, apiKey: { envName: 'local', name: 'ACME_LAST_SECRET' } },
+    });
+    expect([used.status, used.json.error?.code, used.json.error?.details?.usedBy]).toEqual([
+      409,
+      'connection-key-in-use',
+      [{ kind: 'connection-app', id: oauthId }],
+    ]);
+    expect(calls.createApp).toBeUndefined();
+    expect(calls.listApps?.some((i) => (i as { cursor?: string }).cursor === '100')).toBe(true);
+  });
+
+  test("a registration kept while its number's old inbound can't be put back still holds its key", async () => {
+    const { app, connected, published } = makeApp({ entries: ENTRIES, tools: true });
+    const created = await call(app, 'admin', 'POST', '/v1/connection-apps', {
+      app: 'texts',
+      token: TOKEN,
+    });
+    const appId = created.json.appId as string;
+    connected({ kind: 'company' }, tenantA, {
+      app: 'texts',
+      appId,
+      account: { id: 'num-15550000009', label: STUCK_NUMBER },
+    });
+    const removal = await call(
+      app,
+      'admin',
+      'DELETE',
+      `/v1/connection-apps/${appId}?withConnections=true`,
+    );
+    expect([removal.status, removal.json.error?.code]).toEqual([502, 'inbound-restore-failed']);
+    const tool = await call(app, 'admin', 'POST', '/v1/tools', {
+      id: 'acme.sms',
+      version: '1.0.0',
+      description: 'Send a text.',
+      input: { type: 'object' },
+      output: { type: 'object' },
+      needsSpec: { secrets: { ACME_TELNYX_KEY: { type: 'string' } } },
+      projectId: randomUUID(),
+    });
+    expect([tool.status, tool.json.error?.code, tool.json.error?.details]).toEqual([
+      400,
+      'connection-key-refused',
+      { secret: 'ACME_TELNYX_KEY', appId },
+    ]);
+    expect(published).toEqual([]);
   });
 
   test('a connect names the number: 201, already connected, with its connection, and the usual link and expiry', async () => {

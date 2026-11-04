@@ -741,4 +741,7 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/mcp/endpoints/{endpointId}/resources': "read live from the MCP endpoint's own server",
   '/v1/mcp/endpoints/{endpointId}/resources/{uri}': "read live from the MCP endpoint's own server",
   '/v1/mcp/endpoints/{endpointId}/prompts': "read live from the MCP endpoint's own server",
+  // Called by another server.
+  '/v1/texts-inbound/{tenantId}/{appId}':
+    "a texting provider's handshake, answered to the provider; a Kindgi client never calls it",
 };

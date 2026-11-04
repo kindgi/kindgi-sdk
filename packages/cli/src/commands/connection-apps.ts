@@ -22,8 +22,8 @@ import type { Command, LeafCommand } from './types.js';
 /**
  * `kindgi connection-apps`: the tenant's registrations at other apps (its
  * Google client, its GitHub App, its texting provider account) that
- * connections go through. Tenant admins only. A registration names its secrets by reference: store the
- * values first with `kindgi secrets set`.
+ * connections go through. Tenant admins only. A registration names its
+ * secrets by reference: store the values first with `kindgi secrets set`.
  */
 
 type SecretRef = { readonly envName: string; readonly name: string };
@@ -299,7 +299,7 @@ const add: LeafCommand = {
     'api-key-ref': {
       type: 'string',
       description:
-        "Texts: the secret holding the provider account's API key, as --client-secret-ref. The key is used by this registration only: no tool or endpoint may name the same secret.",
+        "Texts: the secret holding the provider account's API key, as --client-secret-ref. The key is used by this registration only: no tool, endpoint, webhook trigger, model provider or other registration may name the same secret.",
     },
     'public-key': {
       type: 'string',

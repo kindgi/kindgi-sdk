@@ -70,11 +70,12 @@ describe('defineApp', () => {
     expect(entry.signIn.kind).toBe('github-app');
   });
 
-  it('takes a token entry, with a number lookup and its inbound restored on removal', () => {
+  it('takes a token entry, with a number lookup, its inbound restored on removal, and each permission granted by its own key', () => {
     const entry = defineApp(withAcme(token));
     expect(entry.signIn).toEqual({ kind: 'token', providers: ['telnyx'] });
     expect(entry.account).toEqual({ kind: 'number' });
     expect(entry.removal).toEqual({ revoke: 'restore-inbound' });
+    expect(entry.permissions).toEqual(token.permissions);
     expect(Object.isFrozen(entry.signIn)).toBe(true);
   });
 

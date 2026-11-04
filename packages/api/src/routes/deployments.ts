@@ -104,7 +104,7 @@ import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { packEnvCheck } from '../pack-env.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
-import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
+import { type ConnectionKeys, type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
 import { PROJECT_MISMATCH, PublishRefused, projectMismatchFix } from '../publish-refused.js';
 import {
   type ItemReference,
@@ -261,6 +261,11 @@ export interface DeploymentsRouterBindings {
   readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
   /** The tenant's model providers' keys: no tool a deployment brings may name one. */
   readonly providerKeys?: ProviderKeys;
+  /**
+   * A texts registration's account key is never named here
+   * (`connection-key-refused`); absent, not checked.
+   */
+  readonly connectionKeys?: ConnectionKeys;
   /**
    * What the deployment's project may reference (`reference-scope.ts`):
    * an agent or flow it brings that names an item neither it brings nor
@@ -1027,6 +1032,7 @@ export function deploymentsRouter(
           tenantId,
           toolSecretNames(tool),
           'a tool',
+          { keys: bindings.connectionKeys },
         );
         if (refusal !== undefined) {
           keyIssues.push({

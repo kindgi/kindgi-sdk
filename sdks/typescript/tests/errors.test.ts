@@ -182,6 +182,23 @@ describe('fromWire — pinned versions', () => {
     });
   });
 
+  it('a connection-key-refused is an invalid request, naming the secret and its registration', () => {
+    expect(
+      fromWire(
+        {
+          code: 'connection-key-refused',
+          message: 'm',
+          details: { secret: 'ACME_TELNYX_KEY', appId: 'app-1' },
+        },
+        400,
+      ),
+    ).toMatchObject({
+      code: 'invalid-request',
+      serverCode: 'connection-key-refused',
+      fields: { secret: 'ACME_TELNYX_KEY', appId: 'app-1' },
+    });
+  });
+
   it('a scope-invalid is an invalid request', () => {
     expect(fromWire({ code: 'scope-invalid', message: 'no such project' })).toMatchObject({
       code: 'invalid-request',

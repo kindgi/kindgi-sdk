@@ -108,7 +108,7 @@ import type { PinnedVersionBinding } from './pinned-version-binding.js';
 import type { ProjectAccessBinding } from './project-access-binding.js';
 import type { ProvenanceBinding } from './provenance-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
-import { providerKeysOf, usersOfSecret } from './provider-keys.js';
+import { connectionKeysOf, providerKeysOf, usersOfSecret } from './provider-keys.js';
 import {
   type PublicRunTokenConfig,
   mintPublicRunToken,
@@ -1923,6 +1923,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // A model provider's key is used by its provider only: the routes that
   // write a tool, an endpoint or a provider check names against it.
   const providerKeys = providerKeysOf(input.providerRegistry);
+  // A texts registration's account key is used by its registration only:
+  // the same routes, and a model provider's, check names against it.
+  const connectionKeys = connectionKeysOf(input.connections);
   const receiveUrl =
     input.publicUrl === undefined
       ? undefined
@@ -1966,6 +1969,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       '/tools',
       toolsRouter(input.toolRegistry, authorizer, input.onToolWrite, {
         providerKeys,
+        connectionKeys,
         ...(input.secretsBinding !== undefined && { secrets: input.secretsBinding }),
         ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
         ...(servedEnv !== undefined && { envName: servedEnv }),
@@ -2215,6 +2219,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         authorizer,
         {
           secretUsers,
+          connectionKeys,
           ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
           ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
         },
@@ -2227,6 +2232,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       mcpRouter(input.mcpEndpointRegistry, input.mcpClientProbe, authorizer, {
         hostAccess: input.tenantHostAccess ?? 'deployed',
         providerKeys,
+        connectionKeys,
         ...(input.secretsBinding !== undefined && { secrets: input.secretsBinding }),
         ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
         ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
@@ -2327,6 +2333,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             }),
           },
           providerKeys,
+          connectionKeys,
           ...(itemRights !== undefined && { itemRights }),
           ...(receiveUrl !== undefined && { receiveUrl }),
           targetTools,
@@ -2399,6 +2406,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       '/webhook-endpoints',
       webhookEndpointsRouter(input.webhookEndpoints, authorizer, {
         providerKeys,
+        connectionKeys,
         ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
       }),
     );
@@ -2414,6 +2422,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       '/connection-apps',
       connectionAppsRouter(input.connections, authorizer, {
         providerKeys,
+        connectionKeys,
         secretUsers,
         ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
       }),
@@ -2709,6 +2718,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             }),
           signingKeyRegistry: input.signingKeyRegistry,
           providerKeys,
+          connectionKeys,
           imageRegistry: input.imageRegistry,
           // A runtime routing pack calls per deployment sends each check call
           // by its id: a pack check must carry its pack's id.

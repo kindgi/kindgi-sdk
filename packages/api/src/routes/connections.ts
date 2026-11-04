@@ -36,7 +36,13 @@ import type {
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
-import { type ProviderKeys, type SecretUse, refuseSecretNames } from '../provider-keys.js';
+import {
+  type ConnectionKeys,
+  type ProviderKeys,
+  type SecretUse,
+  pages,
+  refuseSecretNames,
+} from '../provider-keys.js';
 import {
   type RateLimitStore,
   createInMemoryRateLimitStore,
@@ -71,6 +77,8 @@ const MINUTE_MS = 60_000;
 const E164_RE = /^\+[1-9][0-9]{6,14}$/;
 /** Base64 of exactly 32 bytes (an Ed25519 public key): 43 characters and one `=`. */
 const PUBLIC_KEY_RE = /^[A-Za-z0-9+/]{43}=$/;
+/** The registrations read at once, page after page, for the secrets the others name. */
+const APPS_PAGE = 100;
 
 const CONNECTION_STATES: ReadonlySet<string> = new Set([
   'working',
@@ -101,6 +109,11 @@ export function connectionAppsRouter(
   options: {
     readonly providerKeys?: ProviderKeys;
     /**
+     * A texts registration's account key is never named by another
+     * registration (`connection-key-refused`). Absent: not checked.
+     */
+    readonly connectionKeys?: ConnectionKeys;
+    /**
      * What in the tenant uses a secret: a texts registration's key can't be
      * one of them (`409 connection-key-in-use`). Absent: not checked.
      */
@@ -128,12 +141,13 @@ export function connectionAppsRouter(
   );
   r.use('/:appId', refuseMalformedUuidParam('appId', 'a connection app id'));
 
-  // A reserved `kindgi.` name or a model provider's key is never an app's
-  // secret, and on a runtime that refuses other envs each secret is named
-  // under its env.
+  // A reserved `kindgi.` name, a model provider's key or another texts
+  // registration's account key is never an app's secret, and on a runtime
+  // that refuses other envs each secret is named under its env.
   const secretRefusal = async (
     tenantId: TenantId,
     secrets: readonly (readonly [string, SecretRefInput])[],
+    ownAppId: string | undefined,
   ): Promise<{ readonly code: string; readonly message: string } | undefined> => {
     for (const [field, secretRef] of secrets) {
       const refusal = refuseUnservedReference(options.servedEnv, secretRef, `\`${field}\``);
@@ -144,7 +158,30 @@ export function connectionAppsRouter(
       tenantId,
       secrets.map(([, secretRef]) => secretRef.name),
       'a connection app',
+      { keys: options.connectionKeys, ownAppId },
     );
+  };
+
+  /**
+   * What already names a texts registration's key `name`: the tenant's tools,
+   * endpoints and webhook triggers, then each of its other live registrations,
+   * in any of their secrets.
+   */
+  const usersOfKey = async (
+    tenantId: TenantId,
+    name: string,
+    ownAppId: string | undefined,
+  ): Promise<SecretUse[]> => {
+    const out: SecretUse[] =
+      options.secretUsers === undefined ? [] : [...(await options.secretUsers(tenantId, name))];
+    for await (const app of pages((cursor) =>
+      binding.listApps({ tenantId, limit: APPS_PAGE, ...(cursor !== undefined && { cursor }) }),
+    )) {
+      if (app.appId !== ownAppId && secretNamesOf(app).includes(name)) {
+        out.push({ kind: 'connection-app', id: app.appId });
+      }
+    }
+    return out;
   };
 
   /** A create's or an update's body, checked; an answer when it's refused. */
@@ -157,16 +194,15 @@ export function connectionAppsRouter(
     const parsed = parseAppBody(body.value, mode);
     if (parsed.kind === 'err') return badInput(c, parsed.message, parsed.field);
     const tenantId = c.get('tenantId') as TenantId;
-    const refusal = await secretRefusal(tenantId, secretsOf(parsed.value));
+    // An update's own key is its to keep: only the others' are refused.
+    const ownAppId = mode === 'update' ? c.req.param('appId') : undefined;
+    const refusal = await secretRefusal(tenantId, secretsOf(parsed.value), ownAppId);
     if (refusal !== undefined) return answer(c, refusal.code, refusal.message, refusal);
     // A texts registration's key reaches the whole provider account: a key
-    // a tool, an endpoint or a webhook trigger already uses would hand them
-    // that account, so say so now.
+    // a tool, an endpoint, a webhook trigger or another registration already
+    // uses would hand them that account, so say so now.
     const keyName = parsed.value.token?.apiKey.name;
-    const usedBy =
-      keyName === undefined || options.secretUsers === undefined
-        ? []
-        : await options.secretUsers(tenantId, keyName);
+    const usedBy = keyName === undefined ? [] : await usersOfKey(tenantId, keyName, ownAppId);
     if (keyName !== undefined && usedBy.length > 0) {
       return answer(
         c,
@@ -1493,7 +1529,10 @@ function unknownField(
     : bad(`Unknown field \`${prefix}${unknown}\``, `${prefix}${unknown}`);
 }
 
-function secretsOf(body: AppBody): readonly (readonly [string, SecretRefInput])[] {
+/** Each secret a body or a stored registration names, by its field. */
+function secretsOf(
+  body: Pick<AppBody, 'oauth2' | 'githubApp' | 'token'>,
+): readonly (readonly [string, SecretRefInput])[] {
   return [
     ...(body.oauth2 !== undefined
       ? [['oauth2.clientSecret', body.oauth2.clientSecret] as const]
@@ -1507,6 +1546,11 @@ function secretsOf(body: AppBody): readonly (readonly [string, SecretRefInput])[
       : []),
     ...(body.token !== undefined ? [['token.apiKey', body.token.apiKey] as const] : []),
   ];
+}
+
+/** The name of each secret a stored registration names. */
+function secretNamesOf(record: ConnectionAppRecord): readonly string[] {
+  return secretsOf(record).map(([, secretRef]) => secretRef.name);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

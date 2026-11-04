@@ -21,7 +21,7 @@ import {
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
-import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
+import { type ConnectionKeys, type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
 import { isReadMethod } from '../read-method.js';
 import {
   type ReferenceScopeBinding,
@@ -89,6 +89,11 @@ export function toolsRouter(
   onWrite?: ToolWriteHook,
   options: {
     readonly providerKeys?: ProviderKeys;
+    /**
+     * A texts registration's account key is never named here
+     * (`connection-key-refused`); absent, not checked.
+     */
+    readonly connectionKeys?: ConnectionKeys;
     /** Where each secret a tool names is read is recorded at publish (`secret-scope.ts`). */
     readonly secrets?: SecretScopeDeps['secrets'];
     readonly projects?: SecretScopeDeps['projects'];
@@ -492,12 +497,14 @@ export function toolsRouter(
       );
     }
 
-    // A reserved `kindgi.` name or a model provider's key is never a tool's.
+    // A reserved `kindgi.` name, a model provider's key or a texts
+    // registration's account key is never a tool's.
     const refusal = await refuseSecretNames(
       options.providerKeys,
       tenantId,
       toolSecretNames(validated.value),
       'a tool',
+      { keys: options.connectionKeys },
     );
     if (refusal !== undefined) {
       c.status(statusFor(refusal.code) as never);
@@ -646,6 +653,7 @@ export function toolsRouter(
             tenantId,
             toolSecretNames(retired),
             'a tool',
+            { keys: options.connectionKeys },
           );
     if (named !== undefined) {
       c.status(statusFor(named.code) as never);

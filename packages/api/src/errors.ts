@@ -637,6 +637,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // an endpoint (400), or registered for a provider while one uses it (409).
   'provider-key-refused': 400,
   'provider-key-in-use': 409,
+  // A texts registration's account key is used by its registration only:
+  // named by a tool, an endpoint, a webhook trigger, a model provider or
+  // another connection app registration (400).
+  'connection-key-refused': 400,
   // A slug another org, team or project in the tenant already has; a
   // second default project.
   'slug-conflict': 409,
@@ -789,8 +793,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'inbound-restore-failed': 502,
   /**
    * A texts registration naming as its key a secret that a tool, an
-   * endpoint or a webhook trigger uses: `details.secret` and
-   * `details.usedBy` name them. Nothing is stored.
+   * endpoint, a webhook trigger or another connection app registration
+   * uses: `details.secret` and `details.usedBy` name them. Nothing is stored.
    */
   'connection-key-in-use': 409,
   'connection-store-failed': 503,

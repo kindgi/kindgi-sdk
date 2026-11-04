@@ -1717,9 +1717,13 @@ const ENV_NOT_SERVED_VALUE =
 const ENV_NOT_SERVED_REFERENCE =
   "`env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), and the secret reference names another. Name it under `details.servedEnv`. Nothing is stored.";
 
+/** A secret a write names that is a texts connection app registration's account key. */
+const CONNECTION_KEY_REFUSED =
+  '`connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Store the key under its own name (the same value is fine) and name that.';
+
 /** A texts registration's key named by another user of the secret (POST and PATCH /v1/connection-apps). */
 const CONNECTION_KEY_IN_USE =
-  "`connection-key-in-use`: `token.apiKey` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint or a webhook trigger uses; `details.secret` names it and `details.usedBy` lists each (`kind`, `id`, a tool's `version`). A texts registration's key is used by its registration only: store it under its own name. Nothing is stored.";
+  "`connection-key-in-use`: `token.apiKey` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger or another connection app registration uses; `details.secret` names it and `details.usedBy` lists each (`kind`, `id`, a tool's `version`). A texts registration's key is used by its registration only: store it under its own name. Nothing is stored.";
 
 /** The 409 a write answers anyway, and `env-not-served`. */
 function conflictOrEnvNotServed(text: string): ResponseSpec {
@@ -4765,7 +4769,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Tool registered.', schema: ref('RegisterToolResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `provider-key-refused`: the tool names a model provider's key (`details.secret`, `details.providerId`); store the key it needs under its own name (the same value is fine) and name that. Or `reserved-name-prefix`: the tool names a secret under the reserved `kindgi.` prefix (`details.secret`); those are Kindgi's own. Or `validation-failed` for a `metadata` key under `kindgi.`: those are the runtime's own (`details.issues`, at `/metadata/<key>`).",
+        `Validation failed (see \`details.issues\`); or \`projectId\` isn't a project id (a UUID). Or \`provider-key-refused\`: the tool names a model provider's key (\`details.secret\`, \`details.providerId\`); store the key it needs under its own name (the same value is fine) and name that. Or ${CONNECTION_KEY_REFUSED} Or \`reserved-name-prefix\`: the tool names a secret under the reserved \`kindgi.\` prefix (\`details.secret\`); those are Kindgi's own. Or \`validation-failed\` for a \`metadata\` key under \`kindgi.\`: those are the runtime's own (\`details.issues\`, at \`/metadata/<key>\`).`,
       ),
       '409': ErrorResponse(
         `\`tool-already-registered\`: that (id, version) is taken. Or \`tool-project-mismatch\`: the tool's versions live in another project (a tool belongs to the project its first version was published into and never moves, though in a workspace with environment orders a version may be made in another project of that project's order; the message doesn't name the project). Or \`tool-kind-mismatch\`: the tool's active versions are of another kind, an MCP endpoint's tool (\`details.endpointId\`) where this version is published here, or the other way round; a tool's active versions are all one kind, and nothing was written (\`details.toolId\`, \`details.version\`). ${TAKES_PROMOTIONS} Or \`registry-read-only\`: this registry takes no writes (under \`kindgi dev\`, the pack's files are the source); the message says what to do instead.`,
@@ -4813,7 +4817,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse('No tool at that (id, version) under this workspace.'),
       '400': ErrorResponse(
-        "`provider-key-refused`: the version declares or sends a model provider's key (`details.secret`, `details.providerId`), or `reserved-name-prefix`: it names a secret under the reserved `kindgi.` prefix (`details.secret`); either way it stays retired; publish a version that names a key of its own.",
+        `\`provider-key-refused\`: the version declares or sends a model provider's key (\`details.secret\`, \`details.providerId\`), or \`reserved-name-prefix\`: it names a secret under the reserved \`kindgi.\` prefix (\`details.secret\`); either way it stays retired; publish a version that names a key of its own. Or ${CONNECTION_KEY_REFUSED} The version stays retired here too.`,
       ),
     },
   },
@@ -6191,7 +6195,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       ...TenantAdminErrors,
       '400': ErrorResponse(
-        'Validation failed (see `details.reason`), a `secret_ref.name` under the reserved `kindgi.` prefix among them (`bad-input`).',
+        `Validation failed (see \`details.reason\`), a \`secret_ref.name\` under the reserved \`kindgi.\` prefix among them (\`bad-input\`). Or ${CONNECTION_KEY_REFUSED}`,
       ),
       '409': ErrorResponse(
         `Provider already registered at that id. Or \`provider-key-in-use\`: \`secret_ref\` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint or a webhook trigger uses; \`details.usedBy\` lists each (\`kind\`, \`id\`, a tool's \`version\`). Store the provider's key under its own name. Nothing is stored. Or ${ENV_NOT_SERVED_REFERENCE}`,
@@ -6558,7 +6562,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mcp.endpoints.register',
     summary: 'Register an MCP endpoint',
     description:
-      "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). A credential in plaintext `config.headers` or a stdio endpoint's `config.env` is refused (`400 invalid-mcp-endpoint`, reason `credential-in-headers` or `credential-in-env`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the workspace that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
+      "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store (plaintext secrets never cross the wire), and never a model provider's key (`400 provider-key-refused`) or a texts registration's account key (`400 connection-key-refused`). A credential in plaintext `config.headers` or a stdio endpoint's `config.env` is refused (`400 invalid-mcp-endpoint`, reason `credential-in-headers` or `credential-in-env`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the workspace that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
     tags: ['mcp'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6570,7 +6574,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Validation failed (see `details.reason`). Or `provider-key-refused`: `secretRef` names a model provider's key (`details.secret`, `details.providerId`). Or `reserved-name-prefix`: it names a secret under the reserved `kindgi.` prefix (`details.secret`).",
+        `Validation failed (see \`details.reason\`). Or \`provider-key-refused\`: \`secretRef\` names a model provider's key (\`details.secret\`, \`details.providerId\`). Or ${CONNECTION_KEY_REFUSED} Or \`reserved-name-prefix\`: it names a secret under the reserved \`kindgi.\` prefix (\`details.secret\`).`,
       ),
       '403': ErrorResponse(
         '`host-access-denied`: a `stdio` endpoint on a deployment that refuses commands on its host (`KINDGI_TENANT_HOST_ACCESS=deployed` or `isolated`); or `authz-denied`.',
@@ -11429,7 +11433,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.register',
     summary: 'Register a webhook trigger',
     description:
-      "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the workspace that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the workspace's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
+      "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`), and so is a texts registration's account key (`400 connection-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the workspace that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the workspace's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -11438,7 +11442,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Webhook registered.', schema: ref('WebhookTriggerRecord') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "A body that fails validation (`bad-input`), `runAsProject` with `runAsServiceAccountId` or for a trigger with no project (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key, or `reserved-name-prefix`: it's under the reserved `kindgi.` prefix. Or `reference-out-of-scope`: the flow isn't registered in the trigger's project, its org or the workspace, or `flowVersion` isn't a version that project runs (`details.issues`, at `/flowId`, whose message names the version), and nothing is registered. Or, with `generateSecret`, a name the secrets store can't write, refused before anything is stored: `secret-name-invalid` (a name that isn't 1 to 255 ASCII letters, digits, `.`, `-` and `_` starting with a letter, digit or `_`, with any `.` between two non-`.` characters, or, under `kindgi dev`, isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule).",
+        `A body that fails validation (\`bad-input\`), \`runAsProject\` with \`runAsServiceAccountId\` or for a trigger with no project (\`bad-input\`), or \`provider-key-refused\`: \`hmacSecretName\` is a model provider's key, or \`reserved-name-prefix\`: it's under the reserved \`kindgi.\` prefix. Or ${CONNECTION_KEY_REFUSED} Or \`reference-out-of-scope\`: the flow isn't registered in the trigger's project, its org or the workspace, or \`flowVersion\` isn't a version that project runs (\`details.issues\`, at \`/flowId\`, whose message names the version), and nothing is registered. Or, with \`generateSecret\`, a name the secrets store can't write, refused before anything is stored: \`secret-name-invalid\` (a name that isn't 1 to 255 ASCII letters, digits, \`.\`, \`-\` and \`_\` starting with a letter, digit or \`_\`, with any \`.\` between two non-\`.\` characters, or, under \`kindgi dev\`, isn't capital letters, digits and underscores, starts with a digit, or is \`KINDGI_*\`; the message says the rule).`,
       ),
       '409': ErrorResponse(
         "`secret-write-conflict`: with `generateSecret`, the trigger's project already has a secret of that name (it's never overwritten, and no trigger is left). Or `runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run the flow (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run the flow either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the route-minted webhookId collided (astronomically rare).",
@@ -11509,7 +11513,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Updated webhook trigger.', schema: ref('WebhookTriggerRecord') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "A body that fails validation (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key, or `reserved-name-prefix`: it's under the reserved `kindgi.` prefix. Or `reference-out-of-scope`: the new `flowVersion` isn't a version the trigger's project runs, such as one made in an earlier environment and not yet promoted (`details.issues`, at `/flowVersion`, whose message names the version). Nothing changes.",
+        `A body that fails validation (\`bad-input\`), or \`provider-key-refused\`: \`hmacSecretName\` is a model provider's key, or \`reserved-name-prefix\`: it's under the reserved \`kindgi.\` prefix. Or ${CONNECTION_KEY_REFUSED} Or \`reference-out-of-scope\`: the new \`flowVersion\` isn't a version the trigger's project runs, such as one made in an earlier environment and not yet promoted (\`details.issues\`, at \`/flowVersion\`, whose message names the version). Nothing changes.`,
       ),
       '403': WebhookChangeRefused,
       '404': ErrorResponse('No webhook trigger with that id.'),
@@ -12358,7 +12362,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       ...TenantAdminErrors,
       '400': ErrorResponse(
-        "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist (`webhook-secret-not-found`) or is too weak (`webhook-secret-too-weak`), it's a model provider's key (`provider-key-refused`), or it's under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
+        `Malformed body or unknown field; the deployment refuses the URL (\`webhook-url-refused\`); the referenced secret does not exist (\`webhook-secret-not-found\`) or is too weak (\`webhook-secret-too-weak\`), it's a model provider's key (\`provider-key-refused\`), or it's under the reserved \`kindgi.\` prefix (\`reserved-name-prefix\`). Or ${CONNECTION_KEY_REFUSED}`,
       ),
       '404': ErrorResponse('`filter.projectId` names no project (`project-not-found`).'),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
@@ -12431,7 +12435,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       ...TenantAdminErrors,
       '400': ErrorResponse(
-        "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist or is too weak, it's a model provider's key (`provider-key-refused`), or it's under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
+        `Malformed body or unknown field; the deployment refuses the URL (\`webhook-url-refused\`); the referenced secret does not exist or is too weak, it's a model provider's key (\`provider-key-refused\`), or it's under the reserved \`kindgi.\` prefix (\`reserved-name-prefix\`). Or ${CONNECTION_KEY_REFUSED}`,
       ),
       '404': ErrorResponse('No endpoint with that id, or `filter.projectId` names no project.'),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
@@ -12572,7 +12576,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'App registered.', schema: ref('ConnectionApp') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed body or unknown field, including a `token.provider` the server doesn't serve or a `token.publicKey` that isn't base64 of 32 bytes (`bad-input`, `details.field`); a registration that doesn't fit its entry, or that would serve a project another registration of the app serves (`connection-app-invalid`, `details.field`); no such app (`connection-app-unknown-entry`); a model provider's key named as a secret (`provider-key-refused`); or a secret under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
+        `Malformed body or unknown field, including a \`token.provider\` the server doesn't serve or a \`token.publicKey\` that isn't base64 of 32 bytes (\`bad-input\`, \`details.field\`); a registration that doesn't fit its entry, or that would serve a project another registration of the app serves (\`connection-app-invalid\`, \`details.field\`); no such app (\`connection-app-unknown-entry\`); a model provider's key named as a secret (\`provider-key-refused\`); or a secret under the reserved \`kindgi.\` prefix (\`reserved-name-prefix\`). Or ${CONNECTION_KEY_REFUSED}`,
       ),
       '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
       '409': conflictOrEnvNotServed(`${CONNECTION_KEY_IN_USE} Or ${ENV_NOT_SERVED_REFERENCE}`),
@@ -12611,7 +12615,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The updated registration.', schema: ref('ConnectionApp') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed body, unknown field or an `app`, including a `token.provider` the server doesn't serve or a `token.publicKey` that isn't base64 of 32 bytes (`bad-input`, `details.field`); a registration that doesn't fit its entry, that would serve a project another registration of the app serves, or a change of its client (`oauth2.clientId`, `oauth2.tenant`, `githubApp.appNumber`, `githubApp.clientId` or `token.provider`) while it has live connections: disconnect them first (`connection-app-invalid`, `details.field`); a model provider's key named as a secret (`provider-key-refused`); or a secret under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
+        `Malformed body, unknown field or an \`app\`, including a \`token.provider\` the server doesn't serve or a \`token.publicKey\` that isn't base64 of 32 bytes (\`bad-input\`, \`details.field\`); a registration that doesn't fit its entry, that would serve a project another registration of the app serves, or a change of its client (\`oauth2.clientId\`, \`oauth2.tenant\`, \`githubApp.appNumber\`, \`githubApp.clientId\` or \`token.provider\`) while it has live connections: disconnect them first (\`connection-app-invalid\`, \`details.field\`); a model provider's key named as a secret (\`provider-key-refused\`); or a secret under the reserved \`kindgi.\` prefix (\`reserved-name-prefix\`). Or ${CONNECTION_KEY_REFUSED}`,
       ),
       '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
       '404': ErrorResponse('No registration with that id (`connection-app-not-found`).'),
