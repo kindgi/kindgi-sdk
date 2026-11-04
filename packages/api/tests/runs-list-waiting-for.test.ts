@@ -147,9 +147,12 @@ describe('GET /v1/runs?include=waitingFor', () => {
     const h = harness([row('suspended')]);
     const both = await h.get('/v1/runs?include=output,waitingFor');
     expect((both.body.data as Record<string, any>[])[0]?.waitingFor.approvals).toHaveLength(1);
+    // As the TypeScript client sends it, with the comma encoded.
+    const encoded = await h.get('/v1/runs?include=output%2CwaitingFor');
+    expect((encoded.body.data as Record<string, any>[])[0]?.waitingFor.approvals).toHaveLength(1);
     const plain = await h.get('/v1/runs');
     expect((plain.body.data as Record<string, any>[])[0]).not.toHaveProperty('waitingFor');
-    expect(h.journalReads).toHaveLength(1);
+    expect(h.journalReads).toHaveLength(2);
   });
 
   test('a page that carries it holds at most 25 runs, and paging goes on', async () => {
