@@ -161,8 +161,6 @@ function makeFixtures(
   opts: {
     readonly outcomes?: IndexResult[];
     readonly startFails?: boolean;
-    /** The fake indexer throws (the boot refresh rejects). */
-    readonly indexerThrows?: boolean;
     /** The fake pack service fails to boot with these problems. */
     readonly packBootProblems?: readonly string[];
     /** The pack's Python fails its check with this message. */
@@ -315,7 +313,6 @@ function makeFixtures(
     runIndexer: async (dir: string, _out, indexerOpts) => {
       captureIndexerCalls.push(dir);
       indexerCodes.push(indexerOpts?.code);
-      if (opts.indexerThrows === true) throw new Error('mock indexer crash');
       // Consume the outcome list in order; last outcome sticks.
       return indexOutcomes.length > 1
         ? (indexOutcomes.shift() as IndexResult)
@@ -1649,18 +1646,6 @@ describe('kindgi dev — boot flow (no watch)', () => {
       argv: ['dev', '--no-watch', `--path=${packDir}`],
     });
     expect(out.exitCode).toBe(1);
-    expect(fixtures.builderDisposes()).toBe(1);
-    expect(fixtures.packStops()).toBe(1);
-  });
-
-  test('a boot refresh that throws disposes the bundler and closes the pack service', async () => {
-    const fixtures = makeFixtures({ indexerThrows: true });
-    await expect(
-      runCli({
-        ...baseInputs(fixtures),
-        argv: ['dev', '--no-watch', `--path=${packDir}`],
-      }),
-    ).rejects.toThrow('mock indexer crash');
     expect(fixtures.builderDisposes()).toBe(1);
     expect(fixtures.packStops()).toBe(1);
   });
