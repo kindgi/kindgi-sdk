@@ -26,7 +26,7 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
 
 = What you need =
 
-* **A Kindgi runtime at 0.4.0 or later.** For an older Kindgi server, take the plugin from the Kindgi SDK release of the server's version.
+* **A Kindgi server at 0.4.0 or later.** For an older Kindgi server, take the plugin from the Kindgi SDK release of the server's version.
 * **Kindgi with site sign-in on.** Kindgi Cloud's is coming. A Kindgi server you run needs it turned on: see [the WordPress page of Kindgi's docs](https://docs.kindgi.com/sites/wordpress/).
 * **PHP with sodium.** WordPress ships a fallback for PHP builds without ext/sodium.
 
@@ -105,7 +105,7 @@ With Kindgi Cloud, Kindgi Inc. processes this data for the store, only to run th
 
 = 0.2.0 =
 
-* **Needs a Kindgi runtime at 0.4.0 or later,** the release it first shipped with.
+* **Needs a Kindgi server at 0.4.0 or later,** the release it first shipped with.
 * **A Kindgi menu, in place of one page with two tabs.** Inbox, Activity, Ask and Settings each open with Kindgi's mark, take the person's admin color scheme, and say in staff words what's loading, what an empty list is for, and what went wrong. Kindgi's own words about an error show only to administrators.
 * **The Inbox: what waits for you, and what was decided.** It lists what waits for you, what waits for someone else and why, and the project's decided approvals, whoever decided. That includes an approval assigned to you or in review, which 0.1.0 didn't list, and one that expired, was withdrawn or was passed on. A card reads in words: the tool's title or name, the call's fields, the agent's own words quoted as written, who asked and when, and what happens if no one decides in time. A mail tool's reply reads as the email it sends, and an approval about a WooCommerce order links to it for whoever may edit orders.
 * **Buttons that say what each decision does.** A reply's card reads "Approve and send" and "Don't send…"; other calls keep Approve and Reject…. The box for a reason opens only on a rejection and says what it does, and once Kindgi records the decision, the card says what follows. A new version of an agent waiting to go live reads as an update, such as "Update Support desk to version 1.2.0", with "Approve the update" and "Don't update…".
