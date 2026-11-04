@@ -84,9 +84,9 @@ one tenant, your own organization, with up to the flows and agents below:
 | Business | 10 | 30 | As Free, email answered within one business day, and apps you need that Kindgi can't connect to yet, added by us |
 | Enterprise | Any number | Any number | As agreed |
 
-Starter and Business are billed yearly; the prices are on
-[kindgi.com/pricing](https://kindgi.com/pricing). More installations, or
-other organizations as tenants, such as your customers, take Enterprise.
+The prices are on [kindgi.com/pricing](https://kindgi.com/pricing). More
+installations, or other organizations as tenants, such as your customers,
+take Enterprise.
 
 - **What counts:** each flow and each agent your packs define in the
   projects you put in production
