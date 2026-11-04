@@ -246,10 +246,11 @@ function replacedNote(lost: LostLogin, path: string): string {
 }
 
 /**
- * A key login wasn't given (`--token`, KINDGI_API_TOKEN) is a stored one,
- * and login saves it only for its own address: `--url B` alone would make
- * the key for A B's, and send it there from then on. Which key, when it
- * isn't for `url`; `undefined` when login may save it.
+ * A key login wasn't given (`--token-stdin`, `--token`, KINDGI_API_TOKEN)
+ * is a stored one, and login saves it only for its own address: `--url B`
+ * alone would make the key for A B's, and send it there from then on.
+ * Which key, when it isn't for `url`; `undefined` when login may save it.
+ * The caller skips this for a key read from stdin or `--token`.
  */
 function storedKeyElsewhere(config: ResolvedConfig, url: string): string | undefined {
   if (config.source.token !== 'file') return undefined;
@@ -755,16 +756,24 @@ const logout: LeafCommand = {
       };
     }
     const path = await removeHomeLogin(profile, ctx.home);
+    const rendered = renderJson(
+      {
+        ok: true,
+        wrote: path,
+        removed: { profile: profile ?? null, apiUrl: stored.apiUrl ?? null },
+      },
+      ctx.globals.format,
+    );
+    if (stored.profilesProblem === undefined) return { kind: 'ok', rendered };
+    // A `profiles` that isn't an object goes whole: no profile in it could
+    // be used. Said under --quiet too, so a name it never held doesn't read
+    // as the one removed.
+    const whole = warning(
+      `⚠ Removed all of \`profiles\` from ${path}: ${stored.profilesProblem}, so no profile in it could be used.`,
+    );
     return {
       kind: 'ok',
-      rendered: renderJson(
-        {
-          ok: true,
-          wrote: path,
-          removed: { profile: profile ?? null, apiUrl: stored.apiUrl ?? null },
-        },
-        ctx.globals.format,
-      ),
+      rendered: { ...rendered, stderr: renderLines([whole], ctx.globals.format === 'quiet') },
     };
   },
 };

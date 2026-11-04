@@ -220,6 +220,32 @@ describe('a command on a profile goes to its address, with its key', () => {
     expect(out.stderr).toBe("--profile prod is used: the exported KINDGI_API_URL isn't.\n");
   });
 
+  test('--profile beats KINDGI_PROFILE and the exported env vars together: the note, never the refusal', async () => {
+    await signedInWithProfiles();
+    const out = await cli(['auth', 'whoami', '--profile', 'prod'], {
+      KINDGI_PROFILE: 'staging',
+      KINDGI_API_URL: OTHER,
+      KINDGI_API_TOKEN: GIVEN_KEY,
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.sent).toEqual(whoamiAt(PROD, PROD_KEY));
+    expect(out.stderr).toBe(
+      "--profile prod is used: the exported KINDGI_API_URL and KINDGI_API_TOKEN aren't.\n",
+    );
+    printsNoKey(out);
+  });
+
+  test("under --quiet the `kindgi dev` folder's note is still said", async () => {
+    await signedInWithProfiles();
+    await devFolder();
+    const out = await cli(['auth', 'whoami', '--profile', 'prod', '--quiet']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toBe(
+      `kindgi auth whoami goes to ${PROD}, the profile prod's address, not the kindgi dev runtime ${folderFile()} names.\n`,
+    );
+  });
+
   test.each([
     ['--profile prod', ['--profile', 'prod'], {}],
     ['KINDGI_PROFILE=prod', [], { KINDGI_PROFILE: 'prod' }],
@@ -237,6 +263,18 @@ describe('a command on a profile goes to its address, with its key', () => {
       printsNoKey(out);
     },
   );
+
+  test('--hosted under KINDGI_PROFILE in a `kindgi dev` folder: the profile, never the dev runtime', async () => {
+    await signedInWithProfiles();
+    await devFolder();
+    const out = await cli(['auth', 'whoami', '--hosted'], { KINDGI_PROFILE: 'prod' });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.sent).toEqual(whoamiAt(PROD, PROD_KEY));
+    expect(out.stderr).toContain(
+      `goes to ${PROD}, the profile prod's address, not the kindgi dev runtime ${folderFile()} names.`,
+    );
+    printsNoKey(out);
+  });
 
   test("a folder's .kindgirc.json for another server: not read under a profile", async () => {
     await signedInWithProfiles();
@@ -298,6 +336,40 @@ describe("a profile's key is never found by its address", () => {
     expect(out.stderr).toContain('API token not configured.');
     expect(out.stderr).not.toContain('--profile broken');
   });
+
+  test("a folder's .kindgirc.json naming a profile's address: refused, naming the profile", async () => {
+    await signedInWithProfiles();
+    // A cloned repo's file can name the address: nobody typed it.
+    await writeFile(folderFile(), JSON.stringify({ apiUrl: PROD }));
+    const out = await cli(['auth', 'whoami']);
+    expect(out.exitCode).toBe(1);
+    expect(out.sent).toEqual([]);
+    expect(out.stderr).toContain(
+      `kindgi auth whoami would send the API key stored in ${homeFile()}, which is for ${SIGNED_IN}, to ${PROD}, which the apiUrl in ${folderFile()} names. The key goes only to its own address: add --profile prod (it holds a key for ${PROD}), point the apiUrl in ${folderFile()} at ${SIGNED_IN}, sign in to ${PROD} with \`kindgi auth login --profile <name> --url ${PROD} --token-stdin\`, its key on stdin, or give that server's key with --token or KINDGI_API_TOKEN.`,
+    );
+    printsNoKey(out);
+  });
+
+  test.each([
+    ['one profile', { prod }, 'The profile prod is saved: add --profile prod.'],
+    [
+      'two, and one that cannot be used',
+      { prod, staging, broken: { apiUrl: OTHER } },
+      'The profiles prod and staging are saved: add --profile prod or --profile staging.',
+    ],
+  ])(
+    'no address, and the file holds only profiles (%s): the refusal names them',
+    async (_, profiles, named) => {
+      await homeHolds({ profiles });
+      const out = await cli(['auth', 'whoami']);
+      expect(out.exitCode).toBe(1);
+      expect(out.sent).toEqual([]);
+      expect(out.stderr).toContain(
+        `API URL not configured. Set KINDGI_API_URL, pass --url=..., or run \`kindgi auth login\`. ${named}`,
+      );
+      expect(out.stderr).not.toContain('--profile broken');
+    },
+  );
 });
 
 describe('a profile that cannot be used is refused (exit 2) before anything is sent', () => {
@@ -441,6 +513,24 @@ describe('kindgi auth login --token-stdin reads the key from stdin', () => {
     const forced = await cli([...flags, '--force'], {}, GIVEN_KEY);
     expect(forced.exitCode, forced.stderr).toBe(0);
     expect(await homeNow()).toEqual({ apiUrl: OTHER, token: GIVEN_KEY });
+  });
+
+  test("a stored key with no address: the key read from stdin is not a stored one either, so it's the keep refusal; --force replaces it", async () => {
+    await homeHolds({ token: HOME_KEY });
+    const flags = ['auth', 'login', `--url=${OTHER}`, '--token-stdin'];
+    const refused = await cli(flags, {}, GIVEN_KEY);
+    expect(refused.exitCode).toBe(2);
+    expect(refused.stderr).toContain(
+      `${homeFile()} holds an API key with no address stored with it. kindgi auth login would replace it with ${OTHER}'s, and its API key would be lost.`,
+    );
+    expect(refused.stderr).not.toContain('would save');
+    expect(await homeNow()).toEqual({ token: HOME_KEY });
+
+    const forced = await cli([...flags, '--force'], {}, GIVEN_KEY);
+    expect(forced.exitCode, forced.stderr).toBe(0);
+    expect(await homeNow()).toEqual({ apiUrl: OTHER, token: GIVEN_KEY });
+    printsNoKey(refused);
+    printsNoKey(forced);
   });
 });
 
@@ -758,5 +848,26 @@ describe('kindgi auth logout removes one login', () => {
     expect(out.exitCode, out.stderr).toBe(0);
     expect(JSON.parse(out.stdout)).toMatchObject({ removed: { profile: 'broken', apiUrl: OTHER } });
     expect(await homeNow()).toEqual({ apiUrl: SIGNED_IN, token: HOME_KEY, profiles: { prod } });
+  });
+
+  test.each([
+    ['', []],
+    [' under --quiet', ['--quiet']],
+  ])('`profiles` that is not an object: all of it removed, and said so%s', async (_, flags) => {
+    await homeHolds({ apiUrl: SIGNED_IN, token: HOME_KEY, profiles: 'prod' });
+    const out = await cli(['auth', 'logout', '--profile', 'qa', ...flags]);
+    expect(out.exitCode, out.stderr).toBe(0);
+    if (flags.length === 0) {
+      expect(JSON.parse(out.stdout)).toEqual({
+        ok: true,
+        wrote: homeFile(),
+        removed: { profile: 'qa', apiUrl: null },
+      });
+    }
+    expect(out.stderr).toContain(
+      `Removed all of \`profiles\` from ${homeFile()}: \`profiles\` isn't an object, so no profile in it could be used.\n`,
+    );
+    expect(await homeNow()).toEqual({ apiUrl: SIGNED_IN, token: HOME_KEY });
+    await expectPrivate(homeFile());
   });
 });

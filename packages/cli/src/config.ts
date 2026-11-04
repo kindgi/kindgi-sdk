@@ -454,6 +454,11 @@ export interface HomeLogin {
   readonly held?: boolean;
   /** For a profile: why its entry (or `profiles` itself) can't be used. */
   readonly problem?: string;
+  /**
+   * For a profile: why `profiles` itself can't be read. Then the file
+   * holds every name (`held`), and a logout removes all of `profiles`.
+   */
+  readonly profilesProblem?: string;
 }
 
 /**
@@ -484,6 +489,7 @@ export async function readHomeLogin(
     ...(entry?.apiUrl !== undefined && { apiUrl: entry.apiUrl }),
     ...(login !== undefined && { token: login.token }),
     ...(problem !== undefined && { problem }),
+    ...(profiles.malformed !== undefined && { profilesProblem: profiles.malformed }),
   };
 }
 

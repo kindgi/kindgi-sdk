@@ -1183,13 +1183,13 @@ function apiKeyCheck(config: ResolvedConfig): DoctorCheck {
 /**
  * The profiles ~/.kindgi/config.json holds that can't be used, or a
  * `profiles` that isn't an object: a warning on the api-key check, since
- * a command that names one is refused. A failing check stays as it is.
+ * a command that names one is refused. A failing check keeps its status
+ * and fix, and says them too, so they're heard before the key is fixed.
  */
 async function withUnusableProfiles(
   check: DoctorCheck,
   home: string | undefined,
 ): Promise<DoctorCheck> {
-  if (check.status === 'fail') return check;
   let listed: Awaited<ReturnType<typeof listHomeLogins>>;
   try {
     listed = await listHomeLogins(home);
@@ -1209,9 +1209,11 @@ async function withUnusableProfiles(
       ),
   ];
   if (problems.length === 0) return check;
+  const message = `${check.message} ${problems.join(' ')}`;
+  if (check.status === 'fail') return { ...check, message };
   return warn(
     'api-key',
-    `${check.message} ${problems.join(' ')}`,
+    message,
     'Save it again with `kindgi auth login --profile <name> --url <url> --token-stdin --force`, or remove it with `kindgi auth logout --profile <name>`.',
   );
 }

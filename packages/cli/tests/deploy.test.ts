@@ -2987,6 +2987,64 @@ describe("kindgi deploy: the stored API key goes only to the address it's for", 
     expect(fixtures.state.syncCalls).toBe(0);
   });
 
+  describe("a profile's key is reached only by its name", () => {
+    const PROFILE_KEY = 'kgi_tk_profile_staging';
+    const PLATFORM_KEY = 'kgi_tk_profile_platform';
+    /** The login without a name (OWN), and the profiles staging (STAGING) and platform (OWN). */
+    async function signInWithProfiles() {
+      await mkdir(join(home, '.kindgi'), { recursive: true });
+      await writeFile(
+        join(home, '.kindgi/config.json'),
+        JSON.stringify({
+          apiUrl: OWN,
+          token: STORED,
+          profiles: {
+            staging: { apiUrl: STAGING, token: PROFILE_KEY },
+            platform: { apiUrl: OWN, token: PLATFORM_KEY },
+          },
+        }),
+        'utf8',
+      );
+    }
+
+    test("no profile named: the env block's `endpoint` at a profile's address is refused, naming it; nothing is sent", async () => {
+      await writeAutoEnvelope();
+      await signInWithProfiles();
+      const fixtures = makeFixtures();
+      const out = await deploy(fixtures, {});
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        `kindgi deploy would send the API key stored in ${join(home, '.kindgi/config.json')}, which is for ${OWN}, to ${STAGING}, which environments.staging.endpoint names. The key goes only to its own address: add --profile staging (it holds a key for ${STAGING}), point environments.staging.endpoint at ${OWN}, sign in to ${STAGING} with \`kindgi auth login --profile <name> --url ${STAGING} --token-stdin\`, its key on stdin, or give that server's key with --token or KINDGI_API_TOKEN.`,
+      );
+      expect(out.stderr).not.toContain(PROFILE_KEY);
+      expect(fixtures.state.postCalls).toBe(0);
+      expect(fixtures.state.syncCalls).toBe(0);
+    });
+
+    test("under --profile staging: sent there, with that profile's key", async () => {
+      await writeAutoEnvelope();
+      await signInWithProfiles();
+      const fixtures = makeFixtures();
+      const out = await deploy(fixtures, {}, '--profile=staging');
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(fixtures.state.capturedPost).toMatchObject({ endpoint: STAGING, token: PROFILE_KEY });
+    });
+
+    test("under another profile: refused, its key never sent to the env block's address", async () => {
+      await writeAutoEnvelope();
+      await signInWithProfiles();
+      const fixtures = makeFixtures();
+      const out = await deploy(fixtures, {}, '--profile=platform');
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        `kindgi deploy would send platform's key in ${join(home, '.kindgi/config.json')}, which is for ${OWN}, to ${STAGING}, which environments.staging.endpoint names. The key goes only to its own address: point environments.staging.endpoint at ${OWN}, sign in to ${STAGING} with \`kindgi auth login --profile <name> --url ${STAGING} --token-stdin\`, its key on stdin, or give that server's key with --token or KINDGI_API_TOKEN.`,
+      );
+      expect(out.stderr).not.toContain(PLATFORM_KEY);
+      expect(fixtures.state.postCalls).toBe(0);
+      expect(fixtures.state.syncCalls).toBe(0);
+    });
+  });
+
   test('--endpoint elsewhere is refused the same way, naming --endpoint', async () => {
     await writeAutoEnvelope();
     await signIn({ apiUrl: STAGING, token: STORED });

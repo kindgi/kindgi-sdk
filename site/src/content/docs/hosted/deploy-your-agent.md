@@ -68,6 +68,10 @@ pnpm exec kindgi auth whoami --profile cloud
 ```
 
 Then `--profile cloud` on a command sends it to Kindgi Cloud, with that key.
+Each command in this guide then takes `--profile cloud`: tell your coding
+agent to add it too, or to run `export KINDGI_PROFILE=cloud` in the
+terminal it works in. Without it, a command goes to the login for your own
+runtime.
 :::
 
 ## Sign the pack

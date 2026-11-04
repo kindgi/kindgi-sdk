@@ -281,13 +281,27 @@ function tokenNotConfigured(config: ResolvedConfig): string {
   return `${unset} ${holders} a key for ${url}: add ${names.map((name) => `--profile ${name}`).join(' or ')}.`;
 }
 
+/**
+ * No address is set. With none named, the usable profiles are named: a
+ * file that holds only profiles is the likely slip.
+ */
+function urlNotConfigured(config: ResolvedConfig): string {
+  const unset =
+    'API URL not configured. Set KINDGI_API_URL, pass --url=..., or run `kindgi auth login`.';
+  if (config.profile !== undefined) return unset;
+  const names = (config.profiles ?? []).filter((p) => p.problem === undefined).map((p) => p.name);
+  if (names.length === 0) return unset;
+  const saved =
+    names.length === 1
+      ? `The profile ${names[0]} is saved`
+      : `The profiles ${names.join(' and ')} are saved`;
+  return `${unset} ${saved}: add ${names.map((name) => `--profile ${name}`).join(' or ')}.`;
+}
+
 export function buildContext(inputs: BuildContextInputs): CommandContext {
   const apiUrl = (): string => {
     if (inputs.config.apiUrl === undefined) {
-      throw new Error(
-        inputs.noAddress ??
-          'API URL not configured. Set KINDGI_API_URL, pass --url=..., or run `kindgi auth login`.',
-      );
+      throw new Error(inputs.noAddress ?? urlNotConfigured(inputs.config));
     }
     return inputs.config.apiUrl;
   };

@@ -583,6 +583,26 @@ describe('kindgi dev — argument validation', () => {
     expect(out.stderr).toContain('Invalid --port');
   });
 
+  // A dev runtime is local: an exported KINDGI_PROFILE, even one no file
+  // holds, never blocks `kindgi dev` in that shell (`--profile` is refused).
+  test.each(['qa', 'Not A Name'])(
+    'KINDGI_PROFILE=%s exported: ignored, never refused',
+    async (name) => {
+      const fixtures = makeFixtures();
+      const out = await runCli({
+        ...baseInputs(fixtures),
+        env: {
+          KINDGI_DATABASE_URL: 'postgres://user:pass@localhost:5432/db',
+          KINDGI_PROFILE: name,
+        },
+        argv: ['dev', '--port=99999', '--no-watch', `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain('Invalid --port');
+      expect(out.stderr).not.toContain('KINDGI_PROFILE');
+    },
+  );
+
   test('--watch and --no-watch together → contradictory-flags error', async () => {
     const fixtures = makeFixtures();
     const out = await runCli({
