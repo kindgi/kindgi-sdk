@@ -12,7 +12,8 @@
 //   2. `agent.conversationPolicy.hitl.tools.default` — agent-wide default
 //   3. per-tool default from `Tool.mutating` — safe fallback
 //        - `mutating: false`  → `never_ask`
-//        - `mutating: true` or absent → `ask_on_first_use`, which asks before each call (defaults safer)
+//        - `mutating: true` or absent → `ask_on_first_use` (defaults safer),
+//          which asks before each call
 //
 // The effective-policy resolver (`hitl-policy.ts`) layers the tenant
 // cap on top.
