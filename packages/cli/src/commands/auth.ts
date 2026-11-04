@@ -242,7 +242,7 @@ function keptLogin(lost: LostLogin, url: string): string {
 function replacedNote(lost: LostLogin, path: string): string {
   return lost.problem === undefined
     ? `Replaced ${whoseLogin(lost)} in ${path}: its API key is no longer stored.`
-    : `Replaced ${whoseLogin(lost)} in ${path}.`;
+    : `Replaced ${whoseLogin(lost)}, in ${path}.`;
 }
 
 /**
