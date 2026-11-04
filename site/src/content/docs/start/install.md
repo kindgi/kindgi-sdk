@@ -76,9 +76,9 @@ npx --yes @kindgi/cli@0.4 doctor
 
 - `npx` downloads `@kindgi/cli` and runs it. It asks before it downloads a
   package, and `--yes` answers for you.
-- The version after `@kindgi/cli@` takes the newest release of the line
-  these docs describe. It's optional: `npx --yes @kindgi/cli doctor` runs the
-  newest release, which may be on a later line than these docs.
+- The version after `@kindgi/cli@` picks the CLI these docs describe. It's
+  optional: `npx --yes @kindgi/cli doctor` runs the newest release, which may
+  be on a later line than these docs.
 
 Before there's a project, on a machine that has what Kindgi needs, it ends
 with `Everything checked is ready.`:
