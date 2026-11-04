@@ -1,16 +1,15 @@
 ---
 title: Use Kindgi from Claude
-description: Add your company's Kindgi to claude.ai, sign in as yourself, and look at, run and schedule your agents from a chat. Follow long runs in Kindgi's own view, and disconnect any time.
+description: Add your company's Kindgi to claude.ai, sign in as yourself, and run your agents from a chat. Follow long runs in Kindgi's own view, and disconnect any time.
 sidebar:
   order: 0
   label: Use Kindgi from Claude
 ---
 
-Add Kindgi to claude.ai, and you can ask Claude about your agents and runs,
-start the agents you're allowed to run, follow a run to its end, set up your
-own schedules, and see what's waiting for you. Claude acts as you: it sees
-only what you can see in Kindgi, and it can't change agents, settings or
-other people's work.
+Add Kindgi to claude.ai, and you can ask Claude to run the agents your
+builders offer in chat, follow each run to its end, and get its answer in the
+chat. Claude acts as you: it sees only what you can see in Kindgi, and it
+can't change agents, settings or other people's work.
 
 ## Before you start
 
@@ -54,35 +53,28 @@ and add it again, claude.ai asks again.
 
 ## What you can ask
 
-- **Look:** your agents, your runs and others you can see, a run's answer and
-  files, your schedules, and what's waiting for you.
-- **Run an agent:** each agent you may run is a tool Claude can call with
-  your message. A run that isn't done within about 25 seconds comes back with
-  its link and Kindgi's own view of the run, right in the chat. The view
-  follows the run to its end and shows its steps, waits and answer as they
-  come, so you can keep chatting meanwhile. When it ends, **Put the result in
-  the chat** sends the result to the conversation.
+- **Run an agent or flow:** each one its builder offers in chat that you can
+  see in Kindgi is a tool Claude can call with your message. Claude can also
+  go on with an agent's earlier conversation. If you can see one but can't
+  run it, Claude tells you so: ask a project admin.
+- **Follow a run:** a run that isn't done within about 25 seconds comes back
+  with its link and Kindgi's own view of the run, right in the chat. The view
+  follows the run to its end. It shows what the run waits for while it waits,
+  and its answer and the names of its files when it ends. Claude waits for it
+  too, with `kindgi.run_state`, and answers when it ends.
+- **Waits:** when a run waits for someone, Claude says what it waits for and
+  gives its link. You decide in Kindgi.
 
-  <!-- To confirm: the run view's button name, word for word, once the view is in a build. -->
-- **Stop a run** you started.
-- **Schedules:** create your own ("every Monday at 9 in Berlin"), pause,
-  resume and remove them, or start one now. Claude asks for your time zone
-  when the chat doesn't make it clear, and shows the next times it will run
-  so you can check them.
-- **Waits:** Claude lists what's waiting for you, explains each one and gives
-  its link. You decide in Kindgi.
-
-Only agents their builders offer in chat show up there. If you're missing
-one, ask its builder.
+Only agents and flows their builders offer in chat show up there. If you're
+missing one, ask its builder.
 
 ## What stays in Kindgi
 
 - **Deciding a wait.** Approving or declining happens in the console.
 - **Changing things.** Claude can't change agents, settings or other people's
-  work. Even if you're an admin in Kindgi, Claude acts only on your own runs
-  and schedules.
-- **Answers and files, if your workspace turns them off.** With **Results in
-  chat** off, Claude gets status and links only.
+  work. Even if you're an admin in Kindgi, Claude only starts runs as you and
+  follows them.
+- **A run's files.** Claude gets their names. Open them from the run's link.
 
 Anything these agents return may appear in your Claude chat.
 

@@ -5,13 +5,13 @@ sidebar:
   order: 3.65
 ---
 
-People can use Kindgi from their Claude chats: see the agents they may run,
-start them, follow a run to its end, set up their own schedules, and see
-what's waiting for them. Each person adds your runtime to claude.ai as a
-custom connector and signs in to Kindgi. Claude then acts as that person,
-with that person's permissions and less: it can't change agents, settings or
-other people's work. [Use Kindgi from Claude](../../../guides/chat/) is the
-person's side. This needs runtime 0.6.0 or later.
+People can use Kindgi from their Claude chats: run the agents and flows
+offered in chat, and follow each run to its end. Each person adds your
+runtime to claude.ai as a custom connector and signs in to Kindgi. Claude
+then acts as that person, with that person's permissions and less: it can't
+change agents, settings or other people's work.
+[Use Kindgi from Claude](../../../guides/chat/) is the person's side. This
+needs runtime 0.6.0 or later.
 
 ## Before you start
 
@@ -60,8 +60,9 @@ On a runtime without an [authorization store](../../authorization/), the
 line adds `(no per-project permissions)`. Anyone signed in can then see and
 run every agent, and Claude gets the same access.
 
-Only agents their builders offer in chat show up there, and each person
-gets a tool only for those of them they may run in Kindgi.
+Only agents and flows their builders offer in chat show up there. Each
+person gets a tool for each of those they can see in Kindgi, and running one
+still takes their permission to run it.
 
 <!-- To confirm: the page that tells builders how to offer an agent in chat, to link from the paragraph above. -->
 
@@ -79,14 +80,6 @@ Send it with a link to [Use Kindgi from Claude](../../../guides/chat/).
 Chat answers link to runs and waits in the console at your public address
 with `/console` after it, when the runtime serves the console itself. When
 your console runs elsewhere, chat answers carry no console links.
-
-## Choose what chat answers carry
-
-**Results in chat**, in the console's workspace settings, is on by default.
-Turn it off to send only status and links to chat apps, never answers or
-files. A tenant admin changes it.
-
-<!-- To confirm: where the console shows Results in chat, by its final name. -->
 
 ## Behind a proxy or load balancer
 
@@ -191,6 +184,13 @@ Cloud Armor sees only requests that come through your load balancer. A
 Cloud Run service also answers at its own `run.app` address, so limit the
 runtime's ingress to internal and Cloud Load Balancing
 ([Cloud Run: Restrict network endpoint ingress](https://docs.cloud.google.com/run/docs/securing/ingress)),
-or these paths stay open to everyone there.
+or these paths stay open to everyone there. With the
+[Cloud Run](../cloud-run/) module, set it in the module, not by hand: its
+next apply puts back a change made outside it.
 
-<!-- To confirm: the Cloud Run module sets the server's ingress to all and has no setting for it, so a change made outside the module goes back on its next apply. Name the module's setting here once it has one. -->
+```hcl
+server_ingress = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
+```
+
+It needs `network_mode = "direct"`, and `public_url` set to the load
+balancer's address.
