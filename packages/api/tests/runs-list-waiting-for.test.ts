@@ -206,7 +206,22 @@ describe('GET /v1/runs?include=waitingFor', () => {
     const h = harness([row('suspended')]);
     const refused = await h.get('/v1/runs?include=waitingFor,keys');
     expect([refused.status, refused.body.error?.code]).toEqual([400, 'bad-input']);
-    expect(refused.body.error?.message).toBe('Unknown `include` value(s): keys');
+    expect(refused.body.error?.message).toBe(
+      'Unknown `include` value(s): keys. Expected one or more of: output, waitingFor',
+    );
     expect(h.journalReads).toEqual([]);
+  });
+
+  test('one value alone reads as before, repeated keys like the comma form, and `include=` adds nothing', async () => {
+    const h = harness([row('suspended')]);
+    // One value, as a client generated from an older spec sends it.
+    const one = await h.get('/v1/runs?include=waitingFor');
+    expect((one.body.data as Record<string, any>[])[0]?.waitingFor.approvals).toHaveLength(1);
+    const repeated = await h.get('/v1/runs?include=output&include=waitingFor');
+    expect((repeated.body.data as Record<string, any>[])[0]?.waitingFor.approvals).toHaveLength(1);
+    const empty = await h.get('/v1/runs?include=');
+    expect(empty.status).toBe(200);
+    expect((empty.body.data as Record<string, any>[])[0]).not.toHaveProperty('waitingFor');
+    expect(h.journalReads).toHaveLength(2);
   });
 });

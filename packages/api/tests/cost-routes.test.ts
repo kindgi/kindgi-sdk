@@ -918,6 +918,18 @@ describe("API — a model call's cost record (T135)", () => {
     expect(seen.map((s) => s.includeRawUsage)).toEqual([undefined, true]);
     const bad = await app.request('/v1/cost/records?include=prompts', auth);
     expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: { message: string } }).error.message).toBe(
+      'Unknown `include` value(s): prompts. Expected one or more of: rawUsage',
+    );
+  });
+
+  test('`include` reads repeated keys and empty items like the comma form', async () => {
+    const seen: CostListRecordsInput[] = [];
+    const { app } = makeApp([call()], seen);
+    for (const query of ['include=rawUsage&include=rawUsage', 'include=,rawUsage', 'include=']) {
+      expect((await app.request(`/v1/cost/records?${query}`, auth)).status, query).toBe(200);
+    }
+    expect(seen.map((s) => s.includeRawUsage)).toEqual([true, true, undefined]);
   });
 
   test('filters by model and root run; includeDescendants needs a runId', async () => {

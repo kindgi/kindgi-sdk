@@ -242,7 +242,9 @@ The page holds the runs, and its `nextCursor` leads to the next one.
   suspended run waits for, as `runs.get` answers it
   ([A run's `waitingFor`](../../approvals/approvals-reference/#a-runs-waitingfor)).
   With it, a page holds at most 25 runs. TypeScript takes it beside
-  `includeOutput`; in Python, `include` takes one of the two a call.
+  `includeOutput`. In Python, `include` takes a value or a list
+  (`include=["output", "waitingFor"]`), and in Java, the builder's `include`
+  takes one or both (`.include(Include.OUTPUT, Include.WAITING_FOR)`).
 - **`scope`** (`scope_kind` / `scope_id`) lists one project's runs, or the runs
   of every project in an org: `{ kind: 'project', projectId }`
   (`scope_kind="project", scope_id=…`), or `{ kind: 'org', orgId }`.

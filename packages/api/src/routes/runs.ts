@@ -58,6 +58,7 @@ import type { AppEnv } from '../types.js';
 import type { CompleteWaitTokenInput, WaitTokenBinding } from '../wait-token-binding.js';
 import { agentPinScopeToWire } from './agent-pin-scope-wire.js';
 import { deniedBy } from './denied.js';
+import { includeListOf } from './include-list.js';
 import type { DecodedCursor } from './pagination.js';
 import { clampLimit, decodeCursor, isCursorTime } from './pagination.js';
 import { participantRefusal } from './participant-access.js';
@@ -490,7 +491,11 @@ export function runsRouter(
         toWireError({ code: 'scope-invalid', message: scopeParsed.message }, requestId),
       );
     }
-    const listFilter = parseRunListFilter(c.req.query(), c.req.queries('status'));
+    const listFilter = parseRunListFilter(
+      c.req.query(),
+      c.req.queries('status'),
+      c.req.queries('include'),
+    );
     if (listFilter.kind === 'err') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: listFilter.message }, requestId));
@@ -1701,8 +1706,9 @@ function parseRunNarrowing(
 function parseRunListFilter(
   query: Readonly<Record<string, string>>,
   status?: readonly string[],
+  include?: readonly string[],
 ): { kind: 'ok'; value: RunListFilter } | { kind: 'err'; message: string } {
-  const { parentRunId, topLevel, agentId, replays, testRunId, triggerId, include, actsFor } = query;
+  const { parentRunId, topLevel, agentId, replays, testRunId, triggerId, actsFor } = query;
   if (actsFor !== undefined && actsFor !== 'me') {
     return { kind: 'err', message: '`actsFor` must be `me`' };
   }
@@ -1736,11 +1742,8 @@ function parseRunListFilter(
   if (testRunId !== undefined && replays === 'exclude') {
     return { kind: 'err', message: '`testRunId` and `replays=exclude` cannot be combined' };
   }
-  const includes = include === undefined ? [] : include.split(',').map((i) => i.trim());
-  const unknown = includes.filter((i) => i !== 'output' && i !== 'waitingFor');
-  if (unknown.length > 0) {
-    return { kind: 'err', message: `Unknown \`include\` value(s): ${unknown.join(', ')}` };
-  }
+  const includes = includeListOf(include, ['output', 'waitingFor']);
+  if (includes.kind === 'err') return includes;
   const narrowing = parseRunNarrowing(query, status);
   if (narrowing.kind === 'err') return narrowing;
   return {
@@ -1753,8 +1756,8 @@ function parseRunListFilter(
       replays: replays ?? (testRunId !== undefined ? 'include' : 'exclude'),
       ...(testRunId !== undefined && { testRunId }),
       ...(triggerId !== undefined && { triggerId: triggerId as TriggerId }),
-      includeOutput: includes.includes('output'),
-      includeWaitingFor: includes.includes('waitingFor'),
+      includeOutput: includes.value.has('output'),
+      includeWaitingFor: includes.value.has('waitingFor'),
       actsForMe: actsFor === 'me',
     },
   };

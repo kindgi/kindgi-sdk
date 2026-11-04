@@ -27,6 +27,7 @@ import {
   unfinishedRun,
   unknownCorrectionTool,
 } from './corrections.js';
+import { includeListOf } from './include-list.js';
 import { clampLimit } from './pagination.js';
 import { UUID_RE } from './uuid-param.js';
 
@@ -106,10 +107,8 @@ export function agentTestSetRouter(deps: {
     const agentId = c.req.param('agentId');
     const projectId = projectOf(c);
     if (typeof projectId !== 'string') return projectId;
-    const include = c.req.query('include');
-    if (include !== undefined && include !== 'retired') {
-      return fail(c, 'bad-input', 'include takes only retired.');
-    }
+    const include = includeListOf(c.req.queries('include'), ['retired']);
+    if (include.kind === 'err') return fail(c, 'bad-input', include.message);
     const kinds = parseKinds(c.req.query('kind'));
     if (typeof kinds === 'string') return fail(c, 'bad-input', kinds);
     const refused =
@@ -127,7 +126,7 @@ export function agentTestSetRouter(deps: {
       agentId,
       projectId,
       ...(kinds !== undefined && { kinds }),
-      ...(include === 'retired' && { includeRetired: true }),
+      ...(include.value.has('retired') && { includeRetired: true }),
       ...(cursor !== undefined && cursor.length > 0 && { cursor: cursor as Cursor }),
       limit: clampLimit(c.req.query('limit')),
     });

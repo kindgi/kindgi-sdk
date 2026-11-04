@@ -144,6 +144,20 @@ def deref(doc: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
 ID_PARAM = re.compile(r"(?:^id|Id)$")
 
 
+def comma_list(doc: dict[str, Any], param: dict[str, Any]) -> bool:
+    """A query array sent as one key, its values comma-separated (`include=a,b`).
+
+    That's OpenAPI's `style: form` with `explode: false`. Any other array is
+    repeated keys (`segment=a&segment=b`), which httpx writes from a list.
+    """
+    return (
+        param["in"] == "query"
+        and deref(doc, param.get("schema", {})).get("type") == "array"
+        and param.get("style", "form") == "form"
+        and param.get("explode") is False
+    )
+
+
 def param_annotation(doc: dict[str, Any], schema: dict[str, Any], name: str = "") -> str:
     resolved = deref(doc, schema)
     if "enum" in resolved:
@@ -247,6 +261,7 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
                         required=bool(p.get("required", p["in"] == "path")),
                         annotation=param_annotation(doc, p.get("schema", {}), p["name"]),
                         description=p.get("description", ""),
+                        encode="_csv" if comma_list(doc, p) else None,
                     )
                 )
             # Path parameters in template order.
@@ -471,7 +486,7 @@ def render_resources(root: Resource, ops: list[Operation]) -> str:
         "from uuid import UUID",
         "",
         "from . import _models",
-        "from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _segments",
+        "from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _csv, _segments",
         *(
             f"from .{module} import Async{mixin}, {mixin}"
             for module, mixin in sorted(MIXINS.values())

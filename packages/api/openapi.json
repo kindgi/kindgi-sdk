@@ -30583,14 +30583,19 @@
             "name": "include",
             "in": "query",
             "schema": {
-              "type": "string",
-              "enum": [
-                "output",
-                "waitingFor"
-              ]
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "output",
+                  "waitingFor"
+                ]
+              }
             },
             "required": false,
-            "description": "Comma-separated extras per run. `output` adds each run's output. `waitingFor` adds what each suspended run waits for, as `GET /v1/runs/{runId}` gives it; with it, a page holds at most 25 runs. Both: `output,waitingFor` (the Python and Java clients' typed `include` takes one value a call)."
+            "description": "Extras per run, one or more, comma-separated: `include=output,waitingFor`. `output` adds each run's output. `waitingFor` adds what each suspended run waits for, as `GET /v1/runs/{runId}` gives it; with it, a page holds at most 25 runs.",
+            "style": "form",
+            "explode": false
           },
           {
             "name": "status",
@@ -39055,13 +39060,18 @@
             "name": "include",
             "in": "query",
             "schema": {
-              "type": "string",
-              "enum": [
-                "retired"
-              ]
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "retired"
+                ]
+              }
             },
             "required": false,
-            "description": "`retired`: retired cases too. Left out, active ones only."
+            "description": "Extras, one or more, comma-separated: `include=retired`. `retired`: retired cases too. Left out, active ones only.",
+            "style": "form",
+            "explode": false
           },
           {
             "name": "kind",
@@ -52399,13 +52409,18 @@
             "name": "include",
             "in": "query",
             "schema": {
-              "type": "string",
-              "enum": [
-                "rawUsage"
-              ]
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "rawUsage"
+                ]
+              }
             },
             "required": false,
-            "description": "Extra fields, comma-separated. `rawUsage`: each model call's usage object exactly as the vendor reported it."
+            "description": "Extra fields, one or more, comma-separated: `include=rawUsage`. `rawUsage`: each model call's usage object exactly as the vendor reported it.",
+            "style": "form",
+            "explode": false
           }
         ],
         "security": [
@@ -52478,13 +52493,18 @@
             "name": "include",
             "in": "query",
             "schema": {
-              "type": "string",
-              "enum": [
-                "rawUsage"
-              ]
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "rawUsage"
+                ]
+              }
             },
             "required": false,
-            "description": "Extra fields, comma-separated. `rawUsage`: each model call's usage object exactly as the vendor reported it."
+            "description": "Extra fields, one or more, comma-separated: `include=rawUsage`. `rawUsage`: each model call's usage object exactly as the vendor reported it.",
+            "style": "form",
+            "explode": false
           }
         ],
         "security": [
@@ -57840,13 +57860,18 @@
             "name": "include",
             "in": "query",
             "schema": {
-              "type": "string",
-              "enum": [
-                "grants"
-              ]
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "grants"
+                ]
+              }
             },
             "required": false,
-            "description": "Extra fields, comma-separated. `grants`: each person's grants, as `GET /v1/identity/users/{userId}/grants` answers them, in this one read. A runtime that doesn't read grants (no authorization store) leaves `grants` out, as an older one does."
+            "description": "Extra fields, one or more, comma-separated: `include=grants`. `grants`: each person's grants, as `GET /v1/identity/users/{userId}/grants` answers them, in this one read. A runtime that doesn't read grants (no authorization store) leaves `grants` out, as an older one does.",
+            "style": "form",
+            "explode": false
           }
         ],
         "security": [

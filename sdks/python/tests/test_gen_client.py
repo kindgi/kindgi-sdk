@@ -429,6 +429,25 @@ def first_in(path: tuple[str, ...], member: dict[str, Any] = QUEUED) -> dict[str
     return doc
 
 
+def test_a_query_array_sent_as_one_comma_separated_key_is_written_by_csv() -> None:
+    items = {"type": "string", "enum": ["output", "waitingFor"]}
+    comma = {
+        "name": "include",
+        "in": "query",
+        "schema": {"type": "array", "items": items},
+        "style": "form",
+        "explode": False,
+    }
+    assert gen.comma_list(API, comma)
+    repeated = {k: v for k, v in comma.items() if k not in ("style", "explode")}
+    for other in ({**comma, "explode": True}, repeated, {**comma, "schema": items}):
+        assert not gen.comma_list(API, other)
+    _, ops = gen.operations(API)
+    encode = {(op.id, p.name): p.encode for op in ops for p in op.params}
+    assert encode[("runs.list", "include")] == "_csv"
+    assert encode[("runs.list", "status")] is None
+
+
 def test_the_api_as_it_is_generates_with_the_committed_names(tmp_path: Path) -> None:
     assert generate_api(tmp_path, API) == PINNED
 

@@ -205,6 +205,7 @@ Response body:
 - A runtime with a cursor sealer (`cursorSealer`) seals every `nextCursor` at the edge (AES-256-GCM, `k1.<kid>.<nonce>.<body>`): it shows nothing of the row it points after, even one the list hid. A sealed cursor opens only for the same tenant, caller, list (the path) and filters (the query parameters other than `cursor` and `limit`, so the page size may change mid-scan), within a day; otherwise `400 bad-input`, and the client starts again without it. A plain cursor still passes as it is.
 - A page may be empty while `hasMore` is true (every row of a window was one the caller can't read): continue with `nextCursor`.
 - Filters go as query params: `?status=running&agentId=...`.
+- A list of extras is `include`: an array of known values, sent as one comma-separated key (`include=output,waitingFor`; in the spec, `style: form` and `explode: false`). The server reads repeated keys too. An unknown value is `400 bad-input`, with a message that starts ``Unknown `include` value(s)``.
 - Sort order is fixed per endpoint (documented per route); no `?sort=` unless explicitly supported.
 
 Matches the SDK's `Filter<TStatus>` + `Cursor` types verbatim.
