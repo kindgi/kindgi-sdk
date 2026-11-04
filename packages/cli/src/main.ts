@@ -37,6 +37,7 @@ import type { LicenseCommandDeps } from './license/renew.js';
 import type { OpenUrl } from './open-url.js';
 import { loadPackConfig } from './pack-config.js';
 import { type CommandParse, GLOBAL_OPTION_SPEC, parseCommand } from './parse.js';
+import { PROFILE_ENV } from './profiles.js';
 import { progressAfterHead } from './progress-head.js';
 import type { RateLimitWaitSeam } from './rate-limit-wait.js';
 import type { TestRunners } from './test/runners.js';
@@ -244,18 +245,36 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
       exitCode: 2,
     };
   }
+  if (argv[0] === 'dev' && parsed.globals.profile !== undefined) {
+    return {
+      stdout: '',
+      stderr: "kindgi dev runs a local runtime, never a profile's: leave --profile out.\n",
+      exitCode: 2,
+    };
+  }
 
+  const env = inputs.env ?? process.env;
   const config = await configFor(
     argv[0],
     loadConfig({
       ...(parsed.globals.url !== undefined ? { flagUrl: parsed.globals.url } : {}),
       ...(parsed.globals.token !== undefined ? { flagToken: parsed.globals.token } : {}),
-      ...(inputs.env !== undefined ? { env: inputs.env } : {}),
+      ...(parsed.globals.profile !== undefined ? { flagProfile: parsed.globals.profile } : {}),
+      // `kindgi dev` ignores KINDGI_PROFILE: an exported one shouldn't block dev in that shell.
+      env: argv[0] === 'dev' ? withoutProfile(env) : env,
       ...(inputs.cwd !== undefined ? { cwd: inputs.cwd } : {}),
       ...(inputs.home !== undefined ? { home: inputs.home } : {}),
       ...(inputs.configReadFile !== undefined ? { readFile: inputs.configReadFile } : {}),
     }),
   );
+  // A profile that can't be used stops the command before it runs. `kindgi
+  // auth login` saves profiles: a name the file doesn't hold, or holds
+  // malformed or for another address, is its own to handle.
+  const refusal = config.profileRefusal;
+  const isLogin = argv[0] === 'auth' && command.name === 'login';
+  if (refusal !== undefined && !(isLogin && LOGIN_HANDLES.has(refusal.kind))) {
+    return { stdout: '', stderr: `${refusal.message}\n`, exitCode: 2 };
+  }
 
   // Lazily wire dev runners so commands other than `kindgi dev` don't
   // load the dev loop. Tests supplying `inputs.devRunners` always win.
@@ -349,7 +368,10 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     ? undefined
     : await pinWarningFor(ctx.cwd, parsed.options.path);
   if (pinWarning !== undefined && topLevel === 'dev') process.stderr.write(pinWarning);
-  const before = topLevel === 'dev' ? '' : (pinWarning ?? '');
+  // Where a profile sends the command, when the shell or folder suggests
+  // elsewhere: said under --quiet too.
+  const notes = profileNotes(label, scope.config);
+  const before = topLevel === 'dev' ? '' : `${notes}${pinWarning ?? ''}`;
   try {
     const result = await command.run(ctx);
     if (result.kind === 'ok') {
@@ -368,10 +390,45 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     const formatted = formatThrown(err, { commandLabel: label, verbose: parsed.globals.verbose });
     return {
       stdout: '',
-      stderr: `${stream.unsaid('')}${formatted.stderr}`,
+      stderr: `${stream.unsaid(notes)}${formatted.stderr}`,
       exitCode: formatted.exitCode,
     };
   }
+}
+
+/** The profile refusals `kindgi auth login` handles itself: it saves the profile. */
+const LOGIN_HANDLES: ReadonlySet<string> = new Set(['unknown', 'malformed', 'other-address']);
+
+/** `env` without KINDGI_PROFILE: `kindgi dev`'s. */
+function withoutProfile(
+  env: Readonly<Record<string, string | undefined>>,
+): Readonly<Record<string, string | undefined>> {
+  const { [PROFILE_ENV]: _profile, ...rest } = env;
+  return rest;
+}
+
+/**
+ * What a command on a profile says first: that `--profile` beat an
+ * exported KINDGI_API_URL or KINDGI_API_TOKEN, and that it skipped this
+ * folder's `kindgi dev` runtime. Each says the command goes somewhere
+ * other than the shell or the folder suggests.
+ */
+function profileNotes(label: string, config: ResolvedConfig): string {
+  const profile = config.profile;
+  if (profile === undefined) return '';
+  const lines: string[] = [];
+  const beat = config.profileBeat ?? [];
+  if (beat.length > 0) {
+    const verb = beat.length === 1 ? "isn't" : "aren't";
+    lines.push(`--profile ${profile.name} is used: the exported ${beat.join(' and ')} ${verb}.`);
+  }
+  const skipped = config.profileSkipped;
+  if (skipped !== undefined && config.apiUrl !== undefined) {
+    lines.push(
+      `${label} goes to ${config.apiUrl}, the profile ${profile.name}'s address, not the kindgi dev runtime ${skipped} names.`,
+    );
+  }
+  return lines.map((line) => `${line}\n`).join('');
 }
 
 /**
