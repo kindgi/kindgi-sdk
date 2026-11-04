@@ -6,10 +6,13 @@
  * from a chat app: narrowed to `kindgi:read` and `kindgi:run`, which hold
  * no `write`. A tool names no project, so the run lands where the runtime
  * puts it (the conversation's project, else the agent's or the flow's own)
- * and needs only the right to run it there. Naming the item's own project
- * would ask `write` on it (`runs.ts`), which a chat app never holds, so
- * nobody could run anything from one. The stand-in check narrows by the
- * principal's scope before it reads a grant, as the runtime's does.
+ * and needs what a start from the API that names no project needs: the
+ * right to run the item, and for an item more than one project serves, the
+ * right to run it in the project the run lands in. Naming the item's own
+ * project would ask `write` on it (`runs.ts`), which a chat app never holds,
+ * so nobody could run anything from one. The stand-in check narrows by the
+ * principal's scope before it reads a grant, and refuses as the runtime's
+ * does.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -74,26 +77,35 @@ const PEOPLE: Record<string, readonly Grant[]> = {
 /** Grants each person exactly theirs, after the principal's scope, as the runtime's check does. */
 function scopedGrants() {
   const asked: string[] = [];
+  /** Each check's `allowedActions`, in the order asked. */
+  const scopes: (readonly Action[] | undefined)[] = [];
   const decide = (principal: Principal, action: Action, r: ResourceRef): Decision => {
     const who = principal.actor.id;
     const scope = principal.scope;
+    scopes.push(scope?.allowedActions);
     const outOfScope =
       (scope?.allowedActions !== undefined && !scope.allowedActions.includes(action)) ||
       scope?.deniedActions?.includes(action) === true;
     asked.push(`${who} ${action} ${r.type}:${r.id}${outOfScope ? ' (scope)' : ''}`);
-    const allowed = !outOfScope && (PEOPLE[who] ?? []).includes(`${action} ${r.type}:${r.id}`);
-    return {
-      allowed,
-      reason: outOfScope ? `downscope: action '${action}' not in allowedActions` : 'test',
-      evidence: { action, relation: '', resource: `${r.type}:${r.id}`, actorSubject: '' },
-    };
+    const evidence = { action, relation: '', resource: `${r.type}:${r.id}`, actorSubject: '' };
+    if (outOfScope) {
+      return {
+        allowed: false,
+        failing: 'scope',
+        reason: `downscope: action '${action}' not in allowedActions`,
+        evidence,
+      };
+    }
+    return (PEOPLE[who] ?? []).includes(`${action} ${r.type}:${r.id}`)
+      ? { allowed: true, reason: 'test', evidence }
+      : { allowed: false, failing: 'actor', reason: 'test', evidence };
   };
   const binding: AuthzCheckBinding = {
     check: async (p, action, r) => decide(p, action, r),
     checkBatch: async (p, action, rs) => rs.map((r) => decide(p, action, r)),
     inProject: async (_p, r, projectId) => HOME[r.id] === projectId,
   };
-  return { asked, authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding: binding } };
+  return { asked, scopes, authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding: binding } };
 }
 
 function harness() {
@@ -200,7 +212,11 @@ function harness() {
   const tool = async (who: string, name: string, args: Record<string, unknown>) => {
     const before = grants.asked.length;
     const { body } = await rpc(`chat-${who}`, 'tools/call', { name, arguments: args });
-    return { result: body.result, asked: grants.asked.slice(before) };
+    return {
+      result: body.result,
+      asked: grants.asked.slice(before),
+      scopes: grants.scopes.slice(before),
+    };
   };
   return { app, tool, invoked };
 }
@@ -208,10 +224,20 @@ function harness() {
 const said = (result: Record<string, any>) =>
   (result.content as { text: string }[]).map((c) => c.text).join('\n');
 
+/** Every check the call made ran under the chat app's scope, which holds no `write`. */
+const underChatScope = (scopes: readonly (readonly Action[] | undefined)[]) => {
+  expect(scopes.length).toBeGreaterThan(0);
+  for (const allowed of scopes) {
+    expect(allowed).toBeDefined();
+    expect(allowed).not.toContain('write');
+  }
+};
+
 describe('/mcp: starting a run through the real route, from a chat app', () => {
   test("a one-project agent runs: no project named, so it's execute on the agent, and no write", async () => {
     const { tool, invoked } = harness();
-    const { result, asked } = await tool('alice', SOLO, { message: 'Hello' });
+    const { result, asked, scopes } = await tool('alice', SOLO, { message: 'Hello' });
+    underChatScope(scopes);
     expect(invoked).toEqual([`agent ${SOLO} in -`]);
     expect(asked).toContain(`alice execute agent:${SOLO}`);
     expect(asked.filter((a) => a.includes(' write '))).toEqual([]);
@@ -220,16 +246,23 @@ describe('/mcp: starting a run through the real route, from a chat app', () => {
 
   test('a one-project flow runs the same way', async () => {
     const { tool, invoked } = harness();
-    const { result, asked } = await tool('alice', `flow.${FLOW}`, { input: { document: 'x' } });
+    const { result, asked, scopes } = await tool('alice', `flow.${FLOW}`, {
+      input: { document: 'x' },
+    });
+    underChatScope(scopes);
     expect(invoked).toEqual([`flow ${FLOW} in -`]);
     expect(asked).toContain(`alice execute flow:${FLOW}`);
     expect(asked.filter((a) => a.includes(' write '))).toEqual([]);
     expect(said(result)).not.toContain("can't run");
   });
 
-  test("continuing a conversation runs in the conversation's project, not the agent's first", async () => {
+  test("continuing a conversation with an agent more than one project serves runs in the conversation's project, not the agent's first", async () => {
     const { tool, invoked } = harness();
-    const { asked } = await tool('alice', SERVED, { message: 'And now?', conversationId: IN_PROD });
+    const { asked, scopes } = await tool('alice', SERVED, {
+      message: 'And now?',
+      conversationId: IN_PROD,
+    });
+    underChatScope(scopes);
     // Alice calls acme.desk in prod alone: the check is there, and passes.
     expect(asked).toContain(`alice call project:${PROD}`);
     expect(asked.filter((a) => a.endsWith(`project:${STAGING}`) && !a.includes(' read '))).toEqual(
@@ -240,7 +273,8 @@ describe('/mcp: starting a run through the real route, from a chat app', () => {
 
   test('one who sees the agent and may not run it is still refused, in words, and nothing starts', async () => {
     const { tool, invoked } = harness();
-    const { result, asked } = await tool('bob', SOLO, { message: 'Hello' });
+    const { result, asked, scopes } = await tool('bob', SOLO, { message: 'Hello' });
+    underChatScope(scopes);
     expect(asked).toContain(`bob execute agent:${SOLO}`);
     expect(invoked).toEqual([]);
     expect(result.isError).toBe(true);
