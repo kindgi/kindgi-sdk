@@ -540,7 +540,7 @@ npx --yes @kindgi/cli@0.2 runs start --flow=acme.greet-person --input='{"name":"
 
 `--flow` names the flow to run, and `--input` is its input, as JSON.
 
-In the verification run, that flow (one tool step) completed in 399 ms, start
+In the verification run, a flow with one tool step completed in 399 ms, start
 to finish, with the output `{"greeting":"Hello, Azure!"}`.
 
 ## 7. Turn on sign-in
