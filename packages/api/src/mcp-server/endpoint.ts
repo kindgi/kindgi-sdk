@@ -318,12 +318,21 @@ async function jsonBodyOf(request: Request): Promise<{ readonly json: unknown } 
 }
 
 /**
+ * The most messages the MCP library serves in one batch: its own
+ * `MAX_BATCH_SIZE` (2.4.0), which it doesn't export. It refuses a longer one.
+ */
+const MAX_BATCH = 100;
+
+/**
  * How many times a request counts toward the tenant's API requests a
  * minute: once for each message in a batch, else once (one message, a
- * `GET` or `DELETE`, or a body the library refuses).
+ * `GET` or `DELETE`, or a body the library refuses, such as a batch longer
+ * than it serves).
  */
 function messagesIn(body: { readonly json: unknown } | undefined): number {
-  return body !== undefined && Array.isArray(body.json) ? Math.max(body.json.length, 1) : 1;
+  if (body === undefined || !Array.isArray(body.json)) return 1;
+  const { length } = body.json;
+  return length > MAX_BATCH ? 1 : Math.max(length, 1);
 }
 
 function askedOf(read: { readonly json: unknown } | undefined): McpAsked {

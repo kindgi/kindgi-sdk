@@ -52,7 +52,8 @@ On `/s3`, a request past the limit gets S3's own `503 SlowDown`, with
 
 A chat app's request to `/mcp` counts once, so a tool call that starts a run
 and waits for it, or one wait with `kindgi.run_state`, is one request however
-often it reads the run. A batch counts each of its messages. Past the limit,
+often it reads the run. A batch counts each of its messages, up to the 100 a
+batch may hold; a longer one is refused and counts once. Past the limit,
 a tool call answers that Kindgi is busy and when to try again, and starts
 nothing. Any other request to `/mcp` gets the `429` above.
 

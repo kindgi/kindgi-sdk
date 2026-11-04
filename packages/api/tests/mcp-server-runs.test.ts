@@ -697,6 +697,33 @@ describe('/mcp: the calls one message counts for', () => {
     }
   });
 
+  test('the reads at the real waits: a run that goes on is read no more after waitMs', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      const tool = harness({ runs: [agentRun()], wait: RUN_WAIT, perMinute: 600 });
+      const started = tool.rpc('chat-run', 'tools/call', callClauses);
+      await vi.advanceTimersByTimeAsync(RUN_WAIT.waitMs + 10_000);
+      expect((await started).body.result.structuredContent.status).toBe('running');
+      expect(tool.checks()).toBe(reads(RUN_WAIT));
+      // The agent's read, the start and its reads: no files while it goes on.
+      expect(tool.seen).toHaveLength(2 + reads(RUN_WAIT));
+      expect(tool.takes).toHaveLength(1);
+
+      const state = harness({ runs: [agentRun()], wait: RUN_STATE_WAIT, perMinute: 600 });
+      const waited = state.rpc('chat-read', 'tools/call', {
+        name: 'kindgi.run_state',
+        arguments: { runId: RUN_ID, waitSeconds: 25 },
+      });
+      await vi.advanceTimersByTimeAsync(RUN_STATE_WAIT.waitMs + 10_000);
+      expect((await waited).body.result.structuredContent.status).toBe('running');
+      expect(state.checks()).toBe(reads(RUN_STATE_WAIT));
+      expect(state.seen).toHaveLength(reads(RUN_STATE_WAIT));
+      expect(state.takes).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test('MCP_CALLS_PER_MESSAGE covers the most one message makes, alone or in a batch', () => {
     // One message: a run tool (its agent or flow's read first), run_state, or a list.
     const one = Math.max(1 + startAndWait, runState, lists);

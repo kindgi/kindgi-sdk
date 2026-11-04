@@ -451,19 +451,41 @@ describe("/mcp: the tenant's API requests a minute", () => {
     }
   });
 
+  /** A batch of `n` pings, as a client on the batching revision sends it. */
+  const pings = (n: number) =>
+    JSON.stringify(
+      Array.from({ length: n }, (_, i) => ({ jsonrpc: '2.0', id: i + 1, method: 'ping' })),
+    );
+  const batchHeaders = {
+    'content-type': 'application/json',
+    accept: 'application/json, text/event-stream',
+    'mcp-protocol-version': '2025-03-26',
+    authorization: 'Bearer chat-read',
+  };
+
   test('a batch counts each of its messages', async () => {
     const { app, takes } = harness({ perMinute: 600 });
-    await app.request('/mcp', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        accept: 'application/json, text/event-stream',
-        'mcp-protocol-version': '2025-03-26',
-        authorization: 'Bearer chat-read',
-      },
-      body: JSON.stringify([1, 2, 3].map((id) => ({ jsonrpc: '2.0', id, method: 'ping' }))),
-    });
+    await app.request('/mcp', { method: 'POST', headers: batchHeaders, body: pings(3) });
     expect(takes).toHaveLength(3);
+  });
+
+  test('a batch longer than the library serves counts once, as any body it refuses', async () => {
+    const { app, takes } = harness({ perMinute: 600 });
+    const most = await app.request('/mcp', {
+      method: 'POST',
+      headers: batchHeaders,
+      body: pings(100),
+    });
+    expect(most.status).toBe(200);
+    expect(takes).toHaveLength(100);
+    const over = await app.request('/mcp', {
+      method: 'POST',
+      headers: batchHeaders,
+      body: pings(101),
+    });
+    expect(over.status).toBe(400);
+    expect(((await over.json()) as { error: { code: number } }).error.code).toBe(-32600);
+    expect(takes).toHaveLength(101);
   });
 
   test("createApp's tenantLimits count /mcp too", async () => {
