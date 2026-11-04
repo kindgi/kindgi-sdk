@@ -32,6 +32,14 @@ final class Kindgi_Rest {
 	/** Activity shows this many runs a page. */
 	const ACTIVITY_PAGE = 25;
 
+	/**
+	 * While Kindgi refuses the runs list's `include=waitingFor` (a Kindgi
+	 * from before it), Activity asks without it, for this long, then once
+	 * more.
+	 */
+	const NO_WAITS     = 'kindgi_runs_no_waits';
+	const NO_WAITS_FOR = 3600;
+
 	/** The option holding the agents offered to staff (their ids); none set offers them all. */
 	const OFFERED = 'kindgi_offered_agents';
 
@@ -557,12 +565,19 @@ final class Kindgi_Rest {
 			'topLevel'  => 'true',
 			'limit'     => self::ACTIVITY_PAGE,
 			// A list leaves each run's output out unless asked: a row's summary is its first line.
-			'include'   => 'output',
+			// What each waiting run waits for comes with it (`Kindgi_Activity::waits`).
+			'include'   => false === get_transient( self::NO_WAITS ) ? 'output,waitingFor' : 'output',
 		);
 		if ( null !== $request['cursor'] && '' !== $request['cursor'] ) {
 			$query['cursor'] = $request['cursor'];
 		}
 		$answer = Kindgi_Api::body( $user, 'GET', '/v1/runs', $query );
+		if ( 'output' !== $query['include'] && self::refuses_waits( $answer ) ) {
+			// A Kindgi from before it: ask again without it, and remember (`NO_WAITS`).
+			set_transient( self::NO_WAITS, 1, self::NO_WAITS_FOR );
+			$query['include'] = 'output';
+			$answer           = Kindgi_Api::body( $user, 'GET', '/v1/runs', $query );
+		}
 		if ( is_wp_error( $answer ) ) {
 			return $answer;
 		}
@@ -578,14 +593,25 @@ final class Kindgi_Rest {
 		);
 	}
 
+	/** Whether Kindgi refused the runs list's `include=waitingFor` as a value it doesn't know. */
+	private static function refuses_waits( $answer ): bool {
+		return is_wp_error( $answer ) && 'bad-input' === $answer->get_error_code() && 0 === strpos( $answer->get_error_message(), 'Unknown `include` value(s)' );
+	}
+
 	/**
-	 * Activity's rows with what each waiting run waits for, from the
-	 * approvals that wait: read only when a row waits, one page of them,
-	 * newest first, as Activity lists its runs. Without them, a waiting
-	 * run says only that it waits.
+	 * Activity's rows with what each waiting run waits for, headed from the
+	 * approvals that wait (`Kindgi_Activity::with_waits`): read only when a
+	 * row names approvals or waits without saying for what, one page of
+	 * them, newest first, as Activity lists its runs. Without them, a
+	 * waiting run keeps what its run named, or says only that it waits.
 	 */
 	private static function with_waits( WP_User $user, string $project, array $rows ): array {
-		if ( ! in_array( 'suspended', array_column( $rows, 'status' ), true ) ) {
+		$waits = false;
+		foreach ( $rows as $row ) {
+			// A run that named its approvals, or one that waits and didn't say (null).
+			$waits = $waits || array() !== $row['waiting'];
+		}
+		if ( ! $waits ) {
 			return $rows;
 		}
 		$page = Kindgi_Api::body(

@@ -199,9 +199,19 @@
     pending: ['run', __('Running', 'kindgi')],
   };
 
-  /** A run's state as a pill (Activity, the dashboard). */
+  /** A waiting run with approvals of its own to decide (`run.waiting`). */
+  const NEEDS_A_PERSON = ['warn', __('Needs a person', 'kindgi')];
+
+  /**
+   * A run's state as a pill (Activity, the dashboard). A waiting run that
+   * waits for approvals of its own needs a person; one that waits for
+   * something else, such as a step it started, is waiting.
+   */
   function runState(run) {
-    const [tone, words] = RUN_STATES[run.status] ?? ['none', run.status];
+    const [tone, words] =
+      run.status === 'suspended' && run.waiting?.length > 0
+        ? NEEDS_A_PERSON
+        : (RUN_STATES[run.status] ?? ['none', run.status]);
     return el('span', { className: `kindgi-state kindgi-state-${tone}` }, words);
   }
 
