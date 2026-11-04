@@ -60,7 +60,9 @@ export interface MailMessage {
    * Its body as plain text: the `text/plain` part, else the `text/html`
    * part turned into text, cut at 50,000 characters. In a mail turn's
    * read, the mail's own text: Outlook's `uniqueBody`, Gmail's with the
-   * earlier mail it quotes cut.
+   * earlier mail it quotes cut. There, a line of its own that starts as
+   * the mark a quote cut leaves (`[earlier mail left out]`) is set in by
+   * a space.
    */
   readonly body: string;
   /** True when the body was longer and was cut. */
