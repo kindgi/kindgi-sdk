@@ -148,9 +148,14 @@ company has two Google connections.
   stays as it was: the connect answers connected if the connection is
   working and already holds what was asked, and is declined with what's
   `missing` if not. To add a permission, name the connection with
-  `--reconnect`.
+  `--reconnect`, or use **Ask Google for more** on its page in the
+  console.
 - **`--reconnect=<connection>`** reconnects one by name or id, and needs
   the same account. It doesn't take `--label`: a reconnect keeps its name.
+  It asks for the permissions you list and those the connection holds. A
+  grant short of what it holds leaves it as it was: the connect answers
+  connected if the connection is working and already holds what was asked,
+  and is declined with what's `missing` if not.
 - **Rename one** with `kindgi connections update`. Its owner or a
   tenant admin can rename it, and only a tenant admin the company's:
 
