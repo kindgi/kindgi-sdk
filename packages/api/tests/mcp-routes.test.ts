@@ -1489,11 +1489,11 @@ describe('API — a key limited to a project registers an endpoint in no other p
     expect(registered).toEqual([]);
   });
 
-  test('its own project: not refused for the project', async () => {
-    const { register } = makeLimitedApp();
+  test('its own project: registered', async () => {
+    const { register, registered } = makeLimitedApp();
     const res = await register('acme-own', P1);
-    const body = (await res.json()) as { error?: { code: string } };
-    expect(body.error?.code).not.toBe('key-project-mismatch');
+    expect(res.status).toBe(201);
+    expect(registered).toEqual(['acme-own']);
   });
 });
 

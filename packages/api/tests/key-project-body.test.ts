@@ -35,9 +35,9 @@ const app = createApp({
 
 type ErrorBody = { error?: { code: string; details?: unknown } };
 
-async function post(path: string, body: unknown) {
+async function send(method: string, path: string, body: unknown) {
   const res = await app.request(path, {
-    method: 'POST',
+    method,
     headers: { authorization: `Bearer ${LIMITED}`, 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
@@ -45,15 +45,23 @@ async function post(path: string, body: unknown) {
   return { status: res.status, body: (text.length > 0 ? JSON.parse(text) : {}) as ErrorBody };
 }
 
-const BODIES: [string, string, (project: string) => unknown][] = [
+const BODIES: [string, string, string, (project: string) => unknown][] = [
   [
     "an MCP endpoint's register body, scopeKind project with scopeId",
+    'POST',
     '/v1/mcp/endpoints',
     (project) => ({ scopeKind: 'project', scopeId: project }),
   ],
   [
     "an Improve schedule's target, improve.projectId",
+    'POST',
     '/v1/schedules',
+    (project) => ({ improve: { agentId: 'acme.agent', projectId: project } }),
+  ],
+  [
+    "an Improve schedule's retarget, improve.projectId",
+    'PATCH',
+    `/v1/schedules/${randomUUID()}`,
     (project) => ({ improve: { agentId: 'acme.agent', projectId: project } }),
   ],
 ];
@@ -61,8 +69,8 @@ const BODIES: [string, string, (project: string) => unknown][] = [
 describe('a key limited to a project, with no authorization store', () => {
   test.each(BODIES)(
     '%s, naming another project: 403 key-project-mismatch',
-    async (_, path, body) => {
-      const res = await post(path, body(P2));
+    async (_, method, path, body) => {
+      const res = await send(method, path, body(P2));
       expect(res.status).toBe(403);
       expect(res.body.error).toMatchObject({
         code: 'key-project-mismatch',
@@ -71,16 +79,13 @@ describe('a key limited to a project, with no authorization store', () => {
     },
   );
 
-  test.each(BODIES)(
-    '%s, naming its own project: not refused for the project',
-    async (_, path, body) => {
-      const res = await post(path, body(P1));
-      expect(res.body.error?.code).not.toBe('key-project-mismatch');
-    },
-  );
+  test.each(BODIES)('%s, naming its own project: not refused', async (_, method, path, body) => {
+    const res = await send(method, path, body(P1));
+    expect(res.status).not.toBe(403);
+  });
 
   test("scopeKind org: its scopeId isn't read as a project", async () => {
-    const res = await post('/v1/mcp/endpoints', { scopeKind: 'org', scopeId: P2 });
+    const res = await send('POST', '/v1/mcp/endpoints', { scopeKind: 'org', scopeId: P2 });
     expect(res.body.error?.code).not.toBe('key-project-mismatch');
   });
 });
