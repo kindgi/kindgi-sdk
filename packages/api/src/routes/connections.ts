@@ -5,7 +5,13 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 
 import { type PrincipalRef, ref } from '@kindgi/authz';
-import { APP_ID_PATTERN, type AppEntry, PERMISSION_KEY_PATTERN } from '@kindgi/connections';
+import {
+  APP_ID_PATTERN,
+  type AppEntry,
+  PERMISSION_KEY_PATTERN,
+  TOKEN_PROVIDERS,
+  type TokenProvider,
+} from '@kindgi/connections';
 import type { Cursor, EnvName, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { callerPrincipal, isTenantAdmin } from '../caller.js';
@@ -30,7 +36,7 @@ import type {
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
-import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
+import { type ProviderKeys, type SecretUse, refuseSecretNames } from '../provider-keys.js';
 import {
   type RateLimitStore,
   createInMemoryRateLimitStore,
@@ -61,6 +67,10 @@ const MAX_PERMISSIONS = 64;
 const MAX_FINISH_FIELD_LENGTH = 2048;
 const MAX_INSTALLATION_ID_LENGTH = 64;
 const MINUTE_MS = 60_000;
+/** A number in E.164: `+`, a country code that doesn't start with 0, 7 to 15 digits in all. */
+const E164_RE = /^\+[1-9][0-9]{6,14}$/;
+/** Base64 of exactly 32 bytes (an Ed25519 public key): 43 characters and one `=`. */
+const PUBLIC_KEY_RE = /^[A-Za-z0-9+/]{43}=$/;
 
 const CONNECTION_STATES: ReadonlySet<string> = new Set([
   'working',
@@ -90,6 +100,11 @@ export function connectionAppsRouter(
   authorizer?: Authorizer,
   options: {
     readonly providerKeys?: ProviderKeys;
+    /**
+     * What in the tenant uses a secret: a texts registration's key can't be
+     * one of them (`409 connection-key-in-use`). Absent: not checked.
+     */
+    readonly secretUsers?: (tenantId: TenantId, name: string) => Promise<readonly SecretUse[]>;
     /** On a runtime that refuses other envs: a secret named under another env answers `409 env-not-served`. */
     readonly servedEnv?: ServedEnvRule;
   } = {},
@@ -141,8 +156,25 @@ export function connectionAppsRouter(
     if (body.kind === 'err') return badInput(c, body.message);
     const parsed = parseAppBody(body.value, mode);
     if (parsed.kind === 'err') return badInput(c, parsed.message, parsed.field);
-    const refusal = await secretRefusal(c.get('tenantId') as TenantId, secretsOf(parsed.value));
+    const tenantId = c.get('tenantId') as TenantId;
+    const refusal = await secretRefusal(tenantId, secretsOf(parsed.value));
     if (refusal !== undefined) return answer(c, refusal.code, refusal.message, refusal);
+    // A texts registration's key reaches the whole provider account: a key
+    // a tool, an endpoint or a webhook trigger already uses would hand them
+    // that account, so say so now.
+    const keyName = parsed.value.token?.apiKey.name;
+    const usedBy =
+      keyName === undefined || options.secretUsers === undefined
+        ? []
+        : await options.secretUsers(tenantId, keyName);
+    if (keyName !== undefined && usedBy.length > 0) {
+      return answer(
+        c,
+        'connection-key-in-use',
+        `\`${keyName}\` is used by ${usedBy.map((u) => `${u.kind} "${u.id}"`).join(', ')}: a texts registration's key is used by its registration only. Store the key under its own name, or give each of them a key of its own (the same value is fine)`,
+        { secret: keyName, usedBy },
+      );
+    }
     return parsed.value;
   };
 
@@ -332,19 +364,14 @@ export function connectionsRouter(
     if (body.kind === 'err') return badInput(c, body.message);
     const parsed = parseConnectBody(body.value);
     if (parsed.kind === 'err') return badInput(c, parsed.message, parsed.field);
-    const { app, appId, projectId, permissions, label, reconnects } = parsed.value;
-    const owner = await connectOwner(c, by, parsed.value.for);
+    const { for: whose, ...asked } = parsed.value;
+    const owner = await connectOwner(c, by, whose);
     if (owner instanceof Response) return owner;
     const outcome = await binding.createRequest({
       tenantId,
       envName: options.envName,
-      app,
-      ...(appId !== undefined && { appId }),
-      ...(projectId !== undefined && { projectId }),
+      ...asked,
       owner,
-      permissions,
-      ...(label !== undefined && { label }),
-      ...(reconnects !== undefined && { reconnects }),
       by,
     });
     if (outcome.kind !== 'ok') return bindingRefused(c, authorizer, outcome.error);
@@ -469,7 +496,14 @@ export function connectionsRouter(
     if (connection === null || !(await mayReach(c, connection.owner))) {
       return connectionNotFound(c, connectionId);
     }
-    const outcome = await binding.disconnect({ tenantId, connectionId, by });
+    // Only a number's removal reads it; any other ignores it.
+    const skipInboundRestore = c.req.query('skipInboundRestore') === 'true';
+    const outcome = await binding.disconnect({
+      tenantId,
+      connectionId,
+      ...(skipInboundRestore && { skipInboundRestore: true }),
+      by,
+    });
     if (outcome.kind !== 'ok') return bindingRefused(c, authorizer, outcome.error);
     return c.json(serializeConnection(outcome.value));
   });
@@ -585,15 +619,23 @@ const TEXTS_ANSWER_CONTENT_TYPES: Readonly<Record<TextsInboundAnswer['contentTyp
   'application/json': 'application/json',
 };
 
+/** The headers that carry a caller's credential: never read, nor passed on. */
+const CREDENTIAL_HEADERS: ReadonlySet<string> = new Set([
+  'authorization',
+  'cookie',
+  'proxy-authorization',
+]);
+
 /**
- * A request's headers, their names in lower case, but `authorization`: a
- * bearer token, if sent, is never read, nor passed on.
+ * A request's headers, their names in lower case, but `authorization`,
+ * `cookie` and `proxy-authorization`: a credential, if sent, is never
+ * read, nor passed on.
  */
-function headersButBearer(request: Request): Record<string, string> {
+function headersButCredentials(request: Request): Record<string, string> {
   const headers: Record<string, string> = {};
   request.headers.forEach((value, name) => {
     const lower = name.toLowerCase();
-    if (lower !== 'authorization') headers[lower] = value;
+    if (!CREDENTIAL_HEADERS.has(lower)) headers[lower] = value;
   });
   return headers;
 }
@@ -602,7 +644,8 @@ function headersButBearer(request: Request): Record<string, string> {
  * Texts a provider delivers to a texts registration
  * (`/v1/texts-inbound/{tenantId}/{appId}`): a `POST` with an inbound text
  * or a delivery status, or a `GET` handshake. Outside the bearer chain: a
- * bearer token, if sent, is never read, nor passed on. The provider's own
+ * bearer token, a cookie or a proxy's credential, if sent, is never read,
+ * nor passed on. The provider's own
  * signature is what the binding checks, over the URL it called and the
  * body's exact bytes.
  *
@@ -686,7 +729,7 @@ export function textsInboundRouter(
       appId,
       method,
       pathAndQuery: `${url.pathname}${url.search}`,
-      headers: headersButBearer(request),
+      headers: headersButCredentials(request),
       rawBody,
     });
     if (outcome.kind === 'ok') return sendAnswer(c, outcome.value);
@@ -939,6 +982,7 @@ interface AppBody {
   readonly label?: string;
   readonly oauth2?: NonNullable<ConnectionAppRecord['oauth2']>;
   readonly githubApp?: NonNullable<ConnectionAppRecord['githubApp']>;
+  readonly token?: NonNullable<ConnectionAppRecord['token']>;
   readonly projects?: readonly ProjectId[] | null;
 }
 
@@ -947,6 +991,7 @@ const APP_FIELDS: ReadonlySet<string> = new Set([
   'label',
   'oauth2',
   'githubApp',
+  'token',
   'projects',
 ]);
 const OAUTH2_FIELDS: ReadonlySet<string> = new Set(['clientId', 'clientSecret', 'tenant']);
@@ -958,6 +1003,8 @@ const GITHUB_APP_FIELDS: ReadonlySet<string> = new Set([
   'privateKey',
   'webhookSecret',
 ]);
+const TOKEN_FIELDS: ReadonlySet<string> = new Set(['provider', 'apiKey', 'publicKey']);
+const TOKEN_PROVIDER_SET: ReadonlySet<string> = new Set(TOKEN_PROVIDERS);
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 /** A registration's body: `create` takes `app`; `update` can't change it, and takes `projects: null` (every project). */
@@ -968,6 +1015,8 @@ function parseAppBody(body: Record<string, unknown>, mode: 'create' | 'update'):
   if (oauth2?.kind === 'err') return oauth2;
   const githubApp = body.githubApp === undefined ? undefined : parseGitHubApp(body.githubApp);
   if (githubApp?.kind === 'err') return githubApp;
+  const token = body.token === undefined ? undefined : parseToken(body.token);
+  if (token?.kind === 'err') return token;
   const projects = body.projects === undefined ? undefined : parseProjects(body.projects, mode);
   if (projects?.kind === 'err') return projects;
   return {
@@ -976,6 +1025,7 @@ function parseAppBody(body: Record<string, unknown>, mode: 'create' | 'update'):
       ...head.value,
       ...(oauth2 !== undefined && { oauth2: oauth2.value }),
       ...(githubApp !== undefined && { githubApp: githubApp.value }),
+      ...(token !== undefined && { token: token.value }),
       ...(projects !== undefined && { projects: projects.value }),
     },
   };
@@ -1010,11 +1060,12 @@ function parseAppHead(
 }
 
 /** A registration's fields both a create and an update take as they come. */
-function appFields(body: AppBody): Pick<AppBody, 'label' | 'oauth2' | 'githubApp'> {
+function appFields(body: AppBody): Pick<AppBody, 'label' | 'oauth2' | 'githubApp' | 'token'> {
   return {
     ...(body.label !== undefined && { label: body.label }),
     ...(body.oauth2 !== undefined && { oauth2: body.oauth2 }),
     ...(body.githubApp !== undefined && { githubApp: body.githubApp }),
+    ...(body.token !== undefined && { token: body.token }),
   };
 }
 
@@ -1090,6 +1141,35 @@ function parseGitHubApp(raw: unknown): Parsed<NonNullable<ConnectionAppRecord['g
   };
 }
 
+/** Its shape: whether the entry takes a `token`, and names its provider, is the binding's to check. */
+function parseToken(raw: unknown): Parsed<NonNullable<ConnectionAppRecord['token']>> {
+  if (!isObject(raw)) {
+    return bad('`token` must be an object `{ provider, apiKey, publicKey }`', 'token');
+  }
+  const unknown = unknownField(raw, TOKEN_FIELDS, 'token.');
+  if (unknown !== undefined) return unknown;
+  const known = TOKEN_PROVIDERS.map((p) => `\`${p}\``).join(', ');
+  if (typeof raw.provider !== 'string' || !TOKEN_PROVIDER_SET.has(raw.provider)) {
+    return bad(`\`token.provider\` must be one of ${known}`, 'token.provider');
+  }
+  const apiKey = parseRef(raw.apiKey, 'token.apiKey');
+  if (apiKey.kind === 'err') return apiKey;
+  if (typeof raw.publicKey !== 'string' || !PUBLIC_KEY_RE.test(raw.publicKey)) {
+    return bad(
+      "`token.publicKey` must be the account's Ed25519 public key: base64 of its 32 bytes",
+      'token.publicKey',
+    );
+  }
+  return {
+    kind: 'ok',
+    value: {
+      provider: raw.provider as TokenProvider,
+      apiKey: apiKey.value,
+      publicKey: raw.publicKey,
+    },
+  };
+}
+
 function parseProjects(
   raw: unknown,
   mode: 'create' | 'update',
@@ -1115,6 +1195,8 @@ interface ConnectBody {
   readonly for: 'me' | 'company';
   readonly label?: string;
   readonly reconnects?: string;
+  readonly number?: string;
+  readonly replaceInbound?: true;
 }
 
 const CONNECT_FIELDS: ReadonlySet<string> = new Set([
@@ -1125,6 +1207,8 @@ const CONNECT_FIELDS: ReadonlySet<string> = new Set([
   'for',
   'label',
   'reconnects',
+  'number',
+  'replaceInbound',
 ]);
 
 function parseConnectBody(body: Record<string, unknown>): Parsed<ConnectBody> {
@@ -1146,6 +1230,8 @@ function parseConnectBody(body: Record<string, unknown>): Parsed<ConnectBody> {
   if (permissions.kind === 'err') return permissions;
   const made = parseConnectionMade(body);
   if (made.kind === 'err') return made;
+  const account = parseConnectAccount(body);
+  if (account.kind === 'err') return account;
   return {
     kind: 'ok',
     value: {
@@ -1154,6 +1240,34 @@ function parseConnectBody(body: Record<string, unknown>): Parsed<ConnectBody> {
       ...(typeof body.projectId === 'string' && { projectId: body.projectId as ProjectId }),
       permissions: permissions.value,
       ...made.value,
+      ...account.value,
+    },
+  };
+}
+
+/**
+ * The account a connect names itself, and whether it may move the
+ * number's inbound: their shapes only, since which entry takes them is
+ * the binding's to check.
+ */
+function parseConnectAccount(
+  body: Record<string, unknown>,
+): Parsed<Pick<ConnectBody, 'number' | 'replaceInbound'>> {
+  const { number, replaceInbound } = body;
+  if (number !== undefined && (typeof number !== 'string' || !E164_RE.test(number))) {
+    return bad('`number` must be a phone number in E.164: `+15551234567`', 'number');
+  }
+  if (replaceInbound !== undefined && replaceInbound !== true) {
+    return bad(
+      "`replaceInbound` can only be `true`: leave it out to keep the number's inbound as it is",
+      'replaceInbound',
+    );
+  }
+  return {
+    kind: 'ok',
+    value: {
+      ...(typeof number === 'string' && { number }),
+      ...(replaceInbound === true && { replaceInbound: true as const }),
     },
   };
 }
@@ -1391,6 +1505,7 @@ function secretsOf(body: AppBody): readonly (readonly [string, SecretRefInput])[
           ['githubApp.webhookSecret', body.githubApp.webhookSecret],
         ] as const)
       : []),
+    ...(body.token !== undefined ? [['token.apiKey', body.token.apiKey] as const] : []),
   ];
 }
 
@@ -1701,6 +1816,7 @@ function serializeEntry(entry: AppEntry): Record<string, unknown> {
     owners: [...entry.owners],
     signIn: {
       kind: signIn.kind,
+      ...(signIn.kind === 'token' && { providers: [...signIn.providers] }),
       ...(signIn.kind === 'oauth2' &&
         signIn.tenant !== undefined && {
           tenant: {
@@ -1753,6 +1869,13 @@ function serializeApp(app: ConnectionAppRecord): Record<string, unknown> {
         webhookSecret: serializeRef(app.githubApp.webhookSecret),
       },
     }),
+    ...(app.token !== undefined && {
+      token: {
+        provider: app.token.provider,
+        apiKey: serializeRef(app.token.apiKey),
+        publicKey: app.token.publicKey,
+      },
+    }),
     ...(app.projects !== undefined && {
       projects: app.projects.map((id) => id as unknown as string),
     }),
@@ -1788,6 +1911,16 @@ function serializeConnection(connection: ConnectionRecord): Record<string, unkno
     ...(connection.accessEndsAt !== undefined && { accessEndsAt: connection.accessEndsAt }),
     connectedAt: connection.connectedAt,
     ...(connection.lastUsedAt !== undefined && { lastUsedAt: connection.lastUsedAt }),
+    ...(connection.lastProvenInboundAt !== undefined && {
+      lastProvenInboundAt: connection.lastProvenInboundAt,
+    }),
+    ...(connection.textsThisMonth !== undefined && {
+      textsThisMonth: {
+        received: connection.textsThisMonth.received,
+        sent: connection.textsThisMonth.sent,
+        unanswered: connection.textsThisMonth.unanswered,
+      },
+    }),
     createdAt: connection.createdAt,
     createdBy: connection.createdBy,
     updatedAt: connection.updatedAt,
@@ -1942,6 +2075,10 @@ function bindingRefused(
     ...named,
     ...(error.field !== undefined && { field: error.field }),
     ...(error.connectRequestId !== undefined && { connectRequestId: error.connectRequestId }),
+    ...(error.host !== undefined && { host: error.host }),
+    ...(error.profile !== undefined && { profile: error.profile }),
+    ...(error.appId !== undefined && { appId: error.appId }),
+    ...(error.envName !== undefined && { envName: error.envName as unknown as string }),
   };
   if (statusFor(error.code) === 403) {
     return refused(c, authorizer, {

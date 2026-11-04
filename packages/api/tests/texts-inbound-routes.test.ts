@@ -10,6 +10,8 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import { HOSTED_BOUNDS } from '@kindgi/bounds';
+import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import type { EnvName, Result, TenantId, UserId } from '@kindgi/types';
 
 import type {
@@ -148,16 +150,38 @@ describe('/v1/texts-inbound/{tenantId}/{appId}', () => {
     },
   );
 
-  test('a bearer token, if sent, is never read, nor passed on', async () => {
+  test('a bearer token, a cookie or a proxy credential, if sent, is never read, nor passed on', async () => {
     const { app, received, tokensRead } = makeApp();
     const res = await app.request(path, {
       method: 'POST',
-      headers: { authorization: 'Bearer kgi_forged', 'X-Acme-Signature': 'xml' },
+      headers: {
+        authorization: 'Bearer kgi_forged',
+        cookie: 'kindgi_session=forged',
+        'proxy-authorization': 'Basic Zm9yZ2VkOmZvcmdlZA==',
+        'X-Acme-Signature': 'xml',
+      },
       body: 'Body=Hi',
     });
     expect(res.status).toBe(200);
     expect(tokensRead).toEqual([]);
     expect(received[0]?.headers).not.toHaveProperty('authorization');
+    expect(received[0]?.headers).not.toHaveProperty('cookie');
+    expect(received[0]?.headers).not.toHaveProperty('proxy-authorization');
+    expect(received[0]?.headers['x-acme-signature']).toBe('xml');
+  });
+
+  test("a body over the API's own request limit is the same 401, never a 413", async () => {
+    // Hosted, the API takes 2 MiB; the receiver's own cap is less, and answers first.
+    const restore = overrideTenantInputBounds(HOSTED_BOUNDS);
+    try {
+      const { app, received } = makeApp();
+      const res = await send(app, 'xml', { body: 'x'.repeat(HOSTED_BOUNDS.requestMaxBytes + 1) });
+      expect(res.status).toBe(401);
+      expect((await errorOf(res)).code).toBe('texts-inbound-refused');
+      expect(received).toEqual([]);
+    } finally {
+      restore();
+    }
   });
 
   test('every refusal is the same 401, whatever was wrong', async () => {

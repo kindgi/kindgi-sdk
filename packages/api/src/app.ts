@@ -2414,6 +2414,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       '/connection-apps',
       connectionAppsRouter(input.connections, authorizer, {
         providerKeys,
+        secretUsers,
         ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
       }),
     );

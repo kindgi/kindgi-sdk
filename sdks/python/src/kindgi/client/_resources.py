@@ -11587,7 +11587,7 @@ class ConnectionAppsResource:
     ) -> _models.ConnectionApp:
         """Register an app. `POST /v1/connection-apps`
 
-        Registers the workspace's own client at an app. Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. Tenant admins only.
+        Registers the workspace's own client at an app, or, for an app whose sign-in is an account's credential (`texts`), the provider account (`token`). Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. Tenant admins only.
         """
         return self._client._request(
             _OPERATIONS["connectionApps.create"],
@@ -11622,7 +11622,7 @@ class ConnectionAppsResource:
     ) -> _models.ConnectionApp:
         """Update an app registration. `PATCH /v1/connection-apps/{appId}`
 
-        Changes the label, the client or the projects that may use its connections. The app itself cannot change: register the other app on its own. Tenant admins only.
+        Changes the label, the client (or the provider account, `token`) or the projects that may use its connections. The app itself cannot change: register the other app on its own. Tenant admins only.
         """
         return self._client._request(
             _OPERATIONS["connectionApps.update"],
@@ -11645,7 +11645,7 @@ class ConnectionAppsResource:
     ) -> _models.ConnectionAppRemoved:
         """Remove an app registration. `DELETE /v1/connection-apps/{appId}`
 
-        Without `withConnections=true`, a registration that still has live connections is refused (`connection-app-in-use`). With it, those connections are removed too. Tenant admins only.
+        Without `withConnections=true`, a registration that still has live connections is refused (`connection-app-in-use`). With it, those connections are removed too, each as a disconnect removes it. A number (`texts`) whose old inbound can't be put back stays `removing`, and so does the registration (`502 inbound-restore-failed`): remove it again to retry, or first disconnect that number with `skipInboundRestore=true`. Tenant admins only.
         """
         return self._client._request(
             _OPERATIONS["connectionApps.remove"],
@@ -11758,7 +11758,7 @@ class ConnectionsResource:
     ) -> _models.ConnectRequest:
         """Start a connect. `POST /v1/connections`
 
-        Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. The company and each person keep one connection per account, registration and environment: a connect lands on its owner's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).
+        Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. The company and each person keep one connection per account, registration and environment: a connect lands on its owner's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run). An app connected without a browser (`texts`) has no consent page: the connect names the account (`number`), the server looks it up with the registration's credential, and the request comes back `connected`, with `connectionId`; its `connectUrl` page only shows it connected, and `expiresAt` ends only a `pending` request. Connecting a number moves its inbound texts onto Kindgi's messaging profile, whose outbound settings then apply; a reconnect names the connection's own number and looks it up again with the registration's current credential, which is how a `credential-refused` connection works again.
         """
         return self._client._request(
             _OPERATIONS["connections.connect"],
@@ -11839,16 +11839,17 @@ class ConnectionsResource:
         /,
         *,
         idempotency_key: str | None = None,
+        skip_inbound_restore: bool | None = None,
         timeout: float | None = None,
     ) -> _models.Connection:
         """Disconnect. `DELETE /v1/connections/{connectionId}`
 
-        Withdraws access at the app where it can, destroys the token and removes the connection (`withdrawn` says what the app did). Its owner or a tenant admin. Repeating it on a connection still `removing` carries on from the withdrawal.
+        Withdraws access at the app where it can, destroys the token and removes the connection (`withdrawn` says what the app did). Its owner or a tenant admin. Repeating it on a connection still `removing` carries on from the withdrawal. For a number (`texts`), the withdrawal puts the number's inbound back where it was before the connect, or clears what Kindgi set; when that fails the connection stays `removing` (`502 inbound-restore-failed`), and disconnecting again retries.
         """
         return self._client._request(
             _OPERATIONS["connections.disconnect"],
             path={"connectionId": connection_id},
-            query={},
+            query={"skipInboundRestore": skip_inbound_restore},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.Connection,
             timeout=timeout,
@@ -22173,7 +22174,7 @@ class AsyncConnectionAppsResource:
     ) -> _models.ConnectionApp:
         """Register an app. `POST /v1/connection-apps`
 
-        Registers the workspace's own client at an app. Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. Tenant admins only.
+        Registers the workspace's own client at an app, or, for an app whose sign-in is an account's credential (`texts`), the provider account (`token`). Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. Tenant admins only.
         """
         return await self._client._request(
             _OPERATIONS["connectionApps.create"],
@@ -22210,7 +22211,7 @@ class AsyncConnectionAppsResource:
     ) -> _models.ConnectionApp:
         """Update an app registration. `PATCH /v1/connection-apps/{appId}`
 
-        Changes the label, the client or the projects that may use its connections. The app itself cannot change: register the other app on its own. Tenant admins only.
+        Changes the label, the client (or the provider account, `token`) or the projects that may use its connections. The app itself cannot change: register the other app on its own. Tenant admins only.
         """
         return await self._client._request(
             _OPERATIONS["connectionApps.update"],
@@ -22233,7 +22234,7 @@ class AsyncConnectionAppsResource:
     ) -> _models.ConnectionAppRemoved:
         """Remove an app registration. `DELETE /v1/connection-apps/{appId}`
 
-        Without `withConnections=true`, a registration that still has live connections is refused (`connection-app-in-use`). With it, those connections are removed too. Tenant admins only.
+        Without `withConnections=true`, a registration that still has live connections is refused (`connection-app-in-use`). With it, those connections are removed too, each as a disconnect removes it. A number (`texts`) whose old inbound can't be put back stays `removing`, and so does the registration (`502 inbound-restore-failed`): remove it again to retry, or first disconnect that number with `skipInboundRestore=true`. Tenant admins only.
         """
         return await self._client._request(
             _OPERATIONS["connectionApps.remove"],
@@ -22346,7 +22347,7 @@ class AsyncConnectionsResource:
     ) -> _models.ConnectRequest:
         """Start a connect. `POST /v1/connections`
 
-        Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. The company and each person keep one connection per account, registration and environment: a connect lands on its owner's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).
+        Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. The company and each person keep one connection per account, registration and environment: a connect lands on its owner's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run). An app connected without a browser (`texts`) has no consent page: the connect names the account (`number`), the server looks it up with the registration's credential, and the request comes back `connected`, with `connectionId`; its `connectUrl` page only shows it connected, and `expiresAt` ends only a `pending` request. Connecting a number moves its inbound texts onto Kindgi's messaging profile, whose outbound settings then apply; a reconnect names the connection's own number and looks it up again with the registration's current credential, which is how a `credential-refused` connection works again.
         """
         return await self._client._request(
             _OPERATIONS["connections.connect"],
@@ -22427,16 +22428,17 @@ class AsyncConnectionsResource:
         /,
         *,
         idempotency_key: str | None = None,
+        skip_inbound_restore: bool | None = None,
         timeout: float | None = None,
     ) -> _models.Connection:
         """Disconnect. `DELETE /v1/connections/{connectionId}`
 
-        Withdraws access at the app where it can, destroys the token and removes the connection (`withdrawn` says what the app did). Its owner or a tenant admin. Repeating it on a connection still `removing` carries on from the withdrawal.
+        Withdraws access at the app where it can, destroys the token and removes the connection (`withdrawn` says what the app did). Its owner or a tenant admin. Repeating it on a connection still `removing` carries on from the withdrawal. For a number (`texts`), the withdrawal puts the number's inbound back where it was before the connect, or clears what Kindgi set; when that fails the connection stays `removing` (`502 inbound-restore-failed`), and disconnecting again retries.
         """
         return await self._client._request(
             _OPERATIONS["connections.disconnect"],
             path={"connectionId": connection_id},
-            query={},
+            query={"skipInboundRestore": skip_inbound_restore},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.Connection,
             timeout=timeout,

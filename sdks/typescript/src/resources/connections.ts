@@ -125,8 +125,21 @@ export interface ListConnectionCandidatesInput {
 }
 
 export interface RemoveConnectionAppOptions extends MutationOptions {
-  /** Remove its live connections too; without it, a registration that has any is refused. */
+  /**
+   * Remove its live connections too; without it, a registration that has any is refused.
+   * A number (`texts`) gets its old inbound back first; when that fails for one, the
+   * registration stays and the answer is `inbound-restore-failed`.
+   */
   readonly withConnections?: boolean;
+}
+
+export interface DisconnectOptions extends MutationOptions {
+  /**
+   * A number (`texts`): don't put its old inbound back, for when the admin pointed
+   * the number elsewhere themselves; what was kept of it is destroyed. Ignored for
+   * a connection of any other app, which disconnects as usual.
+   */
+  readonly skipInboundRestore?: boolean;
 }
 
 export interface ConnectionEntriesClient {
@@ -137,7 +150,12 @@ export interface ConnectionEntriesClient {
 export interface ConnectionAppsClient {
   /** @wire GET /v1/connection-apps */
   list(filter?: ListConnectionAppsFilter): Promise<ConnectionAppPage>;
-  /** @wire POST /v1/connection-apps — `clientSecret` and the like name secrets you stored first. */
+  /**
+   * @wire POST /v1/connection-apps — `clientSecret` and the like name secrets you stored
+   * first. A `token` entry (`texts`) takes `token` instead: the provider, its API key
+   * (a secret no tool, MCP endpoint or webhook uses, else `connection-key-in-use`) and
+   * its public key.
+   */
   create(input: CreateConnectionAppInput, options?: MutationOptions): Promise<ConnectionApp>;
   /** @wire GET /v1/connection-apps/:appId */
   get(appId: string): Promise<ConnectionApp>;
@@ -173,11 +191,20 @@ export interface ConnectionsClient {
     connectionId: string,
     filter?: { readonly limit?: number; readonly cursor?: string },
   ): Promise<ConnectionChoicePage>;
-  /** @wire DELETE /v1/connections/:connectionId — withdraws access at the app where it can. */
-  disconnect(connectionId: string, options?: MutationOptions): Promise<Connection>;
+  /**
+   * @wire DELETE /v1/connections/:connectionId — withdraws access at the app where it can.
+   * A number (`texts`) gets its old inbound back first; when that fails, it stays
+   * `removing` (`inbound-restore-failed`) and disconnecting again retries.
+   */
+  disconnect(connectionId: string, options?: DisconnectOptions): Promise<Connection>;
   /**
    * @wire POST /v1/connections — makes a connect request. `reconnects` names
    * the connection to connect again, which must be the same account.
+   *
+   * An app connected without a browser (`texts`, which takes `number` and, to move a
+   * number whose texts go somewhere else today, `replaceInbound: true`) comes back
+   * `connected`, with `connectionId`. It still has `connectUrl`, whose page only shows
+   * it connected, and `expiresAt`, which ends only a `pending` request.
    */
   connect(input: ConnectInput, options?: MutationOptions): Promise<ConnectRequest>;
   /** @wire GET /v1/connections/requests/:requestId */
@@ -358,6 +385,7 @@ export function makeConnectionsClient(transport: Transport): ConnectionsClient {
       return transport.request<Connection>({
         method: 'DELETE',
         path: `/v1/connections/${encodeURIComponent(connectionId)}`,
+        ...(options?.skipInboundRestore === true && { query: { skipInboundRestore: true } }),
         ...idempotency(options),
       });
     },

@@ -170,6 +170,8 @@
   "ConnectionOwner": ["ConnectionOwner"],
   "ConnectionPage": ["ConnectionPage"],
   "ConnectionSecretRef": ["ConnectionSecretRef"],
+  "ConnectionTextsCount": ["ConnectionTextsCount"],
+  "ConnectionTokenApp": ["ConnectionTokenApp"],
   "ConsoleLink": ["ConsoleLink"],
   "Content": [],
   "Content1": [],

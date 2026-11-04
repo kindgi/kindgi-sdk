@@ -1717,6 +1717,10 @@ const ENV_NOT_SERVED_VALUE =
 const ENV_NOT_SERVED_REFERENCE =
   "`env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), and the secret reference names another. Name it under `details.servedEnv`. Nothing is stored.";
 
+/** A texts registration's key named by another user of the secret (POST and PATCH /v1/connection-apps). */
+const CONNECTION_KEY_IN_USE =
+  "`connection-key-in-use`: `token.apiKey` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint or a webhook trigger uses; `details.secret` names it and `details.usedBy` lists each (`kind`, `id`, a tool's `version`). A texts registration's key is used by its registration only: store it under its own name. Nothing is stored.";
+
 /** The 409 a write answers anyway, and `env-not-served`. */
 function conflictOrEnvNotServed(text: string): ResponseSpec {
   return ErrorResponse(
@@ -12559,7 +12563,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connectionApps.create',
     summary: 'Register an app',
     description:
-      "Registers the workspace's own client at an app. Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. Tenant admins only.",
+      "Registers the workspace's own client at an app, or, for an app whose sign-in is an account's credential (`texts`), the provider account (`token`). Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. Tenant admins only.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -12568,10 +12572,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'App registered.', schema: ref('ConnectionApp') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed body or unknown field (`bad-input`, `details.field`); a registration that doesn't fit its entry, or that would serve a project another registration of the app serves (`connection-app-invalid`, `details.field`); no such app (`connection-app-unknown-entry`); a model provider's key named as a secret (`provider-key-refused`); or a secret under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
+        "Malformed body or unknown field, including a `token.provider` the server doesn't serve or a `token.publicKey` that isn't base64 of 32 bytes (`bad-input`, `details.field`); a registration that doesn't fit its entry, or that would serve a project another registration of the app serves (`connection-app-invalid`, `details.field`); no such app (`connection-app-unknown-entry`); a model provider's key named as a secret (`provider-key-refused`); or a secret under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
       ),
       '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
-      '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
+      '409': conflictOrEnvNotServed(`${CONNECTION_KEY_IN_USE} Or ${ENV_NOT_SERVED_REFERENCE}`),
     },
   },
   {
@@ -12598,7 +12602,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connectionApps.update',
     summary: 'Update an app registration',
     description:
-      'Changes the label, the client or the projects that may use its connections. The app itself cannot change: register the other app on its own. Tenant admins only.',
+      'Changes the label, the client (or the provider account, `token`) or the projects that may use its connections. The app itself cannot change: register the other app on its own. Tenant admins only.',
     tags: ['connections'],
     security: 'bearer',
     parameters: [ConnectionAppIdPathParam, IdempotencyKeyParam],
@@ -12607,11 +12611,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The updated registration.', schema: ref('ConnectionApp') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed body, unknown field or an `app` (`bad-input`, `details.field`); a registration that doesn't fit its entry, that would serve a project another registration of the app serves, or a change of its client (`oauth2.clientId`, `oauth2.tenant`, `githubApp.appNumber` or `githubApp.clientId`) while it has live connections: disconnect them first (`connection-app-invalid`, `details.field`); a model provider's key named as a secret (`provider-key-refused`); or a secret under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
+        "Malformed body, unknown field or an `app`, including a `token.provider` the server doesn't serve or a `token.publicKey` that isn't base64 of 32 bytes (`bad-input`, `details.field`); a registration that doesn't fit its entry, that would serve a project another registration of the app serves, or a change of its client (`oauth2.clientId`, `oauth2.tenant`, `githubApp.appNumber`, `githubApp.clientId` or `token.provider`) while it has live connections: disconnect them first (`connection-app-invalid`, `details.field`); a model provider's key named as a secret (`provider-key-refused`); or a secret under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
       ),
       '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
       '404': ErrorResponse('No registration with that id (`connection-app-not-found`).'),
-      '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
+      '409': conflictOrEnvNotServed(`${CONNECTION_KEY_IN_USE} Or ${ENV_NOT_SERVED_REFERENCE}`),
     },
   },
   {
@@ -12621,7 +12625,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connectionApps.remove',
     summary: 'Remove an app registration',
     description:
-      'Without `withConnections=true`, a registration that still has live connections is refused (`connection-app-in-use`). With it, those connections are removed too. Tenant admins only.',
+      "Without `withConnections=true`, a registration that still has live connections is refused (`connection-app-in-use`). With it, those connections are removed too, each as a disconnect removes it. A number (`texts`) whose old inbound can't be put back stays `removing`, and so does the registration (`502 inbound-restore-failed`): remove it again to retry, or first disconnect that number with `skipInboundRestore=true`. Tenant admins only.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [
@@ -12645,6 +12649,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse('No registration with that id (`connection-app-not-found`).'),
       '409': ErrorResponse(
         'Idempotency-Key was reused with a different body, or the registration still has live connections (`connection-app-in-use`).',
+      ),
+      '502': ErrorResponse(
+        "With `withConnections=true`, a number's (`texts`) old inbound couldn't be put back (`inbound-restore-failed`, `details.host` or `details.profile` when the connect kept one). The registration stays: remove it again to retry.",
       ),
     },
   },
@@ -12719,7 +12726,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connections.connect',
     summary: 'Start a connect',
     description:
-      "Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. The company and each person keep one connection per account, registration and environment: a connect lands on its owner's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).",
+      "Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. The company and each person keep one connection per account, registration and environment: a connect lands on its owner's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run). An app connected without a browser (`texts`) has no consent page: the connect names the account (`number`), the server looks it up with the registration's credential, and the request comes back `connected`, with `connectionId`; its `connectUrl` page only shows it connected, and `expiresAt` ends only a `pending` request. Connecting a number moves its inbound texts onto Kindgi's messaging profile, whose outbound settings then apply; a reconnect names the connection's own number and looks it up again with the registration's current credential, which is how a `credential-refused` connection works again.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -12728,7 +12735,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Connect request made.', schema: ref('ConnectRequest') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed body, unknown field, a `reconnects` that isn't a UUID or a `label` that isn't 1 to 100 characters with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators) (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
+        "Malformed body, unknown field, a `reconnects` that isn't a UUID, a `label` that isn't 1 to 100 characters with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators), a `number` that isn't E.164 or a `replaceInbound` that isn't `true` (`bad-input`, `details.field`); `number` missing on a `texts` connect, or `number` or `replaceInbound` on any other app's (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
       ),
       '403': ErrorResponse(
         "`for: 'company'` from a caller who is not a tenant admin (`permission-denied`).",
@@ -12737,7 +12744,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "No registration with that `appId` (`connection-app-not-found`); or `reconnects` names no live connection of the connect's own owner on that registration and environment, whether another owner's, another registration's or environment's, removed or unknown (`connection-not-found`, `details.field` `reconnects`).",
       ),
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body; another live connection of the same app, owner and env has that `label`, ignoring case, an emoji's variation selector and how accented letters are encoded, and the connect isn't a reconnect (`connection-label-taken`, `details.field` `label`); or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).",
+        "Idempotency-Key was reused with a different body; another live connection of the same app, owner and env has that `label`, ignoring case, an emoji's variation selector and how accented letters are encoded, and the connect isn't a reconnect (`connection-label-taken`, `details.field` `label`); or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`). For a number (`texts`): its inbound texts go somewhere else today, `details.host` the webhook's host or else `details.profile` the messaging profile it is on; connect again with `replaceInbound: true` to move it onto Kindgi's (`inbound-in-use`); it is connected through another registration or env of the tenant, `details.appId` and `details.envName` (`number-in-use`); or a reconnect names another number than the connection's, which the message names (`connection-account-mismatch`).",
+      ),
+      '502': ErrorResponse(
+        "The provider refused the registration's credential or the lookup of the number (`connection-app-refused`, with the provider's code in the message). Update the registration's secret, or check the number at the provider, and connect again.",
       ),
     },
   },
@@ -12900,16 +12910,30 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connections.disconnect',
     summary: 'Disconnect',
     description:
-      'Withdraws access at the app where it can, destroys the token and removes the connection (`withdrawn` says what the app did). Its owner or a tenant admin. Repeating it on a connection still `removing` carries on from the withdrawal.',
+      "Withdraws access at the app where it can, destroys the token and removes the connection (`withdrawn` says what the app did). Its owner or a tenant admin. Repeating it on a connection still `removing` carries on from the withdrawal. For a number (`texts`), the withdrawal puts the number's inbound back where it was before the connect, or clears what Kindgi set; when that fails the connection stays `removing` (`502 inbound-restore-failed`), and disconnecting again retries.",
     tags: ['connections'],
     security: 'bearer',
-    parameters: [ConnectionIdPathParam, IdempotencyKeyParam],
+    parameters: [
+      ConnectionIdPathParam,
+      IdempotencyKeyParam,
+      {
+        name: 'skipInboundRestore',
+        in: 'query',
+        required: false,
+        description:
+          "A number's (`texts`): set to `true` to remove the connection without putting the number's old inbound back, when it was pointed somewhere by hand; the kept address is destroyed. Ignored for a connection of any other app, which removes as usual.",
+        schema: { type: 'boolean' },
+      },
+    ],
     responses: {
       '200': { description: 'The connection, removed.', schema: ref('Connection') },
       ...CommonMutationErrors,
       '400': ErrorResponse('`connectionId` is not a UUID (`bad-input`).'),
       '404': ErrorResponse(
         "No connection with that id, or not the caller's (`connection-not-found`).",
+      ),
+      '502': ErrorResponse(
+        "A number's (`texts`) old inbound couldn't be put back, or what Kindgi set couldn't be cleared (`inbound-restore-failed`, `details.host` or `details.profile` when the connect kept one). The connection stays `removing`: disconnect again to retry, or with `skipInboundRestore=true` to remove it without the restore.",
       ),
       '503': ErrorResponse(
         "The removal couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",

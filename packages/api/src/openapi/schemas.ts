@@ -17102,9 +17102,17 @@ export const ConnectionEntrySchema: JsonSchema = {
       type: 'object',
       additionalProperties: false,
       required: ['kind'],
-      description: 'How a person signs in at the app.',
+      description:
+        "How a person signs in at the app. `token`: no one does; the registration keeps the account's credential by reference, a connect names the account (for `texts`, a number), and the server looks it up with the credential.",
       properties: {
-        kind: { type: 'string', enum: ['oauth2', 'github-app'] },
+        kind: { type: 'string', enum: ['oauth2', 'github-app', 'token'] },
+        providers: {
+          type: 'array',
+          minItems: 1,
+          items: { type: 'string', enum: ['telnyx'] },
+          description:
+            "A `token` sign-in's: the providers a registration may name (`token.provider`), each once.",
+        },
         tenant: {
           type: 'object',
           additionalProperties: false,
@@ -17132,9 +17140,9 @@ export const ConnectionEntrySchema: JsonSchema = {
       properties: {
         revoke: {
           type: 'string',
-          enum: ['oauth2-revoke', 'github-installation-token'],
+          enum: ['oauth2-revoke', 'github-installation-token', 'restore-inbound'],
           description:
-            "How a disconnect withdraws access at the app: an OAuth revoke, or revoking the GitHub App's installation tokens (the app stays installed).",
+            "How a disconnect withdraws access at the app: an OAuth revoke, revoking the GitHub App's installation tokens (the app stays installed), or putting a number's inbound back where it was before the connect, or clearing what Kindgi set (`restore-inbound`).",
         },
         revokeIsGrantWide: {
           type: 'boolean',
@@ -17195,6 +17203,32 @@ export const ConnectionGitHubAppSchema: JsonSchema = {
   },
 };
 
+export const ConnectionTokenAppSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['provider', 'apiKey', 'publicKey'],
+  description:
+    "A texts registration's provider account: its API key, by reference, and the key its texts are signed with.",
+  properties: {
+    provider: {
+      type: 'string',
+      enum: ['telnyx'],
+      description: "One of the entry's `signIn.providers`.",
+    },
+    apiKey: {
+      $ref: '#/components/schemas/ConnectionSecretRef',
+      description:
+        "The provider account's API key. Not a reserved `kindgi.` name, not a model provider's key, and not a secret a tool, an MCP endpoint, a webhook endpoint or a webhook trigger uses (`409 connection-key-in-use`).",
+    },
+    publicKey: {
+      type: 'string',
+      pattern: '^[A-Za-z0-9+/]{43}=$',
+      description:
+        "The account's Ed25519 public key, base64 of its 32 bytes, as the provider shows it. Anything else is `400 bad-input` (`token.publicKey`).",
+    },
+  },
+};
+
 export const ConnectionAppSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -17207,6 +17241,7 @@ export const ConnectionAppSchema: JsonSchema = {
     label: { type: 'string' },
     oauth2: { $ref: '#/components/schemas/ConnectionOAuth2App' },
     githubApp: { $ref: '#/components/schemas/ConnectionGitHubApp' },
+    token: { $ref: '#/components/schemas/ConnectionTokenApp' },
     projects: {
       type: 'array',
       items: { type: 'string' },
@@ -17244,12 +17279,14 @@ export const CreateConnectionAppBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['app'],
-  description: 'Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App.',
+  description:
+    "Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App, `token` for an app whose sign-in is an account's credential (`texts`).",
   properties: {
     app: { type: 'string', pattern: '^[a-z][a-z0-9-]{1,31}$', description: "The app's entry id." },
     label: { type: 'string', maxLength: 200 },
     oauth2: { $ref: '#/components/schemas/ConnectionOAuth2App' },
     githubApp: { $ref: '#/components/schemas/ConnectionGitHubApp' },
+    token: { $ref: '#/components/schemas/ConnectionTokenApp' },
     projects: {
       type: 'array',
       minItems: 1,
@@ -17268,6 +17305,7 @@ export const UpdateConnectionAppBodySchema: JsonSchema = {
     label: { type: 'string', maxLength: 200 },
     oauth2: { $ref: '#/components/schemas/ConnectionOAuth2App' },
     githubApp: { $ref: '#/components/schemas/ConnectionGitHubApp' },
+    token: { $ref: '#/components/schemas/ConnectionTokenApp' },
     projects: {
       type: ['array', 'null'],
       minItems: 1,
@@ -17336,7 +17374,7 @@ export const ConnectionSchema: JsonSchema = {
     stateReason: {
       type: 'string',
       description:
-        "Why it's in its state: `invalid-grant` (the app withdrew the grant), `no-refresh-token` (the app gave no way to renew it), `token-missing` (its stored token is gone), `store-write-failed` (its token couldn't be stored at the connect), `installation-missing` (the GitHub App was uninstalled from the account), `installation-permissions` (an owner took permissions from the installation), `suspended` (the installation was suspended), `sessions-revoked` (Google revoked the person's sessions), `access-expired` (the app gave no refresh token, and its access token ends within a minute, or has ended). Other values may be added; `state` says what to do.",
+        "Why it's in its state: `invalid-grant` (the app withdrew the grant), `no-refresh-token` (the app gave no way to renew it), `token-missing` (its stored token is gone), `store-write-failed` (its token couldn't be stored at the connect), `installation-missing` (the GitHub App was uninstalled from the account), `installation-permissions` (an owner took permissions from the installation), `suspended` (the installation was suspended), `sessions-revoked` (Google revoked the person's sessions), `access-expired` (the app gave no refresh token, and its access token ends within a minute, or has ended), `credential-refused` (the provider refused the registration's credential: update the registration's secret, then reconnect). Other values may be added; `state` says what to do.",
     },
     installationId: { type: 'string', description: "A GitHub App's installation." },
     accessEndsAt: {
@@ -17355,6 +17393,13 @@ export const ConnectionSchema: JsonSchema = {
       format: 'date-time',
       description: 'When a run last used it, to the hour.',
     },
+    lastProvenInboundAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "A number's (`texts`): when a text last arrived for it with a good signature. Absent for other apps, and until one has.",
+    },
+    textsThisMonth: { $ref: '#/components/schemas/ConnectionTextsCount' },
     createdAt: { type: 'string', format: 'date-time' },
     createdBy: { type: 'string' },
     updatedAt: { type: 'string', format: 'date-time' },
@@ -17369,6 +17414,22 @@ export const ConnectionSchema: JsonSchema = {
       enum: ['at-app', 'app-failed', 'kept-for-other-connection', 'not-supported'],
       description:
         'What a removal did at the app. `at-app`: access was withdrawn there. `app-failed`: the app refused the revoke; the token is gone here all the same. `kept-for-other-connection`: another live connection uses the same grant. `not-supported`: the app has no revoke that would touch only this connection.',
+    },
+  },
+};
+
+export const ConnectionTextsCountSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['received', 'sent', 'unanswered'],
+  description: "A number's (`texts`) texts in the current month, by UTC. Absent for other apps.",
+  properties: {
+    received: { type: 'integer', minimum: 0 },
+    sent: { type: 'integer', minimum: 0 },
+    unanswered: {
+      type: 'integer',
+      minimum: 0,
+      description: 'The texts received with nothing to answer them.',
     },
   },
 };
@@ -17639,7 +17700,7 @@ export const ConnectRequestSchema: JsonSchema = {
     'createdBy',
   ],
   description:
-    'A connect: the owner goes to `connectUrl`, consents at the app, and comes back. A run that needs a connection it lacks waits on one.',
+    'A connect: the owner goes to `connectUrl`, consents at the app, and comes back. A run that needs a connection it lacks waits on one. An app connected without a browser (`texts`) has no such step: its request is `connected` from the start.',
   properties: {
     requestId: { type: 'string', format: 'uuid' },
     envName: { type: 'string' },
@@ -17697,8 +17758,17 @@ export const ConnectRequestSchema: JsonSchema = {
       description:
         'The connection it made, or the one it reconnected. A `declined` connect names it too when it kept what the app allowed; one that left the connection as it was names none.',
     },
-    connectUrl: { type: 'string', format: 'uri', description: 'Where the owner starts.' },
-    expiresAt: { type: 'string', format: 'date-time' },
+    connectUrl: {
+      type: 'string',
+      format: 'uri',
+      description:
+        'Where the owner starts. For an app connected without a browser (`texts`), the request comes back `connected`, with `connectionId`, and its page only shows it connected: there is nothing to open.',
+    },
+    expiresAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When a `pending` request expires; it ends no other.',
+    },
     createdAt: { type: 'string', format: 'date-time' },
     createdBy: { type: 'string' },
   },
@@ -17745,7 +17815,19 @@ export const CreateConnectRequestBodySchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. It asks for the permissions it lists and those the connection holds. A grant short of what the connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked. Absent: a person's connect, like the company's, asks only for the permissions it lists; at the finish it lands on the owner's connection of the account signed in to, when there is one (when it's connected, `reconnected` is true; a grant short of what that connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked), else makes a new one.",
+        "The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. It asks for the permissions it lists and those the connection holds. A grant short of what the connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked. Absent: a person's connect, like the company's, asks only for the permissions it lists; at the finish it lands on the owner's connection of the account signed in to, when there is one (when it's connected, `reconnected` is true; a grant short of what that connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked), else makes a new one. For a number (`texts`), a reconnect names the connection's own number (any other is `409 connection-account-mismatch`), looks it up again with the registration's current credential, and makes the connection working.",
+    },
+    number: {
+      type: 'string',
+      pattern: '^\\+[1-9][0-9]{6,14}$',
+      description:
+        "A `texts` connect's, and required there: the number to connect, in E.164 (`+15551234567`). `400 bad-input` for any other app.",
+    },
+    replaceInbound: {
+      type: 'boolean',
+      enum: [true],
+      description:
+        "A `texts` connect's: `true` connects even though the number's inbound texts go somewhere else today (`409 inbound-in-use` without it). Connecting moves the number onto Kindgi's messaging profile, whose outbound settings then apply; the removal puts the old inbound back. Only `true`; `400 bad-input` for any other app.",
     },
   },
 };
@@ -19069,12 +19151,14 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ConnectionEntryList', ConnectionEntryListSchema],
   ['ConnectionOAuth2App', ConnectionOAuth2AppSchema],
   ['ConnectionGitHubApp', ConnectionGitHubAppSchema],
+  ['ConnectionTokenApp', ConnectionTokenAppSchema],
   ['ConnectionApp', ConnectionAppSchema],
   ['ConnectionAppPage', ConnectionAppPageSchema],
   ['CreateConnectionAppBody', CreateConnectionAppBodySchema],
   ['UpdateConnectionAppBody', UpdateConnectionAppBodySchema],
   ['ConnectionAppRemoved', ConnectionAppRemovedSchema],
   ['Connection', ConnectionSchema],
+  ['ConnectionTextsCount', ConnectionTextsCountSchema],
   ['UpdateConnectionBody', UpdateConnectionBodySchema],
   ['ConnectionPage', ConnectionPageSchema],
   ['ConnectionChoice', ConnectionChoiceSchema],

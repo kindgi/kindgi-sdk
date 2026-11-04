@@ -656,6 +656,10 @@
           "connection-not-chosen": 409,
           "connection-removing": 409,
           "connection-app-refused": 502,
+          "inbound-in-use": 409,
+          "number-in-use": 409,
+          "inbound-restore-failed": 502,
+          "connection-key-in-use": 409,
           "connection-store-failed": 503,
           "connection-notice-invalid": 400,
           "connection-notice-unavailable": 503,
@@ -28501,14 +28505,26 @@
             "required": [
               "kind"
             ],
-            "description": "How a person signs in at the app.",
+            "description": "How a person signs in at the app. `token`: no one does; the registration keeps the account's credential by reference, a connect names the account (for `texts`, a number), and the server looks it up with the credential.",
             "properties": {
               "kind": {
                 "type": "string",
                 "enum": [
                   "oauth2",
-                  "github-app"
+                  "github-app",
+                  "token"
                 ]
+              },
+              "providers": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "telnyx"
+                  ]
+                },
+                "description": "A `token` sign-in's: the providers a registration may name (`token.provider`), each once."
               },
               "tenant": {
                 "type": "object",
@@ -28539,9 +28555,10 @@
                 "type": "string",
                 "enum": [
                   "oauth2-revoke",
-                  "github-installation-token"
+                  "github-installation-token",
+                  "restore-inbound"
                 ],
-                "description": "How a disconnect withdraws access at the app: an OAuth revoke, or revoking the GitHub App's installation tokens (the app stays installed)."
+                "description": "How a disconnect withdraws access at the app: an OAuth revoke, revoking the GitHub App's installation tokens (the app stays installed), or putting a number's inbound back where it was before the connect, or clearing what Kindgi set (`restore-inbound`)."
               },
               "revokeIsGrantWide": {
                 "type": "boolean",
@@ -28634,6 +28651,34 @@
           }
         }
       },
+      "ConnectionTokenApp": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "provider",
+          "apiKey",
+          "publicKey"
+        ],
+        "description": "A texts registration's provider account: its API key, by reference, and the key its texts are signed with.",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "telnyx"
+            ],
+            "description": "One of the entry's `signIn.providers`."
+          },
+          "apiKey": {
+            "$ref": "#/components/schemas/ConnectionSecretRef",
+            "description": "The provider account's API key. Not a reserved `kindgi.` name, not a model provider's key, and not a secret a tool, an MCP endpoint, a webhook endpoint or a webhook trigger uses (`409 connection-key-in-use`)."
+          },
+          "publicKey": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9+/]{43}=$",
+            "description": "The account's Ed25519 public key, base64 of its 32 bytes, as the provider shows it. Anything else is `400 bad-input` (`token.publicKey`)."
+          }
+        }
+      },
       "ConnectionApp": {
         "type": "object",
         "additionalProperties": false,
@@ -28663,6 +28708,9 @@
           },
           "githubApp": {
             "$ref": "#/components/schemas/ConnectionGitHubApp"
+          },
+          "token": {
+            "$ref": "#/components/schemas/ConnectionTokenApp"
           },
           "projects": {
             "type": "array",
@@ -28723,7 +28771,7 @@
         "required": [
           "app"
         ],
-        "description": "Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App.",
+        "description": "Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App, `token` for an app whose sign-in is an account's credential (`texts`).",
         "properties": {
           "app": {
             "type": "string",
@@ -28739,6 +28787,9 @@
           },
           "githubApp": {
             "$ref": "#/components/schemas/ConnectionGitHubApp"
+          },
+          "token": {
+            "$ref": "#/components/schemas/ConnectionTokenApp"
           },
           "projects": {
             "type": "array",
@@ -28765,6 +28816,9 @@
           },
           "githubApp": {
             "$ref": "#/components/schemas/ConnectionGitHubApp"
+          },
+          "token": {
+            "$ref": "#/components/schemas/ConnectionTokenApp"
           },
           "projects": {
             "type": [
@@ -28855,7 +28909,7 @@
           },
           "stateReason": {
             "type": "string",
-            "description": "Why it's in its state: `invalid-grant` (the app withdrew the grant), `no-refresh-token` (the app gave no way to renew it), `token-missing` (its stored token is gone), `store-write-failed` (its token couldn't be stored at the connect), `installation-missing` (the GitHub App was uninstalled from the account), `installation-permissions` (an owner took permissions from the installation), `suspended` (the installation was suspended), `sessions-revoked` (Google revoked the person's sessions), `access-expired` (the app gave no refresh token, and its access token ends within a minute, or has ended). Other values may be added; `state` says what to do."
+            "description": "Why it's in its state: `invalid-grant` (the app withdrew the grant), `no-refresh-token` (the app gave no way to renew it), `token-missing` (its stored token is gone), `store-write-failed` (its token couldn't be stored at the connect), `installation-missing` (the GitHub App was uninstalled from the account), `installation-permissions` (an owner took permissions from the installation), `suspended` (the installation was suspended), `sessions-revoked` (Google revoked the person's sessions), `access-expired` (the app gave no refresh token, and its access token ends within a minute, or has ended), `credential-refused` (the provider refused the registration's credential: update the registration's secret, then reconnect). Other values may be added; `state` says what to do."
           },
           "installationId": {
             "type": "string",
@@ -28875,6 +28929,14 @@
             "type": "string",
             "format": "date-time",
             "description": "When a run last used it, to the hour."
+          },
+          "lastProvenInboundAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "A number's (`texts`): when a text last arrived for it with a good signature. Absent for other apps, and until one has."
+          },
+          "textsThisMonth": {
+            "$ref": "#/components/schemas/ConnectionTextsCount"
           },
           "createdAt": {
             "type": "string",
@@ -28913,6 +28975,31 @@
               "not-supported"
             ],
             "description": "What a removal did at the app. `at-app`: access was withdrawn there. `app-failed`: the app refused the revoke; the token is gone here all the same. `kept-for-other-connection`: another live connection uses the same grant. `not-supported`: the app has no revoke that would touch only this connection."
+          }
+        }
+      },
+      "ConnectionTextsCount": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "received",
+          "sent",
+          "unanswered"
+        ],
+        "description": "A number's (`texts`) texts in the current month, by UTC. Absent for other apps.",
+        "properties": {
+          "received": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sent": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unanswered": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The texts received with nothing to answer them."
           }
         }
       },
@@ -29305,7 +29392,7 @@
           "createdAt",
           "createdBy"
         ],
-        "description": "A connect: the owner goes to `connectUrl`, consents at the app, and comes back. A run that needs a connection it lacks waits on one.",
+        "description": "A connect: the owner goes to `connectUrl`, consents at the app, and comes back. A run that needs a connection it lacks waits on one. An app connected without a browser (`texts`) has no such step: its request is `connected` from the start.",
         "properties": {
           "requestId": {
             "type": "string",
@@ -29396,11 +29483,12 @@
           "connectUrl": {
             "type": "string",
             "format": "uri",
-            "description": "Where the owner starts."
+            "description": "Where the owner starts. For an app connected without a browser (`texts`), the request comes back `connected`, with `connectionId`, and its page only shows it connected: there is nothing to open."
           },
           "expiresAt": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "When a `pending` request expires; it ends no other."
           },
           "createdAt": {
             "type": "string",
@@ -29461,7 +29549,19 @@
           "reconnects": {
             "type": "string",
             "format": "uuid",
-            "description": "The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. It asks for the permissions it lists and those the connection holds. A grant short of what the connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked. Absent: a person's connect, like the company's, asks only for the permissions it lists; at the finish it lands on the owner's connection of the account signed in to, when there is one (when it's connected, `reconnected` is true; a grant short of what that connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked), else makes a new one."
+            "description": "The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. It asks for the permissions it lists and those the connection holds. A grant short of what the connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked. Absent: a person's connect, like the company's, asks only for the permissions it lists; at the finish it lands on the owner's connection of the account signed in to, when there is one (when it's connected, `reconnected` is true; a grant short of what that connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked), else makes a new one. For a number (`texts`), a reconnect names the connection's own number (any other is `409 connection-account-mismatch`), looks it up again with the registration's current credential, and makes the connection working."
+          },
+          "number": {
+            "type": "string",
+            "pattern": "^\\+[1-9][0-9]{6,14}$",
+            "description": "A `texts` connect's, and required there: the number to connect, in E.164 (`+15551234567`). `400 bad-input` for any other app."
+          },
+          "replaceInbound": {
+            "type": "boolean",
+            "enum": [
+              true
+            ],
+            "description": "A `texts` connect's: `true` connects even though the number's inbound texts go somewhere else today (`409 inbound-in-use` without it). Connecting moves the number onto Kindgi's messaging profile, whose outbound settings then apply; the removal puts the old inbound back. Only `true`; `400 bad-input` for any other app."
           }
         }
       },
@@ -76050,7 +76150,7 @@
             }
           },
           "400": {
-            "description": "Malformed body or unknown field (`bad-input`, `details.field`); a registration that doesn't fit its entry, or that would serve a project another registration of the app serves (`connection-app-invalid`, `details.field`); no such app (`connection-app-unknown-entry`); a model provider's key named as a secret (`provider-key-refused`); or a secret under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
+            "description": "Malformed body or unknown field, including a `token.provider` the server doesn't serve or a `token.publicKey` that isn't base64 of 32 bytes (`bad-input`, `details.field`); a registration that doesn't fit its entry, or that would serve a project another registration of the app serves (`connection-app-invalid`, `details.field`); no such app (`connection-app-unknown-entry`); a model provider's key named as a secret (`provider-key-refused`); or a secret under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -76080,7 +76180,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), and the secret reference names another. Name it under `details.servedEnv`. Nothing is stored.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `connection-key-in-use`: `token.apiKey` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint or a webhook trigger uses; `details.secret` names it and `details.usedBy` lists each (`kind`, `id`, a tool's `version`). A texts registration's key is used by its registration only: store it under its own name. Nothing is stored. Or `env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), and the secret reference names another. Name it under `details.servedEnv`. Nothing is stored.",
             "content": {
               "application/json": {
                 "schema": {
@@ -76120,7 +76220,7 @@
             }
           }
         },
-        "description": "Registers the workspace's own client at an app. Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. Tenant admins only.",
+        "description": "Registers the workspace's own client at an app, or, for an app whose sign-in is an account's credential (`texts`), the provider account (`token`). Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. Tenant admins only.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -76255,7 +76355,7 @@
             }
           },
           "400": {
-            "description": "Malformed body, unknown field or an `app` (`bad-input`, `details.field`); a registration that doesn't fit its entry, that would serve a project another registration of the app serves, or a change of its client (`oauth2.clientId`, `oauth2.tenant`, `githubApp.appNumber` or `githubApp.clientId`) while it has live connections: disconnect them first (`connection-app-invalid`, `details.field`); a model provider's key named as a secret (`provider-key-refused`); or a secret under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
+            "description": "Malformed body, unknown field or an `app`, including a `token.provider` the server doesn't serve or a `token.publicKey` that isn't base64 of 32 bytes (`bad-input`, `details.field`); a registration that doesn't fit its entry, that would serve a project another registration of the app serves, or a change of its client (`oauth2.clientId`, `oauth2.tenant`, `githubApp.appNumber`, `githubApp.clientId` or `token.provider`) while it has live connections: disconnect them first (`connection-app-invalid`, `details.field`); a model provider's key named as a secret (`provider-key-refused`); or a secret under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -76295,7 +76395,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), and the secret reference names another. Name it under `details.servedEnv`. Nothing is stored.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `connection-key-in-use`: `token.apiKey` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint or a webhook trigger uses; `details.secret` names it and `details.usedBy` lists each (`kind`, `id`, a tool's `version`). A texts registration's key is used by its registration only: store it under its own name. Nothing is stored. Or `env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), and the secret reference names another. Name it under `details.servedEnv`. Nothing is stored.",
             "content": {
               "application/json": {
                 "schema": {
@@ -76335,7 +76435,7 @@
             }
           }
         },
-        "description": "Changes the label, the client or the projects that may use its connections. The app itself cannot change: register the other app on its own. Tenant admins only.",
+        "description": "Changes the label, the client (or the provider account, `token`) or the projects that may use its connections. The app itself cannot change: register the other app on its own. Tenant admins only.",
         "parameters": [
           {
             "name": "appId",
@@ -76451,6 +76551,16 @@
               }
             }
           },
+          "502": {
+            "description": "With `withConnections=true`, a number's (`texts`) old inbound couldn't be put back (`inbound-restore-failed`, `details.host` or `details.profile` when the connect kept one). The registration stays: remove it again to retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "503": {
             "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
@@ -76462,7 +76572,7 @@
             }
           }
         },
-        "description": "Without `withConnections=true`, a registration that still has live connections is refused (`connection-app-in-use`). With it, those connections are removed too. Tenant admins only.",
+        "description": "Without `withConnections=true`, a registration that still has live connections is refused (`connection-app-in-use`). With it, those connections are removed too, each as a disconnect removes it. A number (`texts`) whose old inbound can't be put back stays `removing`, and so does the registration (`502 inbound-restore-failed`): remove it again to retry, or first disconnect that number with `skipInboundRestore=true`. Tenant admins only.",
         "parameters": [
           {
             "name": "appId",
@@ -76661,7 +76771,7 @@
             }
           },
           "400": {
-            "description": "Malformed body, unknown field, a `reconnects` that isn't a UUID or a `label` that isn't 1 to 100 characters with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators) (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
+            "description": "Malformed body, unknown field, a `reconnects` that isn't a UUID, a `label` that isn't 1 to 100 characters with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators), a `number` that isn't E.164 or a `replaceInbound` that isn't `true` (`bad-input`, `details.field`); `number` missing on a `texts` connect, or `number` or `replaceInbound` on any other app's (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -76701,7 +76811,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body; another live connection of the same app, owner and env has that `label`, ignoring case, an emoji's variation selector and how accented letters are encoded, and the connect isn't a reconnect (`connection-label-taken`, `details.field` `label`); or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).",
+            "description": "Idempotency-Key was reused with a different body; another live connection of the same app, owner and env has that `label`, ignoring case, an emoji's variation selector and how accented letters are encoded, and the connect isn't a reconnect (`connection-label-taken`, `details.field` `label`); or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`). For a number (`texts`): its inbound texts go somewhere else today, `details.host` the webhook's host or else `details.profile` the messaging profile it is on; connect again with `replaceInbound: true` to move it onto Kindgi's (`inbound-in-use`); it is connected through another registration or env of the tenant, `details.appId` and `details.envName` (`number-in-use`); or a reconnect names another number than the connection's, which the message names (`connection-account-mismatch`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -76730,6 +76840,16 @@
               }
             }
           },
+          "502": {
+            "description": "The provider refused the registration's credential or the lookup of the number (`connection-app-refused`, with the provider's code in the message). Update the registration's secret, or check the number at the provider, and connect again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "503": {
             "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
@@ -76741,7 +76861,7 @@
             }
           }
         },
-        "description": "Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. The company and each person keep one connection per account, registration and environment: a connect lands on its owner's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).",
+        "description": "Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. The company and each person keep one connection per account, registration and environment: a connect lands on its owner's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run). An app connected without a browser (`texts`) has no consent page: the connect names the account (`number`), the server looks it up with the registration's credential, and the request comes back `connected`, with `connectionId`; its `connectUrl` page only shows it connected, and `expiresAt` ends only a `pending` request. Connecting a number moves its inbound texts onto Kindgi's messaging profile, whose outbound settings then apply; a reconnect names the connection's own number and looks it up again with the registration's current credential, which is how a `credential-refused` connection works again.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -77410,6 +77530,16 @@
               }
             }
           },
+          "502": {
+            "description": "A number's (`texts`) old inbound couldn't be put back, or what Kindgi set couldn't be cleared (`inbound-restore-failed`, `details.host` or `details.profile` when the connect kept one). The connection stays `removing`: disconnect again to retry, or with `skipInboundRestore=true` to remove it without the restore.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "503": {
             "description": "The removal couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
             "content": {
@@ -77421,7 +77551,7 @@
             }
           }
         },
-        "description": "Withdraws access at the app where it can, destroys the token and removes the connection (`withdrawn` says what the app did). Its owner or a tenant admin. Repeating it on a connection still `removing` carries on from the withdrawal.",
+        "description": "Withdraws access at the app where it can, destroys the token and removes the connection (`withdrawn` says what the app did). Its owner or a tenant admin. Repeating it on a connection still `removing` carries on from the withdrawal. For a number (`texts`), the withdrawal puts the number's inbound back where it was before the connect, or clears what Kindgi set; when that fails the connection stays `removing` (`502 inbound-restore-failed`), and disconnecting again retries.",
         "parameters": [
           {
             "name": "connectionId",
@@ -77442,6 +77572,15 @@
             },
             "required": false,
             "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          },
+          {
+            "name": "skipInboundRestore",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "required": false,
+            "description": "A number's (`texts`): set to `true` to remove the connection without putting the number's old inbound back, when it was pointed somewhere by hand; the kept address is destroyed. Ignored for a connection of any other app, which removes as usual."
           }
         ],
         "security": [

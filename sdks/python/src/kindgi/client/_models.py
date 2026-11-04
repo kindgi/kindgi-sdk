@@ -12435,10 +12435,14 @@ class Removal(BaseModel):
         populate_by_name=True,
     )
     revoke: (
-        Annotated[Literal["oauth2-revoke", "github-installation-token"] | str, _open.OPEN] | None
+        Annotated[
+            Literal["oauth2-revoke", "github-installation-token", "restore-inbound"] | str,
+            _open.OPEN,
+        ]
+        | None
     ) = None
     """
-    How a disconnect withdraws access at the app: an OAuth revoke, or revoking the GitHub App's installation tokens (the app stays installed).
+    How a disconnect withdraws access at the app: an OAuth revoke, revoking the GitHub App's installation tokens (the app stays installed), or putting a number's inbound back where it was before the connect, or clearing what Kindgi set (`restore-inbound`).
     """
     revoke_is_grant_wide: Annotated[bool | None, Field(alias="revokeIsGrantWide")] = None
     """
@@ -12479,6 +12483,29 @@ class ConnectionGitHubApp(BaseModel):
     webhook_secret: Annotated[ConnectionSecretRef, Field(alias="webhookSecret")]
 
 
+class ConnectionTokenApp(BaseModel):
+    """
+    A texts registration's provider account: its API key, by reference, and the key its texts are signed with.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider: Annotated[Literal["telnyx"] | str, _open.OPEN]
+    """
+    One of the entry's `signIn.providers`.
+    """
+    api_key: Annotated[ConnectionSecretRef, Field(alias="apiKey")]
+    """
+    The provider account's API key. Not a reserved `kindgi.` name, not a model provider's key, and not a secret a tool, an MCP endpoint, a webhook endpoint or a webhook trigger uses (`409 connection-key-in-use`).
+    """
+    public_key: Annotated[str, Field(alias="publicKey", pattern="^[A-Za-z0-9+/]{43}=$")]
+    """
+    The account's Ed25519 public key, base64 of its 32 bytes, as the provider shows it. Anything else is `400 bad-input` (`token.publicKey`).
+    """
+
+
 class ConnectionApp(BaseModel):
     """
     A workspace's registration of its own client at an app. Secrets are references, never values.
@@ -12496,6 +12523,7 @@ class ConnectionApp(BaseModel):
     label: str | None = None
     oauth2: ConnectionOAuth2App | None = None
     github_app: Annotated[ConnectionGitHubApp | None, Field(alias="githubApp")] = None
+    token: ConnectionTokenApp | None = None
     projects: list[str] | None = None
     """
     The projects whose runs may use its connections. Absent: every project.
@@ -12525,7 +12553,7 @@ class ConnectionAppPage(BaseModel):
 
 class CreateConnectionAppBody(BaseModel):
     """
-    Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App.
+    Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App, `token` for an app whose sign-in is an account's credential (`texts`).
     """
 
     model_config = ConfigDict(
@@ -12539,6 +12567,7 @@ class CreateConnectionAppBody(BaseModel):
     label: Annotated[str | None, Field(max_length=200)] = None
     oauth2: ConnectionOAuth2App | None = None
     github_app: Annotated[ConnectionGitHubApp | None, Field(alias="githubApp")] = None
+    token: ConnectionTokenApp | None = None
     projects: Annotated[list[str] | None, Field(max_length=500, min_length=1)] = None
     """
     The projects whose runs may use its connections. Leave out for every project.
@@ -12557,6 +12586,7 @@ class UpdateConnectionAppBody(BaseModel):
     label: Annotated[str | None, Field(max_length=200)] = None
     oauth2: ConnectionOAuth2App | None = None
     github_app: Annotated[ConnectionGitHubApp | None, Field(alias="githubApp")] = None
+    token: ConnectionTokenApp | None = None
     projects: Annotated[list[str] | None, Field(max_length=500, min_length=1)] = None
     """
     `null` allows every project.
@@ -12574,90 +12604,20 @@ class ConnectionAppRemoved(BaseModel):
     """
 
 
-class Connection(BaseModel):
+class ConnectionTextsCount(BaseModel):
     """
-    One owner's account at an app, through a registration, in one env. Never its token.
+    A number's (`texts`) texts in the current month, by UTC. Absent for other apps.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    connection_id: Annotated[UUID, Field(alias="connectionId")]
-    env_name: Annotated[str, Field(alias="envName")]
-    app_id: Annotated[UUID, Field(alias="appId")]
+    received: Annotated[int, Field(ge=0)]
+    sent: Annotated[int, Field(ge=0)]
+    unanswered: Annotated[int, Field(ge=0)]
     """
-    The registration it goes through.
-    """
-    app: str
-    """
-    The app's entry id.
-    """
-    owner: ConnectionOwner
-    account: ConnectionAccount
-    label: str | None = None
-    """
-    The name people know it by: the one asked for at the connect, else the account's label. Absent on a connection made before connections had names; show `account.label` then.
-    """
-    main: bool | None = None
-    """
-    Only ever `true`: the person's main connection through its registration in its env, the one their agents use when no choice names another. A person's first connection has none; their second connection makes the first their main. The company's has none.
-    """
-    permissions: list[str]
-    """
-    The entry's permission keys the app granted.
-    """
-    state: Annotated[
-        Literal["working", "needs-reconnecting", "removing", "removed"] | str, _open.OPEN
-    ]
-    """
-    `working`: runs can use it. `needs-reconnecting`: the app no longer accepts it; connect again. `removing`: a disconnect is under way. `removed`: gone.
-    """
-    state_reason: Annotated[str | None, Field(alias="stateReason")] = None
-    """
-    Why it's in its state: `invalid-grant` (the app withdrew the grant), `no-refresh-token` (the app gave no way to renew it), `token-missing` (its stored token is gone), `store-write-failed` (its token couldn't be stored at the connect), `installation-missing` (the GitHub App was uninstalled from the account), `installation-permissions` (an owner took permissions from the installation), `suspended` (the installation was suspended), `sessions-revoked` (Google revoked the person's sessions), `access-expired` (the app gave no refresh token, and its access token ends within a minute, or has ended). Other values may be added; `state` says what to do.
-    """
-    installation_id: Annotated[str | None, Field(alias="installationId")] = None
-    """
-    A GitHub App's installation.
-    """
-    access_ends_at: Annotated[AwareDatetime | None, Field(alias="accessEndsAt")] = None
-    """
-    When its access token ends, for a connection the app gave no refresh token. From one minute before then, it needs reconnecting (`access-expired`), and reads say so too. Absent for one that renews.
-    """
-    connected_at: Annotated[AwareDatetime, Field(alias="connectedAt")]
-    """
-    When its current grant was stored: the connect, or the last reconnect.
-    """
-    last_used_at: Annotated[AwareDatetime | None, Field(alias="lastUsedAt")] = None
-    """
-    When a run last used it, to the hour.
-    """
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    created_by: Annotated[str, Field(alias="createdBy")]
-    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
-    removed_at: Annotated[AwareDatetime | None, Field(alias="removedAt")] = None
-    removed_by: Annotated[str | None, Field(alias="removedBy")] = None
-    removed_reason: Annotated[
-        Annotated[
-            Literal[
-                "disconnected", "revoked-at-app", "uninstalled", "registration-removed", "replaced"
-            ]
-            | str,
-            _open.OPEN,
-        ]
-        | None,
-        Field(alias="removedReason"),
-    ] = None
-    withdrawn: (
-        Annotated[
-            Literal["at-app", "app-failed", "kept-for-other-connection", "not-supported"] | str,
-            _open.OPEN,
-        ]
-        | None
-    ) = None
-    """
-    What a removal did at the app. `at-app`: access was withdrawn there. `app-failed`: the app refused the revoke; the token is gone here all the same. `kept-for-other-connection`: another live connection uses the same grant. `not-supported`: the app has no revoke that would touch only this connection.
+    The texts received with nothing to answer them.
     """
 
 
@@ -12678,16 +12638,6 @@ class UpdateConnectionBody(BaseModel):
     """
     The connection's new name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case, an emoji's variation selector and how accented letters are encoded.
     """
-
-
-class ConnectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[Connection]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class ConnectionChoicePerson(BaseModel):
@@ -12847,7 +12797,15 @@ class CreateConnectRequestBody(BaseModel):
     """
     reconnects: UUID | None = None
     """
-    The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. It asks for the permissions it lists and those the connection holds. A grant short of what the connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked. Absent: a person's connect, like the company's, asks only for the permissions it lists; at the finish it lands on the owner's connection of the account signed in to, when there is one (when it's connected, `reconnected` is true; a grant short of what that connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked), else makes a new one.
+    The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. It asks for the permissions it lists and those the connection holds. A grant short of what the connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked. Absent: a person's connect, like the company's, asks only for the permissions it lists; at the finish it lands on the owner's connection of the account signed in to, when there is one (when it's connected, `reconnected` is true; a grant short of what that connection holds leaves it as it was, and the connect is declined with `missing` unless the connection is working and already holds what was asked), else makes a new one. For a number (`texts`), a reconnect names the connection's own number (any other is `409 connection-account-mismatch`), looks it up again with the registration's current credential, and makes the connection working.
+    """
+    number: Annotated[str | None, Field(pattern="^\\+[1-9][0-9]{6,14}$")] = None
+    """
+    A `texts` connect's, and required there: the number to connect, in E.164 (`+15551234567`). `400 bad-input` for any other app.
+    """
+    replace_inbound: Annotated[Literal[True] | None, Field(alias="replaceInbound")] = None
+    """
+    A `texts` connect's: `true` connects even though the number's inbound texts go somewhere else today (`409 inbound-in-use` without it). Connecting moves the number onto Kindgi's messaging profile, whose outbound settings then apply; the removal puts the old inbound back. Only `true`; `400 bad-input` for any other app.
     """
 
 
@@ -18966,14 +18924,20 @@ class WebhookEndpointCollectionPage(BaseModel):
 
 class SignIn(BaseModel):
     """
-    How a person signs in at the app.
+    How a person signs in at the app. `token`: no one does; the registration keeps the account's credential by reference, a connect names the account (for `texts`, a number), and the server looks it up with the credential.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    kind: Annotated[Literal["oauth2", "github-app"] | str, _open.OPEN]
+    kind: Annotated[Literal["oauth2", "github-app", "token"] | str, _open.OPEN]
+    providers: Annotated[
+        list[Annotated[Literal["telnyx"] | str, _open.OPEN]] | None, Field(min_length=1)
+    ] = None
+    """
+    A `token` sign-in's: the providers a registration may name (`token.provider`), each once.
+    """
     tenant: ConnectionEntrySignInTenant | None = None
     """
     Present when the sign-in happens in a directory of the app's own (Microsoft's tenant, not a Kindgi workspace). A registration's `oauth2.tenant` names it; without `default`, each registration must give its own.
@@ -19003,7 +18967,7 @@ class ConnectionEntry(BaseModel):
     """
     sign_in: Annotated[SignIn, Field(alias="signIn")]
     """
-    How a person signs in at the app.
+    How a person signs in at the app. `token`: no one does; the registration keeps the account's credential by reference, a connect names the account (for `texts`, a number), and the server looks it up with the credential.
     """
     permissions: dict[str, ConnectionEntryPermission]
     """
@@ -19025,6 +18989,110 @@ class ConnectionEntryList(BaseModel):
         populate_by_name=True,
     )
     data: list[ConnectionEntry]
+
+
+class Connection(BaseModel):
+    """
+    One owner's account at an app, through a registration, in one env. Never its token.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    connection_id: Annotated[UUID, Field(alias="connectionId")]
+    env_name: Annotated[str, Field(alias="envName")]
+    app_id: Annotated[UUID, Field(alias="appId")]
+    """
+    The registration it goes through.
+    """
+    app: str
+    """
+    The app's entry id.
+    """
+    owner: ConnectionOwner
+    account: ConnectionAccount
+    label: str | None = None
+    """
+    The name people know it by: the one asked for at the connect, else the account's label. Absent on a connection made before connections had names; show `account.label` then.
+    """
+    main: bool | None = None
+    """
+    Only ever `true`: the person's main connection through its registration in its env, the one their agents use when no choice names another. A person's first connection has none; their second connection makes the first their main. The company's has none.
+    """
+    permissions: list[str]
+    """
+    The entry's permission keys the app granted.
+    """
+    state: Annotated[
+        Literal["working", "needs-reconnecting", "removing", "removed"] | str, _open.OPEN
+    ]
+    """
+    `working`: runs can use it. `needs-reconnecting`: the app no longer accepts it; connect again. `removing`: a disconnect is under way. `removed`: gone.
+    """
+    state_reason: Annotated[str | None, Field(alias="stateReason")] = None
+    """
+    Why it's in its state: `invalid-grant` (the app withdrew the grant), `no-refresh-token` (the app gave no way to renew it), `token-missing` (its stored token is gone), `store-write-failed` (its token couldn't be stored at the connect), `installation-missing` (the GitHub App was uninstalled from the account), `installation-permissions` (an owner took permissions from the installation), `suspended` (the installation was suspended), `sessions-revoked` (Google revoked the person's sessions), `access-expired` (the app gave no refresh token, and its access token ends within a minute, or has ended), `credential-refused` (the provider refused the registration's credential: update the registration's secret, then reconnect). Other values may be added; `state` says what to do.
+    """
+    installation_id: Annotated[str | None, Field(alias="installationId")] = None
+    """
+    A GitHub App's installation.
+    """
+    access_ends_at: Annotated[AwareDatetime | None, Field(alias="accessEndsAt")] = None
+    """
+    When its access token ends, for a connection the app gave no refresh token. From one minute before then, it needs reconnecting (`access-expired`), and reads say so too. Absent for one that renews.
+    """
+    connected_at: Annotated[AwareDatetime, Field(alias="connectedAt")]
+    """
+    When its current grant was stored: the connect, or the last reconnect.
+    """
+    last_used_at: Annotated[AwareDatetime | None, Field(alias="lastUsedAt")] = None
+    """
+    When a run last used it, to the hour.
+    """
+    last_proven_inbound_at: Annotated[AwareDatetime | None, Field(alias="lastProvenInboundAt")] = (
+        None
+    )
+    """
+    A number's (`texts`): when a text last arrived for it with a good signature. Absent for other apps, and until one has.
+    """
+    texts_this_month: Annotated[ConnectionTextsCount | None, Field(alias="textsThisMonth")] = None
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    created_by: Annotated[str, Field(alias="createdBy")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    removed_at: Annotated[AwareDatetime | None, Field(alias="removedAt")] = None
+    removed_by: Annotated[str | None, Field(alias="removedBy")] = None
+    removed_reason: Annotated[
+        Annotated[
+            Literal[
+                "disconnected", "revoked-at-app", "uninstalled", "registration-removed", "replaced"
+            ]
+            | str,
+            _open.OPEN,
+        ]
+        | None,
+        Field(alias="removedReason"),
+    ] = None
+    withdrawn: (
+        Annotated[
+            Literal["at-app", "app-failed", "kept-for-other-connection", "not-supported"] | str,
+            _open.OPEN,
+        ]
+        | None
+    ) = None
+    """
+    What a removal did at the app. `at-app`: access was withdrawn there. `app-failed`: the app refused the revoke; the token is gone here all the same. `kept-for-other-connection`: another live connection uses the same grant. `not-supported`: the app has no revoke that would touch only this connection.
+    """
+
+
+class ConnectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Connection]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class ConnectionChoice(BaseModel):
@@ -19133,7 +19201,7 @@ class ConnectionChoiceNeeds(BaseModel):
 
 class ConnectRequest(BaseModel):
     """
-    A connect: the owner goes to `connectUrl`, consents at the app, and comes back. A run that needs a connection it lacks waits on one.
+    A connect: the owner goes to `connectUrl`, consents at the app, and comes back. A run that needs a connection it lacks waits on one. An app connected without a browser (`texts`) has no such step: its request is `connected` from the start.
     """
 
     model_config = ConfigDict(
@@ -19197,9 +19265,12 @@ class ConnectRequest(BaseModel):
     """
     connect_url: Annotated[AnyUrl, Field(alias="connectUrl")]
     """
-    Where the owner starts.
+    Where the owner starts. For an app connected without a browser (`texts`), the request comes back `connected`, with `connectionId`, and its page only shows it connected: there is nothing to open.
     """
     expires_at: Annotated[AwareDatetime, Field(alias="expiresAt")]
+    """
+    When a `pending` request expires; it ends no other.
+    """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     created_by: Annotated[str, Field(alias="createdBy")]
 

@@ -383,6 +383,7 @@ export type {
   ConnectionStartResult,
   ConnectionsClient,
   CreateConnectionAppInput,
+  DisconnectOptions,
   FinishConnectInput,
   ListConnectionAppsFilter,
   ListConnectionCandidatesInput,

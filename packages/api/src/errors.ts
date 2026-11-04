@@ -733,7 +733,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'connection-request-used': 409,
   /** The sign-in at the app took longer than its state lives: start again. */
   'connection-state-expired': 410,
-  /** A reconnect signed in to an account other than the connection's. */
+  /**
+   * A reconnect signed in to an account other than the connection's, or
+   * a number's reconnect that names another number.
+   */
   'connection-account-mismatch': 409,
   /**
    * A connect's or a rename's `label` another live connection of the same
@@ -759,8 +762,37 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
    * disconnect it again to finish, then connect.
    */
   'connection-removing': 409,
-  /** The app wouldn't give a token for the code: its client id, secret or redirect URL. */
+  /**
+   * The app wouldn't give a token for the code: its client id, secret or
+   * redirect URL. Or a texting provider refused the registration's key or
+   * the number's lookup: the provider's code is in the message, never its
+   * headers.
+   */
   'connection-app-refused': 502,
+  /**
+   * A number's connect whose inbound texts go somewhere else today:
+   * `details.host` (a webhook's) or `details.profile` (a messaging
+   * profile's name) says where. `replaceInbound: true` connects anyway.
+   */
+  'inbound-in-use': 409,
+  /**
+   * A number's connect while it's live through another of the tenant's
+   * texts registrations, or in another env: `details.appId` and
+   * `details.envName` name where.
+   */
+  'number-in-use': 409,
+  /**
+   * A number's disconnect that couldn't put its old inbound back: the
+   * connection stays `removing`, `details.host` or `details.profile` names
+   * the old inbound, and disconnecting again retries.
+   */
+  'inbound-restore-failed': 502,
+  /**
+   * A texts registration naming as its key a secret that a tool, an
+   * endpoint or a webhook trigger uses: `details.secret` and
+   * `details.usedBy` name them. Nothing is stored.
+   */
+  'connection-key-in-use': 409,
   'connection-store-failed': 503,
   // An app's notice (`POST /v1/connection-notices/…`): one answer for any
   // notice not accepted, whatever the reason; the server's own trouble is a

@@ -15,9 +15,11 @@ import type { AppEntry, SignIn } from '@kindgi/connections';
 import { github } from '@kindgi/connections/github';
 import { google } from '@kindgi/connections/google';
 import { microsoft } from '@kindgi/connections/microsoft';
+import { texts } from '@kindgi/connections/texts';
 import type { EnvName, TenantId, UserId } from '@kindgi/types';
 
 import type {
+  ConnectRequestCreateInput,
   ConnectRequestRecord,
   ConnectionAppRecord,
   ConnectionBinding,
@@ -61,6 +63,32 @@ const FIRST_CONNECTION = randomUUID();
  * The needs of the agent `acme.support`'s tools, as `choiceNeeds` answers
  * them. GitHub's names no permissions, as a binding that doesn't read them answers.
  */
+/** Numbers the test binding refuses a connect of, each with what it says. */
+const NUMBER_REFUSALS: Record<string, Record<string, unknown>> = {
+  '+15550000001': {
+    code: 'inbound-in-use',
+    message: "+15550000001's texts go to hooks.acme.example today",
+    host: 'hooks.acme.example',
+  },
+  '+15550000002': {
+    code: 'inbound-in-use',
+    message: '+15550000002 is on the messaging profile Acme support',
+    profile: 'Acme support',
+  },
+  '+15550000003': {
+    code: 'number-in-use',
+    message: '+15550000003 is live in env prod',
+    appId: '7d0e2c55-2222-4b3c-9d4e-000000000002',
+    envName: 'prod',
+  },
+  '+15550000004': {
+    code: 'connection-app-refused',
+    message: "Telnyx refused the registration's credential (401)",
+  },
+};
+/** A connected number whose old inbound can't be put back. */
+const STUCK_NUMBER = '+15550000009';
+
 const NEEDS: ConnectionChoiceNeeds['data'] = [
   {
     toolId: 'acme.read-mail',
@@ -188,7 +216,7 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
     },
     async createApp(input) {
       seen('createApp', input);
-      if (input.app !== 'google' && input.app !== 'github' && input.app !== 'microsoft') {
+      if (!['google', 'github', 'microsoft', 'texts'].includes(input.app)) {
         return refuse('connection-app-unknown-entry', `No entry "${input.app}"`);
       }
       const appId = randomUUID();
@@ -198,6 +226,7 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
         app: input.app,
         ...(input.label !== undefined && { label: input.label }),
         ...(input.oauth2 !== undefined && { oauth2: input.oauth2 }),
+        ...(input.token !== undefined && { token: input.token }),
         ...(input.projects !== undefined && { projects: input.projects }),
         redirectUrl: 'https://kindgi.acme.example/console/connect/callback',
         noticesUrl: `https://kindgi.acme.example/v1/connection-notices/${input.tenantId}/${appId}`,
@@ -213,7 +242,11 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
       if (app === undefined) return refuse('connection-app-not-found', 'no app');
       return {
         kind: 'ok',
-        value: { ...app, ...(input.label !== undefined && { label: input.label }) },
+        value: {
+          ...app,
+          ...(input.label !== undefined && { label: input.label }),
+          ...(input.token !== undefined && { token: input.token }),
+        },
       };
     },
     async removeApp(input) {
@@ -238,6 +271,17 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
     async disconnect(input) {
       seen('disconnect', input);
       const connection = connections.get(input.connectionId) as ConnectionRecord;
+      if (connection.account.label === STUCK_NUMBER && input.skipInboundRestore !== true) {
+        connections.set(input.connectionId, { ...connection, state: 'removing' });
+        return {
+          kind: 'err',
+          error: {
+            code: 'inbound-restore-failed',
+            message: `${STUCK_NUMBER}'s old inbound couldn't be put back`,
+            profile: 'Acme support',
+          } as never,
+        };
+      }
       const removed: ConnectionRecord = {
         ...connection,
         state: 'removed',
@@ -375,6 +419,7 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
     },
     async createRequest(input) {
       seen('createRequest', input);
+      if (input.number !== undefined) return numberConnect(input, input.number);
       if (input.permissions.some((p) => !(p in google.permissions))) {
         return refuse('bad-input', 'Google has no such permission', 'permissions');
       }
@@ -484,6 +529,38 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
     },
   };
 
+  /** A number's connect: refused by number, else connected at once, with no browser step. */
+  function numberConnect(input: ConnectRequestCreateInput, number: string) {
+    const refused = NUMBER_REFUSALS[number];
+    if (refused !== undefined) return { kind: 'err' as const, error: refused as never };
+    const connection: ConnectionRecord = {
+      ...connectionOf(input.owner),
+      app: 'texts',
+      account: { id: `num-${number.slice(1)}`, label: number },
+      permissions: input.permissions,
+    };
+    connections.set(connection.connectionId, connection);
+    const requestId = randomUUID();
+    const record: ConnectRequestRecord = {
+      requestId,
+      tenantId: input.tenantId,
+      envName: input.envName,
+      appId: connection.appId,
+      app: input.app,
+      owner: input.owner,
+      permissions: input.permissions,
+      says: input.permissions.map((p) => texts.permissions[p]?.says ?? p),
+      state: 'connected',
+      connectionId: connection.connectionId,
+      connectUrl: `https://kindgi.acme.example/console/connect/${requestId}`,
+      expiresAt: '2026-10-22T13:00:00.000Z',
+      createdAt: at,
+      createdBy: `${input.by.kind}:${input.by.id}`,
+    };
+    requests.set(requestId, record);
+    return { kind: 'ok' as const, value: record };
+  }
+
   function connectionOf(owner: ConnectionRecord['owner']): ConnectionRecord {
     return {
       connectionId: randomUUID(),
@@ -527,6 +604,8 @@ function makeApp(
     clientAddress?: (r: Request) => string | undefined;
     authzCheckBinding?: AuthzCheckBinding;
     entries?: readonly AppEntry[];
+    /** The webhook endpoints, whose secrets a registration's key can't be. */
+    webhookEndpoints?: readonly { endpointId: string; secretRef: typeof SECRET }[];
   } = {},
 ) {
   const memory = memoryBinding(options.entries);
@@ -536,6 +615,19 @@ function makeApp(
     runHandler,
     envName: 'local' as EnvName,
     connections: memory.binding,
+    ...(options.webhookEndpoints !== undefined && {
+      webhookEndpoints: {
+        list: async () => ({
+          data: options.webhookEndpoints?.map((e) => ({
+            ...e,
+            url: 'https://app.acme.example/hooks',
+            events: ['run.finished'],
+            filter: {},
+            description: null,
+          })),
+        }),
+      } as never,
+    }),
     ...(options.reviewers !== undefined && {
       reviewerBinding: options.reviewers,
       hitlBinding: {} as HitlBinding,
@@ -2377,6 +2469,291 @@ describe('several connections of an app', () => {
     });
     const notAnId = await call(app, 'ben', 'GET', '/v1/connections/not-an-id/choices');
     expect(notAnId.status).toBe(400);
+  });
+});
+
+describe("a texts connection: a number, with the provider account's key", () => {
+  const ENTRIES = [google, github, texts];
+  const PUBLIC_KEY = Buffer.alloc(32, 7).toString('base64');
+  const TOKEN = {
+    provider: 'telnyx',
+    apiKey: { envName: 'local', name: 'ACME_TELNYX_KEY' },
+    publicKey: PUBLIC_KEY,
+  };
+  const NUMBER = '+15551234567';
+
+  test('the entry: a token sign-in with its providers, and a removal that restores the inbound', async () => {
+    const { app } = makeApp({ entries: ENTRIES });
+    const res = await call(app, 'ana', 'GET', '/v1/connection-entries');
+    const entry = res.json.data.find((e: { id: string }) => e.id === 'texts');
+    expect(entry).toEqual({
+      id: 'texts',
+      name: 'Texts',
+      owners: ['company'],
+      signIn: { kind: 'token', providers: ['telnyx'] },
+      permissions: {
+        'texts.reply': { says: 'Answer the people who text this number', changes: true },
+        'texts.send': { says: 'Text people from this number', changes: true },
+      },
+      removal: { revoke: 'restore-inbound' },
+      setupGuide: '/guides/connections/texts/',
+    });
+    expect(validateAgainst('ConnectionEntry', entry)).toEqual([]);
+  });
+
+  test('a registration takes `token`: the provider, its key by reference and the public key, shown back the same way', async () => {
+    const { app, calls } = makeApp({ entries: ENTRIES });
+    const res = await call(app, 'admin', 'POST', '/v1/connection-apps', {
+      app: 'texts',
+      token: TOKEN,
+    });
+    expect(res.status, JSON.stringify(res.json)).toBe(201);
+    expect(res.json.token).toEqual(TOKEN);
+    expect(res.json).not.toHaveProperty('oauth2');
+    expect(calls.createApp?.[0]).toMatchObject({ app: 'texts', token: TOKEN });
+    expect(validateAgainst('ConnectionApp', res.json)).toEqual([]);
+    const read = await call(app, 'admin', 'GET', `/v1/connection-apps/${res.json.appId}`);
+    expect(read.json.token).toEqual(TOKEN);
+  });
+
+  test.each([
+    [
+      'a 31-byte public key',
+      { publicKey: Buffer.alloc(31, 7).toString('base64') },
+      'token.publicKey',
+    ],
+    [
+      'a 33-byte public key',
+      { publicKey: Buffer.alloc(33, 7).toString('base64') },
+      'token.publicKey',
+    ],
+    ['a public key not in base64', { publicKey: `${'-'.repeat(43)}=` }, 'token.publicKey'],
+    ['a provider the server has no adapter for', { provider: 'twilio' }, 'token.provider'],
+    ['no key', { apiKey: undefined }, 'token.apiKey'],
+    ['a field it has no use for', { webhookUrl: 'https://hooks.acme.example' }, 'token.webhookUrl'],
+  ] as const)('%s: 400, naming the field, and nothing is stored', async (_, change, field) => {
+    const { app, calls } = makeApp({ entries: ENTRIES });
+    const res = await call(app, 'admin', 'POST', '/v1/connection-apps', {
+      app: 'texts',
+      token: { ...TOKEN, ...change },
+    });
+    expect([res.status, res.json.error?.code, res.json.error?.details?.field]).toEqual([
+      400,
+      'bad-input',
+      field,
+    ]);
+    expect(calls.createApp).toBeUndefined();
+  });
+
+  test('a key under a reserved `kindgi.` name is refused, as any secret a registration names', async () => {
+    const { app, calls } = makeApp({ entries: ENTRIES });
+    const res = await call(app, 'admin', 'POST', '/v1/connection-apps', {
+      app: 'texts',
+      token: { ...TOKEN, apiKey: { envName: 'local', name: 'kindgi.telnyx' } },
+    });
+    expect(res.status).toBe(400);
+    expect(res.json.error.code).toBe('reserved-name-prefix');
+    expect(calls.createApp).toBeUndefined();
+  });
+
+  test('a key a webhook endpoint already uses: 409 connection-key-in-use on a create and an update, naming it, and nothing is stored', async () => {
+    const { app, calls } = makeApp({
+      entries: ENTRIES,
+      webhookEndpoints: [
+        { endpointId: 'whe-1', secretRef: { envName: 'local', name: 'ACME_SHARED_KEY' } },
+      ],
+    });
+    const shared = { ...TOKEN, apiKey: { envName: 'local', name: 'ACME_SHARED_KEY' } };
+    const refused = await call(app, 'admin', 'POST', '/v1/connection-apps', {
+      app: 'texts',
+      token: shared,
+    });
+    expect([refused.status, refused.json.error?.code, refused.json.error?.details]).toEqual([
+      409,
+      'connection-key-in-use',
+      { secret: 'ACME_SHARED_KEY', usedBy: [{ kind: 'webhook-endpoint', id: 'whe-1' }] },
+    ]);
+    expect(calls.createApp).toBeUndefined();
+
+    // A key of its own goes ahead; moving it onto the shared one is refused the same way.
+    const created = await call(app, 'admin', 'POST', '/v1/connection-apps', {
+      app: 'texts',
+      token: TOKEN,
+    });
+    expect(created.status).toBe(201);
+    const moved = await call(app, 'admin', 'PATCH', `/v1/connection-apps/${created.json.appId}`, {
+      token: shared,
+    });
+    expect([moved.status, moved.json.error?.code]).toEqual([409, 'connection-key-in-use']);
+    expect(calls.updateApp).toBeUndefined();
+  });
+
+  test('a connect names the number: 201, already connected, with its connection, and the usual link and expiry', async () => {
+    const { app, calls } = makeApp({ entries: ENTRIES });
+    const res = await call(app, 'admin', 'POST', '/v1/connections', {
+      app: 'texts',
+      for: 'company',
+      permissions: ['texts.reply'],
+      number: NUMBER,
+      replaceInbound: true,
+    });
+    expect(res.status, JSON.stringify(res.json)).toBe(201);
+    expect(res.json).toMatchObject({
+      app: 'texts',
+      owner: { kind: 'company' },
+      permissions: ['texts.reply'],
+      state: 'connected',
+      connectionId: expect.any(String),
+    });
+    expect(res.json.connectUrl).toMatch(new RegExp(`/console/connect/${res.json.requestId}$`));
+    expect(Date.parse(res.json.expiresAt)).toBeGreaterThan(Date.parse(res.json.createdAt));
+    expect(validateAgainst('ConnectRequest', res.json)).toEqual([]);
+    expect(calls.createRequest?.[0]).toMatchObject({ number: NUMBER, replaceInbound: true });
+    const connection = await call(app, 'admin', 'GET', `/v1/connections/${res.json.connectionId}`);
+    expect(connection.json.account).toEqual({ id: 'num-15551234567', label: NUMBER });
+
+    // Without replaceInbound, the binding gets none.
+    await call(app, 'admin', 'POST', '/v1/connections', {
+      app: 'texts',
+      for: 'company',
+      permissions: ['texts.send'],
+      number: '+15557654321',
+    });
+    expect(calls.createRequest?.[1]).not.toHaveProperty('replaceInbound');
+  });
+
+  test.each([
+    ['a number without its +', { number: '15551234567' }, 'number'],
+    ['a number whose country code starts with 0', { number: '+05551234567' }, 'number'],
+    ['a number too long', { number: '+1555123456789012' }, 'number'],
+    ['a number that is no string', { number: 15551234567 }, 'number'],
+    ['replaceInbound false', { number: NUMBER, replaceInbound: false }, 'replaceInbound'],
+    ['replaceInbound as a word', { number: NUMBER, replaceInbound: 'yes' }, 'replaceInbound'],
+  ] as const)(
+    '%s: 400, naming the field, and nothing is asked of the binding',
+    async (_, more, field) => {
+      const { app, calls } = makeApp({ entries: ENTRIES });
+      const res = await call(app, 'admin', 'POST', '/v1/connections', {
+        app: 'texts',
+        for: 'company',
+        permissions: ['texts.reply'],
+        ...more,
+      });
+      expect([res.status, res.json.error?.code, res.json.error?.details?.field]).toEqual([
+        400,
+        'bad-input',
+        field,
+      ]);
+      expect(calls.createRequest).toBeUndefined();
+    },
+  );
+
+  test.each([
+    ['+15550000001', 409, 'inbound-in-use', { host: 'hooks.acme.example' }],
+    ['+15550000002', 409, 'inbound-in-use', { profile: 'Acme support' }],
+    [
+      '+15550000003',
+      409,
+      'number-in-use',
+      { appId: '7d0e2c55-2222-4b3c-9d4e-000000000002', envName: 'prod' },
+    ],
+    ['+15550000004', 502, 'connection-app-refused', {}],
+  ] as const)(
+    "%s: the binding's refusal, %i %s, with its details",
+    async (number, status, code, details) => {
+      const { app } = makeApp({ entries: ENTRIES });
+      const res = await call(app, 'admin', 'POST', '/v1/connections', {
+        app: 'texts',
+        for: 'company',
+        permissions: ['texts.reply'],
+        number,
+      });
+      expect([res.status, res.json.error?.code]).toEqual([status, code]);
+      expect(res.json.error.details ?? {}).toEqual(details);
+      expect(res.json.error.message).toBe(NUMBER_REFUSALS[number]?.message);
+    },
+  );
+
+  test('a disconnect passes skipInboundRestore on only for `=true`', async () => {
+    const { app, calls, connected } = makeApp({ entries: ENTRIES });
+    for (const query of [
+      '?skipInboundRestore=true',
+      '',
+      '?skipInboundRestore=false',
+      '?skipInboundRestore=1',
+    ]) {
+      const number = connected({ kind: 'company' }, tenantA, {
+        app: 'texts',
+        account: { id: 'num-15551234567', label: NUMBER },
+      });
+      const res = await call(
+        app,
+        'admin',
+        'DELETE',
+        `/v1/connections/${number.connectionId}${query}`,
+      );
+      expect(res.status, query).toBe(200);
+    }
+    expect(
+      calls.disconnect?.map((input) => (input as { skipInboundRestore?: true }).skipInboundRestore),
+    ).toEqual([true, undefined, undefined, undefined]);
+    expect(calls.disconnect?.[1]).not.toHaveProperty('skipInboundRestore');
+  });
+
+  test("a number whose old inbound can't be put back: 502 inbound-restore-failed, it stays removing, and the skip removes it", async () => {
+    const { app, connected } = makeApp({ entries: ENTRIES });
+    const stuck = connected({ kind: 'company' }, tenantA, {
+      app: 'texts',
+      account: { id: 'num-15550000009', label: STUCK_NUMBER },
+    });
+    const path = `/v1/connections/${stuck.connectionId}`;
+    const failed = await call(app, 'admin', 'DELETE', path);
+    expect([failed.status, failed.json.error?.code, failed.json.error?.details]).toEqual([
+      502,
+      'inbound-restore-failed',
+      { profile: 'Acme support' },
+    ]);
+    expect((await call(app, 'admin', 'GET', path)).json.state).toBe('removing');
+    const skipped = await call(app, 'admin', 'DELETE', `${path}?skipInboundRestore=true`);
+    expect(skipped.status).toBe(200);
+    expect(skipped.json).toMatchObject({ state: 'removed', withdrawn: 'at-app' });
+  });
+
+  test("a number's connection shows when a text last proved itself, and this month's counts; another app's has neither", async () => {
+    const { app, connected } = makeApp({ entries: ENTRIES });
+    const number = connected({ kind: 'company' }, tenantA, {
+      app: 'texts',
+      account: { id: 'num-15551234567', label: NUMBER },
+      permissions: ['texts.reply'],
+      lastProvenInboundAt: at,
+      textsThisMonth: { received: 12, sent: 9, unanswered: 3 },
+    });
+    const res = await call(app, 'admin', 'GET', `/v1/connections/${number.connectionId}`);
+    expect(res.json).toMatchObject({
+      lastProvenInboundAt: at,
+      textsThisMonth: { received: 12, sent: 9, unanswered: 3 },
+    });
+    expect(validateAgainst('Connection', res.json)).toEqual([]);
+    const mail = connected({ kind: 'company' });
+    const other = await call(app, 'admin', 'GET', `/v1/connections/${mail.connectionId}`);
+    expect(other.json).not.toHaveProperty('lastProvenInboundAt');
+    expect(other.json).not.toHaveProperty('textsThisMonth');
+  });
+
+  test('a credential-refused connection says so, and fits the schema', async () => {
+    const { app, connected } = makeApp({ entries: ENTRIES });
+    const number = connected({ kind: 'company' }, tenantA, {
+      app: 'texts',
+      account: { id: 'num-15551234567', label: NUMBER },
+      state: 'needs-reconnecting',
+      stateReason: 'credential-refused',
+    });
+    const res = await call(app, 'admin', 'GET', `/v1/connections/${number.connectionId}`);
+    expect(res.json).toMatchObject({
+      state: 'needs-reconnecting',
+      stateReason: 'credential-refused',
+    });
+    expect(validateAgainst('Connection', res.json)).toEqual([]);
   });
 });
 

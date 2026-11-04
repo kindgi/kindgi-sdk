@@ -1089,6 +1089,7 @@ export type {
   ConnectionRemovedReason,
   ConnectionSetRefusal,
   ConnectionState,
+  ConnectionTextsCount,
   ConnectionWithdrawn,
   SecretRefInput,
   TextsInboundAnswer,
