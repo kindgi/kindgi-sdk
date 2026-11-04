@@ -7,6 +7,7 @@ import type { TenantHierarchyBinding, TenantLimits } from '@kindgi/platform';
 import type { TenantId } from '@kindgi/types';
 
 import { retryAfterSeconds, statusFor, toWireError } from '../errors.js';
+import { inProcessCallerOf } from '../mcp-server/in-process.js';
 import { type RateLimitStore, createInMemoryRateLimitStore } from '../rate-limit-store.js';
 import type { AppEnv } from '../types.js';
 import { errorXml } from '../xml.js';
@@ -147,7 +148,10 @@ export function tenantLimitReached(
 /**
  * The tenant's API requests a minute (`limits.apiRequestsPerMinute`), on
  * every authenticated `/v1` request a tenant's key or session makes. A
- * system key acts in no tenant and isn't counted.
+ * system key acts in no tenant and isn't counted. A chat app's request to
+ * `/mcp` is counted there, once for each JSON-RPC message
+ * (`takeApiRequests`), and the `/v1` calls its tools make in this process
+ * count on that, up to the request's cover.
  */
 export function tenantApiRequestLimit(limiter: TenantLimiter): MiddlewareHandler<AppEnv> {
   return countApiRequest(limiter, (c, retryAfterMs) =>
@@ -176,6 +180,28 @@ export function tenantS3RequestLimit(limiter: TenantLimiter): MiddlewareHandler<
   });
 }
 
+/**
+ * `count` from the tenant's API requests a minute: `/mcp`'s, one for each
+ * JSON-RPC message a request carries. The first refusal stops it.
+ */
+export async function takeApiRequests(
+  c: Context<AppEnv>,
+  limiter: TenantLimiter,
+  tenantId: TenantId,
+  count: number,
+): Promise<
+  { readonly allowed: true } | { readonly allowed: false; readonly retryAfterMs: number }
+> {
+  const limits = await limiter.limitsOf(c, tenantId);
+  const perMinute = limits?.apiRequestsPerMinute;
+  if (perMinute === undefined) return { allowed: true };
+  for (let taken = 0; taken < count; taken++) {
+    const take = await limiter.take(c, tenantId, 'api-requests', perMinute);
+    if (!take.allowed) return take;
+  }
+  return { allowed: true };
+}
+
 /** Take one from the tenant's API requests a minute; past it, `refuse` answers. */
 function countApiRequest(
   limiter: TenantLimiter,
@@ -184,6 +210,9 @@ function countApiRequest(
   return async (c, next) => {
     const tenantId = c.get('tenantId');
     if (tenantId === undefined || c.get('systemPrincipal') !== undefined) return next();
+    // A `/mcp` tool's own call, on what its `/mcp` request was counted for.
+    // Only a request made in this process carries a caller.
+    if (inProcessCallerOf(c.env)?.cover?.use() === true) return next();
     const limits = await limiter.limitsOf(c, tenantId);
     const taken = await limiter.take(c, tenantId, 'api-requests', limits?.apiRequestsPerMinute);
     if (!taken.allowed) return refuse(c, taken.retryAfterMs);

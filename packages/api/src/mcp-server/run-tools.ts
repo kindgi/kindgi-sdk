@@ -42,11 +42,15 @@ export interface RunWait {
   readonly checkMs: number;
 }
 
-const RUN_WAIT: RunWait = { waitMs: RUN_STATE_WAIT_S * 1_000, firstCheckMs: 500, checkMs: 1_000 };
+export const RUN_WAIT: RunWait = {
+  waitMs: RUN_STATE_WAIT_S * 1_000,
+  firstCheckMs: 500,
+  checkMs: 1_000,
+};
 /** `kindgi.run_state`'s own wait checks less often: a chat may wait on it for a long run. */
-const RUN_STATE_WAIT: RunWait = { ...RUN_WAIT, checkMs: 3_000 };
+export const RUN_STATE_WAIT: RunWait = { ...RUN_WAIT, checkMs: 3_000 };
 /** The most agents, or flows, read for one `tools/list`: four pages. */
-const LIST_PAGES = 4;
+export const LIST_PAGES = 4;
 const PAGE_SIZE = '100';
 const DESCRIPTION_LIMIT = 600;
 
