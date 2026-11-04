@@ -233,8 +233,8 @@ describe('the Microsoft entry', () => {
         says: 'Read, add and change events on your calendar',
         changes: true,
       },
-      'calendars.read': {
-        grants: 'Calendars.Read',
+      'calendars.read.shared': {
+        grants: 'Calendars.Read.Shared',
         says: 'See the events on your calendars, with their details, those others share with you too',
         changes: false,
       },
