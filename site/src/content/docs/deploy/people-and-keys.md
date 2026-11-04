@@ -470,8 +470,9 @@ ways:
     --reason "Sam deploys and sets secrets" --dry-run
   ```
 
-  `<version>` is the version your runtime runs: another version refuses,
-  and changes nothing. For someone who holds none yet, the dry run prints:
+  `<version>` is the version your runtime runs. Another version refuses
+  when the database's migrations aren't its own, and changes nothing. For
+  someone who holds none yet, the dry run prints:
 
   ```text
   tenants give-capabilities --dry-run: tenant <tenant id>, person <user-id>, a tenant admin. Nothing was changed.
