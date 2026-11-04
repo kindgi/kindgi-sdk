@@ -33,6 +33,7 @@
     muted,
     empty,
     stepWords,
+    callsSoFar,
     askUrl,
     approvalUrl,
     runUrl,
@@ -1170,10 +1171,12 @@
 
   /**
    * A tool call's step (`stepWords`): what the agent did with the tool, and
-   * why a call that ran nothing didn't. A call that ran has its answer
-   * folded under it, for whoever wants to see what the agent saw.
+   * why a call that ran nothing didn't. In the conversation, a call that
+   * ran has its answer folded under it, for whoever wants to see what the
+   * agent saw; a running turn's list (`folded` false) leaves that to the
+   * conversation, once the turn ends.
    */
-  function stepOf(tool, callId, answer) {
+  function stepOf(tool, callId, answer, { folded = true } = {}) {
     const words = stepWords(tool, answer);
     return el(
       'li',
@@ -1184,7 +1187,7 @@
       },
       el('span', {}, words.line),
       words.why === null ? null : el('span', { className: 'kindgi-step-why' }, words.why),
-      words.ran ? answerOf(answer) : null,
+      words.ran && folded ? answerOf(answer) : null,
     );
   }
 
@@ -1328,6 +1331,7 @@
   async function follow(runId, progress, view) {
     let since = 0;
     let delay = pollMs;
+    let calls = [];
     const steps = el('ul', { className: 'kindgi-steps' });
     const waits = el('div');
     const shown = new Map();
@@ -1351,11 +1355,10 @@
       const run = await api(`/runs/${encodeURIComponent(runId)}?since=${since}`);
       if (view !== state.view) return null;
       since = run.since;
-      steps.append(
-        ...run.steps.map((step) =>
-          // Its answer isn't in the journal's steps: the conversation shows it once the turn ends.
-          el('li', {}, stepWords(step.toolId).line),
-        ),
+      calls = callsSoFar(calls, run.steps, run.answers);
+      steps.replaceChildren(
+        // Each call once, in the conversation's words: Used, Couldn't use, or still Asked to use.
+        ...calls.map((call) => stepOf(call.toolId, call.callId, call.answer, { folded: false })),
       );
       showWaits(waits, shown, run.waitingFor);
       // Waiting for a person: the approval's box says so, not the dots.

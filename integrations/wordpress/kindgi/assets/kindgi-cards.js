@@ -372,6 +372,36 @@
   }
 
   /**
+   * A running turn's calls so far, in the order the agent asked for them:
+   * the calls from before (`calls`), with what a poll of the run brings
+   * (its `steps` and `answers`). Each call is listed once, however often a
+   * poll brings it again, and its answer, once it comes, is in its place
+   * (`{ result }`, as `stepWords` reads it). An answer to a call not seen
+   * goes at the end; a call with no id can't be matched, so it's its own.
+   */
+  function callsSoFar(calls, steps, answers) {
+    const next = calls.map((call) => ({ ...call }));
+    const byId = new Map(
+      next.filter((call) => call.callId !== null).map((call) => [call.callId, call]),
+    );
+    const add = (call) => {
+      next.push(call);
+      if (call.callId !== null) byId.set(call.callId, call);
+    };
+    for (const step of steps) {
+      if (step.callId === null || !byId.has(step.callId)) {
+        add({ callId: step.callId, toolId: step.toolId, answer: undefined });
+      }
+    }
+    for (const answer of answers) {
+      const call = byId.get(answer.callId);
+      if (call !== undefined) call.answer = { result: answer.result };
+      else add({ callId: answer.callId, toolId: answer.toolId, answer: { result: answer.result } });
+    }
+    return next;
+  }
+
+  /**
    * A conversation's address on the Ask page; someone else's names the
    * approval it opens through, which its reader reviews.
    */
@@ -814,6 +844,7 @@
     empty,
     toolName,
     stepWords,
+    callsSoFar,
     askUrl,
     approvalUrl,
     runUrl,

@@ -4,8 +4,9 @@
 /**
  * An approval's card (`assets/kindgi-cards.js`), as a person decides it:
  * what its buttons say, and what it says once Kindgi has recorded the
- * decision; and a conversation's steps: whether each call ran, and why
- * one didn't. The script runs as WordPress loads it, against small
+ * decision; a conversation's steps: whether each call ran, and why one
+ * didn't; and a running turn's calls, each once, with its answer in its
+ * place when it comes. The script runs as WordPress loads it, against small
  * stand-ins for the page's elements and `wp`; the cards are as the
  * plugin's routes answer them (`Kindgi_Inbox::card`).
  */
@@ -379,4 +380,86 @@ test("a tool's own answer reads as used, whatever its fields", () => {
       why: null,
     });
   }
+});
+
+/** A running turn's calls so far, as plain fields: made in the script's own realm. */
+const callsOf = (cards, ...args) => JSON.parse(JSON.stringify(cards.callsSoFar(...args)));
+
+/** The words each call says so far, as the live list shows them. */
+const linesOf = (cards, calls) =>
+  [...calls].map((call) => cards.stepWords(call.toolId, call.answer).line);
+
+test("a running turn's call says what came of it once its answer comes, on its own line", () => {
+  const { cards } = loadCards(null);
+  const asked = cards.callsSoFar(
+    [],
+    [
+      { callId: 'call-1', toolId: 'woo.find-orders', at: '2026-11-04T09:00:02Z' },
+      { callId: 'call-2', toolId: 'acme.reply', at: '2026-11-04T09:00:02Z' },
+    ],
+    [],
+  );
+  assert.deepEqual(linesOf(cards, asked), ['Asked to use Find orders', 'Asked to use Reply']);
+  const answered = cards.callsSoFar(
+    asked,
+    [],
+    [
+      { callId: 'call-1', toolId: 'woo.find-orders', result: { orders: [] } },
+      { callId: 'call-2', toolId: 'acme.reply', result: { status: 'rejected' } },
+    ],
+  );
+  assert.deepEqual(linesOf(cards, answered), [
+    'Used Find orders',
+    "Didn't use Reply: its approval was rejected",
+  ]);
+  assert.deepEqual(
+    [...asked].map((call) => call.answer),
+    [undefined, undefined],
+    'the list from before is left as it was',
+  );
+});
+
+test('a call and its answer in one poll make one line', () => {
+  const { cards } = loadCards(null);
+  const result = { status: 'denied', reason: "You don't have permission to use the tool." };
+  assert.deepEqual(
+    callsOf(
+      cards,
+      [],
+      [{ callId: 'call-1', toolId: 'woo.find-orders', at: '2026-11-04T09:00:02Z' }],
+      [{ callId: 'call-1', toolId: 'woo.find-orders', result }],
+    ),
+    [{ callId: 'call-1', toolId: 'woo.find-orders', answer: { result } }],
+  );
+});
+
+test('a call a poll brings again, as when the turn is followed from its start once more, stays one line', () => {
+  const { cards } = loadCards(null);
+  const step = { callId: 'call-1', toolId: 'woo.find-orders', at: '2026-11-04T09:00:02Z' };
+  const answer = { callId: 'call-1', toolId: 'woo.find-orders', result: { orders: [] } };
+  const once = cards.callsSoFar([], [step], [answer]);
+  const again = callsOf(cards, once, [step], [answer]);
+  assert.equal(again.length, 1);
+  assert.deepEqual(again[0].answer, { result: { orders: [] } });
+});
+
+test("an answer to a call the list hasn't seen goes at its end, and calls with no id are each their own", () => {
+  const { cards } = loadCards(null);
+  const calls = callsOf(
+    cards,
+    [],
+    [
+      { callId: null, toolId: 'acme.reply', at: '2026-11-04T09:00:02Z' },
+      { callId: null, toolId: 'acme.reply', at: '2026-11-04T09:00:03Z' },
+    ],
+    [{ callId: 'call-7', toolId: 'woo.find-orders', result: { orders: [] } }],
+  );
+  assert.deepEqual(
+    calls.map((call) => [call.callId, call.toolId, call.answer === undefined]),
+    [
+      [null, 'acme.reply', true],
+      [null, 'acme.reply', true],
+      ['call-7', 'woo.find-orders', false],
+    ],
+  );
 });

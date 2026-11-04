@@ -402,7 +402,7 @@ final class Kindgi_Rest {
 		);
 	}
 
-	/** A turn's state: its status, its steps since `since`, and what it waits for. */
+	/** A turn's state: its status, its steps and their answers since `since`, and what it waits for. */
 	public static function run( WP_REST_Request $request ) {
 		$user = wp_get_current_user();
 		$path = '/v1/runs/' . rawurlencode( $request['id'] );
@@ -418,20 +418,49 @@ final class Kindgi_Rest {
 		if ( is_wp_error( $journal ) ) {
 			return $journal;
 		}
-		// The tools the agent called, by name: nothing else of the journal reaches the browser.
+		// The tools the agent called, by name, and what each answered, which the
+		// person's conversation shows them anyway: nothing else of the journal
+		// reaches the browser. A call is its model call's; the loop's later steps
+		// carry the same message. Its answer is the tool step's, as the
+		// conversation keeps it (`messages()`).
 		// `since` is exclusive: the next poll asks for what came after the last entry seen.
-		$steps = array();
-		$last  = (int) $request['since'];
+		$steps   = array();
+		$answers = array();
+		$seen    = array();
+		$last    = (int) $request['since'];
 		foreach ( self::list_of( $journal['body']['data'] ?? null ) as $entry ) {
 			$last = max( $last, (int) ( $entry['sequence'] ?? 0 ) );
 			if ( 'step.completed' !== ( $entry['kind'] ?? '' ) ) {
 				continue;
 			}
-			foreach ( self::list_of( $entry['payload']['output']['message']['toolCalls'] ?? null ) as $call ) {
-				if ( is_string( $call['name'] ?? null ) ) {
+			$node   = $entry['nodeId'] ?? null;
+			$output = $entry['payload']['output'] ?? null;
+			if ( 'model-call' === $node ) {
+				foreach ( self::list_of( $output['message']['toolCalls'] ?? null ) as $call ) {
+					$id = is_string( $call['id'] ?? null ) ? $call['id'] : null;
+					if ( ! is_string( $call['name'] ?? null ) || isset( $seen[ 'call:' . $id ] ) ) {
+						continue;
+					}
+					if ( null !== $id ) {
+						$seen[ 'call:' . $id ] = true;
+					}
 					$steps[] = array(
+						'callId' => $id,
 						'toolId' => $call['name'],
 						'at'     => (string) ( $entry['timestamp'] ?? '' ),
+					);
+				}
+			} elseif ( 'dispatch-tools' === $node ) {
+				foreach ( self::list_of( $output['iterationAppended'] ?? null ) as $m ) {
+					$id = is_string( $m['toolCall']['invocationId'] ?? null ) ? $m['toolCall']['invocationId'] : null;
+					if ( 'tool' !== ( $m['role'] ?? '' ) || null === $id || isset( $seen[ 'answer:' . $id ] ) ) {
+						continue;
+					}
+					$seen[ 'answer:' . $id ] = true;
+					$answers[]               = array(
+						'callId' => $id,
+						'toolId' => is_string( $m['toolCall']['toolId'] ?? null ) ? $m['toolCall']['toolId'] : null,
+						'result' => $m['content'] ?? null,
 					);
 				}
 			}
@@ -455,6 +484,7 @@ final class Kindgi_Rest {
 			'failureMessage' => is_string( $r['failureMessage'] ?? null ) ? $r['failureMessage'] : null,
 			'waitingFor'     => $waiting,
 			'steps'          => $steps,
+			'answers'        => $answers,
 			'since'          => $last,
 		);
 	}
