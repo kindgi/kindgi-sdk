@@ -419,6 +419,29 @@ Point the load balancer's health check at `/ready`, as
 [Check health and logs](../restart-and-check-health/#check-health-and-logs)
 explains.
 
+### Behind an egress proxy
+
+Some networks let traffic out only through a forward proxy. The runtime connects to the hosts that tenant configuration names (an MCP server, a model provider, an HTTP tool, an image reference, an SSO identity provider) and to webhook receivers with checks of its own, so `HTTPS_PROXY` never applies to them. It sends them through the proxy you name with `KINDGI_TENANT_EGRESS_PROXY` in `kindgi.env`:
+
+```sh
+KINDGI_TENANT_EGRESS_PROXY=http://egress-proxy.internal:3128
+```
+
+- **The runtime still checks IP addresses and `localhost` itself:** `KINDGI_TENANT_HOST_ACCESS` refuses them before anything is sent. At `local`, which refuses nothing, they go to the proxy too, unless they're in `KINDGI_TENANT_EGRESS_NO_PROXY`.
+- **Every other host goes to the proxy unresolved,** by `CONNECT`, and TLS runs end to end, from the runtime to the host. The proxy resolves the name and checks the address, so **it must refuse at least what `KINDGI_TENANT_HOST_ACCESS` refuses**: loopback and the cloud metadata addresses at `deployed`, and private networks too at `isolated`. For webhooks it must also refuse private networks, unless `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`. The proxy can't tell a webhook from the rest, so a private host that tenant configuration names at `deployed` then goes in `KINDGI_TENANT_EGRESS_NO_PROXY`. Whatever the proxy lets through, tenants can reach.
+- **A `403` from the proxy is a refusal.** A tenant connection's error ends with `its egress proxy refused it (403) (KINDGI_TENANT_EGRESS_PROXY).`, with the proxy's `Proxy-Status` error after the `403` when it sends one. A webhook attempt fails with `lastError: "url-refused"`. A proxy that asks for credentials isn't supported, and a URL with a user name or password stops the runtime at startup: let the runtime's address through at the proxy instead.
+- **Hosts that skip the proxy** go in `KINDGI_TENANT_EGRESS_NO_PROXY`, comma-separated, with `.corp.internal` for every name under `corp.internal`. They connect directly, and each is checked by every address it resolves to, as without a proxy.
+
+  ```sh
+  KINDGI_TENANT_EGRESS_NO_PROXY=.corp.internal,registry.internal
+  ```
+
+The runtime's own connections, such as Postgres's, don't go through it. The start log names the proxy and the hosts that skip it:
+
+```text
+  Tenant egress: through the proxy at http://egress-proxy.internal:3128, which must refuse what the host access level refuses; direct: .corp.internal, registry.internal (KINDGI_TENANT_EGRESS_PROXY)
+```
+
 ## 7. Trust your key and deploy
 
 The runtime deploys only images signed by a key its tenant trusts. Trust

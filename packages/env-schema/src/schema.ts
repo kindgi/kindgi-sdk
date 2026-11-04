@@ -364,6 +364,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     allowedValues: ['allow', 'deny'],
   },
   {
+    name: 'KINDGI_TENANT_EGRESS_PROXY',
+    description:
+      "Used from runtime 0.7.0; earlier runtimes ignore it. A forward proxy for the connections whose host tenant configuration chose (an MCP endpoint, a model provider's base URL, an HTTP tool, an image reference, a workspace's SSO identity provider) and for webhooks: for a server whose network lets traffic out only through one. `http://` or `https://` with the proxy's host and port only; a URL with a user name or password is refused at startup, since a proxy that asks for credentials isn't supported. The server still refuses an IP address, and `localhost`, by `KINDGI_TENANT_HOST_ACCESS` before anything is sent. Every other host goes to the proxy unresolved, by `CONNECT`, with TLS to the host end to end, so the proxy resolves it and checks the address: it must refuse at least what `KINDGI_TENANT_HOST_ACCESS` refuses, and private networks for webhooks unless `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`. A `403` from the proxy is a refusal that names this setting. It applies at every `KINDGI_TENANT_HOST_ACCESS` level, `local` too. Never `HTTPS_PROXY`: the server's own proxy settings don't apply to these connections. Unset: they connect directly.",
+    example: 'http://egress-proxy.internal:3128',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_TENANT_EGRESS_NO_PROXY',
+    description:
+      "Used from runtime 0.7.0; earlier runtimes ignore it. The hosts that skip `KINDGI_TENANT_EGRESS_PROXY` and connect directly, each checked by every address it resolves to, as without a proxy: comma-separated host names (`.corp.internal` for every name under `corp.internal`) or IP addresses. Never `NO_PROXY`. The server won't start with it set and `KINDGI_TENANT_EGRESS_PROXY` unset, or with `*`.",
+    example: '.corp.internal,registry.internal',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_PRODUCTION_GATE',
     description:
       "Used from runtime 0.1.8; earlier runtimes ignore it. Whether putting a project in production needs the tenant to be allowed it, for example once it has paid. `on`: `PUT /v1/projects/{projectId}/production` refuses with `403 production-not-allowed` while the tenant isn't allowed (its `productionAllowed` is `false`, set through the system API); a project already in production stays so. A tenant is allowed unless it's switched off, so turning the gate on keeps existing tenants' production. Unset or `off`: no gate, and any tenant admin can put a project in production. `KINDGI_TENANCY=multi` starts only with `on`.",
