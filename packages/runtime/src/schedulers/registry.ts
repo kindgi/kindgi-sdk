@@ -555,7 +555,8 @@ export interface RegisterTextTriggerInput {
   /**
    * As `RegisterCronTriggerInput.toolsAllowedUnattended`: a listed tool's
    * calls run without a person's yes in its runs. Anyone who can text the
-   * number writes those runs' input. Never `texts.send`. Absent: none.
+   * number writes those runs' input. Never `kindgi_send_text`: a text that
+   * isn't a reply always waits for a person's yes. Absent: none.
    */
   readonly toolsAllowedUnattended?: readonly string[];
 }
