@@ -48220,7 +48220,7 @@
             }
           },
           "409": {
-            "description": "The server checked the key and refused it (`license-key-refused`; `error.details.reason`: `malformed`, `unknown-key`, `bad-signature`, `too-long`, `other-licensee`, `other-use` or `older`). It runs on with the key it has.",
+            "description": "The server checked the key and refused it (`license-key-refused`; `error.details.reason`: `malformed`, `unknown-key`, `bad-signature`, `too-long`, `not-yet-valid`, `expired`, `other-licensee`, `other-use` or `older`). It runs on with the key it has.",
             "content": {
               "application/json": {
                 "schema": {

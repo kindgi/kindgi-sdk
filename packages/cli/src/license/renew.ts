@@ -17,10 +17,15 @@
  * server first (`PUT /v1/license`), and is written once the server took
  * it. A server that refused it gets nothing written. One that can't take a
  * key (a release before `PUSH_RUNTIME`, or no answer) gets it written,
- * for its next start, unless the key needs a runtime that can and the
- * current key doesn't: so a key an older runtime would refuse at its next
- * start is never written beside it, and a server down for want of a new
- * key gets it.
+ * for its next start, unless the key needs a later runtime than the
+ * current key's, `PUSH_RUNTIME` or later: so a key an older runtime would
+ * refuse at its next start is never written beside it, and a server down
+ * for want of a new key gets it.
+ *
+ * An unchanged key goes to the running server too when it says it runs one
+ * that expires earlier (`running`): a key written on a day the server
+ * wasn't handed it reaches it on a later run. A server in step is only
+ * read, never handed the key, so most days record nothing there.
  */
 
 import {
@@ -105,6 +110,12 @@ export interface RenewInput {
    * and the server takes it at its next start.
    */
   readonly push?: (key: string) => Promise<PushAnswer>;
+  /**
+   * When the key the running server runs expires (`--runtime`,
+   * `GET /v1/license`'s `expiresAt`), or `undefined` when it can't say.
+   * With `push`, an unchanged key goes to a server that runs an older one.
+   */
+  readonly running?: () => Promise<Date | undefined>;
 }
 
 /** What the request said about the deployment's use: sent, or why not. */
@@ -126,7 +137,11 @@ export type RenewOutcome =
       readonly renewerId: string;
       /** With a runtime to ask (`usage`): the counts sent, or why none were. */
       readonly counts?: CountsSent;
-      /** A new key handed to the running server (`push`): what it made of it. */
+      /**
+       * What the running server made of the key handed to it (`push`): a
+       * new key, or an unchanged one, handed over because the server ran
+       * an older one.
+       */
       readonly runtime?: RuntimeTook;
       /**
        * Written without asking the server (no `push`), the first runtime
@@ -206,7 +221,14 @@ export async function renewLicense(input: RenewInput, deps: RenewDeps = {}): Pro
   }
   const sent = counts === undefined ? {} : { counts };
   if (answer === held.currentKey) {
-    return { kind: 'unchanged', claims: renewed.claims, renewerId, ...sent };
+    const runtime = await handOverUnchanged(input, answer, renewed.claims.expiresAt);
+    return {
+      kind: 'unchanged',
+      claims: renewed.claims,
+      renewerId,
+      ...sent,
+      ...(runtime !== undefined && { runtime }),
+    };
   }
   // A key only a runtime that takes pushed keys can check, where the
   // current one needs an older runtime: a runtime older than the new key's
@@ -265,6 +287,29 @@ export async function renewLicense(input: RenewInput, deps: RenewDeps = {}): Pro
 }
 
 /** Whether release `version` (`0.7.0`) is `floor` or later: by major, minor, then patch. */
+/**
+ * The unchanged key, handed to a running server that says it runs one
+ * that expires earlier (`running`), as when it wasn't handed the key on
+ * the day it was written. Nothing is written either way; a server that
+ * can't say, or runs this key or a later one, is handed nothing.
+ */
+async function handOverUnchanged(
+  input: RenewInput,
+  key: string,
+  expiresAt: Date,
+): Promise<RuntimeTook | undefined> {
+  if (input.push === undefined || input.running === undefined) return undefined;
+  const running = await input.running();
+  if (running === undefined || running.getTime() >= expiresAt.getTime()) return undefined;
+  const pushed = await input.push(key);
+  if (pushed.kind === 'taken') return { kind: 'taken' };
+  const said =
+    pushed.kind === 'refused'
+      ? `${pushed.error}: ${pushed.message.replace(/\.$/, '')}`
+      : pushed.said;
+  return { kind: 'next-start', said };
+}
+
 export function atLeast(version: string, floor: string): boolean {
   const parts = (v: string) => v.split('.').map((n) => Number.parseInt(n, 10) || 0);
   const [a, b] = [parts(version), parts(floor)];

@@ -583,6 +583,8 @@ describe('PUT /v1/license: a renewed key handed to the running server', () => {
       'unknown-key',
       'bad-signature',
       'too-long',
+      'not-yet-valid',
+      'expired',
       'other-licensee',
       'other-use',
       'older',

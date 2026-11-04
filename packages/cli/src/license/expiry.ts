@@ -83,6 +83,6 @@ export function renewAdvice(
     return `Renew it: from this deployment (${renewCommand}), or sign in at https://access.kindgi.com, which shows its latest key and renews it unless a deployment renewed it this week and it hasn't expired`;
   }
   return renewByOf(claims, planKeyIds) === 'command'
-    ? `Renew it from this deployment: ${renewCommand}`
+    ? `Renew it: from this deployment (${renewCommand})`
     : 'Renew it: contact@kindgi.com';
 }

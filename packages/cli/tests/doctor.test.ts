@@ -1579,9 +1579,10 @@ describe('the license key', () => {
       env: { KINDGI_LICENSE_KEY: key(issued) },
       seam: { ...seam(), now: () => NOW, licensePublicKeys, planLicenseKeyIds: ['test-lk'] },
     });
-    expect(report?.checks.find((c) => c.id === 'license')?.fix).toMatch(
-      /^Renew it from this deployment: kindgi license renew /,
-    );
+    // The banner's words for a plan key: the deployment's command, and no sign-in.
+    const fix = report?.checks.find((c) => c.id === 'license')?.fix;
+    expect(fix).toMatch(/^Renew it: from this deployment \(kindgi license renew [^)]*\)$/);
+    expect(fix).not.toContain('sign in');
   });
 });
 

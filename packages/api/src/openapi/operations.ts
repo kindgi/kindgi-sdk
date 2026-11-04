@@ -5786,7 +5786,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Not the deployment's own token or a system key holding `system:license` (`license-operator-only`). On a runtime serving one tenant, a system key holding anything but `system:license` (`system-key-scope-not-served`).",
       ),
       '409': ErrorResponse(
-        'The server checked the key and refused it (`license-key-refused`; `error.details.reason`: `malformed`, `unknown-key`, `bad-signature`, `too-long`, `other-licensee`, `other-use` or `older`). It runs on with the key it has.',
+        'The server checked the key and refused it (`license-key-refused`; `error.details.reason`: `malformed`, `unknown-key`, `bad-signature`, `too-long`, `not-yet-valid`, `expired`, `other-licensee`, `other-use` or `older`). It runs on with the key it has.',
       ),
     },
   },

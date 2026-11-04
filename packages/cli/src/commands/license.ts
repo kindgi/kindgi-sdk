@@ -12,7 +12,8 @@
  *     access.kindgi.com, signed in as the person it's for.
  *   - `renew --key <ref> | --env-file <path>  --renewer <ref>`: asks for the
  *     key's next version, checks it offline, and writes it only when it's
- *     new. With `--runtime`, a new key goes to the running server first.
+ *     new. With `--runtime`, a new key goes to the running server first,
+ *     and an unchanged one to a server that runs an older key.
  *     One line by shape; exit 1 when refused or failed, so a scheduler's
  *     alerting sees it.
  *
@@ -100,8 +101,9 @@ export function accessOrigin(ctx: CommandContext): string {
  * `--runtime <url>` with `--runtime-token <ref>`: the deployment's runtime (its
  * URL, as `KINDGI_API_URL` gives it) and where a token for it is kept (a
  * system key holding `system:license`, or its own token), to read its use
- * since the current key was issued (`GET /v1/license/usage`), and to hand
- * it a new key before it's written (`PUT /v1/license`). Both or neither.
+ * since the current key was issued (`GET /v1/license/usage`), to hand it a
+ * new key before it's written (`PUT /v1/license`), and to see whether it
+ * runs an older key than the one kept (`GET /v1/license`). Both or neither.
  * Neither value is printed: a URL can hold credentials, and a reference
  * given wrong can be the token itself.
  */
@@ -109,6 +111,7 @@ function runtimeOf(ctx: CommandContext):
   | {
       readonly usage: (since: Date) => Promise<RenewalUsage>;
       readonly push: (key: string) => Promise<PushAnswer>;
+      readonly running: () => Promise<Date | undefined>;
     }
   | undefined {
   const runtime = stringFlag(ctx, 'runtime');
@@ -157,6 +160,17 @@ function runtimeOf(ctx: CommandContext):
         return { kind: 'taken' };
       } catch (cause) {
         return pushAnswer(base, cause);
+      }
+    },
+    // Can't say, for any reason: nothing is handed over on its word.
+    async running() {
+      try {
+        const api = await client();
+        const { expiresAt } = await api.license.get();
+        const at = expiresAt === undefined ? undefined : new Date(expiresAt);
+        return at === undefined || Number.isNaN(at.getTime()) ? undefined : at;
+      } catch {
+        return undefined;
       }
     },
   };
@@ -214,6 +228,26 @@ function runtimeLine(
   return [
     warning(
       `⚠ The runtime didn't take the new key (${runtime.said}): it uses it from its next start; until then it runs on the one it started with.`,
+    ),
+  ];
+}
+
+/**
+ * What the runtime made of the unchanged key, handed to it because it ran
+ * one that expires earlier, as a line; none when it wasn't handed it.
+ */
+function handedOverLine(runtime: RuntimeTook | undefined, kept: string): SaidLine[] {
+  if (runtime === undefined) return [];
+  if (runtime.kind === 'taken') {
+    return [
+      note(
+        `The runtime ran an older key than the one in ${kept}: it took that one, and runs it now.`,
+      ),
+    ];
+  }
+  return [
+    warning(
+      `⚠ The runtime runs an older key than the one in ${kept}, and didn't take it (${runtime.said}): it uses it from its next start.`,
     ),
   ];
 }
@@ -422,7 +456,7 @@ const renew: LeafCommand = {
     runtime: {
       type: 'string',
       description:
-        "This deployment's runtime, reached with --runtime-token: the renewal carries its use since the current key was issued (counts only), and a new key goes to it before it's written.",
+        "This deployment's runtime, reached with --runtime-token: the renewal carries its use since the current key was issued (counts only), a new key goes to it before it's written, and an unchanged one goes to it when it runs an older key.",
     },
     'runtime-token': {
       type: 'string',
@@ -447,12 +481,17 @@ const renew: LeafCommand = {
         "where the renewer's private key is (as enroll was given)",
       );
       const origin = accessOrigin(ctx);
+      const keyStore = store(ctx, 'key', keyRef);
       const outcome = await renewLicense(
         {
-          key: store(ctx, 'key', keyRef),
+          key: keyStore,
           renewer: store(ctx, 'renewer', renewerRef),
           origin,
-          ...(runtime !== undefined && { usage: runtime.usage, push: runtime.push }),
+          ...(runtime !== undefined && {
+            usage: runtime.usage,
+            push: runtime.push,
+            running: runtime.running,
+          }),
         },
         { fetch: ctx.fetch, ...(ctx.licenseDeps?.renew ?? {}) },
       );
@@ -490,7 +529,9 @@ const renew: LeafCommand = {
       const lines = [
         note(`${outcome.kind}: ${describeKey(outcome.claims)} (renewer ${outcome.renewerId})`),
         ...countsLine(outcome.counts),
-        ...(outcome.kind === 'renewed' ? runtimeLine(outcome.runtime, outcome.needsRuntime) : []),
+        ...(outcome.kind === 'renewed'
+          ? runtimeLine(outcome.runtime, outcome.needsRuntime)
+          : handedOverLine(outcome.runtime, keyStore.describe)),
         ...(daysLeft <= warnDaysOf(outcome.claims)
           ? // The Azure module's expiring alert reads this line's days: the tests
             // run renew against its query (deploy/azure-container-apps).

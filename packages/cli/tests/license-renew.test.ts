@@ -508,6 +508,83 @@ describe('a new key handed to the running server first (--runtime)', () => {
   });
 });
 
+describe('an unchanged key, handed to a running server that runs an older one (--runtime)', () => {
+  /** When the kept key expires, in milliseconds (`licenseKey`'s default `exp`). */
+  const KEPT_EXP = NOW + 25 * DAY * 1000;
+
+  /**
+   * An unchanged renewal, beside a server that says it runs a key expiring
+   * at `running` and answers a key handed to it with `answer`.
+   */
+  async function unchanged(running: number | undefined, answer: PushAnswer = { kind: 'taken' }) {
+    const key = licenseKey();
+    const d = deployment(key);
+    const before = readFileSync(d.env, 'utf8');
+    const inode = statSync(d.env).ino;
+    const s = service(d.renewer, () => ({ status: 200, body: { licenseKey: key } }));
+    const handed: string[] = [];
+    const out = await renewLicense(
+      {
+        ...d.input,
+        push: async (handedKey) => {
+          handed.push(handedKey);
+          return answer;
+        },
+        running: async () => (running === undefined ? undefined : new Date(running)),
+      },
+      deps(s.fetchImpl),
+    );
+    const untouched = readFileSync(d.env, 'utf8') === before && statSync(d.env).ino === inode;
+    return { out, key, handed, untouched };
+  }
+
+  test('a server that runs a key expiring earlier: handed the kept key, nothing written', async () => {
+    const { out, key, handed, untouched } = await unchanged(KEPT_EXP - 30 * DAY * 1000);
+    expect(out).toMatchObject({ kind: 'unchanged', runtime: { kind: 'taken' } });
+    expect(handed).toEqual([key]);
+    expect(untouched).toBe(true);
+  });
+
+  test('not taken: still unchanged, saying why, so the next run hands it over again', async () => {
+    for (const [answer, said] of [
+      [
+        { kind: 'not-handed', said: "https://kindgi.acme.example couldn't be asked" },
+        "https://kindgi.acme.example couldn't be asked",
+      ],
+      [
+        { kind: 'absent', said: 'https://kindgi.acme.example has no PUT /v1/license' },
+        'https://kindgi.acme.example has no PUT /v1/license',
+      ],
+      [
+        { kind: 'refused', error: 'license-key-refused', message: 'The key is older.' },
+        'license-key-refused: The key is older',
+      ],
+    ] as const) {
+      const { out, handed, untouched } = await unchanged(KEPT_EXP - DAY * 1000, answer);
+      expect(out, answer.kind).toMatchObject({
+        kind: 'unchanged',
+        runtime: { kind: 'next-start', said },
+      });
+      expect(handed, answer.kind).toHaveLength(1);
+      expect(untouched, answer.kind).toBe(true);
+    }
+  });
+
+  test("a server in step, or one that can't say: handed nothing", async () => {
+    for (const [label, running] of [
+      ['runs the kept key', KEPT_EXP],
+      ['runs a later key', KEPT_EXP + DAY * 1000],
+      ["can't say", undefined],
+    ] as const) {
+      const { out, handed, untouched } = await unchanged(running);
+      expect(out.kind, label).toBe('unchanged');
+      expect(out.kind === 'unchanged' && Object.keys(out), label).not.toContain('runtime');
+      expect(handed, label).toEqual([]);
+      expect(untouched, label).toBe(true);
+    }
+  });
+});
+
 describe('where a secret is kept', () => {
   test('file: a new one is 0600; a replaced one keeps its mode', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'kindgi-store-'));

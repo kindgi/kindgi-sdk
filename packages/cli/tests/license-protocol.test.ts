@@ -156,6 +156,10 @@ describe('a license key, checked offline', () => {
     ).toMatchObject({
       claims: { limits: { agents: 2 } },
     });
+    // A lim that names no count this CLI knows limits nothing, as the runtime reads it.
+    const unknownOnly = checkLicenseKey(keyFor({ ...production, lim: { tenants: 2 } }), publicKeys);
+    expect(unknownOnly.kind).toBe('ok');
+    expect(unknownOnly.kind === 'ok' && Object.keys(unknownOnly.claims)).not.toContain('limits');
     // A key without them says neither.
     const plain = checkLicenseKey(keyFor(production), publicKeys);
     expect(plain.kind === 'ok' && Object.keys(plain.claims)).not.toContain('warnDays');
@@ -184,12 +188,10 @@ describe('a license key, checked offline', () => {
         reason: 'malformed',
       });
     }
-    expect(checkLicenseKey(keyFor({ ...production, warn: 30, lim: {} }), publicKeys)).toMatchObject(
-      {
-        kind: 'ok',
-        claims: { warnDays: 30, limits: {} },
-      },
-    );
+    // An empty lim is taken, and limits nothing.
+    const empty = checkLicenseKey(keyFor({ ...production, warn: 30, lim: {} }), publicKeys);
+    expect(empty).toMatchObject({ kind: 'ok', claims: { warnDays: 30 } });
+    expect(empty.kind === 'ok' && Object.keys(empty.claims)).not.toContain('limits');
   });
 
   test("a kid with a cap: a key signed for longer is too-long, once it's Kindgi's", () => {

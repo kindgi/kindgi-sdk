@@ -1151,15 +1151,18 @@ describe('kindgi license renew', () => {
 
   /**
    * A runtime through the client: `GET /v1/license/usage` answers counts,
-   * `PUT /v1/license` answers `put`, and the keys handed to it are kept.
+   * `PUT /v1/license` answers `put`, `GET /v1/license` answers `license`
+   * when given, and the keys handed to it are kept.
    */
-  function served(put: () => Response) {
+  function served(put: () => Response, license?: () => Response) {
     const handed: string[] = [];
     const fetchImpl = (async (url: string, init: RequestInit) => {
-      if (init.method === 'PUT' && new URL(String(url)).pathname === '/v1/license') {
+      const path = new URL(String(url)).pathname;
+      if (init.method === 'PUT' && path === '/v1/license') {
         handed.push((JSON.parse(String(init.body)) as { key: string }).key);
         return put();
       }
+      if (license !== undefined && path === '/v1/license') return license();
       return Response.json(USAGE);
     }) as unknown as typeof fetch;
     return {
@@ -1252,6 +1255,69 @@ describe('kindgi license renew', () => {
         `KINDGI_LICENSE_KEY=${NEXT_KEY}\n`,
       );
     }
+  });
+
+  test('--runtime: an unchanged key goes to a runtime that runs an older one, and nothing is written', async () => {
+    // Outside its warning window, so the only warning is the runtime's.
+    const current = licenseKey({ exp: NOW / 1000 + 45 * DAY });
+    /** The runtime's own key: it expires 10 days before the kept one. */
+    const older = () =>
+      Response.json({ mode: 'licensed', expiresAt: new Date(NOW + 35 * DAY * 1000).toISOString() });
+    const notTaken = `, and didn't take it (${NO_PUT_SAID}): it uses it from its next start.`;
+    for (const [label, put] of [
+      ['taken', () => Response.json({})],
+      ['not taken', NO_PUT[0] as () => Response],
+    ] as const) {
+      const { dir, renewer } = await enrolled(current);
+      writeFileSync(join(dir, 'runtime.token'), 'kgi_bt_test\n');
+      const before = readFileSync(join(dir, 'kindgi.env'), 'utf8');
+      const rt = served(put, older);
+      const out = await cli(dir, [...RENEW_WITH_RUNTIME, '--json'], {
+        ...deps,
+        fetchImpl: service(renewer, () => Response.json({ licenseKey: current })),
+        clientFactory: rt.clientFactory,
+      });
+      expect(out.exitCode, label).toBe(0);
+      expect(rt.handed, label).toEqual([current]);
+      expect(readFileSync(join(dir, 'kindgi.env'), 'utf8'), label).toBe(before);
+      const result = JSON.parse(out.stdout) as { status: string; warnings: string[] };
+      expect(result.status, label).toBe('unchanged');
+      if (label === 'taken') {
+        expect(result).toMatchObject({ runtime: { kind: 'taken' }, warnings: [] });
+        expect(out.stderr).toMatch(
+          /The runtime ran an older key than the one in .+: it took that one, and runs it now\.\n/,
+        );
+      } else {
+        expect(result).toMatchObject({ runtime: { kind: 'next-start', said: NO_PUT_SAID } });
+        expect(result.warnings).toHaveLength(1);
+        expect(result.warnings[0]).toMatch(/^The runtime runs an older key than the one in /);
+        expect(result.warnings[0]).toContain(notTaken);
+        expect(out.stderr).toContain(`⚠ ${result.warnings[0]}\n`);
+      }
+    }
+  });
+
+  test('--runtime: an unchanged key and a runtime in step: no key handed over', async () => {
+    const current = licenseKey({ exp: NOW / 1000 + 45 * DAY });
+    const { dir, renewer } = await enrolled(current);
+    writeFileSync(join(dir, 'runtime.token'), 'kgi_bt_test\n');
+    const rt = served(
+      () => Response.json({}),
+      () =>
+        Response.json({
+          mode: 'licensed',
+          expiresAt: new Date(NOW + 45 * DAY * 1000).toISOString(),
+        }),
+    );
+    const out = await cli(dir, [...RENEW_WITH_RUNTIME, '--json'], {
+      ...deps,
+      fetchImpl: service(renewer, () => Response.json({ licenseKey: current })),
+      clientFactory: rt.clientFactory,
+    });
+    expect(out.exitCode).toBe(0);
+    expect(rt.handed).toEqual([]);
+    expect(JSON.parse(out.stdout)).not.toHaveProperty('runtime');
+    expect(out.stderr).not.toContain('older key');
   });
 
   test('--runtime: a key that needs 0.7.0 where the current one needs less is written only once the runtime took it', async () => {

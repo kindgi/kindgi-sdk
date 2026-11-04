@@ -70,7 +70,7 @@ export interface LicenseClaims {
   readonly expiresAt: Date;
   /** Whole days before `expiresAt` the key warns from (`warn`), when it says; 30 otherwise. */
   readonly warnDays?: number;
-  /** What the key limits (`lim`), when it says: a production key's only. */
+  /** What the key limits (`lim`), a production key's only; absent when it limits no count this CLI knows. */
   readonly limits?: LicenseLimits;
 }
 
@@ -138,6 +138,7 @@ export function checkLicenseKey(
   if (cap !== undefined && payload.exp - payload.iat > cap * DAY_SECONDS) {
     return { kind: 'err', reason: 'too-long' };
   }
+  const limits = payload.lim === undefined ? undefined : limitsOf(payload.lim);
   return {
     kind: 'ok',
     claims: {
@@ -148,7 +149,7 @@ export function checkLicenseKey(
       issuedAt: new Date(payload.iat * 1000),
       expiresAt: new Date(payload.exp * 1000),
       ...(payload.warn !== undefined && { warnDays: payload.warn }),
-      ...(payload.lim !== undefined && { limits: limitsOf(payload.lim) }),
+      ...(limits !== undefined && { limits }),
     },
   };
 }
@@ -191,12 +192,13 @@ function parsePayload(part: string): Payload | undefined {
   return p as unknown as Payload;
 }
 
-function limitsOf(lim: Readonly<Record<string, unknown>>): LicenseLimits {
+/** The counts a checked `lim` sets; `undefined` when it sets none this CLI knows, as the runtime reads it. */
+function limitsOf(lim: Readonly<Record<string, unknown>>): LicenseLimits | undefined {
   const out: Record<string, number> = {};
   for (const name of LIMIT_NAMES) {
     if (lim[name] !== undefined) out[name] = lim[name] as number;
   }
-  return out;
+  return Object.keys(out).length === 0 ? undefined : out;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
