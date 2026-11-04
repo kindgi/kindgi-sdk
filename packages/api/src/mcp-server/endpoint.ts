@@ -104,7 +104,13 @@ export function mountMcpServer(
   const handler = createMcpHandler(async ({ authInfo }) => {
     const server = new McpServer(
       { name: 'kindgi', version: input.version },
-      { instructions: INSTRUCTIONS },
+      {
+        instructions: INSTRUCTIONS,
+        // Each request builds the person's lists afresh, so no list ever
+        // changes under a client: a 2026-07-28 `subscriptions/listen` ends at
+        // once instead of being held open for notices that never come.
+        capabilities: { tools: { listChanged: false }, resources: { listChanged: false } },
+      },
     );
     const context = authInfo?.extra?.[CONTEXT_KEY] as McpToolContext | undefined;
     // Every request is admitted below before it gets here; one without a
