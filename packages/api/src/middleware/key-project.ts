@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { MiddlewareHandler } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 
-import { ref } from '@kindgi/authz';
+import { type Action, type ResourceRef, ref } from '@kindgi/authz';
 
+import { isReadMethod } from '../read-method.js';
 import { refused } from '../routes/denied.js';
 import type { AppEnv } from '../types.js';
-import type { Authorizer } from './authorize.js';
+import { type Authorizer, type ResourceGetter, beyondKeyProject } from './authorize.js';
 import { type OwnBodyLimit, mayBeJsonObject, takesUpload } from './request-body.js';
 
 const PROJECT_PATH_RE = /\/projects\/([^/]+)/;
@@ -60,6 +61,66 @@ export function refuseOtherProjectForKey(
 /** What a refusal names as limited: the caller's session, or its API key. */
 export function limitedCaller(c: { get(key: 'sessionId'): unknown }): string {
   return c.get('sessionId') !== undefined ? 'This session' : 'This API key';
+}
+
+/**
+ * A route's gate on `action` at the resource its getter names: the
+ * authorizer's (`authorize`) with a store, else `holdLimitedCaller`. One
+ * getter serves both, so both read the scope the same way.
+ */
+export function gate(authorizer: Authorizer | undefined): Authorizer['authorize'] {
+  return authorizer !== undefined
+    ? (action, getResource) => authorizer.authorize(action, getResource)
+    : holdLimitedCaller;
+}
+
+/**
+ * Without an authorization store, a key or session limited to a project
+ * is refused, `403 key-project-mismatch`, a write that a store would
+ * refuse it for that limit alone (`beyondKeyProject`): an `admin` action
+ * on the tenant, an org or a team, or a write in another project. Reads
+ * pass, and so does every other caller, as they do without a store today.
+ */
+export function holdLimitedCaller(
+  action: Action,
+  getResource: ResourceGetter,
+): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    if (c.get('tokenProjectId') === undefined || isReadMethod(c.req.method)) return next();
+    return limitedCallerRefusal(c, action, await getResource(c)) ?? next();
+  };
+}
+
+/**
+ * `holdLimitedCaller`'s answer for a resource a handler knows only once
+ * it has read the request: the 403 to return, or `undefined` when the
+ * caller's limit allows the write. For a runtime without a store; with
+ * one, the route asks the authorizer instead.
+ */
+export function limitedCallerRefusal(
+  c: Context<AppEnv>,
+  action: Action,
+  resource: ResourceRef,
+): Response | undefined {
+  const keyProject = c.get('tokenProjectId');
+  if (keyProject === undefined || isReadMethod(c.req.method)) return undefined;
+  if (!beyondKeyProject(c, action, resource)) return undefined;
+  const otherProject = resource.type === 'project';
+  return refused(c, undefined, {
+    action,
+    resource,
+    message: otherProject
+      ? `${limitedCaller(c)} is limited to project ${keyProject}; the request names project ${resource.id}`
+      : `${limitedCaller(c)} is limited to project ${keyProject}, and this request changes ${above(resource)}`,
+    failing: 'scope',
+    code: 'key-project-mismatch',
+    details: { keyProjectId: keyProject, ...(otherProject && { projectId: resource.id }) },
+  });
+}
+
+/** What a refusal names above the project. */
+function above(resource: ResourceRef): string {
+  return resource.type === 'tenant' ? 'the workspace' : `${resource.type} ${resource.id}`;
 }
 
 type RequestLike = {

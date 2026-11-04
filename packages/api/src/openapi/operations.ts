@@ -1619,6 +1619,18 @@ const SCHEMA_COMPILE_BUDGET = ErrorResponse(SCHEMA_COMPILE_BUDGET_TEXT);
 const TAKES_PROMOTIONS =
   "Or `environment-takes-promotions`: the project is a later environment of an environment order, which takes builds only by promotion from the one before it; publish in the order's first environment instead (`details.firstProjectId`, when you can read that project; `details.position`, the project's place from 0). Nothing is written.";
 
+/**
+ * Without an authorization store, a key or session limited to a project
+ * is refused a write above it (`holdLimitedCaller`). Each operation it
+ * holds says so in its 403.
+ */
+export const LIMITED_ABOVE_PROJECT =
+  'Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).';
+const withLimitedAbove = (text: string): string => `${text} ${LIMITED_ABOVE_PROJECT}`;
+const LIMITED_ABOVE_PROJECT_403 = ErrorResponse(
+  withLimitedAbove('`permission-denied`: the caller may not make this change.'),
+);
+
 const CommonAuthErrors: Readonly<Record<string, ResponseSpec>> = {
   '401': ErrorResponse('Missing / malformed / expired / revoked bearer token.'),
 };
@@ -1947,6 +1959,7 @@ function pinnedVersionOperations(kind: PinKindSpec): readonly OperationSpec[] {
       responses: {
         '200': { description: 'Pinned.', schema: ref('PinnedVersionChange') },
         ...CommonMutationErrors,
+        '403': LIMITED_ABOVE_PROJECT_403,
         '400': ErrorResponse(
           `Malformed request body. Or \`scope-invalid\`: a segment scope, since ${noun}s pin per project, org or workspace. Or \`reference-out-of-scope\`: a project scope whose project doesn't reach the ${noun === 'flow' ? 'version' : noun} (\`details.issues\`).${kind.pin400}`,
         ),
@@ -1971,6 +1984,7 @@ function pinnedVersionOperations(kind: PinKindSpec): readonly OperationSpec[] {
       responses: {
         '200': { description: 'Unpinned.', schema: ref('PinnedVersionChange') },
         ...CommonMutationErrors,
+        '403': LIMITED_ABOVE_PROJECT_403,
         '400': ErrorResponse(
           `Malformed request body. Or \`scope-invalid\`: a segment scope, since ${noun}s pin per project, org or workspace.`,
         ),
@@ -3865,7 +3879,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Reviewer registered.', schema: ref('Reviewer') },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        "With authorization enforced, the caller is not an admin of the workspace; or the person is one a site signs in, whose reviewer role is their site's to give (`site-person-grants-managed`).",
+        withLimitedAbove(
+          "With authorization enforced, the caller is not an admin of the workspace; or the person is one a site signs in, whose reviewer role is their site's to give (`site-person-grants-managed`).",
+        ),
       ),
     },
   },
@@ -3885,7 +3901,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '404': ErrorResponse('No reviewer with that id under this workspace.'),
       '403': ErrorResponse(
-        'With authorization enforced, the caller is not an admin of the workspace; or the person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).',
+        withLimitedAbove(
+          'With authorization enforced, the caller is not an admin of the workspace; or the person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).',
+        ),
       ),
     },
   },
@@ -4019,6 +4037,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Agent published.', schema: ref('PublishAgentResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '400': ErrorResponse(
         "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: a tool, guardrail or data block it names isn't registered in its project, its org or the workspace (`details.issues`, each with `path`, `kind` and `id`).",
       ),
@@ -4244,6 +4263,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('PinAnswer'),
       },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '400': ErrorResponse(
         "Malformed request body, or the test run isn't a completed comparison: a cancelled or failed one is refused, even with the summary of the cases it got through. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
       ),
@@ -4351,6 +4371,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Release gate published.', schema: ref('ReleaseGate') },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '400': ErrorResponse('Validation failed (see `details.issues`).'),
       '409': ErrorResponse(
         '`release-gate-already-registered`: that (id, version) exists. `release-gate-scope-taken`: another release gate gates the agent for the scope (`details.heldBy`). `release-gate-scope-changed`: the version would change the agent or scope. `release-gate-scope-unpinned`: the scope has no pinned version of its own; a gated scope holds its own pin (a pin above it is not enough, since a pin there would change this scope ungated), so pin a version for the scope first.',
@@ -4418,6 +4439,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The unregistered version.', schema: ref('ReleaseGate') },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '404': ErrorResponse('No such version.'),
     },
   },
@@ -4434,6 +4456,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The reinstated version.', schema: ref('ReleaseGate') },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '404': ErrorResponse('No such version.'),
       '409': ErrorResponse(
         '`release-gate-scope-taken`: another release gate gates the agent for the scope now (`details.heldBy`). `release-gate-scope-unpinned`: the scope has no pinned version of its own; pin one first.',
@@ -4498,6 +4521,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('PinAnswer'),
       },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '409': ErrorResponse(
         "`not-pinned`: the scope has no pin of its own. `release-gate-needs-pin`: the scope has a release gate of its own, and a gated scope keeps its own pin; unregister the gate first, or pin an earlier version instead. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. Or `registry-read-only`: under `kindgi dev`, a pinned version was written into the pack's files; to undo a pin, pin the version before.",
       ),
@@ -4595,6 +4619,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Flow published.', schema: ref('PublishFlowResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '400': ErrorResponse(
         "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: a tool, agent or subflow it names isn't registered in its project, its org or the workspace (`details.issues`, each with `path`, `kind` and `id`).",
       ),
@@ -4742,6 +4767,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Tool registered.', schema: ref('RegisterToolResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '400': ErrorResponse(
         "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `provider-key-refused`: the tool names a model provider's key (`details.secret`, `details.providerId`); store the key it needs under its own name (the same value is fine) and name that. Or `reserved-name-prefix`: the tool names a secret under the reserved `kindgi.` prefix (`details.secret`); those are Kindgi's own. Or `validation-failed` for a `metadata` key under `kindgi.`: those are the runtime's own (`details.issues`, at `/metadata/<key>`).",
       ),
@@ -4905,6 +4931,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Guardrail registered.', schema: ref('RegisterGuardrailResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '400': ErrorResponse(
         "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: a pack check it names isn't registered in its project, its org or the workspace (`details.issues`); a built-in check is every project's.",
       ),
@@ -5176,7 +5203,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         'Malformed body, or the fact type requires semantic indexing and no embedding provider is bound.',
       ),
-      '403': ErrorResponse("`permission-denied`: the caller may not write in the fact's scope."),
+      '403': ErrorResponse(
+        withLimitedAbove("`permission-denied`: the caller may not write in the fact's scope."),
+      ),
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body; or an erasure of the fact's person (by scope or subject) or conversation is in progress (`erasure-in-progress`): nothing new is stored for them until it completes.",
       ),
@@ -5298,7 +5327,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         "Not exactly one of `factId`, `subject` or `conversationId`; or a `subject` of kind `user` (erasing a Kindgi user isn't offered).",
       ),
-      '403': ErrorResponse('Not a tenant admin.'),
+      '403': ErrorResponse(withLimitedAbove('Not a tenant admin.')),
       '409': ErrorResponse(
         '`legal-hold`: a fact it reaches is under legal hold (`details.factIds`); nothing started.',
       ),
@@ -5354,7 +5383,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'What was replayed.', schema: ref('ReplayMemoryErasuresResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse('Not `{erasures: [...]}` as the export gave them.'),
-      '403': ErrorResponse('Not a tenant admin.'),
+      '403': ErrorResponse(withLimitedAbove('Not a tenant admin.')),
     },
   },
   {
@@ -5373,7 +5402,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The erasure.', schema: ref('MemoryErasure') },
       ...CommonMutationErrors,
       '400': ErrorResponse('The body is `{force?: boolean}`.'),
-      '403': ErrorResponse('Not a tenant admin.'),
+      '403': ErrorResponse(withLimitedAbove('Not a tenant admin.')),
       '404': ErrorResponse('No such erasure in this workspace.'),
     },
   },
@@ -6405,7 +6434,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Corrector group created.', schema: ref('CorrectorGroup') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('`permission-denied`.'),
+      '403': ErrorResponse(withLimitedAbove('`permission-denied`.')),
       '409': ErrorResponse('`corrector-group-name-taken`, or an idempotency conflict.'),
     },
   },
@@ -6551,7 +6580,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Validation failed (see `details.reason`). Or `provider-key-refused`: `secretRef` names a model provider's key (`details.secret`, `details.providerId`). Or `reserved-name-prefix`: it names a secret under the reserved `kindgi.` prefix (`details.secret`).",
       ),
       '403': ErrorResponse(
-        '`host-access-denied`: a `stdio` endpoint on a deployment that refuses commands on its host (`KINDGI_TENANT_HOST_ACCESS=deployed` or `isolated`); or `authz-denied`.',
+        withLimitedAbove(
+          '`host-access-denied`: a `stdio` endpoint on a deployment that refuses commands on its host (`KINDGI_TENANT_HOST_ACCESS=deployed` or `isolated`); or `authz-denied`.',
+        ),
       ),
       '409': ErrorResponse(
         `MCP endpoint already registered at that id. Or ${ENV_NOT_SERVED_REFERENCE}`,
@@ -7011,7 +7042,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'What was purged, per domain.', schema: ref('RetentionSweepResult') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('Not a tenant admin.'),
+      '403': ErrorResponse(withLimitedAbove('Not a tenant admin.')),
       '400': ErrorResponse('Unknown `domain`, or `maxPerDomain` outside 1..10000.'),
     },
   },
@@ -7030,7 +7061,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'What was purged.', schema: ref('RetentionSweepResult') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('Not a tenant admin.'),
+      '403': ErrorResponse(withLimitedAbove('Not a tenant admin.')),
       '400': ErrorResponse('Unknown `domain` (or `*`), or `maxPerDomain` outside 1..10000.'),
     },
   },
@@ -8310,7 +8341,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. When `image-unverifiable` comes from a failed registry read, `details.cause` names why: `image-not-found`, `image-file-not-found`, `image-registry-unreachable`, `image-registry-unauthorized`, `image-unreadable` (a layer that isn't a readable archive), or `image-limit-exceeded`, with the bound in `details.limit` (`manifest`, `file`, `layer`, `read` or `unpack`: the image's own, so the same image is refused again). The workspace's hour of image reads passes, so it answers `429`. A tool that declares or sends a model provider's key, or a secret under the reserved `kindgi.` prefix, is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key or one of Kindgi's own secrets. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile is one too (`path` where it sits, such as `/output/schema` or `/nodes/<i>/branches/<k>/outputSchema`), as `defineAgent` and the flow loader refuse it: every turn or run would. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`. Or `reference-out-of-scope`: an agent or flow names a tool, agent, flow, guardrail or data block that neither the deployment brings nor its project reaches (`details.issues`, at `/agents/<i>/…` or `/flows/<i>/…`); nothing is registered.",
       ),
       '403': ErrorResponse(
-        "Signer key not on the workspace's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the workspace.",
+        withLimitedAbove(
+          "Signer key not on the workspace's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the workspace.",
+        ),
       ),
       '404': ErrorResponse(
         "The body's `projectId` names no project of this workspace (`project-not-found`).",
@@ -8342,7 +8375,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "`bad-input`: a body that isn't `{ projectId?, agents, blocks, replace? }`, a block named twice, a version that isn't one, or a `replace` reason that isn't 1 to 500 characters with no control characters (`details.issues`).",
       ),
       '403': ErrorResponse(
-        'No admin on `projectId` (`forbidden`), or a key limited to another project; without it, no admin on the workspace.',
+        withLimitedAbove(
+          'No admin on `projectId` (`forbidden`), or a key limited to another project; without it, no admin on the workspace.',
+        ),
       ),
       '409': ErrorResponse(
         '`deploy-would-put-back-older-blocks`, as `POST /v1/deployments` answers it: each block in `details.blocks` (`DeployCheckStop`).',
@@ -9003,6 +9038,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Org created.', schema: ref('CreateResourceResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
     },
   },
   {
@@ -9050,6 +9086,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Updated. No body.' },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '404': ErrorResponse('No org with that id under this workspace.'),
     },
   },
@@ -9076,6 +9113,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Deleted (or already absent). No body.' },
       ...CommonAuthErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '409': ErrorResponse(
         "`slug-conflict`: the org's projects would leave it with slugs that projects without an org already have. Or `org-has-environment-order`: the org is the parent of an environment order, so it can't be deleted — a tenant admin clears the order first.",
       ),
@@ -9130,6 +9168,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Team created.', schema: ref('CreateResourceResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '404': ErrorResponse(
         'org-not-found: `orgId` names no org of the workspace (it never existed, or it was deleted).',
       ),
@@ -9181,7 +9220,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '204': { description: 'Updated. No body.' },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        'No `admin` on the team; or the body names `orgId` (even the current one) and the caller is not a tenant admin, as making a team in an org needs (`permission-denied`).',
+        withLimitedAbove(
+          'No `admin` on the team; or the body names `orgId` (even the current one) and the caller is not a tenant admin, as making a team in an org needs (`permission-denied`).',
+        ),
       ),
       '404': ErrorResponse(
         'team-not-found: no team with that id under this workspace; or org-not-found: `orgId` names no org of the workspace (it never existed, or it was deleted).',
@@ -9211,6 +9252,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Deleted (or already absent). No body.' },
       ...CommonAuthErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
     },
   },
   {
@@ -9268,7 +9310,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Membership added.', schema: ref('AddTeamMembershipResult') },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+        withLimitedAbove(
+          "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+        ),
       ),
       '404': ErrorResponse(
         'No team with that id under this workspace (`team-not-found`), or the person named is not a member of this workspace (`identity-user-not-found`).',
@@ -9305,7 +9349,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     ],
     responses: {
       '403': ErrorResponse(
-        'The person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).',
+        withLimitedAbove(
+          'The person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).',
+        ),
       ),
       '204': { description: 'Removed (or already absent). No body.' },
       ...CommonAuthErrors,
@@ -9344,7 +9390,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '204': { description: 'Role updated. No body.' },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+        withLimitedAbove(
+          "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+        ),
       ),
       '404': ErrorResponse(
         'No membership for that (team, user) pair, or no such team under this workspace.',
@@ -9422,6 +9470,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Project created.', schema: ref('CreateResourceResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '404': ErrorResponse(
         'org-not-found: `orgId` names no org of the workspace (it never existed, or it was deleted).',
       ),
@@ -9475,7 +9524,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '204': { description: 'Updated. No body.' },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        'No `admin` on the project; or the body names `orgId` (even the current one) and the caller is not a tenant admin, as making a project in an org needs (`permission-denied`).',
+        withLimitedAbove(
+          'No `admin` on the project; or the body names `orgId` (even the current one) and the caller is not a tenant admin, as making a project in an org needs (`permission-denied`).',
+        ),
       ),
       '409': ErrorResponse(
         "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up, or another project of the workspace had it before it was renamed (`details.heldAs: 'old-slug'`); or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
@@ -10366,7 +10417,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         'A malformed body or a field out of its rules (`bad-input`), or a field other than `name` and `slug` (`unknown-field`).',
       ),
-      '403': ErrorResponse('Not a tenant admin.'),
+      '403': ErrorResponse(withLimitedAbove('Not a tenant admin.')),
       '404': ErrorResponse('The workspace id on the token does not resolve to a stored row.'),
       '409': ErrorResponse(
         "Another workspace has the slug (`tenant-slug-taken`); the server's verified sign-in domains name the workspace by its current slug, or name the new one (`tenant-slug-in-config`); the workspace is closing (`tenant-closing`); its setup hasn't finished (`tenant-setup-pending`); or an Idempotency-Key reused with another body.",
@@ -10428,6 +10479,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('UpsertTenantConfigResult'),
       },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       ...SecretWriteErrors,
       '409': ErrorResponse('`ifRevision` was set and did not match the stored revision.'),
     },
@@ -10658,7 +10710,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Env record.', schema: ref('EnvRecord') },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        'Bearer token missing `env:write` capability; or a body with `cloudSecret`, which only the operator sets (`cloud-secret-system-only`).',
+        withLimitedAbove(
+          'Bearer token missing `env:write` capability; or a body with `cloudSecret`, which only the operator sets (`cloud-secret-system-only`).',
+        ),
       ),
       '409': ErrorResponse(
         `\`ifRevision\` mismatch (env-write-conflict). Or ${ENV_NOT_SERVED_VALUE}`,
@@ -10688,7 +10742,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Delete outcome.', schema: ref('EnvDeleteResult') },
       ...CommonAuthErrors,
       '400': ErrorResponse('Missing or malformed scope / envName.'),
-      '403': ErrorResponse('Bearer token missing `env:write` capability.'),
+      '403': ErrorResponse(withLimitedAbove('Bearer token missing `env:write` capability.')),
     },
   },
 
@@ -10836,7 +10890,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       ...SecretWriteErrors,
-      '403': ErrorResponse('Bearer token missing `secrets:write` capability.'),
+      '403': ErrorResponse(withLimitedAbove('Bearer token missing `secrets:write` capability.')),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_VALUE),
     },
   },
@@ -10872,7 +10926,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'A body that fails validation (`bad-input`), or a rotation the store refuses as it would the write: `secret-value-too-large` for a new value over its size limit, or `reserved-name-prefix` for a `kindgi.` name.',
       ),
       ...SecretProviderErrors,
-      '403': ErrorResponse('Bearer token missing `secrets:rotate` capability.'),
+      '403': ErrorResponse(withLimitedAbove('Bearer token missing `secrets:rotate` capability.')),
       '404': ErrorResponse('Unknown secret.'),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_VALUE),
       '501': ErrorResponse(
@@ -10975,7 +11029,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         'Missing or malformed scope / envName, or `reserved-name-prefix` for a `kindgi.` name.',
       ),
-      '403': ErrorResponse('Bearer token missing revoke capability.'),
+      '403': ErrorResponse(withLimitedAbove('Bearer token missing revoke capability.')),
       '404': ErrorResponse('Unknown secret.'),
       '501': ErrorResponse(
         "The store doesn't revoke (`secret-operation-unsupported`): under `kindgi dev` secrets live in the env files; the message says to remove the name there.",

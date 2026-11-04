@@ -479,13 +479,33 @@ function keyCeilingDeny(
       `a member ${c.get('sessionId') !== undefined ? 'session' : 'API key'} takes no admin action on the workspace`,
     );
   }
+  return beyondKeyProject(c, action, resource)
+    ? keyDecision(
+        action,
+        resource,
+        `${limitedOne(c)} is limited to project ${c.get('tokenProjectId')}`,
+      )
+    : undefined;
+}
+
+/**
+ * Whether a key or session limited to a project is refused `action` on
+ * `resource` for that limit alone, whatever its principal's grants:
+ * another project, or above its own (the tenant, an org, a team) an
+ * `admin` action for a key, any action for a session. With a store,
+ * `keyCeilingDeny` refuses it; without one, `holdLimitedCaller` refuses
+ * its writes.
+ */
+export function beyondKeyProject(
+  c: Context<AppEnv>,
+  action: Action,
+  resource: ResourceRef,
+): boolean {
   const keyProject = c.get('tokenProjectId');
-  if (keyProject === undefined) return undefined;
+  if (keyProject === undefined) return false;
   const otherProject = resource.type === 'project' && resource.id !== keyProject;
   const session = c.get('sessionId') !== undefined;
   const aboveIt =
     resource.type !== 'project' && STRUCTURAL.has(resource.type) && (action === 'admin' || session);
-  return otherProject || aboveIt
-    ? keyDecision(action, resource, `${limitedOne(c)} is limited to project ${keyProject}`)
-    : undefined;
+  return otherProject || aboveIt;
 }

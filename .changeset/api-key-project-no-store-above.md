@@ -1,0 +1,5 @@
+---
+"@kindgi/api": patch
+---
+
+On a runtime without an authorization store, a key or a session limited to a project is refused, `403 key-project-mismatch` (`details.keyProjectId`), a write above its project, as a store already refused it: to the workspace (its settings and config; a tenant- or org-wide secret, env value, MCP endpoint, corrector group or memory fact; memory erasures and retention sweeps; release gates; the reviewer roster; a new project, or moving a project into an org; a tenant-wide agent, tool, flow, guardrail or deployment), to an org, or to a team. A runtime with a store is unchanged and still answers `permission-denied`, and keys and sessions not limited to a project are unchanged. Reads (`GET` and `HEAD`) stay as they were without a store. A write to an existing item by its id stays as it was without a store. A tenant- or org-wide pin or unpin is refused by its scope alone, so for an item that only the key's own project serves this is stricter than a store, which can allow it.

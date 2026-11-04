@@ -17,6 +17,7 @@ import {
   type MemoryAccessDeps,
   callerAttribution,
   callerRef,
+  memoryLimitRefusal,
   memoryReadersFor,
   memoryWriteProblem,
 } from './memory-access.js';
@@ -143,6 +144,8 @@ export function memoryRouter(binding: MemoryBinding, access: MemoryAccessDeps = 
     if (validation.kind === 'err') return fail(c, 'bad-input', validation.message);
     const { scope, ...rest } = validation.value;
     if (scopeNamesOtherTenant(scope, tenantId)) return failScopeMismatch(c);
+    const held = memoryLimitRefusal(c, access, scope);
+    if (held !== undefined) return held;
     const refused = await memoryWriteProblem(c, access, scope);
     if (refused !== undefined) return fail(c, 'permission-denied', refused);
 
