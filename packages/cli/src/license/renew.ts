@@ -286,7 +286,6 @@ export async function renewLicense(input: RenewInput, deps: RenewDeps = {}): Pro
   };
 }
 
-/** Whether release `version` (`0.7.0`) is `floor` or later: by major, minor, then patch. */
 /**
  * The unchanged key, handed to a running server that says it runs one
  * that expires earlier (`running`), as when it wasn't handed the key on
@@ -310,6 +309,7 @@ async function handOverUnchanged(
   return { kind: 'next-start', said };
 }
 
+/** Whether release `version` (`0.7.0`) is `floor` or later: by major, minor, then patch. */
 export function atLeast(version: string, floor: string): boolean {
   const parts = (v: string) => v.split('.').map((n) => Number.parseInt(n, 10) || 0);
   const [a, b] = [parts(version), parts(floor)];
