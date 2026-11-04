@@ -438,10 +438,13 @@ final class Kindgi_Rest {
 		// whose answers its journal doesn't hold: a step journals them only once
 		// all its calls are done, and not at all when it fails. The conversation
 		// keeps each as it comes, so they're read there, from when the turn
-		// started. Only then: a running turn's fast polls never ask more.
+		// started, once: on the poll whose journal holds the park, which is
+		// written after those answers are kept, or the failed turn's last poll.
+		// Nothing of the conversation changes while the turn waits, and a
+		// running turn's fast polls never ask more.
 		$conversation = is_string( $r['agent']['conversationId'] ?? null ) ? $r['agent']['conversationId'] : null;
 		$started      = strtotime( (string) ( $r['createdAt'] ?? '' ) );
-		if ( null !== $conversation && false !== $started && in_array( $r['status'] ?? null, array( 'suspended', 'failed' ), true ) ) {
+		if ( null !== $conversation && false !== $started && ( $turn['parked'] || 'failed' === ( $r['status'] ?? null ) ) ) {
 			$pages    = self::newest_of( $conversation );
 			$answered = array_column( $turn['answers'], 'callId' );
 			foreach ( is_wp_error( $pages ) ? array() : $pages['rows'] as $m ) {
@@ -485,17 +488,20 @@ final class Kindgi_Rest {
 	 *   (`answer_of`). A reply guardrails sent back is never kept, and none of
 	 *   its calls ran: their answers, which say so, are in the loop's next
 	 *   messages.
+	 * - `parked`: the turn parked among them, to wait for a person.
 	 *
 	 * @param array $entries Journal entries, oldest first.
 	 * @param int   $since   The last sequence seen before them.
-	 * @return array{steps: array, answers: array, since: int}
+	 * @return array{steps: array, answers: array, since: int, parked: bool}
 	 */
 	private static function turn_steps( array $entries, int $since ): array {
 		$steps   = array();
 		$answers = array();
 		$seen    = array();
+		$parked  = false;
 		foreach ( $entries as $entry ) {
-			$since = max( $since, (int) ( $entry['sequence'] ?? 0 ) );
+			$since  = max( $since, (int) ( $entry['sequence'] ?? 0 ) );
+			$parked = $parked || 'wait.suspended' === ( $entry['kind'] ?? '' );
 			if ( 'step.completed' !== ( $entry['kind'] ?? '' ) ) {
 				continue;
 			}
@@ -534,6 +540,7 @@ final class Kindgi_Rest {
 			'steps'   => $steps,
 			'answers' => $answers,
 			'since'   => $since,
+			'parked'  => $parked,
 		);
 	}
 
