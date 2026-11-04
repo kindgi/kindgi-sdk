@@ -41,6 +41,10 @@ const ALLOWED: Readonly<Record<string, { readonly sites: number; readonly why: s
     sites: 1,
     why: "a link's address from the message, escaped, as a whole word",
   },
+  'connections/src/microsoft-drive-tools.ts': {
+    sites: 1,
+    why: "a new file's name grammar: one character class, without backtracking",
+  },
   'handler-runtime/src/discovery.ts': {
     sites: 1,
     why: "a pack's discovery globs, in the pack's own process",
@@ -138,6 +142,7 @@ describe('no tenant pattern skips compileTenantPattern', () => {
       'connections/src/files.ts: listed, but has none',
       'connections/src/google-calendar-tools.ts: listed, but has none',
       'connections/src/mail-text.ts: listed, but has none',
+      'connections/src/microsoft-drive-tools.ts: listed, but has none',
       'handler-runtime/src/discovery.ts: listed, but has none',
       'schema/src/bounded.ts: listed, but has none',
       'sdk/src/webhook-events.ts: listed, but has none',
