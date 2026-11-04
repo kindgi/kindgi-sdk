@@ -38,11 +38,16 @@ import type { ConnectWaitResult } from './tool-hitl.js';
  *    missing, lacks a permission or needs reconnecting makes a connect
  *    request when the run can wait (a person started it), and the call
  *    waits for it (`computeConnectWaitToken`). The record keeps no token.
+ *    A ready one says the handover below is recorded too (`recordsRan`).
  * 2. **Every time the tool runs:** a fresh resolve, never recorded, gives
- *    the tokens (`ctx.connections`). The app refusing one (an HTTP 401,
- *    `ConnectionRejectedError`) renews that token and runs the call once
- *    more. A pausing call's answer from outside runs nothing, and asks for
- *    none.
+ *    the tokens (`ctx.connections`). Before the tool's first run on them,
+ *    the call records that its tool was handed them, in that attempt of
+ *    its step (`connection-gate:<callId>:ran:<attempt>`, `kind: 'ran'`): a
+ *    call these connections stopped has no such record, and one whose
+ *    input then fails the tool's input check has one. The app refusing one
+ *    (an HTTP 401, `ConnectionRejectedError`) renews that token and runs
+ *    the call once more. A pausing call's answer from outside runs
+ *    nothing, and asks for none.
  *
  * A call the connections stop runs nothing: it fails with a
  * `connection-*` code, the model reads why as its result, and the turn
@@ -55,8 +60,11 @@ import type { ConnectWaitResult } from './tool-hitl.js';
  */
 
 /**
- * Why a call that needs connections failed: it didn't run, or
- * (`connection-rejected`) the app refused its renewed token too.
+ * Why a call that needs connections failed: it didn't run; or it ran, the
+ * app refused a token, and the renewed one was refused too
+ * (`connection-rejected`) or its renewal failed (another code). Whether
+ * its tool was handed its connections is its gate's `ran` record
+ * (`connection-gate:<callId>:ran:<attempt>`).
  */
 export type ConnectionCallCode =
   | 'connection-app-missing'
@@ -223,6 +231,20 @@ export async function freshConnections(
     };
   }
   return { kind: 'ready', connections: outcome.connections };
+}
+
+/**
+ * Record that `call`'s tool got its connections, right before it runs on
+ * them (step 2 above): `connection-gate:<callId>:ran:<attempt>`, the
+ * gate's ready record having said it would (`recordsRan`). Once per
+ * attempt of the call's step: a renewed run in the same attempt finds it
+ * recorded, and a retried step's attempt records its own.
+ */
+export async function recordRan(kctx: NodeContext, call: ModelToolCall): Promise<void> {
+  await kctx.record(
+    `${CONNECTION_GATE_RECORD_PREFIX}${call.id}:ran:${kctx.attempt ?? 1}`,
+    (): ConnectionGateRecord => ({ kind: 'ran' }),
+  );
 }
 
 /**
@@ -401,7 +423,14 @@ function firstNeed(tool: Tool, as: ConnectionNeed['as']): string | undefined {
     .find((name) => needs[name]?.as === as);
 }
 
-/** One recorded resolve: the token-free record, or the renewal that failed (recorded as nothing). */
+/** What a gate's resolve records: the resolver's answer, never `ran`. */
+type GateAnswer = Exclude<ConnectionGateRecord, { readonly kind: 'ran' }>;
+
+/**
+ * One recorded resolve: the token-free record, or the renewal that failed
+ * (recorded as nothing). A ready one says the call's run is recorded too
+ * (`recordsRan`, `recordRan`): with no such record, the call didn't run.
+ */
 async function recordResolve(
   ctx: TurnContext,
   kctx: NodeContext,
@@ -412,16 +441,17 @@ async function recordResolve(
   waitMs: number,
   accounts: Readonly<Record<string, string>> | undefined,
 ): Promise<
-  | { readonly kind: 'recorded'; readonly record: ConnectionGateRecord }
+  | { readonly kind: 'recorded'; readonly record: GateAnswer }
   | { readonly kind: 'failed'; readonly failure: ConnectionCallFailure }
 > {
   try {
-    const record = await kctx.record(key, async () =>
-      connectionGateRecordOf(
+    const record = await kctx.record(key, async (): Promise<GateAnswer> => {
+      const answer = connectionGateRecordOf(
         await resolve(ctx, kctx, call, tool, needs, waitMs, undefined, accounts),
         needs,
-      ),
-    );
+      );
+      return answer.kind === 'ready' ? { ...answer, recordsRan: true } : answer;
+    });
     return { kind: 'recorded', record };
   } catch (cause) {
     const failure = renewFailureOf(cause);

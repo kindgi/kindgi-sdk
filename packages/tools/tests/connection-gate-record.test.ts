@@ -106,6 +106,18 @@ describe("a call's connection gate record", () => {
     expect(stringsOf(record).join(' ')).not.toContain('owner@acme.example');
   });
 
+  test("a ready answer doesn't say the call's run is recorded: only a gate that records it does", () => {
+    const record = recordOf(
+      {
+        kind: 'ready',
+        connections: { mail: connection('conn-mail', 'owner@acme.example', 'mine') },
+      },
+      { mail },
+    );
+    expect(record.kind).toBe('ready');
+    expect(record).not.toHaveProperty('recordsRan');
+  });
+
   test("the company's connection-not-chosen: whose need it was, and its choices by id and name only", () => {
     const message =
       'This project has 2 company Acme connections (sales, support), and agent pack.agent has no choice of one.';

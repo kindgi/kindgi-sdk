@@ -24,8 +24,8 @@ the Kindgi CLI and SDK.
 - **Docker** (Docker Desktop, or the Docker engine on Linux). `kindgi dev`
   runs the Kindgi runtime as a container, and a Postgres container for it:
   with `docker compose` when it's there, with plain `docker` otherwise. With
-  your own database (Postgres 16 with pgvector, passed as `--database-url`),
-  it starts no Postgres.
+  your own database (Postgres 16 with pgvector, its URL in
+  `.kindgi/secrets.env`), it starts no Postgres.
 - **For a Python pack:** Python 3.11 or later, and uv (or Poetry, or pip).
   The CLI comes from PyPI as `kindgi-cli`, with its own copy of Node, so you
   install no Node.
@@ -314,13 +314,24 @@ workspace root's or the pack folder's. It says which when it starts:
 
 ```text
   ✓ Project: acme-desk (the pack's folder name; set `project` in the Kindgi config to name it)
-  ✓ Database: kindgi_acme_desk (created) in the bundled Postgres; to use your own: --database-url
+  ✓ Database: kindgi_acme_desk (created) in the bundled Postgres; to use your own: KINDGI_DATABASE_URL in .kindgi/secrets.env
 ```
 
+- **Your own Postgres** (16, with pgvector): put its URL in Kindgi's own env
+  file, `.kindgi/secrets.env`, which your app doesn't load. Add the line in
+  your editor, then `chmod 600 .kindgi/secrets.env`:
+
+  ```sh
+  KINDGI_DATABASE_URL=postgres://<user>:<password>@<host>:5432/<database>
+  ```
+
+  `kindgi dev` then starts no Postgres. A URL passed with `--database-url` is
+  on the command line, where another user on the machine can read it with
+  `ps`: keep the flag for a URL with no password.
 - **Starting over:** `kindgi dev --reset` drops the project's database after
   asking, and makes a new token. `--yes` skips the question, for scripts;
-  without a terminal to ask on and without `--yes`, it refuses. A database you
-  pass with `--database-url` is never dropped.
+  without a terminal to ask on and without `--yes`, it refuses. Your own
+  database is never dropped.
 - **Several packs in one project** share its database and workspace, but not
   each other's tools: under `kindgi dev`, a flow in one pack can't call
   another pack's tools.
@@ -328,7 +339,7 @@ workspace root's or the pack folder's. It says which when it starts:
   every worktree, and `<worktree>` is git's name for a linked one. Each
   worktree has its own dev workspace, user and token. In the bundled Postgres
   it has its own database too, and its workspace and user are named from it;
-  with your own (`--database-url` or `KINDGI_DATABASE_URL`), it uses that
+  with your own (`KINDGI_DATABASE_URL`), it uses that
   one. Its `.kindgirc.json`, which `kindgi init` keeps out of git, keeps
   the token, the workspace and the user. When port `4000` is taken, by another
   worktree's `kindgi dev` say, `kindgi dev` takes the next free one and

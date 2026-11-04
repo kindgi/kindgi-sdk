@@ -135,6 +135,7 @@ import {
   describeReconcile,
   devProvidersKey,
   devProvidersRecordPath,
+  moveHashKeyedEntries,
   readOwnedProviders,
   reconcileProviders,
   writeOwnedProviders,
@@ -154,6 +155,7 @@ import { RuntimeOwnedElsewhere, RuntimeStartStopped } from '../dev/runtime-conta
 import { DEFAULT_RUNTIME_IMAGE } from '../dev/runtime-image.js';
 import { resolveDevSandbox } from '../dev/sandbox/notices.js';
 import { createStartPhases, formatDuration } from '../dev/start-phases.js';
+import { carriesCredential } from '../env/pack-env-plan.js';
 import { describeEnvDiagnostics, loadLocalEnvSettings } from '../env/project-env.js';
 import {
   declaredProviderKeyNames,
@@ -203,7 +205,7 @@ export const devCommand: LeafCommand = {
     'database-url': {
       type: 'string',
       description:
-        "The Postgres to use. Default: `KINDGI_DATABASE_URL` (the shell's, then the env files'), else the bundled Postgres.",
+        "The Postgres to use, for a URL with no password (a command line shows in `ps`). Default: `KINDGI_DATABASE_URL` (the shell's, then the env files'), else the bundled Postgres.",
     },
     tenant: {
       type: 'string',
@@ -217,7 +219,7 @@ export const devCommand: LeafCommand = {
     'dev-token': {
       type: 'string',
       description:
-        "Pin the API token. Default: the previous run's (from `.kindgirc.json`), else a new one.",
+        "Pin the API token. It's on the command line, where `ps` shows it; once pinned, it's kept in `.kindgirc.json`, so later runs need no flag. Default: the previous run's (from `.kindgirc.json`), else a new one.",
     },
     watch: {
       type: 'boolean',
@@ -239,11 +241,11 @@ export const devCommand: LeafCommand = {
     },
     // --reset: a fresh start for the project. With the bundled Postgres it
     // drops the project's database (asking first) and makes a new token;
-    // a database --database-url names is never dropped.
+    // a database the developer names is never dropped.
     reset: {
       type: 'boolean',
       description:
-        "Start the project fresh: drops its database in the bundled Postgres (every pack's dev data in it), after asking, and makes a new token. A database you pass with --database-url is never dropped: only the token is new.",
+        "Start the project fresh: drops its database in the bundled Postgres (every pack's dev data in it), after asking, and makes a new token. Your own database is never dropped: only the token is new.",
     },
     yes: {
       type: 'boolean',
@@ -390,7 +392,15 @@ const OUT_OF_REACH: ReadonlySet<DockerReach> = new Set([
 
 /** The way out that needs no Docker: "Use …" in the options, "Or use …" after a fix. */
 const OWN_POSTGRES =
-  'your own Postgres (16, with pgvector): pass --database-url=<url>, or set KINDGI_DATABASE_URL.';
+  "your own Postgres (16, with pgvector): add KINDGI_DATABASE_URL=<url> to .kindgi/secrets.env (Kindgi's own file; your app doesn't load it).";
+
+/**
+ * Said when `--database-url` has a password: a command line shows in
+ * `ps`, to every user on the machine, for as long as `kindgi dev` runs.
+ * It names no part of the URL.
+ */
+const PASSWORD_IN_FLAG =
+  "--database-url has a password, which ps shows to other users on this machine while kindgi dev runs: put KINDGI_DATABASE_URL in .kindgi/secrets.env instead (Kindgi's own file; your app doesn't load it).";
 
 function renderMissingDbHint(reason: string, reach?: DockerReach, ownRuntime = false): string {
   if (reach !== undefined && OUT_OF_REACH.has(reach)) {
@@ -443,6 +453,10 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     return { kind: 'error', stderr: `kindgi dev: ${earlyView.message}\n`, exitCode: 1 };
   }
   logView = earlyView.value;
+  // The flag's own URL only: the shell's `KINDGI_DATABASE_URL` is in no
+  // command line.
+  const dbFlag = ctx.options['database-url'];
+  if (typeof dbFlag === 'string' && carriesCredential(dbFlag)) emitProblem(`⚠ ${PASSWORD_IN_FLAG}`);
 
   const runners = pickRunners(ctx);
   if (runners.kind === 'error') return runners;
@@ -673,7 +687,7 @@ async function runDevForPack(
     databaseUrl = projectDatabases.urlFor(project.database);
     emitProgress(`✓ Project: ${project.name} (${describeProjectName(project)})`);
     emitProgress(
-      `✓ Database: ${project.database}${ensured.kind === 'created' ? ' (created)' : ''} in the bundled Postgres; to use your own: --database-url`,
+      `✓ Database: ${project.database}${ensured.kind === 'created' ? ' (created)' : ''} in the bundled Postgres; to use your own: KINDGI_DATABASE_URL in .kindgi/secrets.env`,
     );
     if (ensured.kind === 'adopted') {
       emitProgress(
@@ -963,6 +977,14 @@ async function runDevForPack(
       : project !== undefined
         ? { kind: 'bundled', database: project.database }
         : { kind: 'database', url: databaseUrl };
+  // Before it's read: entries keyed on a hash of the URL move to its name.
+  await moveHashKeyedEntries(devProvidersRecordPath(args.packDir), providersTarget).catch(
+    (err: unknown) => {
+      emitProblem(
+        `  ⚠ could not update ${join('.kindgi', 'dev', 'providers.json')}: ${(err as Error).message}. Providers this pack registered may read as not its own.`,
+      );
+    },
+  );
   await applyDeclaredProviders({
     client,
     packDir: args.packDir,
