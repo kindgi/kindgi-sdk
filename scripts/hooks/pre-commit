@@ -20,6 +20,8 @@
 #   5. When staged files touch the API layer OR the Python client, check
 #      the generated Python client (sdks/python) is in step with
 #      openapi.json. Needs `uv`; without it the hook says so and CI checks.
+#   6. When staged files touch openapi.json or the webhook event shapes,
+#      check parseEvent's generated shapes are in step with openapi.json.
 #
 # See CONTRIBUTING.md and docs/ADDING-A-ROUTE.md for the full
 # authoring workflow.
@@ -65,7 +67,7 @@ if [ -n "$biome" ]; then
   # ignores (or deletes) has nothing to check, and that is a pass.
   if ! "$biome" check --staged --no-errors-on-unmatched; then
     printf "\n\033[31mpre-commit: biome found problems in the staged files (above).\033[0m\n"
-    printf "\033[31m-> Run: \"%s\" check --write --staged\033[0m\n" "$biome"
+    printf "\033[31m-> Run: cd \"%s\" && \"%s\" check --write --staged\033[0m\n" "$top" "$biome"
     printf "   then stage the fixed files again.\n\n"
     exit 1
   fi
