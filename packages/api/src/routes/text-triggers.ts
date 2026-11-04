@@ -353,6 +353,7 @@ export function textTriggersRouter(
         triggerScope(tenantId, project),
         target.value,
         tools.value,
+        'text',
       );
       if (problem !== undefined) return bad(c, requestId, problem);
     }
@@ -551,6 +552,7 @@ export function textTriggersRouter(
         triggerScope(tenantId, project),
         nextTarget,
         tools.value,
+        'text',
       );
       if (problem !== undefined) return bad(c, requestId, problem);
     }

@@ -97,17 +97,25 @@ const agentRegistry = {
   },
 } as unknown as AgentRegistryBinding;
 
-/** One flow, `acme.orders`, whose one step is the agent `acme.triage`. */
+/**
+ * The flows, by id: `acme.orders`, whose one step is the agent
+ * `acme.triage`; `acme.batch`, with tool steps only; `acme.nested`, whose
+ * one step runs `acme.orders` as a subflow.
+ */
+const FLOWS: Record<string, readonly Record<string, unknown>[]> = {
+  'acme.orders': [{ id: 'help', kind: 'agent', ref: 'acme.triage' }],
+  'acme.batch': [{ id: 'look', kind: 'tool', ref: 'acme.lookup' }],
+  'acme.nested': [
+    { id: 'inner', kind: 'subgraph', flowRef: { flowId: 'acme.orders', version: '1.0.0' } },
+  ],
+};
+
 const flowRegistry = {
   get: async () => null,
-  getVersion: async ({ flowId, version }: { flowId: string; version: string }) =>
-    flowId === 'acme.orders'
-      ? {
-          id: flowId,
-          version,
-          nodes: [{ id: 'help', kind: 'agent', ref: 'acme.triage' }],
-        }
-      : null,
+  getVersion: async ({ flowId, version }: { flowId: string; version: string }) => {
+    const nodes = FLOWS[flowId];
+    return nodes === undefined ? null : { id: flowId, version, nodes };
+  },
 } as unknown as FlowRegistryBinding;
 
 const serviceAccountBinding = {
@@ -589,6 +597,25 @@ describe('toolsAllowedUnattended', () => {
     });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(res.body.toolsAllowedUnattended).toEqual(tools);
+  });
+
+  test("a flow with no agent step of its own can't: only the target's agent steps answer the text", async () => {
+    const h = harness();
+    // Tool steps only; or an agent step in a subflow, whose run is the
+    // subflow's, not the trigger's target's.
+    for (const flowId of ['acme.batch', 'acme.nested']) {
+      const res = await h.call('POST', BASE, {
+        flowId,
+        flowVersion: '1.0.0',
+        projectId: PROJECT,
+        config: { connectionId: FRONT_DESK.connectionId },
+        toolsAllowedUnattended: [REPLY_TO_TEXT_TOOL_ID],
+      });
+      expect(res.status, flowId).toBe(400);
+      expect(res.body.error.message).toBe(
+        `\`toolsAllowedUnattended\`: flow "${flowId}" at 1.0.0 doesn't call "${REPLY_TO_TEXT_TOOL_ID}"`,
+      );
+    }
   });
 
   test('an agent that declares what it remembers can list the remember tool', async () => {

@@ -378,6 +378,7 @@ export function webhooksRouter(
         triggerScope(tenantId, project),
         { kind: 'flow', flowId: flowId.value, flowVersion: flowVersion.value },
         tools.value,
+        'webhook',
       );
       if (problem !== undefined) return bad(c, requestId, problem);
     }
@@ -677,6 +678,7 @@ export function webhooksRouter(
         triggerScope(tenantId, found.value.projectId),
         flowAfter,
         tools.value,
+        'webhook',
       );
       if (problem !== undefined) return bad(c, requestId, problem);
     }

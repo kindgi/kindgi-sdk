@@ -447,6 +447,7 @@ export function schedulesRouter(
         triggerScope(tenantId, project),
         target.value,
         tools.value,
+        'cron',
       );
       if (problem !== undefined) return bad(c, requestId, problem);
     }
@@ -690,6 +691,7 @@ export function schedulesRouter(
         triggerScope(tenantId, found.value.projectId),
         nextTarget,
         tools.value,
+        'cron',
       );
       if (problem !== undefined) return bad(c, requestId, problem);
     }
