@@ -296,7 +296,10 @@ function heldProfile(
     return {
       refusal: {
         kind: 'env-pair',
-        message: `${PROFILE_ENV} and ${exported.join(' and ')} are both set, and each picks a runtime: unset one, or pass --profile ${name}.`,
+        message:
+          exported.length === 1
+            ? `${PROFILE_ENV} and ${exported[0]} are both set, and each picks a runtime: unset one, or pass --profile ${name}.`
+            : `${PROFILE_ENV}, ${exported.join(' and ')} are all set, and each picks a runtime: unset ${PROFILE_ENV} or the other two, or pass --profile ${name}.`,
       },
     };
   }

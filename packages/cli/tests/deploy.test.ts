@@ -2588,7 +2588,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
       });
       expect(out.exitCode).toBe(1);
       expect(out.stderr).toContain(
-        `kindgi deploy --hosted sends your API key to ${API}, the address it's for (from KINDGI_API_URL), and ${where} names another: ${other}. The key goes only to its own address: remove ${where} (Kindgi Cloud needs none), or sign in to ${other} with \`kindgi auth login --url ${other} --token <its key>\`.`,
+        `kindgi deploy --hosted sends your API key to ${API}, the address it's for (from KINDGI_API_URL), and ${where} names another: ${other}. The key goes only to its own address: remove ${where} (Kindgi Cloud needs none), or sign in to ${other} with \`kindgi auth login --url ${other} --token-stdin\`, its key on stdin.`,
       );
       expect(run.fixtures.state.buildCalls).toBe(0);
       expect(run.fixtures.state.postCalls).toBe(0);
@@ -2615,7 +2615,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     });
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain(
-      'kindgi deploy --hosted goes to the API your key is for, and no API address is set. Run `kindgi auth login --url <url> --token <its key>`, export KINDGI_API_URL, or pass --url <url>.',
+      'kindgi deploy --hosted goes to the API your key is for, and no API address is set. Run `kindgi auth login --url <url> --token-stdin` with its key on stdin, pass --profile <name>, export KINDGI_API_URL, or pass --url <url>.',
     );
     expect(run.fixtures.state.buildCalls).toBe(0);
     expect(run.fixtures.state.postCalls).toBe(0);
@@ -2650,7 +2650,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
         const out = await hostedDeploy(run.fixtures, env, ...flags);
         expect(out.exitCode).toBe(1);
         expect(out.stderr).toContain(
-          `kindgi deploy --hosted would send the API key stored in ${homeFile()}, which is for ${API}, to ${OTHER}, which ${where} names. The key goes only to its own address: point ${where} at ${API}, or sign in to ${OTHER} with \`kindgi auth login --url ${OTHER} --token <its key>\`.`,
+          `kindgi deploy --hosted would send the API key stored in ${homeFile()}, which is for ${API}, to ${OTHER}, which ${where} names. The key goes only to its own address: point ${where} at ${API}, or sign in to ${OTHER} with \`kindgi auth login --profile <name> --url ${OTHER} --token-stdin\`, its key on stdin.`,
         );
         expect(run.fixtures.state.buildCalls).toBe(0);
         expect(run.fixtures.state.postCalls).toBe(0);
@@ -2677,7 +2677,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
       const out = await hostedDeploy(run.fixtures, { KINDGI_API_URL: API });
       expect(out.exitCode).toBe(1);
       expect(out.stderr).toContain(
-        `kindgi deploy --hosted would send the API key stored in ${homeFile()} to ${API}, and no address is stored with that key, so nothing shows it's for ${API}. The key goes only to its own address: add "apiUrl": "${API}" beside it in ${homeFile()}, if it's that server's key, or sign in to ${API} with \`kindgi auth login --url ${API} --token <its key>\`.`,
+        `kindgi deploy --hosted would send the API key stored in ${homeFile()} to ${API}, and no address is stored with that key, so nothing shows it's for ${API}. The key goes only to its own address: add "apiUrl": "${API}" beside it in ${homeFile()}, if it's that server's key, or sign in to ${API} with \`kindgi auth login --profile <name> --url ${API} --token-stdin\`, its key on stdin.`,
       );
       expect(run.fixtures.state.buildCalls).toBe(0);
       expect(run.fixtures.state.postCalls).toBe(0);
@@ -2702,7 +2702,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
       const out = await hostedDeploy(run.fixtures, {});
       expect(out.exitCode).toBe(1);
       expect(out.stderr).toContain(
-        `kindgi deploy --hosted goes to the API your key is for, and no API address is set. ${folderFile()} points this folder at a \`kindgi dev\` runtime (http://127.0.0.1:4000), which isn't a hosted target, so kindgi deploy --hosted doesn't read it. Run \`kindgi auth login --url <url> --token <its key>\`, export KINDGI_API_URL, or pass --url <url>.`,
+        `kindgi deploy --hosted goes to the API your key is for, and no API address is set. ${folderFile()} points this folder at a \`kindgi dev\` runtime (http://127.0.0.1:4000), which isn't a hosted target, so kindgi deploy --hosted doesn't read it. Run \`kindgi auth login --url <url> --token-stdin\` with its key on stdin, pass --profile <name>, export KINDGI_API_URL, or pass --url <url>.`,
       );
       expect(run.fixtures.state.buildCalls).toBe(0);
       expect(run.fixtures.state.postCalls).toBe(0);
@@ -2714,7 +2714,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
       const out = await hostedDeploy(run.fixtures, {});
       expect(out.exitCode).toBe(1);
       expect(out.stderr).toContain(
-        `kindgi deploy --hosted goes to the API your key is for, and no API address is set. ${folderFile()} points this folder at a \`kindgi dev\` runtime, which isn't a hosted target, so kindgi deploy --hosted doesn't read it. Run \`kindgi auth login --url <url> --token <its key>\`, export KINDGI_API_URL, or pass --url <url>.`,
+        `kindgi deploy --hosted goes to the API your key is for, and no API address is set. ${folderFile()} points this folder at a \`kindgi dev\` runtime, which isn't a hosted target, so kindgi deploy --hosted doesn't read it. Run \`kindgi auth login --url <url> --token-stdin\` with its key on stdin, pass --profile <name>, export KINDGI_API_URL, or pass --url <url>.`,
       );
       expect(run.fixtures.state.buildCalls).toBe(0);
       expect(run.fixtures.state.postCalls).toBe(0);
@@ -2981,7 +2981,7 @@ describe("kindgi deploy: the stored API key goes only to the address it's for", 
     const out = await deploy(fixtures, {});
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain(
-      `kindgi deploy would send the API key stored in ${join(home, '.kindgi/config.json')}, which is for ${OWN}, to ${STAGING}, which environments.staging.endpoint names. The key goes only to its own address: point environments.staging.endpoint at ${OWN}, sign in to ${STAGING} with \`kindgi auth login --url ${STAGING} --token <its key>\`, or give that server's key with --token or KINDGI_API_TOKEN.`,
+      `kindgi deploy would send the API key stored in ${join(home, '.kindgi/config.json')}, which is for ${OWN}, to ${STAGING}, which environments.staging.endpoint names. The key goes only to its own address: point environments.staging.endpoint at ${OWN}, sign in to ${STAGING} with \`kindgi auth login --profile <name> --url ${STAGING} --token-stdin\`, its key on stdin, or give that server's key with --token or KINDGI_API_TOKEN.`,
     );
     expect(fixtures.state.postCalls).toBe(0);
     expect(fixtures.state.syncCalls).toBe(0);
@@ -3126,7 +3126,7 @@ describe("kindgi deploy: the stored API key goes only to the address it's for", 
     expect(refused.exitCode).toBe(1);
     // A key signed in for it would be found from this folder too (storedKeyFor).
     expect(refused.stderr).toContain(
-      `kindgi deploy would send the API key stored in ${join(cwd, '.kindgirc.json')}, which is for http://127.0.0.1:4000, to http://localhost:4001, which environments.dev.endpoint names. The key goes only to its own address: point environments.dev.endpoint at http://127.0.0.1:4000, sign in to http://localhost:4001 with \`kindgi auth login --url http://localhost:4001 --token <its key>\`, or give that server's key with --token or KINDGI_API_TOKEN.`,
+      `kindgi deploy would send the API key stored in ${join(cwd, '.kindgirc.json')}, which is for http://127.0.0.1:4000, to http://localhost:4001, which environments.dev.endpoint names. The key goes only to its own address: point environments.dev.endpoint at http://127.0.0.1:4000, sign in to http://localhost:4001 with \`kindgi auth login --url http://localhost:4001 --token-stdin\`, its key on stdin, or give that server's key with --token or KINDGI_API_TOKEN.`,
     );
     expect(other.state.postCalls).toBe(0);
   });
@@ -3137,7 +3137,7 @@ describe("kindgi deploy: the stored API key goes only to the address it's for", 
       () => signIn({ token: STORED }),
       () => join(home, '.kindgi/config.json'),
       () =>
-        `add "apiUrl": "${STAGING}" beside it in ${join(home, '.kindgi/config.json')}, if it's that server's key, sign in to ${STAGING} with \`kindgi auth login --url ${STAGING} --token <its key>\``,
+        `add "apiUrl": "${STAGING}" beside it in ${join(home, '.kindgi/config.json')}, if it's that server's key, sign in to ${STAGING} with \`kindgi auth login --profile <name> --url ${STAGING} --token-stdin\`, its key on stdin`,
     ],
     [
       "a folder's .kindgirc.json",
@@ -3147,7 +3147,7 @@ describe("kindgi deploy: the stored API key goes only to the address it's for", 
       },
       () => join(cwd, '.kindgirc.json'),
       () =>
-        `add "apiUrl": "${STAGING}" beside it in ${join(cwd, '.kindgirc.json')}, if it's that server's key, sign in to ${STAGING} with \`kindgi auth login --url ${STAGING} --token <its key>\``,
+        `add "apiUrl": "${STAGING}" beside it in ${join(cwd, '.kindgirc.json')}, if it's that server's key, sign in to ${STAGING} with \`kindgi auth login --profile <name> --url ${STAGING} --token-stdin\`, its key on stdin`,
     ],
   ])(
     'a stored key with no address stored beside it (%s) is refused; nothing is sent',
@@ -3182,7 +3182,7 @@ describe("kindgi deploy: the stored API key goes only to the address it's for", 
       });
       expect(out.exitCode).toBe(1);
       expect(out.stderr).toContain(
-        `kindgi deploy would send the API key stored in ${join(home, '.kindgi/config.json')}, which is for ${OWN}, to ${STAGING}, which ${where} names. The key goes only to its own address: point ${where} at ${OWN}, sign in to ${STAGING} with \`kindgi auth login --url ${STAGING} --token <its key>\`, or give that server's key with --token or KINDGI_API_TOKEN.`,
+        `kindgi deploy would send the API key stored in ${join(home, '.kindgi/config.json')}, which is for ${OWN}, to ${STAGING}, which ${where} names. The key goes only to its own address: point ${where} at ${OWN}, sign in to ${STAGING} with \`kindgi auth login --profile <name> --url ${STAGING} --token-stdin\`, its key on stdin, or give that server's key with --token or KINDGI_API_TOKEN.`,
       );
       expect(fixtures.state.postCalls).toBe(0);
     },

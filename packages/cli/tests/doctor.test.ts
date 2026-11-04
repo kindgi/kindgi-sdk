@@ -1292,7 +1292,7 @@ describe('the API key: a stored key goes only to the address stored with it', ()
       id: 'api-key',
       status: 'fail',
       message: `Every command that needs the API key refuses: it would send the API key stored in ${join(home, '.kindgi', 'config.json')}, which is for ${SIGNED_IN}, to ${OTHER}, which KINDGI_API_URL names.`,
-      fix: `The key goes only to its own address: point KINDGI_API_URL at ${SIGNED_IN}, sign in to ${OTHER} with \`kindgi auth login --url ${OTHER} --token <its key>\`, or give that server's key with --token or KINDGI_API_TOKEN.`,
+      fix: `The key goes only to its own address: point KINDGI_API_URL at ${SIGNED_IN}, sign in to ${OTHER} with \`kindgi auth login --profile <name> --url ${OTHER} --token-stdin\`, its key on stdin, or give that server's key with --token or KINDGI_API_TOKEN.`,
     });
     expect(check('console-sign-in')).toMatchObject({ status: 'skip' });
     expect(check('console-sign-in')?.message).toContain(
