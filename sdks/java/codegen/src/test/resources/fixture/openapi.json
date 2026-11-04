@@ -446,6 +446,48 @@
         }
       }
     },
+    "/v1/widgets/{widgetId}/refresh": {
+      "post": {
+        "operationId": "widgets.refresh",
+        "summary": "Refresh a widget",
+        "tags": [],
+        "security": [],
+        "parameters": [
+          {
+            "name": "widgetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The widgetId."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Done",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefreshDone"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefreshQueued"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/settings/{domain}": {
       "put": {
         "operationId": "settings.put",
@@ -999,6 +1041,35 @@
         "additionalProperties": false,
         "required": ["jobId"],
         "properties": {
+          "jobId": {
+            "type": "string"
+          }
+        }
+      },
+      "RefreshDone": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "refreshedAt"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["done"]
+          },
+          "refreshedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "RefreshQueued": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "jobId"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["queued"]
+          },
           "jobId": {
             "type": "string"
           }

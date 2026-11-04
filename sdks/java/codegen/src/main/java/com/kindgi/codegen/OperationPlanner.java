@@ -412,6 +412,8 @@ final class OperationPlanner {
 
     Map<String, Object> responses = map(raw.get("responses"), id);
     Map<Integer, TypeName> success = new TreeMap<>();
+    // Each JSON shape's schema, for a union by status to tell its shapes apart by.
+    Map<TypeName, Schema> shapes = new LinkedHashMap<>();
     ResponseKind kind = null;
     for (Map.Entry<String, Object> r : responses.entrySet()) {
       if (!r.getKey().startsWith("2")) {
@@ -433,7 +435,9 @@ final class OperationPlanner {
         switch (media) {
           case "application/json":
             k = ResponseKind.JSON;
-            t = models.typeOf(Schema.of(rawSchema, id + " response"), models.top(), hint + "Response");
+            Schema shape = Schema.of(rawSchema, id + " response");
+            t = models.typeOf(shape, models.top(), hint + "Response");
+            shapes.putIfAbsent(t, shape);
             break;
           case "text/event-stream":
             k = ResponseKind.SSE;
@@ -463,12 +467,12 @@ final class OperationPlanner {
       if (op.responseKind != ResponseKind.JSON) {
         throw new GenerationException(id + ": different 2xx shapes that aren't JSON");
       }
-      List<ClassName> variants = new ArrayList<>();
+      Map<ClassName, Schema> variants = new LinkedHashMap<>();
       for (TypeName t : distinct) {
         if (!(t instanceof ClassName)) {
           throw new GenerationException(id + ": a 2xx shape that isn't a named type");
         }
-        variants.add((ClassName) t);
+        variants.put((ClassName) t, shapes.get(t));
       }
       op.response = models.statusUnion(hint + "Response", "The answer of {@code " + id + "}, by HTTP status.", variants);
       op.byStatus = success;

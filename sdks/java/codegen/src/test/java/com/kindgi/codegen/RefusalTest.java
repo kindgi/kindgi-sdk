@@ -29,6 +29,22 @@ class RefusalTest {
     return m;
   }
 
+  /** An object with one required string property, {@code prop}. */
+  private static Map<String, Object> needs(String prop) {
+    return obj("type", "object", "required", List.of(prop), "properties", Map.of(prop, obj("type", "string")));
+  }
+
+  /** An object whose required {@code kind} is {@code tag}, with a required {@code prop} beside it. */
+  private static Map<String, Object> tagged(String tag, String prop) {
+    return obj(
+        "type", "object", "required", List.of("kind", prop),
+        "properties", obj("kind", obj("type", "string", "const", tag), prop, obj("type", "string")));
+  }
+
+  private static Map<String, Object> ref(String name) {
+    return Map.of("$ref", "#/components/schemas/" + name);
+  }
+
   private static void refuses(Map<String, Object> schemas, String message) {
     assertThatThrownBy(() -> Generator.sources(doc(schemas, Map.of()))).isInstanceOf(GenerationException.class).hasMessageContaining(message);
   }
@@ -88,6 +104,62 @@ class RefusalTest {
             "oneOf", List.of(Map.of("$ref", "#/components/schemas/A"), Map.of("$ref", "#/components/schemas/B")),
             "discriminator", obj("propertyName", "kind", "mapping", Map.of("a", "#/components/schemas/B"))));
     refuses(schemas, "disagrees with the variants' tags");
+  }
+
+  /** An app's own Jackson reads a text-or-object union's objects by their properties only. */
+  @Test
+  void aTextBesideObjectsThatCarryATag() {
+    refuses(
+        Map.of("U", obj("oneOf", List.of(obj("type", "string"), tagged("a", "x"), tagged("b", "y")))),
+        "com.kindgi.client.models.U: a text-or-object union whose objects carry a tag (kind)");
+  }
+
+  /** It reads as itself (no type info of its own), so it can't carry another union's. */
+  @Test
+  void anObjectOfATextOrObjectUnionThatsAVariantOfAnotherTypedUnion() {
+    Map<String, Object> schemas = new LinkedHashMap<>();
+    schemas.put("A", needs("a"));
+    schemas.put("B", needs("b"));
+    schemas.put("C", needs("c"));
+    schemas.put("T", obj("oneOf", List.of(obj("type", "string"), ref("A"), ref("B"))));
+    schemas.put("U", obj("oneOf", List.of(ref("A"), ref("C"))));
+    refuses(
+        schemas,
+        "com.kindgi.client.models.A is an object of the text-or-object union com.kindgi.client.models.T and a"
+            + " variant of com.kindgi.client.models.U");
+  }
+
+  @Test
+  void aVariantOfTwoUnionsThatTellTheirVariantsApartDifferently() {
+    Map<String, Object> schemas = new LinkedHashMap<>();
+    schemas.put("A", tagged("a", "x"));
+    schemas.put("B", tagged("b", "y"));
+    schemas.put("C", needs("c"));
+    schemas.put("ByKind", obj("oneOf", List.of(ref("A"), ref("B"))));
+    schemas.put("ByProperties", obj("oneOf", List.of(ref("A"), ref("C"))));
+    refuses(
+        schemas,
+        "com.kindgi.client.models.A is a variant of com.kindgi.client.models.ByKind and"
+            + " com.kindgi.client.models.ByProperties, which tell their variants apart differently (by kind; by"
+            + " their properties)");
+  }
+
+  @Test
+  void anAnswerByStatusWhoseShapesCantBeToldApart() {
+    Map<String, Object> schemas = new LinkedHashMap<>();
+    schemas.put("A", needs("id"));
+    schemas.put("B", obj("type", "object", "required", List.of("id"), "properties", obj("id", obj("type", "string"), "note", obj("type", "string"))));
+    Map<String, Object> op =
+        obj(
+            "operationId", "a.make", "summary", "s", "tags", List.of(), "security", List.of(),
+            "responses", obj("200", answer("A"), "202", answer("B")));
+    assertThatThrownBy(() -> Generator.sources(doc(schemas, Map.of("/a", Map.of("post", op)))))
+        .isInstanceOf(GenerationException.class)
+        .hasMessageContaining("can't tell this answer's shapes apart");
+  }
+
+  private static Map<String, Object> answer(String schema) {
+    return obj("description", "d", "content", Map.of("application/json", Map.of("schema", ref(schema))));
   }
 
   @Test
