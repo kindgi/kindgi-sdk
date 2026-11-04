@@ -2482,7 +2482,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tokens.list',
     summary: 'List API keys',
     description:
-      "Newest first. Never returns secrets. A tenant admin sees every key (`?principal=` for one principal's); anyone else sees their own.",
+      "Newest first. Never returns secrets. A tenant admin sees every key (`?principal=` for one principal's); anyone else sees their own. A key or session with limits sees only its owner's keys within them: limited to a project, the keys limited to that project; with the `member` role, the `member` keys. Those are the keys it could mint, itself among them.",
     tags: ['tokens'],
     security: 'bearer',
     parameters: [
@@ -2511,14 +2511,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tokens.get',
     summary: 'Read an API key',
     description:
-      "Never returns the secret. A tenant admin reads any key; anyone else only their own (someone else's reads as missing).",
+      "Never returns the secret. A tenant admin reads any key; anyone else only their own (someone else's reads as missing), and a key or session with limits only those within them, as for the list.",
     tags: ['tokens'],
     security: 'bearer',
     parameters: [TokenIdPathParam],
     responses: {
       '200': { description: 'The key.', schema: ref('ApiToken') },
       ...CommonAuthErrors,
-      '403': ErrorResponse('A caller with no keys of its own that is not a tenant admin.'),
+      '403': ErrorResponse(
+        "A caller with no keys of its own that is not a tenant admin. Or one of the caller's own keys beyond its limits: not limited to the caller's project (`key-project-mismatch`), or an `admin` key for a caller with the `member` role (`permission-denied`).",
+      ),
       '404': ErrorResponse('No token with that id that the caller may see.'),
     },
   },
@@ -2529,14 +2531,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tokens.revoke',
     summary: 'Revoke an API key',
     description:
-      'Takes effect on the next request. A tenant admin revokes any key; anyone else only their own.',
+      'Takes effect on the next request. A tenant admin revokes any key; anyone else only their own, and a key or session with limits only those within them, as for the list.',
     tags: ['tokens'],
     security: 'bearer',
     parameters: [TokenIdPathParam, IdempotencyKeyParam],
     responses: {
       '200': { description: 'Revoked.', schema: ref('RevokeTokenResult') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('A caller with no keys of its own that is not a tenant admin.'),
+      '403': ErrorResponse(
+        "A caller with no keys of its own that is not a tenant admin. Or one of the caller's own keys beyond its limits: not limited to the caller's project (`key-project-mismatch`), or an `admin` key for a caller with the `member` role (`permission-denied`).",
+      ),
       '404': ErrorResponse('No token with that id that the caller may see.'),
     },
   },
