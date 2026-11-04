@@ -16,7 +16,7 @@ import type { TenantId, UserId } from '@kindgi/types';
 
 import type { TokenResolution } from '../src/index.js';
 import { mountMcpServer } from '../src/mcp-server/endpoint.js';
-import { RUN_STATE_TOOLS, agentTools } from '../src/mcp-server/run-tools.js';
+import { type RunWait, agentTools, runStateTools } from '../src/mcp-server/run-tools.js';
 import { RUN_VIEW_HTML, RUN_VIEW_MIME, RUN_VIEW_URI } from '../src/mcp-server/run-view.js';
 import type { AppEnv } from '../src/types.js';
 import { mcpRpc } from './support/mcp-rpc.js';
@@ -29,6 +29,9 @@ const CONVERSATION = '00000000-0000-4000-8000-0000000000e1';
 const STARTED = '2026-11-03T15:00:00.000Z';
 const ENDED = '2026-11-03T15:00:20.000Z';
 const CONSOLE = 'https://kindgi.test/console';
+/** The tools' waits, short: the cap is 60 ms here, 25 s in a build. */
+const WAIT = { waitMs: 60, firstCheckMs: 1, checkMs: 5 };
+const WAIT_AGAIN = `call kindgi.run_state with runId ${RUN_ID} and waitSeconds 25`;
 
 const SCOPES: Record<string, string[]> = {
   'chat-run': ['kindgi:read', 'kindgi:run'],
@@ -97,6 +100,8 @@ interface HarnessOptions {
   readonly refuseStart?: 400 | 403 | 404 | 429;
   readonly agentPages?: readonly (readonly Json[])[];
   readonly files?: readonly Json[];
+  /** The run tools' wait; `WAIT` by default. */
+  readonly wait?: RunWait;
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -181,7 +186,7 @@ function harness(options: HarnessOptions = {}) {
       consoleUrl: CONSOLE,
       version: '0.0.0-test',
     },
-    [RUN_STATE_TOOLS, agentTools({ waitMs: 60, firstCheckMs: 1, checkMs: 5 })],
+    [runStateTools(options.wait ?? WAIT), agentTools(options.wait ?? WAIT)],
   );
   return {
     rpc: mcpRpc(app),
@@ -248,11 +253,17 @@ describe('/mcp: the run tools listed', () => {
     expect(intake?._meta.ui.resourceUri).toBe(RUN_VIEW_URI);
   });
 
-  test('run_state is for the view only', async () => {
+  test('run_state is for Claude and the view, and waits at most 25 s', async () => {
     const { rpc } = harness();
     const state = listed((await rpc('chat-run', 'tools/list')).body, 'kindgi.run_state');
-    expect(state?._meta).toEqual({ ui: { visibility: ['app'] } });
+    expect(state?._meta).toEqual({ ui: { visibility: ['model', 'app'] } });
     expect(state?.annotations).toMatchObject({ readOnlyHint: true });
+    expect(state?.inputSchema.required).toEqual(['runId']);
+    expect(state?.inputSchema.properties.waitSeconds).toMatchObject({
+      type: 'integer',
+      minimum: 0,
+      maximum: 25,
+    });
   });
 
   test('the agents are read page by page, each name once', async () => {
@@ -324,6 +335,8 @@ describe('/mcp: running an agent', () => {
     expect(body.result.structuredContent).toMatchObject({ runId: RUN_ID, status: 'running' });
     expect(body.result.structuredContent.answer).toBeUndefined();
     expect(checks()).toBeGreaterThan(1);
+    // Claude waits for it with run_state, call after call, until it ends.
+    expect(body.result.content[0].text).toContain(WAIT_AGAIN);
   });
 
   test('a run that waits for an approval answers at once, with the approval to open', async () => {
@@ -354,6 +367,8 @@ describe('/mcp: running an agent', () => {
       ],
     });
     expect(checks()).toBe(1);
+    // It waits for a person, not for time: nothing to wait for with run_state.
+    expect(body.result.content[0].text).not.toContain('waitSeconds');
   });
 
   test("a run the person may not start answers the route's refusal in words", async () => {
@@ -458,6 +473,59 @@ describe('/mcp: run_state and the run view', () => {
     ]);
   });
 
+  test('without a wait, run_state reads a run that goes on once', async () => {
+    const { rpc, checks } = harness({ runs: [agentRun()] });
+    const { body } = await rpc('chat-read', 'tools/call', {
+      name: 'kindgi.run_state',
+      arguments: { runId: RUN_ID },
+    });
+    expect(body.result.structuredContent).toMatchObject({ runId: RUN_ID, status: 'running' });
+    expect(checks()).toBe(1);
+  });
+
+  test('with a wait, run_state answers as soon as the run ends', async () => {
+    const { rpc, checks } = harness({
+      runs: [agentRun(), agentRun(), completed({ response: { content: 'Clause 4 differs.' } })],
+      // A cap with room for 3 checks on a busy machine: the run ends at the 3rd.
+      wait: { ...WAIT, waitMs: 5_000 },
+    });
+    const { body } = await rpc('chat-read', 'tools/call', {
+      name: 'kindgi.run_state',
+      arguments: { runId: RUN_ID, waitSeconds: 25 },
+    });
+    expect(body.result.structuredContent).toMatchObject({
+      status: 'completed',
+      answer: 'Clause 4 differs.',
+    });
+    expect(checks()).toBe(3);
+    expect(body.result.content[0].text).not.toContain('waitSeconds');
+  });
+
+  test('its wait stops at the cap, and says to call again; the run goes on', async () => {
+    const { rpc, checks } = harness({ runs: [agentRun()] });
+    const asked = Date.now();
+    const { body } = await rpc('chat-read', 'tools/call', {
+      name: 'kindgi.run_state',
+      arguments: { runId: RUN_ID, waitSeconds: 25 },
+    });
+    expect(body.result.structuredContent).toMatchObject({ runId: RUN_ID, status: 'running' });
+    expect(checks()).toBeGreaterThan(1);
+    // The harness's cap is 60 ms: 25 s asked, the cap held.
+    expect(Date.now() - asked).toBeLessThan(5_000);
+    expect(body.result.content[0].text).toContain(WAIT_AGAIN);
+  });
+
+  test('a wait over 25 s is refused, and nothing is read', async () => {
+    const { rpc, checks } = harness({ runs: [agentRun()] });
+    const { body } = await rpc('chat-read', 'tools/call', {
+      name: 'kindgi.run_state',
+      arguments: { runId: RUN_ID, waitSeconds: 26 },
+    });
+    expect(body.result.isError).toBe(true);
+    expect(body.result.content[0].text).toContain('waitSeconds must be <= 25');
+    expect(checks()).toBe(0);
+  });
+
   test("a run the person can't see: a sentence, no detail", async () => {
     const { rpc } = harness();
     const { body } = await rpc('chat-read', 'tools/call', {
@@ -479,11 +547,12 @@ describe('/mcp: run_state and the run view', () => {
     expect(view?.text).toBe(RUN_VIEW_HTML);
   });
 
-  test("the view's Ask button names the run and carries none of its answer", () => {
-    const start = RUN_VIEW_HTML.indexOf('request("ui/message"');
-    const message = RUN_VIEW_HTML.slice(start, RUN_VIEW_HTML.indexOf('})', start));
-    expect(message).toContain('"Look at the result of Kindgi run " + state.runId');
-    expect(message).not.toContain('answer');
+  test('the view sends no message as the person, and reads run_state with no wait', () => {
+    expect(RUN_VIEW_HTML).not.toContain('ui/message');
+    expect(RUN_VIEW_HTML).toContain(
+      'request("tools/call", { name: "kindgi.run_state", arguments: { runId: state.runId } })',
+    );
+    expect(RUN_VIEW_HTML).not.toContain('waitSeconds');
     expect(RUN_VIEW_HTML).not.toContain('innerHTML');
   });
 });
