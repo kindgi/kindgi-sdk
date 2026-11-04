@@ -333,6 +333,34 @@ test('a call guardrails stopped says so, with their reasons', () => {
   });
 });
 
+test('what a tool answered reads as it came: words as they are, anything else as JSON', () => {
+  const { cards } = loadCards(null);
+  // Guardrails' note on a call that ran, its result withheld, as Kindgi's `callNote` writes it.
+  const withheld = [
+    '[kindgi:guardrail-retry] ["pii"]',
+    "This call ran, but its result is withheld: it didn't pass this guardrail.",
+    '- pii: It names a person.',
+    'Go on without its result.',
+  ].join('\n');
+  for (const words of [
+    withheld,
+    'Order 18 is on its way.',
+    'She said "yes".',
+    '{"orders":[]}',
+    '',
+  ]) {
+    assert.equal(cards.answerText(words), words);
+  }
+  assert.equal(
+    cards.answerText({ orders: [{ id: 18, total: '12.50' }] }),
+    '{\n  "orders": [\n    {\n      "id": 18,\n      "total": "12.50"\n    }\n  ]\n}',
+  );
+  assert.equal(cards.answerText([]), '[]');
+  assert.equal(cards.answerText(18), '18');
+  assert.equal(cards.answerText(false), 'false');
+  assert.equal(cards.answerText(null), 'null');
+});
+
 test('a call whose approval was rejected says so, with the reason when one was given', () => {
   const { cards } = loadCards(null);
   assert.deepEqual(
@@ -461,32 +489,4 @@ test("a tool's own answer reads as used, whatever its fields", () => {
       why: null,
     });
   }
-});
-
-test('what a tool answered reads as it came: words as they are, anything else as JSON', () => {
-  const { cards } = loadCards(null);
-  // Guardrails' note on a call that ran, its result withheld, as Kindgi's `callNote` writes it.
-  const withheld = [
-    '[kindgi:guardrail-retry] ["pii"]',
-    "This call ran, but its result is withheld: it didn't pass this guardrail.",
-    '- pii: It names a person.',
-    'Go on without its result.',
-  ].join('\n');
-  for (const words of [
-    withheld,
-    'Order 18 is on its way.',
-    'She said "yes".',
-    '{"orders":[]}',
-    '',
-  ]) {
-    assert.equal(cards.answerText(words), words);
-  }
-  assert.equal(
-    cards.answerText({ orders: [{ id: 18, total: '12.50' }] }),
-    '{\n  "orders": [\n    {\n      "id": 18,\n      "total": "12.50"\n    }\n  ]\n}',
-  );
-  assert.equal(cards.answerText([]), '[]');
-  assert.equal(cards.answerText(18), '18');
-  assert.equal(cards.answerText(false), 'false');
-  assert.equal(cards.answerText(null), 'null');
 });
