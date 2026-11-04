@@ -11676,7 +11676,7 @@ export const AuthSettingsPatchSchema: JsonSchema = {
 
 export const UnregisterUserResultSchema: JsonSchema = {
   description:
-    'A removed person, and what removing them took away (each 0 when they were already removed).',
+    'A removed person, and what removing them took away (each 0 when nothing of theirs was left to take).',
   type: 'object',
   additionalProperties: false,
   required: ['user', 'keysRevoked', 'sessionsRevoked', 'grantsRemoved'],

@@ -20075,7 +20075,7 @@ class InviteRenewed(BaseModel):
 
 class UnregisterUserResult(BaseModel):
     """
-    A removed person, and what removing them took away (each 0 when they were already removed).
+    A removed person, and what removing them took away (each 0 when nothing of theirs was left to take).
     """
 
     model_config = ConfigDict(

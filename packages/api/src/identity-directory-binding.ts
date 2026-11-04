@@ -94,10 +94,12 @@ export interface IdentityDirectoryBinding {
    * API key and session of theirs is revoked, every grant and membership
    * they hold is taken from the authorization store, and every connection
    * they own is removed (`owner-removed`, withdrawn at its app where the
-   * app allows), all before it returns. Their email is then free: adding it again makes a new
-   * person. Unregistering someone already unregistered changes nothing.
-   * Refused for yourself, the deployment's seed user, and the tenant's
-   * only tenant admin. When present,
+   * app allows), all before it returns. Their email is then free: adding
+   * it again makes a new person. Unregistering someone already
+   * unregistered takes what their unregistering left (one that stopped
+   * part-way, or one on an earlier version that kept their connections),
+   * and otherwise changes nothing. Refused for yourself, the deployment's
+   * seed user, and the tenant's only tenant admin. When present,
    * `POST /v1/identity/users/{userId}/unregister` mounts (tenant admins
    * only).
    */
