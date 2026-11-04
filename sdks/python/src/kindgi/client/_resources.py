@@ -1475,7 +1475,7 @@ class RunsResource:
         replays: Literal["exclude", "include", "only"] | None = None,
         test_run_id: str | UUID | None = None,
         trigger_id: str | UUID | None = None,
-        include: Literal["output"] | None = None,
+        include: Literal["output", "waitingFor"] | None = None,
         status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
         | list[Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]]
         | None = None,
@@ -11805,7 +11805,7 @@ class AsyncRunsResource:
         replays: Literal["exclude", "include", "only"] | None = None,
         test_run_id: str | UUID | None = None,
         trigger_id: str | UUID | None = None,
-        include: Literal["output"] | None = None,
+        include: Literal["output", "waitingFor"] | None = None,
         status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
         | list[Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]]
         | None = None,
