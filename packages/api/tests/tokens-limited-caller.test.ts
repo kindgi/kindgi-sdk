@@ -90,7 +90,10 @@ function makeApp(store: boolean) {
     async list({ limit, principal, after }) {
       listReads.push(limit);
       return [...keys.values()]
-        .filter((k) => principal === undefined || JSON.stringify(k.principal) === JSON.stringify(principal))
+        .filter(
+          (k) =>
+            principal === undefined || JSON.stringify(k.principal) === JSON.stringify(principal),
+        )
         .sort(
           (a, b) =>
             b.createdAt.getTime() - a.createdAt.getTime() || b.tokenId.localeCompare(a.tokenId),
@@ -249,7 +252,11 @@ const CASES: readonly {
     name: 'an admin key limited to a project',
     caller: { key: 'p1Admin' },
     sees: ['p1', 'p1Admin'],
-    refused: { full: 'key-project-mismatch', member: 'key-project-mismatch', p2: 'key-project-mismatch' },
+    refused: {
+      full: 'key-project-mismatch',
+      member: 'key-project-mismatch',
+      p2: 'key-project-mismatch',
+    },
   },
   {
     name: 'a member key',
@@ -272,7 +279,11 @@ const CASES: readonly {
     name: 'a session limited to a project',
     caller: { session: { projectId: P1 as ProjectId } },
     sees: ['p1', 'p1Admin'],
-    refused: { full: 'key-project-mismatch', member: 'key-project-mismatch', p2: 'key-project-mismatch' },
+    refused: {
+      full: 'key-project-mismatch',
+      member: 'key-project-mismatch',
+      p2: 'key-project-mismatch',
+    },
   },
   {
     name: 'a session with the member role',
@@ -304,7 +315,9 @@ describe.each([
       const h = makeApp(store);
       const token = await tokenOf(h, caller);
       for (const name of sees) {
-        expect((await h.call(token, 'GET', `/v1/tokens/${h.janes[name].tokenId}`)).status).toBe(200);
+        expect((await h.call(token, 'GET', `/v1/tokens/${h.janes[name].tokenId}`)).status).toBe(
+          200,
+        );
       }
       for (const [name, code] of Object.entries(refused)) {
         const key = h.janes[name as JanesKey];
@@ -360,7 +373,9 @@ describe.each([
   test('a key limited to a project revokes itself', async () => {
     const h = makeApp(store);
     const self = h.janes.p1;
-    expect((await h.call(self.secret, 'POST', `/v1/tokens/${self.tokenId}/revoke`)).status).toBe(200);
+    expect((await h.call(self.secret, 'POST', `/v1/tokens/${self.tokenId}/revoke`)).status).toBe(
+      200,
+    );
     expect(h.keys.get(self.tokenId)?.revokedAt).toBeDefined();
   });
 
@@ -372,7 +387,9 @@ describe.each([
       expect(await h.listed(token)).toEqual(ALL_JANES);
       expect(h.listReads).toHaveLength(1);
       for (const name of ALL_JANES) {
-        expect((await h.call(token, 'GET', `/v1/tokens/${h.janes[name].tokenId}`)).status).toBe(200);
+        expect((await h.call(token, 'GET', `/v1/tokens/${h.janes[name].tokenId}`)).status).toBe(
+          200,
+        );
       }
       expect((await h.call(token, 'GET', `/v1/tokens/${h.bobs.tokenId}`)).status).toBe(404);
     }
