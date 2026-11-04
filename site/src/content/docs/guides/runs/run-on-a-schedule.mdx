@@ -22,10 +22,14 @@ Or have the other system [start a run](../start-a-run/) with `POST /v1/runs`.
 
 - **An agent or a flow to run,** registered on your runtime, such as
   `kindgi dev`. This guide runs the agent `acme.order-desk`.
-- **Kindgi 0.2's CLI**, in your pack's directory.
+- **Kindgi 0.4's CLI**, in your pack's directory.
 - **`write` on the schedule's project and `execute` on the agent or flow,**
   when authorization is on: its runs act as you, unless you make it shared
-  ([Run as a service account](#run-as-a-service-account)).
+  ([Run as a service account](#run-as-a-service-account)). For a schedule
+  of your own, `run` on the project does in place of `write`: a project's
+  `runner`, or anyone where the project lets everyone in the workspace run
+  it, keeps their own schedules, and sees them in the list though they
+  can't see anyone else's.
 
 ## Create one
 
@@ -175,8 +179,10 @@ it, or the account named with `--run-as`, and no change moves it (runtime
   change it, pause or resume it, run it now or unregister it. Anyone else
   with `write` on the project is answered `403 permission-denied`, with its
   owner's name, such as "This schedule is personal: only Sam Lee or a
-  project admin can change it." The owner still needs `write` on the
-  project, and its tools allowed unattended always take a project admin.
+  project admin can change it." The owner still needs `run` on the
+  project, which a `runner` holds, as does everyone where the project
+  lets everyone run it, and its tools allowed unattended always
+  take a project admin. An Improve schedule's owner needs `write`.
 - **What a shared schedule runs takes a project admin:** its agent or flow
   and version, its input, and its tools allowed unattended. Anyone else
   with `write` on the project is answered `403 permission-denied`,

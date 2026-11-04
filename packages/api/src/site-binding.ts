@@ -50,7 +50,8 @@ export interface SiteBinding {
   /**
    * A new one-time enrollment code for the site. Using it replaces every
    * key the site has and ends its live sessions; an earlier unused code
-   * stops working. This is how a site's key is rotated. Like `register`'s,
+   * stops working. This is how a site's key is rotated, to a new key: a
+   * key the site retired is refused (`enroll`). Like `register`'s,
    * the code has at least 128 bits, is stored only hashed, expires, and is
    * used up atomically (`UPDATE … WHERE used_at IS NULL AND expires_at >
    * now() RETURNING`).
@@ -58,7 +59,10 @@ export interface SiteBinding {
   newEnrollmentCode(
     input: SiteGetInput & { readonly by: string },
   ): Promise<SiteEnrollmentCodeOutcome>;
-  /** Revoke one of the site's keys. Its live sessions end. */
+  /**
+   * Revoke one of the site's keys. Its live sessions end, and `enroll`
+   * refuses the key from then on.
+   */
   revokeKey(input: SiteRevokeKeyInput): Promise<SiteChangeOutcome>;
   /**
    * Let one of the site's people back in after a removal made in Kindgi
@@ -88,6 +92,13 @@ export interface SiteBinding {
    * route has already checked the key's shape (before any code is looked
    * up, so a bad key never confirms or uses up a code) and passes only its
    * public members: `kty`, `crv`, `x`, `kid`.
+   *
+   * A key the site retired, by its thumbprint (never its `kid`), is
+   * refused (`key-retired`) unless it's live on the site now; so is one
+   * that another of the workspace's sites at the same origin retired and
+   * holds no live entry for. That refusal comes only once the code checks
+   * out, and it doesn't use the code up: the same code works with a new
+   * key until it expires.
    */
   enroll(input: SiteEnrollInput): Promise<SiteEnrollOutcome>;
   /**
@@ -293,6 +304,12 @@ export type SiteEnrollOutcome =
   | { readonly kind: 'refused' }
   /** The public key isn't an Ed25519 JWK with a `kid`. */
   | { readonly kind: 'invalid-key'; readonly message: string }
+  /**
+   * This site, or another site in the workspace at the same address,
+   * retired this key (by its thumbprint), and it isn't live on this site
+   * now. The code isn't used up.
+   */
+  | { readonly kind: 'key-retired' }
   | { readonly kind: 'rate-limited'; readonly retryAfterSeconds: number };
 
 export interface SiteSignInInput {

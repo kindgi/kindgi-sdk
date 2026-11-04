@@ -1,5 +1,63 @@
 # @kindgi/handler-runtime
 
+## 0.4.0
+
+### Patch Changes
+
+- 265fffb: **`blockFileText(text, kind, write)`** writes a block's new version into its file's text without touching disk, and answers the new text (`BlockFileText`). `writePackBlock` now writes through it, and a runtime uses it to commit a pinned block version to the pack's repository. The file keeps its other fields, their order and its indentation. A prompt whose file names `content.templateFile` keeps that field, and its new template comes back apart, for the caller to write into that file. It's refused (`invalid`) for content that doesn't fit the kind, or text that isn't this block's file, and (`not-newer`) for a version that isn't past the file's.
+- 2afc071: **Under `kindgi dev`, the pin check warns about files git hasn't committed.** A pin there writes the version into the pack's files, and git can't bring back what a file held unless it's committed. `POST /v1/agents/{agentId}/pinned/check` now answers two optional fields under `kindgi dev`. `uncommittedFiles` lists the files the pin would write over that git hasn't committed, relative to the pack's folder: changed, staged, untracked or ignored, or in a nested repository such as a submodule. `notInGit: true` says the pack isn't in a git repository. Both are warnings, and the pin still goes. They're absent when there's nothing to say, when the pin writes nothing, when the gate fails, when git can't say (no git, or no answer in time), and on every other runtime.
+  
+  - **`CreateAppInput.pinFiles`**, a `PinFilesWarnings`, answers them. `PinFilesWarning` and `PinFilesWarnings` are exported from `@kindgi/api`. Without it, as on a deployed runtime, the check answers as before.
+  - **The pack service's `POST /v1/blocks/uncommitted`** takes `{ ids }`, the blocks a pin would write. It answers `{ uncommittedFiles }`, `{ notInGit: true }` or `{}`, read from each block's file and its template files. It's there when the supervisor is given the new `blockFilesState` option, as `kindgi dev` gives it, and answers `404` otherwise. `packBlockFiles`, the files some blocks are read from, and the `PackFilesState` type are exported from `@kindgi/handler-runtime`.
+  - **`kindgi agents pin` and `kindgi suggested-changes pin`** ask the pin check first and say its warning on stderr, under `--quiet` too: "git hasn't committed these files, so the pin writes over changes git can't bring back: <files>. The pin keeps them as they were right before it: pin the version before to go back." When the pack isn't in git, the line says so instead. `kindgi agents pin --check` says the same lines. The check is best effort: when it fails or has no warning, nothing more is said and the pin goes as before. stdout, `--json` too, is the pin's answer as before.
+  - `kindgi dev` reads the files with `git status` and `git ls-files` in the pack's folder. The read changes nothing, uses no shell, leaves out git's repository variables, and has a short timeout.
+- a2f785f: **Improve runs under `kindgi dev`.** Where the agent registry is read-only but takes Improve's candidates (`RegistryReadOnly.takesCandidates`), `POST /v1/improve-runs` and `POST /v1/improve-runs/check` go through: the run counts in its project, and its suggested change is for the whole workspace (the `tenant` scope). Pinning that change (`POST /v1/suggested-changes/{suggestedChangeId}/pin`) pins it for the whole workspace, through the project its version was made in. Its test runs check the project the registry places the agent in, where no `itemProjects` binding says which projects serve it, so a pin there marks what its check fixed, as on a deployed runtime; rights and `?projectId=` reads still have no binding. A suggested change made by hand (`POST /v1/suggested-changes`) goes the same way: it's for the whole workspace, and it's checked in the project the version it's built on was made in. So does a check again. One built on a version that no longer runs is rebuilt on what runs now, as on a deployed runtime. An add as Latest is refused there with the new optional `takesCandidates.latestReason` (without it, with the registry's `reason`), before any `suggested-change-not-for-a-project`.
+  
+  A suggested change now keeps what its block held as it was drafted, and on a rebuild what it held then (`ProposedChange`'s optional `change.before`). `GET /v1/suggested-changes/{suggestedChangeId}` reads `changes[].before` from it, and from `fromVersion` for one kept without it, as before.
+  
+  `PackBlockWrite` gains an optional `expected`: what the block's file must hold for the write to go. A file edited since, even at the same version, is refused with the new reason `changed`, naming the file, and the pack service's `POST /v1/blocks` answers `409` for it. `definitionKey`, `tookEffect` and `candidatesPinProjects` are exported from `@kindgi/api`.
+  
+  The `returns-helper` template's README walks the loop on `kindgi dev` end to end: correct a run, then fix it in the pack, or run Improve, pin its suggested change and approve the pin yourself, which writes it into the pack's files, and see the correction become Fixed. The `kindgi-fix-corrections` skill says the same for an agent helping a person.
+- 9a8a294: **A tool can store the files it fetches, such as a mail's attachments, and read the files it's given; an agent is shown the ones it stores.**
+  - **Storing.** A tool that declares `storesFiles: true` gets `ctx.files.store` with each call that has an `idempotencyKey`, as an agent's tool calls do. `ctx.files.store({ name, contentType, bytes })` stores a file as one the call's run owns: the runtime checks the bytes, and only they decide the type. It answers `{ file }`, a file value the tool returns in its result's top-level `files`, or `{ notStored }`: `type`, `size`, `limit` past `MAX_STORED_FILES_PER_CALL` (10) files a call, or `storage` when the tenant's storage is full. A pack's store of a file over `MAX_STORED_FILE_BYTES` (10 MB, the most any type allows) answers `size` without sending its bytes. The same bytes again in the same call, a re-run of it included, answer the first file.
+  - **Reading.** A tool that declares `readsFiles: true` gets `ctx.files.read(artifactId)` with each call: the bytes of a file its run may be shown, by the `artifactId` of a file value, such as one in its input. It answers `{ bytes }`, the file as it was stored, or `{ notRead }`: `rule` (the run may not be shown a file of that id), `gone` (deleted, or its bytes are missing), `changed` (its bytes aren't the ones that were checked) or `size` (over its type's limit). `FILE_NOT_READ_REASONS` lists them.
+  - **Either way.** A store or a read the runtime refuses, or can't be reached for, rejects, and the call fails as any throw fails it. Only a tool with a handler can store or read files: `defineTool` and the pack indexer refuse `storesFiles` and `readsFiles` on a tool with a declarative `spec` or an MCP transport.
+  - **`storage`** joins the reasons a file isn't shown (`FileNotShownReason`): a tool's store found the tenant's storage full.
+  - **In a pack.** Pack protocol 2.10.0: a call of a tool that declares `storesFiles` or `readsFiles` carries `ctx.toolFiles` (`{ url, token }`). The runner keeps it from the handler and gives the handler `files` instead: a store posts the file's bytes to the link, and a read gets them from under it, each with the token as the bearer. The handler never sees the link or the token, and a thrown error that quotes the token shows it redacted. A call from an older runtime carries no tool files, and the tool gets no `files`. The tool manifest schema is 1.4.0 and the pack index schema 1.8.0, each with `storesFiles` and `readsFiles`.
+  - **In-process.** `FileBinding` gains `store(call, file)`, keyed by the call's `idempotencyKey`, and `readSource(artifactId)`; an agent's tool call gets `ctx.files` from them, with what its tool declares.
+  - **The API.** `POST /v1/tool-files` takes a pack service's store: the call's token as the bearer, no API key; the body is the file's bytes, with `Content-Type` and a percent-encoded `Kindgi-File-Name`. It answers `{ file }` or `{ notStored }`. `GET /v1/tool-files/{artifactId}` takes a read, with the same bearer: it answers the file's bytes as `application/octet-stream`, or `{ notRead }` as JSON. Either answers `404 tool-file-token-not-found` for a missing or wrong token alike, or for a call whose tool doesn't declare what it asks; `409 tool-file-token-closed` once the call has answered, its time has passed or its run has ended; and `503 tool-files-busy`, with `Retry-After`, when the runtime has no room for the bytes then: a store holds twice the file's size in its memory for files (`KINDGI_FILE_MEMORY_MIB`, whose description now says so), and a read its size. A runtime supplies both as `createApp`'s `toolFiles` binding. The OpenAPI document gives the read's 200 both bodies. The wire `Tool` gains optional `storesFiles` and `readsFiles`, in the TypeScript client too.
+  - **Conformance.** The `files` feature, with the fixture tools `conformance.store` and `conformance.read`, checks that a pack service posts a store to the call's tool files link, gets a read from under it, and gives the handler only what the runtime answered.
+- c8e2e0e: **`kindgi blocks pull` and `kindgi suggested-changes pull` never write over a block file that holds edits.** Before either writes, it compares each block's file, and its template file, with the version the file says it is, as the runtime has it (`GET /v1/blocks/{blockId}/versions/{version}`). A file that holds other content is refused, and so is a file at a version the runtime doesn't have, since whether it holds edits can't be told. Each such file is named, and nothing is written. A settings file that gives no `schema` still holds its version when the runtime stored that version with the schema carried from the block's latest one, as a deploy compares it. `suggested-changes pull` checks a file older than the version the suggested change is built on the same way.
+  
+  `@kindgi/handler-runtime` exports `holdsContent(kind, fileContent, versionContent)`, the compare both use; `writePackBlock`'s `expected` uses it too.
+- 7ed5a00: **Under `kindgi dev`, a pin is undone by pinning the version before.** A `PackBlockWrite` that names `expected` may now take a block back to an older version, when its file holds what `expected` says. That's how a pin of the version before writes the files back. `blockFileText` goes back the same way with `expected`, but doesn't check `expected` against the text: its caller does. Without `expected`, a write's version must still be past the file's. A write at the file's own version is refused `not-newer` either way.
+  
+  The `returns-helper` template's README and the `kindgi-fix-corrections` skill now say to go back with a pin, whose test run reopens what that version fails. They also say to give a block a new version whenever it's edited by hand. The skill adds that after a block is edited by hand and given a new version since a pin, a pin of the version before writes nothing, so git is the way back then.
+- Updated dependencies [b25b82f]
+- Updated dependencies [d92355b]
+- Updated dependencies [d6c9279]
+- Updated dependencies [36853d4]
+- Updated dependencies [f2adcc2]
+- Updated dependencies [05a1568]
+- Updated dependencies [ae02280]
+- Updated dependencies [d10dcc3]
+- Updated dependencies [9b015f7]
+- Updated dependencies [7f272e3]
+- Updated dependencies [a6410b8]
+- Updated dependencies [038fbfb]
+- Updated dependencies [9a8a294]
+- Updated dependencies [58ce994]
+- Updated dependencies [1bd877d]
+- Updated dependencies [dff9515]
+- Updated dependencies [d576ff4]
+  - @kindgi/types@0.4.0
+  - @kindgi/tools@0.4.0
+  - @kindgi/env-schema@0.4.0
+  - @kindgi/flow@0.4.0
+  - @kindgi/sandbox@0.4.0
+  - @kindgi/schema@0.4.0
+  - @kindgi/log@0.4.0
+
 ## 0.3.1
 
 ### Patch Changes

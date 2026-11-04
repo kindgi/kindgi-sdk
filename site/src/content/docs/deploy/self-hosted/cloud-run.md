@@ -89,8 +89,8 @@ Who calls whom:
 - **Terraform 1.6 or later, gcloud, Docker** with `buildx`, **jq**, **curl**,
   **openssl**, and your pack's `kindgi` CLI, 0.1.2 or later, which has
   `kindgi key trust`.
-- **For `kindgi` commands:** Kindgi 0.2's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.2` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.4's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.4` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead. The
   build, `env plan` and deploy steps need the pack's folder, so they use
   `pnpm exec kindgi`.
@@ -751,7 +751,7 @@ token ([Serve many tenants](#serve-many-tenants)).
 ```sh
 URL=$(terraform output -raw server_url)
 export KINDGI_API_TOKEN=$(gcloud secrets versions access latest --secret=$N-api-token)
-npx --yes @kindgi/cli@0.2 key trust acme-prod --url "$URL"
+npx --yes @kindgi/cli@0.4 key trust acme-prod --url "$URL"
 ```
 
 It prints the key the runtime now trusts, then says so:
@@ -824,8 +824,8 @@ Check the runtime answers, lists your pack's tools, and runs a flow:
 
 ```sh
 curl "$URL/health"                                  # {"ok":true}
-npx --yes @kindgi/cli@0.2 tools list --url "$URL"   # your pack's tools
-npx --yes @kindgi/cli@0.2 runs start --flow=acme.greet-echo --input='{"name":"Ada"}' --url "$URL"
+npx --yes @kindgi/cli@0.4 tools list --url "$URL"   # your pack's tools
+npx --yes @kindgi/cli@0.4 runs start --flow=acme.greet-echo --input='{"name":"Ada"}' --url "$URL"
 ```
 
 `--flow` names the flow to run, and `--input` is its input, as JSON.
@@ -958,7 +958,7 @@ on the Vertex AI API and grants the runtime's service account
 `roles/aiplatform.user`. Then register the preset:
 
 ```sh
-npx --yes @kindgi/cli@0.2 providers register --preset=gemini --project=<project> --models=gemini-3.8-flash --url "$URL"
+npx --yes @kindgi/cli@0.4 providers register --preset=gemini --project=<project> --models=gemini-3.8-flash --url "$URL"
 ```
 
 ```text
@@ -1034,8 +1034,10 @@ to, so set it to the deployment's before any `gcloud` command for it
   it, `terraform plan` stops and asks for it. From a module copy that set
   only Terraform's deletion protection, the next apply also turns on
   Google's in the instance, in place, while `database_deletion_protection`
-  is on (the default). With a private-IP database
-  (`database_private_network`), that change makes the module read the
+  is on (the default). From a module copy that doesn't turn on Cloud
+  Scheduler's API, the next apply turns it on (and, with
+  `secrets_backend = "none"`, Cloud KMS's). With a private-IP database
+  (`database_private_network`), either change makes the module read the
   instance's CAs during the apply, so the plan shows the server's
   `KINDGI_DATABASE_SERVER_CA` as `(known after apply)`: it's still the
   instance's CAs. If the plan says the instance `must be replaced`, stop:

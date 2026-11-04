@@ -95,7 +95,7 @@ about a main.
   time, and in the clients, it's `connections.update` with
   `{ main: true }`.
 
-  Only the person whose connection it is can make it main, not a workspace
+  Only the person whose connection it is can make it main, not a tenant
   admin (`400 bad-input`, "Only the person whose connection it is makes it
   their main."). `{ "main": false }` is refused too ("A main moves only by
   making another connection main."), and so is a company connection ("The
@@ -157,7 +157,7 @@ company has two Google connections.
   connected if the connection is working and already holds what was asked,
   and is declined with what's `missing` if not.
 - **Rename one** with `kindgi connections update`. Its owner or a
-  workspace admin can rename it, and only a workspace admin the company's:
+  tenant admin can rename it, and only a tenant admin the company's:
 
   ```sh
   pnpm exec kindgi connections update support --label=helpdesk
@@ -184,7 +184,7 @@ A **choice** says which connection an agent or a flow uses at an app, in
 one project and the runtime's environment. The company's choices name the
 company's connections, and only a project admin sets or removes one:
 without [authorization](../../../deploy/authorization/), that's a
-workspace admin
+tenant admin
 ([Without authorization](../../../deploy/people-and-keys/#without-authorization)).
 A person's own choices name theirs ([Your own choices](#your-own-choices)).
 
@@ -258,7 +258,7 @@ tool's, its app, its connections by name, and its choice id. A set's
 connections are listed with its default marked, such as
 `work (default), home`, and a connection that's no longer a candidate
 shows by its id. It lists the company's choices and your own, with yours
-marked, such as `yours: work (default), home`. A workspace admin's lists
+marked, such as `yours: work (default), home`. A tenant admin's lists
 every person's own choices too, each with the person's user id and how
 many connections it has, such as `26fc414a-…: 5 connections`, not their names.
 `--agent`, `--flow`, `--app` and `--tool` narrow it, `--mine` lists only
@@ -268,7 +268,7 @@ with when.
 Anyone who reads the project can list the company's choices:
 `GET /v1/connection-choices?projectId=<project-id>`, or
 `connectionChoices.list` in the clients. It lists your own choices too, and
-a workspace admin's lists every person's. `toolId` narrows it to one tool's
+a tenant admin's lists every person's. `toolId` narrows it to one tool's
 own choices, and `owner=me` to your own, as it does for
 `GET /v1/connections`.
 
@@ -297,7 +297,7 @@ other runs go by the choice as it is then.
 Before you disconnect one, list the live choices that name it, in every
 project: `GET /v1/connections/{connectionId}/choices`, or
 `connections.choices(connectionId)` in the clients. Its owner or a
-workspace admin can list them.
+tenant admin can list them.
 
 ## Choose one for a tool
 
@@ -484,7 +484,7 @@ pnpm exec kindgi connection-choices set home --agent=acme.assistant --mine
 ```
 
 - **Only you set and remove your own choices,** and you need only what you
-  need to run the agent or flow in the project. A workspace admin reads
+  need to run the agent or flow in the project. A tenant admin reads
   them, and can't set them (`400 bad-input`, "A person makes their own
   choices.").
 - **Your candidates** are your own live connections of the app through the
@@ -505,7 +505,7 @@ pnpm exec kindgi connection-choices set home --agent=acme.assistant --mine
 
 ## Who sees what
 
-- **Workspace admins** read every connection in full, the company's
+- **Tenant admins** read every connection in full, the company's
   included: `GET /v1/connections` and `GET /v1/connections/{connectionId}`.
   They read every person's own choices too.
 - **A project's admins** read its candidates in full: each one's
@@ -516,7 +516,7 @@ pnpm exec kindgi connection-choices set home --agent=acme.assistant --mine
   `GET /v1/connections/{connectionId}` answers `404 connection-not-found`,
   as for one that isn't there.
 - **A person's own connections and choices** stay theirs and the
-  workspace admins'. They are never a project's candidates, and a project
+  tenant admins'. They are never a project's candidates, and a project
   admin never lists them.
 - **A person's connection names stay out of what the runtime records,**
   for everyone, that person included. A run's journal keeps their
@@ -528,7 +528,7 @@ pnpm exec kindgi connection-choices set home --agent=acme.assistant --mine
   tool made them, so an account the call named can show there.
 
 Without authorization, everyone works in every project, so anyone reads the
-candidates' ids and names, and only a workspace admin reads them in full.
+candidates' ids and names, and only a tenant admin reads them in full.
 
 ## When none is chosen
 
@@ -612,6 +612,8 @@ The connection "mailbox" to Google changed while this call waited, so it didn't 
 ```
 
 An approval for a call that uses a connection says which one it's for: the
-company's by its account, and a person's as "this person's Google account"
+company's by its account, and a person's as "this person's Google account",
+with the connection's id, by which the person, or a tenant admin, reads which
+of their accounts it is
 ([An approval's fields](../../approvals/approvals-reference/#an-approvals-fields)).
 The account a call named is in the call's input, which the approval shows.

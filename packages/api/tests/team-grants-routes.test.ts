@@ -261,7 +261,7 @@ describe('without an authorizer: the grant binding', () => {
     for (const [role, message] of [
       ['owner', "A team can't own a project: give it `admin`"],
       ['member', "`member` isn't a project role: use `viewer`, which grants the same"],
-      ['boss', '`role` must be one of: viewer, editor, admin'],
+      ['boss', '`role` must be one of: viewer, runner, editor, admin'],
     ] as const) {
       const r = await h.call('admin', 'POST', grants, { teamId, role });
       expect([r.status, r.body.error?.message]).toEqual([400, message]);

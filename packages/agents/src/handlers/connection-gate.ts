@@ -6,12 +6,17 @@ import type { ModelToolCall } from '@kindgi/capabilities';
 import type { NodeContext } from '@kindgi/handler';
 import { WaitpointCancelledError } from '@kindgi/handler';
 import { runIsAttended } from '@kindgi/runtime';
-import { connectionRejectionOf, isConnectionRenewError } from '@kindgi/tools';
+import {
+  CONNECTION_GATE_RECORD_PREFIX,
+  connectionGateRecordOf,
+  connectionRejectionOf,
+  isConnectionRenewError,
+} from '@kindgi/tools';
 import type {
-  ConnectionChoiceOption,
+  ConnectionGateRecord,
   ConnectionNeed,
-  ConnectionPick,
   ConnectionRejection,
+  RecordedConnection,
   ResolveConnectionsOutcome,
   Tool,
   ToolConnection,
@@ -33,11 +38,16 @@ import type { ConnectWaitResult } from './tool-hitl.js';
  *    missing, lacks a permission or needs reconnecting makes a connect
  *    request when the run can wait (a person started it), and the call
  *    waits for it (`computeConnectWaitToken`). The record keeps no token.
+ *    A ready one says the handover below is recorded too (`recordsRan`).
  * 2. **Every time the tool runs:** a fresh resolve, never recorded, gives
- *    the tokens (`ctx.connections`). The app refusing one (an HTTP 401,
- *    `ConnectionRejectedError`) renews that token and runs the call once
- *    more. A pausing call's answer from outside runs nothing, and asks for
- *    none.
+ *    the tokens (`ctx.connections`). Before the tool's first run on them,
+ *    the call records that its tool was handed them, in that attempt of
+ *    its step (`connection-gate:<callId>:ran:<attempt>`, `kind: 'ran'`): a
+ *    call these connections stopped has no such record, and one whose
+ *    input then fails the tool's input check has one. The app refusing one
+ *    (an HTTP 401, `ConnectionRejectedError`) renews that token and runs
+ *    the call once more. A pausing call's answer from outside runs
+ *    nothing, and asks for none.
  *
  * A call the connections stop runs nothing: it fails with a
  * `connection-*` code, the model reads why as its result, and the turn
@@ -49,12 +59,12 @@ import type { ConnectWaitResult } from './tool-hitl.js';
  * one is a setup no model can fix.
  */
 
-/** The record key prefix of a call's connection gate. */
-const CONNECTION_GATE_RECORD_PREFIX = 'connection-gate:';
-
 /**
- * Why a call that needs connections failed: it didn't run, or
- * (`connection-rejected`) the app refused its renewed token too.
+ * Why a call that needs connections failed: it didn't run; or it ran, the
+ * app refused a token, and the renewed one was refused too
+ * (`connection-rejected`) or its renewal failed (another code). Whether
+ * its tool was handed its connections is its gate's `ran` record
+ * (`connection-gate:<callId>:ran:<attempt>`).
  */
 export type ConnectionCallCode =
   | 'connection-app-missing'
@@ -79,46 +89,11 @@ export interface ConnectionCallFailure {
   readonly missing?: readonly string[];
 }
 
-/** A connection as the gate records it: whose account at which app, never its token. */
-export interface ConnectionSeen {
-  readonly connectionId: string;
-  readonly app: string;
-  readonly appName: string;
-  /**
-   * Whose account it is at the app: its id, and the company's label. A
-   * person's has no label: their account is theirs alone. Older records
-   * keep it.
-   */
-  readonly account: { readonly id: string; readonly label?: string };
-  /** The company connection's name: its label, else its account's label. Never a person's. */
-  readonly name?: string;
-  /** How it was picked, and through which registration. Absent from older records. */
-  readonly pick?: ConnectionPick;
-}
-
-/** What the gate recorded for a call: the resolver's answer, without tokens. */
-type GateRecord =
-  | { readonly kind: 'ready'; readonly connections: Readonly<Record<string, ConnectionSeen>> }
-  | { readonly kind: 'wait'; readonly requests: readonly WaitingForConnection[] }
-  | {
-      readonly kind: 'refused';
-      readonly code:
-        | 'connection-app-missing'
-        | 'connection-needs-a-person'
-        | 'connection-missing'
-        | 'connection-not-chosen';
-      readonly name: string;
-      readonly app: string;
-      readonly missing?: readonly string[];
-      readonly choices?: readonly ConnectionChoiceOption[];
-      readonly message: string;
-    };
-
 /** The gate's answer for a call. */
 export type ConnectionGate =
   /** The tool declares no connection. */
   | { readonly kind: 'none' }
-  | { readonly kind: 'ready'; readonly connections: Readonly<Record<string, ConnectionSeen>> }
+  | { readonly kind: 'ready'; readonly connections: Readonly<Record<string, RecordedConnection>> }
   | { readonly kind: 'failed'; readonly failure: ConnectionCallFailure };
 
 /** The connections a call's tool declares, by its names for them; `undefined` when none. */
@@ -204,7 +179,7 @@ export async function freshConnections(
   kctx: NodeContext,
   call: ModelToolCall,
   tool: Tool,
-  decided: Readonly<Record<string, ConnectionSeen>>,
+  decided: Readonly<Record<string, RecordedConnection>>,
   renew?: readonly string[],
 ): Promise<
   | { readonly kind: 'ready'; readonly connections: Readonly<Record<string, ToolConnection>> }
@@ -259,6 +234,20 @@ export async function freshConnections(
 }
 
 /**
+ * Record that `call`'s tool got its connections, right before it runs on
+ * them (step 2 above): `connection-gate:<callId>:ran:<attempt>`, the
+ * gate's ready record having said it would (`recordsRan`). Once per
+ * attempt of the call's step: a renewed run in the same attempt finds it
+ * recorded, and a retried step's attempt records its own.
+ */
+export async function recordRan(kctx: NodeContext, call: ModelToolCall): Promise<void> {
+  await kctx.record(
+    `${CONNECTION_GATE_RECORD_PREFIX}${call.id}:ran:${kctx.attempt ?? 1}`,
+    (): ConnectionGateRecord => ({ kind: 'ran' }),
+  );
+}
+
+/**
  * The connection a failed call's error says the app refused (an HTTP 401,
  * `ConnectionRejectedError`, or a pack tool's `connection-rejected`), when
  * it's one the tool declares: its token is renewed and the call runs once
@@ -298,14 +287,15 @@ function declaredRejectionOf(error: unknown, tool: Tool): ConnectionRejection | 
 /**
  * Whom the call's approval is for, and the connection it acts with. With
  * a person's connection: its owner (of the first, by the tool's names for
- * them, sorted), and its app and account, never their name for it (the
- * run's record has none). Only they decide it. Otherwise, with a company
- * connection: the first company one, with its name, and today's
- * reviewers decide. `undefined` when the call uses neither.
+ * them, sorted), and its app and id, never its account or their name for
+ * it (the run's record has neither). Only they decide it. Otherwise, with
+ * a company connection: the first company one, with its account and
+ * name, and today's reviewers decide. `undefined` when the call uses
+ * neither.
  */
 export function connectionApprovalOf(
   tool: Tool,
-  connections: Readonly<Record<string, ConnectionSeen>>,
+  connections: Readonly<Record<string, RecordedConnection>>,
   person: string | undefined,
 ): Pick<HitlEnqueueInput, 'approver' | 'connection'> | undefined {
   const name = firstPersonNeed(tool);
@@ -323,20 +313,25 @@ export function connectionApprovalOf(
 }
 
 /**
- * A connection as the approval shows it: a person's by its app alone
- * ("this person's Google account"), the company's by its account and name.
+ * A connection as the approval keeps it: a person's by its app and id
+ * ("this person's Google account", and its account only to whoever may
+ * read the connection by that id), the company's by its account and name
+ * too.
  */
 function approvalConnection(
-  seen: ConnectionSeen,
+  seen: RecordedConnection,
   as: 'company' | 'person',
 ): NonNullable<HitlEnqueueInput['connection']> {
-  if (as === 'person') return { app: seen.app, appName: seen.appName, as };
+  if (as === 'person') {
+    return { app: seen.app, appName: seen.appName, as, connectionId: seen.connectionId };
+  }
   return {
     app: seen.app,
     appName: seen.appName,
     as,
     ...(seen.account.label !== undefined && { account: seen.account.label }),
     ...(seen.name !== undefined && { name: seen.name }),
+    connectionId: seen.connectionId,
   };
 }
 
@@ -428,7 +423,14 @@ function firstNeed(tool: Tool, as: ConnectionNeed['as']): string | undefined {
     .find((name) => needs[name]?.as === as);
 }
 
-/** One recorded resolve: the token-free record, or the renewal that failed (recorded as nothing). */
+/** What a gate's resolve records: the resolver's answer, never `ran`. */
+type GateAnswer = Exclude<ConnectionGateRecord, { readonly kind: 'ran' }>;
+
+/**
+ * One recorded resolve: the token-free record, or the renewal that failed
+ * (recorded as nothing). A ready one says the call's run is recorded too
+ * (`recordsRan`, `recordRan`): with no such record, the call didn't run.
+ */
 async function recordResolve(
   ctx: TurnContext,
   kctx: NodeContext,
@@ -439,13 +441,17 @@ async function recordResolve(
   waitMs: number,
   accounts: Readonly<Record<string, string>> | undefined,
 ): Promise<
-  | { readonly kind: 'recorded'; readonly record: GateRecord }
+  | { readonly kind: 'recorded'; readonly record: GateAnswer }
   | { readonly kind: 'failed'; readonly failure: ConnectionCallFailure }
 > {
   try {
-    const record = await kctx.record(key, async () =>
-      recorded(await resolve(ctx, kctx, call, tool, needs, waitMs, undefined, accounts), needs),
-    );
+    const record = await kctx.record(key, async (): Promise<GateAnswer> => {
+      const answer = connectionGateRecordOf(
+        await resolve(ctx, kctx, call, tool, needs, waitMs, undefined, accounts),
+        needs,
+      );
+      return answer.kind === 'ready' ? { ...answer, recordsRan: true } : answer;
+    });
     return { kind: 'recorded', record };
   } catch (cause) {
     const failure = renewFailureOf(cause);
@@ -485,74 +491,6 @@ function resolve(
     ...(ctx.input.mailbox !== undefined && { mailbox: ctx.input.mailbox }),
     ...(accounts !== undefined && { accounts }),
   });
-}
-
-/**
- * The resolver's answer as the gate records it: what it names, never a
- * token. Any project reader reads a run's record, so a person's
- * connection is named by its app and account id, never by their name or
- * address for it.
- */
-function recorded(
-  outcome: ResolveConnectionsOutcome,
-  needs: Readonly<Record<string, ConnectionNeed>>,
-): GateRecord {
-  if (outcome.kind === 'refused') {
-    return {
-      kind: 'refused',
-      code: outcome.code,
-      name: outcome.name,
-      app: outcome.app,
-      ...(outcome.missing !== undefined && { missing: outcome.missing }),
-      ...(outcome.choices !== undefined && {
-        choices: outcome.choices.map((c) => ({ connectionId: c.connectionId, name: c.name })),
-      }),
-      message: outcome.message,
-    };
-  }
-  if (outcome.kind === 'wait') {
-    return {
-      kind: 'wait',
-      requests: outcome.requests.map((r) => ({
-        name: r.name,
-        requestId: r.requestId,
-        waitToken: r.waitToken,
-        app: r.app,
-        appName: r.appName,
-        says: r.says,
-        connectUrl: r.connectUrl,
-        expiresAt: r.expiresAt,
-        ...(r.reconnects !== undefined && { reconnects: r.reconnects }),
-      })),
-    };
-  }
-  const connections: Record<string, ConnectionSeen> = {};
-  for (const [name, c] of Object.entries(outcome.connections)) {
-    const pick = outcome.picks?.[name];
-    connections[name] = {
-      connectionId: c.connectionId,
-      app: c.app,
-      appName: c.appName,
-      account:
-        needs[name]?.as === 'company'
-          ? { id: c.account.id, label: c.account.label }
-          : { id: c.account.id },
-      ...(c.name !== undefined && needs[name]?.as === 'company' && { name: c.name }),
-      ...(pick !== undefined && { pick: pickSeen(pick) }),
-    };
-  }
-  return { kind: 'ready', connections };
-}
-
-/** A pick as the gate records it: its own fields only. */
-function pickSeen(pick: ConnectionPick): ConnectionPick {
-  return {
-    by: pick.by,
-    ...(pick.choiceId !== undefined && { choiceId: pick.choiceId }),
-    ...(pick.as !== undefined && { as: pick.as }),
-    ...(pick.setSize !== undefined && { setSize: pick.setSize }),
-    registration: { id: pick.registration.id, name: pick.registration.name },
-  };
 }
 
 /**
@@ -614,7 +552,9 @@ function connectWaitResultOf(value: unknown): ConnectWaitResult {
  * A refusal as the call's failure. `connection-not-chosen` fails the turn
  * instead, with the choices' names only.
  */
-function refusal(refused: Extract<GateRecord, { kind: 'refused' }>): ConnectionCallFailure {
+function refusal(
+  refused: Extract<ConnectionGateRecord, { kind: 'refused' }>,
+): ConnectionCallFailure {
   if (refused.code === 'connection-not-chosen') {
     throwAgentTurnFailure({
       code: 'connection-not-chosen',
@@ -662,7 +602,7 @@ function renewFailureOf(cause: unknown): ConnectionCallFailure | undefined {
  * member for, by their ids; none when it named none.
  */
 function decidedAccounts(
-  decided: Readonly<Record<string, ConnectionSeen>>,
+  decided: Readonly<Record<string, RecordedConnection>>,
 ): Readonly<Record<string, string>> | undefined {
   const accounts: Record<string, string> = {};
   for (const [name, seen] of Object.entries(decided)) {

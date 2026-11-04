@@ -39,6 +39,8 @@ Kindgi these docs describe.
 - [Connections](connections/): register your company's Google or GitHub
   app, let people connect their accounts, and have a tool act with them,
   approved by the account's owner.
+- [Chat apps](chat/): add Kindgi to claude.ai, and run your agents from a
+  chat.
 - [Sign-in](sso/sign-in/): sign in to the console, keep a session, and see
   the enterprise sign-in options Kindgi builds with you.
 - [Cost and provenance](observability/trace-an-answer/): trace an answer to

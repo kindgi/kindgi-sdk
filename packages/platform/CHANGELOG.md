@@ -1,5 +1,30 @@
 # @kindgi/platform
 
+## 0.4.0
+
+### Patch Changes
+
+- 6380c49: **"The default project", not "the Default project".** Error messages, help text, API descriptions and docs now say "the default project" for a tenant's default project: the one with `isDefault: true`, whatever it's named. A tenant created on 0.4.0 or later gets a default project named "First Project", and one created before keeps "Default".
+  
+  - Error codes are unchanged; only message text changes. For example, `GET /v1/projects/default` with no default project answers `404` with `Tenant has no default project`.
+  - To find the default project, use `isDefault`, `GET /v1/projects/default` or `client.projects.getDefault()`, never the name "Default" or the slug `default`.
+- 265fffb: **A project's repo connection.** `PUT /v1/projects/{projectId}/repo-connection` with `{ connectionId }` sets the company-wide GitHub connection a project opens its block changes' pull requests through, and `DELETE` clears it. Both need `admin` on the project. A connection that isn't there, or was removed, is `404 connection-not-found`; a person's own connection, or another app's, is `400 repo-connection-not-company-github`. `GET /v1/projects/{projectId}` answers `repoConnectionId` while one is set. The project keeps the id only, so a connection removed later reads as none. A runtime whose project store keeps no repo connection answers `501 repo-connection-unsupported`.
+  
+  - **Platform.** `Project.repoConnectionId`, and an optional `ProjectBinding.setRepoConnection(tenantId, projectId, connectionId | null)` answering `ProjectRepoConnectionOutcome`; the in-memory binding implements it, and the project binding conformance suite checks it with `repoConnection: true`.
+  - **TypeScript client.** `client.projects.setRepoConnection(projectId, connectionId)` and `client.projects.clearRepoConnection(projectId)`.
+  - **GitHub permissions.** The GitHub entry adds `contents.read`, `contents.write`, `pull_requests.read` and `pull_requests.write`. A repo connection's GitHub App needs **Contents** and **Pull requests**, read and write; the GitHub connection guide says so.
+- d779ec5: **A project can sort its end users' corrections like the others.** A project has `sortEndUserCorrections`, `false` by default, which `PATCH /v1/projects/{projectId}` sets (admin on the project) and `GET` reads back. While it's off, an end user's correction (one with a `participantId`, and not an expert's) stays open and unsorted, as before, and never starts Improve. Once it's on, a correction saved after that is sorted like the others: a wrong answer goes to Improve and wrong decisions go to the agent's owner. A schedule that counts everyone's corrections (`from: "everyone"`) counts those sorted to improve toward its `corrections` only while it's on; once it's off, it leaves them out, even ones sorted while it was on or by a person. **Upgrading from 0.3:** a schedule saved with `groupWeights: as-recorded` counted end users' corrections too; from 0.4.0 it counts them only while the project's `sortEndUserCorrections` is on, so turn it on to keep counting them. `@kindgi/platform`'s `Project` and `ProjectPatch` carry it, and the clients' `projects.update` takes it.
+- Updated dependencies [b25b82f]
+- Updated dependencies [d92355b]
+- Updated dependencies [d6c9279]
+- Updated dependencies [f2adcc2]
+- Updated dependencies [9b015f7]
+- Updated dependencies [9a8a294]
+- Updated dependencies [1bd877d]
+- Updated dependencies [dff9515]
+- Updated dependencies [d576ff4]
+  - @kindgi/types@0.4.0
+
 ## 0.3.1
 
 ### Patch Changes

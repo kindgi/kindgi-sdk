@@ -277,6 +277,32 @@ def test_an_agent_can_run_its_read_only_calls_one_at_a_time(
         assert ("parallelToolCalls" in entry) is (expected is not None)
 
 
+def test_an_agent_and_a_flow_carry_mcp(make_pack: Callable[..., Path]) -> None:
+    desk = (
+        "from kindgi import Agent\n"
+        'desk = Agent(id="acme.desk", version="1.0.0", name="Desk", instructions="Help.",'
+        ' mcp={"expose": True, "readOnly": True})\n'
+    )
+    intake = (
+        "from kindgi import Flow\n"
+        'flow = Flow(id="acme.intake", version="1.0.0",'
+        ' nodes=[{"id": "a", "kind": "tool", "ref": "acme.whisper"}],'
+        ' edges=[{"id": "e1", "from": "$start", "to": "a"}, {"id": "e2", "from": "a", "to": "$end"}],'
+        ' mcp={"expose": True})\n'
+    )
+    report, index = index_of(
+        full_pack(make_pack, **{"agents/desk.py": desk, "flows/intake.py": intake})
+    )
+    assert report["fileErrors"] == []
+    agents = {a["id"]: a for a in index["agents"]}
+    flows = {f["id"]: f for f in index["flows"]}
+    assert agents["acme.desk"]["mcp"] == {"expose": True, "readOnly": True}
+    assert flows["acme.intake"]["mcp"] == {"expose": True}
+    # Left out, no key: the index of an agent or flow without it is as before.
+    assert [a for a in agents.values() if "mcp" in a] == [agents["acme.desk"]]
+    assert [f for f in flows.values() if "mcp" in f] == [flows["acme.intake"]]
+
+
 def test_an_agent_that_sets_auto_close_is_refused(make_pack: Callable[..., Path]) -> None:
     # A conversation never closes by itself, so the setting isn't supported.
     def desk(policy: str) -> str:

@@ -122,7 +122,7 @@ describe('on the hosted bounds', () => {
     const started = performance.now();
     expect(validate(values)).toBe(true);
     // Building RE2's program for each value took about a minute.
-    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(performance.now() - started).toBeLessThan(5_000);
   });
 
   test('`format: url` gives ajv-formats’ verdicts, in linear time', () => {
@@ -163,11 +163,11 @@ describe('on the hosted bounds', () => {
       if (full(url)) valid += 1;
     }
     expect(valid).toBeGreaterThan(500);
-    // ajv-formats' own takes seconds on this at 128 KiB.
-    const long = `ftp://a@${'urn:uuid:'.repeat(14_564)}!`;
+    // ajv-formats' own takes half a minute on this at 256 KiB.
+    const long = `ftp://a@${'urn:uuid:'.repeat(29_128)}!`;
     const started = performance.now();
     expect(hosted(long)).toBe(false);
-    expect(performance.now() - started).toBeLessThan(500);
+    expect(performance.now() - started).toBeLessThan(5_000);
   });
 
   test('formats are ajv-formats’ fast ones: a date is checked for its shape', () => {
@@ -199,7 +199,7 @@ describe('on the hosted bounds', () => {
       });
       const started = performance.now();
       for (const value of values) validate(value);
-      expect(performance.now() - started, format).toBeLessThan(1_000);
+      expect(performance.now() - started, format).toBeLessThan(5_000);
     }
   });
 

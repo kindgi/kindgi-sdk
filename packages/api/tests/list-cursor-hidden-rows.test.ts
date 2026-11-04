@@ -400,7 +400,12 @@ const ENTRIES: readonly Entry[] = [
     name: 'schedules',
     path: '/v1/schedules',
     bindings: () => {
-      const l = page('list', () => ({ projectId: 'hid-project' }));
+      // Someone else's schedules: the list asks whose a row it can't read is.
+      const l = page('list', () => ({
+        projectId: 'hid-project',
+        target: { kind: 'agent', id: 'acme.weekly' },
+        owner: { kind: 'user', id: 'someone-else' },
+      }));
       return { bindings: { triggerRegistry: l.binding }, received: l.received };
     },
   },

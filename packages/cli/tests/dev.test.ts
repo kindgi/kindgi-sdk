@@ -23,7 +23,7 @@
  * asserts against captured requests.
  */
 
-import { generateKeyPairSync } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import {
   chmod,
   lstat,
@@ -1376,6 +1376,59 @@ describe('kindgi dev — boot flow (no watch)', () => {
     expect(await boot()).not.toContain(hint);
   });
 
+  describe('a database URL with a list of hosts, whose record was keyed on a hash of it', () => {
+    const URL_LIST = 'postgres://me@h1:5432,h2:6543/db';
+    const FLAGS = [`--database-url=${URL_LIST}`];
+    const KEY = 'h1:5432,h2:6543/db tenant tenant-abc';
+
+    /** One boot registers gemini; then the record is as the CLI wrote it before: keyed on 16 hex of the URL's sha256. */
+    async function bootThenKeyOnHash(fixtures: Fixtures): Promise<string> {
+      await writeFile(
+        join(packDir, 'kindgi.config.ts'),
+        "export default { pack: { id: 'my-pack', version: '0.1.0' }, providers: [{ preset: 'gemini', project: 'acme-gcp', models: ['gemini-3.5-flash-lite'] }] };\n",
+        'utf8',
+      );
+      expect(await bootSaid(fixtures, FLAGS)).toContain('  ✓ gemini: registered\n');
+      const recordPath = join(packDir, '.kindgi', 'dev', 'providers.json');
+      const record = JSON.parse(await readFile(recordPath, 'utf8')) as {
+        readonly runtimes: Record<string, unknown>;
+      };
+      expect(Object.keys(record.runtimes)).toEqual([KEY]);
+      const hash = createHash('sha256').update(URL_LIST).digest('hex').slice(0, 16);
+      await writeFile(
+        recordPath,
+        JSON.stringify({ v: 1, runtimes: { [`${hash} tenant tenant-abc`]: record.runtimes[KEY] } }),
+      );
+      return recordPath;
+    }
+
+    test("the entries move to the URL's hosts, ports and database before they're read: the provider is still this pack's", async () => {
+      const fixtures = makeFixtures();
+      const recordPath = await bootThenKeyOnHash(fixtures);
+
+      const next = await bootSaid(fixtures, FLAGS);
+      expect(next).toContain('gemini (unchanged)');
+      expect(next).not.toContain('not from kindgi.config.ts');
+      expect(Object.keys(JSON.parse(await readFile(recordPath, 'utf8')).runtimes)).toEqual([KEY]);
+    });
+
+    test("a record the move can't write is said under --quiet too, and kindgi dev goes on", async () => {
+      const fixtures = makeFixtures();
+      const recordPath = await bootThenKeyOnHash(fixtures);
+      // A directory where the file is written first, so no write can land.
+      await mkdir(`${recordPath}.${process.pid}.tmp`);
+
+      for (const flags of LOUD_AND_QUIET) {
+        const said = await bootSaid(fixtures, [...FLAGS, ...flags]);
+        expect(said.split('\n').filter((l) => l.includes('could not update'))).toEqual([
+          expect.stringMatching(
+            /^ {4}⚠ could not update \.kindgi\/dev\/providers\.json: EISDIR.*\. Providers this pack registered may read as not its own\.$/,
+          ),
+        ]);
+      }
+    });
+  });
+
   test('under --quiet the providers that need a look are said, under their heading; the ones that went fine are not', async () => {
     await writeFile(
       join(packDir, 'kindgi.config.ts'),
@@ -2633,7 +2686,7 @@ describe('kindgi dev — the shared services and --reset', () => {
     });
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toBe(
-      "kindgi dev needs Postgres, and couldn't start the bundled one: Docker isn't available: spawn docker ENOENT\n\nOptions:\n  1. Install Docker (Docker Desktop, or Docker Engine on Linux) and make sure it runs: kindgi dev then starts the bundled Postgres itself, with `docker compose` when it's there and plain `docker` otherwise.\n  2. Use your own Postgres (16, with pgvector): pass --database-url=<url>, or set KINDGI_DATABASE_URL.\n",
+      "kindgi dev needs Postgres, and couldn't start the bundled one: Docker isn't available: spawn docker ENOENT\n\nOptions:\n  1. Install Docker (Docker Desktop, or Docker Engine on Linux) and make sure it runs: kindgi dev then starts the bundled Postgres itself, with `docker compose` when it's there and plain `docker` otherwise.\n  2. Use your own Postgres (16, with pgvector): add KINDGI_DATABASE_URL=<url> to .kindgi/secrets.env (Kindgi's own file; your app doesn't load it).\n",
     );
   });
 
@@ -2818,7 +2871,7 @@ describe('kindgi dev — a database per project', () => {
     expect(second.log).not.toContain(NOT_OWN);
   });
 
-  test("a 0.1.3 record (keyed on the bundled Postgres's port) is adopted: the provider is still this pack's", async () => {
+  test("a 0.1.3 record (keyed on the bundled Postgres's port) is left as it is: the provider reads as not this pack's", async () => {
     await writeFile(join(packDir, 'kindgi.config.ts'), GEMINI_CONFIG, 'utf8');
     const base = makeFixtures();
     await boot(withProjectDatabase({ base }).fixtures);
@@ -2839,11 +2892,37 @@ describe('kindgi dev — a database per project', () => {
     );
 
     const next = await boot(withProjectDatabase({ base, ensure: { kind: 'exists' } }).fixtures);
-    expect(next.log).toContain(OWN);
-    expect(next.log).not.toContain(NOT_OWN);
+    expect(next.log).toContain(NOT_OWN);
+    expect(next.log).not.toContain(OWN);
     expect(Object.keys(JSON.parse(await readFile(recordPath, 'utf8')).runtimes)).toEqual([
-      `bundled kindgi_acme tenant ${tenant}`,
+      `127.0.0.1:58091/kindgi_acme tenant ${tenant}`,
     ]);
+  });
+
+  test("a key of the old hash's shape is deleted on any boot; the entries beside it stay", async () => {
+    await writeFile(join(packDir, 'kindgi.config.ts'), GEMINI_CONFIG, 'utf8');
+    const base = makeFixtures();
+    await boot(withProjectDatabase({ base }).fixtures);
+    const recordPath = join(packDir, '.kindgi', 'dev', 'providers.json');
+    const record = JSON.parse(await readFile(recordPath, 'utf8')) as {
+      readonly runtimes: Record<string, unknown>;
+    };
+    const own = 'bundled kindgi_acme tenant tenant-abc';
+    expect(Object.keys(record.runtimes)).toEqual([own]);
+    await writeFile(
+      recordPath,
+      JSON.stringify({
+        v: 1,
+        runtimes: {
+          ...record.runtimes,
+          '0123456789abcdef tenant tenant-abc': record.runtimes[own],
+        },
+      }),
+    );
+
+    const next = await boot(withProjectDatabase({ base, ensure: { kind: 'exists' } }).fixtures);
+    expect(next.log).toContain(OWN);
+    expect(Object.keys(JSON.parse(await readFile(recordPath, 'utf8')).runtimes)).toEqual([own]);
   });
 
   test("a providers.json that can't be written is said under --quiet too, once for each write", async () => {
@@ -2851,21 +2930,7 @@ describe('kindgi dev — a database per project', () => {
     const base = makeFixtures();
     await boot(withProjectDatabase({ base }).fixtures);
     const recordDir = join(packDir, '.kindgi', 'dev');
-    const recordPath = join(recordDir, 'providers.json');
-    const record = JSON.parse(await readFile(recordPath, 'utf8')) as {
-      readonly runtimes: Record<string, unknown>;
-    };
-    // A 0.1.3 record, which the next boot would move to the new key; and
-    // a directory where the file is written first, so no write can land.
-    await writeFile(
-      recordPath,
-      JSON.stringify({
-        v: 1,
-        runtimes: {
-          'localhost:58091/kindgi_acme tenant tenant-abc': Object.values(record.runtimes)[0],
-        },
-      }),
-    );
+    // A directory where the file is written first, so no write can land.
     await mkdir(join(recordDir, `providers.json.${process.pid}.tmp`));
 
     for (const flags of LOUD_AND_QUIET) {
@@ -2874,9 +2939,7 @@ describe('kindgi dev — a database per project', () => {
         flags,
       );
       expect(out.exitCode).toBe(0);
-      expect(log.split('\n').filter((l) => l.includes('could not update'))).toEqual([
-        expect.stringContaining('  ⚠ could not update .kindgi/dev/providers.json: EISDIR'),
-      ]);
+      expect(log.split('\n').filter((l) => l.includes('could not update'))).toEqual([]);
       expect(log.split('\n').filter((l) => l.includes('could not write'))).toEqual([
         expect.stringContaining('  ⚠ could not write .kindgi/dev/providers.json: EISDIR'),
       ]);
@@ -2896,7 +2959,7 @@ describe('kindgi dev — a database per project', () => {
       "✓ Project: acme (the git repository's name; set `project` in the Kindgi config to name it)\n",
     );
     expect(log).toContain(
-      '✓ Database: kindgi_acme (created) in the bundled Postgres; to use your own: --database-url\n',
+      '✓ Database: kindgi_acme (created) in the bundled Postgres; to use your own: KINDGI_DATABASE_URL in .kindgi/secrets.env\n',
     );
     expect(log).toContain('  Project    acme · database kindgi_acme');
   });
@@ -2939,7 +3002,7 @@ describe('kindgi dev — a database per project', () => {
 
   test('another folder owns a database of the same name: refused, naming the way out', async () => {
     const message =
-      'the database kindgi_acme belongs to /elsewhere/acme, another folder whose project is also named "acme". Give this one its own name: set `project` in kindgi.config.ts (or `project` under [tool.kindgi] in pyproject.toml, or in kindgi.config.json), or pass --database-url.';
+      'the database kindgi_acme belongs to /elsewhere/acme, another folder whose project is also named "acme". Give this one its own name: set `project` in kindgi.config.ts (or `project` under [tool.kindgi] in pyproject.toml, or in kindgi.config.json), or use your own Postgres: KINDGI_DATABASE_URL in .kindgi/secrets.env.';
     const { fixtures } = withProjectDatabase({ ensure: { kind: 'refused', message } });
     const { out, opts } = await boot(fixtures);
     expect(out.exitCode).toBe(1);
@@ -3043,6 +3106,71 @@ describe('kindgi dev — a database per project', () => {
       expect(opts?.databaseUrl).toBe('postgres://me@db.internal/mine');
       expect(log).toContain('  --reset: the database you gave is left as it is (never dropped)\n');
     });
+  });
+});
+
+describe('kindgi dev — a password in --database-url', () => {
+  const WARNING =
+    "⚠ --database-url has a password, which ps shows to other users on this machine while kindgi dev runs: put KINDGI_DATABASE_URL in .kindgi/secrets.env instead (Kindgi's own file; your app doesn't load it).";
+
+  /** One boot with these flags and env: everything it wrote, stdout and stderr, live and at the end. */
+  async function bootWrote(flags: readonly string[], env: Record<string, string>): Promise<string> {
+    const writes: string[] = [];
+    const take = (chunk: unknown): boolean => {
+      writes.push(String(chunk));
+      return true;
+    };
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(take);
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(take);
+    try {
+      const out = await runCli({
+        ...baseInputs(makeFixtures()),
+        env,
+        argv: ['dev', '--no-watch', `--path=${packDir}`, ...flags],
+      });
+      expect(out.exitCode).toBe(0);
+      return writes.join('') + out.stdout + out.stderr;
+    } finally {
+      stderr.mockRestore();
+      stdout.mockRestore();
+    }
+  }
+
+  test('warns for a URL with a password, a list of hosts and a URL that does not parse, and goes on', async () => {
+    for (const url of [
+      'postgres://me:flag-secret-pw@db.internal:5432/app',
+      'postgres://me:flag-secret-pw@h1:5432,h2:5432/app',
+      'postgres://me:flag-secret-pw@db internal/app',
+    ]) {
+      expect(await bootWrote([`--database-url=${url}`], {})).toContain(WARNING);
+    }
+  });
+
+  test("no warning for a URL with no password, nor for the shell's KINDGI_DATABASE_URL with one", async () => {
+    expect(
+      await bootWrote(['--database-url=postgres://me@db.internal:5432/app'], {}),
+    ).not.toContain('--database-url has a password');
+    expect(
+      await bootWrote([], { KINDGI_DATABASE_URL: 'postgres://me:flag-secret-pw@db.internal/app' }),
+    ).not.toContain('--database-url has a password');
+  });
+
+  test('an empty password: a list of hosts with ports warns, one host does not', async () => {
+    expect(await bootWrote(['--database-url=postgres://me:@h1:5432,h2:5432/app'], {})).toContain(
+      WARNING,
+    );
+    expect(await bootWrote(['--database-url=postgres://me:@db.internal/app'], {})).not.toContain(
+      '--database-url has a password',
+    );
+  });
+
+  test("the password's text is nowhere in what kindgi dev writes", async () => {
+    for (const url of [
+      'postgres://me:flag-secret-pw@db.internal:5432/app',
+      'postgres://me:flag-secret-pw@h1:5432,h2:5432/app',
+    ]) {
+      expect(await bootWrote([`--database-url=${url}`], {})).not.toContain('flag-secret-pw');
+    }
   });
 });
 
@@ -3996,7 +4124,7 @@ describe('kindgi dev — something around it refuses what it needs (a sandbox)',
     const out = await dev({ ...fixtures, runners }, {}, ['--runtime-url=http://127.0.0.1:4000']);
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toBe(
-      `kindgi dev needs Docker for its Postgres. ${reason}\n  Or use your own Postgres (16, with pgvector): pass --database-url=<url>, or set KINDGI_DATABASE_URL.\n`,
+      `kindgi dev needs Docker for its Postgres. ${reason}\n  Or use your own Postgres (16, with pgvector): add KINDGI_DATABASE_URL=<url> to .kindgi/secrets.env (Kindgi's own file; your app doesn't load it).\n`,
     );
   });
 });
