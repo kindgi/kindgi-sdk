@@ -142,6 +142,7 @@ import {
   connectionEntriesRouter,
   connectionNoticesRouter,
   connectionsRouter,
+  textsInboundRouter,
 } from './routes/connections.js';
 import { conversationsRouter } from './routes/conversations.js';
 import { correctedTestSetsRouter } from './routes/corrected-test-sets.js';
@@ -939,9 +940,10 @@ export interface CreateAppInput {
    * `/v1/connection-apps/*` (the tenant's registrations, an admin's),
    * `/v1/connections/*` (connections and connect requests), and, outside
    * the bearer chain, `/v1/connection-notices/*` (removals the app
-   * reports, rate-limited as `webhookReceiver` says). Needs `envName`: a
-   * connection is made under the env this runtime serves. See
-   * `ConnectionBinding`.
+   * reports) and, when the binding has `receiveTexts`,
+   * `/v1/texts-inbound/*` (texts a provider delivers), both rate-limited as
+   * `webhookReceiver` says. Needs `envName`: a connection is made under the
+   * env this runtime serves. See `ConnectionBinding`.
    */
   readonly connections?: ConnectionBinding;
   /**
@@ -2910,6 +2912,22 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     app.route(
       '/v1/connection-notices',
       connectionNoticesRouter(input.connections, {
+        ...(input.webhookReceiver?.clientAddress !== undefined && {
+          clientAddress: input.webhookReceiver.clientAddress,
+        }),
+        ...(input.webhookReceiver?.rateLimitStore !== undefined && {
+          rateLimitStore: input.webhookReceiver.rateLimitStore,
+        }),
+      }),
+    );
+  }
+  // Texts a provider delivers to a texts registration: outside the bearer
+  // chain (mounted ahead of `/v1`), checked by the provider's own
+  // signature. Only where the binding takes them.
+  if (input.connections?.receiveTexts !== undefined) {
+    app.route(
+      '/v1/texts-inbound',
+      textsInboundRouter(input.connections, {
         ...(input.webhookReceiver?.clientAddress !== undefined && {
           clientAddress: input.webhookReceiver.clientAddress,
         }),

@@ -12033,7 +12033,7 @@ class TextFire(BaseModel):
     """
     detail: str | None = None
     """
-    Why it was skipped, refused or failed.
+    Why it was skipped, refused or failed. It never names the sender's number.
     """
     counts_toward_pause: Annotated[bool | None, Field(alias="countsTowardPause")] = None
     """

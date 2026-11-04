@@ -565,7 +565,7 @@ describe('kindgi text-triggers --connection', () => {
   });
 
   test('a connection another text trigger answers: create and update name that trigger', async () => {
-    const hint = `Text trigger ${OTHER} answers it: \`kindgi text-triggers get ${OTHER}\` shows it, and unregistering it frees the connection.\n`;
+    const hint = `Text trigger ${OTHER} answers it, in this project or another of the workspace: \`kindgi text-triggers get ${OTHER}\` in its project shows it, and unregistering it frees the connection.\n`;
     for (const [argv, method] of [
       [['create', '--agent=acme.support', `--connection=${FRONT_DESK_ID}`], 'register'],
       [['update', ID, `--connection=${FRONT_DESK_ID}`], 'update'],

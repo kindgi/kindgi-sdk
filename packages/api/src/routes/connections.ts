@@ -25,6 +25,7 @@ import type {
   ConnectionRecord,
   ConnectionState,
   SecretRefInput,
+  TextsInboundAnswer,
 } from '../connection-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -572,6 +573,129 @@ export function connectionNoticesRouter(
       "The notice couldn't be handled just now: send it again",
     );
   });
+  return r;
+}
+
+// ================ /v1/texts-inbound ================
+
+/** The content type each answer is sent with, by the binding's `contentType`. */
+const TEXTS_ANSWER_CONTENT_TYPES: Readonly<Record<TextsInboundAnswer['contentType'], string>> = {
+  'text/xml': 'text/xml; charset=UTF-8',
+  'text/plain': 'text/plain; charset=UTF-8',
+  'application/json': 'application/json',
+};
+
+/**
+ * A request's headers, their names in lower case, but `authorization`: a
+ * bearer token, if sent, is never read, nor passed on.
+ */
+function headersButBearer(request: Request): Record<string, string> {
+  const headers: Record<string, string> = {};
+  request.headers.forEach((value, name) => {
+    const lower = name.toLowerCase();
+    if (lower !== 'authorization') headers[lower] = value;
+  });
+  return headers;
+}
+
+/**
+ * Texts a provider delivers to a texts registration
+ * (`/v1/texts-inbound/{tenantId}/{appId}`): a `POST` with an inbound text
+ * or a delivery status, or a `GET` handshake. Outside the bearer chain: a
+ * bearer token, if sent, is never read, nor passed on. The provider's own
+ * signature is what the binding checks, over the URL it called and the
+ * body's exact bytes.
+ *
+ * - `200`, with the binding's answer, in the content type it names.
+ * - `401 texts-inbound-refused`, with the same body whatever was wrong:
+ *   anything the binding doesn't accept, an id that isn't one, a body over
+ *   the receiver's cap. A client past its refusals this minute gets `429`.
+ * - `503 texts-inbound-unavailable`: the server couldn't check or take the
+ *   texts just now; the provider may send them again.
+ */
+export function textsInboundRouter(
+  binding: ConnectionBinding,
+  options: {
+    /** Who the client is, for the per-client refusal limit. Default: the nearest `X-Forwarded-For` hop. */
+    readonly clientAddress?: (request: Request) => string | undefined;
+    /** Where refusals per client are counted. Default: this process's memory. */
+    readonly rateLimitStore?: RateLimitStore;
+  } = {},
+): Hono<AppEnv> {
+  const receiveTexts = binding.receiveTexts?.bind(binding);
+  if (receiveTexts === undefined) {
+    throw new Error('textsInboundRouter: the connection binding must implement receiveTexts');
+  }
+  const clientAddress = options.clientAddress ?? nearestForwardedClient;
+  const store = options.rateLimitStore ?? createInMemoryRateLimitStore();
+  const r = new Hono<AppEnv>();
+
+  async function notProven(c: Context<AppEnv>, client: string | undefined): Promise<Response> {
+    if (client !== undefined) {
+      let taken: Awaited<ReturnType<RateLimitStore['take']>> = { allowed: true };
+      try {
+        taken = await store.take({
+          key: `texts-inbound-refused:${client}`,
+          limit: WEBHOOK_REFUSALS_PER_CLIENT_PER_MINUTE,
+          windowMs: MINUTE_MS,
+        });
+      } catch {
+        // The limit is a speed bump, not a lock: a store that fails lets it through.
+      }
+      if (!taken.allowed) {
+        c.header('Retry-After', String(Math.max(Math.ceil(taken.retryAfterMs / 1000), 1)));
+        return answer(c, 'rate-limit-exceeded', 'Too many refused requests: try again shortly');
+      }
+    }
+    return answer(c, 'texts-inbound-refused', "This request doesn't prove its sender");
+  }
+
+  function unavailable(c: Context<AppEnv>): Response {
+    return answer(
+      c,
+      'texts-inbound-unavailable',
+      "The texts couldn't be taken just now: send them again",
+    );
+  }
+
+  function sendAnswer(c: Context<AppEnv>, texts: TextsInboundAnswer): Response {
+    const contentType = TEXTS_ANSWER_CONTENT_TYPES[texts.contentType];
+    if (contentType === undefined) {
+      c.get('log').warn(
+        `texts-inbound: the binding answered a content type this route doesn't send: ${texts.contentType}`,
+      );
+      return unavailable(c);
+    }
+    return c.body(texts.body, 200, { 'content-type': contentType });
+  }
+
+  const receive = async (c: Context<AppEnv>, method: 'GET' | 'POST'): Promise<Response> => {
+    const request = c.req.raw;
+    const client = clientAddress(request);
+    const tenantId = c.req.param('tenantId') ?? '';
+    const appId = c.req.param('appId') ?? '';
+    if (!UUID_RE.test(tenantId) || !UUID_RE.test(appId)) return notProven(c, client);
+    const rawBody =
+      method === 'POST'
+        ? await readCapped(request, WEBHOOK_BODY_LIMITS.maxBytes)
+        : new Uint8Array();
+    if (rawBody === 'too-large') return notProven(c, client);
+    const url = new URL(request.url);
+    const outcome = await receiveTexts({
+      tenantId: tenantId as unknown as TenantId,
+      appId,
+      method,
+      pathAndQuery: `${url.pathname}${url.search}`,
+      headers: headersButBearer(request),
+      rawBody,
+    });
+    if (outcome.kind === 'ok') return sendAnswer(c, outcome.value);
+    if (outcome.error.code === 'texts-inbound-refused') return notProven(c, client);
+    return unavailable(c);
+  };
+
+  r.post('/:tenantId/:appId', (c) => receive(c, 'POST'));
+  r.get('/:tenantId/:appId', (c) => receive(c, 'GET'));
   return r;
 }
 

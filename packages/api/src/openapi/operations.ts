@@ -1492,6 +1492,24 @@ const CorrectorGroupIdPathParam: ParameterSpec = {
   schema: { type: 'string', minLength: 1 },
 };
 
+/** A texts registration's receiver path: `/v1/texts-inbound/{tenantId}/{appId}`. */
+const TextsInboundPathParams: readonly ParameterSpec[] = [
+  {
+    name: 'tenantId',
+    in: 'path',
+    required: true,
+    description: 'The workspace that owns the registration.',
+    schema: { type: 'string', format: 'uuid' },
+  },
+  {
+    name: 'appId',
+    in: 'path',
+    required: true,
+    description: 'The texts registration id (`appId`).',
+    schema: { type: 'string', format: 'uuid' },
+  },
+];
+
 const correctionQuery = (name: string, description: string, schema: JsonSchema): ParameterSpec => ({
   name,
   in: 'query',
@@ -11890,7 +11908,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "A body that fails validation (`bad-input`): no target or two, a `config` with anything but `connectionId`, `runsPerHour` and `perSenderPerHour`, a limit out of its range, a `connectionId` naming a person's own live connection of the app, `texts.send` in `toolsAllowedUnattended`, or `runAsProject` with `runAsServiceAccountId` or with no project. Or `reference-out-of-scope`: what it runs isn't the project's to reach (`details.issues`, at `/target`), and nothing is registered.",
       ),
       '409': ErrorResponse(
-        "Another live text trigger answers the connection (`trigger-connection-taken`: `details.heldBy` is its id). Or `runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the trigger runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the trigger runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the Idempotency-Key was reused with a different body, or a resource-state conflict.",
+        "Another live text trigger answers the connection (`trigger-connection-taken`: `details.heldBy` is its id, and can name a trigger in another project of the workspace). Or `runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the trigger runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the trigger runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the Idempotency-Key was reused with a different body, or a resource-state conflict.",
       ),
       '404': ErrorResponse(
         "`config.connectionId` isn't one of the project's company connections of app `texts`, the same answer as for one that doesn't exist (`connection-not-found`, `details.field` `config.connectionId`).",
@@ -11964,7 +11982,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "No text trigger with that id. Or the new `connectionId` isn't one of the project's company connections of app `texts` (`connection-not-found`, `details.field` `config.connectionId`).",
       ),
       '409': ErrorResponse(
-        "Another live text trigger answers the new connection (`trigger-connection-taken`: `details.heldBy` is its id). Or a new target the trigger's owner can't run (`trigger-owner-cannot-run-target`), with an authorization store. Or an Idempotency-Key reused with a different body.",
+        "Another live text trigger answers the new connection (`trigger-connection-taken`: `details.heldBy` is its id, and can name a trigger in another project of the workspace). Or a new target the trigger's owner can't run (`trigger-owner-cannot-run-target`), with an authorization store. Or an Idempotency-Key reused with a different body.",
       ),
     },
   },
@@ -13173,6 +13191,75 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '503': ErrorResponse(
         "`connection-notice-unavailable`: the notice couldn't be handled just now; the app may send it again.",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/texts-inbound/:tenantId/:appId',
+    openapiPath: '/v1/texts-inbound/{tenantId}/{appId}',
+    operationId: 'textsInbound.receive',
+    senderOnly: 'The texting provider posts here, signed its own way; a Kindgi client never does.',
+    summary: 'Receive texts from a provider',
+    description:
+      "Where a texting provider delivers to a texts registration: an inbound text, or a delivery status. No sign-in, and a bearer token, if sent, is never read. The provider's own signature over the URL it called and the body's exact bytes is what the server checks, with the registration's credential, before anything is written. Every request that doesn't prove its sender (an unknown workspace or registration, a bad or missing signature, a body over the cap) is the same `401 texts-inbound-refused`. A client past its refusals this minute gets `429`. If the server couldn't check or take the texts just now, `503 texts-inbound-unavailable`: the provider may send them again.",
+    tags: ['connections'],
+    security: 'public',
+    parameters: TextsInboundPathParams,
+    requestBody: {
+      required: true,
+      description:
+        "The provider's signed delivery, any content type: a form post from one provider, JSON from another.",
+      schema: { type: 'string', format: 'binary' },
+      contentType: '*/*',
+    },
+    responses: {
+      '200': {
+        description:
+          "Taken. The provider's answer, as it expects one: XML (such as an empty `<Response></Response>`), plain text or JSON.",
+        contentType: ['text/xml', 'text/plain'],
+        schema: { type: 'string' },
+        orJson: {},
+      },
+      '401': ErrorResponse(
+        "`texts-inbound-refused`: the request doesn't prove its sender (the same answer whatever the reason).",
+      ),
+      '429': ErrorResponse(
+        '`rate-limit-exceeded`: too many refused requests from this client; `Retry-After` says when.',
+      ),
+      '503': ErrorResponse(
+        "`texts-inbound-unavailable`: the texts couldn't be checked or taken just now; the provider may send them again.",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/texts-inbound/:tenantId/:appId',
+    openapiPath: '/v1/texts-inbound/{tenantId}/{appId}',
+    operationId: 'textsInbound.handshake',
+    senderOnly: 'The texting provider calls here, signed its own way; a Kindgi client never does.',
+    summary: "Answer a provider's handshake",
+    description:
+      "Where a texting provider checks a texts registration's URL before it delivers to it, such as Meta's subscription check, whose query carries a challenge to echo back. No sign-in, and a bearer token, if sent, is never read. The query is the provider's own; the server checks it with the registration's credential. A handshake that doesn't match, or names an unknown workspace or registration, is the same `401 texts-inbound-refused`. A client past its refusals this minute gets `429`. If the server couldn't check it just now, `503 texts-inbound-unavailable`: the provider may try again.",
+    tags: ['connections'],
+    security: 'public',
+    parameters: TextsInboundPathParams,
+    responses: {
+      '200': {
+        description:
+          "Matched. The provider's answer, as it expects one: plain text (such as the challenge, echoed back), XML or JSON.",
+        contentType: ['text/xml', 'text/plain'],
+        schema: { type: 'string' },
+        orJson: {},
+      },
+      '401': ErrorResponse(
+        "`texts-inbound-refused`: the request doesn't prove its sender (the same answer whatever the reason).",
+      ),
+      '429': ErrorResponse(
+        '`rate-limit-exceeded`: too many refused requests from this client; `Retry-After` says when.',
+      ),
+      '503': ErrorResponse(
+        "`texts-inbound-unavailable`: the handshake couldn't be checked just now; the provider may try again. Or the database was too busy to answer in time (`database-busy`, with `Retry-After`).",
       ),
     },
   },

@@ -3936,6 +3936,20 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['guides/webhooks/start-runs-from-webhooks'],
   },
+  'trigger-connection-taken': {
+    description:
+      "Another live text trigger, active or paused, already answers that connection's number: one live text trigger answers a number. Unregister that trigger first, or pick another connection. The trigger it names can be in another project of the workspace.",
+    details: [
+      {
+        key: 'heldBy',
+        meaning: 'the text trigger that answers the connection',
+      },
+      {
+        key: 'connectionId',
+        meaning: 'the connection asked for',
+      },
+    ],
+  },
   'trigger-already-in-state': {
     description:
       'The trigger is already in the state you asked for, such as pausing a paused trigger or resuming one that is running.',
@@ -4237,6 +4251,16 @@ export const ERROR_ENTRIES = {
   },
   'connection-notice-unavailable': {
     description: "The server couldn't handle an app's notice just now. The app sends it again.",
+    details: [],
+  },
+  'texts-inbound-refused': {
+    description:
+      "A texting provider's request to `/v1/texts-inbound/{tenantId}/{appId}` didn't prove its sender: a delivery, or a handshake. It's one answer for every reason, such as an unknown workspace or registration, a signature that doesn't check out, or a body over the cap, so the sender learns nothing from it.",
+    details: [],
+  },
+  'texts-inbound-unavailable': {
+    description:
+      "The server couldn't check or take a texting provider's texts just now. The provider sends them again.",
     details: [],
   },
   'token-mint-failed': {

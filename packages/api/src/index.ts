@@ -1091,6 +1091,8 @@ export type {
   ConnectionState,
   ConnectionWithdrawn,
   SecretRefInput,
+  TextsInboundAnswer,
+  TextsInboundInput,
 } from './connection-binding.js';
 export {
   CURSOR_TTL_MS,

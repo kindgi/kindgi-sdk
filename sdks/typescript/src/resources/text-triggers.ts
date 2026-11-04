@@ -18,7 +18,8 @@
  * connections of app `texts`. One live text trigger answers a connection,
  * paused or not: registering another on it, or moving one onto it, fails
  * with a `conflict` whose `reason` is `trigger-connection-taken` and whose
- * `fields.heldBy` names the trigger that answers it.
+ * `fields.heldBy` names the trigger that answers it, which can be in
+ * another project of the workspace.
  *
  * The number is the company's, so registering and every update take a
  * project admin. A trigger is shared when a service account owns it

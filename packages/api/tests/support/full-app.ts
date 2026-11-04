@@ -272,7 +272,8 @@ const connectionNoop = {
   error: { code: 'connection-store-failed', message: 'noop' },
 } as const;
 
-const noopConnections: ConnectionBinding = {
+/** Every read empty, every write and every sender's request `connection-store-failed`. */
+export const noopConnections: ConnectionBinding = {
   entries: () => [],
   listApps: async () => ({ data: [] }),
   getApp: async () => null,
@@ -296,6 +297,7 @@ const noopConnections: ConnectionBinding = {
   startRequest: async () => connectionNoop,
   finishRequest: async () => connectionNoop,
   receiveNotice: async () => connectionNoop,
+  receiveTexts: async () => connectionNoop,
 };
 
 const noopWebhookEndpoints: WebhookEndpointBinding = {

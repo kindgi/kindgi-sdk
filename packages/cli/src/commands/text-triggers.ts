@@ -173,7 +173,7 @@ function heldBy(err: unknown): string {
   if (wire?.code !== 'conflict' || wire.serverCode !== 'trigger-connection-taken') return '';
   const holder = wire.fields?.heldBy;
   if (typeof holder !== 'string') return '';
-  return `Text trigger ${holder} answers it: \`kindgi text-triggers get ${holder}\` shows it, and unregistering it frees the connection.\n`;
+  return `Text trigger ${holder} answers it, in this project or another of the workspace: \`kindgi text-triggers get ${holder}\` in its project shows it, and unregistering it frees the connection.\n`;
 }
 
 /**

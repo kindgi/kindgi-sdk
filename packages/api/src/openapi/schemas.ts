@@ -16611,7 +16611,7 @@ export const TextFireSchema: JsonSchema = {
     },
     detail: {
       type: 'string',
-      description: 'Why it was skipped, refused or failed.',
+      description: "Why it was skipped, refused or failed. It never names the sender's number.",
     },
     countsTowardPause: {
       type: 'boolean',

@@ -230,7 +230,7 @@
     },
     {
       "name": "connections",
-      "description": "Accounts at other apps (a member's Google account, the company's GitHub App) that tools act with. `connection-entries` lists the apps this server can connect to; `connection-apps` is the workspace's own registration of its client at an app (a tenant admin's, secrets by reference); `connections` are the accounts connected through them, with the connect that makes one (`requests`, `start`, `finish`). A connection is a member's own or the company's, and its token never leaves the server. `connection-choices` say which company connection an agent or a flow uses for an app in a project; a project's admins set them. `POST /v1/connection-notices/{tenantId}/{appId}` is where an app reports a removal, signed its own way. Caller-plugged via `ConnectionBinding`."
+      "description": "Accounts at other apps (a member's Google account, the company's GitHub App) that tools act with. `connection-entries` lists the apps this server can connect to; `connection-apps` is the workspace's own registration of its client at an app (a tenant admin's, secrets by reference); `connections` are the accounts connected through them, with the connect that makes one (`requests`, `start`, `finish`). A connection is a member's own or the company's, and its token never leaves the server. `connection-choices` say which company connection an agent or a flow uses for an app in a project; a project's admins set them. `POST /v1/connection-notices/{tenantId}/{appId}` is where an app reports a removal, signed its own way, and `/v1/texts-inbound/{tenantId}/{appId}` is where a texting provider delivers texts to a texts registration, signed its own way too. Caller-plugged via `ConnectionBinding`."
     },
     {
       "name": "sites",
@@ -659,6 +659,8 @@
           "connection-store-failed": 503,
           "connection-notice-invalid": 400,
           "connection-notice-unavailable": 503,
+          "texts-inbound-refused": 401,
+          "texts-inbound-unavailable": 503,
           "token-mint-failed": 500
         },
         "properties": {
@@ -27501,7 +27503,7 @@
           },
           "detail": {
             "type": "string",
-            "description": "Why it was skipped, refused or failed."
+            "description": "Why it was skipped, refused or failed. It never names the sender's number."
           },
           "countsTowardPause": {
             "type": "boolean",
@@ -73390,7 +73392,7 @@
             }
           },
           "409": {
-            "description": "Another live text trigger answers the connection (`trigger-connection-taken`: `details.heldBy` is its id). Or `runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the trigger runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the trigger runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the Idempotency-Key was reused with a different body, or a resource-state conflict.",
+            "description": "Another live text trigger answers the connection (`trigger-connection-taken`: `details.heldBy` is its id, and can name a trigger in another project of the workspace). Or `runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the trigger runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the trigger runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the Idempotency-Key was reused with a different body, or a resource-state conflict.",
             "content": {
               "application/json": {
                 "schema": {
@@ -73672,7 +73674,7 @@
             }
           },
           "409": {
-            "description": "Another live text trigger answers the new connection (`trigger-connection-taken`: `details.heldBy` is its id). Or a new target the trigger's owner can't run (`trigger-owner-cannot-run-target`), with an authorization store. Or an Idempotency-Key reused with a different body.",
+            "description": "Another live text trigger answers the new connection (`trigger-connection-taken`: `details.heldBy` is its id, and can name a trigger in another project of the workspace). Or a new target the trigger's owner can't run (`trigger-owner-cannot-run-target`), with an authorization store. Or an Idempotency-Key reused with a different body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -78278,6 +78280,194 @@
             }
           }
         },
+        "security": []
+      }
+    },
+    "/v1/texts-inbound/{tenantId}/{appId}": {
+      "post": {
+        "operationId": "textsInbound.receive",
+        "summary": "Receive texts from a provider",
+        "tags": [
+          "connections"
+        ],
+        "responses": {
+          "200": {
+            "description": "Taken. The provider's answer, as it expects one: XML (such as an empty `<Response></Response>`), plain text or JSON.",
+            "content": {
+              "text/xml": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "`texts-inbound-refused`: the request doesn't prove its sender (the same answer whatever the reason).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate-limit-exceeded`: too many refused requests from this client; `Retry-After` says when.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`texts-inbound-unavailable`: the texts couldn't be checked or taken just now; the provider may send them again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Where a texting provider delivers to a texts registration: an inbound text, or a delivery status. No sign-in, and a bearer token, if sent, is never read. The provider's own signature over the URL it called and the body's exact bytes is what the server checks, with the registration's credential, before anything is written. Every request that doesn't prove its sender (an unknown workspace or registration, a bad or missing signature, a body over the cap) is the same `401 texts-inbound-refused`. A client past its refusals this minute gets `429`. If the server couldn't check or take the texts just now, `503 texts-inbound-unavailable`: the provider may send them again.",
+        "x-kindgi-sender-only": true,
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The workspace that owns the registration."
+          },
+          {
+            "name": "appId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The texts registration id (`appId`)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "The provider's signed delivery, any content type: a form post from one provider, JSON from another.",
+          "content": {
+            "*/*": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "security": []
+      },
+      "get": {
+        "operationId": "textsInbound.handshake",
+        "summary": "Answer a provider's handshake",
+        "tags": [
+          "connections"
+        ],
+        "responses": {
+          "200": {
+            "description": "Matched. The provider's answer, as it expects one: plain text (such as the challenge, echoed back), XML or JSON.",
+            "content": {
+              "text/xml": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "`texts-inbound-refused`: the request doesn't prove its sender (the same answer whatever the reason).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate-limit-exceeded`: too many refused requests from this client; `Retry-After` says when.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`texts-inbound-unavailable`: the handshake couldn't be checked just now; the provider may try again. Or the database was too busy to answer in time (`database-busy`, with `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Where a texting provider checks a texts registration's URL before it delivers to it, such as Meta's subscription check, whose query carries a challenge to echo back. No sign-in, and a bearer token, if sent, is never read. The query is the provider's own; the server checks it with the registration's credential. A handshake that doesn't match, or names an unknown workspace or registration, is the same `401 texts-inbound-refused`. A client past its refusals this minute gets `429`. If the server couldn't check it just now, `503 texts-inbound-unavailable`: the provider may try again.",
+        "x-kindgi-sender-only": true,
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The workspace that owns the registration."
+          },
+          {
+            "name": "appId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The texts registration id (`appId`)."
+          }
+        ],
         "security": []
       }
     },

@@ -23,7 +23,8 @@
  * `finish()`.
  *
  * The app's removal notices (`POST /v1/connection-notices/{tenantId}/{appId}`)
- * are sent by the app, not by this client.
+ * are sent by the app, not by this client, and the texts a texting provider
+ * delivers (`/v1/texts-inbound/{tenantId}/{appId}`) by the provider.
  */
 
 import type {

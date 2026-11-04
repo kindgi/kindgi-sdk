@@ -685,7 +685,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'trigger-version-not-found': 404,
   'trigger-invalid-config': 400,
   'trigger-webhook-id-conflict': 409,
-  /** Another live text trigger answers the connection (`details.heldBy`). */
+  /**
+   * Another live text trigger answers the connection (`details.heldBy`,
+   * which can name a trigger in another project of the workspace).
+   */
   'trigger-connection-taken': 409,
   'trigger-already-in-state': 409,
   'trigger-register-failed': 500,
@@ -764,6 +767,11 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // 503, and the app sends it again.
   'connection-notice-invalid': 400,
   'connection-notice-unavailable': 503,
+  // Texts a provider delivers (`/v1/texts-inbound/...`): one answer for any
+  // request that doesn't prove its sender, whatever the reason; the
+  // server's own trouble is a 503, and the provider sends them again.
+  'texts-inbound-refused': 401,
+  'texts-inbound-unavailable': 503,
   // Public run tokens.
   'token-mint-failed': 500,
 } as const;

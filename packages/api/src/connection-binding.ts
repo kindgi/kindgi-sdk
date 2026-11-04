@@ -324,6 +324,8 @@ export type ConnectionErrorCode =
   | 'connection-app-refused'
   | 'connection-notice-invalid'
   | 'connection-notice-unavailable'
+  | 'texts-inbound-refused'
+  | 'texts-inbound-unavailable'
   | 'connection-store-failed'
   | 'bad-input';
 
@@ -505,6 +507,42 @@ export type ConnectFinishOutcome =
    * its `installations` to pick from.
    */
   | { readonly kind: 'pick-installation'; readonly request: ConnectRequestRecord };
+
+/**
+ * What a texting provider sent to a texts registration
+ * (`/v1/texts-inbound/{tenantId}/{appId}`): what its signature covers.
+ */
+export interface TextsInboundInput {
+  readonly tenantId: TenantId;
+  /** The texts registration's id. */
+  readonly appId: string;
+  /** `POST`: an inbound text or a delivery status. `GET`: a handshake. */
+  readonly method: 'GET' | 'POST';
+  /**
+   * The request's own path and query string, as it arrived
+   * (`/v1/texts-inbound/<tenantId>/<appId>?<query>`). The URL the provider
+   * signed is the server's public URL with this after it, never one built
+   * from the `Host` header.
+   */
+  readonly pathAndQuery: string;
+  /**
+   * The request's headers, their names in lower case, but `authorization`:
+   * a bearer token, if sent, is never passed on.
+   */
+  readonly headers: Readonly<Record<string, string>>;
+  /** The body's exact bytes: empty for a `GET`. */
+  readonly rawBody: Uint8Array;
+}
+
+/**
+ * What the provider is answered, with `200`: the body as it expects it,
+ * such as Twilio's empty `<Response></Response>` (`text/xml`), or Meta's
+ * challenge echoed back (`text/plain`).
+ */
+export interface TextsInboundAnswer {
+  readonly contentType: 'text/xml' | 'text/plain' | 'application/json';
+  readonly body: string;
+}
 
 /**
  * The store behind the connections routes. A runtime implements it; an
@@ -772,4 +810,26 @@ export interface ConnectionBinding {
     readonly headers: Readonly<Record<string, string>>;
     readonly rawBody: Uint8Array;
   }): Promise<Result<{ readonly handled: string; readonly connections: number }, ConnectionError>>;
+
+  /**
+   * Texts a provider delivers to a texts registration
+   * (`/v1/texts-inbound`): an inbound text, a delivery status, or Meta's
+   * GET handshake. The provider's own signature is what this checks, with
+   * the registration's credential, before anything is written: anything
+   * that doesn't prove its sender (an unknown workspace or registration,
+   * a bad or missing signature, a handshake that doesn't match) is
+   * `texts-inbound-refused`, and nothing is written.
+   *
+   * Behind a proven request, the runtime routes each text by the number
+   * it was sent to, records a sender's STOP and START, records when the
+   * number last had a proven inbound text, and drops a text whose
+   * provider message id it has already taken. Each text fires once, on
+   * the thread of its connection, channel and sender.
+   *
+   * `texts-inbound-unavailable` (the registration's credential or the
+   * store couldn't be read, or the texts couldn't be taken) is the
+   * server's, and the provider may send them again. The routes mount
+   * `/v1/texts-inbound` only when a binding has this.
+   */
+  receiveTexts?(input: TextsInboundInput): Promise<Result<TextsInboundAnswer, ConnectionError>>;
 }
