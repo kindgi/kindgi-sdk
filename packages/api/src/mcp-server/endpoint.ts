@@ -10,6 +10,7 @@ import {
   type OAuthTokenVerifier,
   bearerAuthChallengeResponse,
   createMcpHandler,
+  isLegacyRequest,
   verifyBearerToken,
 } from '@modelcontextprotocol/server';
 import type { Hono } from 'hono';
@@ -95,6 +96,16 @@ const INSTRUCTIONS =
 /** The context a request's tools get, in `AuthInfo.extra`; never sent anywhere. */
 const CONTEXT_KEY = 'kindgi';
 
+/**
+ * Both eras: 2026-07-28 per request, and the 2025 revisions' `initialize`,
+ * which the chat apps still open with, served statelessly. Serving 2025 is
+ * a choice: `'reject'` would cut every app that hasn't moved.
+ */
+const ERAS = { legacy: 'stateless' } as const;
+
+/** A request's body before it's served: its JSON, or none (not a POST, or not JSON). */
+const NO_JSON = Symbol('no JSON body');
+
 export function mountMcpServer(
   app: Hono<AppEnv>,
   input: McpServerInput,
@@ -120,7 +131,7 @@ export function mountMcpServer(
       if (served(set, context.scopes)) await set.register(server, context);
     }
     return server;
-  });
+  }, ERAS);
 
   const verifier: OAuthTokenVerifier = {
     async verifyAccessToken(token) {
@@ -146,6 +157,15 @@ export function mountMcpServer(
   // Every method: the library answers what MCP's HTTP transport doesn't
   // serve. `/mcp` speaks JSON-RPC, so it isn't an OpenAPI operation.
   app.all('/mcp', async (c) => {
+    // The revision a client says it speaks, on the request's log line, from
+    // the header alone: the unsigned first request, the one that starts
+    // sign-in, carries it too, and no body is read before sign-in.
+    c.set(
+      'log',
+      c
+        .get('log')
+        .child({ mcpProtocolVersion: protocolVersionOf(c.req.header('mcp-protocol-version')) }),
+    );
     let authInfo: AuthInfo;
     try {
       authInfo = await verifyBearerToken(c.req.header('authorization'), {
@@ -184,6 +204,8 @@ export function mountMcpServer(
       allowedActions: allowedActionsOf(scopes),
     };
     const routes = toolSets.filter((set) => served(set, scopes)).flatMap((set) => set.routes);
+    const body = await bodyOf(c.req.raw);
+    c.set('log', c.get('log').child({ mcpEra: await eraOf(c.req.raw, body) }));
     const context: McpToolContext = {
       tenantId: resolution.tenantId,
       userId: person.userId,
@@ -195,7 +217,7 @@ export function mountMcpServer(
         routes,
       ),
       link,
-      asked: await askedOf(c.req.raw),
+      asked: askedOf(body),
     };
     return handler.fetch(c.req.raw, {
       authInfo: { ...authInfo, extra: { [CONTEXT_KEY]: context } },
@@ -234,15 +256,34 @@ function chatPerson(
   return { userId };
 }
 
-async function askedOf(request: Request): Promise<McpAsked> {
-  if (request.method !== 'POST') return {};
-  let body: unknown;
+async function bodyOf(request: Request): Promise<unknown> {
+  if (request.method !== 'POST') return NO_JSON;
   try {
-    body = await request.clone().json();
+    return await request.clone().json();
   } catch {
     // The library answers a body that isn't JSON.
-    return {};
+    return NO_JSON;
   }
+}
+
+/**
+ * How the library serves the request, by its own classification, so the
+ * log says what was served: `legacy` (a 2025 revision) or `modern`.
+ */
+async function eraOf(request: Request, body: unknown): Promise<'legacy' | 'modern'> {
+  const legacy =
+    body === NO_JSON ? await isLegacyRequest(request) : await isLegacyRequest(request, body);
+  return legacy ? 'legacy' : 'modern';
+}
+
+/** `MCP-Protocol-Version` as a log field: a revision's date as sent, else `none` or `other`. */
+function protocolVersionOf(header: string | undefined): string {
+  if (header === undefined) return 'none';
+  return /^\d{4}-\d{2}-\d{2}$/.test(header) ? header : 'other';
+}
+
+function askedOf(body: unknown): McpAsked {
+  if (body === NO_JSON) return {};
   if (Array.isArray(body)) return { batch: true };
   if (typeof body !== 'object' || body === null) return {};
   const { method, params } = body as { method?: unknown; params?: { name?: unknown } };
