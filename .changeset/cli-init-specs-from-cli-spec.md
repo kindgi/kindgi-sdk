@@ -6,5 +6,5 @@
 
 - A version (`0.4.0`, `^0.4.0`, `0.5.0-rc.1`) means a published CLI. The project pins it, as from `node_modules` before.
 - `workspace:*` means a checkout only with a `pnpm-workspace.yaml` at or above the CLI. With none, init stops and says the packed CLI's `workspace:` specs were never replaced by versions. Under `node_modules`, it stays a publisher error.
-- Any other spec (`link:`, `file:`, `catalog:`, a URL, `latest`, or none) stops init with an error that names it. Under `node_modules`, such a spec used to be copied into the project as it was.
+- Any other spec (`link:`, `file:`, `catalog:`, a URL, `latest`, or none) stops init with an error that names it. Under `node_modules`, such a spec used to be copied into the project as it was (a missing one was already an error).
 - Python, Java and Scala packs read the same spec. Under `node_modules`, they used to take any CLI as published, and now stop with the same named error for a spec that isn't a version.

@@ -173,7 +173,7 @@ async function classifyCli(
   if (sdk !== undefined && PLAIN_VERSION.test(sdk)) return { kind: 'published', sdk };
   return {
     kind: 'error',
-    message: `This @kindgi/cli (${cliRoot}) lists @kindgi/sdk as "${sdk ?? '(missing)'}", not a published version. Broken install.`,
+    message: `This @kindgi/cli (${cliRoot}) lists @kindgi/sdk as "${sdk ?? '(missing)'}", not a published version. Install a released @kindgi/cli, or pack this one with pnpm so its dependencies are versions.`,
   };
 }
 

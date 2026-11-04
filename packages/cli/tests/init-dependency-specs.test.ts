@@ -239,7 +239,7 @@ describe("the CLI's own @kindgi/sdk spec, not its path, says published or checko
     };
     const error = {
       kind: 'error',
-      message: `This @kindgi/cli (${root}) lists @kindgi/sdk as "${spec ?? '(missing)'}", not a published version. Broken install.`,
+      message: `This @kindgi/cli (${root}) lists @kindgi/sdk as "${spec ?? '(missing)'}", not a published version. Install a released @kindgi/cli, or pack this one with pnpm so its dependencies are versions.`,
     };
     expect(await allThree(seams)).toEqual([error, error, error]);
   });
@@ -278,10 +278,13 @@ describe("a Python pack's kindgi", () => {
 
   test('a published CLI with a malformed version is a broken install, not a bare `kindgi`', async () => {
     const r = await resolveKindgiPythonSource({
-      cli: { root: '/app/node_modules/@kindgi/cli', version: 'dev', sdkDependency: 'dev' },
+      cli: { root: '/app/node_modules/@kindgi/cli', version: 'dev', sdkDependency: '0.1.0' },
       realpath: identity,
     });
-    expect(r.kind).toBe('error');
+    expect(r).toEqual({
+      kind: 'error',
+      message: "This @kindgi/cli's version (dev) isn't major.minor.patch — broken install.",
+    });
   });
 });
 
