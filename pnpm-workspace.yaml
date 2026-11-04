@@ -20,8 +20,9 @@ allowBuilds:
   'sharp': true
 
 # Security fixes for dependencies that our packages don't declare directly.
-# Each override covers only the versions an advisory names, and moves them to
-# the first fixed release in the same line, so nothing else re-resolves.
+# Each override covers only the versions an advisory names. Its caret floor
+# is the fixed release, so those copies move to the newest release in the
+# same line, and nothing else re-resolves.
 overrides:
   # The peer-resolved copies (AI SDK, openai, MCP, astro) follow our own floor.
   'zod@>=4 <4.6.6': ^4.6.6
