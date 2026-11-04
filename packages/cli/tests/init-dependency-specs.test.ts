@@ -7,6 +7,7 @@ import { resolveCliPackage } from '../src/cli-package.js';
 import {
   kindgiRequirement,
   resolveKindgiDependencySpecs,
+  resolveKindgiJavaSource,
   resolveKindgiPythonSource,
 } from '../src/init/dependency-specs.js';
 
@@ -21,6 +22,13 @@ const checkoutCli = {
   version: '0.0.0',
   sdkDependency: 'workspace:*',
 };
+
+// A packed CLI copied outside any node_modules (a deploy folder, an unpacked
+// tarball): its own dependencies sit in its node_modules, and no workspace is above.
+const deployedCli = { root: '/opt/app/cli', version: '0.4.0', sdkDependency: '0.4.0' };
+const deployedSdkRoot =
+  '/opt/app/cli/node_modules/.pnpm/@kindgi+sdk@0.4.0/node_modules/@kindgi/sdk';
+const noWorkspace = async (): Promise<boolean> => false;
 
 describe('resolveKindgiDependencySpecs', () => {
   test('checkout → another project: link both packages from the checkout', async () => {
@@ -123,6 +131,117 @@ describe('resolveKindgiDependencySpecs', () => {
       exists: workspaceAt('/kindgi'),
     });
     expect(JSON.stringify(r)).not.toContain('latest');
+  });
+});
+
+describe("the CLI's own @kindgi/sdk spec, not its path, says published or checkout", () => {
+  type Seams = Parameters<typeof resolveKindgiPythonSource>[0];
+  const allThree = async (seams: Seams) => [
+    await resolveKindgiDependencySpecs({ targetDir: '/work/app', packageManager: 'npm', ...seams }),
+    await resolveKindgiPythonSource(seams),
+    await resolveKindgiJavaSource(seams),
+  ];
+
+  test('a packed CLI outside node_modules is published, at its own version', async () => {
+    const seams = {
+      cli: deployedCli,
+      sdkRoot: deployedSdkRoot,
+      realpath: identity,
+      exists: noWorkspace,
+    };
+    expect(await allThree(seams)).toEqual([
+      {
+        kind: 'ok',
+        specs: { source: 'published', sdk: '0.4.0', cli: '0.4.0', connections: '0.4.0' },
+      },
+      { kind: 'published', requirement: 'kindgi>=0.4,<0.5' },
+      { kind: 'published', version: '0.4.0' },
+    ]);
+  });
+
+  test.each(['^0.4.0', '~0.4.0', '0.12.0-preview.3', '1.0.0-rc.1'])(
+    '%s is a plain version: published',
+    async (spec) => {
+      const version = spec.replace(/^[\^~]/, '');
+      const r = await resolveKindgiDependencySpecs({
+        targetDir: '/work/app',
+        packageManager: 'npm',
+        cli: { root: '/opt/app/cli', version, sdkDependency: spec },
+        sdkRoot: deployedSdkRoot,
+        realpath: identity,
+        exists: noWorkspace,
+      });
+      expect(r).toEqual({
+        kind: 'ok',
+        specs: { source: 'published', sdk: spec, cli: version, connections: version },
+      });
+    },
+  );
+
+  test('a plain version is published even inside a pnpm workspace', async () => {
+    const r = await resolveKindgiDependencySpecs({
+      targetDir: '/opt/packs/demo',
+      packageManager: 'pnpm',
+      cli: deployedCli,
+      sdkRoot: deployedSdkRoot,
+      realpath: identity,
+      exists: workspaceAt('/opt'),
+    });
+    expect(r.kind === 'ok' && r.specs.source).toBe('published');
+  });
+
+  test('workspace:* with no workspace above is an error naming the cause', async () => {
+    const seams = {
+      cli: { ...deployedCli, sdkDependency: 'workspace:*' },
+      sdkRoot: deployedSdkRoot,
+      realpath: identity,
+      exists: noWorkspace,
+    };
+    const error = {
+      kind: 'error',
+      message:
+        'This @kindgi/cli (/opt/app/cli) lists @kindgi/sdk as "workspace:*" but isn\'t in a Kindgi checkout: no pnpm-workspace.yaml at or above it. A packed or deployed CLI needs its workspace: specs replaced by versions.',
+    };
+    expect(await allThree(seams)).toEqual([error, error, error]);
+  });
+
+  test('workspace:* under node_modules stays a publisher error, even inside a pnpm workspace', async () => {
+    const results = await allThree({
+      cli: {
+        root: '/work/app/node_modules/@kindgi/cli',
+        version: '0.4.0',
+        sdkDependency: 'workspace:*',
+      },
+      realpath: identity,
+      exists: workspaceAt('/work/app'),
+    });
+    expect(
+      results.map((r) => r.kind === 'error' && r.message.includes('publisher misconfiguration')),
+    ).toEqual([true, true, true]);
+  });
+
+  test.each([
+    ['/opt/app/cli', 'link:../sdk'],
+    ['/opt/app/cli', 'catalog:'],
+    ['/opt/app/cli', 'npm:@kindgi/sdk@0.4.0'],
+    ['/work/app/node_modules/@kindgi/cli', 'file:../sdk'],
+    ['/work/app/node_modules/@kindgi/cli', 'git+https://example.com/sdk.git'],
+    ['/work/app/node_modules/@kindgi/cli', 'latest'],
+    ['/work/app/node_modules/@kindgi/cli', '*'],
+    ['/opt/app/cli', undefined],
+    ['/work/app/node_modules/@kindgi/cli', undefined],
+  ])('%s listing @kindgi/sdk as %s is an error naming the spec', async (root, spec) => {
+    const seams = {
+      cli: { root, version: '0.4.0', sdkDependency: spec },
+      sdkRoot: deployedSdkRoot,
+      realpath: identity,
+      exists: noWorkspace,
+    };
+    const error = {
+      kind: 'error',
+      message: `This @kindgi/cli (${root}) lists @kindgi/sdk as "${spec ?? '(missing)'}", not a published version. Broken install.`,
+    };
+    expect(await allThree(seams)).toEqual([error, error, error]);
   });
 });
 
