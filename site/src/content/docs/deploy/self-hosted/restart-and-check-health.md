@@ -86,7 +86,9 @@ sweep once the runtime is back: see
 A run waiting for an approval or for another system's answer isn't
 executing. The stop leaves it waiting, and it goes on when its approval is
 decided or its answer comes. A queued run stays queued, and starts once the
-runtime is back.
+runtime is back. The exception is a run inside another, such as an agent
+step's turn: when the stop fails its parent, it fails with it, with the
+same message.
 
 A run on an agent's test cases fails too, but only once the runtime is back
 and its lease has run out
