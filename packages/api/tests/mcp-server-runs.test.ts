@@ -19,7 +19,7 @@ import { mountMcpServer } from '../src/mcp-server/endpoint.js';
 import { type RunWait, agentTools, runStateTools } from '../src/mcp-server/run-tools.js';
 import { RUN_VIEW_HTML, RUN_VIEW_MIME, RUN_VIEW_URI } from '../src/mcp-server/run-view.js';
 import type { AppEnv } from '../src/types.js';
-import { mcpRpc } from './support/mcp-rpc.js';
+import { mcpListen, mcpRpc } from './support/mcp-rpc.js';
 
 const tenantId = '00000000-0000-4000-8000-0000000000a1' as TenantId;
 const RUN_ID = '00000000-0000-4000-8000-0000000000b1';
@@ -190,6 +190,7 @@ function harness(options: HarnessOptions = {}) {
   );
   return {
     rpc: mcpRpc(app),
+    listen: mcpListen(app),
     seen,
     checks: () => checks,
     starts: () => starts,
@@ -555,5 +556,44 @@ describe('/mcp: run_state and the run view', () => {
     );
     expect(RUN_VIEW_HTML).not.toContain('waitSeconds');
     expect(RUN_VIEW_HTML).not.toContain('innerHTML');
+  });
+});
+
+describe('/mcp: no list changes under a client', () => {
+  test('initialize says neither the tools nor the resources announce a change', async () => {
+    const { rpc } = harness();
+    const { res, body } = await rpc('chat-read', 'initialize', {
+      protocolVersion: '2025-11-25',
+      capabilities: {},
+      clientInfo: { name: 'chat', version: '1.0.0' },
+    });
+    expect(res.status).toBe(200);
+    expect(body.result.capabilities.tools.listChanged).toBe(false);
+    expect(body.result.capabilities.resources.listChanged).toBe(false);
+  });
+
+  // A listen nothing can answer is completed, not held open with keep-alives.
+  test.each([
+    [
+      'every list and the run view',
+      {
+        toolsListChanged: true,
+        resourcesListChanged: true,
+        promptsListChanged: true,
+        resourceSubscriptions: [RUN_VIEW_URI],
+      },
+    ],
+    ['the resources alone', { resourcesListChanged: true }],
+  ])('a 2026-07-28 listen for %s honours nothing and ends at once', async (_, notifications) => {
+    const { listen } = harness();
+    const { res, frames, ended } = await listen('chat-read', notifications);
+    expect(res.status).toBe(200);
+    expect(ended).toBe(true);
+    expect(frames).toHaveLength(2);
+    expect(frames[0]).toMatchObject({
+      method: 'notifications/subscriptions/acknowledged',
+      params: { notifications: {} },
+    });
+    expect(frames[1]).toMatchObject({ id: 1, result: { resultType: 'complete' } });
   });
 });
