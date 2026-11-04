@@ -86,7 +86,11 @@ export interface BuildEnvelopeInputs {
   readonly tenantId: string;
   readonly publishedAt: string;
   readonly buildLogsUrl?: string;
-  readonly signature?: { readonly signatureBase64: string; readonly publicKeyPem: string; readonly keyId: string };
+  readonly signature?: {
+    readonly signatureBase64: string;
+    readonly publicKeyPem: string;
+    readonly keyId: string;
+  };
 }
 
 /** Assemble the deploy envelope JSON. Signed / unsigned depends on inputs. */

@@ -205,7 +205,7 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   `revoked:` line:
 
   ```sh
-  npx --yes @kindgi/cli@0.2 tokens revoke <key id>
+  npx --yes @kindgi/cli@0.4 tokens revoke <key id>
   ```
 
   A key that's already revoked stays revoked, and the sessions it left end,
@@ -772,6 +772,21 @@ for you, named:
 tenant f309aaca-024a-4fb9-aff8-ef76c4c40e16 (tenant-a): Default project created; no authorization store, and none can be made without naming its first admin: left for the operator; 0 tuples added; adapters: 6 kept up to date, 0 removed; sign-in providers reconciled
 1 tenant gone through; 1 left for the operator (named above).
 ```
+
+The default project it adds is First Project, with the slug `first-project`.
+With the runtime 0.6.0 or later, when a project without an org has that slug,
+or another project of the tenant had it before it was renamed, the default
+project gets the first free one of `first-project-2`, `first-project-3` and
+so on, and the tenant's line starts, after its name, with:
+
+```text
+Default project created with the slug "first-project-2" ("first-project" is another project's, now or before it was renamed)
+```
+
+The runtime finds the default project by its being the default, never by its
+slug: a deploy that names no project still goes into it. A one-tenant runtime
+adds its default project when it starts, and logs a note when it takes
+another slug.
 
 Run it with the version you upgraded to, after its server has started. The
 `tenants` commands, `repair` among them, run only on a database migrated to

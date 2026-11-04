@@ -40,8 +40,8 @@ API token or an `admin` key made for the seed user
   GitHub and the emailed link still work, and adding or changing a
   workspace's own provider answers `409 identity-providers-need-secrets-store`.
 - **`openssl`,** to make sign-in's own secret.
-- **For `kindgi` commands:** Kindgi 0.2's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.2` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.4's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.4` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## 1. Turn it on
@@ -199,7 +199,7 @@ KINDGI_AUTH_TENANT_PROVIDERS=off
 ```
 
 - **Only the deployment's own token** (`KINDGI_API_TOKEN`) can then add,
-  change or remove a provider. A workspace admin's change is refused with
+  change or remove a provider. A tenant admin's change is refused with
   `403 identity-providers-operator-managed`:
 
   ```text
@@ -211,7 +211,7 @@ KINDGI_AUTH_TENANT_PROVIDERS=off
 - **The console's Sign-in page** says who manages it, and lists the
   providers with **Try** only:
 
-  ![The Sign-in page with KINDGI_AUTH_TENANT_PROVIDERS=off: Whoever runs Kindgi manages sign-in here, and acme-ops listed with Try only](../../../../assets/sso/console-providers-operator.png)
+  ![The Sign-in page with KINDGI_AUTH_TENANT_PROVIDERS=off: Whoever runs Kindgi manages sign-in here, acme-ops listed with a Try icon only, and the Second factor box](../../../../assets/sso/console-providers-operator.png)
 
 `on` is the default. Like the other settings here, it needs sign-in on.
 
@@ -323,7 +323,7 @@ nothing. Access is decided after the provider signs them in:
    expired before they first signed in. That refusal is audited, and stands
    until an admin of that workspace sends the invitation again:
 
-   ![The console's sign-in page: Your invitation has expired. An invitation is open for 7 days. Ask an admin of the workspace to send it again, then sign in. Detail: invite-expired.](../../../../assets/sso/sign-in-invite-expired.png)
+   ![The console's sign-in page: Your invitation has expired. An invitation is open for 7 days. Ask a tenant admin of this workspace to send it again, then sign in. Detail: invite-expired. Below it, Your email and Continue.](../../../../assets/sso/sign-in-invite-expired.png)
 5. **The first sign-in links the provider account to the person.** A
    different account with the same email is refused afterwards, with
    `account-mismatch`. So an address that later moves to someone else can't
@@ -457,7 +457,7 @@ sign in.
 A tenant admin can require one for the whole workspace:
 
 ```sh
-npx --yes @kindgi/cli@0.2 sign-in settings --require-second-factor=on
+npx --yes @kindgi/cli@0.4 sign-in settings --require-second-factor=on
 ```
 
 - Someone without one sets one up at their next sign-in.
@@ -481,7 +481,7 @@ factor for the rest of that time (`second-factor-locked`). For a lost phone, a t
 theirs, and they're told by email where the deployment sends it:
 
 ```sh
-npx --yes @kindgi/cli@0.2 people reset-second-factor <user-id>
+npx --yes @kindgi/cli@0.4 people reset-second-factor <user-id>
 ```
 
 An admin's own isn't removed this way: they take it off on My access, with a

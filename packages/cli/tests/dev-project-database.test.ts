@@ -116,7 +116,7 @@ describe('createProjectDatabases', () => {
     expect(outcome).toEqual({
       kind: 'refused',
       message:
-        'the database kindgi_acme belongs to /elsewhere/acme, another folder whose project is also named "acme". Give this one its own name: set `project` in kindgi.config.ts (or `project` under [tool.kindgi] in pyproject.toml, or in kindgi.config.json), or pass --database-url.',
+        'the database kindgi_acme belongs to /elsewhere/acme, another folder whose project is also named "acme". Give this one its own name: set `project` in kindgi.config.ts (or `project` under [tool.kindgi] in pyproject.toml, or in kindgi.config.json), or use your own Postgres: KINDGI_DATABASE_URL in .kindgi/secrets.env.',
     });
     expect(pg.databases.get('kindgi_acme')).toBe(owner('/elsewhere/acme'));
   });

@@ -104,15 +104,38 @@ export async function turnRefusal(
 
 /**
  * Whether the caller can't read the conversation: `read` on what it's
- * checked on (`checkedOn`), asked through the authorizer, which records the
- * decision as it records every other. Without an authorizer, everyone can.
+ * checked on (`checkedOn`), or, for one they opened in a project, `run`
+ * there (`ownConversationIn`), asked through the authorizer, which records
+ * each decision as it records every other. Without an authorizer, everyone
+ * can.
  */
 export async function unreadable(
   c: Context<AppEnv>,
   authorizer: Authorizer | undefined,
   conversation: TurnConversation,
 ): Promise<boolean> {
-  return authorizer !== undefined && !(await authorizer.can(c, 'read', checkedOn(conversation)));
+  if (authorizer === undefined || (await authorizer.can(c, 'read', checkedOn(conversation)))) {
+    return false;
+  }
+  const own = ownConversationIn(c, conversation);
+  return own === undefined || !(await authorizer.can(c, 'run', ref('project', own)));
+}
+
+/**
+ * The project of a conversation the caller opened (its `openedBy` is
+ * theirs), where `run` lets them read it though `read` doesn't; else
+ * `undefined`. One from before projects has none: `read` alone.
+ */
+export function ownConversationIn(
+  c: Context<AppEnv>,
+  conversation: Pick<TurnConversation, 'projectId' | 'openedBy'>,
+): string | undefined {
+  const caller = callerRef(c);
+  return caller !== undefined &&
+    conversation.openedBy === caller &&
+    conversation.projectId !== undefined
+    ? conversation.projectId
+    : undefined;
 }
 
 /**
@@ -132,6 +155,54 @@ export async function hiddenOr(
   return (await unreadable(c, authorizer, conversation))
     ? conversationNotFound(c, conversationId)
     : refusal;
+}
+
+/**
+ * Who may close a conversation someone else opened, or one that names no
+ * opener, once the route's own check (`execute` on its agent, or its
+ * project's `call`) has let the caller through. A caller who may `run` the
+ * project it's run in needs `write` as well, as stopping another person's
+ * run does. `run` without `write` is a runner's, and anyone's in the
+ * workspace where the project lets everyone run it (`everyoneCanRun`), a
+ * viewer's too: each closes only the conversations they opened. A caller
+ * with no `run` there (`execute` or the project's `call` alone, as an
+ * app's backend or an agent holds it) closes any, as before. `run` is
+ * asked of the conversation's project; for one from before projects, of
+ * `filedIn`'s (where the version it was opened with is filed), and none:
+ * as before. `write` is asked of what reading it is checked on
+ * (`checkedOn`). Refused: to a caller who can't read it (`unreadable`), the
+ * answer for a conversation that doesn't exist, the refusal recorded; to
+ * one who can, the 403. Without an authorizer, nothing to refuse.
+ */
+export async function othersCloseRefusal(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  conversationId: string,
+  conversation: TurnConversation,
+  filedIn: () => Promise<string | undefined>,
+): Promise<Response | undefined> {
+  if (authorizer === undefined) return undefined;
+  const caller = callerRef(c);
+  if (caller !== undefined && caller === conversation.openedBy) return undefined;
+  const project = conversation.projectId ?? (await filedIn());
+  if (project === undefined || !(await authorizer.can(c, 'run', ref('project', project)))) {
+    return undefined;
+  }
+  if (await authorizer.can(c, 'write', checkedOn(conversation))) return undefined;
+  const refusal: Refusal = {
+    action: 'write',
+    resource: ref('conversation', conversationId),
+    message:
+      conversation.projectId !== undefined
+        ? 'Closing a conversation someone else opened takes write on its project'
+        : 'Closing a conversation someone else opened takes write on its agent, as the conversation is from before projects',
+    failing: 'actor',
+  };
+  if (await unreadable(c, authorizer, conversation)) {
+    recordRefusal(c, authorizer, refusal);
+    return conversationNotFound(c, conversationId);
+  }
+  return refused(c, authorizer, refusal);
 }
 
 /** Its project, else (from before projects) its agent: what reading it is checked on. */

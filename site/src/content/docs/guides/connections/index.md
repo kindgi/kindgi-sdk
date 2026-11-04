@@ -87,15 +87,15 @@ So connect before a schedule or a webhook needs it. From a terminal, this
 prints the link to open, and waits until you've connected:
 
 ```sh
-npx --yes @kindgi/cli@0.2 connections connect google --permissions=gmail.send
+npx --yes @kindgi/cli@0.4 connections connect google --permissions=gmail.send
 ```
 
 - **`--permissions`** names what to ask for, by the app's permission keys.
   Left out, it asks you about each one at the terminal.
 - **`--for-company`** connects the company's account instead, which only
-  a workspace admin can.
+  a tenant admin can.
 - **`kindgi connections list --mine --table`** lists your connections, with
-  their state. A workspace admin sees everyone's without `--mine`.
+  their state. A tenant admin sees everyone's without `--mine`.
 
 ## What you need
 

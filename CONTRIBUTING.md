@@ -125,6 +125,16 @@ when it merges a release branch runs it too. CI fails when a link isn't on
 the release line (`pnpm run check:refs`), and a link on no release line, or
 on a patch version's, is moved by hand.
 
+The docs pages, the skills and the READMEs install the CLI of their own
+line: `npx --yes @kindgi/cli@X.Y`, `uvx --from "kindgi-cli>=X.Y,<…"` and
+"Kindgi X.Y's CLI" follow `@kindgi/cli`'s version, a release candidate's
+exact build too, and "Kindgi X.Y's client" follows `@kindgi/sdk`'s
+(`scripts/lib/cli-line.mjs`). `pnpm run version-packages` runs
+`scripts/sync-cli-line.mjs` after `scripts/sync-docs-line.mjs`, which moves
+each of them to the new version, and nothing else. A branch whose version
+moves when it merges a release branch runs both. CI fails when one isn't on
+its line (`pnpm run check:cli-line`). The release notes keep theirs.
+
 1. Every user-visible change adds a changeset: `pnpm changeset`. Before
    1.0, and while release candidates are out, it's a `patch`: one
    `minor` moves every package to the next minor, which no installed
@@ -170,7 +180,13 @@ workflow's `publish-maven` job, in the `maven-publish` environment
    deployment, so a version's Java and Scala artifacts publish together or
    not at all. A dry run has the Portal validate the deployment and then
    drops it; nothing is published. A version Central already has is
-   skipped.
+   skipped. A request to Central or the Portal that gets no answer, or a
+   408, a 429 or a 5xx, while it checks for that version or waits for the
+   deployment, is tried again with a longer pause each time: the check and
+   the wait each give up after an hour (a dry run's wait, after half an
+   hour). The upload is sent only once. If the job fails after the upload,
+   see the deployment on the Portal before rerunning it: until Central
+   serves the version, a rerun can upload it again.
 4. Central serves a version some time after the Portal publishes it. A job
    of its own, between the Maven job and npm's, waits until Central serves
    every JVM artifact at the CLI's version (`central-bundle.mjs
@@ -178,10 +194,13 @@ workflow's `publish-maven` job, in the `maven-publish` environment
    kindgi-pack doesn't resolve. It has no environment: npm's approval comes
    up only once Central serves, and a slower Central fails that job before
    it does, so rerunning the failed jobs asks for npm's approval only once.
-   A request to Central that errors fails that job at once, the same way.
-   If the job reaches its 135-minute limit instead, GitHub cancels it:
-   rerun that job alone (`gh run rerun <run-id> --job <job-id>`), which
-   reruns the jobs after it too. A release that skipped Maven stops there.
+   A request Central doesn't answer, or answers with a 408, a 429 or a
+   5xx, is tried again with a longer pause each time, until the two hours
+   are up. Any other answer, such as a 403, fails that job at once, the
+   same way. If the job reaches its 135-minute limit instead, GitHub
+   cancels it: rerun that job alone
+   (`gh run rerun <run-id> --job <job-id>`), which reruns the jobs after
+   it too. A release that skipped Maven stops there.
 
 The environment holds the Portal user token (`MAVEN_CENTRAL_USERNAME`,
 `MAVEN_CENTRAL_PASSWORD`), the signing key (`MAVEN_GPG_PRIVATE_KEY`,

@@ -24,8 +24,8 @@ the Kindgi CLI and SDK.
 - **Docker** (Docker Desktop, or the Docker engine on Linux). `kindgi dev`
   runs the Kindgi runtime as a container, and a Postgres container for it:
   with `docker compose` when it's there, with plain `docker` otherwise. With
-  your own database (Postgres 16 with pgvector, passed as `--database-url`),
-  it starts no Postgres.
+  your own database (Postgres 16 with pgvector, its URL in
+  `.kindgi/secrets.env`), it starts no Postgres.
 - **For a Python pack:** Python 3.11 or later, and uv (or Poetry, or pip).
   The CLI comes from PyPI as `kindgi-cli`, with its own copy of Node, so you
   install no Node.
@@ -48,8 +48,8 @@ there once with it. The CLI asks for the key without showing it, hands it to
 it runs:
 
 ```sh
-npx --yes @kindgi/cli@0.2 auth registry
-# without Node: uvx --from "kindgi-cli>=0.2,<0.3" kindgi auth registry
+npx --yes @kindgi/cli@0.4 auth registry
+# without Node: uvx --from "kindgi-cli>=0.4,<0.5" kindgi auth registry
 ```
 
 ```text
@@ -71,14 +71,14 @@ dependencies, its model key, the runtime and a provider. Each check that
 fails says how to fix it, and it exits `1` until nothing does:
 
 ```sh
-npx --yes @kindgi/cli@0.2 doctor
+npx --yes @kindgi/cli@0.4 doctor
 ```
 
 - `npx` downloads `@kindgi/cli` and runs it. It asks before it downloads a
   package, and `--yes` answers for you.
-- `@0.2` takes the newest 0.2 release of the CLI, the line these docs
-  describe. It's optional: `npx --yes @kindgi/cli doctor` runs the newest
-  release, which may be on a later line than these docs.
+- The version after `@kindgi/cli@` picks the CLI these docs describe. It's
+  optional: `npx --yes @kindgi/cli doctor` runs the newest release, which may
+  be on a later line than these docs.
 
 Before there's a project, on a machine that has what Kindgi needs, it ends
 with `Everything checked is ready.`:
@@ -102,12 +102,12 @@ such as the project's before you make one.
 Without Node, run the CLI from PyPI instead:
 
 ```sh
-uvx --from "kindgi-cli>=0.2,<0.3" kindgi doctor
+uvx --from "kindgi-cli>=0.4,<0.5" kindgi doctor
 ```
 
 - `uvx` runs a command from a PyPI package without installing it.
-- `--from` names the package that has the `kindgi` command, here any 0.1
-  release of `kindgi-cli`, the line these docs describe. The range is
+- `--from` names the package that has the `kindgi` command, here the
+  `kindgi-cli` these docs describe. The range is
   optional: `uvx --from kindgi-cli kindgi doctor` runs the newest release,
   which may be on a later line than these docs.
 
@@ -173,13 +173,13 @@ devDependency and runs the version it pins, so everyone on the project runs
 the same one. `kindgi init` adds it, with `@kindgi/sdk`:
 
 ```sh
-npx --yes @kindgi/cli@0.2 init my-pack
+npx --yes @kindgi/cli@0.4 init my-pack
 ```
 
 - `init my-pack` makes a new pack in the folder `my-pack`. In an app you
-  already have, run `npx --yes @kindgi/cli@0.2 init` in its folder instead
+  already have, run `npx --yes @kindgi/cli@0.4 init` in its folder instead
   ([Add Kindgi to an existing app](../existing-app/)).
-- `--yes` and `@0.2` are as for `doctor` in [Check this machine](#check-this-machine).
+- `--yes` and the version are as for `doctor` in [Check this machine](#check-this-machine).
 
 It prints what it made, then the next steps:
 
@@ -223,7 +223,7 @@ The CLI is the `kindgi-cli` package on PyPI. Start a new pack with it,
 pinned to Kindgi's minor version:
 
 ```sh
-uvx --from "kindgi-cli>=0.2,<0.3" kindgi init my-pack --template=python
+uvx --from "kindgi-cli>=0.4,<0.5" kindgi init my-pack --template=python
 cd my-pack
 uv sync
 ```
@@ -253,7 +253,7 @@ In an existing app, add both yourself:
 
 ```sh
 uv add kindgi
-uv add --dev "kindgi-cli>=0.2,<0.3"
+uv add --dev "kindgi-cli>=0.4,<0.5"
 ```
 
 The first adds the SDK. The second adds the CLI, and `--dev` puts it in the
@@ -269,17 +269,17 @@ Each prints what it added. The CLI brings its own Node:
  + nodejs-wheel-binaries==24.19.0
 ```
 
-With Poetry: `poetry add kindgi` and `poetry add --group dev "kindgi-cli>=0.2,<0.3"`.
-With pip: `pip install kindgi "kindgi-cli>=0.2,<0.3"`.
+With Poetry: `poetry add kindgi` and `poetry add --group dev "kindgi-cli>=0.4,<0.5"`.
+With pip: `pip install kindgi "kindgi-cli>=0.4,<0.5"`.
 
 ## A Java or Scala project
 
 ```sh
-npx --yes @kindgi/cli@0.2 init my-pack --template=java
+npx --yes @kindgi/cli@0.4 init my-pack --template=java
 ```
 
 - `--template=scala` makes a Scala pack. Without Node:
-  `uvx --from "kindgi-cli>=0.2,<0.3" kindgi init my-pack --template=java`.
+  `uvx --from "kindgi-cli>=0.4,<0.5" kindgi init my-pack --template=java`.
 - The pack pins the Kindgi CLI it runs with, `"cli"` in `kindgi.config.json`.
   From then on, a Java or Scala project runs it as `./kindgiw <command>`
   (`kindgiw.cmd` on Windows). A page with language tabs shows that in its
@@ -314,13 +314,24 @@ workspace root's or the pack folder's. It says which when it starts:
 
 ```text
   ✓ Project: acme-desk (the pack's folder name; set `project` in the Kindgi config to name it)
-  ✓ Database: kindgi_acme_desk (created) in the bundled Postgres; to use your own: --database-url
+  ✓ Database: kindgi_acme_desk (created) in the bundled Postgres; to use your own: KINDGI_DATABASE_URL in .kindgi/secrets.env
 ```
 
+- **Your own Postgres** (16, with pgvector): put its URL in Kindgi's own env
+  file, `.kindgi/secrets.env`, which your app doesn't load. Add the line in
+  your editor, then `chmod 600 .kindgi/secrets.env`:
+
+  ```sh
+  KINDGI_DATABASE_URL=postgres://<user>:<password>@<host>:5432/<database>
+  ```
+
+  `kindgi dev` then starts no Postgres. A URL passed with `--database-url` is
+  on the command line, where another user on the machine can read it with
+  `ps`: keep the flag for a URL with no password.
 - **Starting over:** `kindgi dev --reset` drops the project's database after
   asking, and makes a new token. `--yes` skips the question, for scripts;
-  without a terminal to ask on and without `--yes`, it refuses. A database you
-  pass with `--database-url` is never dropped.
+  without a terminal to ask on and without `--yes`, it refuses. Your own
+  database is never dropped.
 - **Several packs in one project** share its database and workspace, but not
   each other's tools: under `kindgi dev`, a flow in one pack can't call
   another pack's tools.
@@ -328,7 +339,7 @@ workspace root's or the pack folder's. It says which when it starts:
   every worktree, and `<worktree>` is git's name for a linked one. Each
   worktree has its own dev workspace, user and token. In the bundled Postgres
   it has its own database too, and its workspace and user are named from it;
-  with your own (`--database-url` or `KINDGI_DATABASE_URL`), it uses that
+  with your own (`KINDGI_DATABASE_URL`), it uses that
   one. Its `.kindgirc.json`, which `kindgi init` keeps out of git, keeps
   the token, the workspace and the user. When port `4000` is taken, by another
   worktree's `kindgi dev` say, `kindgi dev` takes the next free one and

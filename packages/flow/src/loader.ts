@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { NodeId, Result } from '@kindgi/types';
+import { type NodeId, type Result, mcpExposureIssues } from '@kindgi/types';
 
 import { compileInlineSchema, createSpecRegistry } from '@kindgi/schema';
 import type { SpecRegistry } from '@kindgi/schema';
@@ -15,10 +15,12 @@ import type {
   InvalidFanoutNodeError,
   InvalidFlowOutputError,
   InvalidMappingError,
+  InvalidMcpExposureError,
   InvalidPredicateError,
   InvalidSubflowNodeError,
   LoopBodyCycleError,
   LoopBodyEdgeReferenceError,
+  LoopBodyFanoutError,
   LoopBodyMissingStartError,
   LoopConcurrencyError,
   LoopMaxIterationsError,
@@ -92,10 +94,12 @@ const SEMANTIC_CHECKS: readonly ((flow: Flow) => FlowError | undefined)[] = [
   checkAllLoopVariants,
   checkAllLoopOutputSchemas,
   checkAllLoopConcurrency,
+  checkLoopBodyFanouts,
   checkAllFanoutNodes,
   checkAllSubflowNodes,
   checkAllMappings,
   checkFlowOutputSchema,
+  checkMcpExposure,
   checkStartEdge,
   detectOuterCycle,
   validateAllLoopBodies,
@@ -121,17 +125,19 @@ const SEMANTIC_CHECKS: readonly ((flow: Flow) => FlowError | undefined)[] = [
  *   9. Loop variant integrity (`while` vs `foreach` fields).
  *   10. Every loop `outputSchema` compiles.
  *   11. Foreach `concurrency` bounds.
- *   12. Fanout node rules (branches, `concurrency`, `convergence`,
+ *   12. No fan-out node in a loop body, at any nesting level: a loop body
+ *       can't run one.
+ *   13. Fanout node rules (branches, `concurrency`, `convergence`,
  *       per-branch `outputSchema`).
- *   13. Subgraph node rules (`flowRef`, `inputMapping`, `outputSchema`,
+ *   14. Subgraph node rules (`flowRef`, `inputMapping`, `outputSchema`,
  *       `convergence`).
- *   14. Data-flow mappings (1.8.0): every leaf `inputMapping` and the
+ *   15. Data-flow mappings (1.8.0): every leaf `inputMapping` and the
  *       flow's `output.mapping` names only nodes of the flow, never the
  *       node's own output, and no loop-only root.
- *   15. The flow's `output.schema` compiles.
- *   16. Outer flow must have at least one $start-rooted edge.
- *   17. Outer flow cycle detection (Kahn's algorithm on the outer DAG).
- *   18. Per loop-body: has a $loop-start-rooted edge; body-edge endpoints
+ *   16. The flow's `output.schema` compiles.
+ *   17. Outer flow must have at least one $start-rooted edge.
+ *   18. Outer flow cycle detection (Kahn's algorithm on the outer DAG).
+ *   19. Per loop-body: has a $loop-start-rooted edge; body-edge endpoints
  *       resolve to body nodes or $loop-start / $loop-end sentinels; body
  *       sub-DAG cycle detection.
  *
@@ -188,8 +194,8 @@ export interface FlowSchemaProblem {
  * it (`compileInlineSchema`, bounded): each loop's, fanout branch's and
  * subgraph node's `outputSchema`, at any depth of loop bodies, which a
  * run compiles whether or not one is there, and the flow's
- * `output.schema` when it has one. These are `loadFlow`'s checks 10, 12,
- * 13 and 15, over every schema rather than to the first, and nothing
+ * `output.schema` when it has one. These are `loadFlow`'s checks 10, 13,
+ * 14 and 16, over every schema rather than to the first, and nothing
  * else `loadFlow` checks. For a flow that never went through `loadFlow`
  * (a deployment's index, which a workspace can write by hand), so a schema
  * every run would refuse is refused where the flow arrives. A node or
@@ -848,6 +854,28 @@ function concurrencyErr(
   };
 }
 
+// ============ no fan-out in a loop body ============
+
+/**
+ * A loop body runs its steps, nested loops and subgraph nodes. A fan-out
+ * there would never run its branches, so the flow is refused, naming it
+ * and the loop whose body holds it.
+ */
+function checkLoopBodyFanouts(flow: Flow): LoopBodyFanoutError | undefined {
+  for (const loop of collectAllLoopNodes(flow)) {
+    const fanout = loop.body.nodes.find(isFanoutNode);
+    if (fanout === undefined) continue;
+    return {
+      code: 'loop-body-fanout',
+      message: `Loop node "${loop.id}" body holds fan-out node "${fanout.id}": a loop body can't run a fan-out. A subgraph node in the body can run a flow that has one.`,
+      flowId: flow.id,
+      loopNodeId: loop.id,
+      nodeId: fanout.id,
+    };
+  }
+  return undefined;
+}
+
 // ============ fanout node validation (1.6.0) ============
 
 function collectAllFanoutNodes(flow: Flow): readonly FanoutNode[] {
@@ -1218,6 +1246,14 @@ function checkFlowOutputSchema(flow: Flow): InvalidFlowOutputError | undefined {
     flowId: flow.id,
     issues: [{ path: '', message: primaryMessage }],
   };
+}
+
+// The schema checks the field's shape; this checks the id it names a tool by.
+function checkMcpExposure(flow: Flow): InvalidMcpExposureError | undefined {
+  const issues = mcpExposureIssues(flow.mcp, flow.id, 'flow');
+  const first = issues[0];
+  if (first === undefined) return undefined;
+  return { code: 'invalid-mcp-exposure', message: first.message, flowId: flow.id, issues };
 }
 
 // ============ per-loop-body validation ============

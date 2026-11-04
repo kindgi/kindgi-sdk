@@ -25,8 +25,8 @@ page does the same steps ([From the console](#from-the-console)).
 - **The `kindgi` CLI reaches your runtime as you,** with the runtime's address
   exported as `KINDGI_API_URL` and your API key as `KINDGI_API_TOKEN`
   ([People and keys](../../deploy/people-and-keys/#api-keys)).
-- **For `kindgi` commands:** Kindgi 0.2's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.2` ([Install](../../start/install/)). Inside a pack
+- **For `kindgi` commands:** Kindgi 0.4's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.4` ([Install](../../start/install/)). Inside a pack
   project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## 1. Get what to send IT
@@ -35,7 +35,7 @@ page does the same steps ([From the console](#from-the-console)).
 registered:
 
 ```sh
-npx --yes @kindgi/cli@0.2 sso providers start acme-kc --idp=keycloak
+npx --yes @kindgi/cli@0.4 sso providers start acme-kc --idp=keycloak
 ```
 
 - `acme-kc` is the provider's id in your workspace. Pick one per identity
@@ -86,7 +86,7 @@ IT follows your identity provider's page, with exactly the redirect URI that
 by name, so the secret never travels by email or chat:
 
 ```sh
-npx --yes @kindgi/cli@0.2 secrets set ACME_KC_SECRET --env=production --scope=tenant
+npx --yes @kindgi/cli@0.4 secrets set ACME_KC_SECRET --env=production --scope=tenant
 ```
 
 - `ACME_KC_SECRET` is the secret's name. The provider's registration keeps
@@ -120,7 +120,7 @@ IT then sends back the issuer URL, the client ID and the secret's name.
 `finish` registers the provider, and offers it to people at your domains:
 
 ```sh
-npx --yes @kindgi/cli@0.2 sso providers finish acme-kc --kind=oidc --issuer=http://127.0.0.1:18091/realms/acme \
+npx --yes @kindgi/cli@0.4 sso providers finish acme-kc --kind=oidc --issuer=http://127.0.0.1:18091/realms/acme \
   --client-id=kindgi-live --client-secret-ref=ACME_KC_SECRET --domains=acme.test --name="Acme Keycloak"
 ```
 
@@ -174,7 +174,7 @@ provider confirms. Add each person first, with their email
 to try the sign-in:
 
 ```sh
-npx --yes @kindgi/cli@0.2 sso providers test acme-kc
+npx --yes @kindgi/cli@0.4 sso providers test acme-kc
 ```
 
 `test` gives a link for someone at the provider's first domain.
@@ -199,7 +199,7 @@ through.
 table:
 
 ```sh
-npx --yes @kindgi/cli@0.2 sso providers list --table
+npx --yes @kindgi/cli@0.4 sso providers list --table
 ```
 
 ```text
@@ -222,7 +222,7 @@ acme-kc   oidc  Acme Keycloak  acme.test
 
 ## From the console
 
-A workspace admin does the same steps on the console's **Sign-in** page:
+A tenant admin does the same steps on the console's **Sign-in** page:
 
 - **Add an identity provider** asks which one, and proposes an id. You choose
   a preset, another OpenID Connect provider, or a SAML 2.0 one. **Get the
@@ -242,13 +242,13 @@ A workspace admin does the same steps on the console's **Sign-in** page:
   edits it in place, and warns you before a change that signs its people
   out. **Remove** takes it out of sign-in.
 
-  ![The Sign-in page: Acme Keycloak, OpenID Connect, at acme.test, with Try, Change and Remove](../../../../assets/sso/console-providers.png)
+  ![The Sign-in page: Acme Keycloak, OpenID Connect, at acme.test, letting in people added to this workspace, with Try, Change and Remove icons; below it, the Second factor box, not required, with Require a second factor](../../../../assets/sso/console-providers.png)
 
 Whoever runs Kindgi can manage sign-in for every workspace themselves, with
 `KINDGI_AUTH_TENANT_PROVIDERS=off`
 ([Turn on sign-in](../../deploy/self-hosted/sign-in/#who-manages-a-workspaces-identity-providers)).
 The **Sign-in** page then says so, and lists the providers with **Try**
-only. A workspace admin's change from the CLI or the API is refused too.
+only. A tenant admin's change from the CLI or the API is refused too.
 
 ## Your identity provider
 

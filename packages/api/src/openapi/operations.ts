@@ -324,6 +324,15 @@ const RunFlowVersionQueryParam: ParameterSpec = {
   schema: { type: 'string', minLength: 1 },
 };
 
+const RunActsForQueryParam: ParameterSpec = {
+  name: 'actsFor',
+  in: 'query',
+  required: false,
+  description:
+    "`me`: only the runs that act for the caller (the run's `actsFor`); none for a caller who acts for no one.",
+  schema: { type: 'string', enum: ['me'] },
+};
+
 const ItemProjectQueryParam: ParameterSpec = {
   name: 'projectId',
   in: 'query',
@@ -1625,7 +1634,7 @@ const CommonMutationErrors: Readonly<Record<string, ResponseSpec>> = {
 
 /** A change a schedule's owner rule refuses (`trigger-owners.ts`). */
 const ScheduleChangeRefused: ResponseSpec = ErrorResponse(
-  "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (for an `improve` schedule, `publish` on the agent) is refused first, and learns nothing of its owner.",
+  "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner.",
 );
 
 /** A change a webhook trigger's owner rule refuses (`trigger-owners.ts`). */
@@ -2069,7 +2078,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/runs',
     operationId: 'runs.list',
     summary: 'List runs',
-    description: 'Cursor-paginated. Fixed sort order: `createdAt desc, id desc`.',
+    description:
+      "Cursor-paginated. Fixed sort order: `createdAt desc, id desc`. With authorization on, it lists every run in the projects the caller may `read`, and in the projects where they may only `run`, the runs that act for them (`actsFor`); the runtime applies this in its query, so a page is full when there are more. Across projects (no scope, the workspace or an org), those projects come from the authorization store's list, which answers at most 1000 by default: a caller who reads or runs more may miss the runs of some. A workspace admin's list doesn't go through it.",
     tags: ['runs'],
     security: 'bearer',
     parameters: [
@@ -2090,6 +2100,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       RunAgentVersionQueryParam,
       RunFlowIdQueryParam,
       RunFlowVersionQueryParam,
+      RunActsForQueryParam,
     ],
     responses: {
       '200': { description: 'Page of runs.', schema: ref('RunCollectionPage') },
@@ -2194,7 +2205,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'runs.cancel',
     summary: 'Cancel a run',
     description:
-      'Cancelling a run that already reached a terminal state returns `409 run-already-terminal`.',
+      "Takes `write` on the run's project; a `runner` there may cancel a run that acts for them (one they started, or their own schedule did). Cancelling a run that already reached a terminal state returns `409 run-already-terminal`.",
     tags: ['runs'],
     security: 'bearer',
     parameters: [RunIdPathParam, IdempotencyKeyParam],
@@ -5006,7 +5017,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'conversations.close',
     summary: 'Close a conversation',
     description:
-      'Idempotent: closing an already-closed conversation returns 200 with the current row (no timestamp bump).',
+      "Idempotent: closing an already-closed conversation returns 200 with the current row (no timestamp bump). Someone who may run the conversation's project (`run`) without `write` there, as a runner, or anyone where the project lets everyone in its workspace run it, closes only the conversations they opened.",
     tags: ['conversations'],
     security: 'bearer',
     parameters: [ConversationIdPathParam, IdempotencyKeyParam],
@@ -5018,7 +5029,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '400': ErrorResponse('`conversationId` is not a conversation id (a UUID).'),
       '403': ErrorResponse(
-        "The caller can read the conversation, and has no `execute` on its agent or, for an agent more than one project serves, no `call` on the conversation's project (`caller` or `editor`). Closing one doesn't take reading it.",
+        "The caller can read the conversation, and has no `execute` on its agent or, for an agent more than one project serves, no `call` on the conversation's project (`caller` or `editor`); or may run its project (`run`) without `write` there, and someone else opened it. Closing one doesn't take reading it.",
       ),
       '404': ErrorResponse(
         "No conversation with that id under this workspace, or one the caller may not close and can't read: the same answer, byte for byte.",
@@ -5837,7 +5848,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.list',
     summary: 'List artifact metadata',
     description:
-      'Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed.',
+      "Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed; with `?ownerRunId=` of a run of the caller's own (one that acts for them), `run` on the project is enough too.",
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [
@@ -5878,7 +5889,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.upload',
     summary: 'Upload an artifact',
     description:
-      "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.",
+      "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. A person with `run` there and no `write` may upload a file that names no `ownerRunId`: an input for a run they start, which they may download again. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.",
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -5898,7 +5909,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed multipart body, bad tag JSON, hash mismatch, declared size mismatch, or a `projectId` that isn't the owner run's.",
       ),
       '403': ErrorResponse(
-        "No `write` on the project (`permission-denied`), or the caller's API key is limited to another project (`key-project-mismatch`).",
+        "No `write` on the project, and no `run` there for an upload of the caller's own that names no run (`permission-denied`); or the caller's API key is limited to another project (`key-project-mismatch`).",
       ),
       '404': ErrorResponse('No such owner run (`run-not-found`).'),
       '413': ErrorResponse(
@@ -5913,7 +5924,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.download',
     summary: 'Download an artifact (stream)',
     description:
-      "Streams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name).",
+      "Streams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name). Needs `read` on the artifact's project, or `run` there on a file of the caller's own: one they uploaded, or one a run that acts for them stored.",
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [
@@ -5933,7 +5944,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonAuthErrors,
       '404': ErrorResponse(
-        "No blob with that id under this workspace, or one in a project the caller can't read.",
+        "No blob with that id under this workspace, or one in a project the caller can't read that isn't a file of their own.",
       ),
     },
   },
@@ -5944,7 +5955,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.head',
     summary: 'Fetch artifact metadata (no body)',
     description:
-      'Same headers as GET, empty body. 200 when the blob exists, 404 when unknown. The response headers are the authoritative payload.',
+      'Same headers as GET, empty body, checked as GET is. 200 when the blob exists, 404 when unknown. The response headers are the authoritative payload.',
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [
@@ -5988,7 +5999,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Delete acknowledged.', schema: ref('DeleteArtifactResult') },
       ...CommonMutationErrors,
       '403': ErrorResponse('No `write` on its project (`permission-denied`).'),
-      '404': ErrorResponse("An artifact in a project the caller can't read (`blob-not-found`)."),
+      '404': ErrorResponse(
+        "An artifact in a project the caller can't read that isn't a file of their own (`blob-not-found`).",
+      ),
     },
   },
 
@@ -9401,7 +9414,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.create',
     summary: 'Create a project',
     description:
-      "A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second default project, `409 project-default-already-exists`.",
+      "A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the workspace had before it was renamed, in any org (`details.heldAs: 'old-slug'`); a second default project, `409 project-default-already-exists`.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -9444,7 +9457,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.update',
     summary: 'Partially update a project',
     description:
-      'A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up.',
+      "A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the workspace had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -9465,10 +9478,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No `admin` on the project; or the body names `orgId` (even the current one) and the caller is not a tenant admin, as making a project in an org needs (`permission-denied`).',
       ),
       '409': ErrorResponse(
-        "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up; or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
+        "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up, or another project of the workspace had it before it was renamed (`details.heldAs: 'old-slug'`); or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
       ),
       '404': ErrorResponse(
         'project-not-found: no project with that id under this workspace; or org-not-found: `orgId` names no org of the workspace (it never existed, or it was deleted).',
+      ),
+      '501': ErrorResponse(
+        "With authorization enforced, a runtime whose tenant-hierarchy binding can't change `everyoneCanRun` together with its grant refuses with `authz-membership-unsupported`; nothing is changed.",
       ),
     },
   },
@@ -10161,7 +10177,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.teamGrants.add',
     summary: 'Give a team a role on a project',
     description:
-      "Every member of the team (its admins included) then holds the role on the project. Takes `admin` on the project and `read` on the team: a project is given only to a team you can read. A team's role is `viewer`, `editor` or `admin`: a team never owns a project. Adding a role the team already holds answers 201 with the existing grant; another role, 409 `team-grant-exists` naming the one it holds (`details.role`): use PATCH to change it.",
+      "Every member of the team (its admins included) then holds the role on the project. Takes `admin` on the project and `read` on the team: a project is given only to a team you can read. A team's role is `viewer`, `runner`, `editor` or `admin`: a team never owns a project. Adding a role the team already holds answers 201 with the existing grant; another role, 409 `team-grant-exists` naming the one it holds (`details.role`): use PATCH to change it.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [ProjectIdPathParam, IdempotencyKeyParam],
@@ -10975,7 +10991,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.register',
     summary: 'Register a cron schedule',
     description:
-      "Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering. An `improve` schedule is in the project it improves, one per agent and project (a second is `409 schedule-exists`), and needs `publish` on the agent as well as `write` on the project. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the schedule's project, each id must be a tool what it runs calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
+      "Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering. An `improve` schedule is in the project it improves, one per agent and project (a second is `409 schedule-exists`), and needs `publish` on the agent as well as `write` on the project. Any other schedule the caller registers for themselves, a person with no `runAsServiceAccountId` or `runAsProject`, takes `run` on the project (a `runner` keeps their own schedules); every other one takes `write`. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the schedule's project, each id must be a tool what it runs calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -10987,7 +11003,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed request body, or `runAsProject` with `runAsServiceAccountId`, or for a schedule with no project (`bad-input`). Or `reference-out-of-scope`: what it runs isn't registered in the schedule's project, its org or the workspace, or the version it names (`flowVersion`, or `agentVersion` when given) isn't one that project runs (`details.issues`, at `/target`, whose message names the version). Nothing is registered.",
       ),
       '403': ErrorResponse(
-        "`permission-denied`: no `write` on the schedule's project or no `execute` on what it runs (for an `improve` schedule, `publish` on the agent); or no `admin` on the project where it's needed, for `toolsAllowedUnattended` or `runAsProject`; or no `act_as` on the account `runAsServiceAccountId` names.",
+        "`permission-denied`: no `write` on the schedule's project (`run`, for a person's own schedule) or no `execute` on what it runs (for an `improve` schedule, `publish` on the agent); or no `admin` on the project where it's needed, for `toolsAllowedUnattended` or `runAsProject`; or no `act_as` on the account `runAsServiceAccountId` names.",
       ),
       '409': ErrorResponse(
         "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the schedule runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the schedule runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). `schedule-exists`: the agent has an Improve schedule in the project already (`details.scheduleId`). Or an idempotency conflict.",
@@ -11049,7 +11065,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.update',
     summary: 'Update a cron schedule',
     description:
-      "Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve run) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed and the schedule's version after it, never their values.",
+      "Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve run) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `run` on its project; `write` for an `improve` schedule, or to make it one) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed and the schedule's version after it, never their values.",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -11074,7 +11090,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.pause',
     summary: 'Pause a cron schedule',
     description:
-      "Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`. A personal schedule's owner or a project admin pauses it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may pause it without `publish`.",
+      "Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`. A personal schedule's owner (holding `run` on its project) or a project admin pauses it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may pause it without `publish`.",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -11092,7 +11108,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.resume',
     summary: 'Resume a cron schedule',
     description:
-      "Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick. A personal schedule's owner or a project admin resumes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent.",
+      "Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick. A personal schedule's owner (holding `run` on its project) or a project admin resumes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent.",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -11110,7 +11126,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.unregister',
     summary: 'Soft-delete a cron schedule (tombstone)',
     description:
-      "Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.",
+      "Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner (holding `run` on its project) or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -11182,7 +11198,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.runNow',
     summary: 'Run a schedule now',
     description:
-      "One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged. A personal schedule's owner or a project admin fires it; a shared one, any writer of its project.",
+      "One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged. A personal schedule's owner (holding `run` on its project) or a project admin fires it; a shared one, any writer of its project.",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -13102,7 +13118,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.sites.revokeKey',
     summary: "Revoke one of a site's keys",
     description:
-      "Statements signed with it are refused from now on, and the site's live sessions end. Tenant admins only.",
+      "Statements signed with it are refused from now on, and Kindgi won't enroll it again, for this site or another site in the workspace at the same address. The site's live sessions end. Tenant admins only.",
     tags: ['sites'],
     security: 'bearer',
     parameters: [
@@ -13170,7 +13186,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.sites.enroll',
     summary: 'A site posts its public key with its enrollment code',
     description:
-      "Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.",
+      "Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Once the code checks out, a key this site retired, or another site in the workspace at the same address retired, is refused unless it's live on this site now (`409 site-enrollment-key-retired`), and the code isn't used up. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.",
     tags: ['sites'],
     security: 'public',
     requestBody: { required: true, schema: ref('EnrollSiteBody') },
@@ -13183,6 +13199,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "A malformed body, or a public key that isn't an Ed25519 JWK with a `kid`, or has a private part (`site-key-invalid`); it's checked before the code.",
       ),
       '401': ErrorResponse('The code was refused (`site-enrollment-refused`).'),
+      '409': ErrorResponse(
+        "The key was retired at this site, or at another site in the workspace at the same address, and it isn't live on this site (`site-enrollment-key-retired`). The code isn't used up.",
+      ),
       '413': ErrorResponse('The body is over 4096 bytes (`site-request-too-large`).'),
       '429': ErrorResponse('Too many failures from this client.'),
     },

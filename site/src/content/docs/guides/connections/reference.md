@@ -30,7 +30,7 @@ choice or a person's main says which one a call uses
 
 Each connection has a name, its `label`, that people know it by. It's the
 name given at the connect, or else the account's, such as an email address.
-Its owner or a workspace admin can change it
+Its owner or a tenant admin can change it
 (`PATCH /v1/connections/{connectionId}`). A name is 1 to 100 characters
 once spaces at either end are trimmed, with no control, format or invisible
 character, such as a bidi override, a zero-width joiner or a line
@@ -48,7 +48,7 @@ Only a connection's owner and your workspace's admins can see, rename or
 remove it. A project's members see the names of the company's connections
 it can use, so they can tell them apart
 ([Who sees what](../choose-a-connection/#who-sees-what)). Registering an app
-is for workspace admins only.
+is for tenant admins only.
 
 ## Where the token is kept
 
@@ -70,9 +70,10 @@ connection and account a call used
 
 ## What a run records
 
-Each call that runs on a connection records it in the run's journal,
-under the tool's name for the connection: its `connectionId`, `app`,
-`appName` and `account`, and for the company's connection, its `name`.
+Each call that runs on a connection records it in the run's journal, as
+`"kind": "ready"` with its `connections`, each under the tool's name for
+the connection: its `connectionId`, `app`, `appName` and `account`, and
+for the company's connection, its `name`.
 The company's `account` is `{ "id", "label" }`. A person's is `{ "id" }`
 only: the runtime keeps a person's account by its id, never its label. The
 record also says how the connection was picked, as `pick`:
@@ -138,6 +139,27 @@ set ([Read several accounts with one tool](../choose-a-connection/#read-several-
 accounts. Records from older runtimes have no `pick`, or a `pick` without
 `as` and `setSize`, and keep a person's account label as it was recorded.
 
+A call that its connections stopped before it ran records why instead, as
+`"kind": "refused"`: its [`code`](#errors-when-a-call-uses-a-connection),
+the tool's name for the connection (`name`), the `app`, whose connection
+the call needed (`as`), any permissions the connection lacks (`missing`),
+and the `message`. The company's `connection-not-chosen` also lists the
+connections to choose from (`choices`, each `{ "connectionId", "name" }`);
+a person's lists none. Records from older runtimes have no `as`.
+
+An agent's call also records when its tool is handed those connections,
+as `"kind": "ran"`, right before the tool's first run on them, once for
+each attempt of the call's step. Its `ready` record then has
+`"recordsRan": true`, and a call with that and no `ran` record didn't
+run: an approval turned it down, or the check right before its tool
+stopped it (`connection-changed`, say). A call whose input then failed
+the tool's input check has a `ran` record too, and its tool didn't
+start: its result says the input failed (`invalid-arguments`). A flow's
+tool step records `ready` right before its tool runs, so there the
+`ready` record says it was handed its connections, and a step that then
+failed with `input-validation-failed` didn't start either. Records from
+older runtimes have neither `ran` nor `recordsRan`.
+
 In the console, a run's page words this record under **What happened**,
 below each tool call that ran, in an agent's turn or a flow's tool step:
 
@@ -167,12 +189,16 @@ in a record without `pick` the connections of one app share one line.
 These lines name a person's connection by its app only, and a set's by how
 many it holds, never which.
 
-The page tells that a call ran from the call's result, so two cases come
-out wrong. In a turn that's still running, or that failed, it has no
-results to read, so a call that the check right before its tool stopped,
-such as with `connection-changed`, still shows its line. And in a turn
-that completed, a call that ran, was refused by the app and then
-couldn't get its connection again shows none.
+The page tells that a call ran from these records, for the attempt of its
+step that it ended on: an agent's call from its `ran` record, a flow's
+tool step from its `ready` one. A call whose input failed the tool's
+input check has no line, since its tool never started. For an agent's
+record from an older runtime, with no `recordsRan`, the page tells from
+the call's result instead, so two cases come out wrong there. In a turn
+that's still running, or that failed, it has no results to read, so a
+call that the check right before its tool stopped still shows its line.
+And in a turn that completed, a call that ran, was refused by the app and
+then couldn't get its connection again shows none.
 
 Anyone with `read` on the project can read the run's journal, and so this
 record: a company connection's account label, and a person's account by
@@ -209,12 +235,12 @@ there.
 
 ## Disconnecting
 
-The connection's owner, or a workspace admin, disconnects it from the
+The connection's owner, or a tenant admin, disconnects it from the
 console's **Connections** page, or from a terminal, by its id from
 `kindgi connections list`:
 
 ```sh
-npx --yes @kindgi/cli@0.2 connections disconnect <connection-id>
+npx --yes @kindgi/cli@0.4 connections disconnect <connection-id>
 ```
 
 It asks first, unless `--yes`, and prints what was done. Kindgi then:

@@ -34,7 +34,7 @@ turn on: skip
 The steps after it are the same, with two differences:
 - **Register the site with the CLI signed in to Kindgi Cloud**
   ([Sign the CLI in](../../hosted/deploy-your-agent/#sign-the-cli-in)).
-  It takes a workspace admin's key, with **How far it goes** set to
+  It takes a tenant admin's key, with **How far it goes** set to
   **Admin** and **Where it works** to **Every project it can reach**. A
   **Member** key, or one for only one project, gets
   `403 permission-denied`.
@@ -184,7 +184,8 @@ About the Kindgi URL:
 
   An environment variable of the same name works too. A copy of the
   database (a backup, a staging clone) then carries neither the key nor a
-  way to open the staff's cached sessions.
+  way to open the staff's cached sessions. A key Kindgi retired can't
+  connect again: set a new one.
 - **Without it,** the plugin keeps the key in a database option, which
   isn't autoloaded.
 - **The site's address is part of the connection.** The plugin signs nothing
@@ -398,11 +399,15 @@ another reviewer decides." instead of **Approve**.
   tenant admin resumes it".
 - **Get a new code** (`kindgi sites code <site-id>`). Connecting with it
   replaces every key the site has and ends its sessions. Use it when the
-  site moves, or its key may be out.
+  site moves, or its key may be out. With a key set in `wp-config.php` or
+  the environment, set a new one first. Connecting with the same key
+  enrolls it again, and rotates nothing.
 - **Revoke one key** (`kindgi sites revoke-key <site-id> <kid>`). It ends
   every session the site opened. `kindgi sites get <site-id>` lists the
   site's keys, with thumbprints to compare with the plugin's key id under
-  **Kindgi → Settings**.
+  **Kindgi → Settings**. Kindgi won't enroll a revoked key again, for this
+  site or another site in the workspace at the same address (runtime 0.6.0
+  or later).
 - **Remove one person** (`kindgi people remove <user-id>`). Their next
   sign-in is refused, "This person was removed: their site can't sign them
   in again", until a tenant admin lets them back in.

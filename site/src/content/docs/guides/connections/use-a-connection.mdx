@@ -47,12 +47,13 @@ pack can include instead of writing its own:
   `gmail.readonly` and `Mail.Read`, as the reads do, and change nothing in
   the mailbox.
 - **`googleCalendarCalendarsList`, `googleCalendarEventsList`,
-  `googleCalendarFreeBusy`, `googleCalendarEventCreate` and
-  `googleCalendarEventUpdate`,** from `@kindgi/connections/google/tools`,
-  and the five `outlookCalendar…` tools, from
-  `@kindgi/connections/microsoft/tools`, list the calendars of the person
-  the run acts as, list the events on them, say when they're busy, and add
-  or change an event on the main one, inviting the people it names
+  `googleCalendarSharedEventsList`, `googleCalendarFreeBusy`,
+  `googleCalendarEventCreate` and `googleCalendarEventUpdate`,** from
+  `@kindgi/connections/google/tools`, and the six `outlookCalendar…`
+  tools, from `@kindgi/connections/microsoft/tools`, list the calendars of
+  the person the run acts as, list the events on them (with the shared
+  lists, on calendars others share with them too), say when they're busy,
+  and add or change an event on the main one, inviting the people it names
   ([Calendars](../calendar/)).
 - **`githubIssuesList`, `githubLabelsList` and `githubIssuesAddLabels`,**
   from `@kindgi/connections/github/tools`, list a repository's issues and
@@ -464,7 +465,8 @@ your app, `runs.get` answers it under `waitingFor.connections`
 
 A call that uses a connection is approved as any other call is, and the
 approval says whose connection it acts with: the company's by its account,
-a person's as "this person's Google account".
+a person's as "this person's Google account". Both give the connection's id,
+by which the person, or a tenant admin, reads which account it is.
 
 - **In a run you started,** the agent's own approval settings decide
   ([Ask before a tool runs](../../approvals/ask-before-a-tool-runs/)).
@@ -485,7 +487,7 @@ reviewer seat at the approval's rank
 ([The Reviewers page](../../approvals/approvals-reference/#the-reviewers-page)).
 Without one, the call fails at once with
 `connection-approver-not-a-reviewer`, rather than waiting for nobody. A
-workspace admin sees such an approval but can't decide it
+tenant admin sees such an approval but can't decide it
 (`named-approver-required`). It never escalates: if that person doesn't
 decide by its deadline, it expires.
 The approval names them as its `approver`, and its `connection` says

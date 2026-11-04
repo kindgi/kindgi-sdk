@@ -324,8 +324,9 @@ reset_env() {
   mkdir -p "$DOCKER_CONFIG"
   printf '{"auths":{"registry.kindgi.com":{}}}\n' >"$DOCKER_CONFIG/config.json"
   cp "$DOCKER_CONFIG/config.json" "$CASE_DIR/original-docker-config.json"
-  # 0.4.0, the newest release the script knows and its module's: the default,
-  # which a case of its own takes without --to.
+  # 0.4.0 unless a case says otherwise: the target the cases here were
+  # written for, so a new release doesn't change their crossing and steps.
+  # The default, the newest release the script knows, has a case of its own.
   ARGS=(--var-file "$VAR_FILE" --runtime-digest "$NEW_DIGEST" --backup-bucket "gs://backups/dev" --to 0.4.0)
 }
 
@@ -1329,6 +1330,61 @@ assert_out "crossing: 0.3.0 0.3.1 0.4.0$"
 assert_out "the plan shows the server's KINDGI_DATABASE_SERVER_CA as known after"
 assert_out "plan check: it changes the image(s)"
 assert_present "$STUB_MARKER_APPLY" "apply"
+
+# 49h. 0.4.0 turns on Cloud Scheduler's API, which the instance depends on, so
+# with a private-IP database the switch's plan has the server's CA known only
+# after the apply, beside the switch's own env changes. The API's create
+# explains it, and the run goes ahead.
+SWITCH_SERVER_ENV_CA="$(jq -cn --argjson s "$SWITCH_SERVER_ENV" --argjson ca "$SERVER_CA_AFTER_APPLY" '{
+  before: ($s.before + $ca.before), after: ($s.after + $ca.after),
+  after_unknown: ([$s.after[] | {}] + $ca.after_unknown)}')"
+case_start "0.3.1 -> 0.4.0, a private-IP database: the switch's plan with the server's CA known after the apply"
+reset_env "$OLD_PACK"; unset STUB_PACK_BEFORE; private_ip
+export STUB_TAGS="0.3.1" STUB_PLAN_CHANGES="$SWITCH_PLAN" STUB_SERVER_ENV="$SWITCH_SERVER_ENV_CA"
+run "yes"
+assert_rc 0 "the CA known after the apply passes beside the API's create"
+assert_out "crossing: 0.4.0$"
+assert_out "on instance kindgi (private IP)"
+assert_out "database_private_network), turning on Cloud"
+assert_out "plan check: it changes the image(s), and only what the releases crossed change."
+assert_present "$STUB_MARKER_APPLY" "apply"
+
+# 49i. The same plan without the API's create: nothing explains the CA, so the
+# check names it and stops.
+SWITCH_PLAN_NO_API="$(jq -cn --argjson p "$SWITCH_PLAN" '[$p[] | select(.type != "google_project_service")]')"
+case_start "the switch's plan with the server's CA, no API turned on"
+reset_env "$OLD_PACK"; unset STUB_PACK_BEFORE; private_ip
+export STUB_TAGS="0.3.1" STUB_PLAN_CHANGES="$SWITCH_PLAN_NO_API" STUB_SERVER_ENV="$SWITCH_SERVER_ENV_CA"
+run "yes"
+assert_rc 1 "the CA without the API's create stops it"
+assert_file_has "$OUT" "    google_cloud_run_v2_service.server: changes template.containers.env.KINDGI_DATABASE_SERVER_CA" "the CA named"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
+
+# 49j. Without a private IP, the module doesn't set the CA: the switch's plan
+# that changes it stops, the API's create notwithstanding.
+case_start "the switch's plan with the server's CA, no private IP"
+reset_env "$OLD_PACK"; unset STUB_PACK_BEFORE
+export STUB_TAGS="0.3.1" STUB_PLAN_CHANGES="$SWITCH_PLAN" STUB_SERVER_ENV="$SWITCH_SERVER_ENV_CA"
+run "yes"
+assert_rc 1 "it stops"
+assert_file_has "$OUT" "    google_cloud_run_v2_service.server: changes template.containers.env.KINDGI_DATABASE_SERVER_CA" "the CA named"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+
+# 49k. The same switch on a run to 0.5.0: from 0.3.1 it crosses 0.4.0 too, so
+# the plan turns on Cloud Scheduler's API, and 0.4.0's allow explains the
+# server's CA known only after the apply. The run goes ahead.
+case_start "0.3.1 -> 0.5.0, a private-IP database: the switch's plan with the server's CA known after the apply"
+reset_env "$OLD_PACK"; unset STUB_PACK_BEFORE; private_ip
+export STUB_TAGS="0.3.1" STUB_PLAN_CHANGES="$SWITCH_PLAN" STUB_SERVER_ENV="$SWITCH_SERVER_ENV_CA"
+run "yes" --to 0.5.0
+assert_rc 0 "the CA known after the apply passes beside the API's create, on a run to 0.5.0"
+assert_out "crossing: 0.4.0 0.5.0$"
+assert_out "on instance kindgi (private IP)"
+assert_out "database_private_network), turning on Cloud"
+assert_out "plan check: it changes the image(s), and only what the releases crossed change."
+assert_present "$STUB_MARKER_APPLY" "apply"
+assert_out "0.3.1 -> 0.5.0 applied"
 
 # 50. A var file left off the command: the plan drops the server's own env
 # (server_env, server_secret_env), and the check names each one it drops,

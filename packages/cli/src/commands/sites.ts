@@ -194,7 +194,7 @@ const code: LeafCommand = {
   kind: 'leaf',
   name: 'code',
   description:
-    "A new one-time code for a site, shown once: to connect it again, or to replace its key. When the site connects with it, its new key replaces every key it had and its people's live sessions end. An earlier unused code stops working.",
+    "A new one-time code for a site, shown once: to connect it again, or to replace its key. When the site connects with it, its new key replaces every key it had and its people's live sessions end. A key the site retired is refused, so a site whose key is set by hand sets a new one first. An earlier unused code stops working.",
   usage: 'kindgi sites code <site-id> [--project=<project-id>]',
   optionSpec: PROJECT_FLAG,
   run: (ctx) =>
@@ -286,7 +286,7 @@ const revokeKey: LeafCommand = {
   kind: 'leaf',
   name: 'revoke-key',
   description:
-    "Revoke one of a site's keys, by its id (`kindgi sites get` lists them, with thumbprints to compare with the plugin's): statements signed with it are refused from now on, and the site's live sessions end. Tenant admins only.",
+    "Revoke one of a site's keys, by its id (`kindgi sites get` lists them, with thumbprints to compare with the plugin's): statements signed with it are refused from now on, Kindgi won't enroll it again (for this site, or another site in the workspace at the same address), and the site's live sessions end. Tenant admins only.",
   usage: 'kindgi sites revoke-key <site-id> <kid> [--project=<project-id>]',
   optionSpec: PROJECT_FLAG,
   run: (ctx) =>
