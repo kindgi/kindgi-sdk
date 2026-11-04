@@ -86,7 +86,8 @@ one tenant, your own organization, with up to the flows and agents below:
 
 The prices are on [kindgi.com/pricing](https://kindgi.com/pricing). More
 installations, or other organizations as tenants, such as your customers,
-take Enterprise.
+take Enterprise. Cancelling a plan ends its license, even if the key hasn't
+expired yet.
 
 - **What counts:** each flow and each agent your packs define in the
   projects you put in production
