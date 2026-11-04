@@ -43,4 +43,25 @@ describe('runs.list — the narrowing filters', () => {
       actsFor: 'me',
     });
   });
+
+  it('sends the completion bounds with their tie-break, and startedBy', async () => {
+    const page = { status: 200, body: JSON.stringify({ data: [], hasMore: false }) };
+    const stub = recordingFetch([page]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    await client.runs.list({
+      completedAfter: '2026-10-08T10:30:00.123456Z',
+      afterRunId: '7b0c2f1e-9a51-4c43-8d0e-2f6a1b3c4d5e',
+      completedBefore: '2026-10-08T11:00:00Z',
+      startedBy: 'schedule',
+      topLevel: true,
+    });
+    const [only] = stub.calls.map((c) => new URL(c.url).searchParams);
+    expect(Object.fromEntries(only ?? [])).toEqual({
+      topLevel: 'true',
+      completedAfter: '2026-10-08T10:30:00.123456Z',
+      afterRunId: '7b0c2f1e-9a51-4c43-8d0e-2f6a1b3c4d5e',
+      completedBefore: '2026-10-08T11:00:00Z',
+      startedBy: 'schedule',
+    });
+  });
 });

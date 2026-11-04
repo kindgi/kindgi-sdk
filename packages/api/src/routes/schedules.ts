@@ -11,6 +11,11 @@ import type { Cursor, ProjectId, TenantId, TriggerId } from '@kindgi/types';
 
 import { callerIdentity, callerRef } from '../caller.js';
 import { sameJson } from '../canonical-json.js';
+import {
+  DESTINATION_DELIVERY_STATUSES,
+  type DestinationBinding,
+  type DestinationDeliveryStatus,
+} from '../destination-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, runIn, writeWhereMade } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -34,9 +39,16 @@ import {
 } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
+import { serializeDestinationDelivery } from './destinations.js';
 import { parseImproveScheduleInput } from './improve-runs.js';
 import { clampLimit } from './pagination.js';
 import { actionOrRunRefusal, readableOrRun } from './runner-reach.js';
+import {
+  parseSendResultsTo,
+  sameResultTargets,
+  sendResultsToJson,
+  sendResultsToProblem,
+} from './send-results-to.js';
 import {
   type OwnedTrigger,
   type OwnerFacts,
@@ -80,6 +92,7 @@ import { UUID_RE } from './uuid-param.js';
  *   PATCH /v1/schedules/:triggerId              update
  *   POST /v1/schedules/:triggerId/pause | resume | unregister
  *   GET  /v1/schedules/:triggerId/fires         its fire history, newest first
+ *   GET  /v1/schedules/:triggerId/deliveries    where its results went, newest first
  *   POST /v1/schedules/:triggerId/run-now       fire it now, outside the schedule
  *   POST /v1/schedules/:triggerId/owner         the caller becomes the owner
  *
@@ -136,6 +149,8 @@ export function schedulesRouter(
   targetTools?: TargetToolsDeps,
   /** Who tells a person what a project admin did to their schedule; absent → only audited. */
   ownerNotices?: TriggerOwnerNotices,
+  /** Where `sendResultsTo`'s destinations are read, and its deliveries listed; absent → only `me`. */
+  destinations?: Pick<DestinationBinding, 'get' | 'listScheduleDeliveries'>,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -390,6 +405,8 @@ export function schedulesRouter(
     if (target.kind === 'err') return bad(c, requestId, target.message);
     const tools = parseToolsAllowedUnattended(body);
     if (tools.kind === 'err') return bad(c, requestId, tools.message);
+    const results = parseSendResultsTo(body);
+    if (results.kind === 'err') return bad(c, requestId, results.message);
     const cronExpression = requireString(body, 'config.cronExpression');
     if (cronExpression.kind === 'err') return bad(c, requestId, cronExpression.message);
     const policy = parsePolicy(body);
@@ -459,6 +476,18 @@ export function schedulesRouter(
     );
     if (resolved.kind === 'refused') return resolved.response;
     const owner = resolved.owner;
+    // Where its results go: destinations its project may use, and `me` for a person's own.
+    const resultsProblem =
+      results.kind === 'ok'
+        ? await sendResultsToProblem(
+            destinations,
+            tenantId,
+            project as ProjectId | undefined,
+            owner,
+            results.value,
+          )
+        : undefined;
+    if (resultsProblem !== undefined) return bad(c, requestId, resultsProblem);
 
     const registerInput: RegisterCronTriggerInput = {
       kind: 'cron',
@@ -475,6 +504,7 @@ export function schedulesRouter(
       ...policy.value,
       ...(typeof body.label === 'string' && body.label.length > 0 && { label: body.label }),
       ...(tools.kind === 'ok' && tools.value.length > 0 && { toolsAllowedUnattended: tools.value }),
+      ...(results.kind === 'ok' && results.value.length > 0 && { sendResultsTo: results.value }),
     };
 
     const result = await binding.register(registerInput);
@@ -625,6 +655,8 @@ export function schedulesRouter(
     if (policy.kind === 'err') return bad(c, requestId, policy.message);
     const tools = parseToolsAllowedUnattended(body);
     if (tools.kind === 'err') return bad(c, requestId, tools.message);
+    const results = parseSendResultsTo(body);
+    if (results.kind === 'err') return bad(c, requestId, results.message);
 
     const found = await scheduleFor(c, 'write');
     if (found.kind === 'err') return found.response;
@@ -711,6 +743,24 @@ export function schedulesRouter(
       if (input.input !== undefined) cfg.input = input.input;
     }
 
+    // Where its results go: a changed list is checked as at registration,
+    // against its project and its owner as they are now.
+    const nextResults =
+      results.kind === 'ok' && !sameResultTargets(found.value.sendResultsTo ?? [], results.value)
+        ? results.value
+        : undefined;
+    const resultsProblem =
+      nextResults === undefined
+        ? undefined
+        : await sendResultsToProblem(
+            destinations,
+            tenantId,
+            found.value.projectId as ProjectId | undefined,
+            found.value.owner,
+            nextResults,
+          );
+    if (resultsProblem !== undefined) return bad(c, requestId, resultsProblem);
+
     const triggerId = found.value.triggerId;
     const updateInput: UpdateCronTriggerInput = {
       kind: 'cron',
@@ -724,12 +774,18 @@ export function schedulesRouter(
       // The same tools in another order change nothing: no version, as no audit entry.
       ...(tools.kind === 'ok' &&
         !sameToolList(kept, tools.value) && { toolsAllowedUnattended: tools.value }),
+      ...(nextResults !== undefined && { sendResultsTo: nextResults }),
     };
 
     // What it runs: its target or version, its input, its tool list. On a
     // shared schedule (or one with no owner) a project admin's to change;
     // the label, the cron line and the policies stay the writers'.
-    const fields = changedFields(found.value, body, target?.value, cfg, policy.value, kept, tools);
+    // Where its results go is a writer's to change, never what it runs; the
+    // owner hears of it like any other change, so no one quietly adds a place.
+    const fields = [
+      ...changedFields(found.value, body, target?.value, cfg, policy.value, kept, tools),
+      ...(nextResults !== undefined ? ['sendResultsTo'] : []),
+    ];
     const changesWhatItRuns = fields.some((field) => WHAT_IT_RUNS.has(field));
     if (
       found.value.owner.kind !== 'user' &&
@@ -862,6 +918,36 @@ export function schedulesRouter(
     });
     return c.json({
       data: page.data.map(serializeFire),
+      hasMore: page.nextCursor !== undefined,
+      ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
+    });
+  });
+
+  // ---------- GET /:triggerId/deliveries (where its results went) ----------
+  // Its messages to its destinations and to `me`, newest first: sent,
+  // pending, or skipped and failed with the reason. Whoever may read the
+  // schedule may read them.
+  r.get('/:triggerId/deliveries', async (c) => {
+    const requestId = c.get('requestId');
+    const found = await scheduleFor(c, 'read');
+    if (found.kind === 'err') return found.response;
+    if (destinations === undefined) return unsupported(c, requestId, 'result deliveries');
+    const status = c.req.query('status');
+    const statuses: readonly string[] = DESTINATION_DELIVERY_STATUSES;
+    if (status !== undefined && !statuses.includes(status)) {
+      return bad(c, requestId, `\`status\` must be one of: ${statuses.join(', ')}`);
+    }
+    const cursorRaw = c.req.query('cursor');
+    const page = await destinations.listScheduleDeliveries({
+      tenantId: found.value.tenantId,
+      scheduleId: found.value.triggerId,
+      limit: clampLimit(c.req.query('limit')),
+      ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
+      ...(status !== undefined && { status: status as DestinationDeliveryStatus }),
+    });
+    if (page.kind === 'not-found') return notFound(c, requestId, found.value.triggerId);
+    return c.json({
+      data: page.data.map(serializeDestinationDelivery),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -1099,6 +1185,8 @@ function serializeSchedule(
       r.toolsAllowedUnattended.length > 0 && {
         toolsAllowedUnattended: [...r.toolsAllowedUnattended],
       }),
+    ...(r.sendResultsTo !== undefined &&
+      r.sendResultsTo.length > 0 && { sendResultsTo: sendResultsToJson(r.sendResultsTo) }),
     lastFiredAt: r.lastFiredAt,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
@@ -1148,6 +1236,8 @@ function serializeScheduleVersion(
         d.toolsAllowedUnattended.length > 0 && {
           toolsAllowedUnattended: [...d.toolsAllowedUnattended],
         }),
+      ...(d.sendResultsTo !== undefined &&
+        d.sendResultsTo.length > 0 && { sendResultsTo: sendResultsToJson(d.sendResultsTo) }),
     },
   };
 }

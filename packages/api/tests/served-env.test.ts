@@ -7,8 +7,8 @@
  *
  * - a secret or env value written under another env: `409 env-not-served`,
  *   naming the served env, and nothing is stored;
- * - a provider, MCP endpoint or webhook endpoint naming its secret under
- *   another env: the same 409, and nothing is registered;
+ * - a provider, MCP endpoint, webhook endpoint or destination naming its
+ *   secret under another env: the same 409, and nothing is registered;
  * - except a secret that a registration already names under that env, at the
  *   scope it reads it at, which is still written, so a value in use can be
  *   rotated;
@@ -66,6 +66,9 @@ const MCP_TOKEN = 'DOCS_MCP_TOKEN';
 const MCP_PROJECT_TOKEN = 'WIKI_MCP_TOKEN';
 /** An MCP endpoint's secret recorded at no scope: read nowhere. */
 const MCP_UNREAD_TOKEN = 'TICKETS_MCP_TOKEN';
+/** A destination's URL and signing secret, by reference. */
+const DEST_URL = 'ALERTS_RECEIVER_URL';
+const DEST_SECRET = 'ALERTS_RECEIVER_SECRET';
 const REFUSAL = (rest: string) => `This runtime keeps its values under \`prod\` only, so ${rest}`;
 
 const metadata = {
@@ -102,6 +105,25 @@ const hookEndpoint = (envName: string) => ({
   createdAt: '2026-10-01T00:00:00.000Z',
   updatedAt: '2026-10-01T00:00:00.000Z',
 });
+const destination = (envName: string) => ({
+  destinationId: 'dst-1',
+  name: 'Alerts receiver',
+  kind: 'webhook',
+  host: 'alerts.acme.example',
+  urlRef: { envName, name: DEST_URL },
+  secretRef: { envName, name: DEST_SECRET },
+  content: 'link',
+  status: 'active',
+  lastError: null,
+  createdAt: '2026-10-01T00:00:00.000Z',
+  updatedAt: '2026-10-01T00:00:00.000Z',
+});
+type Ref = { envName: string; name: string };
+/** One write per secret a destination save names. */
+const destinationWrites = (op: string, input: { urlRef?: Ref; secretRef?: Ref }): Write[] =>
+  [input.urlRef, input.secretRef]
+    .filter((ref): ref is Ref => ref !== undefined)
+    .map((ref) => [op, ref.envName, ref.name] as const);
 
 /** What a write reached: each store or registry call, by name. */
 type Write = readonly [op: string, envName: string, name: string];
@@ -250,6 +272,18 @@ function makeApp(
         return { kind: 'ok', endpoint: hookEndpoint(input.secretRef?.envName ?? 'local') };
       },
     } as never,
+    destinations: {
+      list: async () => ({ data: [destination('local')] }),
+      get: async () => destination('local'),
+      create: async (input: { urlRef?: Ref; secretRef?: Ref }) => {
+        writes.push(...destinationWrites('destination.create', input));
+        return { kind: 'ok', destination: destination(input.urlRef?.envName ?? 'local') };
+      },
+      update: async (input: { urlRef?: Ref; secretRef?: Ref }) => {
+        writes.push(...destinationWrites('destination.update', input));
+        return { kind: 'ok', destination: destination('local') };
+      },
+    } as never,
   });
   const call = async (method: string, path: string, body?: unknown) => {
     const res = await app.request(path, {
@@ -384,6 +418,23 @@ describe('a runtime that refuses other envs: a secret a registration still reads
       ['secret.set', 'local', PROVIDER_KEY],
       ['secret.set', 'local', PROVIDER_KEY],
       ['secret.rotate', 'local', PROVIDER_KEY],
+    ]);
+  });
+
+  test("a destination's URL and signing secret: written at the tenant scope, under the env it names; refused elsewhere", async () => {
+    const h = refusing();
+    for (const name of [DEST_URL, DEST_SECRET]) {
+      const set = await h.call('POST', '/v1/secrets', secret('local', name));
+      expect([name, set.status]).toEqual([name, 201]);
+    }
+    const atProject = await h.call('POST', '/v1/secrets', secret('local', DEST_URL, project));
+    const otherEnv = await h.call('POST', '/v1/secrets', secret('staging', DEST_SECRET));
+    expect([atProject, otherEnv].map((r) => [r.status, r.body.error?.code])).toEqual(
+      Array(2).fill([409, 'env-not-served']),
+    );
+    expect(h.writes).toEqual([
+      ['secret.set', 'local', DEST_URL],
+      ['secret.set', 'local', DEST_SECRET],
     ]);
   });
 
@@ -627,6 +678,36 @@ describe('a runtime that refuses other envs: a registration naming its secret un
     expect(h.writes).toEqual([]);
   });
 
+  test('a destination created or changed: 409 for its URL or its signing secret, and nothing is saved', async () => {
+    const h = refusing();
+    const created = await h.call('POST', '/v1/destinations', {
+      name: 'Alerts receiver',
+      kind: 'webhook',
+      urlRef: { envName: 'staging', name: 'NEW_RECEIVER_URL' },
+      secretRef: { envName: 'prod', name: DEST_SECRET },
+    });
+    expect([created.status, created.body.error]).toEqual([
+      409,
+      expect.objectContaining({
+        code: 'env-not-served',
+        message: REFUSAL(
+          '`urlRef` names `NEW_RECEIVER_URL` under `staging`. Name it under `prod`, and store the secret there',
+        ),
+        details: { envName: 'staging', servedEnv: 'prod' },
+      }),
+    ]);
+    const changed = await h.call('PATCH', '/v1/destinations/dst-1', {
+      secretRef: { envName: 'staging', name: DEST_SECRET },
+    });
+    expect([changed.status, changed.body.error?.message]).toEqual([
+      409,
+      REFUSAL(
+        '`secretRef` names `ALERTS_RECEIVER_SECRET` under `staging`. Name it under `prod`, and store the secret there',
+      ),
+    ]);
+    expect(h.writes).toEqual([]);
+  });
+
   test('naming it under the served env: registered', async () => {
     const h = refusing();
     const provider = await h.call('POST', '/v1/providers', {
@@ -646,10 +727,19 @@ describe('a runtime that refuses other envs: a registration naming its secret un
       secretRef: { envName: 'prod', name: 'NEW_HOOK_SECRET' },
     });
     expect(created.status).toBe(201);
+    const saved = await h.call('POST', '/v1/destinations', {
+      name: 'Alerts receiver',
+      kind: 'webhook',
+      urlRef: { envName: 'prod', name: 'NEW_RECEIVER_URL' },
+      secretRef: { envName: 'prod', name: DEST_SECRET },
+    });
+    expect(saved.status).toBe(201);
     expect(h.writes).toEqual([
       ['provider.register', 'prod', 'OPENAI_API_KEY'],
       ['mcp.register', 'prod', 'DOCS_TOKEN'],
       ['webhook.create', 'prod', 'NEW_HOOK_SECRET'],
+      ['destination.create', 'prod', 'NEW_RECEIVER_URL'],
+      ['destination.create', 'prod', DEST_SECRET],
     ]);
   });
 });

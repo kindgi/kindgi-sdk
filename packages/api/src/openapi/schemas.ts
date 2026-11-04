@@ -73,13 +73,25 @@ import {
   RETENTION_DOMAINS,
   TOOL_ERROR_KINDS,
 } from '@kindgi/policy-contract';
-import { RUN_STARTED_BY, RUN_TRIGGER_KINDS, TRIGGER_VERSION_CAUSES } from '@kindgi/runtime';
+import {
+  RUN_STARTED_BY,
+  RUN_TRIGGER_KINDS,
+  SCHEDULE_RESULT_EVENTS,
+  TRIGGER_VERSION_CAUSES,
+} from '@kindgi/runtime';
 import { CORRECTION_ITEM, FILE_NOT_SHOWN_REASONS } from '@kindgi/types';
 
 import {
   DEPLOYMENT_ENDPOINT_PROBLEM_CODES,
   SYSTEM_DEPLOYMENT_RETIRE_REASONS,
 } from '../deployment-binding.js';
+import {
+  DESTINATION_CONTENTS,
+  DESTINATION_DELIVERY_EVENTS,
+  DESTINATION_DELIVERY_STATUSES,
+  DESTINATION_KINDS,
+  DESTINATION_STATUSES,
+} from '../destination-binding.js';
 import { ERROR_CODE_TO_STATUS } from '../errors.js';
 import {
   PACK_ENV_HELD_CODES,
@@ -15221,6 +15233,54 @@ function toolsAllowedUnattendedProperty(lead: string): JsonSchema {
   };
 }
 
+export const ScheduleResultEventSchema: JsonSchema = {
+  type: 'string',
+  enum: [...SCHEDULE_RESULT_EVENTS],
+  description:
+    "A schedule's result a place gets: a run that `completed`, `failed` or was `cancelled`, or one `waiting` on a person's yes.",
+};
+
+export const ScheduleResultTargetSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['to', 'on'],
+  description: "One place a schedule's results go, and which of them.",
+  properties: {
+    to: {
+      type: 'string',
+      description:
+        "A destination's id, or `me`: the schedule's owner's own email, when the owner is a person.",
+    },
+    on: {
+      type: 'array',
+      minItems: 1,
+      uniqueItems: true,
+      items: { $ref: '#/components/schemas/ScheduleResultEvent' },
+      description: 'The events it gets.',
+    },
+  },
+};
+
+export const ScheduleResultTargetInputSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['to'],
+  description: "One place a schedule's results go, as registering or changing one names it.",
+  properties: {
+    to: {
+      type: 'string',
+      description:
+        "A destination's id, or `me`: the schedule's owner's own email, when the owner is a person.",
+    },
+    on: {
+      type: 'array',
+      minItems: 1,
+      items: { $ref: '#/components/schemas/ScheduleResultEvent' },
+      description: 'The events it gets, each kept once. Absent: every event.',
+    },
+  },
+};
+
 export const ScheduleRecordSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -15330,6 +15390,12 @@ export const ScheduleRecordSchema: JsonSchema = {
     toolsAllowedUnattended: toolsAllowedUnattendedProperty(
       "The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none.",
     ),
+    sendResultsTo: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/ScheduleResultTarget' },
+      description:
+        "Where its results go: destinations (`/v1/destinations`) and `me`, its owner's own email, each with the events it gets. What was sent: `GET /v1/schedules/{triggerId}/deliveries`. Absent: nowhere.",
+    },
     nextFireAt: {
       type: ['string', 'null'],
       format: 'date-time',
@@ -15595,6 +15661,13 @@ export const RegisterScheduleBodySchema: JsonSchema = {
     toolsAllowedUnattended: toolsAllowedUnattendedProperty(
       "The tools whose calls in this schedule's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the schedule's project.",
     ),
+    sendResultsTo: {
+      type: 'array',
+      maxItems: 5,
+      items: { $ref: '#/components/schemas/ScheduleResultTargetInput' },
+      description:
+        "Where its results go, at most five places, each named once: a destination the schedule's project may use, or `me` when its owner is a person. Absent or `[]`: nowhere.",
+    },
   },
 };
 
@@ -15644,6 +15717,13 @@ export const PatchScheduleBodySchema: JsonSchema = {
     toolsAllowedUnattended: toolsAllowedUnattendedProperty(
       "Replaces the schedule's list; `[]` clears it, and absent keeps it. Naming it takes `admin` on the schedule's project. A change of what it runs (another flow or agent) while the list isn't empty must name it again, as it is or `[]`; a new version alone keeps it.",
     ),
+    sendResultsTo: {
+      type: 'array',
+      maxItems: 5,
+      items: { $ref: '#/components/schemas/ScheduleResultTargetInput' },
+      description:
+        "Replaces where its results go, checked as at registration against the schedule's project and owner as they are now; `[]` clears it, and absent keeps it. The same places and events in another order change nothing.",
+    },
   },
 };
 
@@ -16546,6 +16626,7 @@ export const ScheduleDefinitionSchema: JsonSchema = triggerDefinitionSchema(
     'startingDeadlineSeconds',
     'label',
     'toolsAllowedUnattended',
+    'sendResultsTo',
   ],
   [
     'projectId',
@@ -17782,6 +17863,17 @@ export const FinishedRunSchema: JsonSchema = {
       description:
         "On an agent's run: the agent, the version that ran and the conversation, as `GET /v1/runs/{runId}` shows them (an agent run's `flowId` is `agent.turn`). Absent on a flow's run, and from a runtime before Kindgi 0.1.6.",
     },
+    trigger: {
+      $ref: '#/components/schemas/RunTrigger',
+      description:
+        "The trigger that started the run, as `GET /v1/runs/{runId}` shows it (a schedule's `triggerId` is its `scheduleId`). Absent on a run no trigger started, and from a runtime that doesn't send it yet.",
+    },
+    startedBy: {
+      type: 'string',
+      enum: [...RUN_STARTED_BY],
+      description:
+        "How the run started, as `GET /v1/runs/{runId}`'s `startedBy`. Absent on a run that records none, and from a runtime that doesn't send it yet.",
+    },
   },
 };
 
@@ -17852,6 +17944,12 @@ export const RequestedApprovalSchema: JsonSchema = {
     url: {
       type: 'string',
       description: 'Its page in the console, when the runtime knows its public address.',
+    },
+    runId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        "The top-level run that waits on it, when a run asked for it. Absent on an approval no run asked for, and from a runtime that doesn't send it yet.",
     },
   },
 };
@@ -17967,6 +18065,277 @@ export const WebhookDeliveryCollectionPageSchema: JsonSchema = {
   required: ['data', 'hasMore'],
   properties: {
     data: { type: 'array', items: { $ref: '#/components/schemas/WebhookDelivery' } },
+    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+// ---------- destinations (where schedules send their results) ----------
+
+export const DestinationKindSchema: JsonSchema = {
+  type: 'string',
+  enum: [...DESTINATION_KINDS],
+  description:
+    'Where a destination sends. `email` goes to workspace members, each checked when a message is sent; the others post to a URL.',
+};
+
+export const DestinationContentSchema: JsonSchema = {
+  type: 'string',
+  enum: [...DESTINATION_CONTENTS],
+  description:
+    "What a message carries. `link`: the run's status and its console link. `answer`: also the run's answer, up to its first 1,000 characters; only on a destination that names `projects`, and never on the `webhook` kind, whose receiver reads the run with its own key.",
+};
+
+export const DestinationStatusSchema: JsonSchema = {
+  type: 'string',
+  enum: [...DESTINATION_STATUSES],
+  description:
+    "`active`: it takes messages. `failing`: its last delivery got an answer that won't change on a retry (such as a removed webhook's 404 or 410); later messages for it are kept but held until a `sendTest` reaches it.",
+};
+
+export const DestinationSecretRefSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['envName', 'name'],
+  description:
+    "A secret by name in the deployment's secrets store, resolved at tenant scope (the same shape as a webhook endpoint's `secretRef`). The store keeps the value; the destination keeps only this reference.",
+  properties: {
+    envName: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,62}$' },
+    name: { type: 'string', minLength: 1, maxLength: 256 },
+  },
+};
+
+export const DestinationSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'destinationId',
+    'name',
+    'kind',
+    'content',
+    'status',
+    'lastError',
+    'createdAt',
+    'updatedAt',
+  ],
+  description:
+    'Where a schedule sends its results. Its URL is never returned: `host` and `urlRef` say where it goes. `GET /v1/destinations?projectId=` answers a caller who is not a workspace admin without `people`, `host`, `urlRef`, `secretRef` and `projects`.',
+  properties: {
+    destinationId: { type: 'string' },
+    name: { type: 'string' },
+    kind: { $ref: '#/components/schemas/DestinationKind' },
+    people: {
+      type: 'array',
+      items: { type: 'string', format: 'uuid' },
+      description: '`email`: the workspace members it goes to. Absent on the other kinds.',
+    },
+    host: {
+      type: 'string',
+      description: "The URL's host, on every kind but `email`. The URL itself is never returned.",
+    },
+    urlRef: {
+      $ref: '#/components/schemas/DestinationSecretRef',
+      description: 'Where its URL is kept, on every kind but `email`.',
+    },
+    secretRef: {
+      $ref: '#/components/schemas/DestinationSecretRef',
+      description: "`webhook`: its signing secret, by reference, as a webhook endpoint's.",
+    },
+    projects: {
+      type: 'array',
+      items: { type: 'string', format: 'uuid' },
+      description: "The projects whose schedules may use it. Absent: every project's may.",
+    },
+    content: { $ref: '#/components/schemas/DestinationContent' },
+    status: { $ref: '#/components/schemas/DestinationStatus' },
+    lastError: {
+      type: ['string', 'null'],
+      description:
+        'Why it is `failing`, as a fixed reason that never holds the URL; `null` when it is `active`.',
+    },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const DestinationCollectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/Destination' } },
+    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+const DESTINATION_URL_DESCRIPTION =
+  'Absolute https URL to post to. No credentials in the URL. Write-only: the deployment keeps it in its secrets store and it is never returned (`host` and `urlRef` say where it goes). Give `url` or `urlRef`, not both. The deployment may refuse private network addresses (`400 destination-url-refused`).';
+
+export const CreateDestinationBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name', 'kind'],
+  description:
+    '`url` or `urlRef` on every kind but `email`, which takes `people`; `secretRef` on `webhook` only.',
+  properties: {
+    name: { type: 'string', minLength: 1, maxLength: 100 },
+    kind: { $ref: '#/components/schemas/DestinationKind' },
+    people: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 50,
+      items: { type: 'string', format: 'uuid' },
+      description:
+        '`email`: the workspace members it goes to, each checked when a message is sent.',
+    },
+    url: {
+      type: 'string',
+      format: 'uri',
+      maxLength: 2048,
+      description: DESTINATION_URL_DESCRIPTION,
+    },
+    urlRef: {
+      $ref: '#/components/schemas/DestinationSecretRef',
+      description: 'A URL already in the secrets store, by reference, in place of `url`.',
+    },
+    secretRef: {
+      $ref: '#/components/schemas/DestinationSecretRef',
+      description:
+        "`webhook` (and needed there): its signing secret, by reference, `whsec_` + base64 of at least 24 random bytes, as a webhook endpoint's.",
+    },
+    projects: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 100,
+      items: { type: 'string', format: 'uuid' },
+      description: "The projects whose schedules may use it. Absent: every project's may.",
+    },
+    content: {
+      $ref: '#/components/schemas/DestinationContent',
+      description: '`link` when absent.',
+    },
+  },
+};
+
+export const UpdateDestinationBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'Fields to change; absent fields are kept and `kind` never changes. A new `url` rotates the stored one; `urlRef` replaces it.',
+  properties: {
+    name: { type: 'string', minLength: 1, maxLength: 100 },
+    people: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 50,
+      items: { type: 'string', format: 'uuid' },
+    },
+    url: {
+      type: 'string',
+      format: 'uri',
+      maxLength: 2048,
+      description: DESTINATION_URL_DESCRIPTION,
+    },
+    urlRef: { $ref: '#/components/schemas/DestinationSecretRef' },
+    secretRef: { $ref: '#/components/schemas/DestinationSecretRef' },
+    projects: {
+      type: ['array', 'null'],
+      minItems: 1,
+      maxItems: 100,
+      items: { type: 'string', format: 'uuid' },
+      description: "`null` lets every project's schedules use it again.",
+    },
+    content: { $ref: '#/components/schemas/DestinationContent' },
+  },
+};
+
+export const DestinationDeliveryEventSchema: JsonSchema = {
+  type: 'string',
+  enum: [...DESTINATION_DELIVERY_EVENTS],
+  description:
+    'What a delivery tells: a run that ended, an approval that waits on a person, a test, or, at the end of an hour whose cap (`rate-cap`) left messages out, how many.',
+};
+
+export const DestinationDeliveryStatusSchema: JsonSchema = {
+  type: 'string',
+  enum: [...DESTINATION_DELIVERY_STATUSES],
+  description:
+    "`pending`: waiting for its next attempt, or held while its destination is `failing`. `delivered`: the destination took it. `failed`: it can't be sent (see `reason`). `skipped`: it was never sent (see `reason`).",
+};
+
+export const DestinationDeliverySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'deliveryId',
+    'to',
+    'event',
+    'scheduleId',
+    'runId',
+    'approvalId',
+    'status',
+    'reason',
+    'attempts',
+    'nextAttemptAt',
+    'lastAttemptAt',
+    'lastResponseStatus',
+    'lastError',
+    'createdAt',
+    'deliveredAt',
+  ],
+  properties: {
+    deliveryId: { type: 'string' },
+    to: {
+      type: 'string',
+      description: "The destination's id, or `me`: the schedule owner's own email.",
+    },
+    event: { $ref: '#/components/schemas/DestinationDeliveryEvent' },
+    scheduleId: {
+      type: ['string', 'null'],
+      description: 'The schedule that sent it; `null` for a test.',
+    },
+    runId: {
+      type: ['string', 'null'],
+      description: 'The run it is about; `null` for a test or a `rate-cap.summary`.',
+    },
+    approvalId: {
+      type: ['string', 'null'],
+      description: '`approval.requested`: the approval that waits; `null` otherwise.',
+    },
+    status: { $ref: '#/components/schemas/DestinationDeliveryStatus' },
+    reason: {
+      type: ['string', 'null'],
+      description:
+        'Why it was `skipped` (`rate-cap`, `no-access`, `destination-removed`, `not-for-this-project`) or `failed` (`destination-failing`, `window-ended`, `refused`, or a send error such as `timeout`); `null` otherwise.',
+    },
+    attempts: { type: 'integer', minimum: 0 },
+    nextAttemptAt: {
+      type: ['string', 'null'],
+      format: 'date-time',
+      description: 'When the next attempt is due; `null` unless `pending` and not held.',
+    },
+    lastAttemptAt: { type: ['string', 'null'], format: 'date-time' },
+    lastResponseStatus: {
+      type: ['integer', 'null'],
+      description:
+        'The HTTP status (or SMTP reply code) of the last attempt; `null` when it got none.',
+    },
+    lastError: {
+      type: ['string', 'null'],
+      description: 'Why the last attempt failed, as a fixed reason that never holds the URL.',
+    },
+    createdAt: { type: 'string', format: 'date-time' },
+    deliveredAt: { type: ['string', 'null'], format: 'date-time' },
+  },
+};
+
+export const DestinationDeliveryCollectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/DestinationDelivery' } },
     nextCursor: { type: 'string' },
     hasMore: { type: 'boolean' },
   },
@@ -18752,6 +19121,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['SecretRevokeResult', SecretRevokeResultSchema],
   // Trigger surface.
   ['TriggerStatus', TriggerStatusSchema],
+  ['ScheduleResultEvent', ScheduleResultEventSchema],
+  ['ScheduleResultTarget', ScheduleResultTargetSchema],
+  ['ScheduleResultTargetInput', ScheduleResultTargetInputSchema],
   ['ScheduleRecord', ScheduleRecordSchema],
   ['TriggerOwner', TriggerOwnerSchema],
   ['ScheduleFire', ScheduleFireSchema],
@@ -18864,6 +19236,18 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WebhookDeliveryStatus', WebhookDeliveryStatusSchema],
   ['WebhookDelivery', WebhookDeliverySchema],
   ['WebhookDeliveryCollectionPage', WebhookDeliveryCollectionPageSchema],
+  ['DestinationKind', DestinationKindSchema],
+  ['DestinationContent', DestinationContentSchema],
+  ['DestinationStatus', DestinationStatusSchema],
+  ['DestinationSecretRef', DestinationSecretRefSchema],
+  ['Destination', DestinationSchema],
+  ['DestinationCollectionPage', DestinationCollectionPageSchema],
+  ['CreateDestinationBody', CreateDestinationBodySchema],
+  ['UpdateDestinationBody', UpdateDestinationBodySchema],
+  ['DestinationDeliveryEvent', DestinationDeliveryEventSchema],
+  ['DestinationDeliveryStatus', DestinationDeliveryStatusSchema],
+  ['DestinationDelivery', DestinationDeliverySchema],
+  ['DestinationDeliveryCollectionPage', DestinationDeliveryCollectionPageSchema],
   ['LicensePreview', LicensePreviewSchema],
   ['SiteRoleGrant', SiteRoleGrantSchema],
   ['SiteKey', SiteKeySchema],
