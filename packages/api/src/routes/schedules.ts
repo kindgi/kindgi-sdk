@@ -14,6 +14,7 @@ import { sameJson } from '../canonical-json.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, runIn, writeWhereMade } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { limitedCallerRefusal } from '../middleware/key-project.js';
 import {
   type ReferenceScopeBinding,
   outOfScopeResponse,
@@ -226,6 +227,14 @@ export function schedulesRouter(
       return { kind: 'err', response: notFound(c, requestId, triggerId) };
     }
     const projectId = rec.projectId as unknown as string;
+    // Without a store, a key or session limited to another project changes
+    // none of its schedules. It still reads them. Held before anything
+    // below may allow the change.
+    const held =
+      authorizer === undefined
+        ? limitedCallerRefusal(c, 'write', ref('project', projectId), 'the trigger')
+        : undefined;
+    if (held !== undefined) return { kind: 'err', response: held };
     const improve = rec.target.kind === 'improve' ? rec.target : undefined;
     const asked: Action = action === 'stop' ? 'write' : action;
     // Changing an Improve schedule also takes `publish` on its agent, as registering it does.
@@ -403,9 +412,10 @@ export function schedulesRouter(
     if (input.kind === 'err') return bad(c, requestId, input.message);
 
     // An Improve schedule is in the project it improves. Any other that
-    // names no project goes in the tenant's default project: checked and
-    // stored as that project. With no default to find, the registry picks
-    // it, and only a tenant admin may.
+    // names no project goes in the project the caller's key or session is
+    // limited to, else in the tenant's default project: checked and stored
+    // as that project. With no default to find, the registry picks it, and
+    // only a tenant admin may.
     const improves = target.value.kind === 'improve' ? target.value.projectId : undefined;
     if (improves !== undefined && projectId !== undefined && projectId !== improves) {
       return bad(c, requestId, IN_ITS_PROJECT);
@@ -413,6 +423,7 @@ export function schedulesRouter(
     const project =
       (projectId as string | undefined) ??
       (improves as string | undefined) ??
+      c.get('tokenProjectId') ??
       ((await projects?.getDefault(tenantId))?.id as string | undefined);
     // Who its runs act as: the caller, the service account named with
     // `runAsServiceAccountId` (gated by `act_as`), or the project's own

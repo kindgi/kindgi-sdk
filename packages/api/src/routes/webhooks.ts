@@ -24,6 +24,7 @@ import { sameJson } from '../canonical-json.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { limitedCallerRefusal } from '../middleware/key-project.js';
 import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
 import {
   type ReferenceScopeBinding,
@@ -225,7 +226,15 @@ export function webhooksRouter(
     if (rec === null || rec.kind !== 'webhook') {
       return { kind: 'err', response: notFound(c, requestId, triggerId) };
     }
-    const refused = await denied(c, action, ref('project', rec.projectId as unknown as string));
+    const projectId = rec.projectId as unknown as string;
+    // Without a store, a key or session limited to another project changes
+    // none of its triggers. It still reads them.
+    const held =
+      authorizer === undefined
+        ? limitedCallerRefusal(c, 'write', ref('project', projectId), 'the trigger')
+        : undefined;
+    if (held !== undefined) return { kind: 'err', response: held };
+    const refused = await denied(c, action, ref('project', projectId));
     if (refused !== undefined) return { kind: 'err', response: refused };
     return { kind: 'ok', value: rec };
   }
@@ -335,11 +344,13 @@ export function webhooksRouter(
     const unwritable = generate ? nameRefused(c, hmacSecretName.value) : undefined;
     if (unwritable !== undefined) return unwritable;
 
-    // A trigger that names no project goes in the tenant's default
-    // project: checked and stored as that project. With no default to
-    // find, the registry picks it, and only a tenant admin may.
+    // A trigger that names no project goes in the project the caller's key
+    // or session is limited to, else in the tenant's default project:
+    // checked and stored as that project. With no default to find, the
+    // registry picks it, and only a tenant admin may.
     const project =
       (projectId as string | undefined) ??
+      c.get('tokenProjectId') ??
       ((await projects?.getDefault(tenantId))?.id as string | undefined);
     const refused =
       (project === undefined

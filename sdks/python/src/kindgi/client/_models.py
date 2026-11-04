@@ -11711,7 +11711,7 @@ class RegisterMailTriggerBody(BaseModel):
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The trigger's project. Absent → the workspace's default project.
+    The trigger's project. Absent → the project the API key or session is limited to, else the workspace's default project.
     """
     run_as_service_account_id: Annotated[
         str | None, Field(alias="runAsServiceAccountId", min_length=1)
@@ -18057,7 +18057,7 @@ class RegisterScheduleBody(BaseModel):
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The schedule's project. Absent → for `improve`, `improve.projectId` (another is refused); else the workspace's default project.
+    The schedule's project. Absent → for `improve`, `improve.projectId` (another is refused); else the project the API key or session is limited to, else the workspace's default project.
     """
     run_as_service_account_id: Annotated[
         str | None, Field(alias="runAsServiceAccountId", min_length=1)
@@ -18270,7 +18270,7 @@ class RegisterWebhookTriggerBody(BaseModel):
     flow_version: Annotated[str, Field(alias="flowVersion", min_length=1)]
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The trigger's project; absent: the workspace's default project.
+    The trigger's project; absent: the project the API key or session is limited to, else the workspace's default project.
     """
     config: RegisterWebhookTriggerBodyConfig | None = None
     hmac_secret_name: Annotated[str, Field(alias="hmacSecretName", min_length=1)]
