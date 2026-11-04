@@ -368,7 +368,8 @@ export interface StartRunOptions {
   /**
    * `false` → the server answers as soon as the run exists and finishes
    * it in the background; poll `get(runId)`. Default: wait for the run
-   * to complete, fail or suspend.
+   * to complete, fail or suspend, or, when a read fails part-way, answer
+   * with it still `running` (poll `get(runId)`).
    */
   readonly wait?: boolean;
 }
