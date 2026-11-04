@@ -19,6 +19,7 @@ import type {
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { limitedCallerRefusal } from '../middleware/key-project.js';
 import {
   type ReferenceScopeBinding,
   outOfScopeResponse,
@@ -77,7 +78,10 @@ import { UUID_RE } from './uuid-param.js';
 
 export interface MailTriggersRouterOptions {
   readonly authorizer?: Authorizer;
-  /** The tenant's default project: where a mail trigger that names no project goes. */
+  /**
+   * The tenant's default project: where a mail trigger that names no project
+   * goes when the caller's key or session is limited to none.
+   */
   readonly projects?: Pick<ProjectBinding, 'getDefault'>;
   /** Where an owner's name is read (`owner.displayName`). */
   readonly names?: TriggerOwnerNames;
@@ -277,7 +281,16 @@ export function mailTriggersRouter(
     if (rec === null || rec.kind !== 'mail') {
       return { kind: 'err', response: notFound(c, requestId, triggerId) };
     }
-    const refusedRead = await denied(c, action, ref('project', rec.projectId as unknown as string));
+    const projectId = rec.projectId as unknown as string;
+    // Without a store, a key or session limited to another project changes
+    // none of its triggers. It still reads them. The hold asks `write`,
+    // whatever `action` this loader asks for the project.
+    const held =
+      authorizer === undefined
+        ? limitedCallerRefusal(c, 'write', ref('project', projectId), 'the trigger')
+        : undefined;
+    if (held !== undefined) return { kind: 'err', response: held };
+    const refusedRead = await denied(c, action, ref('project', projectId));
     if (refusedRead !== undefined) return { kind: 'err', response: refusedRead };
     return { kind: 'ok', value: rec };
   }
@@ -410,11 +423,13 @@ export function mailTriggersRouter(
     if (projectId !== undefined && (typeof projectId !== 'string' || !UUID_RE.test(projectId))) {
       return bad(c, requestId, '`projectId` must be a project id (a UUID)');
     }
-    // A trigger that names no project goes in the tenant's default project:
+    // A trigger that names no project goes in the project the caller's key
+    // or session is limited to, else in the tenant's default project:
     // checked and stored as that project. With no default to find, the
     // registry picks it, and only a tenant admin may.
     const project =
       (projectId as string | undefined) ??
+      c.get('tokenProjectId') ??
       ((await projects?.getDefault(tenantId))?.id as string | undefined);
     const ownerRequest = ownerRequestOf(body, project);
     if (typeof ownerRequest === 'string') return bad(c, requestId, ownerRequest);

@@ -1631,6 +1631,15 @@ const LIMITED_ABOVE_PROJECT_403 = ErrorResponse(
   withLimitedAbove('`permission-denied`: the caller may not make this change.'),
 );
 
+/**
+ * Without an authorization store, a key or session limited to a project
+ * is refused a change to another project's trigger, by the trigger's id.
+ * Each operation it holds says so in its 403.
+ */
+export const LIMITED_TRIGGER_PROJECT =
+  "Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to another project than the trigger's (with a store, that is `permission-denied`).";
+const withLimitedTrigger = (text: string): string => `${text} ${LIMITED_TRIGGER_PROJECT}`;
+
 const CommonAuthErrors: Readonly<Record<string, ResponseSpec>> = {
   '401': ErrorResponse('Missing / malformed / expired / revoked bearer token.'),
 };
@@ -1646,12 +1655,23 @@ const CommonMutationErrors: Readonly<Record<string, ResponseSpec>> = {
 
 /** A change a schedule's owner rule refuses (`trigger-owners.ts`). */
 const ScheduleChangeRefused: ResponseSpec = ErrorResponse(
-  "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner.",
+  withLimitedTrigger(
+    "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (its owner: `run`, except on an `improve` schedule; for an `improve` schedule, `publish` on the agent as well) is refused first, and learns nothing of its owner.",
+  ),
 );
 
 /** A change a webhook trigger's owner rule refuses (`trigger-owners.ts`). */
 const WebhookChangeRefused: ResponseSpec = ErrorResponse(
-  "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner.",
+  withLimitedTrigger(
+    "`permission-denied`: the trigger is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner.",
+  ),
+);
+
+/** A change to a mail trigger its rules refuse (`mail-triggers.ts`). */
+const MailTriggerChangeRefused: ResponseSpec = ErrorResponse(
+  withLimitedTrigger(
+    '`permission-denied`: the caller may not make this change to the mail trigger (the message says what it takes).',
+  ),
 );
 
 /** A read of a tenant-wide setting (`tenantResourceAccess`): a tenant member's; without an authorization store, anyone's. */
@@ -11302,7 +11322,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'A malformed body, or `runAsProject` with `runAsServiceAccountId`, or a body naming `toolsAllowedUnattended` (`bad-input`).',
       ),
       '403': ErrorResponse(
-        "`permission-denied`: not an admin of the schedule's project, or no `execute` on what it runs, or no `act_as` on the account named.",
+        withLimitedTrigger(
+          "`permission-denied`: not an admin of the schedule's project, or no `execute` on what it runs, or no `act_as` on the account named.",
+        ),
       ),
       '404': ErrorResponse('No cron trigger with that id, or no such service account.'),
       '409': ErrorResponse(
@@ -11477,7 +11499,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.register',
     summary: 'Register a webhook trigger',
     description:
-      "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the workspace that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the workspace's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
+      "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the workspace that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the project its API key or session is limited to, else in the workspace's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -11696,7 +11718,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'A malformed body, or `runAsProject` with `runAsServiceAccountId`, or a body naming `toolsAllowedUnattended` (`bad-input`).',
       ),
       '403': ErrorResponse(
-        "`permission-denied`: not an admin of the trigger's project, or no `execute` on its flow, or no `act_as` on the account named.",
+        withLimitedTrigger(
+          "`permission-denied`: not an admin of the trigger's project, or no `execute` on its flow, or no `act_as` on the account named.",
+        ),
       ),
       '404': ErrorResponse('No webhook trigger with that id, or no such service account.'),
       '409': ErrorResponse(
@@ -11715,7 +11739,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mailTriggers.register',
     summary: 'Register a mail trigger',
     description:
-      "Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through a company connection of the app and needs `admin` on the project: `config.mailbox.connectionId` names one of the project's candidates (`GET /v1/connection-choices/candidates`), and with none named the project's only one is stored, several are `409 connection-not-chosen`, and none stores nothing; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the workspace's default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
+      "Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through a company connection of the app and needs `admin` on the project: `config.mailbox.connectionId` names one of the project's candidates (`GET /v1/connection-choices/candidates`), and with none named the project's only one is stored, several are `409 connection-not-chosen`, and none stores nothing; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the project its API key or session is limited to, else in the workspace's default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
     tags: ['mail-triggers'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -11797,6 +11821,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         "A body that fails validation (`bad-input`): `runAsServiceAccountId` or `runAsProject` (the owner changes only by `POST …/owner`), a person's mailbox for a shared trigger, a `connectionId` for a person's mailbox or naming a person's own live connection of the app, or a new target or mailbox without the list it holds. Or `reference-out-of-scope`: the new target isn't the project's to reach. Nothing changes.",
       ),
+      '403': MailTriggerChangeRefused,
       '404': ErrorResponse(
         "No mail trigger with that id. Or the new mailbox's `connectionId` isn't one of the project's company connections of the app (`connection-not-found`, `details.field` `config.mailbox.connectionId`).",
       ),
@@ -11819,6 +11844,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Paused mail trigger.', schema: ref('MailTriggerRecord') },
       ...CommonMutationErrors,
+      '403': MailTriggerChangeRefused,
       '404': ErrorResponse('No mail trigger with that id.'),
     },
   },
@@ -11836,6 +11862,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Resumed mail trigger.', schema: ref('MailTriggerRecord') },
       ...CommonMutationErrors,
+      '403': MailTriggerChangeRefused,
       '404': ErrorResponse('No mail trigger with that id.'),
     },
   },
@@ -11852,6 +11879,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Tombstone outcome.', schema: ref('WebhookTriggerUnregisterResult') },
       ...CommonMutationErrors,
+      '403': MailTriggerChangeRefused,
       '404': ErrorResponse('No mail trigger with that id.'),
     },
   },
@@ -11931,6 +11959,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         "`bad-input`: a body naming `toolsAllowedUnattended`, a service account or `runAsProject` for a person's mailbox, or `runAsProject` with `runAsServiceAccountId`.",
       ),
+      '403': MailTriggerChangeRefused,
       '404': ErrorResponse('No mail trigger with that id, or no such service account.'),
       '409': ErrorResponse(
         "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the trigger runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the trigger runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the Idempotency-Key was reused with a different body, or a resource-state conflict.",
