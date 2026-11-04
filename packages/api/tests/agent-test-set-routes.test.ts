@@ -409,7 +409,10 @@ describe('retiring a case', () => {
     // The comma form and repeated keys read like one value; `include=` adds nothing.
     for (const query of ['include=retired,retired', 'include=&include=retired']) {
       const listed = await h.call('GET', `${SET}/cases?projectId=${projectA}&${query}`);
-      expect(listed.body.data.map((k: { id: string }) => k.id), query).toEqual([id]);
+      expect(
+        listed.body.data.map((k: { id: string }) => k.id),
+        query,
+      ).toEqual([id]);
     }
     const none = await h.call('GET', `${SET}/cases?projectId=${projectA}&include=`);
     expect(none.body.data).toEqual([]);

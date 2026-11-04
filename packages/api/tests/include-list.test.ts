@@ -9,7 +9,11 @@ const KNOWN = ['output', 'waitingFor'] as const;
 
 describe('includeListOf', () => {
   test('reads one value, the comma form and repeated keys alike', () => {
-    for (const raw of [['output,waitingFor'], ['output', 'waitingFor'], [' output , waitingFor ']]) {
+    for (const raw of [
+      ['output,waitingFor'],
+      ['output', 'waitingFor'],
+      [' output , waitingFor '],
+    ]) {
       const read = includeListOf(raw, KNOWN);
       expect(read.kind === 'ok' && [...read.value], JSON.stringify(raw)).toEqual([
         'output',
@@ -30,7 +34,8 @@ describe('includeListOf', () => {
   test('refuses what the list does not know, naming it and what it takes', () => {
     expect(includeListOf(['output,keys', 'notes'], KNOWN)).toEqual({
       kind: 'err',
-      message: 'Unknown `include` value(s): keys, notes. Expected one or more of: output, waitingFor',
+      message:
+        'Unknown `include` value(s): keys, notes. Expected one or more of: output, waitingFor',
     });
   });
 
