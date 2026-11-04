@@ -17,7 +17,7 @@ description: >
   kindgi-scala-authoring-flows; models by kindgi-authoring-providers.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.10"
+version: "0.1.11"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
