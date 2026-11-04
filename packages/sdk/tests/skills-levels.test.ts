@@ -23,6 +23,11 @@
  * until it's taken off the list. So the list only shrinks, and a split
  * skill can't grow back. A change that grows a listed skill raises its
  * ceiling in the same change.
+ *
+ * A file's size counts each CLI install line's version as `X.Y`
+ * (`@kindgi/cli@X.Y`, `kindgi-cli>=X.Y,<X.Y`), so moving the CLI's line, to
+ * the next release or to a pre-release's exact build, neither grows nor
+ * shrinks a skill. At a 0.x release before 0.9, that's the file's own size.
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
@@ -48,7 +53,7 @@ const NOT_YET_LEVELED: Readonly<Record<string, { readonly bytes: number }>> = {
   'kindgi-java-authoring-flows': { bytes: 19_952 },
   'kindgi-java-authoring-guardrails': { bytes: 12_522 },
   'kindgi-java-authoring-tools': { bytes: 26_786 },
-  'kindgi-java-getting-started': { bytes: 18_027 },
+  'kindgi-java-getting-started': { bytes: 18_028 },
   'kindgi-python-authoring-agents': { bytes: 16_937 },
   'kindgi-python-authoring-flows': { bytes: 16_339 },
   'kindgi-python-authoring-guardrails': { bytes: 11_605 },
@@ -58,11 +63,33 @@ const NOT_YET_LEVELED: Readonly<Record<string, { readonly bytes: number }>> = {
   'kindgi-scala-authoring-flows': { bytes: 18_742 },
   'kindgi-scala-authoring-guardrails': { bytes: 12_213 },
   'kindgi-scala-authoring-tools': { bytes: 25_245 },
-  'kindgi-scala-getting-started': { bytes: 19_354 },
+  'kindgi-scala-getting-started': { bytes: 19_355 },
   'kindgi-using': { bytes: 15_851 },
 };
 
 const TOPIC_FILE = /^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/;
+
+/** A version in a CLI install line: from a digit to its last letter or digit. */
+const V = String.raw`\d(?:[0-9A-Za-z.-]*[0-9A-Za-z])?`;
+/**
+ * The CLI's install lines, as scripts/lib/cli-line.mjs matches them (it holds
+ * the rule): `@kindgi/cli@<version>` and `kindgi-cli>=<version>,<<version>`.
+ */
+const CLI_LINE = new RegExp(String.raw`@kindgi\/cli@${V}|kindgi-cli>=${V}(,<${V})?`, 'g');
+
+/** A skill file's size, with each CLI install line's version counted as `X.Y`. */
+function measured(bytes: Buffer): number {
+  const text = bytes
+    .toString('utf8')
+    .replace(CLI_LINE, (form, ceiling: string | undefined) =>
+      form.startsWith('@')
+        ? '@kindgi/cli@X.Y'
+        : ceiling === undefined
+          ? 'kindgi-cli>=X.Y'
+          : 'kindgi-cli>=X.Y,<X.Y',
+    );
+  return Buffer.byteLength(text);
+}
 
 const skills = readdirSync(SKILLS, { withFileTypes: true })
   .filter((e) => e.isDirectory())
@@ -212,6 +239,27 @@ describe('the helpers', () => {
   });
 });
 
+describe('measured', () => {
+  test("counts a CLI install line's version as X.Y, and only that", () => {
+    const at = (npm: string, uv: string) =>
+      Buffer.from(
+        `Run \`npx --yes @kindgi/cli@${npm} init\` or \`uvx --from "kindgi-cli>=${uv}" kindgi\`.`,
+      );
+    const size = measured(at('0.4', '0.4,<0.5'));
+    expect(size).toBe(at('0.4', '0.4,<0.5').byteLength);
+    for (const [npm, uv] of [
+      ['0.6.0-rc.10', '0.6.0rc10,<0.7'],
+      ['0.10', '0.10,<0.11'],
+      ['1.2', '1.2,<2'],
+    ] as const) {
+      expect(measured(at(npm, uv)), npm).toBe(size);
+    }
+    expect(measured(Buffer.from('@kindgi/cli@<version> and kindgi-cli==…'))).toBe(
+      Buffer.byteLength('@kindgi/cli@<version> and kindgi-cli==…'),
+    );
+  });
+});
+
 describe.each(skills)('%s', (skill) => {
   const listed = NOT_YET_LEVELED[skill];
   const entry = read(skill, ENTRY);
@@ -226,13 +274,13 @@ describe.each(skills)('%s', (skill) => {
   });
 
   test('its entry is within the cap', () => {
-    expect(entry.byteLength, listed === undefined ? ENTRY : unsplit).toBeLessThanOrEqual(
+    expect(measured(entry), listed === undefined ? ENTRY : unsplit).toBeLessThanOrEqual(
       listed?.bytes ?? ENTRY_MAX,
     );
   });
 
   test('a skill under the caps is off the not-yet-split list', () => {
-    const leveled = entry.byteLength <= ENTRY_MAX;
+    const leveled = measured(entry) <= ENTRY_MAX;
     expect(leveled && listed !== undefined, 'take it off NOT_YET_LEVELED').toBe(false);
   });
 
@@ -240,7 +288,7 @@ describe.each(skills)('%s', (skill) => {
     for (const e of others) {
       expect(e.isFile(), `${e.name} is a file`).toBe(true);
       expect(e.name).toMatch(TOPIC_FILE);
-      expect(read(skill, e.name).byteLength, e.name).toBeLessThanOrEqual(FILE_MAX);
+      expect(measured(read(skill, e.name)), e.name).toBeLessThanOrEqual(FILE_MAX);
     }
   });
 

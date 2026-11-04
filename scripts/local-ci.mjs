@@ -110,6 +110,7 @@ const steps = [
   ['border', 'pnpm', ['run', 'check:border']],
   ['headers', 'pnpm', ['run', 'check:headers']],
   ['references', 'pnpm', ['run', 'check:refs']],
+  ['CLI line', 'pnpm', ['run', 'check:cli-line']],
   ['docs ship with the change', 'pnpm', ['run', 'check:docs-ship']],
   ['README package table', 'pnpm', ['run', 'check:readme']],
   ['Python SDK version in step with the npm packages', 'pnpm', ['run', 'check:python-version']],
