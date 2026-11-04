@@ -857,10 +857,20 @@ async function runDevForPack(
     }),
   });
 
+  // Ended before the runtime serves: the bundler's esbuild context and the
+  // pack service close as `stopDev` closes them after a run.
+  const closeBeforeServing = async (): Promise<void> => {
+    await builder.dispose().catch(() => undefined);
+    await pack.close().catch(() => undefined);
+  };
+
   // Bundle, index and start the pack's code before the runtime: it reads
   // that index, and calls that pack service, from its first request.
   emitProgress('Bundling + indexing the pack...');
-  const bootIndex = await refresher.refresh();
+  const bootIndex = await refresher.refresh().catch(async (err: unknown) => {
+    await closeBeforeServing();
+    throw err;
+  });
   emitProgress(
     args.runtimeUrl !== undefined
       ? `Using the Kindgi runtime at ${args.runtimeUrl}...`
@@ -905,7 +915,7 @@ async function runDevForPack(
     });
   } catch (err) {
     startPhases.close();
-    await pack.close().catch(() => undefined);
+    await closeBeforeServing();
     // Ctrl+C (or SIGTERM) while it waited: a stop, not a failure.
     if (err instanceof RuntimeStartStopped || ctx.stopSignal?.aborted === true) {
       return {
