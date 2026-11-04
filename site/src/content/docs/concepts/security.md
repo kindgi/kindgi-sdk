@@ -267,7 +267,8 @@ On a network that lets traffic out only through a forward proxy,
 `KINDGI_TENANT_EGRESS_PROXY` sends these connections and webhooks through it.
 The runtime still refuses IP addresses and `localhost` by the level, and the
 proxy checks every other host's address, so it must refuse at least what the
-level refuses
+level refuses, and private networks for webhooks unless
+`KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`
 ([Behind an egress proxy](../../deploy/self-hosted/self-host/#behind-an-egress-proxy)).
 
 A model provider's calls carry only its own registration's settings and its
