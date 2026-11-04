@@ -91,9 +91,10 @@ export interface IdentityDirectoryBinding {
    * Optional. Unregister a person (remove them from the tenant), in one
    * step: they're marked unregistered (their record stays, with
    * `unregisteredAt`, so their history still says who they were), every
-   * API key and session of theirs is revoked, and every grant and
-   * membership they hold is taken from the authorization store, all before
-   * it returns. Their email is then free: adding it again makes a new
+   * API key and session of theirs is revoked, every grant and membership
+   * they hold is taken from the authorization store, and every connection
+   * they own is removed (`owner-removed`, withdrawn at its app where the
+   * app allows), all before it returns. Their email is then free: adding it again makes a new
    * person. Unregistering someone already unregistered changes nothing.
    * Refused for yourself, the deployment's seed user, and the tenant's
    * only tenant admin. When present,
