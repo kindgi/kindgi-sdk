@@ -494,7 +494,8 @@ runtime's first environment. Set up each runtime once: its trusted signing
 key, providers, release gates, test cases and triggers.
 
 Give each self-hosted runtime its own tenant id, so each build, export and
-audit record names that runtime's workspace: run `uuidgen` for each one, as
+audit record names that runtime's workspace: run `uuidgen | tr 'A-Z' 'a-z'`
+for each one, for an id in lower case, as
 [Self-host Kindgi](../self-hosted/self-host/#3-build-sign-and-push-your-pack)
 does, and never reuse one runtime's id for another.
 
