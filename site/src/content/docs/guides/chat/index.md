@@ -34,11 +34,11 @@ can't change agents, settings or other people's work.
    - Under it, **You'll go back to claude.ai** shows where the tab goes
      next, in large text. If it names anything other than `claude.ai`,
      choose **Cancel**.
-   - Three permissions, all ticked. Untick any you don't want Claude to have:
-     - **See your agents, their runs and results, your schedules and what's
-       waiting for you**
-     - **Run the agents you're allowed to run, and stop runs you started**
-     - **Create, pause and remove your own schedules**
+   - Two permissions, both ticked. Untick one if you don't want Claude to
+     have it:
+     - **Follow your runs and see their results**
+     - **Run the agents and flows you're allowed to run, and follow their
+       runs**
 
    The request lasts five minutes. If the page says it expired, start again
    from claude.ai.
