@@ -634,6 +634,20 @@ export function correctorGroupsRouter(
   const scopeRef = (tenantId: TenantId, scope: CorrectorGroupScope) =>
     scope.kind === 'tenant' ? ref('tenant', tenantId) : ref('project', scope.projectId);
 
+  /**
+   * Without a store, a key or session limited to a project still changes
+   * no group beyond it: another project's, or the tenant's. Reads pass.
+   */
+  const heldChange = (c: Context<AppEnv>, group: CorrectorGroup | null): Response | undefined =>
+    authorizer !== undefined || group === null
+      ? undefined
+      : limitedCallerRefusal(
+          c,
+          'admin',
+          scopeRef(c.get('tenantId') as TenantId, group.scope),
+          'the corrector group',
+        );
+
   r.post('/', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
@@ -721,6 +735,8 @@ export function correctorGroupsRouter(
       correctorGroupId,
       includeUnregistered: action === 'read',
     });
+    const held = heldChange(c, found);
+    if (held !== undefined) return held;
     if (found !== null && authorizer !== undefined) {
       const allowed = await authorizer.can(c, action, scopeRef(tenantId, found.scope));
       if (

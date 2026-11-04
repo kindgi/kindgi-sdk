@@ -27,6 +27,9 @@ import {
   type ItemRights,
   type ItemServing,
   agentPinChangeRefusal,
+  agentPinScopeCheck,
+  heldProjects,
+  itemHold,
   itemMiddleware,
   itemPathCheck,
   readCheck,
@@ -240,6 +243,29 @@ export function agentsRouter(
       const tenantId = c.get('tenantId') as TenantId;
       return holdLimitedCaller('admin', () => pinScopeResourceRef(scope, tenantId))(c, next);
     });
+    // Nor changes an agent by its id beyond its project, as a store asks
+    // it (`itemHold`): a version, its owner, or what's pinned. The test
+    // set's routes hold for themselves (`agent-test-set.ts`).
+    r.use(
+      '/:agentId/*',
+      itemHold({
+        kind: 'agent',
+        id: (c) => c.req.param('agentId') ?? '',
+        today: (c) =>
+          isTestSetPath(c.req.path) || isAgentPinCheck(c.req.method, c.req.path)
+            ? undefined
+            : isAgentPinWrite(c.req.method, c.req.path)
+              ? 'pin'
+              : 'admin',
+        check: async (c) =>
+          isAgentPinWrite(c.req.method, c.req.path)
+            ? agentPinScopeCheck(await bodyScope(c))
+            : itemPathCheck(c),
+        held: heldProjects(itemServing, 'agent', (c, id) =>
+          ownProject(c.get('tenantId') as TenantId, id as AgentId),
+        ),
+      }),
+    );
   }
 
   /**

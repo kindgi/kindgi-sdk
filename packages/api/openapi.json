@@ -38824,6 +38824,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No agent with that id under this workspace (`agent-not-found`), or no person with that id in it (`identity-user-not-found`).",
             "content": {
@@ -39159,6 +39169,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "`run-not-found`.",
             "content": {
@@ -39289,6 +39309,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -39435,6 +39465,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No agent at that (id, version) under this workspace.",
             "content": {
@@ -39543,6 +39583,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -39838,7 +39888,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -41093,7 +41143,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -41758,6 +41808,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No flow at that (id, version) under this workspace.",
             "content": {
@@ -41866,6 +41926,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -42148,7 +42218,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -42296,7 +42366,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -43060,6 +43130,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No tool at that (id, version) under this workspace.",
             "content": {
@@ -43168,6 +43248,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -43450,7 +43540,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -43598,7 +43688,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -44257,6 +44347,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -51325,7 +51425,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`.",
+            "description": "`permission-denied`. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -51463,7 +51563,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`.",
+            "description": "`permission-denied`. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -51895,6 +51995,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No MCP endpoint with that id under this workspace.",
             "content": {
@@ -52242,6 +52352,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -55063,6 +55183,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No test set at that (id, version) under this workspace.",
             "content": {
@@ -55173,6 +55303,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -55922,7 +56062,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: no `write` on the project.",
+            "description": "`permission-denied`: no `write` on the project. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -56051,7 +56191,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: no `write` on the project.",
+            "description": "`permission-denied`: no `write` on the project. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and the change reaches another one the item is in or runs in (`details.projectId`), or an item of the workspace's or an org's (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
