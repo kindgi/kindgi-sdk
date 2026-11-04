@@ -105,8 +105,10 @@ const hookEndpoint = (envName: string) => ({
   createdAt: '2026-10-01T00:00:00.000Z',
   updatedAt: '2026-10-01T00:00:00.000Z',
 });
+/** A destination id is a UUID: the routes refuse anything else first. */
+const DESTINATION_ID = '6f1c2a3b-4d5e-4f60-8a71-b2c3d4e5f607';
 const destination = (envName: string) => ({
-  destinationId: 'dst-1',
+  destinationId: DESTINATION_ID,
   name: 'Alerts receiver',
   kind: 'webhook',
   host: 'alerts.acme.example',
@@ -696,7 +698,7 @@ describe('a runtime that refuses other envs: a registration naming its secret un
         details: { envName: 'staging', servedEnv: 'prod' },
       }),
     ]);
-    const changed = await h.call('PATCH', '/v1/destinations/dst-1', {
+    const changed = await h.call('PATCH', `/v1/destinations/${DESTINATION_ID}`, {
       secretRef: { envName: 'staging', name: DEST_SECRET },
     });
     expect([changed.status, changed.body.error?.message]).toEqual([
