@@ -95,8 +95,9 @@ other organizations as tenants, such as your customers, take Enterprise.
   it. Projects not in production, tools and users don't count.
 - **Above your plan:** running more flows or agents than your plan covers
   is outside its terms. In a coming release, the runtime warns when you
-  reach your plan's flows or agents, and above 150% of them it refuses new
-  ones. Flows and agents that already run keep running.
+  reach your plan's flows or agents, and refuses new ones once you're more
+  than 20% over, though it always lets you go one over. Flows and agents
+  that already run keep running.
 - **A Startup license** from before these plans keeps its 10 flows and 10
   agents until it expires.
 
