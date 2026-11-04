@@ -264,10 +264,12 @@ class AppJacksonTest {
     PromptRef ref = new PromptRef("acme.tone", "^1.0.0");
     assertThat(app.readValue("\"You help.\"", AgentInstructions.class)).isEqualTo(AgentInstructions.of("You help."));
     assertThat(app.readValue(PROMPT_REF, AgentInstructions.class)).isEqualTo(ref);
+    assertThat(app.readValue(withExtra(PROMPT_REF), AgentInstructions.class)).isEqualTo(ref);
     String agent =
         "{\"id\":\"acme.bookkeeper\",\"version\":\"1.0.0\",\"name\":\"Bookkeeper\",\"instructions\":%s,"
             + "\"capabilities\":[],\"tools\":[],\"retrieval\":[],\"guardrails\":[]}";
     assertThat(app.readValue(agent.formatted(PROMPT_REF), Agent.class).instructions()).isEqualTo(ref);
+    assertThat(app.readValue(agent.formatted(withExtra(PROMPT_REF)), Agent.class).instructions()).isEqualTo(ref);
     assertThat(app.readValue(agent.formatted("\"You help.\""), Agent.class).instructions()).isEqualTo(AgentInstructions.of("You help."));
     assertThat(app.writeValueAsString(AgentInstructions.of("You help."))).isEqualTo("\"You help.\"");
     assertThat(app.writeValueAsString(ref)).isEqualTo(PROMPT_REF);
