@@ -117,6 +117,7 @@ To give an agent tools that act on the store (look up an order, refund it), Word
 | Each person's subject, Kindgi id, and sealed session | User options `kindgi_subject`, `kindgi_user_id`, `kindgi_session` |
 | The people Kindgi knows (subject, user id, roles), and changes still waiting to reach it | The `kindgi_people` option, not autoloaded |
 | When WooCommerce turned off each webhook to Kindgi | The `kindgi_webhooks_disabled_at` option, not autoloaded |
+| Which agents staff see on the Ask page (their ids); none set offers them all | The `kindgi_offered_agents` option, not autoloaded |
 
 WordPress's personal-data tools (**Tools → Export Personal Data** and **Erase Personal Data**) cover each person's subject and Kindgi id. Erasing forgets the person on this site, and tells Kindgi they left, which ends their access there for good. Kindgi keeps its own record of the person, and their name stays on the records they're part of, decisions included.
 

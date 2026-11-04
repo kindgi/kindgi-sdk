@@ -66,7 +66,7 @@ Kindgi is told, for good. Deleting their user, removing them from the site on a 
 
 = What does deleting the plugin remove? =
 
-The Kindgi URL, the connection, the signing key it made, each person's cached session, its scheduled runs, and its record of when WooCommerce turned off each webhook to Kindgi. Each person's random id and Kindgi id stay, and so does the list of people Kindgi knows, with any change still waiting to reach Kindgi. They say who each person is, so the plugin installed again and connected with a new code for the same site in Kindgi finds the same people there, with their history. While the plugin is active, erasing a person's data under **Tools → Erase Personal Data** removes their ids here, and tells Kindgi they left.
+The Kindgi URL, the connection, the signing key it made, each person's cached session, its scheduled runs, its record of when WooCommerce turned off each webhook to Kindgi, and which agents the Ask page offers. Each person's random id and Kindgi id stay, and so does the list of people Kindgi knows, with any change still waiting to reach Kindgi. They say who each person is, so the plugin installed again and connected with a new code for the same site in Kindgi finds the same people there, with their history. While the plugin is active, erasing a person's data under **Tools → Erase Personal Data** removes their ids here, and tells Kindgi they left.
 
 = Does it need wp-cron? =
 

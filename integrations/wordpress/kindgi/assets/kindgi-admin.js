@@ -36,6 +36,8 @@
     askUrl,
     approvalUrl,
     runUrl,
+    runLink,
+    runAt,
     approvalCard,
     runState,
     waitsFor,
@@ -772,7 +774,7 @@
     const log = el(
       'ol',
       { className: 'kindgi-messages', 'aria-live': 'polite' },
-      logItems(messages.messages),
+      logItems(messages.messages, messages.runs ?? []),
       approval === null ? null : awaits(approval),
     );
     // Mail that started it: its thread's subject heads the page.
@@ -1133,16 +1135,17 @@
    * The conversation's messages as the page lists them: words, mail, and
    * the tools the agent used, each tool's answer folded under its step.
    */
-  function logItems(messages) {
+  function logItems(messages, runs) {
     const items = [];
     // The steps still without their answer, by the call each makes.
     const open = new Map();
+    const linked = replyRuns(messages, runs);
     for (const m of messages) {
       if (m.role === 'tool') {
         placeAnswer(m, open, items);
         continue;
       }
-      const item = message(m);
+      const item = message(m, linked.get(m));
       if (item === null) continue;
       items.push(item);
       for (const step of item.querySelectorAll('[data-call]')) open.set(step.dataset.call, step);
@@ -1208,8 +1211,26 @@
           calls.map((call) => stepOf(call.name, call.id)),
         );
 
-  /** One message: the person's words or the mail that started the turn, the agent's words, and its steps. */
-  function message(m) {
+  /**
+   * Which of the agent's words link their run on Activity: in each run the
+   * page read (the conversation's `runs`), its last words (`runAt`). A run
+   * past the page's links none.
+   */
+  function replyRuns(messages, runs) {
+    const last = new Map();
+    for (const m of messages) {
+      if (m.role !== 'agent' || m.text === '') continue;
+      const run = runAt(m.createdAt, runs);
+      if (run !== null) last.set(run.id, m);
+    }
+    return new Map([...last].map(([runId, m]) => [m, runId]));
+  }
+
+  /**
+   * One message: the person's words or the mail that started the turn, the
+   * agent's words, and its steps; the last of a run's words with its run.
+   */
+  function message(m, runId) {
     if (m.role !== 'user' && m.role !== 'agent') return null;
     if (m.mail) return mailTurn(m.mail);
     const steps = stepsOf(m.calls);
@@ -1220,6 +1241,7 @@
       { className: `kindgi-message kindgi-${m.role}` },
       m.role === 'agent' ? rich(m.text) : m.text,
       steps,
+      runId === undefined ? null : el('p', { className: 'kindgi-on-activity' }, runLink(runId)),
     );
   }
 
@@ -1345,7 +1367,13 @@
       ),
       __('Working on it…', 'kindgi'),
     );
-    progress.replaceChildren(working, steps, waits);
+    // The turn's run on Activity, from its start: the conversation links it at its words once it ends.
+    progress.replaceChildren(
+      working,
+      steps,
+      waits,
+      el('p', { className: 'kindgi-on-activity' }, runLink(runId)),
+    );
     for (;;) {
       await visible();
       if (view !== state.view) return null;

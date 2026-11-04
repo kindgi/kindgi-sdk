@@ -29,6 +29,9 @@ final class Kindgi_Rest {
 	/** At most this many pages of messages are read to reach the newest. */
 	const MESSAGES_PAGES_MAX = 50;
 
+	/** A conversation's runs are looked for among its agent's newest this many (one page). */
+	const CONVERSATION_RUNS = 100;
+
 	/** Activity shows this many runs a page. */
 	const ACTIVITY_PAGE = 25;
 
@@ -287,7 +290,8 @@ final class Kindgi_Rest {
 	/**
 	 * A conversation's newest messages, oldest first. Kindgi pages them
 	 * oldest first, so the pages are read through to the newest; `earlier`
-	 * says some older ones aren't shown.
+	 * says some older ones aren't shown. With them, the conversation's runs
+	 * (`conversation_runs`), for each reply to link the run that wrote it.
 	 */
 	public static function messages( WP_REST_Request $request ) {
 		$readable = self::readable( wp_get_current_user(), (string) $request['id'], self::through( $request ) );
@@ -341,7 +345,49 @@ final class Kindgi_Rest {
 		return array(
 			'messages' => $messages,
 			'earlier'  => $pages['earlier'],
+			'runs'     => self::conversation_runs( wp_get_current_user(), $readable['conversation'] ),
 		);
+	}
+
+	/**
+	 * A conversation's runs, each with when it started and ended (null while
+	 * it runs). Kindgi's messages don't name their run, and its runs list
+	 * doesn't filter by conversation, but each of an agent's runs names its
+	 * conversation: so one page of the agent's newest top-level runs
+	 * (`CONVERSATION_RUNS`) is read, and this conversation's are kept. A
+	 * run older than that page isn't found, and a list Kindgi doesn't answer
+	 * is none: its replies then link no run.
+	 *
+	 * @param array $conversation Kindgi's conversation.
+	 * @return array<int, array{id: string, createdAt: string, completedAt: string|null}>
+	 */
+	private static function conversation_runs( WP_User $user, array $conversation ): array {
+		$id    = is_string( $conversation['id'] ?? null ) ? $conversation['id'] : '';
+		$agent = is_string( $conversation['agentId'] ?? null ) ? $conversation['agentId'] : '';
+		if ( '' === $id || '' === $agent ) {
+			return array();
+		}
+		$query = array(
+			'agentId'  => $agent,
+			'topLevel' => 'true',
+			'limit'    => self::CONVERSATION_RUNS,
+		);
+		if ( is_string( $conversation['projectId'] ?? null ) ) {
+			$query['scopeKind'] = 'project';
+			$query['scopeId']   = $conversation['projectId'];
+		}
+		$answer = Kindgi_Api::body( $user, 'GET', '/v1/runs', $query );
+		$runs   = array();
+		foreach ( is_wp_error( $answer ) ? array() : self::list_of( $answer['body']['data'] ?? null ) as $run ) {
+			if ( $id === ( $run['agent']['conversationId'] ?? null ) && is_string( $run['id'] ?? null ) && is_string( $run['createdAt'] ?? null ) ) {
+				$runs[] = array(
+					'id'          => $run['id'],
+					'createdAt'   => $run['createdAt'],
+					'completedAt' => is_string( $run['completedAt'] ?? null ) ? $run['completedAt'] : null,
+				);
+			}
+		}
+		return $runs;
 	}
 
 	/**
