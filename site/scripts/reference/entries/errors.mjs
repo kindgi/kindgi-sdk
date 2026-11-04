@@ -2221,7 +2221,7 @@ export const ERROR_ENTRIES = {
   },
   'key-project-mismatch': {
     description:
-      "Your key is limited to one project, and the request names another project, or asks to mint a key not limited to your project. Use the project the key is limited to. A promotion reads one project and writes another, so a key or session limited to a project can't promote, or check a promotion.",
+      "Your key is limited to one project, and the request names another project, asks to mint a key not limited to your project, or reads or revokes one of your keys that isn't limited to it. Use the project the key is limited to. A promotion reads one project and writes another, so a key or session limited to a project can't promote, or check a promotion.",
     details: [
       {
         key: 'keyProjectId',
