@@ -355,7 +355,7 @@ describe('a key limited to a project, with no authorization store', () => {
     const res = await send(
       noStore,
       UNLIMITED,
-      row('', 'POST /v1/orgs', '/v1/orgs', { name: 'acme' }),
+      row('', 'POST /v1/orgs', '/v1/orgs', { name: 'acme', slug: 'acme' }),
     );
     expect(res.writes).not.toEqual([]);
   });
