@@ -604,3 +604,15 @@ describe('schema drift', () => {
     expect(GRAPH_SCHEMA_URI).toBe('https://kindgi.com/schemas/v1/flow.schema.json');
   });
 });
+
+describe('loadFlow: a tool node names a registered tool', () => {
+  test.each(['kindgi_remember', 'kindgi_reply_to_text', 'kindgi_hand_to_person'])(
+    "%s is built into Kindgi: a tool node can't name it",
+    (ref) => {
+      const r = loadFlow(flow({ nodes: [node('a', ref)] }));
+      expect(r.kind).toBe('err');
+      if (r.kind === 'err')
+        expect(r.error.message).toContain(`"${ref}" is a tool built into Kindgi`);
+    },
+  );
+});

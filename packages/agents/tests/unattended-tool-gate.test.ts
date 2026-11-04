@@ -7,9 +7,12 @@ import type { ModelMessage } from '@kindgi/capabilities';
 import type { NodeContext } from '@kindgi/handler';
 import type { HitlSpec } from '@kindgi/policy-contract';
 import {
+  HAND_TO_PERSON_TOOL_ID,
+  REPLY_TO_TEXT_TOOL_ID,
   RUN_STARTED_BY,
   type RunMailbox,
   type RunStartedBy,
+  type RunTextThread,
   type UnattendedWaitReason,
   needsPersonsYesUnattended,
   runIsAttended,
@@ -515,6 +518,30 @@ describe('the unattended rule, case by case', () => {
       undefined,
       'persons-connection',
     ],
+    [
+      "a text's run: the built-in hand-over to a person never waits",
+      { id: HAND_TO_PERSON_TOOL_ID, mutating: true },
+      'text',
+      undefined,
+      undefined,
+      undefined,
+    ],
+    [
+      "a text's run: the built-in reply waits unless the trigger lists it",
+      { id: REPLY_TO_TEXT_TOOL_ID, mutating: true },
+      'text',
+      undefined,
+      undefined,
+      'text-change',
+    ],
+    [
+      "a text's run: the built-in reply, listed, runs",
+      { id: REPLY_TO_TEXT_TOOL_ID, mutating: true },
+      'text',
+      [REPLY_TO_TEXT_TOOL_ID],
+      undefined,
+      undefined,
+    ],
   ];
 
   test.each(cases)('%s', (_, tool, startedBy, listed, mailbox, reason) => {
@@ -824,5 +851,71 @@ describe('a resumed turn', () => {
         'mailbox',
       );
     }
+  });
+
+  test("gets its text's thread from the snapshot, never from whoever resumes it", () => {
+    const thread: RunTextThread = {
+      connectionId: 'conn-1',
+      number: '+15550100100',
+      channel: 'sms',
+      sender: '+15550100200',
+      threadId: 'thread-1',
+      grants: ['texts.reply'],
+    };
+    const other: RunTextThread = { ...thread, sender: '+15550100300', threadId: 'thread-2' };
+    expect(
+      turnInputFromSnapshot(snapshot({ startedBy: 'text', textThread: thread }), {
+        agent: agent(),
+        textThread: other,
+      } as never).textThread,
+    ).toEqual(thread);
+    for (const none of [{}, { textThread: null }]) {
+      expect(turnInputFromSnapshot(snapshot(none), { agent: agent() })).not.toHaveProperty(
+        'textThread',
+      );
+    }
+  });
+});
+
+describe("resolveEffectiveToolHitl: the built-in hand-over in a text's run", () => {
+  const handOver = {
+    id: HAND_TO_PERSON_TOOL_ID,
+    mutating: true,
+    effects: [],
+  } as unknown as AnyTool;
+
+  test('runs with no rule naming it: only the unattended wait is lifted', () => {
+    const gate = resolveEffectiveToolHitl(
+      resolveEffectiveHitlPolicy({ tenant: undefined, agent: agent() }),
+      handOver,
+      { startedBy: 'text' },
+    );
+    expect(gate.mode).toBe('never_ask');
+  });
+
+  test("the workspace's floor for it still asks", () => {
+    const gate = resolveEffectiveToolHitl(
+      resolveEffectiveHitlPolicy({
+        tenant: { tools: { [HAND_TO_PERSON_TOOL_ID]: 'always_ask' } } as unknown as HitlSpec,
+        agent: agent(),
+      }),
+      handOver,
+      { startedBy: 'text' },
+    );
+    expect(gate.mode).toBe('always_ask');
+  });
+
+  test("the agent's own rule for it still asks", () => {
+    const gate = resolveEffectiveToolHitl(
+      resolveEffectiveHitlPolicy({
+        tenant: undefined,
+        agent: agent({
+          hitl: { tools: { overrides: { [HAND_TO_PERSON_TOOL_ID]: 'always_ask' } } },
+        }),
+      }),
+      handOver,
+      { startedBy: 'text' },
+    );
+    expect(gate.mode).toBe('always_ask');
   });
 });

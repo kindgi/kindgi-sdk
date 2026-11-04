@@ -5,7 +5,7 @@ import { describe, expect, test } from 'vitest';
 
 import type { ToolId } from '@kindgi/types';
 
-import { defineTool } from '../src/index.js';
+import { BUILT_IN_ONLY_APPS, defineTool } from '../src/index.js';
 import type { Tool } from '../src/index.js';
 
 function baseTool<TIn = unknown, TOut = unknown>(
@@ -113,5 +113,35 @@ describe('defineTool — input/output schema compilation', () => {
     if (r.kind === 'err' && r.error.code === 'invalid-schema') {
       expect(r.error.where).toBe('output');
     }
+  });
+});
+
+describe('defineTool: apps only built-in tools use', () => {
+  const withConnection = (app: string) =>
+    defineTool(
+      baseTool({
+        needsSpec: {
+          connections: { number: { app, permissions: ['texts.reply'], as: 'company' } },
+        },
+      } as never),
+    );
+
+  test.each(BUILT_IN_ONLY_APPS)(
+    "a pack tool can't use the %s app: it's refused at its app",
+    (app) => {
+      const r = withConnection(app);
+      expect(r.kind).toBe('err');
+      if (r.kind === 'err') {
+        expect(r.error.code).toBe('invalid-tool-definition');
+        expect(r.error.issues).toContainEqual(
+          expect.objectContaining({ path: '/needsSpec/connections/number/app' }),
+        );
+      }
+    },
+  );
+
+  test('texts is one of them; any other app is unchanged', () => {
+    expect(BUILT_IN_ONLY_APPS).toContain('texts');
+    expect(withConnection('google').kind).toBe('ok');
   });
 });

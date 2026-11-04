@@ -15,9 +15,11 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import { REMEMBER_TOOL_ID } from '@kindgi/agents';
 import type { AuditEvent } from '@kindgi/audit-events';
 import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
+import { REPLY_TO_TEXT_TOOL_ID } from '@kindgi/runtime';
 import type { ProjectId, Semver, TenantId, UserId } from '@kindgi/types';
 
 import { createInMemoryTriggerRegistry, createStubAppBindings } from '../src/testing/index.js';
@@ -80,7 +82,14 @@ function decision(principal: unknown, action: Action, resource: ResourceRef): De
 // `acme.daily@2.0.0` runs it too, and `acme.weekly` (Latest nowhere) inside
 // the subflow `acme.weekly-sub`, neither at a version.
 const tool = (id: string) => ({ id });
-const AGENTS: Record<string, Record<string, { tools: { id: string }[] }>> = {
+const AGENTS: Record<string, Record<string, { tools: { id: string }[]; memory?: unknown }>> = {
+  // It declares what it remembers, so it is offered the remember tool.
+  'acme.rememberer': {
+    latest: {
+      tools: [tool('acme.send')],
+      memory: { remember: { types: ['preference'], scope: 'same-user' } },
+    },
+  },
   'acme.weekly': { latest: { tools: [tool('acme.send')] } },
   'acme.helper': {
     '2.0.0': { tools: [tool('acme.lookup')] },
@@ -280,6 +289,52 @@ describe('which tools a target calls', () => {
         flowVersion: '1.0.0',
       } as never),
     ).toBeUndefined();
+  });
+
+  test('an agent that declares what it remembers is offered the remember tool, on any trigger kind', async () => {
+    const h = harness();
+    const schedule = await h.call('POST', '/v1/schedules', {
+      agentId: 'acme.rememberer',
+      projectId: PROJECT,
+      config: { cronExpression: '0 7 * * 1-5', input: { userMessage: 'The digest.' } },
+      toolsAllowedUnattended: [REMEMBER_TOOL_ID],
+    });
+    expect(schedule.status, JSON.stringify(schedule.body)).toBe(201);
+    expect(schedule.body.toolsAllowedUnattended).toEqual([REMEMBER_TOOL_ID]);
+    const hook = await h.call('POST', '/v1/webhooks', {
+      agentId: 'acme.rememberer',
+      projectId: PROJECT,
+      hmacSecretName: 'acme-hmac',
+      toolsAllowedUnattended: [REMEMBER_TOOL_ID],
+    });
+    expect(hook.status, JSON.stringify(hook.body)).toBe(201);
+    // An agent that declares none isn't offered it.
+    const none = await h.call(
+      'POST',
+      '/v1/schedules',
+      agentSchedule({ agentVersion: '1.0.0', toolsAllowedUnattended: [REMEMBER_TOOL_ID] }),
+    );
+    expect(none.status).toBe(400);
+  });
+
+  test("the texts tools are a text trigger's only: a schedule or a webhook is refused the reply tool", async () => {
+    const h = harness();
+    const schedule = await h.call('POST', '/v1/schedules', {
+      agentId: 'acme.rememberer',
+      projectId: PROJECT,
+      config: { cronExpression: '0 7 * * 1-5', input: { userMessage: 'The digest.' } },
+      toolsAllowedUnattended: [REPLY_TO_TEXT_TOOL_ID],
+    });
+    expect(schedule.status).toBe(400);
+    expect(schedule.body.error.message).toContain(`doesn't call "${REPLY_TO_TEXT_TOOL_ID}"`);
+    const hook = await h.call('POST', '/v1/webhooks', {
+      agentId: 'acme.rememberer',
+      projectId: PROJECT,
+      hmacSecretName: 'acme-hmac',
+      toolsAllowedUnattended: [REPLY_TO_TEXT_TOOL_ID],
+    });
+    expect(hook.status).toBe(400);
+    expect(hook.body.error.message).toContain(`doesn't call "${REPLY_TO_TEXT_TOOL_ID}"`);
   });
 
   test("with pins and Latest wired, an agent that names no version: what runs in the trigger's project, not its highest", async () => {
