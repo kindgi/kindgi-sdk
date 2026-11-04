@@ -1386,7 +1386,7 @@
           el('li', {}, stepWords(step.toolId).line),
         ),
       );
-      showWaits(waits, shown, run.waitingFor);
+      showWaits(waits, shown, run.waitingFor, runId);
       // Waiting for a person: the approval's box says so, not the dots.
       working.hidden = run.status === 'suspended';
       if (hasEnded(run, progress)) {
@@ -1413,7 +1413,7 @@
     status === 'suspended' ? Math.min(Math.max(delay * 2, 3000), 30_000) : pollMs;
 
   /** The turn's waits: a new one gets its box once, a gone one loses it, the rest stay as they are. */
-  function showWaits(container, shown, waiting) {
+  function showWaits(container, shown, waiting, runId) {
     const ids = new Set(waiting.map((w) => w.approvalId));
     for (const [id, box] of shown) {
       if (ids.has(id)) continue;
@@ -1422,14 +1422,18 @@
     }
     for (const wait of waiting) {
       if (shown.has(wait.approvalId)) continue;
-      const box = waitFor(wait);
+      const box = waitFor(wait, runId);
       shown.set(wait.approvalId, box);
       container.append(box);
     }
   }
 
-  /** A wait in a turn: for a reviewer, the approval's card; for anyone else, what it waits for. */
-  function waitFor(wait) {
+  /**
+   * A wait in a turn: for a reviewer, the approval's card; for anyone else,
+   * what it waits for. The turn's line already links its run (`runId`), so
+   * the card links only another run.
+   */
+  function waitFor(wait, runId) {
     const box = el(
       'div',
       { className: 'kindgi-wait' },
@@ -1439,7 +1443,9 @@
     if (state.me.reviewerRole !== null) {
       // The turn's own polling shows what happens after a decision.
       api(`/approvals/${encodeURIComponent(wait.approvalId)}`)
-        .then((card) => box.replaceChildren(approvalCard(card, { inConversation: true })))
+        .then((card) =>
+          box.replaceChildren(approvalCard(card, { inConversation: true, linked: runId })),
+        )
         .catch((error) => box.append(notice(error)));
     }
     return box;

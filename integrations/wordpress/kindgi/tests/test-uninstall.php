@@ -3,9 +3,11 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /*
- * Deleting the plugin removes everything it kept, as the README's "What
- * the plugin stores" lists it, except who each person is: their subject,
- * their Kindgi id, and the people Kindgi knows.
+ * Deleting the plugin removes what it kept, as the README's "What the
+ * plugin stores" lists it, except who each person is: their subject,
+ * their Kindgi id, and the people Kindgi knows. Two counts kept per
+ * person for a minute (what waits, a notice) aren't set here: they lapse
+ * on their own.
  */
 function test_uninstall_removes_what_the_plugin_kept_and_keeps_who_people_are(): void {
 	foreach ( array( 'kindgi_url', 'kindgi_site', 'kindgi_site_secret_key', 'kindgi_webhooks_disabled_at', Kindgi_Rest::OFFERED, 'kindgi_people' ) as $name ) {

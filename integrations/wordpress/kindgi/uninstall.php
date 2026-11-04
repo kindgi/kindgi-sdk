@@ -5,11 +5,12 @@
 /**
  * Deleting the plugin removes what it kept: the Kindgi URL, the
  * enrollment, the signing key it made, each person's cached session, the
- * agents offered on the Ask page, and its scheduled runs. Each person's subject and Kindgi id stay, and so does
- * the list of people Kindgi knows, with any statement still waiting: they
- * say who the people are. Installed again and connected with a new code for
- * the same site at Kindgi, the site finds the same people there, with
- * their history, and tells Kindgi what it hadn't yet.
+ * agents offered on the Ask page, and its scheduled runs. Each person's
+ * subject and Kindgi id stay, and so does the list of people Kindgi
+ * knows, with any statement still waiting: they say who the people are.
+ * Installed again and connected with a new code for the same site at
+ * Kindgi, the site finds the same people there, with their history, and
+ * tells Kindgi what it hadn't yet.
  */
 
 defined( 'WP_UNINSTALL_PLUGIN' ) || exit;

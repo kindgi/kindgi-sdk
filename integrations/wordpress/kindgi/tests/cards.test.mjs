@@ -258,14 +258,24 @@ test('a decided card drops its deadline with the buttons: no one decides it any 
 
 test('a card links the run that asked on Activity; a new version of an agent has none', () => {
   const { cards } = loadCards(null, { urls: { activity: 'admin.php?page=kindgi-activity' } });
-  const links = (card) =>
-    within(cards.approvalCard(card)).filter(
+  const links = (card, options) =>
+    within(cards.approvalCard(card, options)).filter(
       (n) => n.tagName === 'a' && n.textContent === 'See the run',
     );
   const [link] = links(toolCall({ runId: 'run 1' }));
   assert.equal(link.attributes.href, 'admin.php?page=kindgi-activity&run=run%201');
   assert.equal(links(toolCall({ runId: null })).length, 0);
   assert.equal(links({ ...pin, runId: null }).length, 0);
+  assert.equal(
+    links(toolCall({ runId: 'run 1' }), { inConversation: true, linked: 'run 1' }).length,
+    0,
+    "in a turn that links its own run, the card doesn't again",
+  );
+  assert.equal(
+    links(toolCall({ runId: 'run 2' }), { inConversation: true, linked: 'run 1' }).length,
+    1,
+    'another run it still links',
+  );
 });
 
 test("a conversation's words find the run that wrote them by its time; none past the runs read", () => {

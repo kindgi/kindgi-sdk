@@ -353,29 +353,33 @@ final class Kindgi_Rest {
 	 * A conversation's runs, each with when it started and ended (null while
 	 * it runs). Kindgi's messages don't name their run, and its runs list
 	 * doesn't filter by conversation, but each of an agent's runs names its
-	 * conversation: so one page of the agent's newest top-level runs
-	 * (`CONVERSATION_RUNS`) is read, and this conversation's are kept. A
-	 * run older than that page isn't found, and a list Kindgi doesn't answer
-	 * is none: its replies then link no run.
+	 * conversation: so one page of the agent's newest top-level runs in the
+	 * site's project (`CONVERSATION_RUNS`) is read, and this conversation's
+	 * are kept. Activity opens only the site's project's runs, so a
+	 * conversation in another project links none. A run older than that
+	 * page isn't found, and a list Kindgi doesn't answer is none: its
+	 * replies then link no run.
 	 *
 	 * @param array $conversation Kindgi's conversation.
 	 * @return array<int, array{id: string, createdAt: string, completedAt: string|null}>
 	 */
 	private static function conversation_runs( WP_User $user, array $conversation ): array {
-		$id    = is_string( $conversation['id'] ?? null ) ? $conversation['id'] : '';
-		$agent = is_string( $conversation['agentId'] ?? null ) ? $conversation['agentId'] : '';
-		if ( '' === $id || '' === $agent ) {
+		$id      = is_string( $conversation['id'] ?? null ) ? $conversation['id'] : '';
+		$agent   = is_string( $conversation['agentId'] ?? null ) ? $conversation['agentId'] : '';
+		$project = self::project( $user );
+		if ( '' === $id || '' === $agent || is_wp_error( $project ) ) {
 			return array();
 		}
-		$query = array(
-			'agentId'  => $agent,
-			'topLevel' => 'true',
-			'limit'    => self::CONVERSATION_RUNS,
-		);
-		if ( is_string( $conversation['projectId'] ?? null ) ) {
-			$query['scopeKind'] = 'project';
-			$query['scopeId']   = $conversation['projectId'];
+		if ( is_string( $conversation['projectId'] ?? null ) && $conversation['projectId'] !== $project ) {
+			return array();
 		}
+		$query  = array(
+			'agentId'   => $agent,
+			'topLevel'  => 'true',
+			'limit'     => self::CONVERSATION_RUNS,
+			'scopeKind' => 'project',
+			'scopeId'   => $project,
+		);
 		$answer = Kindgi_Api::body( $user, 'GET', '/v1/runs', $query );
 		$runs   = array();
 		foreach ( is_wp_error( $answer ) ? array() : self::list_of( $answer['body']['data'] ?? null ) as $run ) {

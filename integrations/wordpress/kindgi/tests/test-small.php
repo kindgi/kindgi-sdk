@@ -179,7 +179,7 @@ function test_rest_a_conversations_runs_come_from_one_page_of_its_agents(): void
 	$conversation = array(
 		'id'            => 'c-1',
 		'agentId'       => 'acme-desk.store-agent',
-		'projectId'     => 'p-store',
+		'projectId'     => '5a2f0c3e-8d91-4b7a-a6e2-91c4d3b0f817',
 		'participantId' => KINDGI_TEST_JANE,
 	);
 	$messages     = array(
@@ -244,8 +244,8 @@ function test_rest_a_conversations_runs_come_from_one_page_of_its_agents(): void
 	);
 	kindgi_assert_same( '2026-11-04T09:00:05Z', $answer['messages'][0]['createdAt'], 'and each message says when, to find its run' );
 	$asked = $GLOBALS['kindgi_test']['requests'][2][0];
-	foreach ( array( '/v1/runs?', 'agentId=acme-desk.store-agent', 'topLevel=true', 'limit=100', 'scopeKind=project', 'scopeId=p-store' ) as $part ) {
-		kindgi_assert( false !== strpos( $asked, $part ), "one page of its agent's newest runs in its project: {$part}" );
+	foreach ( array( '/v1/runs?', 'agentId=acme-desk.store-agent', 'topLevel=true', 'limit=100', 'scopeKind=project', 'scopeId=5a2f0c3e-8d91-4b7a-a6e2-91c4d3b0f817' ) as $part ) {
+		kindgi_assert( false !== strpos( $asked, $part ), "one page of its agent's newest runs in the site's project: {$part}" );
 	}
 	kindgi_assert_same( 3, count( $GLOBALS['kindgi_test']['requests'] ), 'one page only, though more may follow' );
 
@@ -255,7 +255,14 @@ function test_rest_a_conversations_runs_come_from_one_page_of_its_agents(): void
 	$failed = Kindgi_Rest::messages( new WP_REST_Request( array( 'id' => 'c-1' ) ) );
 	kindgi_assert_same( array(), $failed['runs'], 'a runs list Kindgi does not answer is none: no reply links a run' );
 	kindgi_assert_same( 1, count( $failed['messages'] ), 'and the conversation shows anyway' );
-	kindgi_assert( false === strpos( $GLOBALS['kindgi_test']['requests'][2][0], 'scopeKind' ), 'a conversation in no project: its agent\'s runs anywhere' );
+	kindgi_assert( false !== strpos( $GLOBALS['kindgi_test']['requests'][2][0], 'scopeId=5a2f0c3e-8d91-4b7a-a6e2-91c4d3b0f817' ), "a conversation in no project: its agent's runs in the site's project, the only ones Activity opens" );
+
+	kindgi_test_jane_at_work();
+	kindgi_test_answer( 200, array( 'projectId' => 'p-other' ) + $conversation );
+	kindgi_test_answer( 200, $messages );
+	$elsewhere = Kindgi_Rest::messages( new WP_REST_Request( array( 'id' => 'c-1' ) ) );
+	kindgi_assert_same( array(), $elsewhere['runs'], "a conversation in another project: no reply links a run, since Activity can't open it" );
+	kindgi_assert_same( 2, count( $GLOBALS['kindgi_test']['requests'] ), 'and its runs are never asked for' );
 }
 
 function test_admin_the_page_needs_more_than_writing_posts(): void {

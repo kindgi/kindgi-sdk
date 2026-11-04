@@ -445,7 +445,10 @@
    * someone else's, or Approve and Reject. Ids only Kindgi reads stay off
    * it: the card's address names the approval.
    */
-  function approvalCard(card, { after, inConversation = false, inOrder = false } = {}) {
+  function approvalCard(
+    card,
+    { after, inConversation = false, inOrder = false, linked = null } = {},
+  ) {
     const kind = card.waitsFor ?? card.status;
     // What happens if no one decides: gone with the buttons once someone does.
     const due = deadline(card);
@@ -468,7 +471,7 @@
         : null,
       card.words.map(agentWords),
       wholeCall(card),
-      cardMeta(card),
+      cardMeta(card, linked),
       due,
       inConversation || !card.opens
         ? null
@@ -522,15 +525,18 @@
   /** Under an approval waiting less than this long to be decided, its time left shows as short. */
   const SOON_MS = 2 * 60 * 60 * 1000;
 
-  /** Who asked, and when; and the run that asked, on Activity (a new version of an agent has none). */
-  const cardMeta = (card) =>
+  /**
+   * Who asked, and when; and the run that asked, on Activity (a new version
+   * of an agent has none), unless the place already links it (`linked`).
+   */
+  const cardMeta = (card, linked = null) =>
     el(
       'p',
       { className: 'kindgi-meta' },
       askedWords(card),
       ' · ',
       timeEl(card.createdAt),
-      card.runId ? [' · ', runLink(card.runId)] : null,
+      card.runId && card.runId !== linked ? [' · ', runLink(card.runId)] : null,
     );
 
   /** A link to a run's row on Activity. */
