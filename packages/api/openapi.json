@@ -588,6 +588,8 @@
           "provider-key-refused": 400,
           "provider-key-in-use": 409,
           "connection-key-refused": 400,
+          "identity-provider-key-refused": 400,
+          "identity-provider-key-in-use": 409,
           "slug-conflict": 409,
           "project-default-already-exists": 409,
           "tenant-not-found": 404,
@@ -18404,7 +18406,7 @@
           "clientSecretRef": {
             "type": "string",
             "minLength": 1,
-            "description": "Opaque reference resolved server-side. Never a plaintext secret."
+            "description": "Opaque reference resolved server-side. Never a plaintext secret. Sign-in's only: a tool, an endpoint, a webhook trigger, a connection app, a model provider or a pack's env that names it is refused (`400 identity-provider-key-refused`), and a secret a tool, an endpoint, a webhook trigger or a connection app already uses is refused here (`409 identity-provider-key-in-use`). If one app registration serves both sign-in and a connection, give each a client secret of its own."
           },
           "scopes": {
             "type": "array",
@@ -18503,12 +18505,12 @@
           "spSigningKeyRef": {
             "type": "string",
             "minLength": 1,
-            "description": "Opaque reference to the service provider's signing key, for IdPs that require signed AuthnRequests. Never a plaintext key."
+            "description": "Opaque reference to the service provider's signing key, for IdPs that require signed AuthnRequests. Never a plaintext key. Sign-in's only: anything else that names it is refused (`400 identity-provider-key-refused`), and a secret something else already uses is refused here (`409 identity-provider-key-in-use`)."
           },
           "spDecryptionKeyRef": {
             "type": "string",
             "minLength": 1,
-            "description": "Opaque reference to the key that decrypts encrypted assertions. Never a plaintext key."
+            "description": "Opaque reference to the key that decrypts encrypted assertions. Never a plaintext key. Sign-in's only: anything else that names it is refused (`400 identity-provider-key-refused`), and a secret something else already uses is refused here (`409 identity-provider-key-in-use`)."
           },
           "wantAssertionsSigned": {
             "type": "boolean",
@@ -18938,7 +18940,7 @@
           "clientSecretRef": {
             "type": "string",
             "minLength": 1,
-            "description": "Opaque reference resolved server-side. Never a plaintext secret."
+            "description": "Opaque reference resolved server-side. Never a plaintext secret. Sign-in's only: a tool, an endpoint, a webhook trigger, a connection app, a model provider or a pack's env that names it is refused (`400 identity-provider-key-refused`), and a secret a tool, an endpoint, a webhook trigger or a connection app already uses is refused here (`409 identity-provider-key-in-use`). If one app registration serves both sign-in and a connection, give each a client secret of its own."
           },
           "scopes": {
             "oneOf": [
@@ -28671,7 +28673,7 @@
           },
           "apiKey": {
             "$ref": "#/components/schemas/ConnectionSecretRef",
-            "description": "The provider account's API key. Not a reserved `kindgi.` name, not a model provider's key, and not a secret a tool, an MCP endpoint, a webhook endpoint, a webhook trigger or another connection app registration uses (`409 connection-key-in-use`). Only this registration names it: a tool, an endpoint, a webhook trigger, a model provider or another registration that names it is refused (`400 connection-key-refused`)."
+            "description": "The provider account's API key. Not a reserved `kindgi.` name, not a model provider's key, not an identity provider's secret (`400 identity-provider-key-refused`), and not a secret a tool, an MCP endpoint, a webhook endpoint, a webhook trigger or another connection app registration uses (`409 connection-key-in-use`). Only this registration names it: a tool, an endpoint, a webhook trigger, a model provider or another registration that names it is refused (`400 connection-key-refused`)."
           },
           "publicKey": {
             "type": "string",
@@ -32749,7 +32751,7 @@
             }
           }
         },
-        "description": "Newest first. Never returns secrets. A tenant admin sees every key (`?principal=` for one principal's); anyone else sees their own.",
+        "description": "Newest first. Never returns secrets. A tenant admin sees every key (`?principal=` for one principal's); anyone else sees their own. A key or session with limits sees only its owner's keys within them: limited to a project, the keys limited to that project; with the `member` role, the `member` keys. Those are the keys it could mint, itself among them.",
         "parameters": [
           {
             "name": "cursor",
@@ -32818,7 +32820,7 @@
             }
           },
           "403": {
-            "description": "A caller with no keys of its own that is not a tenant admin.",
+            "description": "A caller with no keys of its own that is not a tenant admin. Or one of the caller's own keys beyond its limits: not limited to the caller's project (`key-project-mismatch`), or an `admin` key for a caller with the `member` role (`permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -32848,7 +32850,7 @@
             }
           }
         },
-        "description": "Never returns the secret. A tenant admin reads any key; anyone else only their own (someone else's reads as missing).",
+        "description": "Never returns the secret. A tenant admin reads any key; anyone else only their own (someone else's reads as missing), and a key or session with limits only those within them, as for the list.",
         "parameters": [
           {
             "name": "tokenId",
@@ -32907,7 +32909,7 @@
             }
           },
           "403": {
-            "description": "A caller with no keys of its own that is not a tenant admin.",
+            "description": "A caller with no keys of its own that is not a tenant admin. Or one of the caller's own keys beyond its limits: not limited to the caller's project (`key-project-mismatch`), or an `admin` key for a caller with the `member` role (`permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -32957,7 +32959,7 @@
             }
           }
         },
-        "description": "Takes effect on the next request. A tenant admin revokes any key; anyone else only their own.",
+        "description": "Takes effect on the next request. A tenant admin revokes any key; anyone else only their own, and a key or session with limits only those within them, as for the list.",
         "parameters": [
           {
             "name": "tokenId",
@@ -38381,7 +38383,7 @@
             }
           },
           "403": {
-            "description": "With authorization enforced, the caller is not an admin of the workspace; or the person is one a site signs in, whose reviewer role is their site's to give (`site-person-grants-managed`).",
+            "description": "With authorization enforced, the caller is not an admin of the workspace; or the person is one a site signs in, whose reviewer role is their site's to give (`site-person-grants-managed`). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -38569,7 +38571,7 @@
             }
           },
           "403": {
-            "description": "With authorization enforced, the caller is not an admin of the workspace; or the person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).",
+            "description": "With authorization enforced, the caller is not an admin of the workspace; or the person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -38944,6 +38946,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -40435,6 +40447,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "The version is not registered, or was unregistered; or the test run is not found.",
             "content": {
@@ -40932,6 +40954,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "`release-gate-already-registered`: that (id, version) exists. `release-gate-scope-taken`: another release gate gates the agent for the scope (`details.heldBy`). `release-gate-scope-changed`: the version would change the agent or scope. `release-gate-scope-unpinned`: the scope has no pinned version of its own; a gated scope holds its own pin (a pin above it is not enough, since a pin there would change this scope ungated), so pin a version for the scope first.",
             "content": {
@@ -41253,6 +41285,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No such version.",
             "content": {
@@ -41342,6 +41384,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -41650,6 +41702,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "`not-pinned`: the scope has no pin of its own. `release-gate-needs-pin`: the scope has a release gate of its own, and a gated scope keeps its own pin; unregister the gate first, or pin an earlier version instead. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. Or `registry-read-only`: under `kindgi dev`, a pinned version was written into the pack's files; to undo a pin, pin the version before.",
             "content": {
@@ -41886,6 +41948,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -42685,6 +42757,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "`flow-not-found`: no flow with that id, or the version isn't registered or was unregistered.",
             "content": {
@@ -42815,6 +42897,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -43137,7 +43229,7 @@
             }
           },
           "400": {
-            "description": "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `provider-key-refused`: the tool names a model provider's key (`details.secret`, `details.providerId`); store the key it needs under its own name (the same value is fine) and name that. Or `connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Or `reserved-name-prefix`: the tool names a secret under the reserved `kindgi.` prefix (`details.secret`); those are Kindgi's own. Or `validation-failed` for a `metadata` key under `kindgi.`: those are the runtime's own (`details.issues`, at `/metadata/<key>`).",
+            "description": "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `provider-key-refused`: the tool names a model provider's key (`details.secret`, `details.providerId`); store the key it needs under its own name (the same value is fine) and name that. Or `connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Or `identity-provider-key-refused`: a secret it names is an identity provider's secret, an OIDC client secret or a SAML signing or decryption key (`details.secret`, `details.identityProviderId`), which only sign-in names. If one app registration serves both, give it a second secret of its own (a second client secret), store that under its own name and use that name. Or `reserved-name-prefix`: the tool names a secret under the reserved `kindgi.` prefix (`details.secret`); those are Kindgi's own. Or `validation-failed` for a `metadata` key under `kindgi.`: those are the runtime's own (`details.issues`, at `/metadata/<key>`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -43148,6 +43240,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -43665,7 +43767,7 @@
             }
           },
           "400": {
-            "description": "`provider-key-refused`: the version declares or sends a model provider's key (`details.secret`, `details.providerId`), or `reserved-name-prefix`: it names a secret under the reserved `kindgi.` prefix (`details.secret`); either way it stays retired; publish a version that names a key of its own. Or `connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. The version stays retired here too.",
+            "description": "`provider-key-refused`: the version declares or sends a model provider's key (`details.secret`, `details.providerId`), or `reserved-name-prefix`: it names a secret under the reserved `kindgi.` prefix (`details.secret`); either way it stays retired; publish a version that names a key of its own. Or `connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Or `identity-provider-key-refused`: a secret it names is an identity provider's secret, an OIDC client secret or a SAML signing or decryption key (`details.secret`, `details.identityProviderId`), which only sign-in names. If one app registration serves both, give it a second secret of its own (a second client secret), store that under its own name and use that name. The version stays retired here too.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43957,6 +44059,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "`tool-not-found`: no tool with that id, or the version isn't registered or was unregistered.",
             "content": {
@@ -44087,6 +44199,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -44410,6 +44532,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -45672,7 +45804,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the caller may not write in the fact's scope.",
+            "description": "`permission-denied`: the caller may not write in the fact's scope. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -45887,7 +46019,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the caller may not write in the fact's scope.",
+            "description": "`permission-denied`: the caller may not write in the fact's scope. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -46073,7 +46205,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the caller may not write in the fact's scope.",
+            "description": "`permission-denied`: the caller may not write in the fact's scope. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -46211,7 +46343,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the caller may not write in the fact's scope.",
+            "description": "`permission-denied`: the caller may not write in the fact's scope. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -46488,7 +46620,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin.",
+            "description": "Not a tenant admin. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -46752,7 +46884,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin.",
+            "description": "Not a tenant admin. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -46871,7 +47003,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin.",
+            "description": "Not a tenant admin. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -49945,7 +50077,7 @@
             }
           },
           "400": {
-            "description": "Validation failed (see `details.reason`), a `secret_ref.name` under the reserved `kindgi.` prefix among them (`bad-input`). Or `connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account.",
+            "description": "Validation failed (see `details.reason`), a `secret_ref.name` under the reserved `kindgi.` prefix among them (`bad-input`). Or `connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Or `identity-provider-key-refused`: a secret it names is an identity provider's secret, an OIDC client secret or a SAML signing or decryption key (`details.secret`, `details.identityProviderId`), which only sign-in names. If one app registration serves both, give it a second secret of its own (a second client secret), store that under its own name and use that name.",
             "content": {
               "application/json": {
                 "schema": {
@@ -51505,7 +51637,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`.",
+            "description": "`permission-denied`. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -52156,7 +52288,7 @@
             }
           },
           "400": {
-            "description": "Validation failed (see `details.reason`). Or `provider-key-refused`: `secretRef` names a model provider's key (`details.secret`, `details.providerId`). Or `connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Or `reserved-name-prefix`: it names a secret under the reserved `kindgi.` prefix (`details.secret`).",
+            "description": "Validation failed (see `details.reason`). Or `provider-key-refused`: `secretRef` names a model provider's key (`details.secret`, `details.providerId`). Or `connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Or `identity-provider-key-refused`: a secret it names is an identity provider's secret, an OIDC client secret or a SAML signing or decryption key (`details.secret`, `details.identityProviderId`), which only sign-in names. If one app registration serves both, give it a second secret of its own (a second client secret), store that under its own name and use that name. Or `reserved-name-prefix`: it names a secret under the reserved `kindgi.` prefix (`details.secret`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -52176,7 +52308,7 @@
             }
           },
           "403": {
-            "description": "`host-access-denied`: a `stdio` endpoint on a deployment that refuses commands on its host (`KINDGI_TENANT_HOST_ACCESS=deployed` or `isolated`); or `authz-denied`.",
+            "description": "`host-access-denied`: a `stdio` endpoint on a deployment that refuses commands on its host (`KINDGI_TENANT_HOST_ACCESS=deployed` or `isolated`); or `authz-denied`. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -52236,7 +52368,7 @@
             }
           }
         },
-        "description": "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store (plaintext secrets never cross the wire), and never a model provider's key (`400 provider-key-refused`) or a texts registration's account key (`400 connection-key-refused`). A credential in plaintext `config.headers` or a stdio endpoint's `config.env` is refused (`400 invalid-mcp-endpoint`, reason `credential-in-headers` or `credential-in-env`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the workspace that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
+        "description": "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store (plaintext secrets never cross the wire), and never a model provider's key (`400 provider-key-refused`), a texts registration's account key (`400 connection-key-refused`) or an identity provider's secret (`400 identity-provider-key-refused`). A credential in plaintext `config.headers` or a stdio endpoint's `config.env` is refused (`400 invalid-mcp-endpoint`, reason `credential-in-headers` or `credential-in-env`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the workspace that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -54706,7 +54838,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin.",
+            "description": "Not a tenant admin. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -54803,7 +54935,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin.",
+            "description": "Not a tenant admin. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -57314,7 +57446,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "Malformed request body, or a configuration that isn't a provider's (`invalid-provider-config`). Or `provider-key-refused`: a secret reference names a model provider's key (`details.secret`, `details.providerId`); store the identity provider's own secret under its own name and name that. Or `connection-key-refused`: it names the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Or `reserved-name-prefix`: it names a secret under the reserved `kindgi.` prefix (`details.secret`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -57344,7 +57476,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict (`identity-provider-already-registered`: a provider with this id is registered). Or this deployment has no secrets store (`identity-providers-need-secrets-store`, `KINDGI_SECRETS_BACKEND`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict (`identity-provider-already-registered`: a provider with this id is registered). Or `identity-provider-key-in-use`: a secret reference names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger or a connection app registration uses; `details.secret` names it and `details.usedBy` lists each (`kind`, `id`, a tool's `version`). An identity provider's secret is sign-in's only: store its own secret under its own name. Nothing is stored. Or this deployment has no secrets store (`identity-providers-need-secrets-store`, `KINDGI_SECRETS_BACKEND`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.",
             "content": {
               "application/json": {
                 "schema": {
@@ -57394,7 +57526,7 @@
             }
           }
         },
-        "description": "Unique per workspace on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.",
+        "description": "Unique per workspace on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…), and never a model provider's key (`400 provider-key-refused`), a texts registration's account key (`400 connection-key-refused`), a name under the reserved `kindgi.` prefix (`400 reserved-name-prefix`) or a secret a tool, an endpoint, a webhook trigger or a connection app registration already uses (`409 identity-provider-key-in-use`); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -57651,7 +57783,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "Malformed request body, or a configuration that isn't a provider's (`invalid-provider-config`). Or `provider-key-refused`: a secret reference names a model provider's key (`details.secret`, `details.providerId`); store the identity provider's own secret under its own name and name that. Or `connection-key-refused`: it names the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Or `reserved-name-prefix`: it names a secret under the reserved `kindgi.` prefix (`details.secret`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -57691,7 +57823,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or this deployment has no secrets store (`identity-providers-need-secrets-store`, `KINDGI_SECRETS_BACKEND`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `identity-provider-key-in-use`: a secret reference names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger or a connection app registration uses; `details.secret` names it and `details.usedBy` lists each (`kind`, `id`, a tool's `version`). An identity provider's secret is sign-in's only: store its own secret under its own name. Nothing is stored. Or this deployment has no secrets store (`identity-providers-need-secrets-store`, `KINDGI_SECRETS_BACKEND`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.",
             "content": {
               "application/json": {
                 "schema": {
@@ -57741,7 +57873,7 @@
             }
           }
         },
-        "description": "Merges the changes into the stored provider and checks the result as a registration is (`400 invalid-provider-config`; `422 identity-provider-invalid` when the deployment can't use it). The provider keeps its `signIn`, so nothing changes on the identity provider's side. Not mounted when the deployment can't update providers.",
+        "description": "Merges the changes into the stored provider and checks the result as a registration is (`400 invalid-provider-config`, `provider-key-refused`, `connection-key-refused` or `reserved-name-prefix`, or `409 identity-provider-key-in-use`, so a provider that already names such a secret is refused until it names one of its own; `422 identity-provider-invalid` when the deployment can't use it). The provider keeps its `signIn`, so nothing changes on the identity provider's side. Not mounted when the deployment can't update providers.",
         "parameters": [
           {
             "name": "providerId",
@@ -60376,7 +60508,7 @@
             }
           },
           "400": {
-            "description": "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. When `image-unverifiable` comes from a failed registry read, `details.cause` names why: `image-not-found`, `image-file-not-found`, `image-registry-unreachable`, `image-registry-unauthorized`, `image-unreadable` (a layer that isn't a readable archive), or `image-limit-exceeded`, with the bound in `details.limit` (`manifest`, `file`, `layer`, `read` or `unpack`: the image's own, so the same image is refused again). The workspace's hour of image reads passes, so it answers `429`. A tool that declares or sends a model provider's key, or a secret under the reserved `kindgi.` prefix, is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key or one of Kindgi's own secrets. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile is one too (`path` where it sits, such as `/output/schema` or `/nodes/<i>/branches/<k>/outputSchema`), as `defineAgent` and the flow loader refuse it: every turn or run would. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`. Or `reference-out-of-scope`: an agent or flow names a tool, agent, flow, guardrail or data block that neither the deployment brings nor its project reaches (`details.issues`, at `/agents/<i>/…` or `/flows/<i>/…`); nothing is registered. Or `connection-key-refused`: a name the pack's `env` declares is the account key of a texts connection app registration (`details.secret`, `details.appId`; the first such name, its required names before its optional ones and each list sorted by name), which only that registration names: use a key of its own, a new API key from the provider stored under its own name; nothing is registered.",
+            "description": "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. When `image-unverifiable` comes from a failed registry read, `details.cause` names why: `image-not-found`, `image-file-not-found`, `image-registry-unreachable`, `image-registry-unauthorized`, `image-unreadable` (a layer that isn't a readable archive), or `image-limit-exceeded`, with the bound in `details.limit` (`manifest`, `file`, `layer`, `read` or `unpack`: the image's own, so the same image is refused again). The workspace's hour of image reads passes, so it answers `429`. A tool that declares or sends a model provider's key, or a secret under the reserved `kindgi.` prefix, is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key or one of Kindgi's own secrets. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile is one too (`path` where it sits, such as `/output/schema` or `/nodes/<i>/branches/<k>/outputSchema`), as `defineAgent` and the flow loader refuse it: every turn or run would. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`. Or `reference-out-of-scope`: an agent or flow names a tool, agent, flow, guardrail or data block that neither the deployment brings nor its project reaches (`details.issues`, at `/agents/<i>/…` or `/flows/<i>/…`); nothing is registered. Or `connection-key-refused`: a name the pack's `env` declares is the account key of a texts connection app registration (`details.secret`, `details.appId`; the first such name, its required names before its optional ones and each list sorted by name), which only that registration names: use a key of its own, a new API key from the provider stored under its own name; nothing is registered. Or `identity-provider-key-refused`: a name the pack's `env` declares is an identity provider's secret (`details.secret`, `details.identityProviderId`; asked after the texts keys, in the same order), which only sign-in names: use a secret of its own, stored under its own name; nothing is registered.",
             "content": {
               "application/json": {
                 "schema": {
@@ -60396,7 +60528,7 @@
             }
           },
           "403": {
-            "description": "Signer key not on the workspace's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the workspace.",
+            "description": "Signer key not on the workspace's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the workspace. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -60659,7 +60791,7 @@
             }
           },
           "403": {
-            "description": "No admin on `projectId` (`forbidden`), or a key limited to another project; without it, no admin on the workspace.",
+            "description": "No admin on `projectId` (`forbidden`), or a key limited to another project; without it, no admin on the workspace. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -62286,6 +62418,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
             "content": {
@@ -62452,6 +62594,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No org with that id under this workspace.",
             "content": {
@@ -62552,6 +62704,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -62744,6 +62906,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "org-not-found: `orgId` names no org of the workspace (it never existed, or it was deleted).",
             "content": {
@@ -62921,7 +63093,7 @@
             }
           },
           "403": {
-            "description": "No `admin` on the team; or the body names `orgId` (even the current one) and the caller is not a tenant admin, as making a team in an org needs (`permission-denied`).",
+            "description": "No `admin` on the team; or the body names `orgId` (even the current one) and the caller is not a tenant admin, as making a team in an org needs (`permission-denied`). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -63030,6 +63202,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -63204,7 +63386,7 @@
             }
           },
           "403": {
-            "description": "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+            "description": "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -63325,7 +63507,7 @@
             }
           },
           "403": {
-            "description": "The person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).",
+            "description": "The person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -63422,7 +63604,7 @@
             }
           },
           "403": {
-            "description": "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+            "description": "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -63740,6 +63922,16 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "org-not-found: `orgId` names no org of the workspace (it never existed, or it was deleted).",
             "content": {
@@ -63918,7 +64110,7 @@
             }
           },
           "403": {
-            "description": "No `admin` on the project; or the body names `orgId` (even the current one) and the caller is not a tenant admin, as making a project in an org needs (`permission-denied`).",
+            "description": "No `admin` on the project; or the body names `orgId` (even the current one) and the caller is not a tenant admin, as making a project in an org needs (`permission-denied`). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -65896,7 +66088,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin (`permission-denied`); the workspace isn't allowed to put projects in production (`production-not-allowed`, `details.projectId`, `details.next` when the runtime names one); or its projects in production are at its limit (`production-limit-reached`, `details.limit` `projects-in-production`, `details.projectsInProduction` the limit, `details.inProduction` the count, `details.projectId`, `details.next` when the runtime names one).",
+            "description": "Not a tenant admin (`permission-denied`); the workspace isn't allowed to put projects in production (`production-not-allowed`, `details.projectId`, `details.next` when the runtime names one); or its projects in production are at its limit (`production-limit-reached`, `details.limit` `projects-in-production`, `details.projectsInProduction` the limit, `details.inProduction` the count, `details.projectId`, `details.next` when the runtime names one). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -67112,7 +67304,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin.",
+            "description": "Not a tenant admin. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -67328,6 +67520,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: the caller may not make this change. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -67591,7 +67793,7 @@
             }
           },
           "403": {
-            "description": "Only a tenant admin sets an environment order (`permission-denied`).",
+            "description": "Only a tenant admin sets an environment order (`permission-denied`), and never a key or session limited to a project (`key-project-mismatch`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -67766,7 +67968,7 @@
             }
           },
           "403": {
-            "description": "Only a tenant admin sets an environment order (`permission-denied`).",
+            "description": "Only a tenant admin sets an environment order (`permission-denied`), and never a key or session limited to a project (`key-project-mismatch`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -68343,7 +68545,7 @@
             }
           },
           "403": {
-            "description": "Bearer token missing `env:write` capability; or a body with `cloudSecret`, which only the operator sets (`cloud-secret-system-only`).",
+            "description": "Bearer token missing `env:write` capability; or a body with `cloudSecret`, which only the operator sets (`cloud-secret-system-only`). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -68508,7 +68710,7 @@
             }
           },
           "403": {
-            "description": "Bearer token missing `env:write` capability.",
+            "description": "Bearer token missing `env:write` capability. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -68753,7 +68955,7 @@
             }
           },
           "403": {
-            "description": "Bearer token missing `secrets:write` capability.",
+            "description": "Bearer token missing `secrets:write` capability. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -69006,7 +69208,7 @@
             }
           },
           "403": {
-            "description": "Bearer token missing revoke capability.",
+            "description": "Bearer token missing revoke capability. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -69385,7 +69587,7 @@
             }
           },
           "403": {
-            "description": "Bearer token missing `secrets:rotate` capability.",
+            "description": "Bearer token missing `secrets:rotate` capability. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -71123,7 +71325,7 @@
             }
           },
           "400": {
-            "description": "A body that fails validation (`bad-input`), `runAsProject` with `runAsServiceAccountId` or for a trigger with no project (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key, or `reserved-name-prefix`: it's under the reserved `kindgi.` prefix. Or `connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Or `reference-out-of-scope`: the flow isn't registered in the trigger's project, its org or the workspace, or `flowVersion` isn't a version that project runs (`details.issues`, at `/flowId`, whose message names the version), and nothing is registered. Or, with `generateSecret`, a name the secrets store can't write, refused before anything is stored: `secret-name-invalid` (a name that isn't 1 to 255 ASCII letters, digits, `.`, `-` and `_` starting with a letter, digit or `_`, with any `.` between two non-`.` characters, or, under `kindgi dev`, isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule).",
+            "description": "A body that fails validation (`bad-input`), `runAsProject` with `runAsServiceAccountId` or for a trigger with no project (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key, or `reserved-name-prefix`: it's under the reserved `kindgi.` prefix. Or `connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Or `identity-provider-key-refused`: a secret it names is an identity provider's secret, an OIDC client secret or a SAML signing or decryption key (`details.secret`, `details.identityProviderId`), which only sign-in names. If one app registration serves both, give it a second secret of its own (a second client secret), store that under its own name and use that name. Or `reference-out-of-scope`: the flow isn't registered in the trigger's project, its org or the workspace, or `flowVersion` isn't a version that project runs (`details.issues`, at `/flowId`, whose message names the version), and nothing is registered. Or, with `generateSecret`, a name the secrets store can't write, refused before anything is stored: `secret-name-invalid` (a name that isn't 1 to 255 ASCII letters, digits, `.`, `-` and `_` starting with a letter, digit or `_`, with any `.` between two non-`.` characters, or, under `kindgi dev`, isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule).",
             "content": {
               "application/json": {
                 "schema": {
@@ -71193,7 +71395,7 @@
             }
           }
         },
-        "description": "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`), and so is a texts registration's account key (`400 connection-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the workspace that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the workspace's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
+        "description": "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`), and so are a texts registration's account key (`400 connection-key-refused`) and an identity provider's secret (`400 identity-provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the workspace that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the workspace's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -71395,7 +71597,7 @@
             }
           },
           "400": {
-            "description": "A body that fails validation (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key, or `reserved-name-prefix`: it's under the reserved `kindgi.` prefix. Or `connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Or `reference-out-of-scope`: the new `flowVersion` isn't a version the trigger's project runs, such as one made in an earlier environment and not yet promoted (`details.issues`, at `/flowVersion`, whose message names the version). Nothing changes.",
+            "description": "A body that fails validation (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key, or `reserved-name-prefix`: it's under the reserved `kindgi.` prefix. Or `connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Or `identity-provider-key-refused`: a secret it names is an identity provider's secret, an OIDC client secret or a SAML signing or decryption key (`details.secret`, `details.identityProviderId`), which only sign-in names. If one app registration serves both, give it a second secret of its own (a second client secret), store that under its own name and use that name. Or `reference-out-of-scope`: the new `flowVersion` isn't a version the trigger's project runs, such as one made in an earlier environment and not yet promoted (`details.issues`, at `/flowVersion`, whose message names the version). Nothing changes.",
             "content": {
               "application/json": {
                 "schema": {
@@ -75059,7 +75261,7 @@
             }
           },
           "400": {
-            "description": "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist (`webhook-secret-not-found`) or is too weak (`webhook-secret-too-weak`), it's a model provider's key (`provider-key-refused`), or it's under the reserved `kindgi.` prefix (`reserved-name-prefix`). Or `connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account.",
+            "description": "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist (`webhook-secret-not-found`) or is too weak (`webhook-secret-too-weak`), it's a model provider's key (`provider-key-refused`), or it's under the reserved `kindgi.` prefix (`reserved-name-prefix`). Or `connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Or `identity-provider-key-refused`: a secret it names is an identity provider's secret, an OIDC client secret or a SAML signing or decryption key (`details.secret`, `details.identityProviderId`), which only sign-in names. If one app registration serves both, give it a second secret of its own (a second client secret), store that under its own name and use that name.",
             "content": {
               "application/json": {
                 "schema": {
@@ -75397,7 +75599,7 @@
             }
           },
           "400": {
-            "description": "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist or is too weak, it's a model provider's key (`provider-key-refused`), or it's under the reserved `kindgi.` prefix (`reserved-name-prefix`). Or `connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account.",
+            "description": "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist or is too weak, it's a model provider's key (`provider-key-refused`), or it's under the reserved `kindgi.` prefix (`reserved-name-prefix`). Or `connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Or `identity-provider-key-refused`: a secret it names is an identity provider's secret, an OIDC client secret or a SAML signing or decryption key (`details.secret`, `details.identityProviderId`), which only sign-in names. If one app registration serves both, give it a second secret of its own (a second client secret), store that under its own name and use that name.",
             "content": {
               "application/json": {
                 "schema": {
@@ -76151,7 +76353,7 @@
             }
           },
           "400": {
-            "description": "Malformed body or unknown field, including a `token.provider` the server doesn't serve or a `token.publicKey` that isn't base64 of 32 bytes (`bad-input`, `details.field`); a registration that doesn't fit its entry, or that would serve a project another registration of the app serves (`connection-app-invalid`, `details.field`); no such app (`connection-app-unknown-entry`); a model provider's key named as a secret (`provider-key-refused`); or a secret under the reserved `kindgi.` prefix (`reserved-name-prefix`). Or `connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account.",
+            "description": "Malformed body or unknown field, including a `token.provider` the server doesn't serve or a `token.publicKey` that isn't base64 of 32 bytes (`bad-input`, `details.field`); a registration that doesn't fit its entry, or that would serve a project another registration of the app serves (`connection-app-invalid`, `details.field`); no such app (`connection-app-unknown-entry`); a model provider's key named as a secret (`provider-key-refused`); or a secret under the reserved `kindgi.` prefix (`reserved-name-prefix`). Or `connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Or `identity-provider-key-refused`: a secret it names is an identity provider's secret, an OIDC client secret or a SAML signing or decryption key (`details.secret`, `details.identityProviderId`), which only sign-in names. If one app registration serves both, give it a second secret of its own (a second client secret), store that under its own name and use that name.",
             "content": {
               "application/json": {
                 "schema": {
@@ -76356,7 +76558,7 @@
             }
           },
           "400": {
-            "description": "Malformed body, unknown field or an `app`, including a `token.provider` the server doesn't serve or a `token.publicKey` that isn't base64 of 32 bytes (`bad-input`, `details.field`); a registration that doesn't fit its entry, that would serve a project another registration of the app serves, or a change of its client (`oauth2.clientId`, `oauth2.tenant`, `githubApp.appNumber`, `githubApp.clientId` or `token.provider`) while it has live connections: disconnect them first (`connection-app-invalid`, `details.field`); a model provider's key named as a secret (`provider-key-refused`); or a secret under the reserved `kindgi.` prefix (`reserved-name-prefix`). Or `connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account.",
+            "description": "Malformed body, unknown field or an `app`, including a `token.provider` the server doesn't serve or a `token.publicKey` that isn't base64 of 32 bytes (`bad-input`, `details.field`); a registration that doesn't fit its entry, that would serve a project another registration of the app serves, or a change of its client (`oauth2.clientId`, `oauth2.tenant`, `githubApp.appNumber`, `githubApp.clientId` or `token.provider`) while it has live connections: disconnect them first (`connection-app-invalid`, `details.field`); a model provider's key named as a secret (`provider-key-refused`); or a secret under the reserved `kindgi.` prefix (`reserved-name-prefix`). Or `connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Or `identity-provider-key-refused`: a secret it names is an identity provider's secret, an OIDC client secret or a SAML signing or decryption key (`details.secret`, `details.identityProviderId`), which only sign-in names. If one app registration serves both, give it a second secret of its own (a second client secret), store that under its own name and use that name.",
             "content": {
               "application/json": {
                 "schema": {

@@ -1637,9 +1637,25 @@ const SCHEMA_COMPILE_BUDGET = ErrorResponse(SCHEMA_COMPILE_BUDGET_TEXT);
 const TAKES_PROMOTIONS =
   "Or `environment-takes-promotions`: the project is a later environment of an environment order, which takes builds only by promotion from the one before it; publish in the order's first environment instead (`details.firstProjectId`, when you can read that project; `details.position`, the project's place from 0). Nothing is written.";
 
+/**
+ * Without an authorization store, a key or session limited to a project
+ * is refused a write above it (`holdLimitedCaller`). Each operation it
+ * holds says so in its 403.
+ */
+export const LIMITED_ABOVE_PROJECT =
+  'Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).';
+const withLimitedAbove = (text: string): string => `${text} ${LIMITED_ABOVE_PROJECT}`;
+const LIMITED_ABOVE_PROJECT_403 = ErrorResponse(
+  withLimitedAbove('`permission-denied`: the caller may not make this change.'),
+);
+
 const CommonAuthErrors: Readonly<Record<string, ResponseSpec>> = {
   '401': ErrorResponse('Missing / malformed / expired / revoked bearer token.'),
 };
+
+/** The 400s of registering or changing an identity provider. */
+const IDENTITY_PROVIDER_REFUSED_SECRETS =
+  "Malformed request body, or a configuration that isn't a provider's (`invalid-provider-config`). Or `provider-key-refused`: a secret reference names a model provider's key (`details.secret`, `details.providerId`); store the identity provider's own secret under its own name and name that. Or `connection-key-refused`: it names the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Or `reserved-name-prefix`: it names a secret under the reserved `kindgi.` prefix (`details.secret`).";
 
 const CommonMutationErrors: Readonly<Record<string, ResponseSpec>> = {
   ...CommonAuthErrors,
@@ -1721,6 +1737,10 @@ const ENV_NOT_SERVED_REFERENCE =
 const CONNECTION_KEY_REFUSED =
   '`connection-key-refused`: a secret it names is the account key of a texts connection app registration (`details.secret`, `details.appId`), which only that registration names. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account.';
 
+/** A secret a write names that is an identity provider's secret. */
+const IDENTITY_PROVIDER_KEY_REFUSED =
+  "`identity-provider-key-refused`: a secret it names is an identity provider's secret, an OIDC client secret or a SAML signing or decryption key (`details.secret`, `details.identityProviderId`), which only sign-in names. If one app registration serves both, give it a second secret of its own (a second client secret), store that under its own name and use that name.";
+
 /** A texts registration's key named by another user of the secret (POST and PATCH /v1/connection-apps). */
 const CONNECTION_KEY_IN_USE =
   "`connection-key-in-use`: `token.apiKey` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger or another connection app registration uses; `details.secret` names it and `details.usedBy` lists each (`kind`, `id`, a tool's `version`). A texts registration's key is used by its registration only: give the registration a new API key from the provider, stored under a name of its own. If the secret holds this account's key, what uses it already reaches the whole account: rotate it at the provider. Nothing is stored.";
@@ -1777,10 +1797,13 @@ export function answersIdempotencyStoreUnavailable(op: OperationSpec): boolean {
   );
 }
 
-/** Adding or changing a provider: the usual conflicts, or a deployment without a secrets store. */
+/**
+ * Adding or changing a provider: the usual conflicts, a secret something
+ * else uses, or a deployment without a secrets store.
+ */
 function providerChangeConflict(text: string): ResponseSpec {
   return ErrorResponse(
-    `Idempotency-Key was reused with a different body, or resource-state conflict${text}. Or this deployment has no secrets store (\`identity-providers-need-secrets-store\`, \`KINDGI_SECRETS_BACKEND\`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.`,
+    `Idempotency-Key was reused with a different body, or resource-state conflict${text}. Or \`identity-provider-key-in-use\`: a secret reference names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger or a connection app registration uses; \`details.secret\` names it and \`details.usedBy\` lists each (\`kind\`, \`id\`, a tool's \`version\`). An identity provider's secret is sign-in's only: store its own secret under its own name. Nothing is stored. Or this deployment has no secrets store (\`identity-providers-need-secrets-store\`, \`KINDGI_SECRETS_BACKEND\`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.`,
   );
 }
 
@@ -1973,6 +1996,7 @@ function pinnedVersionOperations(kind: PinKindSpec): readonly OperationSpec[] {
       responses: {
         '200': { description: 'Pinned.', schema: ref('PinnedVersionChange') },
         ...CommonMutationErrors,
+        '403': LIMITED_ABOVE_PROJECT_403,
         '400': ErrorResponse(
           `Malformed request body. Or \`scope-invalid\`: a segment scope, since ${noun}s pin per project, org or workspace. Or \`reference-out-of-scope\`: a project scope whose project doesn't reach the ${noun === 'flow' ? 'version' : noun} (\`details.issues\`).${kind.pin400}`,
         ),
@@ -1997,6 +2021,7 @@ function pinnedVersionOperations(kind: PinKindSpec): readonly OperationSpec[] {
       responses: {
         '200': { description: 'Unpinned.', schema: ref('PinnedVersionChange') },
         ...CommonMutationErrors,
+        '403': LIMITED_ABOVE_PROJECT_403,
         '400': ErrorResponse(
           `Malformed request body. Or \`scope-invalid\`: a segment scope, since ${noun}s pin per project, org or workspace.`,
         ),
@@ -2494,7 +2519,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tokens.list',
     summary: 'List API keys',
     description:
-      "Newest first. Never returns secrets. A tenant admin sees every key (`?principal=` for one principal's); anyone else sees their own.",
+      "Newest first. Never returns secrets. A tenant admin sees every key (`?principal=` for one principal's); anyone else sees their own. A key or session with limits sees only its owner's keys within them: limited to a project, the keys limited to that project; with the `member` role, the `member` keys. Those are the keys it could mint, itself among them.",
     tags: ['tokens'],
     security: 'bearer',
     parameters: [
@@ -2523,14 +2548,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tokens.get',
     summary: 'Read an API key',
     description:
-      "Never returns the secret. A tenant admin reads any key; anyone else only their own (someone else's reads as missing).",
+      "Never returns the secret. A tenant admin reads any key; anyone else only their own (someone else's reads as missing), and a key or session with limits only those within them, as for the list.",
     tags: ['tokens'],
     security: 'bearer',
     parameters: [TokenIdPathParam],
     responses: {
       '200': { description: 'The key.', schema: ref('ApiToken') },
       ...CommonAuthErrors,
-      '403': ErrorResponse('A caller with no keys of its own that is not a tenant admin.'),
+      '403': ErrorResponse(
+        "A caller with no keys of its own that is not a tenant admin. Or one of the caller's own keys beyond its limits: not limited to the caller's project (`key-project-mismatch`), or an `admin` key for a caller with the `member` role (`permission-denied`).",
+      ),
       '404': ErrorResponse('No token with that id that the caller may see.'),
     },
   },
@@ -2541,14 +2568,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tokens.revoke',
     summary: 'Revoke an API key',
     description:
-      'Takes effect on the next request. A tenant admin revokes any key; anyone else only their own.',
+      'Takes effect on the next request. A tenant admin revokes any key; anyone else only their own, and a key or session with limits only those within them, as for the list.',
     tags: ['tokens'],
     security: 'bearer',
     parameters: [TokenIdPathParam, IdempotencyKeyParam],
     responses: {
       '200': { description: 'Revoked.', schema: ref('RevokeTokenResult') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('A caller with no keys of its own that is not a tenant admin.'),
+      '403': ErrorResponse(
+        "A caller with no keys of its own that is not a tenant admin. Or one of the caller's own keys beyond its limits: not limited to the caller's project (`key-project-mismatch`), or an `admin` key for a caller with the `member` role (`permission-denied`).",
+      ),
       '404': ErrorResponse('No token with that id that the caller may see.'),
     },
   },
@@ -3891,7 +3920,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Reviewer registered.', schema: ref('Reviewer') },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        "With authorization enforced, the caller is not an admin of the workspace; or the person is one a site signs in, whose reviewer role is their site's to give (`site-person-grants-managed`).",
+        withLimitedAbove(
+          "With authorization enforced, the caller is not an admin of the workspace; or the person is one a site signs in, whose reviewer role is their site's to give (`site-person-grants-managed`).",
+        ),
       ),
     },
   },
@@ -3911,7 +3942,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '404': ErrorResponse('No reviewer with that id under this workspace.'),
       '403': ErrorResponse(
-        'With authorization enforced, the caller is not an admin of the workspace; or the person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).',
+        withLimitedAbove(
+          'With authorization enforced, the caller is not an admin of the workspace; or the person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).',
+        ),
       ),
     },
   },
@@ -4045,6 +4078,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Agent published.', schema: ref('PublishAgentResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '400': ErrorResponse(
         "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: a tool, guardrail or data block it names isn't registered in its project, its org or the workspace (`details.issues`, each with `path`, `kind` and `id`).",
       ),
@@ -4270,6 +4304,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('PinAnswer'),
       },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '400': ErrorResponse(
         "Malformed request body, or the test run isn't a completed comparison: a cancelled or failed one is refused, even with the summary of the cases it got through. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
       ),
@@ -4377,6 +4412,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Release gate published.', schema: ref('ReleaseGate') },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '400': ErrorResponse('Validation failed (see `details.issues`).'),
       '409': ErrorResponse(
         '`release-gate-already-registered`: that (id, version) exists. `release-gate-scope-taken`: another release gate gates the agent for the scope (`details.heldBy`). `release-gate-scope-changed`: the version would change the agent or scope. `release-gate-scope-unpinned`: the scope has no pinned version of its own; a gated scope holds its own pin (a pin above it is not enough, since a pin there would change this scope ungated), so pin a version for the scope first.',
@@ -4444,6 +4480,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The unregistered version.', schema: ref('ReleaseGate') },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '404': ErrorResponse('No such version.'),
     },
   },
@@ -4460,6 +4497,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The reinstated version.', schema: ref('ReleaseGate') },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '404': ErrorResponse('No such version.'),
       '409': ErrorResponse(
         '`release-gate-scope-taken`: another release gate gates the agent for the scope now (`details.heldBy`). `release-gate-scope-unpinned`: the scope has no pinned version of its own; pin one first.',
@@ -4524,6 +4562,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('PinAnswer'),
       },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '409': ErrorResponse(
         "`not-pinned`: the scope has no pin of its own. `release-gate-needs-pin`: the scope has a release gate of its own, and a gated scope keeps its own pin; unregister the gate first, or pin an earlier version instead. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. Or `registry-read-only`: under `kindgi dev`, a pinned version was written into the pack's files; to undo a pin, pin the version before.",
       ),
@@ -4621,6 +4660,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Flow published.', schema: ref('PublishFlowResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '400': ErrorResponse(
         "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: a tool, agent or subflow it names isn't registered in its project, its org or the workspace (`details.issues`, each with `path`, `kind` and `id`).",
       ),
@@ -4768,8 +4808,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Tool registered.', schema: ref('RegisterToolResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '400': ErrorResponse(
-        `Validation failed (see \`details.issues\`); or \`projectId\` isn't a project id (a UUID). Or \`provider-key-refused\`: the tool names a model provider's key (\`details.secret\`, \`details.providerId\`); store the key it needs under its own name (the same value is fine) and name that. Or ${CONNECTION_KEY_REFUSED} Or \`reserved-name-prefix\`: the tool names a secret under the reserved \`kindgi.\` prefix (\`details.secret\`); those are Kindgi's own. Or \`validation-failed\` for a \`metadata\` key under \`kindgi.\`: those are the runtime's own (\`details.issues\`, at \`/metadata/<key>\`).`,
+        `Validation failed (see \`details.issues\`); or \`projectId\` isn't a project id (a UUID). Or \`provider-key-refused\`: the tool names a model provider's key (\`details.secret\`, \`details.providerId\`); store the key it needs under its own name (the same value is fine) and name that. Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED} Or \`reserved-name-prefix\`: the tool names a secret under the reserved \`kindgi.\` prefix (\`details.secret\`); those are Kindgi's own. Or \`validation-failed\` for a \`metadata\` key under \`kindgi.\`: those are the runtime's own (\`details.issues\`, at \`/metadata/<key>\`).`,
       ),
       '409': ErrorResponse(
         `\`tool-already-registered\`: that (id, version) is taken. Or \`tool-project-mismatch\`: the tool's versions live in another project (a tool belongs to the project its first version was published into and never moves, though in a workspace with environment orders a version may be made in another project of that project's order; the message doesn't name the project). Or \`tool-kind-mismatch\`: the tool's active versions are of another kind, an MCP endpoint's tool (\`details.endpointId\`) where this version is published here, or the other way round; a tool's active versions are all one kind, and nothing was written (\`details.toolId\`, \`details.version\`). ${TAKES_PROMOTIONS} Or \`registry-read-only\`: this registry takes no writes (under \`kindgi dev\`, the pack's files are the source); the message says what to do instead.`,
@@ -4817,7 +4858,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse('No tool at that (id, version) under this workspace.'),
       '400': ErrorResponse(
-        `\`provider-key-refused\`: the version declares or sends a model provider's key (\`details.secret\`, \`details.providerId\`), or \`reserved-name-prefix\`: it names a secret under the reserved \`kindgi.\` prefix (\`details.secret\`); either way it stays retired; publish a version that names a key of its own. Or ${CONNECTION_KEY_REFUSED} The version stays retired here too.`,
+        `\`provider-key-refused\`: the version declares or sends a model provider's key (\`details.secret\`, \`details.providerId\`), or \`reserved-name-prefix\`: it names a secret under the reserved \`kindgi.\` prefix (\`details.secret\`); either way it stays retired; publish a version that names a key of its own. Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED} The version stays retired here too.`,
       ),
     },
   },
@@ -4931,6 +4972,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Guardrail registered.', schema: ref('RegisterGuardrailResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '400': ErrorResponse(
         "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: a pack check it names isn't registered in its project, its org or the workspace (`details.issues`); a built-in check is every project's.",
       ),
@@ -5202,7 +5244,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         'Malformed body, or the fact type requires semantic indexing and no embedding provider is bound.',
       ),
-      '403': ErrorResponse("`permission-denied`: the caller may not write in the fact's scope."),
+      '403': ErrorResponse(
+        withLimitedAbove("`permission-denied`: the caller may not write in the fact's scope."),
+      ),
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body; or an erasure of the fact's person (by scope or subject) or conversation is in progress (`erasure-in-progress`): nothing new is stored for them until it completes.",
       ),
@@ -5223,7 +5267,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The new revision.', schema: ref('Fact') },
       ...CommonMutationErrors,
-      '403': ErrorResponse("`permission-denied`: the caller may not write in the fact's scope."),
+      '403': ErrorResponse(
+        withLimitedAbove("`permission-denied`: the caller may not write in the fact's scope."),
+      ),
       '404': ErrorResponse('No fact with that id the caller may see, or it was deleted.'),
       '409': ErrorResponse(
         '`fact-changed`: the current revision is not `expectVersion` (`details.currentVersion`); `legal-hold`: the fact is under legal hold.',
@@ -5245,7 +5291,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The closed revision.', schema: ref('Fact') },
       ...CommonAuthErrors,
       '400': ErrorResponse('`expectVersion` is not a revision number.'),
-      '403': ErrorResponse("`permission-denied`: the caller may not write in the fact's scope."),
+      '403': ErrorResponse(
+        withLimitedAbove("`permission-denied`: the caller may not write in the fact's scope."),
+      ),
       '404': ErrorResponse('No fact with that id the caller may see, or it was deleted.'),
       '409': ErrorResponse(
         '`fact-changed`: the current revision is not `expectVersion`; `legal-hold`: the fact is under legal hold.',
@@ -5270,7 +5318,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The verified revision.', schema: ref('Fact') },
       ...CommonMutationErrors,
-      '403': ErrorResponse("`permission-denied`: the caller may not write in the fact's scope."),
+      '403': ErrorResponse(
+        withLimitedAbove("`permission-denied`: the caller may not write in the fact's scope."),
+      ),
       '404': ErrorResponse('No fact with that id the caller may see, or it was deleted.'),
       '409': ErrorResponse(
         '`fact-changed`: the current revision is not `expectVersion`; `legal-hold`: the fact is under legal hold.',
@@ -5324,7 +5374,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         "Not exactly one of `factId`, `subject` or `conversationId`; or a `subject` of kind `user` (erasing a Kindgi user isn't offered).",
       ),
-      '403': ErrorResponse('Not a tenant admin.'),
+      '403': ErrorResponse(withLimitedAbove('Not a tenant admin.')),
       '409': ErrorResponse(
         '`legal-hold`: a fact it reaches is under legal hold (`details.factIds`); nothing started.',
       ),
@@ -5380,7 +5430,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'What was replayed.', schema: ref('ReplayMemoryErasuresResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse('Not `{erasures: [...]}` as the export gave them.'),
-      '403': ErrorResponse('Not a tenant admin.'),
+      '403': ErrorResponse(withLimitedAbove('Not a tenant admin.')),
     },
   },
   {
@@ -5399,7 +5449,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The erasure.', schema: ref('MemoryErasure') },
       ...CommonMutationErrors,
       '400': ErrorResponse('The body is `{force?: boolean}`.'),
-      '403': ErrorResponse('Not a tenant admin.'),
+      '403': ErrorResponse(withLimitedAbove('Not a tenant admin.')),
       '404': ErrorResponse('No such erasure in this workspace.'),
     },
   },
@@ -6195,7 +6245,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       ...TenantAdminErrors,
       '400': ErrorResponse(
-        `Validation failed (see \`details.reason\`), a \`secret_ref.name\` under the reserved \`kindgi.\` prefix among them (\`bad-input\`). Or ${CONNECTION_KEY_REFUSED}`,
+        `Validation failed (see \`details.reason\`), a \`secret_ref.name\` under the reserved \`kindgi.\` prefix among them (\`bad-input\`). Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED}`,
       ),
       '409': ErrorResponse(
         `Provider already registered at that id. Or \`provider-key-in-use\`: \`secret_ref\` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint or a webhook trigger uses; \`details.usedBy\` lists each (\`kind\`, \`id\`, a tool's \`version\`). Store the provider's key under its own name. Nothing is stored. Or ${ENV_NOT_SERVED_REFERENCE}`,
@@ -6431,7 +6481,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Corrector group created.', schema: ref('CorrectorGroup') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('`permission-denied`.'),
+      '403': ErrorResponse(withLimitedAbove('`permission-denied`.')),
       '409': ErrorResponse('`corrector-group-name-taken`, or an idempotency conflict.'),
     },
   },
@@ -6562,7 +6612,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mcp.endpoints.register',
     summary: 'Register an MCP endpoint',
     description:
-      "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store (plaintext secrets never cross the wire), and never a model provider's key (`400 provider-key-refused`) or a texts registration's account key (`400 connection-key-refused`). A credential in plaintext `config.headers` or a stdio endpoint's `config.env` is refused (`400 invalid-mcp-endpoint`, reason `credential-in-headers` or `credential-in-env`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the workspace that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
+      "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store (plaintext secrets never cross the wire), and never a model provider's key (`400 provider-key-refused`), a texts registration's account key (`400 connection-key-refused`) or an identity provider's secret (`400 identity-provider-key-refused`). A credential in plaintext `config.headers` or a stdio endpoint's `config.env` is refused (`400 invalid-mcp-endpoint`, reason `credential-in-headers` or `credential-in-env`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the workspace that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
     tags: ['mcp'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6574,10 +6624,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        `Validation failed (see \`details.reason\`). Or \`provider-key-refused\`: \`secretRef\` names a model provider's key (\`details.secret\`, \`details.providerId\`). Or ${CONNECTION_KEY_REFUSED} Or \`reserved-name-prefix\`: it names a secret under the reserved \`kindgi.\` prefix (\`details.secret\`).`,
+        `Validation failed (see \`details.reason\`). Or \`provider-key-refused\`: \`secretRef\` names a model provider's key (\`details.secret\`, \`details.providerId\`). Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED} Or \`reserved-name-prefix\`: it names a secret under the reserved \`kindgi.\` prefix (\`details.secret\`).`,
       ),
       '403': ErrorResponse(
-        '`host-access-denied`: a `stdio` endpoint on a deployment that refuses commands on its host (`KINDGI_TENANT_HOST_ACCESS=deployed` or `isolated`); or `authz-denied`.',
+        withLimitedAbove(
+          '`host-access-denied`: a `stdio` endpoint on a deployment that refuses commands on its host (`KINDGI_TENANT_HOST_ACCESS=deployed` or `isolated`); or `authz-denied`.',
+        ),
       ),
       '409': ErrorResponse(
         `MCP endpoint already registered at that id. Or ${ENV_NOT_SERVED_REFERENCE}`,
@@ -7037,7 +7089,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'What was purged, per domain.', schema: ref('RetentionSweepResult') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('Not a tenant admin.'),
+      '403': ErrorResponse(withLimitedAbove('Not a tenant admin.')),
       '400': ErrorResponse('Unknown `domain`, or `maxPerDomain` outside 1..10000.'),
     },
   },
@@ -7056,7 +7108,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'What was purged.', schema: ref('RetentionSweepResult') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('Not a tenant admin.'),
+      '403': ErrorResponse(withLimitedAbove('Not a tenant admin.')),
       '400': ErrorResponse('Unknown `domain` (or `*`), or `maxPerDomain` outside 1..10000.'),
     },
   },
@@ -7609,7 +7661,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.providers.register',
     summary: 'Register an identity provider (OIDC or SAML)',
     description:
-      'Unique per workspace on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.',
+      "Unique per workspace on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…), and never a model provider's key (`400 provider-key-refused`), a texts registration's account key (`400 connection-key-refused`), a name under the reserved `kindgi.` prefix (`400 reserved-name-prefix`) or a secret a tool, an endpoint, a webhook trigger or a connection app registration already uses (`409 identity-provider-key-in-use`); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.",
     tags: ['auth'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -7620,6 +7672,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('RegisterIdentityProviderResult'),
       },
       ...CommonMutationErrors,
+      '400': ErrorResponse(IDENTITY_PROVIDER_REFUSED_SECRETS),
       '403': ProviderChangeRefused,
       '409': providerChangeConflict(
         ' (`identity-provider-already-registered`: a provider with this id is registered)',
@@ -7698,7 +7751,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.providers.update',
     summary: 'Change an identity provider, keeping its sign-in URLs',
     description:
-      "Merges the changes into the stored provider and checks the result as a registration is (`400 invalid-provider-config`; `422 identity-provider-invalid` when the deployment can't use it). The provider keeps its `signIn`, so nothing changes on the identity provider's side. Not mounted when the deployment can't update providers.",
+      "Merges the changes into the stored provider and checks the result as a registration is (`400 invalid-provider-config`, `provider-key-refused`, `connection-key-refused` or `reserved-name-prefix`, or `409 identity-provider-key-in-use`, so a provider that already names such a secret is refused until it names one of its own; `422 identity-provider-invalid` when the deployment can't use it). The provider keeps its `signIn`, so nothing changes on the identity provider's side. Not mounted when the deployment can't update providers.",
     tags: ['auth'],
     security: 'bearer',
     parameters: [
@@ -7714,6 +7767,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Updated.', schema: ref('UpdateIdentityProviderResult') },
       ...CommonMutationErrors,
+      '400': ErrorResponse(IDENTITY_PROVIDER_REFUSED_SECRETS),
       '403': ProviderChangeRefused,
       '404': ErrorResponse('No identity provider registered with that id under this workspace.'),
       '409': providerChangeConflict(''),
@@ -8333,10 +8387,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or, on a runtime serving many workspaces (`KINDGI_TENANCY=multi`), where each workspace deploys only its own images: `image-not-allowed`, the image is outside the workspace's repository (`details.imagePrefix`, its own), or `image-prefix-unset`, the workspace has no repository set yet; both are checked before any registry read, and never on a runtime serving one tenant. Or `tool-project-mismatch`, `agent-project-mismatch`, `flow-project-mismatch` or `block-project-mismatch`: one of the image's tools, agents, flows or data blocks belongs to another project (`details.primitive`, `details.id`; the message doesn't name the project); nothing was deployed, even when it was unchanged. Or `block-already-registered`: the runtime holds one of the pack's data block versions with other content, and a version never changes; or holds versions of the pack's blocks unregistered, by hand or by the rollback of a deploy that failed after publishing them, and a deploy never reinstates one (`details.primitive` is `block`, `details.id` is `<id>@<version>`, the first such block); the message says to give it a new version, or names each unregistered one with the command that reinstates it; nothing was deployed. Or `tool-already-registered`: the runtime holds one of the pack's tool versions, active or unregistered, with another definition, and a version never changes (`details.primitive` is `tool`, `details.id` is `<id>@<version>`, `details.fields` the fields of its definition that differ: the manifest's top-level fields, and `modulePath` for where its code lives in the pack). A new image of the same tool isn't another definition: its image and artifact version aren't compared. The message says to give the tool a new version; nothing was deployed. Or `tool-kind-mismatch`: one of the image's tools has the id of an MCP endpoint's tool (`details.endpointId`; `details.primitive`, `details.id`), whose active versions are all the endpoint's; nothing was deployed. Or `project-suspended`: the project the deploy goes into (the named one, or the default for a workspace-wide deploy) is suspended, and nothing deploys into it until it's restored. Or `environment-takes-promotions`: the project the deploy goes into is a later environment of an environment order, which takes builds only by promotion from the one before it; deploy into the order's first environment and promote the build from there (`details.firstProjectId`, when you can read that project; `details.position`, the project's place from 0). Nothing is written. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead. Or `deploy-would-put-back-older-blocks`: a newer version of one of the pack's data blocks than its files' runs now in a project of one of its agents (a project's own version, or a segment pin inside one), and the body's `replace` doesn't name it. `details.blocks` lists each (`DeployCheckStop`): the files' version and the newest that runs, where, who made it run there and when, and the pull request opened for it; in a project the caller can't read, the version only. Every project counts, whoever deploys. Nothing was deployed. A runtime that doesn't read the agents' pins and Latest doesn't check.",
       ),
       '400': ErrorResponse(
-        "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. When `image-unverifiable` comes from a failed registry read, `details.cause` names why: `image-not-found`, `image-file-not-found`, `image-registry-unreachable`, `image-registry-unauthorized`, `image-unreadable` (a layer that isn't a readable archive), or `image-limit-exceeded`, with the bound in `details.limit` (`manifest`, `file`, `layer`, `read` or `unpack`: the image's own, so the same image is refused again). The workspace's hour of image reads passes, so it answers `429`. A tool that declares or sends a model provider's key, or a secret under the reserved `kindgi.` prefix, is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key or one of Kindgi's own secrets. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile is one too (`path` where it sits, such as `/output/schema` or `/nodes/<i>/branches/<k>/outputSchema`), as `defineAgent` and the flow loader refuse it: every turn or run would. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`. Or `reference-out-of-scope`: an agent or flow names a tool, agent, flow, guardrail or data block that neither the deployment brings nor its project reaches (`details.issues`, at `/agents/<i>/…` or `/flows/<i>/…`); nothing is registered. Or `connection-key-refused`: a name the pack's `env` declares is the account key of a texts connection app registration (`details.secret`, `details.appId`; the first such name, its required names before its optional ones and each list sorted by name), which only that registration names: use a key of its own, a new API key from the provider stored under its own name; nothing is registered.",
+        "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. When `image-unverifiable` comes from a failed registry read, `details.cause` names why: `image-not-found`, `image-file-not-found`, `image-registry-unreachable`, `image-registry-unauthorized`, `image-unreadable` (a layer that isn't a readable archive), or `image-limit-exceeded`, with the bound in `details.limit` (`manifest`, `file`, `layer`, `read` or `unpack`: the image's own, so the same image is refused again). The workspace's hour of image reads passes, so it answers `429`. A tool that declares or sends a model provider's key, or a secret under the reserved `kindgi.` prefix, is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key or one of Kindgi's own secrets. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile is one too (`path` where it sits, such as `/output/schema` or `/nodes/<i>/branches/<k>/outputSchema`), as `defineAgent` and the flow loader refuse it: every turn or run would. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`. Or `reference-out-of-scope`: an agent or flow names a tool, agent, flow, guardrail or data block that neither the deployment brings nor its project reaches (`details.issues`, at `/agents/<i>/…` or `/flows/<i>/…`); nothing is registered. Or `connection-key-refused`: a name the pack's `env` declares is the account key of a texts connection app registration (`details.secret`, `details.appId`; the first such name, its required names before its optional ones and each list sorted by name), which only that registration names: use a key of its own, a new API key from the provider stored under its own name; nothing is registered. Or `identity-provider-key-refused`: a name the pack's `env` declares is an identity provider's secret (`details.secret`, `details.identityProviderId`; asked after the texts keys, in the same order), which only sign-in names: use a secret of its own, stored under its own name; nothing is registered.",
       ),
       '403': ErrorResponse(
-        "Signer key not on the workspace's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the workspace.",
+        withLimitedAbove(
+          "Signer key not on the workspace's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the workspace.",
+        ),
       ),
       '404': ErrorResponse(
         "The body's `projectId` names no project of this workspace (`project-not-found`).",
@@ -8368,7 +8424,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "`bad-input`: a body that isn't `{ projectId?, agents, blocks, replace? }`, a block named twice, a version that isn't one, or a `replace` reason that isn't 1 to 500 characters with no control characters (`details.issues`).",
       ),
       '403': ErrorResponse(
-        'No admin on `projectId` (`forbidden`), or a key limited to another project; without it, no admin on the workspace.',
+        withLimitedAbove(
+          'No admin on `projectId` (`forbidden`), or a key limited to another project; without it, no admin on the workspace.',
+        ),
       ),
       '409': ErrorResponse(
         '`deploy-would-put-back-older-blocks`, as `POST /v1/deployments` answers it: each block in `details.blocks` (`DeployCheckStop`).',
@@ -9029,6 +9087,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Org created.', schema: ref('CreateResourceResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
     },
   },
   {
@@ -9076,6 +9135,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Updated. No body.' },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '404': ErrorResponse('No org with that id under this workspace.'),
     },
   },
@@ -9102,6 +9162,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Deleted (or already absent). No body.' },
       ...CommonAuthErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '409': ErrorResponse(
         "`slug-conflict`: the org's projects would leave it with slugs that projects without an org already have. Or `org-has-environment-order`: the org is the parent of an environment order, so it can't be deleted — a tenant admin clears the order first.",
       ),
@@ -9156,6 +9217,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Team created.', schema: ref('CreateResourceResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '404': ErrorResponse(
         'org-not-found: `orgId` names no org of the workspace (it never existed, or it was deleted).',
       ),
@@ -9207,7 +9269,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '204': { description: 'Updated. No body.' },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        'No `admin` on the team; or the body names `orgId` (even the current one) and the caller is not a tenant admin, as making a team in an org needs (`permission-denied`).',
+        withLimitedAbove(
+          'No `admin` on the team; or the body names `orgId` (even the current one) and the caller is not a tenant admin, as making a team in an org needs (`permission-denied`).',
+        ),
       ),
       '404': ErrorResponse(
         'team-not-found: no team with that id under this workspace; or org-not-found: `orgId` names no org of the workspace (it never existed, or it was deleted).',
@@ -9237,6 +9301,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Deleted (or already absent). No body.' },
       ...CommonAuthErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
     },
   },
   {
@@ -9294,7 +9359,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Membership added.', schema: ref('AddTeamMembershipResult') },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+        withLimitedAbove(
+          "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+        ),
       ),
       '404': ErrorResponse(
         'No team with that id under this workspace (`team-not-found`), or the person named is not a member of this workspace (`identity-user-not-found`).',
@@ -9331,7 +9398,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     ],
     responses: {
       '403': ErrorResponse(
-        'The person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).',
+        withLimitedAbove(
+          'The person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).',
+        ),
       ),
       '204': { description: 'Removed (or already absent). No body.' },
       ...CommonAuthErrors,
@@ -9370,7 +9439,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '204': { description: 'Role updated. No body.' },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+        withLimitedAbove(
+          "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+        ),
       ),
       '404': ErrorResponse(
         'No membership for that (team, user) pair, or no such team under this workspace.',
@@ -9448,6 +9519,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Project created.', schema: ref('CreateResourceResult') },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       '404': ErrorResponse(
         'org-not-found: `orgId` names no org of the workspace (it never existed, or it was deleted).',
       ),
@@ -9501,7 +9573,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '204': { description: 'Updated. No body.' },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        'No `admin` on the project; or the body names `orgId` (even the current one) and the caller is not a tenant admin, as making a project in an org needs (`permission-denied`).',
+        withLimitedAbove(
+          'No `admin` on the project; or the body names `orgId` (even the current one) and the caller is not a tenant admin, as making a project in an org needs (`permission-denied`).',
+        ),
       ),
       '409': ErrorResponse(
         "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up, or another project of the workspace had it before it was renamed (`details.heldAs: 'old-slug'`); or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
@@ -10122,7 +10196,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        "Not a tenant admin (`permission-denied`); the workspace isn't allowed to put projects in production (`production-not-allowed`, `details.projectId`, `details.next` when the runtime names one); or its projects in production are at its limit (`production-limit-reached`, `details.limit` `projects-in-production`, `details.projectsInProduction` the limit, `details.inProduction` the count, `details.projectId`, `details.next` when the runtime names one).",
+        withLimitedAbove(
+          "Not a tenant admin (`permission-denied`); the workspace isn't allowed to put projects in production (`production-not-allowed`, `details.projectId`, `details.next` when the runtime names one); or its projects in production are at its limit (`production-limit-reached`, `details.limit` `projects-in-production`, `details.projectsInProduction` the limit, `details.inProduction` the count, `details.projectId`, `details.next` when the runtime names one).",
+        ),
       ),
       '404': ErrorResponse('No project with that id under this workspace (`project-not-found`).'),
       '501': ErrorResponse(
@@ -10392,7 +10468,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         'A malformed body or a field out of its rules (`bad-input`), or a field other than `name` and `slug` (`unknown-field`).',
       ),
-      '403': ErrorResponse('Not a tenant admin.'),
+      '403': ErrorResponse(withLimitedAbove('Not a tenant admin.')),
       '404': ErrorResponse('The workspace id on the token does not resolve to a stored row.'),
       '409': ErrorResponse(
         "Another workspace has the slug (`tenant-slug-taken`); the server's verified sign-in domains name the workspace by its current slug, or name the new one (`tenant-slug-in-config`); the workspace is closing (`tenant-closing`); its setup hasn't finished (`tenant-setup-pending`); or an Idempotency-Key reused with another body.",
@@ -10454,6 +10530,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('UpsertTenantConfigResult'),
       },
       ...CommonMutationErrors,
+      '403': LIMITED_ABOVE_PROJECT_403,
       ...SecretWriteErrors,
       '409': ErrorResponse('`ifRevision` was set and did not match the stored revision.'),
     },
@@ -10507,7 +10584,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The order as it now stands.', schema: ref('EnvironmentOrder') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('Only a tenant admin sets an environment order (`permission-denied`).'),
+      '403': ErrorResponse(
+        'Only a tenant admin sets an environment order (`permission-denied`), and never a key or session limited to a project (`key-project-mismatch`).',
+      ),
       '409': ErrorResponse(
         'A project in the order already belongs to another one (`project-in-another-order`).',
       ),
@@ -10561,7 +10640,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The order as it now stands.', schema: ref('EnvironmentOrder') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('Only a tenant admin sets an environment order (`permission-denied`).'),
+      '403': ErrorResponse(
+        'Only a tenant admin sets an environment order (`permission-denied`), and never a key or session limited to a project (`key-project-mismatch`).',
+      ),
       '409': ErrorResponse(
         'A project in the order already belongs to another one (`project-in-another-order`).',
       ),
@@ -10684,7 +10765,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Env record.', schema: ref('EnvRecord') },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        'Bearer token missing `env:write` capability; or a body with `cloudSecret`, which only the operator sets (`cloud-secret-system-only`).',
+        withLimitedAbove(
+          'Bearer token missing `env:write` capability; or a body with `cloudSecret`, which only the operator sets (`cloud-secret-system-only`).',
+        ),
       ),
       '409': ErrorResponse(
         `\`ifRevision\` mismatch (env-write-conflict). Or ${ENV_NOT_SERVED_VALUE}`,
@@ -10714,7 +10797,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Delete outcome.', schema: ref('EnvDeleteResult') },
       ...CommonAuthErrors,
       '400': ErrorResponse('Missing or malformed scope / envName.'),
-      '403': ErrorResponse('Bearer token missing `env:write` capability.'),
+      '403': ErrorResponse(withLimitedAbove('Bearer token missing `env:write` capability.')),
     },
   },
 
@@ -10862,7 +10945,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       ...SecretWriteErrors,
-      '403': ErrorResponse('Bearer token missing `secrets:write` capability.'),
+      '403': ErrorResponse(withLimitedAbove('Bearer token missing `secrets:write` capability.')),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_VALUE),
     },
   },
@@ -10898,7 +10981,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'A body that fails validation (`bad-input`), or a rotation the store refuses as it would the write: `secret-value-too-large` for a new value over its size limit, or `reserved-name-prefix` for a `kindgi.` name.',
       ),
       ...SecretProviderErrors,
-      '403': ErrorResponse('Bearer token missing `secrets:rotate` capability.'),
+      '403': ErrorResponse(withLimitedAbove('Bearer token missing `secrets:rotate` capability.')),
       '404': ErrorResponse('Unknown secret.'),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_VALUE),
       '501': ErrorResponse(
@@ -11001,7 +11084,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         'Missing or malformed scope / envName, or `reserved-name-prefix` for a `kindgi.` name.',
       ),
-      '403': ErrorResponse('Bearer token missing revoke capability.'),
+      '403': ErrorResponse(withLimitedAbove('Bearer token missing revoke capability.')),
       '404': ErrorResponse('Unknown secret.'),
       '501': ErrorResponse(
         "The store doesn't revoke (`secret-operation-unsupported`): under `kindgi dev` secrets live in the env files; the message says to remove the name there.",
@@ -11433,7 +11516,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.register',
     summary: 'Register a webhook trigger',
     description:
-      "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`), and so is a texts registration's account key (`400 connection-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the workspace that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the workspace's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
+      "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`), and so are a texts registration's account key (`400 connection-key-refused`) and an identity provider's secret (`400 identity-provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the workspace that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the workspace's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -11442,7 +11525,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Webhook registered.', schema: ref('WebhookTriggerRecord') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        `A body that fails validation (\`bad-input\`), \`runAsProject\` with \`runAsServiceAccountId\` or for a trigger with no project (\`bad-input\`), or \`provider-key-refused\`: \`hmacSecretName\` is a model provider's key, or \`reserved-name-prefix\`: it's under the reserved \`kindgi.\` prefix. Or ${CONNECTION_KEY_REFUSED} Or \`reference-out-of-scope\`: the flow isn't registered in the trigger's project, its org or the workspace, or \`flowVersion\` isn't a version that project runs (\`details.issues\`, at \`/flowId\`, whose message names the version), and nothing is registered. Or, with \`generateSecret\`, a name the secrets store can't write, refused before anything is stored: \`secret-name-invalid\` (a name that isn't 1 to 255 ASCII letters, digits, \`.\`, \`-\` and \`_\` starting with a letter, digit or \`_\`, with any \`.\` between two non-\`.\` characters, or, under \`kindgi dev\`, isn't capital letters, digits and underscores, starts with a digit, or is \`KINDGI_*\`; the message says the rule).`,
+        `A body that fails validation (\`bad-input\`), \`runAsProject\` with \`runAsServiceAccountId\` or for a trigger with no project (\`bad-input\`), or \`provider-key-refused\`: \`hmacSecretName\` is a model provider's key, or \`reserved-name-prefix\`: it's under the reserved \`kindgi.\` prefix. Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED} Or \`reference-out-of-scope\`: the flow isn't registered in the trigger's project, its org or the workspace, or \`flowVersion\` isn't a version that project runs (\`details.issues\`, at \`/flowId\`, whose message names the version), and nothing is registered. Or, with \`generateSecret\`, a name the secrets store can't write, refused before anything is stored: \`secret-name-invalid\` (a name that isn't 1 to 255 ASCII letters, digits, \`.\`, \`-\` and \`_\` starting with a letter, digit or \`_\`, with any \`.\` between two non-\`.\` characters, or, under \`kindgi dev\`, isn't capital letters, digits and underscores, starts with a digit, or is \`KINDGI_*\`; the message says the rule).`,
       ),
       '409': ErrorResponse(
         "`secret-write-conflict`: with `generateSecret`, the trigger's project already has a secret of that name (it's never overwritten, and no trigger is left). Or `runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run the flow (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run the flow either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the route-minted webhookId collided (astronomically rare).",
@@ -11513,7 +11596,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Updated webhook trigger.', schema: ref('WebhookTriggerRecord') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        `A body that fails validation (\`bad-input\`), or \`provider-key-refused\`: \`hmacSecretName\` is a model provider's key, or \`reserved-name-prefix\`: it's under the reserved \`kindgi.\` prefix. Or ${CONNECTION_KEY_REFUSED} Or \`reference-out-of-scope\`: the new \`flowVersion\` isn't a version the trigger's project runs, such as one made in an earlier environment and not yet promoted (\`details.issues\`, at \`/flowVersion\`, whose message names the version). Nothing changes.`,
+        `A body that fails validation (\`bad-input\`), or \`provider-key-refused\`: \`hmacSecretName\` is a model provider's key, or \`reserved-name-prefix\`: it's under the reserved \`kindgi.\` prefix. Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED} Or \`reference-out-of-scope\`: the new \`flowVersion\` isn't a version the trigger's project runs, such as one made in an earlier environment and not yet promoted (\`details.issues\`, at \`/flowVersion\`, whose message names the version). Nothing changes.`,
       ),
       '403': WebhookChangeRefused,
       '404': ErrorResponse('No webhook trigger with that id.'),
@@ -12362,7 +12445,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       ...TenantAdminErrors,
       '400': ErrorResponse(
-        `Malformed body or unknown field; the deployment refuses the URL (\`webhook-url-refused\`); the referenced secret does not exist (\`webhook-secret-not-found\`) or is too weak (\`webhook-secret-too-weak\`), it's a model provider's key (\`provider-key-refused\`), or it's under the reserved \`kindgi.\` prefix (\`reserved-name-prefix\`). Or ${CONNECTION_KEY_REFUSED}`,
+        `Malformed body or unknown field; the deployment refuses the URL (\`webhook-url-refused\`); the referenced secret does not exist (\`webhook-secret-not-found\`) or is too weak (\`webhook-secret-too-weak\`), it's a model provider's key (\`provider-key-refused\`), or it's under the reserved \`kindgi.\` prefix (\`reserved-name-prefix\`). Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED}`,
       ),
       '404': ErrorResponse('`filter.projectId` names no project (`project-not-found`).'),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
@@ -12435,7 +12518,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       ...TenantAdminErrors,
       '400': ErrorResponse(
-        `Malformed body or unknown field; the deployment refuses the URL (\`webhook-url-refused\`); the referenced secret does not exist or is too weak, it's a model provider's key (\`provider-key-refused\`), or it's under the reserved \`kindgi.\` prefix (\`reserved-name-prefix\`). Or ${CONNECTION_KEY_REFUSED}`,
+        `Malformed body or unknown field; the deployment refuses the URL (\`webhook-url-refused\`); the referenced secret does not exist or is too weak, it's a model provider's key (\`provider-key-refused\`), or it's under the reserved \`kindgi.\` prefix (\`reserved-name-prefix\`). Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED}`,
       ),
       '404': ErrorResponse('No endpoint with that id, or `filter.projectId` names no project.'),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
@@ -12576,7 +12659,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'App registered.', schema: ref('ConnectionApp') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        `Malformed body or unknown field, including a \`token.provider\` the server doesn't serve or a \`token.publicKey\` that isn't base64 of 32 bytes (\`bad-input\`, \`details.field\`); a registration that doesn't fit its entry, or that would serve a project another registration of the app serves (\`connection-app-invalid\`, \`details.field\`); no such app (\`connection-app-unknown-entry\`); a model provider's key named as a secret (\`provider-key-refused\`); or a secret under the reserved \`kindgi.\` prefix (\`reserved-name-prefix\`). Or ${CONNECTION_KEY_REFUSED}`,
+        `Malformed body or unknown field, including a \`token.provider\` the server doesn't serve or a \`token.publicKey\` that isn't base64 of 32 bytes (\`bad-input\`, \`details.field\`); a registration that doesn't fit its entry, or that would serve a project another registration of the app serves (\`connection-app-invalid\`, \`details.field\`); no such app (\`connection-app-unknown-entry\`); a model provider's key named as a secret (\`provider-key-refused\`); or a secret under the reserved \`kindgi.\` prefix (\`reserved-name-prefix\`). Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED}`,
       ),
       '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
       '409': conflictOrEnvNotServed(`${CONNECTION_KEY_IN_USE} Or ${ENV_NOT_SERVED_REFERENCE}`),
@@ -12615,7 +12698,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The updated registration.', schema: ref('ConnectionApp') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        `Malformed body, unknown field or an \`app\`, including a \`token.provider\` the server doesn't serve or a \`token.publicKey\` that isn't base64 of 32 bytes (\`bad-input\`, \`details.field\`); a registration that doesn't fit its entry, that would serve a project another registration of the app serves, or a change of its client (\`oauth2.clientId\`, \`oauth2.tenant\`, \`githubApp.appNumber\`, \`githubApp.clientId\` or \`token.provider\`) while it has live connections: disconnect them first (\`connection-app-invalid\`, \`details.field\`); a model provider's key named as a secret (\`provider-key-refused\`); or a secret under the reserved \`kindgi.\` prefix (\`reserved-name-prefix\`). Or ${CONNECTION_KEY_REFUSED}`,
+        `Malformed body, unknown field or an \`app\`, including a \`token.provider\` the server doesn't serve or a \`token.publicKey\` that isn't base64 of 32 bytes (\`bad-input\`, \`details.field\`); a registration that doesn't fit its entry, that would serve a project another registration of the app serves, or a change of its client (\`oauth2.clientId\`, \`oauth2.tenant\`, \`githubApp.appNumber\`, \`githubApp.clientId\` or \`token.provider\`) while it has live connections: disconnect them first (\`connection-app-invalid\`, \`details.field\`); a model provider's key named as a secret (\`provider-key-refused\`); or a secret under the reserved \`kindgi.\` prefix (\`reserved-name-prefix\`). Or ${CONNECTION_KEY_REFUSED} Or ${IDENTITY_PROVIDER_KEY_REFUSED}`,
       ),
       '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
       '404': ErrorResponse('No registration with that id (`connection-app-not-found`).'),

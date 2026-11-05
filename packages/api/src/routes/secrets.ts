@@ -10,6 +10,7 @@ import type { Cursor, EnvName, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { gate } from '../middleware/key-project.js';
 import { isReadMethod } from '../read-method.js';
 import type { RotationStatus, RotationStatusStore } from '../rotation-status-store.js';
 import type {
@@ -101,53 +102,48 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
   // parser as its handler: `POST /` from `body.scope`; `POST /:name/rotate`
   // from `body.scope` or the query (resolveRotateScope); every other route
   // from `?scopeKind` + `?scopeId`.
-  if (authorizer !== undefined) {
-    const scopeFromQuery = (c: import('hono').Context<AppEnv>) =>
-      queryScopeResourceRef((n) => c.req.query(n), { tenantId: c.get('tenantId') as TenantId });
-    r.use('/', async (c, next) => {
-      if (c.req.method === 'POST') {
-        const tenantId = c.get('tenantId') as TenantId;
-        const mw = authorizer.authorize('admin', async () => {
-          let bodyScope: unknown;
-          try {
-            const body = await c.req.json();
-            if (body !== null && typeof body === 'object') {
-              bodyScope = (body as Record<string, unknown>).scope;
-            }
-          } catch {
-            // POST handler validates + returns 400
+  const authorize = gate(authorizer);
+  const scopeFromQuery = (c: import('hono').Context<AppEnv>) =>
+    queryScopeResourceRef((n) => c.req.query(n), { tenantId: c.get('tenantId') as TenantId });
+  r.use('/', async (c, next) => {
+    if (c.req.method === 'POST') {
+      const tenantId = c.get('tenantId') as TenantId;
+      const mw = authorize('admin', async () => {
+        let bodyScope: unknown;
+        try {
+          const body = await c.req.json();
+          if (body !== null && typeof body === 'object') {
+            bodyScope = (body as Record<string, unknown>).scope;
           }
-          const s = validateBodyScope(bodyScope, tenantId);
-          return scopeResourceRef(s.kind === 'ok' ? s.scope : undefined, tenantId);
-        });
-        return mw(c, next);
-      }
-      if (isReadMethod(c.req.method)) {
-        const mw = authorizer.authorize('admin', scopeFromQuery);
-        return mw(c, next);
-      }
-      return next();
-    });
-    // `/:name/*` also matches `/:name`: one check per request. The only
-    // POST below `/:name` is rotate, which may carry its scope in the body;
-    // read it with `text()`, as the handler does.
-    r.use('/:name/*', async (c, next) => {
-      if (c.req.method === 'POST') {
-        const tenantId = c.get('tenantId') as TenantId;
-        const mw = authorizer.authorize('admin', async () => {
-          const s = resolveRotateScope(
-            parseJsonObject(await c.req.text()),
-            c.req.query(),
-            tenantId,
-          );
-          return scopeResourceRef(s.kind === 'ok' ? s.scope : undefined, tenantId);
-        });
-        return mw(c, next);
-      }
-      const mw = authorizer.authorize('admin', scopeFromQuery);
+        } catch {
+          // POST handler validates + returns 400
+        }
+        const s = validateBodyScope(bodyScope, tenantId);
+        return scopeResourceRef(s.kind === 'ok' ? s.scope : undefined, tenantId);
+      });
       return mw(c, next);
-    });
-  }
+    }
+    if (isReadMethod(c.req.method)) {
+      const mw = authorize('admin', scopeFromQuery);
+      return mw(c, next);
+    }
+    return next();
+  });
+  // `/:name/*` also matches `/:name`: one check per request. The only
+  // POST below `/:name` is rotate, which may carry its scope in the body;
+  // read it with `text()`, as the handler does.
+  r.use('/:name/*', async (c, next) => {
+    if (c.req.method === 'POST') {
+      const tenantId = c.get('tenantId') as TenantId;
+      const mw = authorize('admin', async () => {
+        const s = resolveRotateScope(parseJsonObject(await c.req.text()), c.req.query(), tenantId);
+        return scopeResourceRef(s.kind === 'ok' ? s.scope : undefined, tenantId);
+      });
+      return mw(c, next);
+    }
+    const mw = authorize('admin', scopeFromQuery);
+    return mw(c, next);
+  });
 
   // ------------------------------ GET / ------------------------------
   r.get('/', async (c) => {

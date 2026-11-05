@@ -5,6 +5,7 @@ import { toolSecretNames } from '@kindgi/tools';
 import type { Cursor, TenantId } from '@kindgi/types';
 
 import type { ConnectionBinding } from './connection-binding.js';
+import type { IdentityProviderBinding, ProviderConfig } from './identity-provider-binding.js';
 import { type MCPEndpointRegistryBinding, mcpEndpointSecretNames } from './mcp-endpoint-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
 import {
@@ -84,6 +85,56 @@ export function connectionKeysOf(binding: ConnectionBinding | undefined): Connec
   };
 }
 
+/**
+ * An identity provider's secret (an OIDC client secret, a SAML service
+ * provider key) is what signs the tenant's people in, so it's used by
+ * sign-in only: no tool, MCP endpoint, webhook endpoint, webhook trigger,
+ * connection app registration, model provider or pack's env may name a
+ * secret that an identity provider of the tenant references (by name,
+ * whatever its env). These checks refuse it where the name is written, and
+ * `guardSecretKeys` where it's read.
+ */
+export interface IdentityProviderKeys {
+  /** Each secret an identity provider of the tenant references, by name, with the provider's id. */
+  of(tenantId: TenantId): Promise<ReadonlyMap<string, string>>;
+}
+
+/** From the tenant's identity providers, listed on every call. */
+export function identityProviderKeysOf(
+  binding: IdentityProviderBinding | undefined,
+): IdentityProviderKeys {
+  return {
+    async of(tenantId) {
+      const out = new Map<string, string>();
+      if (binding === undefined) return out;
+      for (const provider of (await binding.list({ tenantId })).data) {
+        for (const name of identityProviderSecretNames(provider)) {
+          if (!out.has(name)) out.set(name, provider.providerId);
+        }
+      }
+      return out;
+    },
+  };
+}
+
+/**
+ * The names of the secrets an identity provider references: an OIDC
+ * provider's client secret, a SAML provider's signing and decryption keys.
+ * A reference is `<name>`, or `<env>/<name>` for another environment's, and
+ * a name counts whatever its environment, as a model provider's key does.
+ */
+export function identityProviderSecretNames(config: ProviderConfig): string[] {
+  const refs =
+    config.kind === 'oidc'
+      ? [config.clientSecretRef]
+      : [config.spSigningKeyRef, config.spDecryptionKeyRef];
+  return refs.flatMap((ref) => {
+    if (ref === undefined) return [];
+    const trimmed = ref.trim();
+    return [trimmed.slice(trimmed.indexOf('/') + 1)];
+  });
+}
+
 /** What may name a secret, in the words a refusal uses. */
 export type SecretUser =
   | 'a tool'
@@ -92,7 +143,8 @@ export type SecretUser =
   | 'a webhook trigger'
   | 'a connection app'
   | 'a model provider'
-  | "a pack's env";
+  | "a pack's env"
+  | 'an identity provider';
 
 /** Why `name` can't be used by `user`: it's model provider `providerId`'s key. */
 export function providerKeyRefusal(
@@ -105,9 +157,14 @@ export function providerKeyRefusal(
   readonly secret: string;
   readonly providerId: string;
 } {
+  // An identity provider never calls a model: its own secret has a name of its own.
+  const instead =
+    user === 'an identity provider'
+      ? "Store the identity provider's own secret under its own name and use that name"
+      : 'If it needs to call a model itself, store the key under its own name (the same value is fine) and use that name';
   return {
     code: 'provider-key-refused',
-    message: `\`${name}\` is the key of model provider "${providerId}": ${user} never gets a model provider's key. If it needs to call a model itself, store the key under its own name (the same value is fine) and use that name`,
+    message: `\`${name}\` is the key of model provider "${providerId}": ${user} never gets a model provider's key. ${instead}`,
     secret: name,
     providerId,
   };
@@ -129,6 +186,25 @@ export function connectionKeyRefusal(
     message: `\`${name}\` is the account key of connection app registration "${appId}": ${user} never names it, since that key reaches the whole provider account. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account`,
     secret: name,
     appId,
+  };
+}
+
+/** Why `name` can't be used by `user`: it's identity provider `identityProviderId`'s secret. */
+export function identityProviderKeyRefusal(
+  name: string,
+  identityProviderId: string,
+  user: SecretUser,
+): {
+  readonly code: 'identity-provider-key-refused';
+  readonly message: string;
+  readonly secret: string;
+  readonly identityProviderId: string;
+} {
+  return {
+    code: 'identity-provider-key-refused',
+    message: `\`${name}\` is the secret of identity provider "${identityProviderId}": ${user} never names it, since it signs the tenant's people in. If one app registration serves both, give it a second secret of its own (a second client secret), store that under its own name and use that name`,
+    secret: name,
+    identityProviderId,
   };
 }
 
@@ -307,11 +383,37 @@ export function refuseConnectionKeyNames(
 }
 
 /**
+ * The first secret in `names` that's an identity provider's, refused for
+ * `user`: for what checks the other kinds its own way (a model provider's
+ * key, a pack's env). Sign-in itself (`'an identity provider'`) names them.
+ */
+export async function refuseIdentityProviderKeyNames(
+  keys: IdentityProviderKeys | undefined,
+  tenantId: TenantId,
+  names: readonly string[],
+  user: SecretUser,
+): Promise<ReturnType<typeof identityProviderKeyRefusal> | undefined> {
+  if (keys === undefined || user === 'an identity provider' || names.length === 0) {
+    return undefined;
+  }
+  const held = await keys.of(tenantId);
+  for (const name of names) {
+    const identityProviderId = held.get(name);
+    if (identityProviderId !== undefined) {
+      return identityProviderKeyRefusal(name, identityProviderId, user);
+    }
+  }
+  return undefined;
+}
+
+/**
  * The first secret in `names` that `user` can't name: one under the reserved
  * `kindgi.` prefix, then a model provider's key, then a texts registration's
  * account key (`connections.keys`) that a registration other than
- * `connections.ownAppId` holds. Every registration that names secrets checks
- * them here, so none gets one check without the others.
+ * `connections.ownAppId` holds, then an identity provider's secret
+ * (`identityProviders`), which only sign-in names. Every registration that
+ * names secrets checks them here, so none gets one check without the others,
+ * and so does a reader that checks a name ahead of a cache of its own values.
  */
 export async function refuseSecretNames(
   keys: ProviderKeys | undefined,
@@ -323,17 +425,20 @@ export async function refuseSecretNames(
     /** The registration being changed (a `PATCH`'s `:appId`): its own key is its to name. */
     readonly ownAppId?: string | undefined;
   },
+  identityProviders?: IdentityProviderKeys,
 ): Promise<
   | ReturnType<typeof reservedNameRefusal>
   | ReturnType<typeof providerKeyRefusal>
   | ReturnType<typeof connectionKeyRefusal>
+  | ReturnType<typeof identityProviderKeyRefusal>
   | undefined
 > {
   const reserved = names.find((name) => name.startsWith(RESERVED_SECRET_NAME_PREFIX));
   if (reserved !== undefined) return reservedNameRefusal(reserved, user);
   return (
     (await refuseProviderKeys(keys, tenantId, names, user)) ??
-    refuseConnectionKeys(connections?.keys, connections?.ownAppId, tenantId, names, user)
+    (await refuseConnectionKeys(connections?.keys, connections?.ownAppId, tenantId, names, user)) ??
+    refuseIdentityProviderKeyNames(identityProviders, tenantId, names, user)
   );
 }
 
@@ -349,18 +454,22 @@ export function guardProviderKeys(
   return guardSecretKeys(binding, { providerKeys: keys }, user);
 }
 
-/** The keys a guarded binding refuses: model providers', texts registrations', or both. */
+/** The keys a guarded binding refuses: model providers', texts registrations', identity providers', or any of them. */
 export interface SecretKeys {
   readonly providerKeys?: ProviderKeys;
   readonly connectionKeys?: ConnectionKeys;
+  /** Refused to every user but sign-in (`'an identity provider'`). */
+  readonly identityProviderKeys?: IdentityProviderKeys;
 }
 
 /**
  * `binding` for `user`, which never gets a key of `keys`: `resolve` answers
  * `provider-key-refused` for a model provider's key, then
- * `connection-key-refused` for a texts registration's (`refuseSecretNames`'
- * order), and `getVersion` throws it. What reads names only (`list`, `get`,
- * `listVersions`) and the writes pass through.
+ * `connection-key-refused` for a texts registration's, then
+ * `identity-provider-key-refused` for an identity provider's secret, to
+ * every user but sign-in (`refuseSecretNames`' order), and `getVersion`
+ * throws it. What reads names only (`list`, `get`, `listVersions`) and the
+ * writes pass through.
  *
  * A texts key's holders are read on every call, with no cache, so a
  * registration that lands after a name was written is refused at once. A
@@ -370,8 +479,9 @@ export interface SecretKeys {
  * so a texts key is refused there to every user.
  *
  * Hand it to whatever gives secrets out: tools, endpoints and webhook
- * triggers get both kinds, the connections both with their reads' `appId`,
- * and a model provider's adapter or a pack's env `connectionKeys` only.
+ * triggers get every kind, the connections every kind with their reads'
+ * `appId`, a model provider's adapter or a pack's env every kind but
+ * `providerKeys`, and sign-in every kind (its own passes).
  */
 export function guardSecretKeys(
   binding: SecretBinding,
@@ -383,13 +493,17 @@ export function guardSecretKeys(
       const providerId = (await keys.providerKeys.of(tenantId)).get(name);
       if (providerId !== undefined) return providerKeyRefusal(name, providerId, user);
     }
-    if (keys.connectionKeys === undefined) return undefined;
-    // The reader's own say: only the connections' reads count it.
-    const reader =
-      user === 'a connection app' && context?.caller === 'connections' ? context.appId : undefined;
-    const holders = await keys.connectionKeys.holders(tenantId, name);
-    const other = holders.find((appId) => appId !== reader);
-    return other === undefined ? undefined : connectionKeyRefusal(name, other, user);
+    if (keys.connectionKeys !== undefined) {
+      // The reader's own say: only the connections' reads count it.
+      const reader =
+        user === 'a connection app' && context?.caller === 'connections'
+          ? context.appId
+          : undefined;
+      const holders = await keys.connectionKeys.holders(tenantId, name);
+      const other = holders.find((appId) => appId !== reader);
+      if (other !== undefined) return connectionKeyRefusal(name, other, user);
+    }
+    return refuseIdentityProviderKeyNames(keys.identityProviderKeys, tenantId, [name], user);
   };
   const guarded: SecretBinding = {
     list: (input) => binding.list(input),
@@ -427,12 +541,19 @@ export function guardSecretKeys(
                 name: refused.secret,
                 providerId: refused.providerId,
               }
-            : {
-                code: refused.code,
-                message: refused.message,
-                name: refused.secret,
-                appId: refused.appId,
-              },
+            : refused.code === 'connection-key-refused'
+              ? {
+                  code: refused.code,
+                  message: refused.message,
+                  name: refused.secret,
+                  appId: refused.appId,
+                }
+              : {
+                  code: refused.code,
+                  message: refused.message,
+                  name: refused.secret,
+                  identityProviderId: refused.identityProviderId,
+                },
       };
     },
     async getVersion(input) {

@@ -25,8 +25,8 @@ which you register with Kindgi once.
   on APIs and create OAuth clients in it.
 - **The `kindgi` CLI reaches your runtime as you,** with the runtime's address
   exported as `KINDGI_API_URL` and your API key as `KINDGI_API_TOKEN`
-  ([People and keys](../../../deploy/people-and-keys/#api-keys)). Kindgi
-  0.2's CLI runs from any folder as `npx --yes @kindgi/cli@0.4`
+  ([People and keys](../../../deploy/people-and-keys/#api-keys)).
+  Kindgi 0.4's CLI runs from any folder as `npx --yes @kindgi/cli@0.4`
   ([Install](../../../start/install/)).
 
 ## 1. Create the client in the Google Cloud console
@@ -88,6 +88,11 @@ npx --yes @kindgi/cli@0.4 secrets set ACME_GOOGLE_CONNECT_SECRET --env=productio
   only this name.
 - `--env` is the runtime's environment, its `KINDGI_ENV`.
 - `--scope=tenant` stores the secret for the whole workspace.
+
+If this OAuth client also signs your people in to Kindgi, the connection
+needs a client secret of its own: a registration that names sign-in's is
+refused with `identity-provider-key-refused`. Add a second client secret to
+the client and store it under its own name.
 
 The command asks for the value twice, and doesn't show what you type.
 

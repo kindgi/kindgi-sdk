@@ -1342,7 +1342,7 @@ describe('POST /v1/deployments — happy path', () => {
     expect(await toolRegistry.get({ tenantId, toolId: 'acme.sms' as never })).toBeNull();
   });
 
-  describe("a name its pack declares in `env` that's a texts registration's account key", () => {
+  describe("a name its pack declares in `env` that's a texts registration's account key, or an identity provider's secret", () => {
     /** A connection binding listing one live texts registration per [appId, key name]. */
     const holding = (held: readonly (readonly [string, string])[]) =>
       ({
@@ -1454,6 +1454,42 @@ describe('POST /v1/deployments — happy path', () => {
       const { res } = await deploy(packIndex(env), holding([['acme-sms-app', 'ACME_SMS_KEY']]));
       expect(res.status).toBe(201);
       expect(((await res.json()) as { packEnv?: unknown }).packEnv).toEqual(env);
+    });
+
+    test("an identity provider's secret is refused, 400 identity-provider-key-refused, naming it and its provider", async () => {
+      const fixture = buildSignedDeploy({
+        index: packIndex({ required: ['ACME_OKTA_SECRET', 'API_BASE'], optional: [] }) as never,
+      });
+      const { app, deploymentRegistry } = makeApp({
+        fixture,
+        extra: {
+          envName: 'prod' as never,
+          identityProvider: {
+            list: async (input: { tenantId: unknown }) => ({
+              data:
+                input.tenantId === tenantId
+                  ? [{ providerId: 'acme-okta', kind: 'oidc', clientSecretRef: 'ACME_OKTA_SECRET' }]
+                  : [],
+            }),
+          } as never,
+        },
+      });
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(fixture.wire),
+      });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        error: {
+          code: 'identity-provider-key-refused',
+          message:
+            '`ACME_OKTA_SECRET` is the secret of identity provider "acme-okta": a pack\'s env never names it, since it signs the tenant\'s people in. If one app registration serves both, give it a second secret of its own (a second client secret), store that under its own name and use that name',
+          details: { secret: 'ACME_OKTA_SECRET', identityProviderId: 'acme-okta' },
+          requestId: expect.any(String),
+        },
+      });
+      expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
     });
   });
 

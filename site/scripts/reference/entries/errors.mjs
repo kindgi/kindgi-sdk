@@ -2221,7 +2221,7 @@ export const ERROR_ENTRIES = {
   },
   'key-project-mismatch': {
     description:
-      "Your key is limited to one project, and the request names another project, or asks to mint a key not limited to your project. Use the project the key is limited to. A promotion reads one project and writes another, so a key or session limited to a project can't promote, or check a promotion.",
+      "Your key is limited to one project, and the request names another project, asks to mint a key not limited to your project, or reads or revokes one of your keys that isn't limited to it. Use the project the key is limited to. A promotion reads one project and writes another, so a key or session limited to a project can't promote, or check a promotion. Without an authorization store, a key or session limited to a project is also refused a write above its project: to the workspace, an org or a team.",
     details: [
       {
         key: 'keyProjectId',
@@ -2229,7 +2229,7 @@ export const ERROR_ENTRIES = {
       },
       {
         key: 'projectId',
-        meaning: 'the project the request names',
+        meaning: 'the project the request names, when it names one',
       },
       {
         key: 'action',
@@ -3587,7 +3587,7 @@ export const ERROR_ENTRIES = {
   },
   'provider-key-refused': {
     description:
-      "The request names a model provider's key as a secret for something that isn't that provider, such as a tool, an MCP endpoint or a webhook endpoint. Store the key under its own name and use that name.",
+      "The request names a model provider's key as a secret for something that isn't that provider, such as a tool, an MCP endpoint, a webhook endpoint or an identity provider. Store the key under its own name and use that name; an identity provider names a secret of its own instead.",
     details: [
       {
         key: 'secret',
@@ -3601,7 +3601,7 @@ export const ERROR_ENTRIES = {
   },
   'connection-key-refused': {
     description:
-      "The request names the account key of a texts connection app registration (its `token.apiKey`) as a secret for something that isn't that registration, such as a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a model provider, another connection app registration or a pack's `env`. The key reaches the whole provider account, so only its registration names it. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Nothing is stored.",
+      "The request names the account key of a texts connection app registration (its `token.apiKey`) as a secret for something that isn't that registration, such as a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a model provider, another connection app registration, an identity provider or a pack's `env`. The key reaches the whole provider account, so only its registration names it. Use a key of its own: a new API key from the provider, stored under its own name. A copy of this one under another name reaches the same account. Nothing is stored.",
     details: [
       {
         key: 'secret',
@@ -3613,6 +3613,40 @@ export const ERROR_ENTRIES = {
       },
     ],
     seeAlso: ['#connection-key-in-use', 'POST /v1/connection-apps'],
+  },
+  'identity-provider-key-refused': {
+    description:
+      "The request names an identity provider's secret (its OIDC client secret, or its SAML signing or decryption key) as a secret for something that isn't sign-in, such as a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a model provider, a connection app registration or a pack's `env`. The secret signs the tenant's people in, so only sign-in names it. If one app registration serves both sign-in and a connection, give it a second client secret, store that under its own name and use that name. Nothing is stored.",
+    details: [
+      {
+        key: 'secret',
+        meaning: "name of the secret that is an identity provider's",
+      },
+      {
+        key: 'identityProviderId',
+        meaning: 'id of the identity provider that references that secret',
+      },
+    ],
+    seeAlso: ['#identity-provider-key-in-use', 'POST /v1/auth/providers'],
+  },
+  'identity-provider-key-in-use': {
+    description:
+      "A secret the identity provider being registered or changed references (its OIDC client secret, or its SAML signing or decryption key) is already used by a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger or a connection app registration. An identity provider's secret is sign-in's only, so each of them would be refused it from then on. Store the identity provider's own secret under its own name and reference that. If one app registration serves both sign-in and a connection, give it a second client secret. Nothing is stored.",
+    details: [
+      {
+        key: 'secret',
+        meaning: 'name of the secret',
+      },
+      {
+        key: 'usedBy',
+        meaning: 'list of the things using it, each with kind and id',
+      },
+    ],
+    seeAlso: [
+      '#identity-provider-key-refused',
+      'POST /v1/auth/providers',
+      'PATCH /v1/auth/providers/{providerId}',
+    ],
   },
   'provider-key-in-use': {
     description:
@@ -3790,7 +3824,7 @@ export const ERROR_ENTRIES = {
   },
   'reserved-name-prefix': {
     description:
-      "The name starts with `kindgi.`, the prefix reserved for the runtime's own secrets. You can't store, rotate or revoke such a secret, or name one in a registration: a tool, an MCP endpoint, a webhook endpoint, a webhook trigger or a connection app.",
+      "The name starts with `kindgi.`, the prefix reserved for the runtime's own secrets. You can't store, rotate or revoke such a secret, or name one in a registration: a tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a connection app or an identity provider.",
     details: [{ key: 'secret', meaning: 'on a registration, the reserved name it names' }],
     seeAlso: ['guides/secrets/store-a-secret'],
   },

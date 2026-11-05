@@ -65,7 +65,7 @@
     "clean": "rm -rf dist src/generated *.tsbuildinfo"
   },
   "dependencies": {
-    "zod": "^4.6.5"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@kindgi/agents": "workspace:*",

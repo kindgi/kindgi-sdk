@@ -26,8 +26,8 @@ directory, which you register with Kindgi once.
   the directory takes an admin role ([Admin consent](#admin-consent)).
 - **The `kindgi` CLI reaches your runtime as you,** with the runtime's address
   exported as `KINDGI_API_URL` and your API key as `KINDGI_API_TOKEN`
-  ([People and keys](../../../deploy/people-and-keys/#api-keys)). Kindgi
-  0.2's CLI runs from any folder as `npx --yes @kindgi/cli@0.4`
+  ([People and keys](../../../deploy/people-and-keys/#api-keys)).
+  Kindgi 0.4's CLI runs from any folder as `npx --yes @kindgi/cli@0.4`
   ([Install](../../../start/install/)).
 
 ## 1. Choose who can connect
@@ -115,6 +115,11 @@ npx --yes @kindgi/cli@0.4 secrets set ACME_MICROSOFT_CONNECT_SECRET --env=produc
   keeps only this name.
 - `--env` is the runtime's environment, its `KINDGI_ENV`.
 - `--scope=tenant` stores the secret for the whole workspace.
+
+If this app registration also signs your people in to Kindgi, the connection
+needs a client secret of its own: a registration that names sign-in's is
+refused with `identity-provider-key-refused`. Add a second client secret to
+the app and store it under its own name.
 
 The command asks for the value twice, and doesn't show what you type.
 

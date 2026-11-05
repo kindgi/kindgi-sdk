@@ -21,6 +21,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type { GuardrailRecord, GuardrailRegistryBinding } from '../guardrail-binding.js';
 import { type ItemRights, itemMiddleware, itemPathCheck } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { holdLimitedCaller } from '../middleware/key-project.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { isReadMethod } from '../read-method.js';
 import {
@@ -32,7 +33,7 @@ import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { AppEnv } from '../types.js';
 import { guardrailOutcomesHandler } from './guardrail-outcomes.js';
 import { clampLimit } from './pagination.js';
-import { parseScopeParams } from './scope-params.js';
+import { bodyProjectResourceRef, parseScopeParams } from './scope-params.js';
 
 /**
  * Guardrails resource routes, paired with tools.
@@ -115,21 +116,7 @@ export function guardrailsRouter(
   if (authorizer !== undefined) {
     r.use('/', async (c, next) => {
       if (c.req.method !== 'POST') return next();
-      const tenantId = c.get('tenantId') as TenantId;
-      const mw = authorizer.authorize('admin', async () => {
-        try {
-          const body = await c.req.json();
-          const pid =
-            body !== null && typeof body === 'object'
-              ? (body as Record<string, unknown>).projectId
-              : undefined;
-          if (typeof pid === 'string' && pid.length > 0) return ref('project', pid);
-        } catch {
-          // POST handler validates + returns 400
-        }
-        return ref('tenant', tenantId as unknown as string);
-      });
-      return mw(c, next);
+      return authorizer.authorize('admin', bodyProjectResourceRef)(c, next);
     });
     r.use('/', async (c, next) => {
       if (!isReadMethod(c.req.method)) return next();
@@ -157,6 +144,14 @@ export function guardrailsRouter(
         check: itemPathCheck,
         versionNotFound: guardrailNotFound,
       }),
+    );
+  } else {
+    // Without a store, a key or session limited to a project still
+    // registers nothing tenant-wide (`holdLimitedCaller`).
+    r.use('/', async (c, next) =>
+      c.req.method === 'POST'
+        ? holdLimitedCaller('admin', bodyProjectResourceRef)(c, next)
+        : next(),
     );
   }
 

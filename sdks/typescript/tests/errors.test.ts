@@ -112,6 +112,7 @@ describe('fromWire — conflicts', () => {
     'identity-user-email-taken',
     'identity-user-not-invited',
     'provider-key-in-use',
+    'identity-provider-key-in-use',
   ])('a %s is a conflict, its code the reason', (code) => {
     expect(fromWire({ code, message: 'taken' })).toEqual({
       code: 'conflict',
@@ -196,6 +197,23 @@ describe('fromWire — pinned versions', () => {
       code: 'invalid-request',
       serverCode: 'connection-key-refused',
       fields: { secret: 'ACME_TELNYX_KEY', appId: 'app-1' },
+    });
+  });
+
+  it('an identity-provider-key-refused is an invalid request, naming the secret and its identity provider', () => {
+    expect(
+      fromWire(
+        {
+          code: 'identity-provider-key-refused',
+          message: 'm',
+          details: { secret: 'ACME_OKTA_SECRET', identityProviderId: 'acme-okta' },
+        },
+        400,
+      ),
+    ).toMatchObject({
+      code: 'invalid-request',
+      serverCode: 'identity-provider-key-refused',
+      fields: { secret: 'ACME_OKTA_SECRET', identityProviderId: 'acme-okta' },
     });
   });
 

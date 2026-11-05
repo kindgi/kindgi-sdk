@@ -39,7 +39,7 @@ const p = Object.fromEntries(
   ['a', 'b', 'c', 'd', 'e', 'f'].map((k) => [k, randomUUID() as ProjectId]),
 ) as Record<'a' | 'b' | 'c' | 'd' | 'e' | 'f', ProjectId>;
 
-const PEOPLE = ['admin', 'orgadmin', 'viewer'] as const;
+const PEOPLE = ['admin', 'orgadmin', 'viewer', 'limited'] as const;
 type Person = (typeof PEOPLE)[number];
 const ids = Object.fromEntries(PEOPLE.map((who) => [who, randomUUID() as UserId])) as Record<
   Person,
@@ -48,7 +48,11 @@ const ids = Object.fromEntries(PEOPLE.map((who) => [who, randomUUID() as UserId]
 const whoById = (id: string): Person | undefined => PEOPLE.find((who) => ids[who] === id);
 const resolveToken: TokenResolver = async (token) => {
   const who = PEOPLE.find((person) => token === `${person}-token`);
-  return who === undefined ? null : { tenantId, userId: ids[who] };
+  if (who === undefined) return null;
+  // `limited` holds a key limited to project a.
+  return who === 'limited'
+    ? { tenantId, userId: ids[who], tokenProjectId: p.a }
+    : { tenantId, userId: ids[who] };
 };
 const runHandler: RunHandlerBinding = {
   invokeAgent: async () => ({ kind: 'err', error: { code: 'bad-input', message: 'not used' } }),
@@ -464,6 +468,43 @@ describe('who may write an order', () => {
       body: { projectIds: [p.a, p.b] },
     });
     expect(r.status).toBe(200);
+  });
+
+  describe('a key limited to a project may not, with authorization configured or not', () => {
+    const initial = { tenant: [p.a, p.b], [`org:${org1}`]: [p.c, p.d] };
+    const liveUnder = {
+      [p.a]: 'tenant',
+      [p.b]: 'tenant',
+      [p.c]: `org:${org1}`,
+      [p.d]: `org:${org1}`,
+    };
+    // What it would write, and the order that stays.
+    const CASES: [string, string, ProjectId[], ProjectId[]][] = [
+      [
+        'the tenant order, naming other projects',
+        '/v1/environment-orders/tenant',
+        [p.b, p.a],
+        [p.a, p.b],
+      ],
+      ['the tenant order, cleared', '/v1/environment-orders/tenant', [], [p.a, p.b]],
+      ["an org's order", `/v1/environment-orders/orgs/${org1}`, [p.d, p.c], [p.c, p.d]],
+    ];
+    for (const authz of [true, false]) {
+      test.each(CASES)(
+        `%s (authorization ${authz ? 'configured' : 'not configured'}): 403 key-project-mismatch, nothing written`,
+        async (_, path, projectIds, stays) => {
+          const h = makeApp({ initial, liveUnder, authz });
+          const r = await h.call(path, { method: 'PUT', who: 'limited', body: { projectIds } });
+          expect([r.status, r.body.error?.code]).toEqual([403, 'key-project-mismatch']);
+          expect(r.body.error?.details).toMatchObject({ keyProjectId: p.a });
+          const after = await h.call(path);
+          expect(after.body.entries).toEqual(
+            stays.map((projectId, position) => ({ position, projectId })),
+          );
+          expect(h.appended).toEqual([]);
+        },
+      );
+    }
   });
 });
 
