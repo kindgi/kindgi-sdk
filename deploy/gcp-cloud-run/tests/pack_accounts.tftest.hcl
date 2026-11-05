@@ -360,7 +360,7 @@ run "shared_mode_has_no_tenant_account_and_no_env" {
   }
 }
 
-run "93_tenants_are_taken" {
+run "up_to_93_tenants_are_taken" {
   command = plan
 
   variables {
@@ -375,7 +375,7 @@ run "93_tenants_are_taken" {
 
 # ---- what the checks refuse --------------------------------------------------------
 
-run "94_tenants_are_refused" {
+run "a_94th_tenant_is_refused" {
   command = plan
 
   variables {
