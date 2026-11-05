@@ -3278,7 +3278,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemKeptRepos.rulings',
     summary: 'Rule on the kept repos a store holds',
     description:
-      "For a store keeping repos for the runtime's projects without a GitHub repo: one ruling for each id it names, in order. `keep`, with the mark the store sets on the repo, or `purge`, for `reason`. An unfinished erasure rules `purge` first, then a purge already recorded (with `recorded: true`), then a purged tenant; a project deleted, or a repo moved to GitHub, the kept window ago or more is `retention`, and a repo the runtime has no project for is `no-record`, unless something holds it (`keep`, marked `held`). Ids may span tenants. An id not in form, or more than 500, refuses the whole request. Takes `system:kept-repos`, on a runtime serving many tenants.",
+      "For a store keeping repos for the runtime's projects without a GitHub repo: one ruling for each id it names, in order. `keep`, with the mark the store sets on the repo, or `purge`, for `reason`. An unfinished erasure rules `purge` first, then a purge already recorded (with `recorded: true`), then a purged tenant; a project deleted, or a repo moved to GitHub, 90 days ago or more (its kept window) is `retention`, and a repo the runtime has no project for is `no-record`, unless something holds it (`keep`, marked `held`). Ids may span tenants. An id not in form, or more than 500, refuses the whole request. Takes `system:kept-repos`, on a runtime serving many tenants.",
     tags: ['system-kept-repos'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],

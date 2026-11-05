@@ -11115,7 +11115,7 @@ class KeptRepoRuling(BaseModel):
     """
     since: AwareDatetime | None = None
     """
-    With a `keep` marked `deleted`, `moved` or `held`: when the mark began.
+    With a `keep` marked `deleted`, `moved` or `held`: when its window began, its project's delete or its repo's move to GitHub (for a `held` repo with no project, the ruling's own time).
     """
     reason: (
         Annotated[Literal["erasure", "retention", "tenant-purged", "no-record"] | str, _open.OPEN]

@@ -192,6 +192,21 @@ describe('POST /v1/system/kept-repos/rulings', () => {
     expect(t.calls.rulings).toEqual([[a, b, a]]);
   });
 
+  test("a ruling answers its own fields alone, never anything else a binding's carries", async () => {
+    const t = makeApp();
+    const id = { tenantId: active, projectId: PROJECT };
+    t.fake.rulings = () => [
+      { ruling: 'keep', mark: 'held', since: SINCE, ref: 'refs/heads/main' } as KeptRepoRuling,
+    ];
+    const r = await t.call('kgi_sy_reconcile', 'POST', path, { ids: [id] });
+    expect(r.body).toEqual({ rulings: [{ ...id, ruling: 'keep', mark: 'held', since: SINCE }] });
+    t.fake.rulings = () => [
+      { ruling: 'purge', reason: 'retention', recorded: false, path: '/x' } as unknown as KeptRepoRuling,
+    ];
+    const p = await t.call('kgi_sy_reconcile', 'POST', path, { ids: [id] });
+    expect(p.body).toEqual({ rulings: [{ ...id, ruling: 'purge', reason: 'retention' }] });
+  });
+
   test('ids are read in lower case', async () => {
     const t = makeApp();
     await t.call('kgi_sy_reconcile', 'POST', path, {

@@ -42,7 +42,8 @@ export type KeptRepoPurgeReason = (typeof KEPT_REPO_PURGE_REASONS)[number];
  * - `keep` it, with its mark: `none` (its project is live), `deleted` or
  *   `moved` (its project was deleted, or its repo moved to GitHub, at
  *   `since`, within the kept window), or `held` (it's due a purge, and
- *   something holds it; `since` is when its window began);
+ *   something holds it; `since` is when its window began, or the
+ *   ruling's own time for a repo with no project);
  * - or `purge` it, for `reason`.
  */
 export type KeptRepoRuling =
@@ -134,7 +135,9 @@ export interface SystemKeptReposBinding {
   /**
    * Request the erasure of a project's kept repo. A second request while
    * one is unfinished answers that one. `not-found` exactly when `state`
-   * answers `undefined`.
+   * answers `undefined`. A request that makes a job makes the repo's
+   * record too, with its project's `createdAt`, in the job's transaction;
+   * a refused one makes nothing.
    */
   requestErasure(input: {
     readonly tenantId: TenantId;
@@ -213,7 +216,7 @@ export function systemKeptReposRouter(options: {
       rulings: ids.map((id, i) => ({
         tenantId: id.tenantId as unknown as string,
         projectId: id.projectId,
-        ...(rulings[i] as KeptRepoRuling),
+        ...rulingFields(rulings[i] as KeptRepoRuling),
       })),
     });
   });
@@ -378,6 +381,16 @@ async function readJsonObject(
     return 'Request body must be an object';
   }
   return body as Readonly<Record<string, unknown>>;
+}
+
+/** A ruling as the wire has it, from its own fields: nothing else a binding returns. */
+function rulingFields(r: KeptRepoRuling): KeptRepoRuling {
+  if (r.ruling === 'purge') {
+    return { ruling: 'purge', reason: r.reason, ...(r.recorded === true && { recorded: true }) };
+  }
+  return r.mark === 'none'
+    ? { ruling: 'keep', mark: 'none' }
+    : { ruling: 'keep', mark: r.mark, since: r.since };
 }
 
 function answer(

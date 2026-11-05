@@ -528,10 +528,12 @@ restoring clears both. A closing tenant can't be suspended (`409 tenant-closing`
 
 ## Kept repos
 
-A runtime serving many tenants can keep a git repo for each project without a
-GitHub repo, in a repo store beside it. The store holds the repos. The
-runtime holds their record: which projects are live, deleted or moved to
-GitHub, which repos are due a purge, and each purge done.
+Kindgi Cloud keeps a git repo for each project without a GitHub repo, in a
+repo store beside a runtime serving many tenants. The store holds the repos.
+The runtime holds their record: which projects are live, deleted or moved to
+GitHub, which repos are due a purge, and each purge done. A runtime you run
+has no repo store, so `KINDGI_KEPT_REPOS` stays off on it. This section says
+what the runtime's side does, and what its routes answer.
 
 - **Turn it on** with `KINDGI_KEPT_REPOS=on`, on the runtime and on the
   store's gateway alike. Off is the default. A runtime serving one tenant
@@ -552,10 +554,10 @@ GitHub, which repos are due a purge, and each purge done.
     with `{"reason": "..."}`), which completes the erasure waiting on it.
   The three answer whether or not `KINDGI_KEPT_REPOS` is on, so a store
   still purges what's ruled while the runtime's is off.
-- **A repo is kept** while its project is live, and for its kept window
-  after its project is deleted or the repo moves to GitHub (`keep`, marked
-  `deleted` or `moved`). Then it's ruled `purge` for `retention`, unless
-  something holds it (`keep`, marked `held`).
+- **A repo is kept** while its project is live, and for 90 days after its
+  project is deleted or the repo moves to GitHub, its kept window (`keep`,
+  marked `deleted` or `moved`). Then it's ruled `purge` for `retention`,
+  unless something holds it (`keep`, marked `held`).
 
 ### Erase a kept repo
 

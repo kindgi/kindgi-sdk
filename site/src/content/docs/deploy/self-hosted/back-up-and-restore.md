@@ -415,7 +415,8 @@ version, use the image your server already runs.
   erasure names.
 - **Kept repos' erasures** ([kept repos](../serve-many-tenants/#kept-repos)):
   `--records <where>` is where their records are, `KINDGI_TENANT_PURGE_RECORD`
-  when left out. Replay reads those and the copy's list of erased repos, a
+  when left out, whatever `KINDGI_KEPT_REPOS` is now. Replay reads those and
+  the copy's list of erased repos, a
   repo both name once, and records each erasure again, so the repo store
   purges the repo at its next pass. Where the project is in the database,
   its creation time must be the record's: if it isn't, that erasure is
@@ -429,7 +430,8 @@ version, use the image your server already runs.
   `--timeout` (seconds, default 600). Exit `2` when it can't run, or a kept
   repo's erasure was refused.
 
-**With kept repos, keep the repo store's gateway stopped** until replay and
+**If the runtime has kept repos (`KINDGI_KEPT_REPOS` on, now or before the
+backup), keep the repo store's gateway stopped** until replay and
 `tenants repurge` (below) have run. A pass on a database not yet replayed
 would keep a repo the restore brought back.
 

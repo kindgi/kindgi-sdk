@@ -14495,7 +14495,8 @@ export const KeptRepoRulingSchema: JsonSchema = {
     since: {
       type: 'string',
       format: 'date-time',
-      description: 'With a `keep` marked `deleted`, `moved` or `held`: when the mark began.',
+      description:
+        "With a `keep` marked `deleted`, `moved` or `held`: when its window began, its project's delete or its repo's move to GitHub (for a `held` repo with no project, the ruling's own time).",
     },
     reason: KEPT_REPO_PURGE_REASON,
     recorded: {
