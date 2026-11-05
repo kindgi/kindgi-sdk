@@ -13,6 +13,7 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a tool's context names the workspace's time zone.** `ToolContext` gains `time_zone`, an IANA name such as `"America/Toronto"`, as a runtime on pack protocol 2.12.0 sends it: one agent turn's calls all get the same one, `"UTC"` when the workspace sets none. It's `None` outside an agent turn and from an older runtime, so a tool uses UTC then. `ToolContext.for_test(time_zone=…)` passes one in a unit test.
 - `kindgi`: **an approval gives the id of the connection its call acts with, so a person can see which of their accounts it uses.** `ApprovalConnection` (on an approval, and in a run's `waiting_for`) gains `connection_id`. A person's own connection's account still isn't on the approval: whoever may read the connection, its person or a tenant admin, reads it with `client.connections.get(connection_id)`. Approvals from before this change have none.
 - `kindgi`: **an agent or a flow can be a tool in a person's chat app.**
   `Agent(mcp={"expose": True})` and `Flow(mcp={"expose": True})` offer it,

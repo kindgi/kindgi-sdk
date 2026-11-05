@@ -12,7 +12,7 @@ description: >
   authoring agents is covered by kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.5.6"
+version: "0.5.7"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -65,6 +65,7 @@ makes `defineTool` return an `invalid-tool-definition` error.
 | Your case | Read |
 |---|---|
 | A `handler`: what it gets (`input`, `ctx`), and logging | [imperative-handler.md](imperative-handler.md) |
+| A date or a time: the workspace's time zone (`ctx.timeZone`), and a date and time tool | [imperative-handler.md](imperative-handler.md) |
 | An env value, a workspace's secret, or acting in another app (a connection) | [secrets-and-connections.md](secrets-and-connections.md) |
 | A plain remote call: `spec: {kind: 'http'}` | [declarative-http.md](declarative-http.md) |
 | A read-only tool, a person's yes in unattended runs, results that are outside text | [tool-flags.md](tool-flags.md) |

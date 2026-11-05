@@ -77,6 +77,12 @@ export interface HandlerContext {
    * runtime, and outside a run.
    */
   readonly idempotencyKey?: string;
+  /**
+   * The workspace's time zone, an IANA name (protocol 2.12.0): the same for
+   * every call of one agent turn, `UTC` when the workspace sets none.
+   * Absent outside an agent turn, and from an older runtime: use UTC then.
+   */
+  readonly timeZone?: string;
   /** The declared env values: project, else org, else workspace (protocol 2.5.0). */
   readonly env?: Readonly<Record<string, unknown>>;
   readonly secrets?: Readonly<Record<string, unknown>>;

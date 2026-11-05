@@ -22,6 +22,7 @@ async function contextSeen(
   args: Record<string, unknown> = { q: 'x' },
   records: Map<string, unknown> = new Map(),
   step: Partial<NodeContext> = {},
+  turn: Partial<TurnContext> = {},
 ): Promise<ToolContext | undefined> {
   let seen: ToolContext | undefined;
   const defined = defineTool<Record<string, unknown>, { ok: boolean }>({
@@ -72,6 +73,7 @@ async function contextSeen(
     turnAbort: new AbortController(),
     appended: [],
     hitlPolicy: resolveEffectiveHitlPolicy({ tenant: undefined, agent }),
+    ...turn,
   } as unknown as TurnContext;
 
   const handler = buildDispatchToolsHandler(ctx);
@@ -114,6 +116,26 @@ describe('dispatch-tools — the context a tool receives', () => {
     const seen = await contextSeen({ projectId: 'project-1' });
     expect(seen?.projectId).toBe('project-1');
     expect(seen).not.toHaveProperty('orgId');
+  });
+});
+
+describe("dispatch-tools — the workspace's time zone", () => {
+  test('every call gets the zone the turn read', async () => {
+    const seen = await contextSeen(
+      { projectId: 'project-1' },
+      { q: 'x' },
+      new Map(),
+      {},
+      {
+        timeZone: 'America/Toronto',
+      },
+    );
+    expect(seen?.timeZone).toBe('America/Toronto');
+  });
+
+  test('a turn that read none: no zone', async () => {
+    const seen = await contextSeen({ projectId: 'project-1' });
+    expect(seen).not.toHaveProperty('timeZone');
   });
 });
 

@@ -71,6 +71,7 @@ import {
   addStepToolNodes,
 } from './turn-provenance.js';
 import type { FileRead, PointCheckNode, ToolApproval } from './turn-provenance.js';
+import { resolveTurnTimeZone } from './turn-time-zone.js';
 
 interface StepRecord {
   readonly nodeId: string;
@@ -157,6 +158,7 @@ export async function rehydrateTurnContext(
     readonly toolVersions?: Readonly<Record<string, string>>;
     readonly blockVersions?: PinnedBlockVersions;
     readonly guardrails?: PinnedGuardrails;
+    readonly timeZone?: string;
   }>(steps, 'setup');
   if (setup === undefined) return false;
 
@@ -180,6 +182,9 @@ export async function rehydrateTurnContext(
     setup.guardrails,
   );
   await offerAccounts(ctx, runId);
+  // The zone `setup` journaled; a journal from before it was recorded
+  // reads the workspace's now.
+  await resolveTurnTimeZone(ctx, setup.timeZone);
 
   const userMessage = outputOf<{ readonly sequence: number }>(steps, 'persist-user-message');
   if (userMessage !== undefined) {
