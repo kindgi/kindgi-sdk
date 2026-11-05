@@ -49,7 +49,12 @@ another's is how that service runs:
   [many](../../deploy/self-hosted/serve-many-tenants/), so no deployment's
   code shares a process with another's. They all run as the
   installation's one pack identity, apart from the runtime's: whatever one
-  of them may read, every one may, each other's secrets included. Whatever
+  of them may read, every one may, each other's secrets included. On Cloud
+  Run, the module can give each tenant an account of its own instead
+  ([`pack_accounts = "per-tenant"`](../../deploy/self-hosted/cloud-run/#a-pack-account-per-tenant)).
+  Then a tenant's pack code reads only its own secrets, and only the
+  secrets the operator lists for it. What the operator lists for every
+  tenant (databases, buckets, services it calls) stays shared. Whatever
   runs those services records each one's endpoint and gives each its
   values, secrets included, with system keys holding `system:deployments`
   and `system:pack-env`. Those keys reach nothing else of the runtime, and
