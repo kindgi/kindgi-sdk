@@ -17,12 +17,12 @@ import type {
   FlowRegistryBinding,
   FlowVersionRecord,
   PlanLimitsBinding,
-  PlanLimitsInput,
   PlanRefused,
   PlanWarning,
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
+import { planLimits } from './support/plan-limits.js';
 
 /**
  * The plan limits on publish and reinstate: each asks `planLimits.admit`
@@ -40,39 +40,6 @@ const runHandler: RunHandlerBinding = {
   invokeFlow: async () => ({ kind: 'err', error: { code: 'bad-input', message: 'unused' } }),
   resumeRun: async () => ({ kind: 'err', error: { code: 'bad-input', message: 'unused' } }),
 };
-
-type Answer =
-  | PlanRefused
-  | { readonly kind: 'busy' }
-  | { readonly kind: 'done'; readonly warning?: PlanWarning }
-  | { readonly kind: 'fails' };
-
-/** A plan-limits binding that answers as told, and records what it was asked. */
-function planLimits(answer: Answer): {
-  readonly binding: PlanLimitsBinding;
-  readonly admitted: PlanLimitsInput[];
-} {
-  const admitted: PlanLimitsInput[] = [];
-  return {
-    admitted,
-    binding: {
-      async admit(input, write) {
-        admitted.push(input);
-        if (answer.kind === 'fails') throw new Error('the count could not be read');
-        if (answer.kind !== 'done') return answer;
-        const value = await write();
-        return {
-          kind: 'done',
-          value,
-          ...(answer.warning !== undefined && { warning: answer.warning }),
-        };
-      },
-      async check() {
-        throw new Error('publish never dry-checks');
-      },
-    },
-  };
-}
 
 const AGENTS_AT_MOST: PlanRefused = {
   kind: 'refused',
@@ -182,6 +149,7 @@ function makeApp(input: {
   readonly agents?: AgentRegistryBinding;
   readonly flows?: FlowRegistryBinding;
   readonly planLimits?: PlanLimitsBinding;
+  readonly next?: string;
 }) {
   return createApp({
     ...createStubAppBindings(),
@@ -190,6 +158,7 @@ function makeApp(input: {
     ...(input.agents !== undefined && { agentRegistry: input.agents }),
     ...(input.flows !== undefined && { flowRegistry: input.flows }),
     ...(input.planLimits !== undefined && { planLimits: input.planLimits }),
+    ...(input.next !== undefined && { production: { next: input.next } }),
   });
 }
 
@@ -242,6 +211,27 @@ describe('POST /v1/agents through the plan limits', () => {
       },
       requestId: expect.any(String),
     });
+    expect(agents.writes).toEqual([]);
+  });
+
+  test('refused where a larger plan is named: the words and details.next say where', async () => {
+    const projectId = randomUUID();
+    const agents = agentRegistry();
+    const plan = planLimits(AGENTS_AT_MOST);
+    const app = makeApp({
+      agents: agents.binding,
+      planLimits: plan.binding,
+      next: 'https://example.com/plans',
+    });
+    const res = await app.request('/v1/agents', post(agentBody(projectId)));
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as {
+      error: { message: string; details: Record<string, unknown> };
+    };
+    expect(body.error.message).toBe(
+      "This adds 1 agent to production, and this runtime's license key runs at most 12: its plan's 10, and a margin. 12 run in production now. What runs keeps running, and changes to it go through. To make room, unregister one that runs in production, take a project out of production, or get a larger plan: https://example.com/plans.",
+    );
+    expect(body.error.details.next).toBe('https://example.com/plans');
     expect(agents.writes).toEqual([]);
   });
 
