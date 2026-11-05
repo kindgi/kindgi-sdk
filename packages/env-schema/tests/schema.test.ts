@@ -22,6 +22,8 @@ import {
   type EnvVarSpec,
   KINDGI_ENV_SCHEMA,
   LICENSE_KEY_VAR,
+  TENANT_EGRESS_NO_PROXY_VAR,
+  TENANT_EGRESS_PROXY_VAR,
   envVarsForTarget,
   renderEnvExample,
   validateEnvForTarget,
@@ -217,6 +219,19 @@ describe('envVarsForTarget', () => {
         (v) => v.name === 'KINDGI_WEBHOOK_PRIVATE_NETWORKS',
       ),
     ).toBe(false);
+  });
+
+  test("the tenant egress proxy and its direct hosts: the server's, optional, from runtime 0.7.0", () => {
+    const server = new Map(envVarsForTarget({}).map((v) => [v.name, v]));
+    const packService = envVarsForTarget({ component: 'pack-service' }).map((v) => v.name);
+    for (const name of [TENANT_EGRESS_PROXY_VAR, TENANT_EGRESS_NO_PROXY_VAR]) {
+      expect(server.get(name)).toMatchObject({ group: 'core', required: false });
+      expect(server.get(name)?.description).toMatch(/^Used from runtime 0\.7\.0; /);
+      expect(packService).not.toContain(name);
+    }
+    expect(server.get(TENANT_EGRESS_PROXY_VAR)?.description).toContain(
+      'it must refuse at least what `KINDGI_TENANT_HOST_ACCESS` refuses',
+    );
   });
 
   test("the server's bind host, its public URL and its development settings: optional, server only", () => {

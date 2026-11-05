@@ -37,6 +37,9 @@ export const ENV_DEFAULTS = {
   KINDGI_DEV: '`false`',
   KINDGI_TENANT_HOST_ACCESS: '`local` when `KINDGI_DEV` is on, else `deployed`',
   KINDGI_WEBHOOK_PRIVATE_NETWORKS: '`deny`',
+  KINDGI_TENANT_EGRESS_PROXY: 'none: tenant-chosen hosts and webhooks connect directly',
+  KINDGI_TENANT_EGRESS_NO_PROXY:
+    'none: with `KINDGI_TENANT_EGRESS_PROXY` set, every host goes through it',
   KINDGI_PRODUCTION_GATE: '`off`: no gate, and any tenant admin can put a project in production',
   KINDGI_PRODUCTION_NEXT_URL:
     'none: `production-not-allowed` says to ask whoever runs the server, and `production-limit-reached` to take a project out of production or ask whoever runs the server to raise the limit',
