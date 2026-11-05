@@ -53,7 +53,7 @@ Any admin can change it, at any time:
 The billing page then says where the change stands:
 
 - "The new billing contact is saved: Stripe sends the invoices to _email_
-  once it has the change." A new email takes Stripe a moment.
+  once it has the change."
 - "The billing contact is saved." The name changed, and the email didn't.
 - "Nothing changed: that's already the billing contact."
 - "Stripe didn't take the new billing contact, so the invoices may still go

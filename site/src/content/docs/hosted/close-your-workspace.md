@@ -13,7 +13,7 @@ instead.
 ## Before you close
 
 Export what you want to keep:
-[Export your workspace's data](../export-your-data/) shows how. An export
+[Export your data](../export-your-data/) shows how. An export
 holds what's stored in the workspace, as files, except:
 
 - **Secret values,** which can't be read back, by design.
@@ -26,7 +26,8 @@ You can still export in the 30 days after the close.
 Write to contact@kindgi.com from the email address of one of the
 workspace's admins, or of its
 [billing contact](../plans-and-billing/#the-billing-contact), and name the
-workspace. The console and the billing page have no button for it.
+workspace. We confirm it within 24 hours. The console and the billing page
+have no button for it.
 
 ## What closing does
 
@@ -49,8 +50,8 @@ Within 7 days we delete the workspace, as section 9 of our
 records, its secrets, and its packs' services and images. Every admin and
 the billing contact get an email once it's deleted.
 
-Backups age out 30 days after the deletion. If we restore a backup before
-then, we delete the workspace from it again.
+Backups age out within 30 days after the deletion. If we restore a backup
+before then, we delete the workspace from it again.
 
 ## What's kept
 
@@ -60,7 +61,7 @@ records, and for how long.
 
 ## Next
 
-- [Export your workspace's data](../export-your-data/): before you close,
+- [Export your data](../export-your-data/): before you close,
   or in the 30 days after.
 - [Your plan and billing](../plans-and-billing/): stop paying, and keep the
   workspace.
