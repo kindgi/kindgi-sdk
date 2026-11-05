@@ -92,6 +92,23 @@ describe('renderResponse: a refused deploy', () => {
     expect(text.replaceAll(/\s+/g, ' ')).toContain('The wire body was malformed');
   });
 
+  test('a busy plan count (503 plan-count-busy) says to deploy again, not to read the logs', () => {
+    const text = banner({
+      kind: 'wire-error',
+      status: 503,
+      retryAfterSeconds: 5,
+      error: {
+        code: 'plan-count-busy',
+        message:
+          'Counting the agents and flows in production took too long, so nothing was written. Try again after Retry-After.',
+      },
+    });
+    expect(text.replaceAll(/\s+/g, ' ')).toContain(
+      'Nothing was deployed: run the same command again in a few seconds.',
+    );
+    expect(text).not.toContain('This is a server error');
+  });
+
   test("a validation refusal's issues are listed", () => {
     const text = banner(
       refused({
@@ -146,6 +163,27 @@ describe('renderResponse: a deploy that landed', () => {
       );
       expect(text).not.toContain('pinned image');
       expect(text).not.toContain('With one pack service');
+    }
+  });
+
+  test("at its plan's flows or agents, a deploy warns, a line for each, flows first; below them it doesn't", () => {
+    const warned: DeploymentRecord = {
+      ...record,
+      planWarning: {
+        agents: { plan: 10, most: 12, inUse: 10 },
+        flows: { plan: 1, most: 2, inUse: 2 },
+      },
+    };
+    for (const kind of ['created', 'replayed'] as const) {
+      expect(banner(landed(kind, warned))).toContain(
+        [
+          '',
+          "  ⚠ 2 of your plan's 1 flow run in production. Past 2, new ones are refused.",
+          "  ⚠ 10 of your plan's 10 agents run in production. Past 12, new ones are refused.",
+          '',
+        ].join('\n'),
+      );
+      expect(banner(landed(kind, record))).not.toContain('⚠');
     }
   });
 
