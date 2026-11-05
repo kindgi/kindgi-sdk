@@ -1391,7 +1391,7 @@ describe('POST /v1/deployments — happy path', () => {
       const fixture = buildSignedDeploy({ index: index as never });
       const { app, deploymentRegistry } = makeApp({
         fixture,
-        extra: { connections, envName: 'prod' as never },
+        extra: { connections: connections as never, envName: 'prod' as never },
       });
       const res = await app.request('/v1/deployments', {
         method: 'POST',

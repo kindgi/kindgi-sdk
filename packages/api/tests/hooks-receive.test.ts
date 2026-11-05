@@ -531,7 +531,9 @@ describe('a request that does not prove its sender', () => {
     }
     expect(resolved.filter((n) => n === WOO_SECRET)).toEqual([]);
     expect(keyHolderReads.slice(before)).toEqual([WOO_SECRET]);
-    expect(await fires(t.triggerId)).toEqual([]);
+    expect((await fires(t.triggerId)).map((f) => [f.outcome, f.detail])).toEqual(
+      Array.from({ length: 5 }, () => ['refused', 'secret-unavailable']),
+    );
   });
 
   test('refusals past 20 a minute only count, on the trigger; the audit takes the first 20', async () => {

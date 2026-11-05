@@ -506,7 +506,7 @@ describe('removing a number', () => {
 
 describe('keyHolders: the live texts registrations holding a key', () => {
   const textsToken = (name: string) => ({
-    provider: 'telnyx',
+    provider: 'telnyx' as const,
     apiKey: { envName, name },
     publicKey: PUBLIC_KEY,
   });
