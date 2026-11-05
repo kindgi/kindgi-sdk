@@ -530,6 +530,7 @@
           "site-not-found": 404,
           "site-invalid": 400,
           "site-enrollment-refused": 401,
+          "site-enrollment-key-retired": 409,
           "site-key-invalid": 400,
           "site-sign-in-refused": 401,
           "site-request-too-large": 413,
@@ -23732,6 +23733,13 @@
             "type": "string",
             "format": "date-time",
             "description": "When the project was put in production; absent while it isn't. A run in a project in production is a production run, and a run anywhere else is staging."
+          },
+          "formerSlugs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The slugs this project had before it was renamed, newest first, and empty when it never was. No other project of the workspace can take them, in any org, while this project exists. Absent from a runtime that doesn't keep them."
           },
           "sortEndUserCorrections": {
             "type": "boolean",
@@ -63043,7 +63051,7 @@
             }
           }
         },
-        "description": "A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second default project, `409 project-default-already-exists`.",
+        "description": "A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the workspace had before it was renamed, in any org (`details.heldAs: 'old-slug'`); a second default project, `409 project-default-already-exists`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -63190,7 +63198,7 @@
             }
           },
           "409": {
-            "description": "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up; or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
+            "description": "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up, or another project of the workspace had it before it was renamed (`details.heldAs: 'old-slug'`); or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
             "content": {
               "application/json": {
                 "schema": {
@@ -63230,7 +63238,7 @@
             }
           }
         },
-        "description": "A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up.",
+        "description": "A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the workspace had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.",
         "parameters": [
           {
             "name": "projectId",
@@ -77544,7 +77552,7 @@
             }
           }
         },
-        "description": "Statements signed with it are refused from now on, and the site's live sessions end. Tenant admins only.",
+        "description": "Statements signed with it are refused from now on, and Kindgi won't enroll it again, for this site or another site in the tenant at the same address. The site's live sessions end. Tenant admins only.",
         "parameters": [
           {
             "name": "projectId",
@@ -77766,6 +77774,16 @@
               }
             }
           },
+          "409": {
+            "description": "The key was retired at this site, or at another site in the tenant at the same address, and it isn't live on this site (`site-enrollment-key-retired`). The code isn't used up.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "413": {
             "description": "The body is over 4096 bytes (`site-request-too-large`).",
             "content": {
@@ -77787,7 +77805,7 @@
             }
           }
         },
-        "description": "Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.",
+        "description": "Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Once the code checks out, a key this site retired, or another site in the tenant at the same address retired, is refused unless it's live on this site now (`409 site-enrollment-key-retired`), and the code isn't used up. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.",
         "requestBody": {
           "required": true,
           "content": {

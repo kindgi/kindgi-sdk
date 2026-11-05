@@ -3039,6 +3039,11 @@ export const ERROR_ENTRIES = {
       '`POST /v1/auth/sites/enroll` was refused: the enrollment code is wrong, used or expired, or its site is paused or unregistered. Each of these gets the same answer. Ask a tenant admin for a new enrollment code.',
     details: [],
   },
+  'site-enrollment-key-retired': {
+    description:
+      "`POST /v1/auth/sites/enroll` took the code but refused the key: the site retired it (an admin revoked it, or a newer key replaced it), or another of the tenant's sites at the same address retired it, and it isn't live on this site now. Kindgi compares keys by their thumbprint. The code isn't used up: set a new key on the site and connect again with the same code before it expires. A key set in `wp-config.php` or the environment has to change first.",
+    details: [],
+  },
   'site-key-invalid': {
     description:
       "The key a site posts to `POST /v1/auth/sites/enroll` isn't an Ed25519 public JWK: `kty` `OKP`, `crv` `Ed25519`, `x` the 32-byte public key in base64url, and a `kid` of 1 to 64 letters, digits, `.`, `_` and `-`. A JWK with a private part (`d`) is refused too: post the public half only. The message says which part is wrong.",
@@ -3610,7 +3615,7 @@ export const ERROR_ENTRIES = {
   },
   'slug-conflict': {
     description:
-      'The slug is taken: another org, team or project in the workspace already has it, or a project in the same org. Choose another slug.',
+      "The slug is taken: another org, team or project in the workspace already has it, or a project in the same org. Choose another slug. A project's slug is also taken when another project of the workspace had it before it was renamed: it stays that project's, in any org, until that project is deleted.",
     details: [
       {
         key: 'resource',
@@ -3620,8 +3625,13 @@ export const ERROR_ENTRIES = {
         key: 'slug',
         meaning: 'the taken slug; on org delete, `slugs` lists them instead',
       },
+      {
+        key: 'heldAs',
+        meaning:
+          '`slug` when another has it now; `old-slug` when another project had it before it was renamed. Absent from a runtime that keeps no old slugs',
+      },
     ],
-    seeAlso: ['POST /v1/orgs'],
+    seeAlso: ['POST /v1/orgs', 'POST /v1/projects', 'PATCH /v1/projects/{projectId}'],
   },
   'project-default-already-exists': {
     description: "The workspace already has a default project, so a second one can't be created.",

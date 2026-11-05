@@ -383,7 +383,7 @@ export function projectsRouter(
       if (result.kind === 'err') {
         const error =
           result.error.code === 'slug-conflict'
-            ? slugConflictError('project', spec.slug)
+            ? slugConflictError('project', spec.slug, result.error.heldAs ?? 'slug')
             : result.error.code === 'org-not-found'
               ? orgNotFoundError(result.error.orgId as unknown as string)
               : result.error.code === 'default-conflict'
@@ -401,7 +401,7 @@ export function projectsRouter(
     if (outcome.kind !== 'ok') {
       const error =
         outcome.kind === 'slug-conflict'
-          ? slugConflictError('project', outcome.slug)
+          ? slugConflictError('project', outcome.slug, outcome.heldAs ?? 'slug')
           : outcome.kind === 'org-not-found'
             ? orgNotFoundError(outcome.orgId as unknown as string)
             : projectDefaultAlreadyExistsError();
@@ -785,7 +785,7 @@ export function projectsRouter(
     if (outcome.kind === 'slug-conflict' || outcome.kind === 'org-not-found') {
       const error =
         outcome.kind === 'slug-conflict'
-          ? slugConflictError('project', outcome.slug)
+          ? slugConflictError('project', outcome.slug, outcome.heldAs ?? 'slug')
           : orgNotFoundError(outcome.orgId as unknown as string);
       c.status(statusFor(error.code) as never);
       return c.json(toWireError(error, requestId));
@@ -886,6 +886,7 @@ function serializeProject(p: Project): Record<string, unknown> {
     ...(p.productionSince !== undefined && {
       productionSince: p.productionSince as unknown as string,
     }),
+    ...(p.formerSlugs !== undefined && { formerSlugs: [...p.formerSlugs] }),
     sortEndUserCorrections: p.sortEndUserCorrections === true,
     ...(p.repoConnectionId !== undefined && { repoConnectionId: p.repoConnectionId }),
     createdAt: p.createdAt as unknown as string,

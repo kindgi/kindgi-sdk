@@ -94,7 +94,7 @@ class AppJacksonTest {
         Object read = mapper.readValue(json, type);
         assertThat(read).as(type.getName()).isInstanceOf(unrecognized);
         assertThat(unrecognized.getMethod("properties").invoke(read)).as(type.getName()).isEqualTo(others);
-        assertThat(app.readValue(app.writeValueAsString(read), Map.class)).as(type.getName()).isEqualTo(body);
+        assertThat(app.readTree(app.writeValueAsString(read))).as(type.getName()).isEqualTo(app.readTree(json));
       }
       unions.add(type.getName());
     }
@@ -129,7 +129,7 @@ class AppJacksonTest {
       for (ObjectMapper mapper : List.of(app, strict)) {
         Object read = mapper.readValue(json, e.getKey());
         assertThat(e.getKey().getMethod("additionalProperties").invoke(read)).as(e.getKey().getName()).isEqualTo(others);
-        assertThat(app.readValue(app.writeValueAsString(read), Map.class)).as(e.getKey().getName()).isEqualTo(app.readValue(json, Map.class));
+        assertThat(app.readTree(app.writeValueAsString(read))).as(e.getKey().getName()).isEqualTo(app.readTree(json));
       }
     }
   }

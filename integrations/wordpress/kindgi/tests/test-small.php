@@ -183,3 +183,23 @@ function test_admin_the_privacy_guide_has_the_staffs_part_then_the_shoppers_with
 	kindgi_assert( 2 === substr_count( $text, 'Its privacy policy is at &lt;privacy URL&gt;.]' ), 'the placeholder shows as text in both' );
 	kindgi_assert( false === strpos( $text, '<privacy URL>' ), 'never as a tag' );
 }
+
+function test_admin_a_retired_key_set_by_hand_says_where_to_set_a_new_one_and_anything_else_keeps_kindgis_words(): void {
+	$retired  = new WP_Error( 'site-enrollment-key-retired', "This key was retired at this site, or at another site at its address, so it can't be enrolled again: enroll a new key. The code wasn't used up, so it works until it expires." );
+	$constant = Kindgi_Admin::connect_error( $retired, 'constant' );
+	kindgi_assert( false !== strpos( $constant, 'Set a new KINDGI_SITE_SECRET_KEY in wp-config.php' ), 'the constant: wp-config.php' );
+	kindgi_assert( false !== strpos( $constant, "php -r 'echo base64_encode(random_bytes(32)), PHP_EOL;'" ), 'the constant: how to make one' );
+	$environment = Kindgi_Admin::connect_error( $retired, 'environment' );
+	kindgi_assert( false !== strpos( $environment, "Set a new KINDGI_SITE_SECRET_KEY in the server's environment" ), 'the environment' );
+	kindgi_assert( false === strpos( $environment, 'wp-config.php' ), 'the environment: not wp-config.php' );
+	foreach ( array( $constant, $environment ) as $words ) {
+		kindgi_assert( 0 === strpos( $words, "Kindgi won't take this site's key again: it was retired." ), 'why first' );
+		kindgi_assert( false === strpos( $words, '%' ), 'no format code left in the words' );
+		$last = ' The same code works until it expires.';
+		kindgi_assert( substr( $words, -strlen( $last ) ) === $last, 'the same code still works, last' );
+	}
+	kindgi_assert_same( $retired->get_error_message(), Kindgi_Admin::connect_error( $retired, 'option' ), "a key kept in the database: Kindgi's words" );
+	kindgi_assert_same( $retired->get_error_message(), Kindgi_Admin::connect_error( $retired, '' ), "no key yet: Kindgi's words" );
+	$refused = new WP_Error( 'site-enrollment-refused', 'That enrollment code is wrong, used or expired, or its site is paused: ask a tenant admin for a new one' );
+	kindgi_assert_same( $refused->get_error_message(), Kindgi_Admin::connect_error( $refused, 'constant' ), "another refusal: Kindgi's words" );
+}
