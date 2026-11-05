@@ -516,9 +516,17 @@ describe('keyHolders: the live texts registrations holding a key', () => {
       .map((app) => app.appId);
 
   test('answers what the full listing gives, over OAuth, token and removed registrations', async () => {
+    // A clock that moves a second at each read, so each registration is made
+    // at its own time: `listApps` orders by that time, then by `appId`.
+    let at = Date.parse('2026-11-04T09:00:00Z');
+    const now = () => {
+      at += 1000;
+      return at;
+    };
     const made = createInMemoryConnections({
       entries: [google, texts],
       publicUrl: 'https://kindgi.acme.example/',
+      now,
     });
     // One project each: a project uses one registration of an app.
     const seed = (name: string, project: string) =>
