@@ -93,7 +93,10 @@ export function checkSignUpUrl(url: string | undefined): void {
   if (url !== undefined) checkSignInPageUrl('signUpUrl', url);
 }
 
-/** Throws unless `url`, a link a sign-in page shows, is an absolute https URL with no username or password. */
+/**
+ * Throws unless `url`, a link a sign-in page shows, is an absolute https URL
+ * with no username or password.
+ */
 function checkSignInPageUrl(name: string, url: string): void {
   const parsed = URL.canParse(url) ? new URL(url) : undefined;
   // A sign-in page shows the link to anyone, so the value isn't quoted back.

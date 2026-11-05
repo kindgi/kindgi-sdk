@@ -314,7 +314,10 @@ describe("sign-in options: the deployment's own sign-up page", () => {
   });
 
   test('set: `signUpUrl` is in the answer, the same with or without an email, beside `legal`', async () => {
-    const { app } = makeApp({ signUpUrl: SIGN_UP, legal: { termsUrl: 'https://acme.example/terms' } });
+    const { app } = makeApp({
+      signUpUrl: SIGN_UP,
+      legal: { termsUrl: 'https://acme.example/terms' },
+    });
     for (const email of [undefined, 'a@acme.com', 'guest@gmail.com']) {
       const body = (await (await lookup(app, email)).json()) as Record<string, unknown>;
       expect(body.signUpUrl).toBe(SIGN_UP);
