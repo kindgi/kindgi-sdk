@@ -3,6 +3,8 @@
 
 import type { Context } from 'hono';
 
+import type { ProjectId } from '@kindgi/types';
+
 import { statusFor, toWireError } from './errors.js';
 import type {
   PlanCount,
@@ -124,41 +126,52 @@ export function planRefusedAnswer(
   refused: PlanRefused,
   words: PlanWords,
 ): Response {
-  const requestId = c.get('requestId') as string;
-  const [first] = refused.over;
-  const over = refused.over.map(overDetail);
   c.status(statusFor('plan-limit-reached') as never);
   return c.json(
-    toWireError(
-      {
-        code: 'plan-limit-reached',
-        message: planRefusedMessage(refused.over, words),
-        projectId: input.projectId as unknown as string,
-        ...overDetail(first),
-        over,
-        newIds: { flows: [...refused.newIds.flows], agents: [...refused.newIds.agents] },
-        ...(words.next !== undefined && { next: words.next }),
-      },
-      requestId,
-    ),
+    toWireError(planRefusedError(input.projectId, refused, words), c.get('requestId') as string),
   );
+}
+
+/**
+ * `plan-limit-reached` as an error with its details, for a route that
+ * answers its errors itself: what `planRefusedAnswer` answers.
+ */
+export function planRefusedError(
+  projectId: ProjectId,
+  refused: PlanRefused,
+  words: PlanWords,
+): { readonly code: 'plan-limit-reached'; readonly message: string } & Readonly<
+  Record<string, unknown>
+> {
+  const [first] = refused.over;
+  return {
+    code: 'plan-limit-reached',
+    message: planRefusedMessage(refused.over, words),
+    projectId: projectId as unknown as string,
+    ...overDetail(first),
+    over: refused.over.map(overDetail),
+    newIds: { flows: [...refused.newIds.flows], agents: [...refused.newIds.agents] },
+    ...(words.next !== undefined && { next: words.next }),
+  };
 }
 
 /** The `503 plan-count-busy` answer: nothing ran, so a retry is safe. */
 export function planBusyAnswer(c: Context<AppEnv>): Response {
-  const requestId = c.get('requestId') as string;
   c.header('Retry-After', String(PLAN_COUNT_BUSY_RETRY_AFTER_S));
   c.status(statusFor('plan-count-busy') as never);
-  return c.json(
-    toWireError(
-      {
-        code: 'plan-count-busy',
-        message:
-          'Counting the agents and flows in production took too long, so nothing was written. Try again after Retry-After.',
-      },
-      requestId,
-    ),
-  );
+  return c.json(toWireError(planBusyError(), c.get('requestId') as string));
+}
+
+/**
+ * `plan-count-busy` as an error, for a route that answers its errors
+ * itself; it sends `Retry-After` (`PLAN_COUNT_BUSY_RETRY_AFTER_S`) with it.
+ */
+export function planBusyError(): { readonly code: 'plan-count-busy'; readonly message: string } {
+  return {
+    code: 'plan-count-busy',
+    message:
+      'Counting the agents and flows in production took too long, so nothing was written. Try again after Retry-After.',
+  };
 }
 
 /** One count over, as the details carry it: numbers only when this tenant may see them. */

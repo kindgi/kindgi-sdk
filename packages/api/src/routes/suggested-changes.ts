@@ -23,6 +23,7 @@ import {
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { latestMoved } from '../pin-test-runs.js';
+import { PLAN_COUNT_BUSY_RETRY_AFTER_S } from '../plan-limits.js';
 import {
   type SuggestedChangeCreator,
   type SuggestedChangeFacts,
@@ -864,5 +865,9 @@ function badInput(c: Ctx, message: string) {
 }
 
 function failWith(c: Ctx, error: SuggestedChangeServiceError) {
+  // Nothing ran: a retry after this is safe (`planBusyError`).
+  if (error.code === 'plan-count-busy') {
+    c.header('Retry-After', String(PLAN_COUNT_BUSY_RETRY_AFTER_S));
+  }
   return fail(c, error.code, error);
 }

@@ -43,6 +43,7 @@ import {
 } from './environment-entry.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 import type { GateApproval } from './gate.js';
+import { type PlanGate, planBusyError, planRefusedError } from './plan-limits.js';
 import {
   type ReferenceScopeBinding,
   agentPinScopeOutOfScope,
@@ -161,6 +162,11 @@ export interface SuggestedChangeServiceDeps {
   readonly corrections?: AgentPinGateDeps['corrections'] &
     Partial<Pick<CorrectionRegistryBinding, 'get'>>;
   readonly itemProjects?: AgentPinGateDeps['itemProjects'];
+  /**
+   * The plan limits (`plan-limits-binding.ts`): a suggested change's new
+   * agent version is published through them. Absent: nothing is counted.
+   */
+  readonly plan?: PlanGate;
 }
 
 /** An error with the code the API answers it with (`statusFor`), and its details. */
@@ -647,12 +653,23 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       suggestedChangeId: suggestedChange.id as unknown as string,
       ...(projectId !== undefined && { projectId }),
       ...(deps.orders !== undefined && { orders: deps.orders }),
+      ...(deps.plan !== undefined && { planLimits: deps.plan.limits }),
       tuplesFor: (landsIn) => (id) =>
         tuplesForCreate({ kind: 'agent', id: id as AgentId, tenantId, projectId: landsIn }, userId),
     });
     if (derived.kind === 'environment-takes-promotions') {
       return err(environmentTakesPromotions(derived.later));
     }
+    // The block version above stays: the plan limits count agents, and
+    // only the agent version waits on them.
+    if (derived.kind === 'plan-refused') {
+      return err(
+        planRefusedError(derived.projectId, derived.refused, {
+          ...(deps.plan?.next !== undefined && { next: deps.plan.next }),
+        }),
+      );
+    }
+    if (derived.kind === 'plan-busy') return err(planBusyError());
     if (derived.kind !== 'ok' && derived.kind !== 'reused') {
       return err(
         validationFailed(
@@ -1287,7 +1304,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       const id = made.id as unknown as string;
       return err({
         ...checked.error,
-        message: `Suggested change ${id} was made, but its check didn't start: ${checked.error.message}. Check it again with POST /v1/suggested-changes/${id}/check.`,
+        message: `Suggested change ${id} was made, but its check didn't start: ${checked.error.message.replace(/\.$/, '')}. Check it again with POST /v1/suggested-changes/${id}/check.`,
         suggestedChangeId: id,
       });
     },

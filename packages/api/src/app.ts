@@ -2047,6 +2047,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         projectSuspended: input.projectSuspended,
       }),
       ...(input.environmentOrders !== undefined && { orders: input.environmentOrders }),
+      ...(planGate !== undefined && { plan: planGate }),
       // A drafter's pin needs a separate approver when the tenant has
       // a second person who could approve it — one who can read the
       // approval's resource, so the count matches who the decide route lets in.

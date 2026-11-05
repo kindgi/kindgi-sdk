@@ -23,6 +23,7 @@ import {
   laterEnvironment,
 } from './environment-entry.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
+import type { PlanLimitsBinding, PlanRefused } from './plan-limits-binding.js';
 
 /** Which data-block pins to swap, by kind then block id → exact version. */
 export interface PinSwaps {
@@ -60,6 +61,12 @@ export interface DeriveAgentVersionInput {
   readonly orders?: Pick<EnvironmentOrderBinding, 'orderOf'>;
   /** The authorization tuples for the new version, in the project it lands in. */
   readonly tuplesFor: (projectId: ProjectId) => TupleEnqueueHook;
+  /**
+   * The plan limits (`plan-limits-binding.ts`): the new version's publish
+   * goes through `admit`, with the agent, into the project it's made in.
+   * Absent: nothing is counted.
+   */
+  readonly planLimits?: PlanLimitsBinding;
 }
 
 export interface SwapIssue {
@@ -80,7 +87,11 @@ export type DeriveAgentVersionOutcome =
   /** The agent belongs to another project (`projectId`, its own) than the one given: nothing is written. */
   | { readonly kind: 'project-mismatch'; readonly projectId: ProjectId }
   /** The project given is a later environment of its order: nothing is written. */
-  | { readonly kind: 'environment-takes-promotions'; readonly later: LaterEnvironment };
+  | { readonly kind: 'environment-takes-promotions'; readonly later: LaterEnvironment }
+  /** The plan limits refused the new version in `projectId`, where it'd be made: nothing is written. */
+  | { readonly kind: 'plan-refused'; readonly projectId: ProjectId; readonly refused: PlanRefused }
+  /** The plan limits couldn't count in time: nothing is written. */
+  | { readonly kind: 'plan-busy' };
 
 /** How many numbers after the highest a derive tries before it gives up. */
 const MAX_TRIES = 100;
@@ -159,7 +170,9 @@ export async function deriveAgentVersion(
 
 /**
  * Publish the derived version under the first free patch after the
- * agent's highest, in `madeIn`; `home` is the agent's project.
+ * agent's highest, in `madeIn`; `home` is the agent's project. An active
+ * version that already holds it is reused, which adds nothing; a new one
+ * is published through the plan limits, when there are any.
  */
 async function publishNextFree(
   input: DeriveAgentVersionInput,
@@ -173,6 +186,25 @@ async function publishNextFree(
   const key = definitionKey(derived);
   const same = active.find((a) => a.pinsDigest === derived.pinsDigest && definitionKey(a) === key);
   if (same !== undefined) return { kind: 'reused', agent: same };
+  const publish = () => publishFirstFree(input, { home, madeIn: projectId }, derived, active);
+  if (input.planLimits === undefined) return publish();
+  const admitted = await input.planLimits.admit(
+    { tenantId, projectId, adding: { agents: [agentId as unknown as string], flows: [] } },
+    publish,
+  );
+  if (admitted.kind === 'refused') return { kind: 'plan-refused', projectId, refused: admitted };
+  if (admitted.kind === 'busy') return { kind: 'plan-busy' };
+  return admitted.value;
+}
+
+/** The publish loop of `publishNextFree`: the first patch after the highest that's free. */
+async function publishFirstFree(
+  input: DeriveAgentVersionInput,
+  { home, madeIn: projectId }: { readonly home: ProjectId; readonly madeIn: ProjectId },
+  derived: Agent,
+  active: readonly AgentVersionRecord[],
+): Promise<DeriveAgentVersionOutcome> {
+  const { agents, tenantId, agentId } = input;
   const highest =
     highestVersion(active.map((a) => a.version as unknown as string)) ??
     (derived.version as unknown as string);
