@@ -15,15 +15,15 @@ Contract rules adapters follow:
 ## Exports
 
 - **`BlobStorageBinding`** — the adapter interface, in three groups:
-  - **By `blobId`** — `put(tenantId, input)`, `get(tenantId, blobId)` (body as a `ReadableStream`), `head(tenantId, blobId)` (`null` when unknown), `list(tenantId, filter, cursor?, limit?)`, `delete(tenantId, blobId)`.
+  - **By `blobId`** — `put(tenantId, input)`, `get(tenantId, blobId)` (body as a `ReadableStream`), `head(tenantId, blobId)` (`null` when unknown), `list(tenantId, filter, cursor?, limit?)`, `delete(tenantId, blobId)`, and, optional, `storageUsed(tenantId)` (`BlobStorageUsed`: `usedBytes`, what the tenant's files take, with the uploads under way).
   - **By `(bucket, key)`** — `putByKey`, `getByKey`, `headByKey`, `deleteByKey`, and `listByPrefix(tenantId, bucket, prefix, continuationToken?, maxKeys?)` (`maxKeys` 1 to 1000, default 1000).
   - **Multipart upload** — `initiateMultipartUpload` (returns `uploadId`), `uploadPart` (returns the part `etag`), `completeMultipartUpload` (parts in ascending `partNumber`), `abortMultipartUpload`, `listParts`.
 - **Inputs**
-  - **`BlobPutInput`** — `name`, `contentType`, `bytes` (`ReadableStream<Uint8Array>` or `Uint8Array`), `size?`, `tags?`, `ownerRunId?`, `expectedHash?`.
+  - **`BlobPutInput`** — `name`, `contentType`, `bytes` (`ReadableStream<Uint8Array>` or `Uint8Array`), `size?`, `tags?`, `ownerRunId?`, `expectedHash?`, `forRun?` (an upload for a run that hasn't started, deleted if no run that names it starts in time).
   - **`MultipartInitiateInput`** — `contentType`, `tags?`, `ownerRunId?`.
   - **`BlobFilter`** — `ownerRunId`, `contentType`, `tags` (all must match), `scope` (a `Scope` from [`@kindgi/platform`](../platform/)), and `inherit` (no effect here: blobs always live at project level).
-- **Results** — **`BlobMeta`** (`blobId`, `tenantId`, `name`, `contentType`, `size`, `hash`, `tags`, `ownerRunId?`, `createdAt`, `bucket?`, `key?`), **`BlobRead`** (`meta` + `stream`), **`BlobListPage`** (`data`, `nextCursor?`), **`BlobDeleteOutcome`** (`deleted`), **`S3ListPage`** (`contents`, `isTruncated`, `nextContinuationToken?`), **`MultipartListPartsPage`** (`parts` with `partNumber`, `etag`, `size`, `lastModified`).
-- **`BlobError`** — union discriminated by `code`: `blob-not-found` (`blobId`), `blob-hash-mismatch` (`expected`, `actual`), `blob-size-mismatch` (`declared`, `actual`), `blob-storage-error` (`cause?`).
+- **Results** — **`BlobMeta`** (`blobId`, `tenantId`, `name`, `contentType`, `size`, `hash`, `tags`, `ownerRunId?`, `createdAt`, `expiresAt?` (when a `forRun` upload is deleted unless such a run has started), `bucket?`, `key?`), **`BlobRead`** (`meta` + `stream`), **`BlobListPage`** (`data`, `nextCursor?`), **`BlobDeleteOutcome`** (`deleted`), **`S3ListPage`** (`contents`, `isTruncated`, `nextContinuationToken?`), **`MultipartListPartsPage`** (`parts` with `partNumber`, `etag`, `size`, `lastModified`).
+- **`BlobError`** — union discriminated by `code`: `blob-not-found` (`blobId`), `blob-hash-mismatch` (`expected`, `actual`), `blob-size-mismatch` (`declared`, `actual`), `blob-storage-error` (`cause?`), `storage-limit-reached` (`limit: 'storage'`, `storageMiB`, `usedBytes`, `neededBytes`: the tenant's storage limit has no room for the put, and nothing was stored).
 
 ## Example
 

@@ -3,6 +3,7 @@
 "@kindgi/api": patch
 "@kindgi/client": patch
 "@kindgi/platform": patch
+"@kindgi/env-schema": patch
 ---
 
 **A put past the workspace's storage limit is refused, and an upload for a run that never starts is deleted.**
@@ -12,3 +13,4 @@
 - The TypeScript client's `artifacts.upload` takes `forRun`, and its `BlobMeta` has `expiresAt`. With the Python client, pass `data={"forRun": "true"}` to `artifacts.upload`; its `BlobMeta` has `expires_at`.
 - `TenantLimits.storageMiB` is the workspace's storage limit, in MiB, from 1 to 1000000. It's set and read like the other limits, on `PUT` and `GET /v1/system/tenants/:tenantId/limits`. Lowering it deletes no file.
 - `BlobStorageBinding.storageUsed`, optional, says what a tenant's files take, with the uploads under way. From a store that has it, `GET /v1/tenant` answers `storage: { usedBytes }`. A runtime that counts files adds `storageUsedBytes` to the limits read's `inUse`.
+- The env schema has `KINDGI_UNUSED_UPLOAD_TTL_MS`: how long an upload for a run is kept while no run that names it has started, in milliseconds, from 1 to 315360000000 (ten years). The default is 86400000 (24 hours). Runtimes before 0.7.0 ignore it.

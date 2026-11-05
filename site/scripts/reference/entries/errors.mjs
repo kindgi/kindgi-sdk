@@ -1666,11 +1666,11 @@ export const ERROR_ENTRIES = {
     details: [
       {
         key: 'declared',
-        meaning: 'the size you declared',
+        meaning: 'the size you declared, or, for bytes sent with no size, the most an upload may be',
       },
       {
         key: 'actual',
-        meaning: 'the size of the bytes received',
+        meaning: 'the size of the bytes received, or, past that most, how many came in before the upload stopped',
       },
     ],
     seeAlso: ['guides/runs/keep-files-with-a-run'],

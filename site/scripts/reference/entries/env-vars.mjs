@@ -145,6 +145,7 @@ export const ENV_DEFAULTS = {
     '`1` when `KINDGI_TENANCY=multi`, else `0`: the template renders in the server process',
   KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB: '`128`; at least `1`',
   KINDGI_ARTIFACT_MAX_BYTES: '`104857600` (100 MiB)',
+  KINDGI_UNUSED_UPLOAD_TTL_MS: '`86400000` (24 hours)',
   KINDGI_S3_REGION:
     'none: required with any `s3:` target, and with any other `KINDGI_S3_*` setting',
   KINDGI_S3_ENDPOINT: 'none: AWS S3',
