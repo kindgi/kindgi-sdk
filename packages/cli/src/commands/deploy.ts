@@ -35,6 +35,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { createClient } from '@kindgi/client';
 import { type DiscoveryConfig, readPackBlocks, resolveDiscovery } from '@kindgi/handler-runtime';
 import { LOCAL_ENV_NAME, type PackEnv, packValues, readPackEnv } from '@kindgi/secrets-dotenv';
+import { UUID_RE } from '@kindgi/types';
 
 import { deployApiAddress, hostedApiAddress } from '../api-address.js';
 import { describeFiles } from '../build/pack-blocks.js';
@@ -89,7 +90,6 @@ import { renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
 import type { OptionValue } from '../parse.js';
 import { type ProgressLines, progressLines } from '../progress-lines.js';
-import { PROJECT_ID_RE } from '../project-ref.js';
 import { type RateLimitRefusal, isWait, sendWaitingOutRateLimits } from '../rate-limit-wait.js';
 import { SLUG } from '../slug.js';
 import { type PackEnvironments, environmentsOf, resolveValueTarget } from '../value-target.js';
@@ -1267,7 +1267,7 @@ async function resolveProject(
   ctx: CommandContext,
 ): Promise<ProjectOutcome> {
   if (ref === undefined) return { kind: 'ok' };
-  if (PROJECT_ID_RE.test(ref)) return { kind: 'ok', id: ref };
+  if (UUID_RE.test(ref)) return { kind: 'ok', id: ref };
   if (runners.findProjects === undefined) {
     return {
       kind: 'error',
