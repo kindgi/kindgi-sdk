@@ -97,7 +97,13 @@ and what was read. The log line never holds the file's content.
 With [authorization](../../../deploy/authorization/) on, listing and
 downloading need `read` on the artifact's project, and uploading and deleting
 need `write`. An artifact you can't read answers `404`, as if it weren't
-there, and lists leave it out.
+there, and lists leave it out. Someone with `run` there and no `write` may
+upload a file of their own that names no run, an input for a run they start,
+and download it again. The runtime limits what one person uploads that way
+in a workspace, by default to 1 GiB and 1,000 files in 24 hours
+(`KINDGI_ARTIFACT_RUNNER_DAILY_BYTES`, `KINDGI_ARTIFACT_RUNNER_DAILY_FILES`).
+Past it, the upload answers `429 upload-limit-reached`, and `Retry-After`
+says when it fits.
 
 ## Delete one
 

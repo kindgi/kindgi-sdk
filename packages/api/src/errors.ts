@@ -166,6 +166,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // invitation emails the workspace, or the deployment, may send in 24
   // hours. With `Retry-After`.
   'invite-capped': 429,
+  // An upload of a person's own for a run they start, passing on `run`
+  // alone (no `write`), past what the deployment lets one person upload
+  // that way in a window. With `Retry-After`.
+  'upload-limit-reached': 429,
   // An agent turn's memory, charged by size, is past the tenant's share or
   // the runtime's whole (a runtime's limit, as Kindgi Cloud sets). No
   // `Retry-After`: there's no honest time to give.
