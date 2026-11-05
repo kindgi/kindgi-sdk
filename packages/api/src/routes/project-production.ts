@@ -4,12 +4,19 @@
 import { type Context, Hono } from 'hono';
 
 import { ref } from '@kindgi/authz';
-import type { ProjectBinding, TenantHierarchyBinding, TenantSummary } from '@kindgi/platform';
+import type {
+  ProjectBinding,
+  ProjectProductionOutcome,
+  TenantHierarchyBinding,
+  TenantSummary,
+} from '@kindgi/platform';
 import type { ProjectId, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { holdLimitedCaller } from '../middleware/key-project.js';
+import type { PlanAdmitted, PlanGate } from '../plan-limits.js';
+import { admitPlan, planWarningField } from '../plan-limits.js';
 import type { AppEnv } from '../types.js';
 
 /**
@@ -38,6 +45,8 @@ export interface ProjectProductionRouterOptions {
   readonly tenantHierarchy: TenantHierarchyBinding;
   readonly authorizer?: Authorizer;
   readonly production?: ProductionGateOptions;
+  /** The plan limits (`plan-limits-binding.ts`), asked as a project goes in. */
+  readonly plan?: PlanGate;
 }
 
 /**
@@ -56,6 +65,11 @@ export interface ProjectProductionRouterOptions {
  *   of its projects are in production, or more. The binding reads the
  *   limit, counts and sets in one step, so a limit changed meanwhile is
  *   the one counted against. Taking a project out is never refused.
+ * - **The plan limits:** turning it on adds every agent and flow the
+ *   project reaches to the ones in production, and is refused with `403
+ *   plan-limit-reached` when that's past the most the plan allows (`503
+ *   plan-count-busy` when the count can't be had in time). A repeat and
+ *   taking a project out add nothing, and aren't counted.
  * - **Repeats answer 200 unchanged:** setting what's already set writes
  *   nothing, and keeps the first `productionSince`.
  * - **The answer:** `{ projectId, productionSince }`, `null` when it's out
@@ -102,13 +116,36 @@ export function projectProductionRouter(options: ProjectProductionRouterOptions)
 
     // The gate guards going into production, not staying there: a project
     // already in production answers its repeat unchanged. The binding
-    // checks the limit.
-    if (gate && production && project.productionSince === undefined) {
+    // checks the limit. Only going in is counted against the plan limits.
+    const goingLive = production && project.productionSince === undefined;
+    if (gate && goingLive) {
       const closed = gateRefusal(await tenantHierarchy.getTenant(tenantId), tenantId, projectId);
       if (closed !== undefined) return refuse(c, requestId, closed);
     }
 
-    const outcome = await projects.setProduction(tenantId, projectId, production);
+    const setProduction = projects.setProduction;
+    const admitted = await admitPlan(
+      c,
+      goingLive ? options.plan : undefined,
+      { tenantId, projectId, adding: 'whole-project' },
+      () => setProduction.call(projects, tenantId, projectId, production),
+      true,
+    );
+    return productionAnswer(c, requestId, projectId, admitted);
+  });
+
+  /**
+   * The answer to a production write: the plan limits' refusal, the
+   * binding's, or `{ projectId, productionSince, planWarning? }`.
+   */
+  function productionAnswer(
+    c: Context<AppEnv>,
+    requestId: string,
+    projectId: ProjectId,
+    admitted: PlanAdmitted<ProjectProductionOutcome>,
+  ): Response {
+    if (admitted.kind === 'answer') return admitted.response;
+    const outcome = admitted.value;
     if (outcome.kind === 'project-not-found') {
       return refuse(c, requestId, projectNotFound(projectId));
     }
@@ -118,8 +155,9 @@ export function projectProductionRouter(options: ProjectProductionRouterOptions)
     return c.json({
       projectId: projectId as unknown as string,
       productionSince: outcome.productionSince as unknown as string | null,
+      ...planWarningField(admitted.planWarning),
     });
-  });
+  }
 
   /**
    * Why the gate keeps the tenant out of production, or `undefined` when it

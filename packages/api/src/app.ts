@@ -2547,6 +2547,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         tenantHierarchy: tenantHierarchyBinding,
         ...(authorizer !== undefined && { authorizer }),
         ...(input.production !== undefined && { production: input.production }),
+        ...(planGate !== undefined && { plan: planGate }),
       }),
     );
     v1.route(
