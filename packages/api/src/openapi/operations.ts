@@ -3033,7 +3033,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemTenants.limits',
     summary: "Read a tenant's limits",
     description:
-      "The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. From a runtime that counts it, `inUse` says how much of each counted limit the tenant uses now (`projectsInProduction`), which can be over a limit lowered below it. Takes `system:tenants:limits`. A closing tenant's limits can be read.",
+      "The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. From a runtime that counts it, `inUse` says how much of each counted limit the tenant uses now (`projectsInProduction`, and `storageUsedBytes` from a runtime that counts files), which can be over a limit lowered below it. Takes `system:tenants:limits`. A closing tenant's limits can be read.",
     tags: ['system-tenants'],
     security: 'bearer',
     parameters: [
@@ -10402,7 +10402,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tenant.get',
     summary: "Fetch the caller's workspace",
     description:
-      "Returns the workspace the bearer token authenticates as. There is no `/v1/tenants` collection — workspaces are the sovereignty boundary, not a listable resource under a workspace. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the workspace's `limits`, and a deployment that publishes where its calls come from adds `egress`.",
+      "Returns the workspace the bearer token authenticates as. There is no `/v1/tenants` collection — workspaces are the sovereignty boundary, not a listable resource under a workspace. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the workspace's `limits`, one that counts files adds `storage` (what they take, to compare with `limits.storageMiB`), and a deployment that publishes where its calls come from adds `egress`.",
     tags: ['tenant'],
     security: 'bearer',
     responses: {

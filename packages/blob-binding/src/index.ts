@@ -59,6 +59,12 @@ import type {
  * retention; a development implementation may remove the data
  * outright.
  */
+/** What a tenant's files take (`BlobStorageBinding.storageUsed`). */
+export interface BlobStorageUsed {
+  /** Bytes, with the uploads under way. It may be past the limit. */
+  readonly usedBytes: number;
+}
+
 export interface BlobStorageBinding {
   // -------------- bespoke (blobId-addressed) surface --------------
 
@@ -99,6 +105,12 @@ export interface BlobStorageBinding {
    * non-`200`.
    */
   delete(tenantId: TenantId, blobId: ArtifactId): Promise<Result<BlobDeleteOutcome, BlobError>>;
+  /**
+   * Optional. What the tenant's files take now, with the uploads under
+   * way: the number its storage limit is checked against. `GET /v1/tenant`
+   * answers it as `storage`. A store that doesn't count leaves it out.
+   */
+  storageUsed?(tenantId: TenantId): Promise<BlobStorageUsed>;
 
   // -------------- S3-compat (bucket/key-addressed) surface --------------
 
@@ -381,7 +393,9 @@ export type BlobError =
   | {
       readonly code: 'blob-size-mismatch';
       readonly message: string;
+      /** The size the put declared, or, for bytes sent with no size, the most an upload may be. */
       readonly declared: number;
+      /** The size of the bytes received, or, past that most, how many came in before the upload stopped. */
       readonly actual: number;
     }
   | { readonly code: 'blob-storage-error'; readonly message: string; readonly cause?: unknown }

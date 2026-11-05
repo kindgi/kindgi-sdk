@@ -453,7 +453,7 @@ describe('someone who may only run the project reaches their own files', () => {
     expect(h.blobs.rows.size).toBe(5);
   });
 
-  test("her upload is always for a run, even one whose form says it isn't", async () => {
+  test("their upload is always for a run, even one whose form says it isn't", async () => {
     const h = harness();
     for (const fields of [{}, { forRun: 'false' }, { forRun: 'true' }]) {
       const input = await h.upload('carol', { projectId: P3, ...fields });

@@ -14319,7 +14319,24 @@ export const TenantSchema: JsonSchema = {
         'On a runtime serving many tenants: `closing` (readable and exportable for its window, nothing changes) or `suspended` (the same, until restored). `closing` wins. Absent: active.',
     },
     limits: ref('TenantLimits'),
+    storage: ref('TenantStorage'),
     egress: ref('EgressAddresses'),
+  },
+};
+
+export const TenantStorageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['usedBytes'],
+  description:
+    "What the workspace's files take now. Only from a runtime that counts them. Compare it with `limits.storageMiB`, in MiB of 1,048,576 bytes.",
+  properties: {
+    usedBytes: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        "The bytes its uploads, its runs' files and its tools' files take, with the uploads under way. It can be over a limit lowered below it.",
+    },
   },
 };
 
@@ -14410,6 +14427,12 @@ export const TenantLimitsSchema: JsonSchema = {
       description:
         'Projects in production at once. Past it, putting another project in production is refused with 403 `production-limit-reached`. Lowering it takes no project out of production.',
     },
+    storageMiB: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "MiB of files the workspace may keep: its uploads, its runs' files and its tools' files, with the uploads under way. Past it, an upload is refused with 403 `storage-limit-reached`, and a tool's file isn't stored. Lowering it deletes no file.",
+    },
   },
 };
 
@@ -14424,6 +14447,12 @@ export const TenantLimitsInUseSchema: JsonSchema = {
       type: 'integer',
       minimum: 0,
       description: "The tenant's projects in production.",
+    },
+    storageUsedBytes: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        "The bytes the tenant's files take, with the uploads under way: what `storageMiB` is checked against. Only from a runtime that counts files.",
     },
   },
 };
@@ -18727,6 +18756,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['TenantProductionAllowed', TenantProductionAllowedSchema],
   ['TenantLimitsResult', TenantLimitsResultSchema],
   ['TenantLimitsInUse', TenantLimitsInUseSchema],
+  ['TenantStorage', TenantStorageSchema],
   ['TenantConfigKind', TenantConfigKindSchema],
   ['TenantConfigEntry', TenantConfigEntrySchema],
   ['TenantConfigCollectionPage', TenantConfigCollectionPageSchema],

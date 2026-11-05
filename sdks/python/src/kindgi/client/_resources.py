@@ -2295,7 +2295,7 @@ class SystemTenantsResource:
     ) -> _models.TenantLimitsResult:
         """Read a tenant's limits. `GET /v1/system/tenants/{tenantId}/limits`
 
-        The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. From a runtime that counts it, `inUse` says how much of each counted limit the tenant uses now (`projectsInProduction`), which can be over a limit lowered below it. Takes `system:tenants:limits`. A closing tenant's limits can be read.
+        The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. From a runtime that counts it, `inUse` says how much of each counted limit the tenant uses now (`projectsInProduction`, and `storageUsedBytes` from a runtime that counts files), which can be over a limit lowered below it. Takes `system:tenants:limits`. A closing tenant's limits can be read.
         """
         return self._client._request(
             _OPERATIONS["systemTenants.limits"],
@@ -9781,7 +9781,7 @@ class TenantResource:
     def get(self, /, *, timeout: float | None = None) -> _models.Tenant:
         """Fetch the caller's workspace. `GET /v1/tenant`
 
-        Returns the workspace the bearer token authenticates as. There is no `/v1/tenants` collection — workspaces are the sovereignty boundary, not a listable resource under a workspace. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the workspace's `limits`, and a deployment that publishes where its calls come from adds `egress`.
+        Returns the workspace the bearer token authenticates as. There is no `/v1/tenants` collection — workspaces are the sovereignty boundary, not a listable resource under a workspace. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the workspace's `limits`, one that counts files adds `storage` (what they take, to compare with `limits.storageMiB`), and a deployment that publishes where its calls come from adds `egress`.
         """
         return self._client._request(
             _OPERATIONS["tenant.get"],
@@ -12627,7 +12627,7 @@ class AsyncSystemTenantsResource:
     ) -> _models.TenantLimitsResult:
         """Read a tenant's limits. `GET /v1/system/tenants/{tenantId}/limits`
 
-        The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. From a runtime that counts it, `inUse` says how much of each counted limit the tenant uses now (`projectsInProduction`), which can be over a limit lowered below it. Takes `system:tenants:limits`. A closing tenant's limits can be read.
+        The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. From a runtime that counts it, `inUse` says how much of each counted limit the tenant uses now (`projectsInProduction`, and `storageUsedBytes` from a runtime that counts files), which can be over a limit lowered below it. Takes `system:tenants:limits`. A closing tenant's limits can be read.
         """
         return await self._client._request(
             _OPERATIONS["systemTenants.limits"],
@@ -20131,7 +20131,7 @@ class AsyncTenantResource:
     async def get(self, /, *, timeout: float | None = None) -> _models.Tenant:
         """Fetch the caller's workspace. `GET /v1/tenant`
 
-        Returns the workspace the bearer token authenticates as. There is no `/v1/tenants` collection — workspaces are the sovereignty boundary, not a listable resource under a workspace. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the workspace's `limits`, and a deployment that publishes where its calls come from adds `egress`.
+        Returns the workspace the bearer token authenticates as. There is no `/v1/tenants` collection — workspaces are the sovereignty boundary, not a listable resource under a workspace. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the workspace's `limits`, one that counts files adds `storage` (what they take, to compare with `limits.storageMiB`), and a deployment that publishes where its calls come from adds `egress`.
         """
         return await self._client._request(
             _OPERATIONS["tenant.get"],

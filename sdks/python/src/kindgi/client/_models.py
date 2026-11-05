@@ -11019,6 +11019,10 @@ class TenantLimits(BaseModel):
     """
     Projects in production at once. Past it, putting another project in production is refused with 403 `production-limit-reached`. Lowering it takes no project out of production.
     """
+    storage_mi_b: Annotated[int | None, Field(alias="storageMiB", ge=1)] = None
+    """
+    MiB of files the workspace may keep: its uploads, its runs' files and its tools' files, with the uploads under way. Past it, an upload is refused with 403 `storage-limit-reached`, and a tool's file isn't stored. Lowering it deletes no file.
+    """
 
 
 class EgressAddresses(BaseModel):
@@ -11072,6 +11076,25 @@ class TenantLimitsInUse(BaseModel):
     projects_in_production: Annotated[int, Field(alias="projectsInProduction", ge=0)]
     """
     The tenant's projects in production.
+    """
+    storage_used_bytes: Annotated[int | None, Field(alias="storageUsedBytes", ge=0)] = None
+    """
+    The bytes the tenant's files take, with the uploads under way: what `storageMiB` is checked against. Only from a runtime that counts files.
+    """
+
+
+class TenantStorage(BaseModel):
+    """
+    What the workspace's files take now. Only from a runtime that counts them. Compare it with `limits.storageMiB`, in MiB of 1,048,576 bytes.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    used_bytes: Annotated[int, Field(alias="usedBytes", ge=0)]
+    """
+    The bytes its uploads, its runs' files and its tools' files take, with the uploads under way. It can be over a limit lowered below it.
     """
 
 
@@ -17509,6 +17532,7 @@ class Tenant(BaseModel):
     On a runtime serving many tenants: `closing` (readable and exportable for its window, nothing changes) or `suspended` (the same, until restored). `closing` wins. Absent: active.
     """
     limits: TenantLimits | None = None
+    storage: TenantStorage | None = None
     egress: EgressAddresses | None = None
 
 

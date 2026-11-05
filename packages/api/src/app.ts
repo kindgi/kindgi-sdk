@@ -2582,6 +2582,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(authorizer !== undefined && { authorizer }),
       ...(input.production?.next !== undefined && { productionNext: input.production.next }),
       ...(input.egress !== undefined && { egress: input.egress }),
+      // From a file store that counts what the tenant's files take.
+      ...(input.blobStorage?.storageUsed !== undefined && {
+        storageUsed: input.blobStorage.storageUsed.bind(input.blobStorage),
+      }),
       // Its entries live where the runtime's tools read them.
       ...(servedEnv !== undefined && { envName: servedEnv }),
     }),
