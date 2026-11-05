@@ -777,6 +777,8 @@ class SystemKey(BaseModel):
             "system:env-refs",
             "system:usage:read",
             "system:license",
+            "system:kept-repos",
+            "system:kept-repos:erase",
             "kindgi:system",
         ]
     ]
@@ -810,6 +812,8 @@ class MintSystemKeyBody(BaseModel):
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:kept-repos",
+                "system:kept-repos:erase",
                 "kindgi:system",
             ]
         ],
@@ -858,6 +862,8 @@ class MintSystemKeyResult(BaseModel):
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:kept-repos",
+                "system:kept-repos:erase",
                 "kindgi:system",
             ]
             | str,
@@ -910,6 +916,8 @@ class Datum2(BaseModel):
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:kept-repos",
+                "system:kept-repos:erase",
                 "kindgi:system",
             ]
             | str,
@@ -966,6 +974,8 @@ class RevokeSystemKeyResult(BaseModel):
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:kept-repos",
+                "system:kept-repos:erase",
                 "kindgi:system",
             ]
             | str,
@@ -11060,6 +11070,138 @@ class TenantLimitsInUse(BaseModel):
     projects_in_production: Annotated[int, Field(alias="projectsInProduction", ge=0)]
     """
     The tenant's projects in production.
+    """
+
+
+class KeptRepoId(BaseModel):
+    """
+    A project's kept repo, by its tenant and project ids.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+
+
+class KeptRepoRulingsBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    ids: Annotated[list[KeptRepoId], Field(max_length=500)]
+    """
+    The kept repos to rule on, up to 500. They may span tenants, and repeat.
+    """
+
+
+class KeptRepoRuling(BaseModel):
+    """
+    What the store does with a kept repo it holds: `keep` it, with its `mark`, or `purge` it, for `reason`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    ruling: Annotated[Literal["keep", "purge"] | str, _open.OPEN]
+    mark: Annotated[Literal["none", "deleted", "moved", "held"] | str, _open.OPEN] | None = None
+    """
+    With `keep`: `none` (its project is live), `deleted` or `moved` (its project was deleted, or its repo moved to GitHub, at `since`, within the kept window), or `held` (it's due a purge, and something holds it).
+    """
+    since: AwareDatetime | None = None
+    """
+    With a `keep` marked `deleted`, `moved` or `held`: when the mark began.
+    """
+    reason: (
+        Annotated[Literal["erasure", "retention", "tenant-purged", "no-record"] | str, _open.OPEN]
+        | None
+    ) = None
+    """
+    Why a kept repo is purged: `erasure` (its erasure was requested), `retention` (its project was deleted, or its repo moved to GitHub, the kept window ago or more), `tenant-purged` (its tenant was purged), or `no-record` (the runtime has no project for it).
+    """
+    recorded: Literal[True] | None = None
+    """
+    With `purge`: `true` when the runtime holds this ruling's own report already (for `erasure`, the repo's erasure done; for `retention`, its purge when its kept window ended), so a store that finds the repo purged has nothing to sweep or report. Never with `tenant-purged` or `no-record`.
+    """
+
+
+class KeptRepoRulings(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    rulings: list[KeptRepoRuling]
+    """
+    One ruling for each id, in the order given.
+    """
+
+
+class KeptRepoOpenErasure(BaseModel):
+    """
+    An unfinished erasure of a project's kept repo.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    since: AwareDatetime
+    """
+    When it was requested.
+    """
+
+
+class KeptRepoErasurePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: Annotated[list[KeptRepoOpenErasure], Field(max_length=500)]
+    """
+    By tenant id, then project id.
+    """
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Present when there are more: pass it as `cursor` for the next page.
+    """
+
+
+class KeptRepoPurgedBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    reason: Literal["erasure", "retention", "tenant-purged", "no-record"]
+    """
+    Why a kept repo is purged: `erasure` (its erasure was requested), `retention` (its project was deleted, or its repo moved to GitHub, the kept window ago or more), `tenant-purged` (its tenant was purged), or `no-record` (the runtime has no project for it).
+    """
+
+
+class KeptRepoState(BaseModel):
+    """
+    A kept repo's state, as the runtime records it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    state: Annotated[
+        Literal["live", "deleted", "moved", "held", "erasure-requested", "purged"] | str, _open.OPEN
+    ]
+    """
+    `live`, `deleted` or `moved` (its project's, or its repo's, own state), `held` (due a purge, and something holds it), `erasure-requested` (an erasure is unfinished), or `purged` (its purge is recorded).
+    """
+    since: AwareDatetime
+    """
+    When it came to be in that state.
     """
 
 

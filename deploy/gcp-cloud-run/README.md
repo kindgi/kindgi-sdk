@@ -526,7 +526,7 @@ With `database_host_instance` set there is no instance of the module's own, so a
    ```
 
    The module doesn't grant this one, since the secret isn't the module's. If a Terraform root of yours makes the secret, that root makes the grant too. When two roots hold the same grant, the first to remove it takes it away from the other.
-4. **Replay the erasure ledger on it before it serves.** A restore brings back what an erasure cleared. The runtime image's `erasures replay` does it, with the server's settings, `KINDGI_DATABASE_URL` from `$R-database-url`, and this instance at `/cloudsql`: a Cloud Run job, say. The docs' "Back up and restore" page has the command, under Erasures and backups.
+4. **Replay the erasure ledger on it before it serves.** A restore brings back what an erasure cleared. The runtime image's `erasures replay` does it, with the server's settings, `KINDGI_DATABASE_URL` from `$R-database-url`, and this instance at `/cloudsql`: a Cloud Run job, say. The docs' "Back up and restore" page has the command, under Erasures and backups. With kept repos (`KINDGI_KEPT_REPOS` on), it takes `--records` too, where their erasure records are (`KINDGI_TENANT_PURGE_RECORD` by default), and the repo store's gateway stays at 0 instances until the replay and `tenants repurge` have run.
 5. **Switch,** in your tfvars, then `terraform apply`:
 
    ```hcl

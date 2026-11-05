@@ -205,6 +205,7 @@ import {
   systemDeploymentsRouter,
 } from './routes/system-deployments.js';
 import { systemEnvRouter } from './routes/system-env.js';
+import { type SystemKeptReposBinding, systemKeptReposRouter } from './routes/system-kept-repos.js';
 import { type SystemKeysBinding, systemKeysRouter } from './routes/system-keys.js';
 import {
   type SystemTenantSettingsBinding,
@@ -695,6 +696,15 @@ export interface CreateAppInput {
    * Mounted only with `systemTenantDirectory` too.
    */
   readonly systemTenantSettings?: SystemTenantSettingsBinding;
+  /**
+   * Optional. The runtime's record of kept repos (the repos a store keeps
+   * for projects without a GitHub repo), under `/v1/system`: the store's
+   * reconcile (`system:kept-repos`: the rulings, the unfinished erasures,
+   * and a purge's report) and a repo's erasure and state
+   * (`system:kept-repos:erase`). Mounted only with `systemTenantDirectory`
+   * too.
+   */
+  readonly systemKeptRepos?: SystemKeptReposBinding;
   /**
    * Optional. The runtime's tenants, for the operator: `/v1/system/tenants`
    * (create, list, read, close, suspend, the image prefix, the admins'
@@ -2123,6 +2133,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       '/system/tenants',
       systemTenantSettingsRouter({
         settings: input.systemTenantSettings,
+        directory: input.systemTenantDirectory,
+        ...(authorizer !== undefined && { authorizer }),
+      }),
+    );
+  }
+  if (input.systemKeptRepos !== undefined && input.systemTenantDirectory !== undefined) {
+    v1.route(
+      '/system',
+      systemKeptReposRouter({
+        keptRepos: input.systemKeptRepos,
         directory: input.systemTenantDirectory,
         ...(authorizer !== undefined && { authorizer }),
       }),

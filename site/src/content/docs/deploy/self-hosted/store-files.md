@@ -27,11 +27,12 @@ These settings and flags each name a place:
 | --- | --- |
 | `KINDGI_ARTIFACTS` | Artifacts' bytes ([Keep files with a run](../../../guides/runs/keep-files-with-a-run/)). Unset, the runtime serves no artifacts |
 | `KINDGI_ERASURE_LEDGER_EXPORT` | The server's copies of the erasure ledger ([Back up and restore](../back-up-and-restore/#copies-the-runtime-keeps-on-its-own)) |
-| `KINDGI_TENANT_PURGE_RECORD` | Purge records, from a purge through the system API ([Serve many tenants](../serve-many-tenants/#close-and-purge-a-tenant)) |
+| `KINDGI_TENANT_PURGE_RECORD` | Purge records, from a purge through the system API ([Serve many tenants](../serve-many-tenants/#close-and-purge-a-tenant)), and the records of kept repos' erasures ([Kept repos](../serve-many-tenants/#kept-repos)) |
 | `tenants purge --record` | Purge records, from the command |
 | `tenants repurge --from`, `--ledger` | Where it reads the records, and the ledger's copies |
 | `erasures export --out` | One copy of the ledger, written when you run it |
 | `erasures replay --from` | Where it reads the ledger's copies. It also takes one file by its absolute path |
+| `erasures replay --records` | Where it reads the records of kept repos' erasures |
 
 A place has one of three forms:
 
@@ -46,8 +47,9 @@ s3:<bucket>[/<prefix>]     an S3 bucket, on AWS or in an S3-compatible store
 - **A prefix** keeps a setting's files apart in a shared bucket. Artifacts
   go under `tenants/<tenant id>/` in the bucket, then the prefix:
   `s3:acme-artifacts/prod` puts them under `tenants/<tenant id>/prod/`. The
-  ledger's copies go under the prefix itself, and purge records under
-  `<prefix>/purged/`.
+  ledger's copies go under the prefix itself, purge records under
+  `<prefix>/purged/`, and the records of kept repos' erasures under
+  `<prefix>/kept-repos/erased/`.
   `gcs://` and `s3://` work too, and a trailing `/` is dropped.
 
 The `kindgi-runtime tenants` and `erasures` commands read the server's own
@@ -285,7 +287,8 @@ overwritten or deleted: `KINDGI_ERASURE_LEDGER_EXPORT`,
 - **Retention on these buckets is fine:** the runtime only adds files.
   Keep the ledger's copies longer than your backups. If a bucket's rule
   deletes a purge record, the ledger's copy still names the tenant
-  ([`tenants repurge --ledger`](../serve-many-tenants/#after-a-restore-tenants-repurge)).
+  ([`tenants repurge --ledger`](../serve-many-tenants/#after-a-restore-tenants-repurge)),
+  and a kept repo's erasure the same way (`erasures replay`).
   Reading them back needs read access too, as the tables above say.
 
 A store that overwrites the probe is refused, since a copy or a record

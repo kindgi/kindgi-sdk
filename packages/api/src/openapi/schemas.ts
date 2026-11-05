@@ -87,6 +87,12 @@ import {
   PACK_ENV_PROBLEM_CODES,
 } from '../pack-env.js';
 import { PACK_ENDPOINT_AUTHS } from '../routes/system-deployments.js';
+import {
+  KEPT_REPO_ERASURES_PAGE_MAX,
+  KEPT_REPO_PURGE_REASONS,
+  KEPT_REPO_RULINGS_MAX,
+  KEPT_REPO_STATES,
+} from '../routes/system-kept-repos.js';
 import { FULL_SYSTEM_CAPABILITY, SYSTEM_SCOPES } from '../system.js';
 
 export type JsonSchema = Record<string, unknown>;
@@ -14438,6 +14444,139 @@ export const TenantProductionAllowedSchema: JsonSchema = {
   },
 };
 
+const KEPT_REPO_PURGE_REASON: JsonSchema = {
+  type: 'string',
+  enum: [...KEPT_REPO_PURGE_REASONS],
+  description:
+    'Why a kept repo is purged: `erasure` (its erasure was requested), `retention` (its project was deleted, or its repo moved to GitHub, the kept window ago or more), `tenant-purged` (its tenant was purged), or `no-record` (the runtime has no project for it).',
+};
+
+export const KeptRepoIdSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: "A project's kept repo, by its tenant and project ids.",
+  required: ['tenantId', 'projectId'],
+  properties: {
+    tenantId: { type: 'string', format: 'uuid' },
+    projectId: { type: 'string', format: 'uuid' },
+  },
+};
+
+export const KeptRepoRulingsBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['ids'],
+  properties: {
+    ids: {
+      type: 'array',
+      maxItems: KEPT_REPO_RULINGS_MAX,
+      items: ref('KeptRepoId'),
+      description: `The kept repos to rule on, up to ${KEPT_REPO_RULINGS_MAX}. They may span tenants, and repeat.`,
+    },
+  },
+};
+
+export const KeptRepoRulingSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'What the store does with a kept repo it holds: `keep` it, with its `mark`, or `purge` it, for `reason`.',
+  required: ['tenantId', 'projectId', 'ruling'],
+  properties: {
+    tenantId: { type: 'string', format: 'uuid' },
+    projectId: { type: 'string', format: 'uuid' },
+    ruling: { type: 'string', enum: ['keep', 'purge'] },
+    mark: {
+      type: 'string',
+      enum: ['none', 'deleted', 'moved', 'held'],
+      description:
+        "With `keep`: `none` (its project is live), `deleted` or `moved` (its project was deleted, or its repo moved to GitHub, at `since`, within the kept window), or `held` (it's due a purge, and something holds it).",
+    },
+    since: {
+      type: 'string',
+      format: 'date-time',
+      description: 'With a `keep` marked `deleted`, `moved` or `held`: when the mark began.',
+    },
+    reason: KEPT_REPO_PURGE_REASON,
+    recorded: {
+      type: 'boolean',
+      enum: [true],
+      description:
+        "With `purge`: `true` when the runtime holds this ruling's own report already (for `erasure`, the repo's erasure done; for `retention`, its purge when its kept window ended), so a store that finds the repo purged has nothing to sweep or report. Never with `tenant-purged` or `no-record`.",
+    },
+  },
+};
+
+export const KeptRepoRulingsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['rulings'],
+  properties: {
+    rulings: {
+      type: 'array',
+      items: ref('KeptRepoRuling'),
+      description: 'One ruling for each id, in the order given.',
+    },
+  },
+};
+
+export const KeptRepoOpenErasureSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: "An unfinished erasure of a project's kept repo.",
+  required: ['tenantId', 'projectId', 'since'],
+  properties: {
+    tenantId: { type: 'string', format: 'uuid' },
+    projectId: { type: 'string', format: 'uuid' },
+    since: { type: 'string', format: 'date-time', description: 'When it was requested.' },
+  },
+};
+
+export const KeptRepoErasurePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'array',
+      maxItems: KEPT_REPO_ERASURES_PAGE_MAX,
+      items: ref('KeptRepoOpenErasure'),
+      description: 'By tenant id, then project id.',
+    },
+    nextCursor: {
+      type: 'string',
+      description: 'Present when there are more: pass it as `cursor` for the next page.',
+    },
+  },
+};
+
+export const KeptRepoPurgedBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['reason'],
+  properties: { reason: KEPT_REPO_PURGE_REASON },
+};
+
+export const KeptRepoStateSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: "A kept repo's state, as the runtime records it.",
+  required: ['state', 'since'],
+  properties: {
+    state: {
+      type: 'string',
+      enum: [...KEPT_REPO_STATES],
+      description:
+        "`live`, `deleted` or `moved` (its project's, or its repo's, own state), `held` (due a purge, and something holds it), `erasure-requested` (an erasure is unfinished), or `purged` (its purge is recorded).",
+    },
+    since: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When it came to be in that state.',
+    },
+  },
+};
+
 export const TenantLimitsResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -18715,6 +18854,14 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['TenantProductionAllowed', TenantProductionAllowedSchema],
   ['TenantLimitsResult', TenantLimitsResultSchema],
   ['TenantLimitsInUse', TenantLimitsInUseSchema],
+  ['KeptRepoId', KeptRepoIdSchema],
+  ['KeptRepoRulingsBody', KeptRepoRulingsBodySchema],
+  ['KeptRepoRuling', KeptRepoRulingSchema],
+  ['KeptRepoRulings', KeptRepoRulingsSchema],
+  ['KeptRepoOpenErasure', KeptRepoOpenErasureSchema],
+  ['KeptRepoErasurePage', KeptRepoErasurePageSchema],
+  ['KeptRepoPurgedBody', KeptRepoPurgedBodySchema],
+  ['KeptRepoState', KeptRepoStateSchema],
   ['TenantConfigKind', TenantConfigKindSchema],
   ['TenantConfigEntry', TenantConfigEntrySchema],
   ['TenantConfigCollectionPage', TenantConfigCollectionPageSchema],

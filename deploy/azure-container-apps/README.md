@@ -134,6 +134,8 @@ Put the two keys' versions in `secrets_aad_key_version` and `erasure_ledger_key_
 - every secret stored in Postgres is bound to the AAD key, so a new version would make them all unreadable;
 - erasures replay after a backup restore only with the same ledger key.
 
+After a restore, with kept repos (`KINDGI_KEPT_REPOS` on), `erasures replay --records` puts their erasures back too, and the repo store's gateway stays at 0 replicas until the replay and `tenants repurge` have run.
+
 **Your pack's own secrets** (`secret_env` in `kindgi env plan --env dev`): create each one in the same vault with `put`. The pack service gets read access to exactly those.
 
 ## 4. The pack's env

@@ -413,9 +413,25 @@ version, use the image your server already runs.
   it only restored to the ledger (nothing of theirs was there). Then how many
   of the replayed ones it cleared. Ids and counts only, never whom an
   erasure names.
+- **Kept repos' erasures** ([kept repos](../serve-many-tenants/#kept-repos)):
+  `--records <where>` is where their records are, `KINDGI_TENANT_PURGE_RECORD`
+  when left out. Replay reads those and the copy's list of erased repos, a
+  repo both name once, and records each erasure again, so the repo store
+  purges the repo at its next pass. Where the project is in the database,
+  its creation time must be the record's: if it isn't, that erasure is
+  refused, and named. A tenant the database doesn't have, or a purged one,
+  is skipped.
+- **`--dry-run`** reads the copy and the records, says what it read, and
+  lists each kept repo's erasure with what a run would do. Nothing changes,
+  and no server starts.
 - **Exit `1`:** an erasure was hashed under a ledger key this runtime doesn't
   hold (set the key it was made with, and replay again), or one isn't done by
-  `--timeout` (seconds, default 600). Exit `2` when it can't run.
+  `--timeout` (seconds, default 600). Exit `2` when it can't run, or a kept
+  repo's erasure was refused.
+
+**With kept repos, keep the repo store's gateway stopped** until replay and
+`tenants repurge` (below) have run. A pass on a database not yet replayed
+would keep a repo the restore brought back.
 
 **Then purge the purged tenants again** (runtime 0.1.10 or later). A backup
 from before a tenant's purge brings the tenant back with its data, and replay
