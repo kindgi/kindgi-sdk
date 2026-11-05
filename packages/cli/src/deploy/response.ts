@@ -13,6 +13,7 @@ import {
   packServiceProblemText,
   packServiceRetiredText,
 } from './pack-service-text.js';
+import { planWarningLines } from './plan-warning.js';
 import { type PromotionStop, promotionHint } from './promotion-path.js';
 import type {
   DeployedVersionRecord,
@@ -52,6 +53,9 @@ const WIRE_ERROR_HINTS: Readonly<Record<string, string>> = {
     'The deployment is larger than the server takes in one request. Every tool, agent, flow and ' +
     'guardrail in the pack travels in it with its schemas and instructions: make the largest ' +
     'schemas smaller, or split the pack into two.',
+  'plan-count-busy':
+    'Nothing was deployed: run the same command again in a few seconds. Writes that can add ' +
+    'flows or agents to production take turns, and this one waited too long for its turn.',
 };
 
 /** `image-unverifiable`'s hint by its `details.cause`, when the server names one. */
@@ -199,6 +203,8 @@ export function renderResponse(
       );
     }
     if (!keyReplay) banner.push(inFlightLine(result.record));
+    const warning = planWarningLines(result.record.planWarning, '  ');
+    if (warning.length > 0) banner.push('', ...warning);
     banner.push('');
     const summary: Record<string, unknown> = {
       envName: ctx.envName,
@@ -238,7 +244,7 @@ export function renderResponse(
         '  and the server returned it without running again. After fixing the cause, deploy',
       );
       banner.push('  with a new key: --idempotency-key <new value>.');
-    } else if (result.status >= 500) {
+    } else if (result.status >= 500 && result.error.code !== 'plan-count-busy') {
       banner.push('');
       banner.push(
         "  This is a server error: check the runtime's logs, then run the same command again.",

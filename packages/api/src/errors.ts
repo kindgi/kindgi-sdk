@@ -407,6 +407,11 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'image-prefix-taken': 409,
   /** The tenant's state can't be read, so a write is refused (`Retry-After`). */
   'tenant-state-unavailable': 503,
+  /**
+   * The count of agents and flows in production couldn't be had in time,
+   * so the write never ran: a retry is safe (`Retry-After`).
+   */
+  'plan-count-busy': 503,
   'service-account-not-found': 404,
   /** An active service account of the tenant already has the name. */
   'service-account-name-taken': 409,
@@ -580,6 +585,13 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'production-not-allowed': 403,
   /** Putting a project in production while the tenant's projects in production are at its limit (`details.limit`, `projectsInProduction`, `inProduction`). */
   'production-limit-reached': 403,
+  /**
+   * A write that would add agents or flows to production past the most the
+   * plan allows (`details.limit`, `over`, `newIds`; `plan`, `most`, `inUse`
+   * when this tenant may see them). None of them was added; a suggested
+   * change keeps its edit's block version.
+   */
+  'plan-limit-reached': 403,
   /** The production route on a runtime whose project binding can't set it. */
   'production-unsupported': 501,
   /** A repo connection that isn't a company-wide GitHub connection (`details.connectionId`, `app`, `owner`). */
