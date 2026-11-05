@@ -1,42 +1,53 @@
 ---
 title: Keep files with a run
-description: Store a file in the runtime as an artifact, with the run it came from or in a project, and list, download and delete it.
+description: Store a file in the runtime, with the run it came from or in a project, add a version, and list, download and delete it.
 sidebar:
   order: 9
 ---
 
 This guide keeps a file in the runtime with the run it came from, then
-finds it, downloads it and deletes it.
+adds a version, finds it, downloads it and deletes it.
 
-A file kept in the runtime is an **artifact**, such as a report a run's
-output became, a document your app sent in, or an export. Each one belongs to
-a project, and can name the run it came from. Its name, type, size and sha256
-are kept in the runtime's database. Its bytes are kept on disk, in a
-Google Cloud Storage bucket, or in an S3 bucket.
+A file kept in the runtime can be a report a run's output became, a
+document your app sent in, or an export. Each one belongs to a project, and
+can name the run it came from. Every change to its bytes is kept as a version:
+[Files and versions](../../../concepts/files-and-versions/) explains
+versions, pins and what keeps them. A file's name, type, size and sha256 are
+kept in the runtime's database. Its bytes are kept on disk, in a Google
+Cloud Storage bucket, or in an S3 bucket.
 
 ## Before you start
 
-- **A runtime that keeps artifacts.** `kindgi dev` keeps them in the pack's
+- **A runtime that keeps files.** `kindgi dev` keeps them in the pack's
   `.kindgi/dev/artifacts`. Another runtime keeps them once you
   [turn them on](#turn-them-on).
-- **Kindgi 0.4's CLI**, and a file to keep, such as `report.pdf`.
+- **Kindgi 0.7's CLI**, and a file to keep, such as `report.pdf`.
 - **A run's id,** to keep the file with that run.
+
+`kindgi files` takes the place of `kindgi artifacts`, and takes the same
+ids. 0.8.0 removes `kindgi artifacts`. Until then, each of its commands
+works as it did and names the one to use instead, such as
+`kindgi artifacts list is deprecated: use kindgi files list. Removed in 0.8.0.`
+[What 0.8.0 removes](../../../concepts/files-and-versions/#what-080-removes)
+lists each.
 
 ## Upload one
 
-Uploading the file keeps it with its run:
+Uploading the file keeps it with its run, as its version 1:
 
 ```sh
-pnpm exec kindgi artifacts upload report.pdf --run=<run-id> --content-type=application/pdf --tag=kind=summary
+pnpm exec kindgi files upload report.pdf --run=<run-id> --tag=kind=summary
 ```
 
 - `report.pdf` is the file to upload.
 - `--run=<run-id>` is the run it came from, where `<run-id>` is the run's
   id.
-- `--content-type` is its type, `application/octet-stream` unless you say.
+- `--content-type` gives its type. Without it, the type comes from the
+  file's extension, here `application/pdf`, or else it's
+  `application/octet-stream`.
 - `--tag=key=value` labels it. You can give it more than once.
 
-It prints the artifact's record, with its `blobId`.
+It prints version 1, with the file's `fileId` and `created: true`.
 
 - **Its project:** with `--run`, it's the run's project. Without `--run`,
   it's `--project`'s, or else the workspace's default project. A `--project`
@@ -46,74 +57,120 @@ It prints the artifact's record, with its `blobId`.
   run's, is another is refused with `403 key-project-mismatch`.
 - **Its name** is the file's, unless `--name` gives another.
 - **Its size:** the runtime refuses a bigger upload than its cap, 100 MiB by
-  default. It answers `413 artifact-too-large`, with the cap in
+  default. It answers `413 file-too-large`, with the cap in
   `details.maxBytes`.
 
-From your app, in TypeScript, `artifacts.upload` sends the file. `download`
-streams it back, and `head` reads what's kept without the bytes.
+From your app, in TypeScript, `files.create` sends the file and answers its
+version 1. Over the cap, it answers `413 file-too-large`.
+`files.versions.download` streams a version's bytes back, and
+`files.versions.get` reads what's kept without the bytes.
+
+## Add a version
+
+Uploading to the file adds a version, which becomes its Latest:
+
+```sh
+pnpm exec kindgi files upload report.pdf --to=<file-id> --expected-version=1
+```
+
+- `<file-id>` is the file's `fileId`, from the upload.
+- `--expected-version=1` names the version you built on. If another version
+  was added since, nothing is written: it answers
+  `409 file-version-conflict`, and says
+  `Latest is version 2, not 1, so nothing was written.`
+- Without `--expected-version`, the last upload wins, and the answer's
+  `parentVersion` names the version it built on.
+- A version stays in its file's project, so `--to` takes no `--run` or
+  `--project`.
+- If the bytes are Latest's already, nothing is added. It prints that
+  version, with `created: false`, and says
+  `Nothing new: these bytes are already version 1.`
+
+`kindgi files versions <file-id>` lists every version, newest first.
+`kindgi files restore <file-id> <version>` adds a version with an earlier
+one's bytes, and `kindgi files pin <file-id> <version>` keeps one, so it
+can't be deleted.
+[Files and versions](../../../concepts/files-and-versions/) explains each.
 
 ## Find and download them
 
-Listing a run's artifacts gives each one's id, which you read and download
-it by:
+Listing a run's files gives each one's `fileId`, which you read and
+download it by:
 
 ```sh
-pnpm exec kindgi artifacts list --run=<run-id> --table
-pnpm exec kindgi artifacts get <blob-id>
-pnpm exec kindgi artifacts download <blob-id> -o report.pdf
+pnpm exec kindgi files list --run=<run-id> --table
+pnpm exec kindgi files get <file-id>
+pnpm exec kindgi files download <file-id> -o report.pdf
 ```
 
-- `list` is newest first. `--run`, `--project` and `--content-type` narrow
-  it, and `--table` prints a table instead of JSON.
-- `<blob-id>` is an artifact's `blobId`, from the list.
-- `get` gives an artifact's name, type, size and sha256, without its bytes.
+- `list` is newest change first. `--run`, `--project` and `--content-type`
+  narrow it, and `--table` prints a table instead of JSON.
+- `get` gives a file's name, project and run, Latest's number, and Latest's
+  type, size and sha256, without the bytes. `get <file-id> 2` gives version
+  2's.
+- `download` writes Latest, unless you name a version, as
+  `download <file-id> 2` does. It prints the number it wrote. A version
+  that's gone answers `404 file-version-not-found`, and nothing is written:
+  it never writes Latest instead.
 - `download` writes the file under its own name in this directory, unless
   `-o` names one. It keeps a file that's already there, unless you add
   `--force`.
-- `download` first writes to a new file next to the one it saves, and moves
-  it into place only once the whole file has arrived and its sha256 is the
-  one the server sent. A download that fails leaves no file, and with
-  `--force` the file already there stays as it was.
+- `download` first writes to a temporary file next to the one it saves,
+  and moves it into place only once the whole file has arrived and its
+  sha256 is the one the server sent. A download that fails leaves no file,
+  and with `--force` the file already there stays as it was.
 - One Ctrl-C (or `SIGTERM`) stops `download`, whether it's still waiting
   for the server or part way through the file. As after a failure, it leaves
   no file, and a file already there stays as it was. It says
-  `kindgi artifacts download stopped: no file was written.` and exits with
+  `kindgi files download stopped: no file was written.` and exits with
   code 130.
 - Ended at once, by a second Ctrl-C or `kill -9`, `download` can leave that
-  new file behind: the file's name, then 8 hex digits, then `.partial`, such
-  as `report.pdf.1a2b3c4d.partial`. You can delete it.
+  temporary file behind: the file's name, then 8 hex digits, then
+  `.partial`, such as `report.pdf.1a2b3c4d.partial`. You can delete it.
 
-A download is checked against the sha256 and size kept for the artifact. If
+A download is checked against the sha256 and size kept for its version. If
 its bytes were changed in their store outside the runtime, on disk or in the
 bucket, the download stops part way: the runtime closes the connection
 before the last of its `Content-Length` bytes. `download` then fails with
 `the download stopped part way (…): report.pdf wasn't written`, and writes
-no file. In TypeScript, reading `download`'s body throws. The runtime logs
-each one at `ERROR`, as
+no file. In TypeScript, reading the body `files.versions.download` answers
+throws. The runtime logs each one at `ERROR`, as
 `Artifact <blob-id>'s stored bytes aren't the ones put; the read was stopped`,
-with its workspace, where its bytes are kept, the sha256 and size kept for it,
-and what was read. The log line never holds the file's content.
+where `<blob-id>` is the version's `blobId`, which
+`kindgi files get <file-id> <version>` shows. The line comes with the
+workspace, where the bytes are kept, the sha256 and size kept for them, and
+what was read. It never holds the file's content.
 
-With [authorization](../../../deploy/authorization/) on, listing and
-downloading need `read` on the artifact's project, and uploading and deleting
-need `write`. An artifact you can't read answers `404`, as if it weren't
-there, and lists leave it out.
+With [authorization](../../../deploy/authorization/) on, reading a file
+needs `read` on its project, and changing it needs `write`.
+[Who can see and change a file](../../../concepts/files-and-versions/#who-can-see-and-change-a-file)
+has each case. A file you can't read answers `404 file-not-found`, as if it
+weren't there, and lists leave it out.
 
 ## Delete one
 
 ```sh
-pnpm exec kindgi artifacts delete <blob-id>
+pnpm exec kindgi files delete <file-id> --yes
 ```
 
-`<blob-id>` is the artifact's `blobId`. It's gone from lists and downloads
-at once. Its record and bytes stay until a retention policy on `artifact`
-purges them, as [Keep and purge deleted data](../../../deploy/retention/)
+`<file-id>` is the file's `fileId`. `--yes` skips the question `delete`
+asks first, which names the file and how many versions go. With no terminal
+and no `--yes`, it deletes nothing and exits with code 1.
+
+The file and every version are gone from lists and downloads at once. A
+file with a pinned version stays: it answers `409 file-version-pinned`,
+naming its lowest pinned version.
+`delete <file-id> <version>` deletes one version: a pinned one answers
+`409 file-version-pinned`, and the file's only live version answers
+`409 file-last-version`, so you delete the file instead.
+
+A deleted file or version stays until a retention policy on `file_version`
+purges it, as [Keep and purge deleted data](../../../deploy/retention/)
 describes.
 
 ## Turn them on
 
-The runtime keeps artifacts once `KINDGI_ARTIFACTS` says where their bytes
-go:
+The runtime keeps files once `KINDGI_ARTIFACTS` says where their bytes go:
 
 - `local:<absolute directory>`: a directory on the runtime's machine.
 - `gcs:<bucket>[/<prefix>]`: a Google Cloud Storage bucket, reached with the
@@ -123,15 +180,19 @@ go:
   with the runtime's own AWS identity, or in an S3-compatible store such as
   MinIO or Cloudflare R2.
 
-Without it, the runtime serves no artifacts. `kindgi dev` keeps them in the
+Without it, the runtime serves no files. `kindgi dev` keeps them in the
 pack's `.kindgi/dev/artifacts`. `KINDGI_ARTIFACT_MAX_BYTES` sets the upload
-cap. The startup output says where artifacts go, or that they're off.
+cap. The startup output says where files go, or that they're off. 0.8.0
+renames both settings, as
+[What 0.8.0 removes](../../../concepts/files-and-versions/#what-080-removes)
+lists.
 [Choose where the runtime keeps files](../../../deploy/self-hosted/store-files/)
 has each one's settings and permissions, and what the runtime checks at
 startup.
 
 ## Next
 
+- [Files and versions](../../../concepts/files-and-versions/)
 - [Read a run's journal](../read-the-journal/)
 - [Show runs in your app](../show-runs-in-your-app/)
 - [Keep and purge deleted data](../../../deploy/retention/)
