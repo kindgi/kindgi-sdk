@@ -183,7 +183,11 @@ function harness(
       headers: { authorization: `Bearer ${as}` },
       body: form,
     });
-    return { status: res.status, body: (await res.json()) as Record<string, any> };
+    return {
+      status: res.status,
+      headers: Object.fromEntries(res.headers.entries()),
+      body: (await res.json()) as Record<string, any>,
+    };
   };
   const call = async (
     as: string,
@@ -656,7 +660,9 @@ describe('the artifacts routes go in 0.8.0', () => {
     const h = harness();
     const link =
       '<https://docs.kindgi.com/v0.7/concepts/files-and-versions/#what-080-removes>; rel="deprecation"';
-    const blobId = (await h.upload('alice')).body.blobId as string;
+    const made = await h.upload('alice');
+    expect([made.status, made.headers.link]).toEqual([201, link]);
+    const blobId = made.body.blobId as string;
     const answers = [
       ['alice', 'GET', '/v1/artifacts', 200],
       ['alice', 'GET', `/v1/artifacts/${blobId}`, 200],
@@ -669,6 +675,9 @@ describe('the artifacts routes go in 0.8.0', () => {
       const r = await h.call(as, method, path);
       expect([method, path, r.status, r.headers.link]).toEqual([method, path, status, link]);
     }
+    // Refused by the upload cap, before the route reads the body.
+    const tooBig = await harness({ maxBytes: 1024 }).upload('alice', {}, 'x'.repeat(2000));
+    expect([tooBig.status, tooBig.headers.link]).toEqual([413, link]);
     // `/v1/files` isn't served here: its 404 is no artifacts answer.
     const other = await h.call('alice', 'GET', '/v1/files');
     expect([other.status, other.headers.link]).toEqual([404, undefined]);

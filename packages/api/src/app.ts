@@ -1583,6 +1583,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   app.use('*', requestIdMiddleware());
   // The request's trace context and logger, and its access line.
   app.use('*', requestLogMiddleware(input.logger ?? noopLogger));
+  // The artifacts routes go in 0.8.0: each of their answers, a 401 or a
+  // 413 too, links to what replaces them (`/v1/artifacts/*` matches
+  // `/v1/artifacts`). Before the body limits, so their refusals carry it.
+  if (input.blobStorage !== undefined) app.use('/v1/artifacts/*', artifactsDeprecationLink());
   // An upload is read under its own limit, once the caller is known
   // (`readBodyOnce`); every other body under the API's, before anything.
   const fileLimit = fileUploadLimit(input.artifactMaxBytes ?? DEFAULT_ARTIFACT_MAX_BYTES);
@@ -1598,9 +1602,6 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   app.use('*', requestBodyLimit(ownBodyLimits));
   // No `/v1` answer is kept by a browser or a proxy (data and errors alike).
   app.use('/v1/*', noStoreMiddleware());
-  // The artifacts routes go in 0.8.0: each of their answers, a 401 too,
-  // links to what replaces them (`/v1/artifacts/*` matches `/v1/artifacts`).
-  if (input.blobStorage !== undefined) app.use('/v1/artifacts/*', artifactsDeprecationLink());
   // A thrown exception: a 500 wire error with its message and request id, logged.
   app.onError(mapThrownError);
 
