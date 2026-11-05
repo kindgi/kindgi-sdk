@@ -102,6 +102,18 @@ export function siteEnrollRouter(options: SiteAuthRouteOptions): Hono<AppEnv> {
         );
       case 'rate-limited':
         return rateLimited(c, outcome.retryAfterSeconds);
+      case 'key-retired':
+        c.status(statusFor('site-enrollment-key-retired') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'site-enrollment-key-retired',
+              message:
+                "This key was retired at this site, or at another site at its address, so it can't be enrolled again: enroll a new key. The code wasn't used up, so it works until it expires.",
+            },
+            c.get('requestId'),
+          ),
+        );
       case 'refused':
         c.status(statusFor('site-enrollment-refused') as never);
         return c.json(

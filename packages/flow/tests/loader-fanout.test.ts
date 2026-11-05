@@ -277,7 +277,8 @@ describe('loadFlow — fanout validation failures', () => {
 // ---------- composability: fanout inside a loop body ----------
 
 describe('loadFlow — fanout composability', () => {
-  test('accepts a fanout node nested inside a loop body', () => {
+  // A loop body can't run a fan-out (loop-loader.test.ts has the rest).
+  test('refuses a fanout node nested inside a loop body', () => {
     const flow = {
       id: 'test.fanout-in-loop',
       version: '1.0.0',
@@ -304,6 +305,9 @@ describe('loadFlow — fanout composability', () => {
       ],
     };
     const r = loadFlow(flow);
-    expect(r.kind).toBe('ok');
+    expect(r).toMatchObject({
+      kind: 'err',
+      error: { code: 'loop-body-fanout', loopNodeId: 'batch', nodeId: 'inner-fanout' },
+    });
   });
 });

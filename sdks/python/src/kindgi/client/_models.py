@@ -2526,7 +2526,7 @@ class MustNotCallItem(RootModel[str]):
 
 class CreateCorrectionBody(BaseModel):
     """
-    At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`.
+    At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`. A text of only spaces counts as not given.
     """
 
     model_config = ConfigDict(
@@ -2578,7 +2578,7 @@ class RemoveCorrectionResult(BaseModel):
 
 class AddTestCaseBody(BaseModel):
     """
-    A correction's body on one of the agent's runs. At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`.
+    A correction's body on one of the agent's runs. At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`. A text of only spaces counts as not given.
     """
 
     model_config = ConfigDict(
@@ -10711,6 +10711,10 @@ class Project(BaseModel):
     production_since: Annotated[AwareDatetime | None, Field(alias="productionSince")] = None
     """
     When the project was put in production; absent while it isn't. A run in a project in production is a production run, and a run anywhere else is staging.
+    """
+    former_slugs: Annotated[list[str] | None, Field(alias="formerSlugs")] = None
+    """
+    The slugs this project had before it was renamed, newest first, and empty when it never was. No other project of the workspace can take them, in any org, while this project exists. Absent from a runtime that doesn't keep them.
     """
     sort_end_user_corrections: Annotated[bool | None, Field(alias="sortEndUserCorrections")] = None
     """

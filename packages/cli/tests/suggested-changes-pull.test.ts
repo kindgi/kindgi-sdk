@@ -900,6 +900,24 @@ describe('kindgi suggested-changes pull', () => {
       expect(out.exitCode, out.stderr).toBe(0);
       expect((await toneFile()).version).toBe('1.1.0');
     });
+
+    test("--project: a renamed project's old slug is refused with the new one, and nothing is pulled", async () => {
+      await pack({ git: false });
+      const projects = {
+        list: async () => ({
+          data: [{ id: PROJECT, slug: 'desk', name: 'Desk', formerSlugs: ['help-desk'] }],
+          hasMore: false,
+        }),
+      };
+      const out = await pull(['sc-1', '--project=help-desk'], {
+        client: { ...client().client, projects },
+      });
+      expect(out.exitCode).toBe(2);
+      expect(out.stderr).toContain(
+        `"help-desk" was the slug of project ${PROJECT} (Desk) until it was renamed to "desk". Change --project to "desk" or to the project's id.`,
+      );
+      expect((await toneFile()).version).toBe('1.0.0');
+    });
   });
 
   test("who made it: a person's is made by hand, a service's says nothing", () => {

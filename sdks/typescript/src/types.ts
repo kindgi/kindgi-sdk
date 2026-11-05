@@ -3281,6 +3281,7 @@ export interface CorrectionWithCopies extends Correction {
  * Input for `POST /v1/corrections` per `#CreateCorrectionBody`. At least one
  * of `decisions`, `answer` and `items`; `decisions: 'wrong'` needs an entry in
  * `shouldCall` or `mustNotCall`, and `answer: 'wrong'` needs `shouldSay` or `why`.
+ * A text of only spaces counts as not given.
  */
 export interface CreateCorrectionInput {
   readonly runId: string;

@@ -5940,7 +5940,7 @@ export const CreateCorrectionBodySchema: JsonSchema = {
   additionalProperties: false,
   required: ['runId'],
   description:
-    'At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`.',
+    'At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`. A text of only spaces counts as not given.',
   properties: {
     runId: { type: 'string', minLength: 1 },
     decisions: verdictProperty,
@@ -13850,6 +13850,12 @@ export const ProjectSchema: JsonSchema = {
       format: 'date-time',
       description:
         "When the project was put in production; absent while it isn't. A run in a project in production is a production run, and a run anywhere else is staging.",
+    },
+    formerSlugs: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        "The slugs this project had before it was renamed, newest first, and empty when it never was. No other project of the workspace can take them, in any org, while this project exists. Absent from a runtime that doesn't keep them.",
     },
     sortEndUserCorrections: {
       type: 'boolean',

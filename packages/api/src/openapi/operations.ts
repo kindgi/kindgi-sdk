@@ -9401,7 +9401,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.create',
     summary: 'Create a project',
     description:
-      "A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second default project, `409 project-default-already-exists`.",
+      "A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the workspace had before it was renamed, in any org (`details.heldAs: 'old-slug'`); a second default project, `409 project-default-already-exists`.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -9444,7 +9444,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.update',
     summary: 'Partially update a project',
     description:
-      'A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up.',
+      "A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the workspace had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -9465,7 +9465,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No `admin` on the project; or the body names `orgId` (even the current one) and the caller is not a tenant admin, as making a project in an org needs (`permission-denied`).',
       ),
       '409': ErrorResponse(
-        "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up; or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
+        "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up, or another project of the workspace had it before it was renamed (`details.heldAs: 'old-slug'`); or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
       ),
       '404': ErrorResponse(
         'project-not-found: no project with that id under this workspace; or org-not-found: `orgId` names no org of the workspace (it never existed, or it was deleted).',
@@ -13102,7 +13102,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.sites.revokeKey',
     summary: "Revoke one of a site's keys",
     description:
-      "Statements signed with it are refused from now on, and the site's live sessions end. Tenant admins only.",
+      "Statements signed with it are refused from now on, and Kindgi won't enroll it again, for this site or another site in the tenant at the same address. The site's live sessions end. Tenant admins only.",
     tags: ['sites'],
     security: 'bearer',
     parameters: [
@@ -13170,7 +13170,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.sites.enroll',
     summary: 'A site posts its public key with its enrollment code',
     description:
-      "Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.",
+      "Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Once the code checks out, a key this site retired, or another site in the tenant at the same address retired, is refused unless it's live on this site now (`409 site-enrollment-key-retired`), and the code isn't used up. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.",
     tags: ['sites'],
     security: 'public',
     requestBody: { required: true, schema: ref('EnrollSiteBody') },
@@ -13183,6 +13183,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "A malformed body, or a public key that isn't an Ed25519 JWK with a `kid`, or has a private part (`site-key-invalid`); it's checked before the code.",
       ),
       '401': ErrorResponse('The code was refused (`site-enrollment-refused`).'),
+      '409': ErrorResponse(
+        "The key was retired at this site, or at another site in the tenant at the same address, and it isn't live on this site (`site-enrollment-key-retired`). The code isn't used up.",
+      ),
       '413': ErrorResponse('The body is over 4096 bytes (`site-request-too-large`).'),
       '429': ErrorResponse('Too many failures from this client.'),
     },
