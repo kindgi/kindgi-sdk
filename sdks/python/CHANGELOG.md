@@ -13,6 +13,13 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a deleted project is kept, and a workspace admin can restore
+  it.** `projects.restore` brings one back as it was, and
+  `projects.list_deleted` lists the workspace's deleted projects, newest first
+  (the new `DeletedProject` model). A webhook delivery to a deleted project
+  answers `skipped: "project-deleted"`, a system deployment retired with its
+  project says `reason: "project-deleted"`, and an audit event's `kind` can be
+  `project-deleted` or `project-restored`.
 - `kindgi`: **an approval gives the id of the connection its call acts with, so a person can see which of their accounts it uses.** `ApprovalConnection` (on an approval, and in a run's `waiting_for`) gains `connection_id`. A person's own connection's account still isn't on the approval: whoever may read the connection, its person or a tenant admin, reads it with `client.connections.get(connection_id)`. Approvals from before this change have none.
 - `kindgi`: **an agent or a flow can be a tool in a person's chat app.**
   `Agent(mcp={"expose": True})` and `Flow(mcp={"expose": True})` offer it,

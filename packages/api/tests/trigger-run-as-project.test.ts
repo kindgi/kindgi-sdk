@@ -7,8 +7,8 @@
  * runs as the project, with `editor` on it. Naming the project takes a
  * project admin (without an authorization store, a tenant-admin key), and
  * no `act_as`. The account has no keys, its grant is fixed, and it isn't
- * named by id; a tenant admin may unregister it, and deleting the project
- * unregisters it. Such a trigger is shared under the owner rule.
+ * named by id; a tenant admin may unregister it, and a deleted project keeps
+ * it, for its restore. Such a trigger is shared under the owner rule.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -698,18 +698,15 @@ describe("a project's deletion", () => {
     return { status: del.status, account: accounts.activeFor(projectId), lines };
   }
 
-  test('unregisters its own account', async () => {
-    const { status, account } = await withProject();
-    expect(status).toBe(204);
-    expect(account).toBeUndefined();
-  });
-
-  test('an unregister that fails is logged, and the delete still answers 204', async () => {
-    const { status, lines } = await withProject(async () => {
-      throw new Error('store down');
+  test('keeps its own account, for its restore: nothing unregisters it', async () => {
+    const asked: string[] = [];
+    const { status, account } = await withProject(async (input) => {
+      asked.push(input.serviceAccountId as unknown as string);
+      throw new Error('a deleted project keeps its account');
     });
     expect(status).toBe(204);
-    expect(lines.join('\n')).toMatch(/its own account wasn't unregistered .*store down/);
+    expect(account).toBeDefined();
+    expect(asked).toEqual([]);
   });
 
   test('a delete refused leaves the account', async () => {

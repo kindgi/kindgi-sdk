@@ -721,6 +721,20 @@ export interface CreateAppInput {
     projectId: import('@kindgi/types').ProjectId,
   ) => Promise<boolean>;
   /**
+   * Whether a project is deleted (`DELETE /v1/projects/{projectId}`), and
+   * not restored since. Asked before `projectSuspended`, at every gate that
+   * one reaches: a deploy into it, a test run or an Improve run started in
+   * it, and a pin in its scope (a card's too) are refused `404
+   * project-not-found`, as for an id with no project; a webhook delivery to
+   * one of its triggers is skipped (`skipped: 'project-deleted'`), and
+   * nothing is recorded. A deleted project's unfinished runs are the
+   * `projectBinding`'s to cancel, once its delete commits. Absent: no check.
+   */
+  readonly projectDeleted?: (
+    tenantId: import('@kindgi/types').TenantId,
+    projectId: import('@kindgi/types').ProjectId,
+  ) => Promise<boolean>;
+  /**
    * Under `kindgi dev`, where a pin writes the version into the pack's
    * files: which of them the pin would write over that git hasn't
    * committed, or that the pack isn't in git. `POST
@@ -1855,6 +1869,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.testRunBinding !== undefined && { testRuns: input.testRunBinding }),
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
           ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
+          ...(input.projectDeleted !== undefined && { projectDeleted: input.projectDeleted }),
           ...(input.pinFiles !== undefined && { pinFiles: input.pinFiles }),
           ...pinTestRunDeps,
         },
@@ -2017,6 +2032,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.improveRuns !== undefined && { improveRuns: input.improveRuns }),
       agents: input.agentRegistry,
       ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
+      ...(input.projectDeleted !== undefined && { projectDeleted: input.projectDeleted }),
       ...(input.correctionRegistry !== undefined && { correctorGroups: input.correctionRegistry }),
     };
     const cardDeps = {
@@ -2032,6 +2048,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.projectSuspended !== undefined && {
         projectSuspended: input.projectSuspended,
       }),
+      ...(input.projectDeleted !== undefined && { projectDeleted: input.projectDeleted }),
       ...(input.environmentOrders !== undefined && { orders: input.environmentOrders }),
       // A drafter's pin needs a separate approver when the tenant has
       // a second person who could approve it — one who can read the
@@ -2521,7 +2538,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         tenantHierarchyBinding,
         authorizer,
         input.identityDirectory,
-        input.serviceAccountBinding,
+        input.auditEvents,
       ),
     );
   }
@@ -2684,6 +2701,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             perDeploymentPacks: true,
           }),
           ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
+          ...(input.projectDeleted !== undefined && { projectDeleted: input.projectDeleted }),
           ...(input.toolRegistry !== undefined && { toolRegistry: input.toolRegistry }),
           ...(input.blockRegistry !== undefined && { blockRegistry: input.blockRegistry }),
           ...(input.guardrailRegistry !== undefined && {
@@ -2703,6 +2721,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
               ...(input.projectSuspended !== undefined && {
                 projectSuspended: input.projectSuspended,
               }),
+              ...(input.projectDeleted !== undefined && { projectDeleted: input.projectDeleted }),
               ...pinTestRunDeps,
             },
           }),
@@ -2786,6 +2805,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       itemRights,
       input.testSetFreeze,
       input.correctionRegistry,
+      input.projectDeleted,
     );
     v1.route('/test-sets', testRuns.start);
     v1.route('/test-runs', testRuns.readback);
@@ -2871,6 +2891,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(input.projectSuspended !== undefined && {
           projectSuspended: input.projectSuspended,
         }),
+        ...(input.projectDeleted !== undefined && { projectDeleted: input.projectDeleted }),
       }),
     );
   }

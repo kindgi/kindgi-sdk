@@ -13,6 +13,8 @@ import type {
   AddProjectMembershipResult,
   AssignableProjectRole as AssignableProjectRoleWire,
   CreateResourceResult,
+  DeletedProjectCollectionPage,
+  DeletedProject as DeletedProjectWire,
   ProjectAccessPage as ProjectAccessPageWire,
   ProjectAccess as ProjectAccessWire,
   ProjectCollectionPage,
@@ -40,6 +42,9 @@ import { type SitesClient, makeSitesClient } from './sites.js';
 export type ProjectShape = ProjectWire;
 export type ProjectRecordShape = ProjectShape;
 export type ProjectPage = ProjectCollectionPage;
+/** A deleted project, kept until a workspace admin restores it; `deletedAt` is when. */
+export type DeletedProjectShape = DeletedProjectWire;
+export type DeletedProjectPage = DeletedProjectCollectionPage;
 export type CreateProjectInput = ProjectSpecBody;
 export type UpdateProjectInput = ProjectPatchBody;
 export type ProjectMembershipPage = ProjectMembershipCollectionPage;
@@ -55,6 +60,12 @@ export type ProjectRoleValue = ProjectRoleWire;
 export type AssignableProjectRoleValue = AssignableProjectRoleWire;
 
 export interface ListProjectsFilter {
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+/** Paging for the deleted projects: there's no other filter on them. */
+export interface ListDeletedProjectsFilter {
   readonly limit?: number;
   readonly cursor?: string;
 }
@@ -171,8 +182,33 @@ export interface ProjectsClient {
     input: UpdateProjectInput,
     options?: { readonly idempotencyKey?: string },
   ): Promise<ProjectShape>;
-  /** @wire DELETE /v1/projects/:projectId */
+  /**
+   * Delete the project. It's kept, not erased: from then on it's gone from
+   * `get`, `list` and its memberships, nobody can reach what's in it, and
+   * its triggers skip. Its slugs, keys and own account stay its own. The
+   * workspace's default project is refused with `409 project-is-default`.
+   * Deleting it again, or an unknown id, changes nothing.
+   *
+   * @wire DELETE /v1/projects/:projectId
+   */
   delete(projectId: string): Promise<void>;
+  /**
+   * The workspace's deleted projects, the most recently deleted first, each
+   * with `deletedAt`. For workspace admins.
+   *
+   * @wire GET /v1/projects/deleted
+   */
+  listDeleted(filter?: ListDeletedProjectsFilter): Promise<DeletedProjectPage>;
+  /**
+   * Bring a deleted project back as it was: its members, team grants, keys,
+   * own account and slugs. A live project comes back unchanged. For
+   * workspace admins; an id with no project is `404 project-not-found`. One
+   * in production, with the workspace's projects in production at its
+   * limit, is refused `403 production-limit-reached` and stays deleted.
+   *
+   * @wire POST /v1/projects/:projectId/restore
+   */
+  restore(projectId: string, options?: { readonly idempotencyKey?: string }): Promise<ProjectShape>;
   /**
    * Put the project in production (`true`), or take it out (`false`). A run
    * in a project in production is a production run; a run anywhere else is
@@ -304,6 +340,23 @@ export function makeProjectsClient(transport: Transport): ProjectsClient {
         method: 'DELETE',
         path: `/v1/projects/${seg(projectId)}`,
         discardResponse: true,
+      });
+    },
+    async listDeleted(filter) {
+      return transport.request<DeletedProjectPage>({
+        method: 'GET',
+        path: '/v1/projects/deleted',
+        query: {
+          ...(filter?.limit !== undefined && { limit: filter.limit }),
+          ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+        },
+      });
+    },
+    async restore(projectId, options) {
+      return transport.request<ProjectShape>({
+        method: 'POST',
+        path: `/v1/projects/${seg(projectId)}/restore`,
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
       });
     },
     async setProduction(projectId, production, options) {

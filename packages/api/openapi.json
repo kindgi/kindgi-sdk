@@ -576,6 +576,8 @@
           "project-in-another-order": 409,
           "environment-takes-promotions": 409,
           "project-in-environment-order": 409,
+          "project-is-default": 409,
+          "project-restore-unsupported": 501,
           "org-has-environment-order": 409,
           "promotion-not-next-environment": 409,
           "promotion-values-not-ready": 409,
@@ -3616,9 +3618,10 @@
               "tenant-closing",
               "tenant-suspended",
               "project-suspended",
-              "pack-suspended"
+              "pack-suspended",
+              "project-deleted"
             ],
-            "description": "In the `retire` list only. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one."
+            "description": "In the `retire` list only. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one. `project-deleted`: every deployment of the project, which is deleted."
           }
         }
       },
@@ -4931,7 +4934,7 @@
           },
           "projectId": {
             "type": "string",
-            "description": "Set on a project's own account: made by the first trigger that runs as the project (`runAsProject`), with the `editor` role on it. It runs only the triggers with `runAsProject`, not the project's other shared triggers. It has no keys, and its grant is fixed. Unregistering it stops those triggers until an admin takes each over; deleting the project unregisters it."
+            "description": "Set on a project's own account: made by the first trigger that runs as the project (`runAsProject`), with the `editor` role on it. It runs only the triggers with `runAsProject`, not the project's other shared triggers. It has no keys, and its grant is fixed. Unregistering it stops those triggers until an admin takes each over. A deleted project keeps it, reaching nothing, and a restore brings it back with the project."
           }
         }
       },
@@ -18109,7 +18112,7 @@
           },
           "cancelReason": {
             "type": "string",
-            "description": "Why a `cancelled` run stopped when nobody cancelled it: its project or workspace took no new runs when a case started (`project-suspended`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client."
+            "description": "Why a `cancelled` run stopped when nobody cancelled it: its project or workspace took no new runs when a case started (`project-suspended`, `project-deleted`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client."
           },
           "correlationId": {
             "type": "string",
@@ -21401,7 +21404,7 @@
           },
           "retired": {
             "type": "string",
-            "description": "`cleared` only: why no pack service is wanted for it now. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the workspace, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither."
+            "description": "`cleared` only: why no pack service is wanted for it now. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the workspace, project or pack is restored, and `project-deleted` until the project is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither."
           },
           "packEnvProblem": {
             "type": "object",
@@ -22582,7 +22585,9 @@
           "suggested-change-created",
           "suggested-change-pinned",
           "suggested-change-added-as-latest",
-          "suggested-change-withdrawn"
+          "suggested-change-withdrawn",
+          "project-deleted",
+          "project-restored"
         ]
       },
       "EvidenceActor": {
@@ -22765,7 +22770,9 @@
               "suggested-change-created",
               "suggested-change-pinned",
               "suggested-change-added-as-latest",
-              "suggested-change-withdrawn"
+              "suggested-change-withdrawn",
+              "project-deleted",
+              "project-restored"
             ]
           },
           "timestamp": {
@@ -22971,7 +22978,9 @@
               "suggested-change-created",
               "suggested-change-pinned",
               "suggested-change-added-as-latest",
-              "suggested-change-withdrawn"
+              "suggested-change-withdrawn",
+              "project-deleted",
+              "project-restored"
             ]
           },
           "from": {
@@ -23075,7 +23084,9 @@
                   "suggested-change-created",
                   "suggested-change-pinned",
                   "suggested-change-added-as-latest",
-                  "suggested-change-withdrawn"
+                  "suggested-change-withdrawn",
+                  "project-deleted",
+                  "project-restored"
                 ]
               },
               "from": {
@@ -23830,7 +23841,7 @@
             "items": {
               "type": "string"
             },
-            "description": "The slugs this project had before it was renamed, newest first, and empty when it never was. No other project of the workspace can take them, in any org, while this project exists. Absent from a runtime that doesn't keep them."
+            "description": "The slugs this project had before it was renamed, newest first, and empty when it never was. No other project of the workspace can take them, in any org, while this project exists, deleted or not. Absent from a runtime that doesn't keep them."
           },
           "sortEndUserCorrections": {
             "type": "boolean",
@@ -23995,6 +24006,73 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Project"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "DeletedProject": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A deleted project, kept with what is in it until a workspace admin restores it (`POST /v1/projects/{projectId}/restore`).",
+        "required": [
+          "id",
+          "tenantId",
+          "name",
+          "slug",
+          "formerSlugs",
+          "deletedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "ProjectId — opaque branded string."
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "orgId": {
+            "type": "string",
+            "description": "Its org; absent when it has none."
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string",
+            "description": "Its slug, still its own: no other project can take it where this one is."
+          },
+          "formerSlugs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The slugs it had before it was renamed, newest first; still its own, in any org of the workspace."
+          },
+          "deletedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it was deleted. Deleting it again keeps this time."
+          }
+        }
+      },
+      "DeletedProjectCollectionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeletedProject"
             }
           },
           "hasMore": {
@@ -25867,7 +25945,7 @@
               "refused",
               "failed"
             ],
-            "description": "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (enough new corrections since its last Improve run, or room under its month's cap); the target's project is suspended (`project-suspended`), so no run or Improve run started; its run or Improve run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either."
+            "description": "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (enough new corrections since its last Improve run, or room under its month's cap); the target's project is suspended or deleted (`project-suspended`, `project-deleted`), so no run or Improve run started; its run or Improve run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension, a delete or a close (`project-suspended`, `project-deleted`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either."
           },
           "runId": {
             "type": "string",
@@ -26398,7 +26476,7 @@
               "refused",
               "failed"
             ],
-            "description": "`pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended after the delivery was taken, before its run started (`project-suspended`); its run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). `refused`: `detail` says why. `failed`: the run couldn't start."
+            "description": "`pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended or deleted after the delivery was taken, before its run started (`project-suspended`, `project-deleted`); its run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). `refused`: `detail` says why. `failed`: the run couldn't start."
           },
           "runId": {
             "type": "string",
@@ -26412,7 +26490,7 @@
           },
           "detail": {
             "type": "string",
-            "description": "Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access. A skip for a suspension or a close names `project-suspended`, `tenant-suspended` or `tenant-closing` in it."
+            "description": "Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access. A skip for a suspension, a delete or a close names `project-suspended`, `project-deleted`, `tenant-suspended` or `tenant-closing` in it."
           },
           "countsTowardPause": {
             "type": "boolean",
@@ -26541,9 +26619,10 @@
             "enum": [
               "paused",
               "tenant-suspended",
-              "project-suspended"
+              "project-suspended",
+              "project-deleted"
             ],
-            "description": "No run started, and the event was dropped. `paused`: the trigger is paused, and a `skipped` fire was recorded. `tenant-suspended`, `project-suspended`: the trigger's workspace or project is suspended, and nothing was recorded."
+            "description": "No run started, and the event was dropped. `paused`: the trigger is paused, and a `skipped` fire was recorded. `tenant-suspended`, `project-suspended`: the trigger's workspace or project is suspended, and nothing was recorded. `project-deleted`: the trigger's project is deleted, and nothing was recorded."
           },
           "received": {
             "type": "string",
@@ -39848,7 +39927,7 @@
             }
           },
           "404": {
-            "description": "The version is not registered, or was unregistered; or the test run is not found.",
+            "description": "The version is not registered, or was unregistered; or the test run is not found. Or `project-not-found`: the scope's project is deleted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -40006,7 +40085,7 @@
             }
           },
           "404": {
-            "description": "The version, the agent or the test run is not found.",
+            "description": "The version, the agent or the test run is not found. Or `project-not-found`: the scope's project is deleted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -46881,7 +46960,7 @@
             }
           },
           "404": {
-            "description": "The body's `projectId` names no project of this workspace (`project-not-found`).",
+            "description": "The body's `projectId` names no project of this workspace, or a deleted one (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -47131,7 +47210,7 @@
             }
           },
           "404": {
-            "description": "The body's `projectId` names no project of this workspace (`project-not-found`).",
+            "description": "The body's `projectId` names no project of this workspace, or a deleted one (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -47436,7 +47515,7 @@
             }
           },
           "404": {
-            "description": "No such suggested change.",
+            "description": "No such suggested change; or `project-not-found`: its project is deleted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -56180,7 +56259,7 @@
             }
           },
           "404": {
-            "description": "No test set with that id under this workspace; or `projectId` names no project of this workspace (`project-not-found`).",
+            "description": "No test set with that id under this workspace; or `projectId` names no project of this workspace, or a deleted one (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -59928,7 +60007,7 @@
             }
           },
           "404": {
-            "description": "The body's `projectId` names no project of this workspace (`project-not-found`).",
+            "description": "The body's `projectId` names no project of this workspace, or a deleted one (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -60703,7 +60782,7 @@
             }
           },
           "404": {
-            "description": "`deployment-not-found`: no deployment with that id in this workspace, or one in a project you don't read.",
+            "description": "`deployment-not-found`: no deployment with that id in this workspace, one in a project you don't read, or one whose project is deleted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -60842,7 +60921,7 @@
             }
           },
           "404": {
-            "description": "`deployment-not-found`: no deployment with that id in this workspace, or one in a project you don't read.",
+            "description": "`deployment-not-found`: no deployment with that id in this workspace, one in a project you don't read, or one whose project is deleted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -63178,6 +63257,106 @@
         ]
       }
     },
+    "/v1/projects/deleted": {
+      "get": {
+        "operationId": "projects.listDeleted",
+        "summary": "List the workspace's deleted projects",
+        "tags": [
+          "projects"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of deleted projects.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedProjectCollectionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed query parameter.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `admin` on the workspace (`permission-denied`). A key or session limited to a project is refused before that, `key-project-mismatch` (`details.keyProjectId`), as on any path under `/v1/projects/` that is not its own project's.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`project-restore-unsupported`: this runtime's project binding keeps no deleted projects to list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Cursor-paginated, the most recently deleted first, each with `deletedAt`. A deleted project is restored with `POST /v1/projects/{projectId}/restore`. Needs `admin` on the workspace.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/projects": {
       "get": {
         "operationId": "projects.list",
@@ -63227,7 +63406,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Optional `?orgId=` narrows to a specific org (projects may have no org; absent = all); `?nameContains=` substring-matches on `Project.name`.",
+        "description": "Cursor-paginated, without the deleted projects (`GET /v1/projects/deleted` lists those). Optional `?orgId=` narrows to a specific org (projects may have no org; absent = all); `?nameContains=` substring-matches on `Project.name`.",
         "parameters": [
           {
             "name": "limit",
@@ -63373,7 +63552,7 @@
             }
           }
         },
-        "description": "A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the workspace had before it was renamed, in any org (`details.heldAs: 'old-slug'`); a second default project, `409 project-default-already-exists`.",
+        "description": "A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the workspace had before it was renamed, in any org (`details.heldAs: 'old-slug'`). A deleted project's slugs stay its own, so they answer it too, with `details.deletedProject: true`. A second default project answers `409 project-default-already-exists`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -63432,7 +63611,7 @@
             }
           },
           "404": {
-            "description": "No project with that id under this workspace.",
+            "description": "No project with that id under this workspace, or it was deleted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -63520,7 +63699,7 @@
             }
           },
           "409": {
-            "description": "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up, or another project of the workspace had it before it was renamed (`details.heldAs: 'old-slug'`); or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
+            "description": "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up, or another project of the workspace had it before it was renamed (`details.heldAs: 'old-slug'`), with `details.deletedProject: true` when that project is deleted; or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
             "content": {
               "application/json": {
                 "schema": {
@@ -63570,7 +63749,7 @@
             }
           }
         },
-        "description": "A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the workspace had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.",
+        "description": "A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the workspace had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). Either has `details.deletedProject: true` when the project holding the slug is deleted: its slugs stay its own. The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.",
         "parameters": [
           {
             "name": "projectId",
@@ -63616,7 +63795,7 @@
         ],
         "responses": {
           "204": {
-            "description": "Deleted (or already absent). No body."
+            "description": "Deleted (or already deleted, or absent). No body."
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
@@ -63629,7 +63808,7 @@
             }
           },
           "409": {
-            "description": "`project-in-environment-order`: the project is a member of an environment order, so it can't be deleted — clear it from the order first.",
+            "description": "`project-in-environment-order`: the project is a member of an environment order, so it can't be deleted — clear it from the order first. `project-is-default`: it's the workspace's default project, which can't be deleted (`details.projectId`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -63649,7 +63828,105 @@
             }
           }
         },
-        "description": "Once the project is deleted, its own service account (`runAsProject`), if it has one, is unregistered. That's best effort: a failure is logged, and the delete still answers 204.",
+        "description": "The project is kept, not erased: from then on it's gone from its get, the list and its memberships, nobody can reach what's in it, its unfinished runs are cancelled, and its triggers skip their fires and deliveries. Its slugs stay its own, and so do its keys and its own service account (`runAsProject`), which reach nothing while it's deleted. A workspace admin finds it at `GET /v1/projects/deleted` and brings it back as it was with `POST /v1/projects/{projectId}/restore`. Idempotent: an unknown or already-deleted project answers 204, and deleting it again keeps the time it was first deleted. The workspace's default project can't be deleted. A delete that changes something is recorded in the audit log, `project-deleted`.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProjectId — opaque branded string."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/restore": {
+      "post": {
+        "operationId": "projects.restore",
+        "summary": "Restore a deleted project",
+        "tags": [
+          "projects"
+        ],
+        "responses": {
+          "200": {
+            "description": "The project, live again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `admin` on the workspace (`permission-denied`); or the project is in production and the workspace's projects in production are at its limit (`production-limit-reached`, `details.limit` `projects-in-production`, `details.projectsInProduction` the limit, `details.inProduction` the count, `details.projectId`): it stays deleted until one is taken out of production. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`project-not-found`: no project, live or deleted, with that id under this workspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`project-restore-unsupported`: this runtime's project binding can't restore a deleted project.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Brings a deleted project back as it was: its members, team grants, keys, own service account and slugs, and its triggers' next fires run. Fires and deliveries that came due while it was deleted were skipped, and runs cancelled at the delete stay cancelled. Its `updatedAt` moves to the restore. A live project answers 200, unchanged. A deleted project doesn't count against the workspace's limit on projects in production, so restoring one that's in production counts it again: at the limit, the restore is refused (`403 production-limit-reached`) and the project stays deleted. Needs `admin` on the workspace: roles on a deleted project reach nothing, its own admins' included. Restoring a deleted project is recorded in the audit log, `project-restored`.",
         "parameters": [
           {
             "name": "projectId",
