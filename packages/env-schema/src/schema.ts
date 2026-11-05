@@ -1044,7 +1044,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ARTIFACT_RUNNER_DAILY_BYTES',
     description:
-      'Used from runtime 0.7.0; earlier runtimes ignore it. The most bytes one person may upload to `POST /v1/artifacts` in a workspace in 24 hours as files for their own runs, in projects where they have `run` and no `write`. Past it, such an upload is `429 upload-limit-reached`, saying when it fits. What the person uploads to projects where they have `write` is never refused, but it counts toward this limit too: the count is every file they uploaded in the workspace in the last 24 hours that names no run and is still stored, in whichever project. Default 1073741824 (1 GiB): a whole number no smaller than `KINDGI_ARTIFACT_MAX_BYTES`, or `off`.',
+      "Used from runtime 0.7.0; earlier runtimes ignore it. The most bytes one person may upload to `POST /v1/artifacts` in a workspace in 24 hours as files for their own runs, in projects where they have `run` and no `write`. Past it, such an upload is `429 upload-limit-reached`, saying when it fits. What the person uploads to projects where they have `write` is never refused, but it counts toward this limit too: the count is every file they uploaded in the workspace in the last 24 hours that names no run and is still stored, in whichever project. Default 1073741824 (1 GiB), or `KINDGI_ARTIFACT_MAX_BYTES` when that is larger. Set, it's a whole number no smaller than `KINDGI_ARTIFACT_MAX_BYTES`, or `off`; set lower, the runtime refuses to start.",
     example: '1073741824',
     required: false,
     appliesTo: appliesToServer,

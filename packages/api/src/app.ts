@@ -788,7 +788,8 @@ export interface CreateAppInput {
    * `POST /v1/artifacts` on `run` alone: a file of their own, for a run
    * they start, in a project they may run but not write. Past it, the
    * upload is `429 upload-limit-reached`. Without it, only each upload's
-   * size is limited. An upload that passes on `write` is never counted.
+   * size is limited. An upload that passes on `write` is never checked,
+   * though the deployment may count it toward the person's limit.
    */
   readonly runUploadLimiter?: RunUploadLimiter;
   /**

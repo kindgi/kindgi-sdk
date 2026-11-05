@@ -513,6 +513,20 @@ describe("the deployment's limit on what one person uploads on `run` alone", () 
     );
   });
 
+  test("another deployment's window is named in hours, or else in seconds, one or more", async () => {
+    for (const [windowMs, words] of [
+      [60 * 60 * 1000, 'in 1 hour'],
+      [2 * 60 * 60 * 1000, 'in 2 hours'],
+      [1000, 'in 1 second'],
+      [90_500, 'in 91 seconds'],
+    ] as const) {
+      const r = await harness({ limiter: limiter({ ...OVER, windowMs }) }).upload('carol', {
+        projectId: P3,
+      });
+      expect(r.body.error.message).toContain(` per person ${words} in this workspace;`);
+    }
+  });
+
   test('an upload that passes on `write`, one refused first, and one with no authorization are never checked', async () => {
     const l = limiter(OVER);
     const h = harness({ limiter: l });

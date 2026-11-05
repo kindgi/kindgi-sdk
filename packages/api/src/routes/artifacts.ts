@@ -74,15 +74,16 @@ function uploadLimitReached(
   c: Context<AppEnv>,
   over: Extract<RunUploadCheck, { kind: 'over' }>,
 ): Response {
-  const files = (n: number) => `${n} ${n === 1 ? 'file' : 'files'}`;
+  const count = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
+  const files = (n: number) => count(n, 'file');
   const limits = [
     ...(over.maxBytes !== undefined ? [`${over.maxBytes} bytes`] : []),
     ...(over.maxFiles !== undefined ? [files(over.maxFiles)] : []),
   ].join(' and ');
   const window =
     over.windowMs % 3_600_000 === 0
-      ? `${over.windowMs / 3_600_000} hours`
-      : `${Math.ceil(over.windowMs / 1000)} seconds`;
+      ? count(over.windowMs / 3_600_000, 'hour')
+      : count(Math.ceil(over.windowMs / 1000), 'second');
   const retryAt = new Date(Date.now() + over.retryAfterMs).toISOString();
   c.header('Retry-After', String(retryAfterSeconds(over.retryAfterMs)));
   c.status(statusFor('upload-limit-reached') as never);
