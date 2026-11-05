@@ -188,6 +188,7 @@ export interface KindgiClient {
   // Interop
   readonly mcp: McpClient;
   readonly events: EventsClient;
+  /** @deprecated Use `client.files`; removed in 0.8.0. */
   readonly artifacts: ArtifactsClient;
   /** Files the runtime keeps, with every edit as a version. */
   readonly files: FilesClient;

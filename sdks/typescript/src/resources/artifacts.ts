@@ -33,12 +33,20 @@ import type {
  *
  * `put` and `get` (content-addressed `BlobRef`s), `presign` and
  * `setRetentionLock` have no API route: use `upload` and `download`.
+ *
+ * `client.files` keeps files with every version, and `client.artifacts`
+ * is removed in 0.8.0. An id `upload` answered is its file's id there
+ * too. A caller holding only a blob id finds its file through `BlobMeta`'s
+ * `fileId` and `version`.
+ *
+ * @deprecated Use `client.files`; removed in 0.8.0.
  */
 export interface ArtifactsClient {
   /**
    * Upload bytes as an artifact. Over the runtime's cap (default 100 MiB)
    * is `413 artifact-too-large`; no `write` on its project is `403`.
    *
+   * @deprecated Use `client.files.create`; removed in 0.8.0.
    * @wire `POST /v1/artifacts` (multipart) — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1artifacts/post`.
    */
@@ -51,6 +59,7 @@ export interface ArtifactsClient {
    * Download an artifact's bytes, streamed. One in a project the caller
    * can't read is `404`, as if absent.
    *
+   * @deprecated Use `client.files.versions.download`; removed in 0.8.0.
    * @wire `GET /v1/artifacts/{blobId}` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1artifacts~1{blobId}/get`.
    */
@@ -60,18 +69,21 @@ export interface ArtifactsClient {
    * An artifact's name, type, size and hash, from its headers (no bytes).
    * One in a project the caller can't read is `404`, as if absent.
    *
+   * @deprecated Use `client.files.versions.get`; removed in 0.8.0.
    * @wire `HEAD /v1/artifacts/{blobId}` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1artifacts~1{blobId}/head`.
    */
   head(blobId: import('@kindgi/types').ArtifactId): Promise<ArtifactHead>;
 
   /**
+   * @deprecated Removed in 0.8.0, with the rest of `client.artifacts`.
    * @unwired No API route takes a content-addressed `BlobRef`: use
    *   `upload`, which returns the artifact's `BlobMeta`.
    */
   put(input: PutArtifactInput): Promise<BlobRef>;
 
   /**
+   * @deprecated Removed in 0.8.0, with the rest of `client.artifacts`.
    * @unwired No API route takes a content-addressed `BlobRef`: use
    *   `download(blobId)`.
    */
@@ -83,6 +95,7 @@ export interface ArtifactsClient {
    * Only `contentType`, `ownerRunId` and `projectId` from the filter are
    * sent.
    *
+   * @deprecated Use `client.files.list`; removed in 0.8.0.
    * @wire `GET /v1/artifacts` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1artifacts/get`.
    */
@@ -93,6 +106,8 @@ export interface ArtifactsClient {
    * against an already-gone id returns `deleted: false` (idempotent —
    * 404 only fires when the id was never known).
    *
+   * @deprecated Use `client.files.versions.delete`, or `client.files.delete`
+   *   for the whole file; removed in 0.8.0.
    * @wire `DELETE /v1/artifacts/{blobId}` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1artifacts~1{blobId}/delete`.
    */
@@ -102,6 +117,7 @@ export interface ArtifactsClient {
   ): Promise<{ readonly blobId: string; readonly deleted: boolean }>;
 
   /**
+   * @deprecated Removed in 0.8.0, with the rest of `client.artifacts`.
    * @unwired The API has no `POST /v1/artifacts/presign` route —
    *   presigned upload URLs are a per-backend concern (S3/GCS/R2
    *   native).
@@ -109,6 +125,7 @@ export interface ArtifactsClient {
   presign(input: PresignInput): Promise<PresignedUrl>;
 
   /**
+   * @deprecated Removed in 0.8.0, with the rest of `client.artifacts`.
    * @unwired The API has no `POST /v1/artifacts/{blobId}/retention-lock`
    *   route — retention locks are a per-backend concern (S3 Object
    *   Lock, MinIO retention).
