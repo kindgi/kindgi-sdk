@@ -38,7 +38,7 @@ import type { Authorizer } from '../middleware/authorize.js';
 import { holdLimitedCaller } from '../middleware/key-project.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
-import type { PlanLimitsBinding } from '../plan-limits-binding.js';
+import type { PlanGate } from '../plan-limits.js';
 import { admitPlan } from '../plan-limits.js';
 import { isReadMethod } from '../read-method.js';
 import {
@@ -118,7 +118,7 @@ export function agentsRouter(
   /** Who an owner is (`owner.name`), and that a new owner is a person of the tenant; absent → the id alone. */
   identityDirectory?: Pick<IdentityDirectoryBinding, 'getUser'>,
   /** The plan limits a publish or a reinstate asks (`plan-limits-binding.ts`); absent → nothing is counted. */
-  planLimits?: PlanLimitsBinding,
+  plan?: PlanGate,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -746,7 +746,7 @@ export function agentsRouter(
     // Only the write counts against the plan limits, after every check.
     const admitted = await admitPlan(
       c,
-      planLimits,
+      plan,
       { tenantId, projectId, adding: { agents: [agent.id as unknown as string], flows: [] } },
       () =>
         binding.publish({
@@ -879,7 +879,7 @@ export function agentsRouter(
       retired?.unregisteredAt !== undefined
         ? await admitPlan(
             c,
-            planLimits,
+            plan,
             {
               tenantId,
               projectId: (retired.madeInProjectId ?? retired.projectId) as ProjectId,

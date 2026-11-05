@@ -30,7 +30,7 @@ import type { Authorizer } from '../middleware/authorize.js';
 import { holdLimitedCaller } from '../middleware/key-project.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
-import type { PlanLimitsBinding } from '../plan-limits-binding.js';
+import type { PlanGate } from '../plan-limits.js';
 import { admitPlan } from '../plan-limits.js';
 import { isReadMethod } from '../read-method.js';
 import {
@@ -108,7 +108,7 @@ export function flowsRouter(
   /** The flows' pinned versions; absent → no pin routes, and a run takes the newest version it reaches. */
   pinnedVersions?: PinnedVersionBinding,
   /** The plan limits a publish or a reinstate asks (`plan-limits-binding.ts`); absent → nothing is counted. */
-  planLimits?: PlanLimitsBinding,
+  plan?: PlanGate,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -514,7 +514,7 @@ export function flowsRouter(
     // Only the write counts against the plan limits, after every check.
     const admitted = await admitPlan(
       c,
-      planLimits,
+      plan,
       { tenantId, projectId, adding: { agents: [], flows: [flow.id as unknown as string] } },
       () =>
         binding.publish({
@@ -631,7 +631,7 @@ export function flowsRouter(
       retired?.unregisteredAt !== undefined
         ? await admitPlan(
             c,
-            planLimits,
+            plan,
             {
               tenantId,
               projectId: (retired.madeInProjectId ?? retired.projectId) as ProjectId,

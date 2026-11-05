@@ -71,6 +71,8 @@ import {
   withPackVersions,
 } from '../deploy-blocks.js';
 import {
+  type DeployCheck,
+  type DeployCheckBody,
   type ReplaceBlock,
   checkAgainstRuns,
   parseCheckBody,
@@ -84,6 +86,7 @@ import {
   type DeployedVersion,
   type DeploymentBinding,
   type DeploymentPrimitiveCounts,
+  type Deployment,
   type DeploymentRegisterOutcome,
   type DeploymentSource,
   serializeDeployment,
@@ -105,6 +108,7 @@ import { holdLimitedCaller } from '../middleware/key-project.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { packEnvCheck } from '../pack-env.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
+import { type PlanGate, admitPlan, checkPlan, planWarningField } from '../plan-limits.js';
 import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
 import { PROJECT_MISMATCH, PublishRefused, projectMismatchFix } from '../publish-refused.js';
 import {
@@ -393,6 +397,12 @@ export interface DeploymentsRouterBindings {
    * version. Absent: none.
    */
   readonly deployCards?: (input: DeployCardsInput) => Promise<DeployCardsOutcome>;
+  /**
+   * The plan limits (`plan-limits-binding.ts`): a deploy's writes, and a
+   * promotion's, go through `admit`, and both dry checks ask `check`.
+   * Absent: nothing is counted.
+   */
+  readonly plan?: PlanGate;
 }
 
 /**
@@ -692,11 +702,13 @@ export function deploymentsRouter(
   // ---------- POST /check (a deploy's check against what runs) ----------
   //
   // What `POST /` answers about the pack's blocks against what runs
-  // (`deploy-check.ts`), with nothing written: `kindgi deploy` asks it
-  // before it builds the image. Body `{ projectId?, agents: [agentId],
-  // blocks: [{ id, version }], replace? }`; it needs the deploy's own
-  // right. 200 `{ replaced, notNeeded }` when the deploy can go, `409
-  // deploy-would-put-back-older-blocks` when it would stop, and `501
+  // (`deploy-check.ts`), and what the plan limits would, with nothing
+  // written: `kindgi deploy` asks it before it builds the image. Body `{
+  // projectId?, agents: [agentId], flows?: [flowId], blocks: [{ id,
+  // version }], replace? }`; it needs the deploy's own right. 200 `{
+  // replaced, notNeeded, planWarning? }` when the deploy can go, `409
+  // deploy-would-put-back-older-blocks` when it would stop, `403
+  // plan-limit-reached` when the plan limits would refuse it, and `501
   // runs-in-unsupported` on a runtime that doesn't read pins and Latest.
   r.post('/check', async (c) => {
     const requestId = c.get('requestId');
@@ -748,10 +760,7 @@ export function deploymentsRouter(
       );
     }
     if (check.stops.length > 0) return olderBlocksRefusal(c, check.stops, 'deploy');
-    return c.json({
-      replaced: check.replaced.map(({ blockId, from, to }) => ({ blockId, from, to })),
-      notNeeded: check.notNeeded,
-    });
+    return passedCheckAnswer(c, bindings, tenantId, parsed, check);
   });
 
   // ---------- POST / (register a signed deployment) ----------
@@ -1276,116 +1285,101 @@ export function deploymentsRouter(
     // names this deployment (`source`).
     const deploymentId = randomUUID();
     let publishedBlocks: readonly BlockDefinition[] = [];
-    try {
-      // Past the first write, a compile is a registry's own compile of a
-      // schema compiled above, which the tenant's budget was charged for:
-      // it runs outside the counting, so the budget can't refuse a deploy
-      // half-written.
-      await runOutsideTenant(async () => {
-        // The pack's blocks first: what follows pins them.
-        if (bindings.blockRegistry !== undefined && targetProjectId !== undefined) {
-          publishedBlocks = await publishPackBlocks({
-            blocks: bindings.blockRegistry,
-            tenantId,
-            projectId: targetProjectId,
-            planned: packBlocks,
-            rolled,
-            publishedBy: actorOf(c),
-            deploymentId,
-          });
-        }
-        if (bindings.toolRegistry !== undefined && targetProjectId !== undefined) {
-          for (const { tool, state } of packTools) {
-            const projectIdForTool = targetProjectId;
-            // Where each secret it names is read: decided now, as the deployer
-            // may read them, and kept with this version (`secret-scope.ts`).
-            // One set nowhere yet is read where this deployment's sync writes.
-            const secretScopes = await secretScopesFor(
-              c,
-              {
-                secrets: bindings.secretsBinding,
-                projects: bindings.projectBinding,
-                authorizer,
-              },
-              { kind: 'project', tenantId, projectId: projectIdForTool },
-              toolSecretRefs(tool, bindings.envName),
-              deploymentSecretScope(tenantId, wire.projectId),
-            );
-            const outcome = await bindings.toolRegistry.publish({
+    // The writes, from the first to the ledger row, each undone on a
+    // refusal: the plan limits keep their count across all of them, so a
+    // rollback runs inside too. First the primitives: a refusal's answer,
+    // or nothing once they're all written.
+    const writePrimitives = async (): Promise<Response | undefined> => {
+      try {
+        // Past the first write, a compile is a registry's own compile of a
+        // schema compiled above, which the tenant's budget was charged for:
+        // it runs outside the counting, so the budget can't refuse a deploy
+        // half-written.
+        await runOutsideTenant(async () => {
+          // The pack's blocks first: what follows pins them.
+          if (bindings.blockRegistry !== undefined && targetProjectId !== undefined) {
+            publishedBlocks = await publishPackBlocks({
+              blocks: bindings.blockRegistry,
               tenantId,
-              projectId: projectIdForTool,
-              tool,
-              ...(secretScopes !== undefined && { secretScopes }),
-              enqueueTuples: (toolId) =>
-                tuplesForCreate({
-                  kind: 'tool',
-                  id: toolId as ToolId,
-                  tenantId,
-                  projectId: projectIdForTool,
-                }),
+              projectId: targetProjectId,
+              planned: packBlocks,
+              rolled,
+              publishedBy: actorOf(c),
+              deploymentId,
             });
-            if (outcome.kind === 'ok') {
-              const toolId = outcome.toolId;
-              const version = outcome.version;
-              rolled.push({
-                primitive: 'tool',
-                id: `${toolId}@${version}`,
-                undo: 'unregister',
-                run: async () => {
-                  await bindings.toolRegistry?.unregister({ tenantId, toolId, version });
+          }
+          if (bindings.toolRegistry !== undefined && targetProjectId !== undefined) {
+            for (const { tool, state } of packTools) {
+              const projectIdForTool = targetProjectId;
+              // Where each secret it names is read: decided now, as the deployer
+              // may read them, and kept with this version (`secret-scope.ts`).
+              // One set nowhere yet is read where this deployment's sync writes.
+              const secretScopes = await secretScopesFor(
+                c,
+                {
+                  secrets: bindings.secretsBinding,
+                  projects: bindings.projectBinding,
+                  authorizer,
                 },
+                { kind: 'project', tenantId, projectId: projectIdForTool },
+                toolSecretRefs(tool, bindings.envName),
+                deploymentSecretScope(tenantId, wire.projectId),
+              );
+              const outcome = await bindings.toolRegistry.publish({
+                tenantId,
+                projectId: projectIdForTool,
+                tool,
+                ...(secretScopes !== undefined && { secretScopes }),
+                enqueueTuples: (toolId) =>
+                  tuplesForCreate({
+                    kind: 'tool',
+                    id: toolId as ToolId,
+                    tenantId,
+                    projectId: projectIdForTool,
+                  }),
               });
-            } else if (outcome.kind === 'already-registered') {
-              // Compared before the first write where the plan could.
-              if (state === 'new' || state === 'publish-decides') {
-                await keepPublishedTool(bindings.toolRegistry, tenantId, tool);
+              if (outcome.kind === 'ok') {
+                const toolId = outcome.toolId;
+                const version = outcome.version;
+                rolled.push({
+                  primitive: 'tool',
+                  id: `${toolId}@${version}`,
+                  undo: 'unregister',
+                  run: async () => {
+                    await bindings.toolRegistry?.unregister({ tenantId, toolId, version });
+                  },
+                });
+              } else if (outcome.kind === 'already-registered') {
+                // Compared before the first write where the plan could.
+                if (state === 'new' || state === 'publish-decides') {
+                  await keepPublishedTool(bindings.toolRegistry, tenantId, tool);
+                }
+                await reinstateRetiredTool(bindings.toolRegistry, tenantId, tool, rolled);
+                await refreshToolCode(bindings.toolRegistry, tenantId, tool, rolled);
+              } else {
+                throw new PublishRefused('tool', `${tool.id}@${tool.version}`, outcome);
               }
-              await reinstateRetiredTool(bindings.toolRegistry, tenantId, tool, rolled);
-              await refreshToolCode(bindings.toolRegistry, tenantId, tool, rolled);
-            } else {
-              throw new PublishRefused('tool', `${tool.id}@${tool.version}`, outcome);
             }
           }
-        }
-        if (bindings.guardrailRegistry !== undefined && targetProjectId !== undefined) {
-          for (const guardrail of validated.guardrails) {
-            const projectIdForGuardrail = targetProjectId;
-            const points = validated.guardrailCheckPoints.get(guardrail.id);
-            const outcome = await bindings.guardrailRegistry.register({
-              tenantId,
-              projectId: projectIdForGuardrail,
-              guardrail,
-              ...(points !== undefined && { checkPoints: points }),
-              enqueueTuples: (guardrailId) =>
-                tuplesForCreate({
-                  kind: 'guardrail',
-                  id: guardrailId as GuardrailId,
-                  tenantId,
-                  projectId: projectIdForGuardrail,
-                }),
-            });
-            if (outcome.kind === 'ok') {
-              const guardrailId = outcome.guardrailId;
-              rolled.push({
-                primitive: 'guardrail',
-                id: guardrailId,
-                undo: 'unregister',
-                run: async () => {
-                  await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
-                },
-              });
-            } else if (outcome.kind === 'already-registered') {
-              const kept = await keepRegisteredGuardrail(
-                bindings.guardrailRegistry,
-                bindings.environmentOrders,
+          if (bindings.guardrailRegistry !== undefined && targetProjectId !== undefined) {
+            for (const guardrail of validated.guardrails) {
+              const projectIdForGuardrail = targetProjectId;
+              const points = validated.guardrailCheckPoints.get(guardrail.id);
+              const outcome = await bindings.guardrailRegistry.register({
                 tenantId,
-                projectIdForGuardrail,
+                projectId: projectIdForGuardrail,
                 guardrail,
-                points,
-              );
-              // Unregistered since the registry answered: registered afresh.
-              if (kept.kind === 'registered') {
-                const guardrailId = guardrail.id;
+                ...(points !== undefined && { checkPoints: points }),
+                enqueueTuples: (guardrailId) =>
+                  tuplesForCreate({
+                    kind: 'guardrail',
+                    id: guardrailId as GuardrailId,
+                    tenantId,
+                    projectId: projectIdForGuardrail,
+                  }),
+              });
+              if (outcome.kind === 'ok') {
+                const guardrailId = outcome.guardrailId;
                 rolled.push({
                   primitive: 'guardrail',
                   id: guardrailId,
@@ -1394,155 +1388,191 @@ export function deploymentsRouter(
                     await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
                   },
                 });
-              } else {
-                await refreshGuardrailFields(
+              } else if (outcome.kind === 'already-registered') {
+                const kept = await keepRegisteredGuardrail(
                   bindings.guardrailRegistry,
+                  bindings.environmentOrders,
                   tenantId,
+                  projectIdForGuardrail,
                   guardrail,
                   points,
-                  kept.existing,
-                  rolled,
                 );
+                // Unregistered since the registry answered: registered afresh.
+                if (kept.kind === 'registered') {
+                  const guardrailId = guardrail.id;
+                  rolled.push({
+                    primitive: 'guardrail',
+                    id: guardrailId,
+                    undo: 'unregister',
+                    run: async () => {
+                      await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
+                    },
+                  });
+                } else {
+                  await refreshGuardrailFields(
+                    bindings.guardrailRegistry,
+                    tenantId,
+                    guardrail,
+                    points,
+                    kept.existing,
+                    rolled,
+                  );
+                }
+              } else {
+                throw new PublishRefused('guardrail', guardrail.id, outcome);
               }
-            } else {
-              throw new PublishRefused('guardrail', guardrail.id, outcome);
             }
           }
-        }
-        // Each tool's pin for the project, looked up once for the deploy.
-        const toolPins = toolPinLookup(bindings.pinnedVersions, targetProjectId);
-        if (bindings.agentRegistry !== undefined && targetProjectId !== undefined) {
-          deployedAgents.push(
-            ...(await registerAgents({
-              agents: bindings.agentRegistry,
-              tools: bindings.toolRegistry,
-              blockPins: blockPinsOf,
-              toolPins,
-              tenantId,
-              projectId: targetProjectId,
-              defined: validated.agents,
-              referenceScope: bindings.referenceScope,
-              rolled,
-            })),
-          );
-        } else {
-          deployedAgents.push(...validated.agents.map(deployedPrimitive));
-        }
-        if (bindings.flowRegistry !== undefined && targetProjectId !== undefined) {
-          deployedFlows.push(
-            ...(await registerFlows({
-              flows: bindings.flowRegistry,
-              tools: bindings.toolRegistry,
-              agents: bindings.agentRegistry,
-              ...(bindings.agentPins !== undefined && { agentPins: bindings.agentPins }),
-              toolPins,
-              tenantId,
-              projectId: targetProjectId,
-              defined: validated.flows,
-              referenceScope: bindings.referenceScope,
-              rolled,
-            })),
-          );
-        } else {
-          deployedFlows.push(...validated.flows.map(deployedPrimitive));
-        }
-      });
-    } catch (cause) {
-      await rollback(rolled, c.get('log'));
-      // A compile the tenant's budget refused is a limit, which the app's
-      // error handler answers. None runs past the first write here.
-      if (cause instanceof SchemaCompileBudgetError) throw cause;
-      // A primitive refused with a typed outcome is the caller's to fix:
-      // that outcome's own status and code. Anything else propagates to the
-      // central error handler (a 500 for this write).
-      if (cause instanceof PublishRefused) {
-        return publishRefusedResponse(c, requestId, cause, packRuntime);
+          // Each tool's pin for the project, looked up once for the deploy.
+          const toolPins = toolPinLookup(bindings.pinnedVersions, targetProjectId);
+          if (bindings.agentRegistry !== undefined && targetProjectId !== undefined) {
+            deployedAgents.push(
+              ...(await registerAgents({
+                agents: bindings.agentRegistry,
+                tools: bindings.toolRegistry,
+                blockPins: blockPinsOf,
+                toolPins,
+                tenantId,
+                projectId: targetProjectId,
+                defined: validated.agents,
+                referenceScope: bindings.referenceScope,
+                rolled,
+              })),
+            );
+          } else {
+            deployedAgents.push(...validated.agents.map(deployedPrimitive));
+          }
+          if (bindings.flowRegistry !== undefined && targetProjectId !== undefined) {
+            deployedFlows.push(
+              ...(await registerFlows({
+                flows: bindings.flowRegistry,
+                tools: bindings.toolRegistry,
+                agents: bindings.agentRegistry,
+                ...(bindings.agentPins !== undefined && { agentPins: bindings.agentPins }),
+                toolPins,
+                tenantId,
+                projectId: targetProjectId,
+                defined: validated.flows,
+                referenceScope: bindings.referenceScope,
+                rolled,
+              })),
+            );
+          } else {
+            deployedFlows.push(...validated.flows.map(deployedPrimitive));
+          }
+        });
+      } catch (cause) {
+        await rollback(rolled, c.get('log'));
+        return deployWriteRefusal(c, requestId, cause, packRuntime);
       }
-      if (cause instanceof UnpinnableDeploy) return unpinnableResponse(c, requestId, cause.issues);
-      // An unregistered agent or flow version naming what its project doesn't
-      // reach: refused as the pack's own references are, before any write.
-      if (cause instanceof RetiredVersionOutOfScope) {
-        return outOfScopeResponse(c, requestId, cause.refusal);
-      }
-      // Not a mapped outcome: to the central error handler (a 500 for this
-      // write — the rollback above already ran; the whole error is logged).
-      throw cause;
-    }
-
-    // ---- Deployment record ----
-    const primitives: DeploymentPrimitiveCounts = {
-      tools: validated.tools.length,
-      guardrails: validated.guardrails.length,
-      agents: validated.agents.length,
-      flows: validated.flows.length,
+      return undefined;
     };
 
-    let outcome: DeploymentRegisterOutcome;
-    try {
-      outcome = await bindings.deploymentRegistry.register({
-        deploymentId,
-        tenantId,
-        imageRef: wire.imageRef,
-        imageDigest,
-        artifactVersion: wire.artifactVersion,
-        indexHash: normalisedWireIndexHash,
-        signerKeyId: wire.signerKeyId,
-        signerPublicKey: publicKeyBase64,
-        signature: wire.signature,
-        publishedAt: wire.publishedAt,
-        primitives,
-        ...(wire.projectId !== undefined && { projectId: wire.projectId }),
-        ...(typeof imageIndex.packId === 'string' && { packId: imageIndex.packId }),
-        ...(declaredEnv.value !== undefined && { packEnv: declaredEnv.value }),
-        packChecks: [
-          ...new Set(
-            validated.guardrails
-              // Its check runs in the image: a module, and not a built-in it merely names.
-              .filter((g) => g.codeArtifactRef !== undefined && g.checkBuiltIn !== true)
-              .map((g) => g.check as unknown as string),
-          ),
-        ],
-        contents: {
-          tools: validated.tools.map((t) => ({
-            id: t.id as unknown as string,
-            version: t.version,
-          })),
-          guardrails: validated.guardrails.map((g) => ({ id: g.id as unknown as string })),
-          agents: deployedAgents,
-          flows: deployedFlows,
-          blocks: validated.blocks.map((b) => ({
-            id: b.id as unknown as string,
-            version: b.version as unknown as string,
-          })),
-        },
-        ...(wire.source !== undefined && {
-          source: { ...wire.source, blockFiles: Object.fromEntries(validated.blockFiles) },
-        }),
-        ...(replaced.length > 0 && { replaced }),
-      });
-    } catch (cause) {
-      await rollback(rolled, c.get('log'));
-      // To the central error handler: a 500 with no raw text; the error is logged.
-      throw cause;
-    }
+    // ---- Deployment record ----
+    const registerDeployment = async (): Promise<
+      | { readonly kind: 'answer'; readonly response: Response }
+      | { readonly kind: 'registered'; readonly deployment: Deployment }
+    > => {
+      const primitives: DeploymentPrimitiveCounts = {
+        tools: validated.tools.length,
+        guardrails: validated.guardrails.length,
+        agents: validated.agents.length,
+        flows: validated.flows.length,
+      };
 
-    if (outcome.kind === 'error') {
-      await rollback(rolled, c.get('log'));
-      // To the central error handler: a 500 with no raw text; the outcome's
-      // code and message go to the log.
-      throw new Error(`Deployment record failed (${outcome.code}): ${outcome.message}`);
-    }
-    if (outcome.kind === 'already-registered') {
-      // Digest-based idempotency: same digest already recorded. Roll back
-      // any freshly-inserted primitives (the primitive itself is fine —
-      // the previous deploy landed it — but re-inserting is idempotent
-      // at the primitive layer too, so `ok` outcomes only happen when
-      // the primitive was DIFFERENT this run, which is an inconsistent
-      // wire body).
-      await rollback(rolled, c.get('log'));
-      c.status(200);
-      return c.json(serializeDeployment(outcome.deployment));
-    }
+      let outcome: DeploymentRegisterOutcome;
+      try {
+        outcome = await bindings.deploymentRegistry.register({
+          deploymentId,
+          tenantId,
+          imageRef: wire.imageRef,
+          imageDigest,
+          artifactVersion: wire.artifactVersion,
+          indexHash: normalisedWireIndexHash,
+          signerKeyId: wire.signerKeyId,
+          signerPublicKey: publicKeyBase64,
+          signature: wire.signature,
+          publishedAt: wire.publishedAt,
+          primitives,
+          ...(wire.projectId !== undefined && { projectId: wire.projectId }),
+          ...(typeof imageIndex.packId === 'string' && { packId: imageIndex.packId }),
+          ...(declaredEnv.value !== undefined && { packEnv: declaredEnv.value }),
+          packChecks: [
+            ...new Set(
+              validated.guardrails
+                // Its check runs in the image: a module, and not a built-in it merely names.
+                .filter((g) => g.codeArtifactRef !== undefined && g.checkBuiltIn !== true)
+                .map((g) => g.check as unknown as string),
+            ),
+          ],
+          contents: {
+            tools: validated.tools.map((t) => ({
+              id: t.id as unknown as string,
+              version: t.version,
+            })),
+            guardrails: validated.guardrails.map((g) => ({ id: g.id as unknown as string })),
+            agents: deployedAgents,
+            flows: deployedFlows,
+            blocks: validated.blocks.map((b) => ({
+              id: b.id as unknown as string,
+              version: b.version as unknown as string,
+            })),
+          },
+          ...(wire.source !== undefined && {
+            source: { ...wire.source, blockFiles: Object.fromEntries(validated.blockFiles) },
+          }),
+          ...(replaced.length > 0 && { replaced }),
+        });
+      } catch (cause) {
+        await rollback(rolled, c.get('log'));
+        // To the central error handler: a 500 with no raw text; the error is logged.
+        throw cause;
+      }
+
+      if (outcome.kind === 'error') {
+        await rollback(rolled, c.get('log'));
+        // To the central error handler: a 500 with no raw text; the outcome's
+        // code and message go to the log.
+        throw new Error(`Deployment record failed (${outcome.code}): ${outcome.message}`);
+      }
+      if (outcome.kind === 'already-registered') {
+        // Digest-based idempotency: same digest already recorded. Roll back
+        // any freshly-inserted primitives (the primitive itself is fine —
+        // the previous deploy landed it — but re-inserting is idempotent
+        // at the primitive layer too, so `ok` outcomes only happen when
+        // the primitive was DIFFERENT this run, which is an inconsistent
+        // wire body).
+        await rollback(rolled, c.get('log'));
+        c.status(200);
+        return { kind: 'answer', response: c.json(serializeDeployment(outcome.deployment)) };
+      }
+      return { kind: 'registered', deployment: outcome.deployment };
+    };
+    const writeDeploy = async () => {
+      const refused = await writePrimitives();
+      return refused !== undefined
+        ? ({ kind: 'answer', response: refused } as const)
+        : registerDeployment();
+    };
+    const admitted =
+      targetProjectId === undefined
+        ? ({ kind: 'done', value: await writeDeploy() } as const)
+        : await admitPlan(
+            c,
+            bindings.plan,
+            {
+              tenantId,
+              projectId: targetProjectId,
+              adding: {
+                agents: [...new Set(validated.agents.map((a) => a.id as unknown as string))],
+                flows: [...new Set(validated.flows.map((f) => f.id as unknown as string))],
+              },
+            },
+            writeDeploy,
+          );
+    if (admitted.kind === 'answer') return admitted.response;
+    if (admitted.value.kind === 'answer') return admitted.value.response;
+    const outcome = admitted.value;
 
     await notifyWrites(tenantId, validated, bindings);
     for (const block of publishedBlocks) {
@@ -1597,7 +1627,13 @@ export function deploymentsRouter(
       });
     }
     c.status(201);
-    return c.json(serializeDeployment(outcome.deployment));
+    return c.json({
+      ...serializeDeployment(outcome.deployment),
+      ...('planWarning' in admitted &&
+        admitted.planWarning !== undefined && {
+          planWarning: admitted.planWarning,
+        }),
+    });
   });
 
   // ---------- POST /:deploymentId/secrets ----------
@@ -2098,6 +2134,64 @@ function isBranchName(value: string): boolean {
 }
 
 /** `400 deployment-validation-failed`, naming each issue. */
+/**
+ * A deploy check with no stop: 200 `{ replaced, notNeeded, planWarning? }`,
+ * or the plan limits' refusal. The plan is asked what the deploy's writes
+ * would ask: its agents and flows, into the project it would land in (the
+ * body's, else the default one). No binding, or no project: not asked.
+ */
+async function passedCheckAnswer(
+  c: Context<AppEnv>,
+  bindings: DeploymentsRouterBindings,
+  tenantId: TenantId,
+  parsed: DeployCheckBody,
+  check: Pick<Extract<DeployCheck, { kind: 'checked' }>, 'replaced' | 'notNeeded'>,
+): Promise<Response> {
+  const projectId =
+    bindings.plan === undefined || parsed.projectId !== undefined
+      ? (parsed.projectId as ProjectId | undefined)
+      : (await bindings.projectBinding?.getDefault(tenantId))?.id;
+  const planned =
+    projectId === undefined
+      ? undefined
+      : await checkPlan(c, bindings.plan, {
+          tenantId,
+          projectId,
+          adding: { agents: [...parsed.agents], flows: [...(parsed.flows ?? [])] },
+        });
+  if (planned?.kind === 'answer') return planned.response;
+  return c.json({
+    replaced: check.replaced.map(({ blockId, from, to }) => ({ blockId, from, to })),
+    notNeeded: check.notNeeded,
+    ...planWarningField(planned?.planWarning),
+  });
+}
+
+/**
+ * A deploy's write refused after the rollback ran: a primitive refused with
+ * a typed outcome is the caller's to fix, with that outcome's own status and
+ * code. Anything else is thrown on: a compile the tenant's budget refused is
+ * a limit, which the app's error handler answers (none runs past the first
+ * write), and an outcome not mapped here goes to the central error handler,
+ * a 500 for this write with the whole error logged.
+ */
+function deployWriteRefusal(
+  c: Context<AppEnv>,
+  requestId: string,
+  cause: unknown,
+  runtime: Parameters<typeof projectMismatchFix>[0],
+): Response {
+  if (cause instanceof SchemaCompileBudgetError) throw cause;
+  if (cause instanceof PublishRefused) return publishRefusedResponse(c, requestId, cause, runtime);
+  if (cause instanceof UnpinnableDeploy) return unpinnableResponse(c, requestId, cause.issues);
+  // An unregistered agent or flow version naming what its project doesn't
+  // reach: refused as the pack's own references are, before any write.
+  if (cause instanceof RetiredVersionOutOfScope) {
+    return outOfScopeResponse(c, requestId, cause.refusal);
+  }
+  throw cause;
+}
+
 /**
  * A primitive the deploy refused to publish (`PublishRefused`), with that
  * outcome's own status and code. A project mismatch logs the project the

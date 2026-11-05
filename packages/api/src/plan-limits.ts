@@ -18,6 +18,24 @@ import type { AppEnv } from './types.js';
 /** The seconds a `503 plan-count-busy` asks a client to wait: `database-busy`'s. */
 export const PLAN_COUNT_BUSY_RETRY_AFTER_S = 5;
 
+/**
+ * A router's plan limits: the binding, and where a larger plan is
+ * (`CreateAppInput.production.next`, `KINDGI_PRODUCTION_NEXT_URL`).
+ */
+export interface PlanGate {
+  readonly limits: PlanLimitsBinding;
+  readonly next?: string;
+}
+
+/** The routers' `PlanGate`, or none without a binding: nothing is counted then. */
+export function planGateOf(
+  limits: PlanLimitsBinding | undefined,
+  next: string | undefined,
+): PlanGate | undefined {
+  if (limits === undefined) return undefined;
+  return { limits, ...(next !== undefined && { next }) };
+}
+
 /** How a refusal reads: where it lands, and where a larger plan is. */
 export interface PlanWords {
   /** Putting the project in production, rather than a write into it. */
@@ -45,15 +63,18 @@ export type PlanAdmitted<T> =
  */
 export async function admitPlan<T>(
   c: Context<AppEnv>,
-  planLimits: PlanLimitsBinding | undefined,
+  plan: PlanGate | undefined,
   input: PlanLimitsInput,
   write: () => Promise<T>,
-  words: PlanWords = {},
+  goingLive = false,
 ): Promise<PlanAdmitted<T>> {
-  if (planLimits === undefined) return { kind: 'done', value: await write() };
-  const admission = await planLimits.admit(input, write);
+  if (plan === undefined) return { kind: 'done', value: await write() };
+  const admission = await plan.limits.admit(input, write);
   if (admission.kind === 'refused') {
-    return { kind: 'answer', response: planRefusedAnswer(c, input, admission, words) };
+    return {
+      kind: 'answer',
+      response: planRefusedAnswer(c, input, admission, wordsOf(plan, goingLive)),
+    };
   }
   if (admission.kind === 'busy') return { kind: 'answer', response: planBusyAnswer(c) };
   return { kind: 'done', value: admission.value, ...planWarningField(admission.warning) };
@@ -65,16 +86,23 @@ export async function admitPlan<T>(
  */
 export async function checkPlan(
   c: Context<AppEnv>,
-  planLimits: PlanLimitsBinding | undefined,
+  plan: PlanGate | undefined,
   input: PlanLimitsInput,
-  words: PlanWords = {},
+  goingLive = false,
 ): Promise<PlanAdmitted<undefined>> {
-  if (planLimits === undefined) return { kind: 'done', value: undefined };
-  const checked = await planLimits.check(input);
+  if (plan === undefined) return { kind: 'done', value: undefined };
+  const checked = await plan.limits.check(input);
   if (checked.kind === 'refused') {
-    return { kind: 'answer', response: planRefusedAnswer(c, input, checked, words) };
+    return {
+      kind: 'answer',
+      response: planRefusedAnswer(c, input, checked, wordsOf(plan, goingLive)),
+    };
   }
   return { kind: 'done', value: undefined, ...planWarningField(checked.warning) };
+}
+
+function wordsOf(plan: PlanGate, goingLive: boolean): PlanWords {
+  return { ...(goingLive && { goingLive }), ...(plan.next !== undefined && { next: plan.next }) };
 }
 
 /** `{planWarning}` for an answer, only when some count is at its plan. */

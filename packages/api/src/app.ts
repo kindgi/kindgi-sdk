@@ -106,6 +106,7 @@ import type { PersonGrantsBinding } from './person-grants-binding.js';
 import { candidatesPinProjects } from './pin-test-runs.js';
 import type { PinnedVersionBinding } from './pinned-version-binding.js';
 import type { PlanLimitsBinding } from './plan-limits-binding.js';
+import { planGateOf } from './plan-limits.js';
 import type { ProjectAccessBinding } from './project-access-binding.js';
 import type { ProvenanceBinding } from './provenance-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
@@ -1556,6 +1557,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   const observedSecrets =
     input.secretsBinding === undefined ? undefined : observeSecretWrites(input.secretsBinding);
   const secretsBinding = observedSecrets?.binding;
+  // The plan limits every writer into production asks, with where a larger plan is.
+  const planGate = planGateOf(input.planLimits, input.production?.next);
   // A cookie session's value is the token the store minted. A store that
   // can't resolve its own tokens would put the session id there instead,
   // and the id is no secret (whoami and the audit trail show it).
@@ -1884,7 +1887,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         itemServing,
         input.pinnedVersions,
         input.identityDirectory,
-        input.planLimits,
+        planGate,
       ),
     );
   }
@@ -1923,7 +1926,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         itemRights,
         itemServing,
         input.pinnedVersions,
-        input.planLimits,
+        planGate,
       ),
     );
   }
@@ -2675,6 +2678,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       deploymentsRouter(
         {
           deploymentRegistry: input.deploymentRegistry,
+          ...(planGate !== undefined && { plan: planGate }),
           // Only where the runtime serves many tenants: one tenant's runtime
           // deploys any image, as before.
           ...(input.tenancy === 'multi' &&
