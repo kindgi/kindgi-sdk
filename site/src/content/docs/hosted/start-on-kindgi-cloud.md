@@ -12,7 +12,9 @@ details.
 ## 1. Sign up
 
 Sign up with your name, your organization's name and your work email, and
-open the link the email sends you.
+open the link the email sends you. Then give your organization's billing
+details, accept the terms and the data processing addendum on its behalf,
+and choose **Create the workspace**.
 [Sign up for Kindgi Cloud](../sign-up/) has each step, and what happens
 after you sign up.
 
