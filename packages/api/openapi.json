@@ -49543,7 +49543,7 @@
             }
           },
           "400": {
-            "description": "Malformed query parameter.",
+            "description": "`ownerRunId` or `projectId` is not an id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -49610,10 +49610,11 @@
             "name": "projectId",
             "in": "query",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "format": "uuid"
             },
             "required": false,
-            "description": "Only one project's files."
+            "description": "Only one project's files (its id, a UUID)."
           },
           {
             "name": "contentType",

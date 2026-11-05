@@ -790,6 +790,16 @@ describe('who may read and change a file', () => {
     expect((await h.call('bob', 'GET', '/v1/files')).json().data).toEqual([]);
   });
 
+  test('a ?ownerRunId or ?projectId that is not an id (a UUID) is 400 bad-input', async () => {
+    const h = harness();
+    await h.seed(P1);
+    for (const query of ['ownerRunId=run-1', 'projectId=default', `projectId=${P1}0`]) {
+      const r = await h.call('alice', 'GET', `/v1/files?${query}`);
+      expect([query, r.status, r.json().error.code]).toEqual([query, 400, 'bad-input']);
+      expect(r.json().error.message).toContain(query.split('=')[0]);
+    }
+  });
+
   test('without authorization the routes work as before', async () => {
     const h = harness({ authz: false });
     const r = await h.upload('bob', { fields: { projectId: P2 } });

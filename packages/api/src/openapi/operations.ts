@@ -6120,8 +6120,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
         name: 'projectId',
         in: 'query',
         required: false,
-        description: "Only one project's files.",
-        schema: { type: 'string' },
+        description: "Only one project's files (its id, a UUID).",
+        schema: { type: 'string', format: 'uuid' },
       },
       {
         name: 'contentType',
@@ -6134,7 +6134,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'A page of files.', schema: ref('StoredFileCollectionPage') },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Malformed query parameter.'),
+      '400': ErrorResponse('`ownerRunId` or `projectId` is not an id (a UUID).'),
     },
   },
   {

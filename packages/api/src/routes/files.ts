@@ -28,6 +28,7 @@ import { clampLimit } from './pagination.js';
 import { isOwnRun, readableOrRun } from './runner-reach.js';
 import { savedFileHeaders } from './stored-bytes.js';
 import { type ValidationResult, uploadProject, validateUploadForm } from './upload-form.js';
+import { UUID_RE } from './uuid-param.js';
 
 export interface FilesRouterDeps {
   /** Resolves a new file's owner run, and a file's, to tell whether it's the caller's own run. */
@@ -140,7 +141,9 @@ export function filesRouter(
   // ---------- GET / (list) ----------
   r.get('/', async (c) => {
     const tenantId = tenantOf(c);
-    const filter = decodeFileFilter(new URL(c.req.url).searchParams, tenantId);
+    const decoded = decodeFileFilter(new URL(c.req.url).searchParams, tenantId);
+    if (decoded.kind === 'err') return badInput(c, decoded.message);
+    const filter = decoded.value;
     const cursor = c.req.query('cursor');
     const page = await binding.list(
       tenantId,
@@ -592,15 +595,30 @@ function selectorOf(raw: string | undefined): FileVersionSelector | undefined {
   return raw === 'latest' ? 'latest' : numberOf(raw);
 }
 
-function decodeFileFilter(params: URLSearchParams, tenantId: TenantId): FileFilter {
+/**
+ * The list's filters. A run and a project are named by their ids (UUIDs),
+ * so a malformed one is bad input here, not a failed query.
+ */
+function decodeFileFilter(
+  params: URLSearchParams,
+  tenantId: TenantId,
+): ValidationResult<FileFilter> {
   const filter: { ownerRunId?: RunId; contentType?: string; scope?: Scope } = {};
   const owner = params.get('ownerRunId');
-  if (owner !== null && owner.length > 0) filter.ownerRunId = owner as RunId;
+  if (owner !== null && owner.length > 0) {
+    if (!UUID_RE.test(owner)) {
+      return { kind: 'err', message: '`ownerRunId` must be a run id (a UUID)' };
+    }
+    filter.ownerRunId = owner as RunId;
+  }
   const type = params.get('contentType');
   if (type !== null && type.length > 0) filter.contentType = type;
   const project = params.get('projectId');
   if (project !== null && project.length > 0) {
+    if (!UUID_RE.test(project)) {
+      return { kind: 'err', message: '`projectId` must be a project id (a UUID)' };
+    }
     filter.scope = { kind: 'project', tenantId, projectId: project as ProjectId };
   }
-  return filter;
+  return { kind: 'ok', value: filter };
 }
