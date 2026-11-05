@@ -85,7 +85,7 @@ export function tokensRouter(
     const owner = keyOwner(c);
     const principal = parsed.value.for ?? owner;
     const refused =
-      systemCapabilityRefusal(c, authorizer, parsed.value.capabilities, options.tenancy) ??
+      systemCapabilityRefusal(c, authorizer, parsed.value, options.tenancy) ??
       (await mintRefusal(c, authorizer, owner, principal, parsed.value)) ??
       (await expiryRefusal(c, admin, authorizer, parsed.value.expiresAt));
     if (refused !== undefined) return fail(c, refused, requestId);
@@ -233,30 +233,46 @@ function samePrincipal(a: TokenPrincipal, b: TokenPrincipal | undefined): boolea
 /**
  * A tenant's key never carries a system scope (`system:*`): those are
  * system keys' (`/v1/system/keys`). On a runtime serving many tenants it
- * doesn't carry `kindgi:system` either. Refused `403
- * capability-not-mintable`, and recorded.
+ * doesn't carry `kindgi:system` either, and a key limited to a project
+ * doesn't anywhere: the operator's powers reach past any one project.
+ * Refused `403 capability-not-mintable`, and recorded.
  */
 function systemCapabilityRefusal(
   c: Context<AppEnv>,
   authorizer: Authorizer | undefined,
-  capabilities: readonly string[],
+  body: Pick<ParsedMintBody, 'capabilities' | 'projectId'>,
   tenancy: 'single' | 'multi' | undefined,
 ): WireError | undefined {
+  const refuse = (refusal: Refusal): WireError => {
+    recordRefusal(c, authorizer, refusal);
+    return refusalError(refusal);
+  };
   // `system:*` never; `kindgi:system` only where the runtime serves one tenant.
-  const notMintable = capabilities.filter(
+  const notMintable = body.capabilities.filter(
     (cap) => isSystemCapability(cap) && (tenancy === 'multi' || cap !== FULL_SYSTEM_CAPABILITY),
   );
-  if (notMintable.length === 0) return undefined;
-  const refusal: Refusal = {
-    action: 'admin',
-    resource: ref('tenant', c.get('tenantId') as unknown as string),
-    message: `A workspace's key can't carry ${notMintable.join(', ')}: the operator's powers are system keys' (/v1/system/keys)`,
-    failing: 'scope',
-    code: 'capability-not-mintable',
-    details: { capabilities: notMintable },
-  };
-  recordRefusal(c, authorizer, refusal);
-  return refusalError(refusal);
+  if (notMintable.length > 0) {
+    return refuse({
+      action: 'admin',
+      resource: ref('tenant', c.get('tenantId') as unknown as string),
+      message: `A workspace's key can't carry ${notMintable.join(', ')}: the operator's powers are system keys' (/v1/system/keys)`,
+      failing: 'scope',
+      code: 'capability-not-mintable',
+      details: { capabilities: notMintable },
+    });
+  }
+  // Serving one tenant: `kindgi:system` only on a key not limited to a project.
+  if (body.projectId !== undefined && body.capabilities.includes(FULL_SYSTEM_CAPABILITY)) {
+    return refuse({
+      action: 'admin',
+      resource: ref('project', body.projectId),
+      message: `A key limited to project ${body.projectId} can't carry ${FULL_SYSTEM_CAPABILITY}: the operator's powers reach past any one project. Mint it without the project, or without ${FULL_SYSTEM_CAPABILITY}`,
+      failing: 'scope',
+      code: 'capability-not-mintable',
+      details: { capabilities: [FULL_SYSTEM_CAPABILITY] },
+    });
+  }
+  return undefined;
 }
 
 /** Why the route refuses this mint before the store sees it, if it does. */

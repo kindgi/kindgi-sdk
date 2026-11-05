@@ -144,7 +144,9 @@ export interface SystemPrincipalFenceOptions {
  *   mounted without a gate is still closed to it). On a runtime serving
  *   many tenants it loses `kindgi:system` and `system:*`, with a warning
  *   naming the key: a key minted before the runtime served many tenants
- *   keeps none of the operator's powers.
+ *   keeps none of the operator's powers. Limited to a project, it loses
+ *   them on a runtime serving one tenant too: the operator's powers reach
+ *   past any one project.
  * - **Serving one tenant,** a system key holds `system:license` alone, and,
  *   with `servesDeployments`, the orchestrator's scopes
  *   (`ONE_TENANT_DEPLOYMENT_SCOPES`): one holding anything else (minted
@@ -166,7 +168,7 @@ export function systemPrincipalFence(
     const system = c.get('systemPrincipal');
     if (system === undefined) {
       if (isSystemPath(c.req.path)) return principalRequired(c, authorizer);
-      if (tenancy === 'multi') dropSystemCapabilities(c);
+      dropSystemCapabilities(c, tenancy);
       return next();
     }
     let attemptId: string | undefined;
@@ -336,22 +338,38 @@ async function recordSystemRequest(
   }
 }
 
-/** A tenant's key or session on a runtime serving many tenants: no operator's powers. */
-function dropSystemCapabilities(c: Context<AppEnv>): void {
+/** Why a tenant's key or session drops the operator's powers, as its warning says. */
+const SYSTEM_CAPABILITY_DROPPED = {
+  multi:
+    "A tenant's key carries the operator's capabilities, which a runtime serving many tenants ignores: revoke it, and use a system key",
+  project:
+    "A key limited to a project carries the operator's capabilities, which it doesn't use: revoke it, and mint its replacement without them or without the project",
+} as const;
+
+/**
+ * A tenant's key or session with no operator's powers: on a runtime serving
+ * many tenants (`multi`), or limited to a project (`project`). Any other
+ * keeps its capabilities.
+ */
+function dropSystemCapabilities(
+  c: Context<AppEnv>,
+  tenancy: SystemPrincipalFenceOptions['tenancy'],
+): void {
+  const projectId = c.get('tokenProjectId');
+  if (tenancy !== 'multi' && projectId === undefined) return;
   const capabilities = c.get('capabilities');
   if (capabilities === undefined || !capabilities.some(isSystemCapability)) return;
   c.set(
     'capabilities',
     capabilities.filter((cap) => !isSystemCapability(cap)),
   );
-  c.get('log').warn(
-    "A tenant's key carries the operator's capabilities, which a runtime serving many tenants ignores: revoke it, and use a system key",
-    {
-      event: 'system-capability-dropped',
-      tokenId: c.get('tokenId'),
-      dropped: capabilities.filter(isSystemCapability),
-    },
-  );
+  const why: keyof typeof SYSTEM_CAPABILITY_DROPPED = tenancy === 'multi' ? 'multi' : 'project';
+  c.get('log').warn(SYSTEM_CAPABILITY_DROPPED[why], {
+    event: 'system-capability-dropped',
+    tokenId: c.get('tokenId'),
+    ...(projectId !== undefined && { projectId }),
+    dropped: capabilities.filter(isSystemCapability),
+  });
 }
 
 /**
