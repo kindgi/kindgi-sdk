@@ -64,8 +64,8 @@ A subsystem no part of the runtime logs under only warns:
 ones: `kernel.waitpoints`, `kernel.sweeper`,
 `webhooks.worker`, `authz.outbox`, `approvals.notifier`, `audit.retention`,
 `mcp.headers`, `mcp.env` (runtime 0.4.0 or later), `providers.keys`,
-`providers.prune`, `secrets.scopes` and `tenants.purge` (runtime 0.1.10 or
-later).
+`providers.prune`, `secrets.scopes`, `tenants.purge` (runtime 0.1.10 or
+later) and `connections.texts-inbound` (runtime 0.7.0 or later).
 
 ## The two formats
 

@@ -2930,7 +2930,6 @@ export const CLI_GROUP_SEE_ALSO = {
   connections: ['deploy/people-and-keys'],
   'connection-choices': ['deploy/people-and-keys'],
   'connection-apps': ['guides/secrets/store-a-secret', 'deploy/people-and-keys'],
-  'text-triggers': ['guides/approvals/ask-before-a-tool-runs', 'guides/connections/index'],
   tenant: ['guides/projects/organize-by-org-and-project'],
   environments: ['guides/projects/organize-by-org-and-project'],
   promote: ['guides/projects/organize-by-org-and-project'],
