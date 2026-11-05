@@ -17,6 +17,7 @@ import {
   type RunTextThread,
   SEND_TEXT_TOOL_ID,
 } from '@kindgi/runtime';
+import { type Tool, toolIdempotencyKey } from '@kindgi/tools';
 import type { ConversationId, ProjectId, ProvenanceId, RunId, TenantId } from '@kindgi/types';
 import { describe, expect, test } from 'vitest';
 
@@ -57,6 +58,7 @@ interface Turn {
     readonly description: string;
     readonly inputSchema: unknown;
   }[];
+  readonly built: readonly Tool[];
 }
 
 /**
@@ -71,6 +73,7 @@ async function textTurn(options: {
   readonly binding?: false | Partial<TextsToolBinding>;
   readonly listed?: readonly string[];
   readonly resumed?: InvokeAgentInput;
+  readonly stepScope?: string;
 }): Promise<Turn> {
   const calls: { op: string; input: unknown }[] = [];
   const asked: string[] = [];
@@ -113,7 +116,7 @@ async function textTurn(options: {
       ...(options.binding !== false && { texts: binding }),
       authorizeToolCall: async (input: { readonly toolId: string }) => {
         asked.push(input.toolId);
-        return { kind: 'allowed' };
+        return { allowed: true };
       },
       hitl: { enqueue: async () => undefined },
       runSnapshotBinding: {
@@ -132,6 +135,7 @@ async function textTurn(options: {
   ctx.tools = withTextTools(ctx, { definitions: [], byName: new Map() });
   const node = testNodeContext({
     runId: 'run-42' as RunId,
+    ...(options.stepScope !== undefined && { stepScope: options.stepScope }),
     waitForToken: (async (tokenId: string) => {
       waits.push(tokenId);
       return { decided: 'approve' };
@@ -170,6 +174,7 @@ async function textTurn(options: {
       .map((m) => m.content as unknown as TextToolOutput),
     definitions: ctx.tools.definitions.map((d) => d.name),
     tools: ctx.tools.definitions as unknown as Turn['tools'],
+    built: [...ctx.tools.byName.values()].map((b) => b.tool),
   };
 }
 
@@ -209,41 +214,87 @@ describe('which texts tools a turn offers', () => {
 });
 
 describe('what the model sees', () => {
-  test('the exact ids it calls, and the inputs it gives: a body, or a note, and nothing else', async () => {
+  test('the exact ids, descriptions and inputs: a body, or a note, and nothing else', async () => {
     const turn = await textTurn({ calls: [], thread });
-    const seen = turn.tools.map((d) => ({ name: d.name, inputSchema: d.inputSchema }));
     expect(REPLY_TO_TEXT_TOOL_ID).toBe('kindgi_reply_to_text');
     expect(HAND_TO_PERSON_TOOL_ID).toBe('kindgi_hand_to_person');
     expect(SEND_TEXT_TOOL_ID).toBe('kindgi_send_text');
-    expect(seen).toEqual([
+    expect(turn.tools).toEqual([
       {
-        name: REPLY_TO_TEXT_TOOL_ID,
-        inputSchema: expect.objectContaining({
+        name: 'kindgi_reply_to_text',
+        description:
+          "Use kindgi_reply_to_text to answer the person who texted: give only the text of your reply, and it goes to them on the number and channel they texted. If it can't be sent, the result says why, and nothing was sent. When you hand the conversation to a person, reply first, before kindgi_hand_to_person, so they know someone will follow up.",
+        inputSchema: {
           type: 'object',
-          properties: { body: expect.objectContaining({ minLength: 1, maxLength: 1600 }) },
-          required: ['body'],
           additionalProperties: false,
-        }),
+          required: ['body'],
+          properties: {
+            body: {
+              type: 'string',
+              minLength: 1,
+              maxLength: 1600,
+              description: 'The text of the reply, as the person will read it.',
+            },
+          },
+        },
       },
       {
-        name: HAND_TO_PERSON_TOOL_ID,
-        inputSchema: expect.objectContaining({
+        name: 'kindgi_hand_to_person',
+        description:
+          "Use kindgi_hand_to_person to hand this conversation to a person, when it needs one or the person who texted asks for one. After it, no run answers this thread's texts: a person does. A person reads the note: say why, and what they need to know.",
+        inputSchema: {
           type: 'object',
-          properties: { note: expect.objectContaining({ minLength: 1 }) },
-          required: ['note'],
           additionalProperties: false,
-        }),
+          required: ['note'],
+          properties: {
+            note: {
+              type: 'string',
+              minLength: 1,
+              maxLength: 500,
+              description: 'For the person who picks it up: why, and what they need to know.',
+            },
+          },
+        },
       },
     ]);
   });
 
-  test('the reply says to answer before handing over; the hand-over says a person reads the note', async () => {
+  test('both change something outside the run: the reply sends what it is given, the hand-over writes the thread', async () => {
     const turn = await textTurn({ calls: [], thread });
-    const [replyTool, handOver] = turn.tools;
-    expect(replyTool?.description).toMatch(/^Use kindgi_reply_to_text to answer/);
-    expect(replyTool?.description).toContain(`before ${HAND_TO_PERSON_TOOL_ID}`);
-    expect(handOver?.description).toMatch(/^Use kindgi_hand_to_person to hand/);
-    expect(handOver?.description).toContain('A person reads the note');
+    expect(
+      turn.built.map((t) => ({
+        id: t.id,
+        version: t.version,
+        mutating: t.mutating,
+        effects: t.effects,
+      })),
+    ).toEqual([
+      {
+        id: 'kindgi_reply_to_text',
+        version: '1.0.0',
+        mutating: true,
+        effects: [
+          {
+            kind: 'external-side-effect',
+            resource: 'external:texts',
+            notes: 'Sends a text to the person who texted.',
+          },
+          { kind: 'sensitive-data-egress', resource: 'external:texts' },
+        ],
+      },
+      {
+        id: 'kindgi_hand_to_person',
+        version: '1.0.0',
+        mutating: true,
+        effects: [
+          {
+            kind: 'writes',
+            resource: 'texts:threads',
+            notes: 'Hands the thread to a person: its trigger starts no runs for it.',
+          },
+        ],
+      },
+    ]);
   });
 });
 
@@ -317,6 +368,53 @@ describe('kindgi_reply_to_text', () => {
     });
     expect(long.calls).toEqual([]);
     expect(to.calls).toEqual([]);
+    const failed = (issue: Record<string, unknown>) => ({
+      status: 'failed',
+      kindgi: 'tool-error-retry',
+      error: {
+        kind: 'invalid-arguments',
+        message: 'Input for tool "kindgi_reply_to_text" failed validation',
+        issues: [issue],
+      },
+      instruction: "Fix the arguments to match the tool's input schema and call it again.",
+    });
+    expect(long.outputs).toEqual([
+      failed({
+        instancePath: '/body',
+        keyword: 'maxLength',
+        message: 'must NOT have more than 1600 characters',
+        params: { limit: 1600 },
+        schemaPath: '#/properties/body/maxLength',
+      }),
+    ]);
+    expect(to.outputs).toEqual([
+      failed({
+        instancePath: '',
+        keyword: 'additionalProperties',
+        message: 'must NOT have additional properties',
+        params: { additionalProperty: 'to' },
+        schemaPath: '#/additionalProperties',
+      }),
+    ]);
+  });
+
+  test("in a run's step it passes its call's idempotency key, the same when the step runs again", async () => {
+    const key = toolIdempotencyKey({
+      runId: 'run-42',
+      stepScope: 'loop:1',
+      toolId: REPLY_TO_TEXT_TOOL_ID,
+      callId: 'call-1',
+    });
+    const first = await textTurn({ calls: [reply('Hello')], thread, stepScope: 'loop:1' });
+    const again = await textTurn({ calls: [reply('Hello')], thread, stepScope: 'loop:1' });
+    for (const turn of [first, again]) {
+      expect(turn.calls).toEqual([
+        {
+          op: 'reply',
+          input: { tenantId, runId: 'run-42', idempotencyKey: key, thread, body: 'Hello' },
+        },
+      ]);
+    }
   });
 
   test('its call is asked of authorizeToolCall, under its built-in id', async () => {
@@ -369,6 +467,7 @@ describe('kindgi_hand_to_person', () => {
     ]);
     expect(turn.outputs).toEqual([{ status: 'handed-over' }]);
     expect(turn.asked).toEqual([]);
+    expect(turn.waits).toEqual([]);
   });
 });
 
@@ -385,8 +484,10 @@ describe('an agent naming a texts tool', () => {
       guardrails: [],
     } as never);
     expect(r.kind).toBe('err');
-    expect(r.kind === 'err' && r.error.message).toContain(
-      `a run a text started gets ${REPLY_TO_TEXT_TOOL_ID} and ${HAND_TO_PERSON_TOOL_ID}`,
-    );
+    expect(r.kind === 'err' && r.error.issues).toContainEqual({
+      path: '/tools/0/id',
+      message:
+        '"kindgi_reply_to_text" is a tool built into Kindgi (the "kindgi_" prefix): an agent gets it from its declaration (memory.remember for kindgi_remember) or its run (a run a text started gets kindgi_reply_to_text and kindgi_hand_to_person), not from tools',
+    });
   });
 });

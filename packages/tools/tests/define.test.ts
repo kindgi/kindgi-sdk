@@ -133,9 +133,13 @@ describe('defineTool: apps only built-in tools use', () => {
       expect(r.kind).toBe('err');
       if (r.kind === 'err') {
         expect(r.error.code).toBe('invalid-tool-definition');
-        expect(r.error.issues).toContainEqual(
-          expect.objectContaining({ path: '/needsSpec/connections/number/app' }),
+        expect(r.error.message).toBe(
+          `Tool "test.echo": needsSpec.connections.number is of the ${app} app, which is used only by tools built into Kindgi (kindgi_reply_to_text, kindgi_hand_to_person): a pack tool can't hold the number's account key.`,
         );
+        expect(r.error.issues).toContainEqual({
+          path: '/needsSpec/connections/number/app',
+          message: 'must not be an app only tools built into Kindgi use',
+        });
       }
     },
   );

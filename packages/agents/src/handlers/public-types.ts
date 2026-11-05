@@ -14,6 +14,7 @@ import type {
   RunMailbox,
   RunReplayRef,
   RunStartedBy,
+  RunTextThread,
   RunTriggerRef,
 } from '@kindgi/runtime';
 import type { ConnectionResolver, ToolRegistry, ToolSecretRef } from '@kindgi/tools';
@@ -131,6 +132,13 @@ export interface InvokeAgentInput {
    */
   readonly mailbox?: RunMailbox;
   /**
+   * The thread the turn's run answers, on a turn of a text trigger's
+   * target (`RunFlowInput.textThread`): the turn is offered the texts
+   * tools (`withTextTools`), which send on it through `texts`. Set by the
+   * runtime from the run, never from a request.
+   */
+  readonly textThread?: RunTextThread;
+  /**
    * The turn's message is an event's, though no webhook or event starts
    * this run: a replay of a run one started sets it (its turn, or a flow's
    * agent step's), and records no start of its own. The turn reads its
@@ -171,6 +179,47 @@ export interface InvokeAgentInput {
   };
 }
 
+/**
+ * Why a texts tool sent nothing: the thread's 24-hour window is closed
+ * (`texts-window-closed`), the person opted out on that channel
+ * (`texts-opted-out`), a person has the thread (`texts-with-person`), or
+ * the number doesn't grant the tool's permission (`texts-not-granted`).
+ * The model reads it as the tool's output, never as an error.
+ */
+export type TextRefusal =
+  | 'texts-window-closed'
+  | 'texts-opted-out'
+  | 'texts-with-person'
+  | 'texts-not-granted';
+
+/**
+ * What the texts tools send through (`InvokeAgentBindings.texts`): the
+ * runtime checks the window, the opt-outs, whether a person has the
+ * thread and the number's grants at each call, and sends. A refusal comes
+ * back as `refused`; trouble at the provider is thrown, so the turn's
+ * tool error policy applies.
+ */
+export interface TextsToolBinding {
+  /** Answers `thread`'s sender with `body`, on its number and channel. */
+  reply(input: {
+    readonly tenantId: TenantId;
+    readonly runId: RunId;
+    /** The call's `idempotencyKey`: a send with one already sent sends nothing. */
+    readonly idempotencyKey?: string;
+    readonly thread: RunTextThread;
+    readonly body: string;
+  }): Promise<
+    { readonly kind: 'sent' } | { readonly kind: 'refused'; readonly reason: TextRefusal }
+  >;
+  /** Hands `thread` to a person, with `note` for them: its trigger starts no runs for it. */
+  handOver(input: {
+    readonly tenantId: TenantId;
+    readonly runId: RunId;
+    readonly thread: RunTextThread;
+    readonly note: string;
+  }): Promise<{ readonly kind: 'handed-over' }>;
+}
+
 export interface InvokeAgentBindings extends GuardrailsBindings {
   /**
    * Model providers. Setup hydrates the workspace's providers (when the
@@ -206,6 +255,12 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    * shows, and a call answers that this host can't remember.
    */
   readonly memoryWriter?: MemoryRememberBinding;
+  /**
+   * How the texts tools send, on a turn whose run answers a text
+   * (`InvokeAgentInput.textThread`). Absent: the tools still show, and a
+   * call answers that this server can't send texts.
+   */
+  readonly texts?: TextsToolBinding;
   /**
    * Caller-plugged conversation store. Every open / get / list /
    * close / delete / appendMessage / readMessages inside the agent

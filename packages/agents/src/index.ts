@@ -79,6 +79,8 @@ export type {
   BudgetExceededError,
   CapabilityRoutingError,
   InvokeAgentBindings,
+  TextRefusal,
+  TextsToolBinding,
   ToolCallAuthorization,
   InvokeAgentError,
   InvokeAgentInput,
@@ -167,6 +169,12 @@ export {
   looksLikeInstruction,
 } from './remember.js';
 export type { RememberToolOutput } from './handlers/remember-tool.js';
+export {
+  MAX_HAND_OVER_NOTE,
+  MAX_TEXT_BODY,
+  TEXT_TOOLS_VERSION,
+} from './handlers/text-tools.js';
+export type { TextToolOutput } from './handlers/text-tools.js';
 export type { RetrievalBindings } from './retrieval.js';
 export type {
   MissingParameterError,

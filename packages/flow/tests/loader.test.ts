@@ -606,13 +606,17 @@ describe('schema drift', () => {
 });
 
 describe('loadFlow: a tool node names a registered tool', () => {
-  test.each(['kindgi_remember', 'kindgi_reply_to_text', 'kindgi_hand_to_person'])(
-    "%s is built into Kindgi: a tool node can't name it",
+  test.each(['kindgi_remember', 'kindgi_reply_to_text', 'kindgi_hand_to_person', 'kindgi_other'])(
+    "%s is built into Kindgi, or has its prefix: a tool node can't name it",
     (ref) => {
       const r = loadFlow(flow({ nodes: [node('a', ref)] }));
       expect(r.kind).toBe('err');
-      if (r.kind === 'err')
-        expect(r.error.message).toContain(`"${ref}" is a tool built into Kindgi`);
+      if (r.kind === 'err') {
+        expect(r.error.code).toBe('reserved-id');
+        expect(r.error.message).toBe(
+          `Node "a": "${ref}" is a tool built into Kindgi (the "kindgi_" prefix): a tool node can't name it; an agent gets it from its declaration or its run`,
+        );
+      }
     },
   );
 });
