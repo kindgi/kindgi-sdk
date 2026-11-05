@@ -587,7 +587,7 @@ describe("a turn's file versions", () => {
       { decided: 'approve' },
       { stepScope: bodyStepKey('dispatch-tools' as never, iteration(1) as never) },
     );
-    ctx.files = { versions } as unknown as TurnContext['files'];
+    ctx.files = { versions } as unknown as NonNullable<TurnContext['files']>;
     return ctx;
   }
 
@@ -670,7 +670,7 @@ describe("a turn's file versions", () => {
     expect(failing.provenance?.snapshot().nodes).toHaveLength(before ?? -1);
 
     const ctx = await approvedTurn(async () => []);
-    ctx.files = {} as unknown as TurnContext['files'];
+    ctx.files = {} as unknown as NonNullable<TurnContext['files']>;
     await addFileVersionNodes(ctx);
     expect(ctx.provenance?.snapshot().nodes.some((n) => n.id.startsWith('file:'))).toBe(false);
   });

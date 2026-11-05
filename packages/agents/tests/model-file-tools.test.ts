@@ -97,6 +97,8 @@ async function fileTurn(options: {
     files: options.policy ?? { update: true, create: true },
   } as unknown as Agent;
   const answers = options.binding === false ? undefined : (options.binding ?? {});
+  const updateAnswer = answers?.update;
+  const createAnswer = answers?.create;
   const binding: FileBinding | undefined =
     answers === undefined
       ? undefined
@@ -107,16 +109,16 @@ async function fileTurn(options: {
           store: async () => ({ notStored: 'storage' }),
           shown: async () => {},
           refuse: async () => {},
-          ...(answers.update !== false && {
+          ...(updateAnswer !== false && {
             update: async (call, file) => {
               updates.push({ call, file });
-              return answers.update ?? { file: notes(3) };
+              return updateAnswer ?? { file: notes(3) };
             },
           }),
-          ...(answers.create !== false && {
+          ...(createAnswer !== false && {
             create: async (call, file) => {
               creates.push({ call, file });
-              return answers.create ?? { file: NEW_FILE };
+              return createAnswer ?? { file: NEW_FILE };
             },
           }),
         };
