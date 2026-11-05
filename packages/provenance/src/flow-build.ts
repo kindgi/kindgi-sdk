@@ -12,7 +12,7 @@ import type { NodeId, ProvenanceId, RunId, TenantId, Timestamp } from '@kindgi/t
 
 import { newBuilder } from './build.js';
 import { signingBytes } from './canonical.js';
-import { MAX_FILE_VERSION_NODES, fileVersionNodeId, fileVersionNodes } from './file-version.js';
+import { MAX_FILE_VERSION_NODES, fileVersionNodes } from './file-version.js';
 import type { ProvenanceFileVersion } from './file-version.js';
 import type { Provenance, ProvenanceEdge, ProvenanceNode } from './types.js';
 
@@ -897,11 +897,17 @@ export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBui
         },
       });
     }
+    // From the run's own files, not the nodes kept: the output is a node of
+    // its own, so a version past the cap still gives it its fields.
     const out = run.outputFile;
     const outputFile =
       out === undefined
         ? undefined
-        : files.nodes.find((n) => n.id === fileVersionNodeId(out.fileId, out.fileVersion));
+        : fileVersionNodes(
+            (run.files ?? []).filter(
+              (f) => f.fileId === out.fileId && f.fileVersion === out.fileVersion,
+            ),
+          ).nodes[0];
     return { candidates, edges, ...(outputFile !== undefined && { outputFile }) };
   }
 

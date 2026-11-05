@@ -1633,8 +1633,11 @@ describe('file versions', () => {
       timestamp: at(10 + L.maxFileNodes),
       attributes: { truncated: { reason: 'files', filesOmitted: 5 } },
     });
-    // The output's version wasn't kept: its node carries nothing.
-    expect(nodeOf(record, 'output').attributes).toBeUndefined();
+    // The output's version wasn't kept, and its node still carries it.
+    expect(nodeOf(record, 'output')).toMatchObject({
+      contentHash: H1,
+      attributes: { fileId: `f${L.maxFileNodes + 2}`, fileVersion: 1 },
+    });
   });
 });
 
