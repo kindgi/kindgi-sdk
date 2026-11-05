@@ -119,8 +119,16 @@ final class Ir {
     /** TAGGED (also the objects of a TEXT_OR_OBJECT when they're tagged): the tag property. */
     String tagWire;
     String tagJava;
-    /** How the objects of a TEXT_OR_OBJECT are told apart: TAGGED, DEDUCED, or null (one object). */
+    /**
+     * How the objects of a TEXT_OR_OBJECT are told apart: TAGGED, DEDUCED, or null (one object).
+     * A BY_STATUS: how an app's own Jackson tells its shapes apart, TAGGED or DEDUCED.
+     */
     UnionKind objectKind;
+    /**
+     * A TEXT_OR_OBJECT with two or more objects: the package-private interface its objects and
+     * Unrecognized implement (`<Union>Object`), which tells them apart for an app's own Jackson.
+     */
+    ClassName objectInterface;
     final List<Variant> variants = new ArrayList<>();
     final List<Decl> nested = new ArrayList<>();
     /** The catch-all variant for a tag or a shape this client doesn't know. */
