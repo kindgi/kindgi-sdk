@@ -237,6 +237,11 @@ The page holds the runs, and its `nextCursor` leads to the next one.
   started it: your app, the CLI, a schedule, a webhook trigger or a mail
   trigger.
 - **`includeOutput: true`** (`include="output"`) adds each run's `output`.
+- **`includeWaitingFor: true`** (`include="waitingFor"`) adds what each
+  suspended run waits for, as `runs.get` answers it
+  ([A run's `waitingFor`](../../approvals/approvals-reference/#a-runs-waitingfor)).
+  With it, a page holds at most 25 runs. TypeScript takes it beside
+  `includeOutput`; in Python, `include` takes one of the two a call.
 - **`scope`** (`scope_kind` / `scope_id`) lists one project's runs, or the runs
   of every project in an org: `{ kind: 'project', projectId }`
   (`scope_kind="project", scope_id=…`), or `{ kind: 'org', orgId }`.

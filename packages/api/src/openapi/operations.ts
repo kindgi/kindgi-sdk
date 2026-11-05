@@ -421,8 +421,17 @@ const RunIncludeQueryParam: ParameterSpec = {
   name: 'include',
   in: 'query',
   required: false,
-  description: "Comma-separated extras per run. `output` adds each run's output.",
-  schema: { type: 'string', enum: ['output'] },
+  description:
+    "Comma-separated extras per run. `output` adds each run's output. `waitingFor` adds what each suspended run waits for, as `GET /v1/runs/{runId}` gives it; with it, a page holds at most 25 runs. Both: `output,waitingFor` (the Python and Java clients' typed `include` takes one value a call).",
+  schema: { type: 'string', enum: ['output', 'waitingFor'] },
+};
+
+const RunListLimitQueryParam: ParameterSpec = {
+  name: 'limit',
+  in: 'query',
+  required: false,
+  description: '1..100; with `include=waitingFor`, 1..25 (a larger value gives 25). Default 25.',
+  schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 },
 };
 
 const IncludeTombstonedQueryParam: ParameterSpec = {
@@ -2097,7 +2106,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     tags: ['runs'],
     security: 'bearer',
     parameters: [
-      LimitQueryParam,
+      RunListLimitQueryParam,
       CursorQueryParam,
       ScopeKindQueryParam,
       ScopeIdQueryParam,
