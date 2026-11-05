@@ -691,9 +691,11 @@ export interface CreateAppInput {
    */
   readonly systemTenantDirectory?: SystemTenantDirectory;
   /**
-   * Optional. A tenant's "production allowed" switch and its limits, set by
-   * the control plane: `PUT /v1/system/tenants/:tenantId/production-allowed`
-   * (`system:tenants:production`) and `…/limits` (`system:tenants:limits`).
+   * Optional. A tenant's "production allowed" switch, its limits and its plan
+   * id, set by the control plane:
+   * `PUT /v1/system/tenants/:tenantId/production-allowed`
+   * (`system:tenants:production`), and `…/limits` and `…/plan`
+   * (`system:tenants:limits`).
    * Mounted only with `systemTenantDirectory` too.
    */
   readonly systemTenantSettings?: SystemTenantSettingsBinding;

@@ -13,6 +13,7 @@ import type {
   PlanLimitsInput,
   PlanOver,
   PlanRefused,
+  PlanScope,
   PlanWarning,
 } from './plan-limits-binding.js';
 import type { AppEnv } from './types.js';
@@ -178,6 +179,7 @@ export function planBusyError(): { readonly code: 'plan-count-busy'; readonly me
 function overDetail(over: PlanOver): {
   readonly limit: PlanLimit;
   readonly adding: number;
+  readonly scope?: PlanScope;
   readonly plan?: number;
   readonly most?: number;
   readonly inUse?: number;
@@ -185,6 +187,7 @@ function overDetail(over: PlanOver): {
   return {
     limit: over.limit,
     adding: over.adding,
+    ...(over.scope !== undefined && { scope: over.scope }),
     ...(over.numbers !== undefined && {
       plan: over.numbers.plan,
       most: over.numbers.most,
@@ -193,11 +196,38 @@ function overDetail(over: PlanOver): {
   };
 }
 
+/** Whose numbers a count is held to, as the words name them. */
+interface RowWords {
+  readonly whose: string;
+  /** `its plan's 10`, `its limits of 3 and 10`. */
+  readonly its: (plans: readonly number[]) => string;
+  /** The last way to make room. */
+  readonly larger: (next: string | undefined) => string;
+}
+
+const KEY_ROW: RowWords = {
+  whose: "this runtime's license key",
+  its: (plans) => `its plan's ${plans.join(' and ')}`,
+  larger: (next) =>
+    next !== undefined ? `get a larger plan: ${next}` : 'renew the key on a larger plan',
+};
+
+const TENANT_ROW: RowWords = {
+  whose: 'this workspace',
+  its: (plans) => `${plans.length === 1 ? 'its limit of' : 'its limits of'} ${plans.join(' and ')}`,
+  larger: (next) =>
+    next !== undefined
+      ? `move to a larger plan: ${next}`
+      : 'ask whoever runs this Kindgi for a larger limit',
+};
+
 /**
- * The refusal's words. With the numbers: what the write adds, the most the
- * key runs, the plan's own number, and how many run. Without them (they
- * count other tenants too): that it's past what the key allows, and who
- * to ask.
+ * The refusal's words. With the numbers: what the write adds, the most
+ * the key or the workspace runs, the plan's own number, and how many run.
+ * Without the key's (they count other tenants too): that it's past what
+ * the key allows, and who to ask. A workspace's own limits always carry
+ * their numbers. When one count is over the key's and the other over the
+ * workspace's, each gets its own sentence.
  */
 export function planRefusedMessage(over: readonly PlanOver[], words: PlanWords): string {
   const adds = over.map((o) => counted(o.adding, o.limit)).join(' and ');
@@ -205,27 +235,54 @@ export function planRefusedMessage(over: readonly PlanOver[], words: PlanWords):
     words.goingLive === true
       ? `Putting this project in production adds ${adds}`
       : `This adds ${adds} to production`;
-  const numbers = over.map((o) => o.numbers);
-  if (!numbers.every((n): n is PlanCount => n !== undefined)) {
+  const tenant = over.filter((o) => o.scope === 'tenant');
+  const key = over.filter((o) => o.scope !== 'tenant');
+  const keyShown = key.every((o) => o.numbers !== undefined);
+  const tail = (larger: string) =>
+    `What runs keeps running, and changes to it go through. To make room, unregister one that runs in production, take a project out of production, or ${larger}.`;
+  if (tenant.length > 0 && key.length > 0) {
+    const larger =
+      words.next !== undefined
+        ? `get a larger plan: ${words.next}`
+        : keyShown
+          ? 'renew the key on a larger plan, and ask whoever runs this Kindgi for a larger limit'
+          : 'ask whoever runs this Kindgi for a larger limit and plan';
+    const keySentence = keyShown
+      ? upper(heldTo(key, KEY_ROW, true))
+      : `For ${key.map((o) => o.limit).join(' and ')}, that's past what this runtime's license key allows.`;
+    return `${lead}. ${upper(heldTo(tenant, TENANT_ROW, true))} ${keySentence} ${tail(larger)}`;
+  }
+  if (tenant.length === 0 && !keyShown) {
     const ask =
       words.next !== undefined
         ? `For a larger plan: ${words.next}.`
         : 'Ask whoever runs this Kindgi for a larger plan.';
     return `${lead}, past what this runtime's license key allows. ${ask} What runs keeps running.`;
   }
-  const larger =
-    words.next !== undefined
-      ? `get a larger plan: ${words.next}`
-      : 'renew the key on a larger plan';
-  const tail = `What runs keeps running, and changes to it go through. To make room, unregister one that runs in production, take a project out of production, or ${larger}.`;
-  const [one] = numbers;
-  if (numbers.length === 1 && one !== undefined) {
-    return `${lead}, and this runtime's license key runs at most ${one.most}: its plan's ${one.plan}, and a margin. ${one.inUse} ${one.inUse === 1 ? 'runs' : 'run'} in production now. ${tail}`;
-  }
-  const most = over.map((o, i) => counted(numbers[i]?.most ?? 0, o.limit)).join(' and ');
-  const plans = numbers.map((n) => String(n.plan)).join(' and ');
-  const inUse = over.map((o, i) => counted(numbers[i]?.inUse ?? 0, o.limit)).join(' and ');
-  return `${lead}, and this runtime's license key runs at most ${most}: its plan's ${plans}, and a margin. ${inUse} run in production now. ${tail}`;
+  const row = tenant.length > 0 ? TENANT_ROW : KEY_ROW;
+  return `${lead}, and ${heldTo(over, row, over.length > 1)} ${tail(row.larger(words.next))}`;
+}
+
+/**
+ * `this workspace runs at most 12: its limit of 10, and a margin. 11 run in
+ * production now.`, the counts named when `named` (two counts, or a
+ * sentence of its own). Each of `over` carries its numbers.
+ */
+function heldTo(over: readonly PlanOver[], row: RowWords, named: boolean): string {
+  const numbers = over.map((o) => o.numbers ?? { plan: 0, most: 0, inUse: 0 });
+  const most = named
+    ? over.map((o, i) => counted(numbers[i]?.most ?? 0, o.limit)).join(' and ')
+    : String(numbers[0]?.most ?? 0);
+  const inUse = named
+    ? over.map((o, i) => counted(numbers[i]?.inUse ?? 0, o.limit)).join(' and ')
+    : String(numbers[0]?.inUse ?? 0);
+  const runs = over.length === 1 && numbers[0]?.inUse === 1 ? 'runs' : 'run';
+  return `${row.whose} runs at most ${most}: ${row.its(numbers.map((n) => n.plan))}, and a margin. ${inUse} ${runs} in production now.`;
+}
+
+/** The sentence's first letter in upper case. */
+function upper(sentence: string): string {
+  return sentence.charAt(0).toUpperCase() + sentence.slice(1);
 }
 
 /** `1 agent`, `2 flows`. */

@@ -103,6 +103,9 @@ OPERATIONS: dict[str, Operation] = {
     "systemTenants.setLimits": Operation(
         "systemTenants.setLimits", "PUT", "/v1/system/tenants/{tenantId}/limits", "json", True
     ),
+    "systemTenants.setPlan": Operation(
+        "systemTenants.setPlan", "PUT", "/v1/system/tenants/{tenantId}/plan", "json", True
+    ),
     "systemEnv.setCloudSecret": Operation(
         "systemEnv.setCloudSecret", "PUT", "/v1/system/tenants/{tenantId}/env/{name}", "json", True
     ),
@@ -2295,7 +2298,7 @@ class SystemTenantsResource:
     ) -> _models.TenantLimitsResult:
         """Read a tenant's limits. `GET /v1/system/tenants/{tenantId}/limits`
 
-        The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. From a runtime that counts it, `inUse` says how much of each counted limit the tenant uses now (`projectsInProduction`), which can be over a limit lowered below it. Takes `system:tenants:limits`. A closing tenant's limits can be read.
+        The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. From a runtime that counts it, `inUse` says how much of each counted limit the tenant uses now (`projectsInProduction`, `flowsInProduction`, `agentsInProduction`), which can be over a limit lowered below it. From a runtime that keeps it, `plan` is the tenant's plan id (`PUT …/plan`), or null while none is set. Takes `system:tenants:limits`. A closing tenant's limits can be read.
         """
         return self._client._request(
             _OPERATIONS["systemTenants.limits"],
@@ -2318,7 +2321,7 @@ class SystemTenantsResource:
     ) -> _models.TenantLimitsResult:
         """Set a tenant's limits. `PUT /v1/system/tenants/{tenantId}/limits`
 
-        Replaces the tenant's limits with exactly these: a limit left out isn't set, and isn't enforced. Each is a whole number from 1 to 1000000. The tenant reads them on `GET /v1/tenant`. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.
+        Replaces the tenant's limits with exactly these: a limit left out isn't set, and isn't enforced. Each is a whole number from 1 to 1000000. The tenant's plan id isn't a limit, and is left as it is. The tenant reads them on `GET /v1/tenant`. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.
         """
         return self._client._request(
             _OPERATIONS["systemTenants.setLimits"],
@@ -2327,6 +2330,30 @@ class SystemTenantsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.TenantLimits, body, fields),
             response=_models.TenantLimitsResult,
+            timeout=timeout,
+        )
+
+    def set_plan(
+        self,
+        tenant_id: str | UUID,
+        body: _models.TenantPlanBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TenantPlan:
+        """Set a tenant's plan id. `PUT /v1/system/tenants/{tenantId}/plan`
+
+        Sets the id of the plan the tenant is on, or clears it with null. It's only shown, beside the limits on `GET …/limits`: the limits are what's enforced, so set them on `PUT …/limits` too. A limit is left as it is. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.setPlan"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TenantPlanBody, body, fields),
+            response=_models.TenantPlan,
             timeout=timeout,
         )
 
@@ -12627,7 +12654,7 @@ class AsyncSystemTenantsResource:
     ) -> _models.TenantLimitsResult:
         """Read a tenant's limits. `GET /v1/system/tenants/{tenantId}/limits`
 
-        The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. From a runtime that counts it, `inUse` says how much of each counted limit the tenant uses now (`projectsInProduction`), which can be over a limit lowered below it. Takes `system:tenants:limits`. A closing tenant's limits can be read.
+        The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. From a runtime that counts it, `inUse` says how much of each counted limit the tenant uses now (`projectsInProduction`, `flowsInProduction`, `agentsInProduction`), which can be over a limit lowered below it. From a runtime that keeps it, `plan` is the tenant's plan id (`PUT …/plan`), or null while none is set. Takes `system:tenants:limits`. A closing tenant's limits can be read.
         """
         return await self._client._request(
             _OPERATIONS["systemTenants.limits"],
@@ -12650,7 +12677,7 @@ class AsyncSystemTenantsResource:
     ) -> _models.TenantLimitsResult:
         """Set a tenant's limits. `PUT /v1/system/tenants/{tenantId}/limits`
 
-        Replaces the tenant's limits with exactly these: a limit left out isn't set, and isn't enforced. Each is a whole number from 1 to 1000000. The tenant reads them on `GET /v1/tenant`. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.
+        Replaces the tenant's limits with exactly these: a limit left out isn't set, and isn't enforced. Each is a whole number from 1 to 1000000. The tenant's plan id isn't a limit, and is left as it is. The tenant reads them on `GET /v1/tenant`. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.
         """
         return await self._client._request(
             _OPERATIONS["systemTenants.setLimits"],
@@ -12659,6 +12686,30 @@ class AsyncSystemTenantsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.TenantLimits, body, fields),
             response=_models.TenantLimitsResult,
+            timeout=timeout,
+        )
+
+    async def set_plan(
+        self,
+        tenant_id: str | UUID,
+        body: _models.TenantPlanBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TenantPlan:
+        """Set a tenant's plan id. `PUT /v1/system/tenants/{tenantId}/plan`
+
+        Sets the id of the plan the tenant is on, or clears it with null. It's only shown, beside the limits on `GET …/limits`: the limits are what's enforced, so set them on `PUT …/limits` too. A limit is left as it is. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.setPlan"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TenantPlanBody, body, fields),
+            response=_models.TenantPlan,
             timeout=timeout,
         )
 

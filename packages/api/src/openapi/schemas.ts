@@ -3891,7 +3891,10 @@ export const PublishAgentBodySchema: JsonSchema = {
   },
 };
 
-/** One count of the plan limits: the key's plan, the most it runs, and how many run in production. */
+/**
+ * One count of the plan limits: the plan's number (the key's, or the
+ * workspace's own limit), the most it runs, and how many run in production.
+ */
 export const PlanCountSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -3900,7 +3903,8 @@ export const PlanCountSchema: JsonSchema = {
     plan: {
       type: 'integer',
       minimum: 0,
-      description: "The license key's plan: how many it's for.",
+      description:
+        "The plan's number: the license key's, or the workspace's own limit (`TenantLimits`).",
     },
     most: {
       type: 'integer',
@@ -3924,7 +3928,7 @@ export const PlanWarningSchema: JsonSchema = {
   additionalProperties: false,
   minProperties: 1,
   description:
-    "The plan limits' counts that are at the license key's plan or past it, with this write: flows and agents in production. Past `most`, new ones are refused (`plan-limit-reached`); what runs keeps running.",
+    "The plan limits' counts that are at their plan or past it, with this write: flows and agents in production, against the license key's plan or the workspace's own limit. Past `most`, new ones are refused (`plan-limit-reached`); what runs keeps running.",
   properties: {
     flows: { $ref: '#/components/schemas/PlanCount' },
     agents: { $ref: '#/components/schemas/PlanCount' },
@@ -14465,6 +14469,18 @@ export const TenantLimitsSchema: JsonSchema = {
       description:
         'Projects in production at once. Past it, putting another project in production is refused with 403 `production-limit-reached`. Lowering it takes no project out of production.',
     },
+    flowsInProduction: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "Flows in production, each counted once however many of the workspace's projects in production run it. There's a margin: a write that would take the count past the most, the larger of 1.2 times this (rounded down) and one more than it, is refused with 403 `plan-limit-reached` (`scope: tenant`), and a write's answer warns from this number on (`planWarning`). Lowering it takes nothing out of production.",
+    },
+    agentsInProduction: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        'Agents in production, counted as `flowsInProduction` is, with the same margin and the same refusal.',
+    },
   },
 };
 
@@ -14479,6 +14495,18 @@ export const TenantLimitsInUseSchema: JsonSchema = {
       type: 'integer',
       minimum: 0,
       description: "The tenant's projects in production.",
+    },
+    flowsInProduction: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        "The tenant's flows in production, each counted once. Absent from a runtime that doesn't count it.",
+    },
+    agentsInProduction: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        "The tenant's agents in production, each counted once. Absent from a runtime that doesn't count it.",
     },
   },
 };
@@ -14513,6 +14541,40 @@ export const TenantLimitsResultSchema: JsonSchema = {
     tenantId: { type: 'string', format: 'uuid' },
     limits: ref('TenantLimits'),
     inUse: ref('TenantLimitsInUse'),
+    plan: {
+      type: ['string', 'null'],
+      pattern: '^[a-z][a-z0-9-]{0,31}$',
+      description:
+        "The tenant's plan id, as `PUT …/plan` set it: on `GET …/limits` only. null while none is set; absent from a runtime that doesn't keep it. It's only shown: the limits are what's enforced.",
+    },
+  },
+};
+
+export const TenantPlanBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['plan'],
+  properties: {
+    plan: {
+      type: ['string', 'null'],
+      pattern: '^[a-z][a-z0-9-]{0,31}$',
+      description:
+        "The plan's id: a lowercase letter, then up to 31 lowercase letters, digits and hyphens. null clears it.",
+    },
+  },
+};
+
+export const TenantPlanSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['tenantId', 'plan'],
+  properties: {
+    tenantId: { type: 'string', format: 'uuid' },
+    plan: {
+      type: ['string', 'null'],
+      pattern: '^[a-z][a-z0-9-]{0,31}$',
+      description: "The tenant's plan id now; null when none is set.",
+    },
   },
 };
 
@@ -18785,6 +18847,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['TenantProductionAllowed', TenantProductionAllowedSchema],
   ['TenantLimitsResult', TenantLimitsResultSchema],
   ['TenantLimitsInUse', TenantLimitsInUseSchema],
+  ['TenantPlanBody', TenantPlanBodySchema],
+  ['TenantPlan', TenantPlanSchema],
   ['TenantConfigKind', TenantConfigKindSchema],
   ['TenantConfigEntry', TenantConfigEntrySchema],
   ['TenantConfigCollectionPage', TenantConfigCollectionPageSchema],
