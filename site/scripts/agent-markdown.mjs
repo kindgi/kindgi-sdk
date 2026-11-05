@@ -68,6 +68,7 @@ export const SECTIONS = [
     description: 'on Kindgi Cloud, or self-hosted',
     paths: ['deploy/', 'hosted/'],
   },
+  { slug: 'release-notes', label: 'Release notes', paths: ['releases/'] },
   { slug: 'cli-reference', label: 'CLI reference', paths: ['reference/cli/'] },
   { slug: 'python-sdk-reference', label: 'Python SDK reference', paths: ['reference/python/'] },
 ];

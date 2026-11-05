@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createClient } from '../../src/index.js';
-import { jsonFetch } from '../support/recording-fetch.js';
+import { jsonFetch, noContentFetch } from '../support/recording-fetch.js';
 
 const AUTH = { kind: 'apiToken' as const, token: 't' };
 const API = 'https://api.example.com';
@@ -32,6 +32,38 @@ describe('systemDeployments — wire round-trip', () => {
     expect(`${stub.calls[0]!.method} ${stub.calls[0]!.url}`).toBe(
       `GET ${API}/v1/system/deployments?endpoint=retire&cursor=c1&limit=10`,
     );
+  });
+
+  it('list ready: each entry with whether its service is kept warm', async () => {
+    const page = { data: [{ ...ENTRY, warm: true }], hasMore: false };
+    const stub = jsonFetch(page);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    const listed = await client.systemDeployments.list('ready');
+    expect(listed.data[0]?.warm).toBe(true);
+    expect(`${stub.calls[0]!.method} ${stub.calls[0]!.url}`).toBe(
+      `GET ${API}/v1/system/deployments?endpoint=ready`,
+    );
+  });
+
+  it('claimRound: POST …/round with the claimant and the hold', async () => {
+    const round = { claimant: 'pass-1', heldUntil: '2026-10-31T00:10:00.000Z' };
+    const stub = jsonFetch(round);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    expect(
+      await client.systemDeployments.claimRound({ claimant: 'pass-1', holdSeconds: 600 }),
+    ).toEqual(round);
+    const call = stub.calls[0]!;
+    expect(`${call.method} ${call.url}`).toBe(`POST ${API}/v1/system/deployments/round`);
+    expect(JSON.parse(call.body ?? '{}')).toEqual({ claimant: 'pass-1', holdSeconds: 600 });
+  });
+
+  it('endRound: POST …/round/end with the claimant, answered 204', async () => {
+    const stub = noContentFetch();
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    expect(await client.systemDeployments.endRound('pass-1')).toBeUndefined();
+    const call = stub.calls[0]!;
+    expect(`${call.method} ${call.url}`).toBe(`POST ${API}/v1/system/deployments/round/end`);
+    expect(JSON.parse(call.body ?? '{}')).toEqual({ claimant: 'pass-1' });
   });
 
   it('setEndpoint: PUT …/endpoint with the spec, the ids path-encoded', async () => {

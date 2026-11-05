@@ -15,7 +15,7 @@ import type {
 } from '../types.js';
 
 /**
- * Policies resource — versioned tenant policy registry.
+ * Policies resource — versioned workspace policy registry.
  *
  * Each policy carries a `kind` (`access-control`, `model-routing`,
  * `adapter-allowlist`, `rate-limit`, `retention`, `compliance`,
@@ -38,7 +38,7 @@ export interface PoliciesClient {
    * specs belong to the consumer of that kind. Publishing the same
    * `(id, version)` twice returns `409 policy-already-registered`.
    *
-   * A tenant has one retention policy per domain, plus one for `*`: a
+   * A workspace has one retention policy per domain, plus one for `*`: a
    * second policy id for a covered domain returns
    * `409 policy-scope-taken` (`details.heldBy` names the one that covers
    * it; publish a new version of that one instead), and a new version
@@ -66,10 +66,14 @@ export interface PoliciesClient {
   get(id: PolicyId): Promise<Policy>;
 
   /**
+   * Latest version per id. `filter.includeRetired = true` lists a
+   * retired policy too (every version unregistered), as its highest
+   * version with `unregisteredAt`.
+   *
    * @wire `GET /v1/policies` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1policies/get`.
    */
-  list(filter?: PolicyListFilter): Promise<ListPage<Policy>>;
+  list(filter?: PolicyListFilter): Promise<ListPage<PolicyVersionRow>>;
 
   /**
    * Historical versions of a policy.id. Defaults to active-only. Pass
@@ -131,6 +135,12 @@ export interface PolicyListFilter extends Filter {
   readonly kind?: PolicyKind;
   /** Prefix filter on policy id (matches the server's `?name=` query). */
   readonly name?: string;
+  /**
+   * `true` lists retired policies too (every version unregistered), each as
+   * its highest version with `unregisteredAt`. Default: policies with an
+   * active version only.
+   */
+  readonly includeRetired?: boolean;
 }
 
 export interface PolicyVersionsFilter {
@@ -197,7 +207,7 @@ export function makePoliciesClient(transport: Transport): PoliciesClient {
     },
 
     async list(filter) {
-      const page = await transport.request<WirePage<Policy>>({
+      const page = await transport.request<WirePage<PolicyVersionRow>>({
         method: 'GET',
         path: '/v1/policies',
         query: {
@@ -205,6 +215,7 @@ export function makePoliciesClient(transport: Transport): PoliciesClient {
           ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
           ...(filter?.kind !== undefined && { kind: filter.kind }),
           ...(filter?.name !== undefined && { name: filter.name }),
+          ...(filter?.includeRetired === true && { includeRetired: 'true' }),
         },
       });
       return listPage(page);

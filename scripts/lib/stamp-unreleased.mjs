@@ -13,7 +13,23 @@
  *                                - a change
  *
  * Each pull request adds its line under `## Unreleased`; the release stamps
- * it. A section with no entries gets `emptyText`, so every released version
+ * it. A final release gathers its prereleases, as Changesets does for the npm
+ * packages: its section has its own entries, then those of each prerelease
+ * of it right below, newest first, so a reader coming from the release before
+ * finds every change in one section. The prereleases keep theirs.
+ *
+ *   ## Unreleased                ## Unreleased
+ *                       →
+ *   - a fix                      ## 1.2.0
+ *
+ *   ## 1.2.0-rc.0                - a fix
+ *                                - a change
+ *   - a change
+ *                                ## 1.2.0-rc.0
+ *
+ *                                - a change
+ *
+ * A section with nothing to list gets `emptyText`, so every released version
  * keeps a heading. Stamping a version that already has a heading changes
  * nothing: the release script may run twice on the same tree.
  */
@@ -82,12 +98,15 @@ function trimBlank(lines) {
  *
  * @param {string} text the changelog
  * @param {string} version the version being released
- * @param {string} emptyText the stamped section's text when it has no entries
+ * @param {string} emptyText the stamped section's text when it has nothing to list
  * @param {string} file the changelog's name, for the messages
+ * @param {{ gathers?: (section: string) => boolean }} [options] `gathers`: for a
+ *   final release, whether a section's version (its heading after `## `) is one
+ *   of its prereleases; the run of them right below `## Unreleased` is gathered
  * @returns {string} the stamped changelog; `text` itself when `version` already has a heading
  * @throws {StampError} when the headings aren't as `unreleasedProblems` needs
  */
-export function stampUnreleased(text, version, emptyText, file) {
+export function stampUnreleased(text, version, emptyText, file, options = {}) {
   const problems = unreleasedProblems(text, file);
   if (problems.length > 0) throw new StampError(problems.join('\n'));
   const lines = text.split('\n');
@@ -96,6 +115,13 @@ export function stampUnreleased(text, version, emptyText, file) {
   const start = headings[0];
   const next = headings[1] ?? lines.length;
   const entries = trimBlank(lines.slice(start + 1, next));
+  for (let h = 1; options.gathers !== undefined && h < headings.length; h++) {
+    if (!options.gathers(lines[headings[h]].slice(3).trimEnd())) break;
+    const section = trimBlank(lines.slice(headings[h] + 1, headings[h + 1] ?? lines.length));
+    // A prerelease with nothing of its own says so in `emptyText`: nothing to gather.
+    if (section.length === 1 && section[0].trim() === emptyText) continue;
+    entries.push(...section);
+  }
   const rest = lines.slice(next);
   return [
     ...lines.slice(0, start),

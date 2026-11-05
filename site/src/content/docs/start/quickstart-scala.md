@@ -18,9 +18,9 @@ still change in a later release without the usual deprecation period.
 
 **Before you start**, set up what the [Install page](../install/) describes:
 Docker, Node 22.12 or later, and access to the runtime image: sign in at
-[access.kindgi.com](https://access.kindgi.com) with GitHub for its pull
-credentials, then log in once with `kindgi auth registry`. You also need a
-JDK 17 or later, with `JAVA_HOME` set to it, and
+[access.kindgi.com](https://access.kindgi.com) with GitHub or your email
+address for a license key, then log in once with `kindgi auth registry`.
+You also need a JDK 17 or later, with `JAVA_HOME` set to it, and
 [sbt](https://www.scala-sbt.org/download) 1.10 or later.
 
 ## 1. Create the pack
@@ -250,7 +250,7 @@ provider:
   writes it to Kindgi's own `.kindgi/secrets.env`.
 - `--env=local` is the environment the secret belongs to. Under
   `kindgi dev`, `local` is the pack's env files, that one among them.
-- `--scope=tenant` is where the secret lives: the tenant, rather than one
+- `--scope=tenant` is where the secret lives: the workspace, rather than one
   org (`org:<orgId>`) or project (`project:<projectId>`).
 - `--preset=<preset>` registers the provider's models from Kindgi's built-in
   preset, which reads the `<KEY_NAME>` secret. `kindgi providers presets`

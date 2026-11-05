@@ -16,16 +16,20 @@ import { dirname, join } from 'node:path';
 import { after, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { scratchRepoEnv } from './lib/git-env.mjs';
+
 const HOOK = join(dirname(fileURLToPath(import.meta.url)), 'hooks', 'commit-msg');
 
 const root = mkdtempSync(join(tmpdir(), 'commit-msg-'));
 after(() => rmSync(root, { recursive: true, force: true }));
-execFileSync('git', ['init', '--quiet', root]);
+/** git's repository variables dropped, so a shell pointing at another repository leaves it alone. */
+const scratchEnv = scratchRepoEnv();
+execFileSync('git', ['init', '--quiet', root], { env: scratchEnv });
 
 /** An internal reference, assembled from parts so the repository's own checks don't flag this file. */
 const ref = (...parts) => parts.join('');
 
-const run = (message, env = process.env) => {
+const run = (message, env = scratchEnv) => {
   const file = join(root, 'COMMIT_EDITMSG');
   writeFileSync(file, message);
   return spawnSync(HOOK, [file], { cwd: root, encoding: 'utf8', env });
@@ -56,14 +60,16 @@ describe('scripts/hooks/commit-msg', () => {
   test("without node on PATH, the message isn't checked here, and the hook says so", () => {
     const empty = join(root, 'no-node-bin');
     mkdirSync(empty, { recursive: true });
-    const result = run(`fix: one (${ref('T', 292)})\n`, { ...process.env, PATH: empty });
+    const result = run(`fix: one (${ref('T', 292)})\n`, { ...scratchEnv, PATH: empty });
     assert.equal(result.status, 0);
     assert.match(result.stderr, /node isn't on PATH, so this message isn't checked here/);
   });
 
   test("it reads git's comment character", () => {
-    execFileSync('git', ['config', 'core.commentChar', ';'], { cwd: root });
-    after(() => spawnSync('git', ['config', '--unset', 'core.commentChar'], { cwd: root }));
+    execFileSync('git', ['config', 'core.commentChar', ';'], { cwd: root, env: scratchEnv });
+    after(() =>
+      spawnSync('git', ['config', '--unset', 'core.commentChar'], { cwd: root, env: scratchEnv }),
+    );
     assert.equal(run(`fix: one\n\n; On branch fix/${ref('T', 292)}\n`).status, 0);
     assert.equal(run(`fix: one\n\n# not a comment now: ${ref('T', 292)}\n`).status, 1);
   });

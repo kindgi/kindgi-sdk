@@ -616,6 +616,11 @@ final class PackService implements HttpServer.Handler {
       }
       return error("handler-throw", "Handler for tool \"" + toolId + "\" threw: " + e, with(ids, "cause", cause(e)));
     } catch (Exception | LinkageError | AssertionError | StackOverflowError e) {
+      ConnectionRejectedException rejected = rejectionOf(e);
+      if (rejected != null) {
+        return error(ConnectionRejectedException.CODE, "Tool \"" + toolId + "\": " + rejected.getMessage(),
+            with(ids, "connection", rejected.connection()));
+      }
       return error("handler-throw", "Handler for tool \"" + toolId + "\" threw: " + e, with(ids, "cause", cause(e)));
     }
     Object output;
@@ -780,6 +785,21 @@ final class PackService implements HttpServer.Handler {
       });
     }
     return out;
+  }
+
+  /**
+   * The refusal a handler's exception is or wraps, looking through up to three causes, as the
+   * TypeScript and Python pack services do.
+   */
+  static @Nullable ConnectionRejectedException rejectionOf(Throwable thrown) {
+    Throwable at = thrown;
+    for (int depth = 0; depth < 4 && at != null; depth++) {
+      if (at instanceof ConnectionRejectedException rejected) {
+        return rejected;
+      }
+      at = at.getCause();
+    }
+    return null;
   }
 
   private static Map<String, Object> with(Map<String, Object> ids, String key, Object value) {

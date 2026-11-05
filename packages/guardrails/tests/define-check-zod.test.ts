@@ -9,8 +9,8 @@ import type { GuardrailId, RunId, TenantId } from '@kindgi/types';
 import {
   createCheckRegistry,
   defineCheck,
-  defineGuardrail,
   evaluateGuardrail,
+  validateGuardrail,
 } from '../src/index.js';
 import type { EvaluationBindings, Guardrail, RunTrace } from '../src/index.js';
 
@@ -143,7 +143,7 @@ describe('defineCheck — Zod-optional authoring surface', () => {
     expect(check.validateConfig?.({ n: 5 })).toBeUndefined();
   });
 
-  test('defineGuardrail surfaces validation failure via invalid-check-config', () => {
+  test('validateGuardrail surfaces validation failure via invalid-check-config', () => {
     const check = defineCheck({
       id: 'inv-validated',
       kind: 'zero-llm',
@@ -158,12 +158,12 @@ describe('defineCheck — Zod-optional authoring surface', () => {
       config: { threshold: 5 }, // out of range
       action: { 'on-violation': 'halt' },
     };
-    const r = defineGuardrail(guardrail, registry);
+    const r = validateGuardrail(guardrail, registry);
     expect(r.kind).toBe('err');
     if (r.kind === 'err') expect(r.error.code).toBe('invalid-check-config');
   });
 
-  test('end-to-end: defineCheck with Zod → defineGuardrail → evaluate', async () => {
+  test('end-to-end: defineCheck with Zod → validateGuardrail → evaluate', async () => {
     const check = defineCheck({
       id: 'zod.e2e',
       kind: 'zero-llm',
@@ -176,7 +176,7 @@ describe('defineCheck — Zod-optional authoring surface', () => {
       },
     });
     const registry = createCheckRegistry([check]);
-    const guardrail = defineGuardrail(
+    const guardrail = validateGuardrail(
       {
         id: 'inv-len' as GuardrailId,
         kind: 'zero-llm',
@@ -255,7 +255,7 @@ describe('defineCheck — Zod-optional authoring surface', () => {
       },
     });
     const registry = createCheckRegistry([check]);
-    const guardrail = defineGuardrail(
+    const guardrail = validateGuardrail(
       {
         id: 'inv-pt' as GuardrailId,
         kind: 'zero-llm',

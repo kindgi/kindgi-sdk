@@ -147,6 +147,19 @@ final class HttpToolTest {
   }
 
   @Test
+  void aConnectionAuthorizationNamesTheConnection() {
+    Tool<CaseLookup, Found> tool =
+        lookup()
+            .http(
+                HttpToolSpec.builder()
+                    .method(HttpMethod.GET)
+                    .urlTemplate("https://cases.example.com/{court}/{docket}")
+                    .authorization(new HttpAuthSpec.Connection("cases"))
+                    .build());
+    assertEquals(Map.of("kind", "connection", "connection", "cases"), specOf(tool).get("authorization"));
+  }
+
+  @Test
   void aSecretRefWithoutAnEnvNameIsRefusedBySchema() {
     IllegalArgumentException e =
         assertThrows(

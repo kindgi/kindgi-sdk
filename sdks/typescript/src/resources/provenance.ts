@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { AgentId, RunId, Timestamp } from '@kindgi/types';
+import type { AgentId, FlowId, RunId, Timestamp } from '@kindgi/types';
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import { scopeToQuery } from '../scope-wire.js';
 import type { Transport } from '../transport.js';
@@ -16,11 +16,10 @@ import { verifySignedExport } from '../verify-export.js';
 
 /**
  * Provenance resource — read + export + verify the causal DAG
- * recorded for each run.
+ * recorded for each run: an agent turn's or a flow run's.
  *
- * `get`, `query` and `export` call API routes. `verify` is a
- * client-side operation, and the SDK does not bundle an Ed25519
- * verifier, so it throws `not-yet-wired`.
+ * `get`, `query` and `export` call API routes. `verify` runs where it's
+ * read, with Web Crypto's Ed25519, and makes no request.
  */
 export interface ProvenanceClient {
   /**
@@ -38,7 +37,7 @@ export interface ProvenanceClient {
    * @wire `GET /v1/provenance` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1provenance/get`.
    */
-  query(filter?: ProvenanceQueryFilter): Promise<ListPage<ProvenanceRecordMetadata>>;
+  query(filter?: ProvenanceQueryFilter): Promise<ProvenancePage>;
 
   /**
    * Export a signed JSON bundle for a run. The server canonicalizes the
@@ -59,6 +58,16 @@ export interface ProvenanceClient {
    * `exportSigningKeys.list()`, or one you pinned).
    */
   verify(exported: ExportedProvenance, publicKey: string): Promise<ProvenanceVerifyResult>;
+}
+
+/** A page of provenance records' metadata. */
+export interface ProvenancePage extends ListPage<ProvenanceRecordMetadata> {
+  /**
+   * The flow, on every page of a list asked for with `flowId`: it holds
+   * only that flow's runs' records. Absent from a runtime that doesn't
+   * list records by flow, which ignores the filter and lists them all.
+   */
+  readonly flowId?: FlowId;
 }
 
 export interface ProvenanceExportInput {
@@ -86,7 +95,9 @@ export function makeProvenanceClient(transport: Transport): ProvenanceClient {
     },
 
     async query(filter) {
-      const page = await transport.request<WirePage<ProvenanceRecordMetadata>>({
+      const page = await transport.request<
+        WirePage<ProvenanceRecordMetadata> & { readonly flowId?: string }
+      >({
         method: 'GET',
         path: '/v1/provenance',
         query: {
@@ -97,12 +108,17 @@ export function makeProvenanceClient(transport: Transport): ProvenanceClient {
           ...(filter?.agentId !== undefined && {
             agentId: filter.agentId as unknown as AgentId as unknown as string,
           }),
+          ...(filter?.flowId !== undefined && {
+            flowId: filter.flowId as unknown as FlowId as unknown as string,
+          }),
           ...(filter?.createdAfter !== undefined && {
             createdAfter: filter.createdAfter as unknown as Timestamp as unknown as string,
           }),
         },
       });
-      return listPage(page);
+      return Object.assign(listPage(page), {
+        ...(page.flowId !== undefined && { flowId: page.flowId as unknown as FlowId }),
+      });
     },
 
     async export(input) {

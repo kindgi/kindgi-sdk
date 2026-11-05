@@ -47,7 +47,11 @@ const projectId = randomUUID();
 const TOKEN = 'served-env-token';
 const resolveToken: TokenResolver = async (token) =>
   token === TOKEN
-    ? { tenantId, capabilities: ['secrets:write', 'secrets:rotate', 'secrets:revoke', 'env:write'] }
+    ? {
+        tenantId,
+        scopes: ['tenant-admin'],
+        capabilities: ['secrets:write', 'secrets:rotate', 'secrets:revoke', 'env:write'],
+      }
     : null;
 const runHandler: RunHandlerBinding = {
   invokeAgent: async () => ({ kind: 'err', error: { code: 'bad-input', message: 'not used' } }),
@@ -588,6 +592,21 @@ describe('a runtime that refuses other envs: a registration naming its secret un
       409,
       REFUSAL(
         'endpoint "acme-docs" names `DOCS_TOKEN` under `staging`. Name it under `prod`, and store the secret there',
+      ),
+    ]);
+    // A stdio server's variable, too.
+    const stdio = await h.call('POST', '/v1/mcp/endpoints', {
+      endpointId: 'acme-files',
+      name: 'Files MCP',
+      transport: 'stdio',
+      config: { transport: 'stdio', command: '/usr/local/bin/files-mcp' },
+      secretEnv: { FILES_TOKEN: { envName: 'staging', name: 'FILES_TOKEN' } },
+      scopeKind: 'tenant',
+    });
+    expect([stdio.status, stdio.body.error?.message]).toEqual([
+      409,
+      REFUSAL(
+        'endpoint "acme-files" names `FILES_TOKEN` under `staging`. Name it under `prod`, and store the secret there',
       ),
     ]);
     const created = await h.call('POST', '/v1/webhook-endpoints', {

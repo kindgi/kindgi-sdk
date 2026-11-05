@@ -10,10 +10,12 @@
  * `runIndexer` (`@kindgi/handler-runtime`), and an `fs.watch` bridge.
  */
 
+import type { PackBlockWrite, PackBlockWriteOutcome } from '@kindgi/handler-runtime';
 import type {
   PackServiceSupervisor,
   PackServiceSupervisorEvent,
 } from '@kindgi/handler-runtime/pack-service';
+import type { ReadFolder } from '../build/pack-blocks.js';
 import type { DockerReach } from './blocked.js';
 import type { DevLockProcesses } from './dev-lock.js';
 import type { ProjectDatabases } from './project-database.js';
@@ -34,7 +36,7 @@ export interface RunningApiServer {
    * Default project id for the boot tenant. Required for POST-body
    * primitive-registration routes. `kindgi dev`
    * threads this into `registerFromIndex` so scaffolded packs land
-   * under the tenant's Default project.
+   * under the tenant's default project.
    */
   readonly defaultProjectId: string;
   readonly token: string;
@@ -192,7 +194,19 @@ export interface DevPackServiceOptions {
   readonly sandbox?: ActiveDevSandbox;
   /** A notice for the user from starting the pack service (the sandbox's). */
   readonly onNotice?: (line: string) => void;
+  /**
+   * The pack's blocks (`discovery.blocks`). A version pinned in the
+   * console is written into its file through the front (`POST
+   * /v1/blocks`), and `onWritten` says so.
+   */
+  readonly blocks: {
+    readonly pattern: string;
+    readonly onWritten: (write: PackBlockWrite, written: PackBlockWritten) => void;
+  };
 }
+
+/** What the front wrote for a block pinned in the console: its file, and its template file too. */
+export type PackBlockWritten = Extract<PackBlockWriteOutcome, { readonly kind: 'ok' }>;
 
 /**
  * The local pack service: the public supervisor, children behind a
@@ -209,6 +223,11 @@ export interface IndexedCounts {
   readonly guardrails: number;
   readonly agents: number;
   readonly flows: number;
+  /**
+   * The pack's data blocks (`blocks/`). Absent from an indexer from before
+   * blocks in a pack: a Python or JVM pack's own `kindgi` package.
+   */
+  readonly blocks?: number;
 }
 
 /**
@@ -353,8 +372,14 @@ export interface DevRunners {
   }) => PackBuilder;
   /** The local pack service (not yet started). */
   readonly createPackService: (opts: DevPackServiceOptions) => DevPackService;
-  /** Whether this machine can sandbox the pack service, and with what (`dev/sandbox/detect.ts`). */
-  readonly detectSandbox: () => Promise<SandboxAvailability>;
+  /**
+   * Whether this machine can sandbox the pack service, and with what
+   * (`dev/sandbox/detect.ts`). `env` is the CLI's own, whose `PATH` the
+   * probe searches.
+   */
+  readonly detectSandbox: (
+    env: Readonly<Record<string, string | undefined>>,
+  ) => Promise<SandboxAvailability>;
   /**
    * Check a Python pack's interpreter can run pack code (`import kindgi`),
    * with the pack's environment: a one-line description, or why not.
@@ -441,4 +466,6 @@ export interface DevRunners {
   readonly interactive?: () => boolean;
   /** Ask a yes/no question (default: on the terminal). */
   readonly confirm?: (question: string) => Promise<boolean>;
+  /** A folder's entry names, for the blocks' case check (default: the disk's). Tests pass their own. */
+  readonly readFolder?: ReadFolder;
 }

@@ -87,6 +87,8 @@ class ScalaPackSuite extends munit.FunSuite {
     assertEquals(later.get("needsApprovalWhenUnattended"), java.lang.Boolean.TRUE)
     val echo = list(index.get("tools")).find(_.get("id") == "acme.echo-json").get
     assert(!echo.containsKey("needsApprovalWhenUnattended"))
+    assertEquals(later.get("resultIsOutsideData"), java.lang.Boolean.TRUE)
+    assert(!echo.containsKey("resultIsOutsideData"))
     assertEquals(greet.get("input"), plain(
       """{"type": "object", "additionalProperties": false,
         | "properties": {

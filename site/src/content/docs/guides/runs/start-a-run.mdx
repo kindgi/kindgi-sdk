@@ -100,8 +100,11 @@ uv run kindgi runs start --flow=acme.reserve-order --input='{"orderId":"A-300"}'
 `kindgi runs get <run-id>` shows it again, with its output once it's done.
 
 `--agent-version=<version>` (or `--flow-version`) runs that version instead of
-the latest, and `--project=<project-id>` runs in that project instead of the
-agent's or flow's own, which is Default for what `kindgi deploy` registers
+the one in use there: the agent's pinned version, else its project's
+[Latest](../../improve/pinned-versions-reference/#latest); or the flow's
+[pinned version](../../flows/pin-a-flow-version/), else its latest. And
+`--project=<project-id>` runs in that project instead of the
+agent's or flow's own, which is the default project for what `kindgi deploy` registers
 (`kindgi projects list` lists the projects with their ids). With
 authorization on, naming a project needs `write` on it:
 
@@ -136,8 +139,8 @@ uv run kindgi runs start --agent=acme.order-desk --agent-version=0.1.0 --project
 </TabItem>
 </Tabs>
 
-A `--project` that isn't a project in your tenant stops before anything runs,
-with `No project with id "<project-id>" in this tenant` (the API answers 404
+A `--project` that isn't a project in your workspace stops before anything runs,
+with `No project with id "<project-id>" in this workspace` (the API answers 404
 `project-not-found`). One that isn't an id at all, like `--project=support`,
 gets `` `projectId` must be a project id (a UUID) ``.
 
@@ -517,7 +520,8 @@ background. Start an agent with `agent` instead of `flow`, and its input
 | `status` | `pending`, `running`, `suspended`, `completed`, `failed` or `cancelled`. `kindgi runs resume <run-id>` says what a `suspended` run waits for ([details](../../approvals/decide-an-approval/#what-a-run-waits-for)). |
 | `output` | What the run returned, once it completed. |
 | `failure` | Why it failed: its `code` and `message` (an agent's turn has its own code, such as `budget-exceeded`; any other failure is `run-failed`). See [why runs failed](../see-why-runs-failed/). |
-| `flowId`, `flowVersion` | The flow and the version the run is pinned to. An agent's turn reports `agent.turn`, and its agent is in `agent`. |
+| `flowId`, `flowVersion` | The flow and the version the run runs, kept for the whole run. An agent's turn reports `agent.turn`, and its agent is in `agent`. |
+| `flowVersionVia` | How a flow's version was chosen: named by the start (`explicit`), [pinned](../../flows/pin-a-flow-version/) for the run's project (`pinned`, with the pin in `flowPinnedScope`), or the newest the project reaches (`latest`). |
 | `agent` | For an agent's turn: the agent's `id`, the `version` that ran, and the `conversationId`. A flow's run has none. |
 | `dryRun` | Whether it was a [dry run](../../flows/dry-run-a-flow/). |
 | `publicAccessToken` | A read-only token for this run, for a browser, when the deployment issues them ([details](../follow-from-the-browser/)). Only `start` returns it. |
@@ -560,7 +564,7 @@ try {
 
 ```text
 run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: Error: No order Z-9
-not-found No flow "acme.no-such-flow" is registered in this tenant.
+not-found No flow "acme.no-such-flow" is registered in this workspace.
 ```
 
 </TabItem>
@@ -584,7 +588,7 @@ except NotFoundError as err:
 
 ```text
 run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: ValueError: No order Z-9
-No flow "acme.no-such-flow" is registered in this tenant.
+No flow "acme.no-such-flow" is registered in this workspace.
 ```
 
 </TabItem>
@@ -626,7 +630,7 @@ public final class StartFailures {
 
 ```text
 run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: java.lang.IllegalArgumentException: No order Z-9
-flow-not-found No flow "acme.no-such-flow" is registered in this tenant.
+flow-not-found No flow "acme.no-such-flow" is registered in this workspace.
 ```
 
 </TabItem>
@@ -666,7 +670,7 @@ object StartFailures {
 
 ```text
 run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: java.util.NoSuchElementException: No order Z-9
-flow-not-found No flow "acme.no-such-flow" is registered in this tenant.
+flow-not-found No flow "acme.no-such-flow" is registered in this workspace.
 ```
 
 </TabItem>
@@ -687,7 +691,7 @@ Agent turn steps budget exceeded (limit 1, observed 1)
 Code budget-exceeded
 ```
 
-![A failed agent run's page: the agent acme.tight at 1.0.0, Failed, then its message and tool call, and the failure: "The turn ran out of its budget.", "Agent turn steps budget exceeded (limit 1, observed 1)" and "Code budget-exceeded".](../../../../assets/runs/run-failure.png)
+![A failed agent run's page: Tight agent at 1.0.0, Failed, started by you; then under What happened its message and tool call, and the failure: "The turn ran out of its budget.", "Agent turn steps budget exceeded (limit 1, observed 1)" and "Code budget-exceeded".](../../../../assets/runs/run-failure.png)
 
 A run that ended at its approval didn't go wrong: someone, or the
 approval's deadline, decided. Its page says which, not in red: "A reviewer

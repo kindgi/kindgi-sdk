@@ -17,7 +17,7 @@
 export const ERROR_ENTRIES = {
   'validation-failed': {
     description:
-      "The request body is well-formed JSON but fails validation, for example an agent, flow, tool, policy or eval suite definition that breaks the rules, or a version pin that can't be resolved. Fix the entries in `details.issues` and resend.",
+      "The request body is well-formed JSON but fails validation, for example an agent, flow, tool, policy or test set definition that breaks the rules, or a version pin that can't be resolved. Fix the entries in `details.issues` and resend.",
     details: [
       {
         key: 'issues',
@@ -27,7 +27,7 @@ export const ERROR_ENTRIES = {
   },
   'reference-out-of-scope': {
     description:
-      "A request names an item its project can't reach: a tool, agent, flow, guardrail, data block, check or eval suite that isn't registered in the project, its org or the tenant, or a version of an agent, flow or eval suite that the project doesn't run, such as one made in an earlier environment and not yet promoted. Nothing is written. Register the item where the project reaches it, use it from the project that has it, or promote the version first.",
+      "A request names an item its project can't reach: a tool, agent, flow, guardrail, data block, check or test set that isn't registered in the project, its org or the workspace, or a version of an agent, flow or test set that the project doesn't run, such as one made in an earlier environment and not yet promoted. Nothing is written. Register the item where the project reaches it, use it from the project that has it, or promote the version first.",
     details: [
       {
         key: 'issues',
@@ -103,7 +103,7 @@ export const ERROR_ENTRIES = {
   },
   'scope-invalid': {
     description:
-      "The scope you sent is malformed or unusable: `scopeKind` and `scopeId` don't fit together, `inherit` isn't true or false, or the org or project doesn't exist for your tenant. Fix the scope fields.",
+      "The scope you sent is malformed or unusable: `scopeKind` and `scopeId` don't fit together, `inherit` isn't true or false, or the org or project doesn't exist for your workspace. Fix the scope fields.",
     details: [
       {
         key: 'projectId',
@@ -173,7 +173,7 @@ export const ERROR_ENTRIES = {
   },
   'host-access-denied': {
     description:
-      "The deployment doesn't let tenant configuration reach its host, so a `stdio` MCP endpoint (a command on the host) is refused. Use an HTTP endpoint instead, or ask whoever runs the deployment.",
+      "The deployment doesn't let workspace configuration reach its host, so a `stdio` MCP endpoint (a command on the host) is refused. Use an HTTP endpoint instead, or ask whoever runs the deployment.",
     details: [
       {
         key: 'action',
@@ -287,11 +287,11 @@ export const ERROR_ENTRIES = {
   },
   'not-found': {
     description:
-      "The token, secret rotation or memory erasure you named doesn't exist for your tenant, or its id isn't valid. Check the id.",
+      "The token, secret rotation or memory erasure you named doesn't exist for your workspace, or its id isn't valid. Check the id.",
     details: [],
   },
   'run-not-found': {
-    description: "The run doesn't exist in your tenant. Check the run id.",
+    description: "The run doesn't exist in your workspace. Check the run id.",
     details: [
       {
         key: 'runId',
@@ -315,7 +315,7 @@ export const ERROR_ENTRIES = {
   },
   'conversation-not-found': {
     description:
-      "The conversation doesn't exist in your tenant, or you can't read it: one you can't read answers as if it weren't there when you read it or its messages, or are refused closing it, unregistering it or adding a turn. Check the conversation id, and that your key or role can read its project.",
+      "The conversation doesn't exist in your workspace, or you can't read it: one you can't read answers as if it weren't there when you read it or its messages, or are refused closing it, unregistering it or adding a turn. Check the conversation id, and that your key or role can read its project.",
     details: [
       {
         key: 'conversationId',
@@ -350,7 +350,7 @@ export const ERROR_ENTRIES = {
     seeAlso: ['GET /v1/guardrails/{guardrailId}', 'POST /v1/guardrails/{guardrailId}/unregister'],
   },
   'fact-not-found': {
-    description: "The memory fact doesn't exist in your tenant. Check the fact id.",
+    description: "The memory fact doesn't exist in your workspace. Check the fact id.",
     details: [
       {
         key: 'factId',
@@ -360,7 +360,7 @@ export const ERROR_ENTRIES = {
   },
   'flow-not-found': {
     description:
-      "The flow, or the flow version, isn't registered. Check the id and version; a run can't start on an unregistered flow version.",
+      "The flow, or the flow version, isn't registered. Check the id and version; a run can't start on an unregistered flow version. A connection choice's flow must be one of the choice's project's.",
     details: [
       {
         key: 'flowId',
@@ -375,9 +375,9 @@ export const ERROR_ENTRIES = {
   },
   'already-terminal': {
     description:
-      "The API doesn't send this code. Cancelling an eval run that has finished is answered `eval-run-already-terminal`.",
+      "The API doesn't send this code. Cancelling a test run that has finished is answered `test-run-already-terminal`.",
     details: [],
-    seeAlso: ['#eval-run-already-terminal'],
+    seeAlso: ['#test-run-already-terminal'],
   },
   'fact-changed': {
     description:
@@ -437,6 +437,21 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'run-held-by-parent': {
+    description:
+      "The run is a subflow's child run, left for its parent run's next resume, which resumes it too. Only the parent's resume resumes it, so a resume of the child itself is refused.",
+    details: [
+      {
+        key: 'runId',
+        meaning: 'the run',
+      },
+      {
+        key: 'parentRunId',
+        meaning: 'its parent run, whose resume resumes it',
+      },
+    ],
+    seeAlso: ['concepts/runs'],
+  },
   'idempotency-key-body-mismatch': {
     description:
       'You reused an Idempotency-Key with a different request body. Send the original body to get its answer back, or use a fresh key.',
@@ -460,6 +475,11 @@ export const ERROR_ENTRIES = {
         meaning: 'when it succeeded, as an ISO timestamp',
       },
     ],
+  },
+  'idempotency-store-unavailable': {
+    description:
+      "A write sent with an Idempotency-Key couldn't be checked against its key, because the store that keeps the keys couldn't be read, so the write didn't run and changed nothing. Retry with the same key after the `Retry-After` header.",
+    details: [],
   },
   'hitl-required': {
     description:
@@ -485,7 +505,7 @@ export const ERROR_ENTRIES = {
     details: [
       {
         key: 'conversationId',
-        meaning: 'the conversation (new turn only)',
+        meaning: 'the conversation',
       },
       {
         key: 'expectedVersion',
@@ -535,7 +555,7 @@ export const ERROR_ENTRIES = {
   },
   'registry-read-only': {
     description:
-      "This registry takes no writes, for example when a local dev server serves the project's own files. The message says what to do instead.",
+      "This registry takes no writes, for example when a local dev server serves the project's own files: publishing, unregistering and reinstating are refused, and so is a deploy that would publish into it. Under `kindgi dev`, the agent registry still takes Improve runs and suggested changes, each made for the whole workspace, a check again, and a pin, which writes the version into the pack's files. It refuses an unpin, an add as Latest, and a pin or a check again for less than the whole workspace. The message says what to do instead.",
     details: [],
   },
   'agent-gone': {
@@ -550,7 +570,7 @@ export const ERROR_ENTRIES = {
   },
   'run-erased': {
     description:
-      "An erasure cleared the run's content (a person's words were removed), so there is nothing to judge or replay.",
+      "An erasure cleared the run's content (a person's words were removed), so there is nothing to correct or replay.",
     details: [],
   },
   'flow-gone': {
@@ -575,16 +595,16 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['GET /v1/policies/{policyId}'],
   },
-  'eval-suite-gone': {
+  'test-set-gone': {
     description:
-      'The eval suite has no active versions left; it exists but every version is unregistered. Reinstate a version or publish a new one.',
+      'The test set has no active versions left; it exists but every version is unregistered. Reinstate a version or publish a new one.',
     details: [
       {
-        key: 'suiteId',
-        meaning: 'the suite id',
+        key: 'testSetId',
+        meaning: 'the test set id',
       },
     ],
-    seeAlso: ['GET /v1/eval-suites/{suiteId}'],
+    seeAlso: ['GET /v1/test-sets/{testSetId}'],
   },
   'tool-gone': {
     description:
@@ -599,15 +619,28 @@ export const ERROR_ENTRIES = {
   },
   'tool-already-registered': {
     description:
-      "The tool id and version you're publishing already exist. Published versions are immutable, so publish under a new version number.",
+      "The tool id and version you're publishing already exist. Published versions are immutable, so publish under a new version number. On a deployment, the runtime holds a version of the pack's tool, active or unregistered, with another definition: give the tool a new version in the pack. The message names the fields that differ.",
     details: [
       {
         key: 'toolId',
-        meaning: "the tool's id",
+        meaning: "the tool's id (single publish)",
       },
       {
         key: 'version',
-        meaning: 'the version that is already registered',
+        meaning: 'the version that is already registered (single publish)',
+      },
+      {
+        key: 'primitive',
+        meaning: 'on a deployment: the kind of item refused (`tool`)',
+      },
+      {
+        key: 'id',
+        meaning: 'on a deployment: the refused tool, as `id@version`',
+      },
+      {
+        key: 'fields',
+        meaning:
+          "on a deployment: the fields of the tool's definition that differ: the manifest's top-level fields, and `modulePath` for where its code lives in the pack",
       },
     ],
   },
@@ -691,7 +724,7 @@ export const ERROR_ENTRIES = {
   },
   'environment-takes-promotions': {
     description:
-      "The project you named (or the Default project, when you named none) is a later environment of an environment order, and a later environment takes builds only by promotion from the one before it. Deploy into the order's first environment and promote the build from there. A publish through the API into a later environment is refused the same way, and so is an edited version of an agent that names one: new versions are made in the first environment. Nothing is written.",
+      "The project you named (or the default project, when you named none) is a later environment of an environment order, and a later environment takes builds only by promotion from the one before it. Deploy into the order's first environment and promote the build from there. A publish through the API into a later environment is refused the same way, and so is an edited version of an agent that names one: new versions are made in the first environment. A tool's pin for a later environment is refused too: a tool's pin acts when an agent or flow version is made, which is in the first environment, so pin the tool there. Nothing is written.",
     details: [
       {
         key: 'firstProjectId',
@@ -753,14 +786,24 @@ export const ERROR_ENTRIES = {
   },
   'promotions-unsupported': {
     description:
-      "This runtime can't promote deployments: it has nowhere to write a promotion. The promotion check still answers. Nothing is written.",
+      "This runtime can't promote deployments: it has nowhere to write a promotion. The promotion check still answers. Nothing is written. From a deployment promotion with `pin` on a runtime that can't pin versions, the build has already moved and nothing is pinned in the target: promote without `pin` there.",
     details: [],
     seeAlso: ['POST /v1/deployments/{deploymentId}/promotions'],
   },
-  'live-scope-spans-environments': {
+  'pin-scope-spans-environments': {
     description:
-      "An agent with a project in an environment order is made live one project at a time, whether one project serves it or several. A live change for the whole tenant or an organization would reach every environment of the order at once, so it's refused. Name a project in the change's scope, or a segment of it. To take a build from one environment to the next and make it live there, promote it (`kindgi promote --make-live`). Nothing is changed.",
+      "An agent, flow or tool with a project in an environment order is pinned one project at a time: a pin for the whole workspace or an organization would act in every environment of the order at once, so it's refused. Pin an agent or a flow in each environment's project (or a segment of it), and a tool in the order's first environment, where agent and flow versions are made. To take a build from one environment to the next and pin it there, promote it (`kindgi promote --pin`). Nothing is changed.",
     details: [],
+  },
+  'tool-not-pinnable': {
+    description:
+      "The tool follows its server (a tool an MCP endpoint's catalog lists: its metadata has the catalog's `kindgi.mcp` key) or the runtime (a tool the runtime ships), so a pin couldn't keep it still. Reference it with a version range instead.",
+    details: [
+      {
+        key: 'toolId',
+        meaning: 'the tool',
+      },
+    ],
   },
   'guardrail-config-invalid': {
     description:
@@ -890,7 +933,7 @@ export const ERROR_ENTRIES = {
   },
   'guardrail-violation': {
     description:
-      "A blocking guardrail stopped the agent's turn, or a halting guardrail's check couldn't run. The run fails; the violations say which guardrails fired.",
+      "A blocking guardrail stopped the agent's turn, a halting guardrail's check couldn't run, or a `retry` guardrail's attempts ran out: at the final answer it sends each answer it fails back to the model for a new one, and in the agent loop it refuses a call, withholds a result or sends a reply back, until it has failed `retry.maxAttempts` answers or replies. The run fails; the violations say which guardrails fired, and `point` says where in the turn.",
     details: [
       {
         key: 'violations',
@@ -899,6 +942,20 @@ export const ERROR_ENTRIES = {
       {
         key: 'evaluationErrors',
         meaning: "guardrails whose check couldn't run (missing check, bad config)",
+      },
+      {
+        key: 'attempts',
+        meaning:
+          "the attempts the turn had when a `retry` guardrail's ran out, the first one included: its answers at the final answer, or in the agent loop its replies the guardrail sent back or refused or withheld a call of; absent when a `halt` guardrail stopped it",
+      },
+      {
+        key: 'point',
+        meaning:
+          'where in the turn the guardrails stopped it: `before-tool`, `after-tool` or `model-step`; absent at the final answer',
+      },
+      {
+        key: 'callId',
+        meaning: "at `before-tool` and `after-tool`: the model's id for the call",
       },
       {
         key: 'runId',
@@ -929,7 +986,8 @@ export const ERROR_ENTRIES = {
       },
       {
         key: 'limit',
-        meaning: "the agent's cap",
+        meaning:
+          "the cap reached: the agent's own, or, for steps, 32 when its `maxSteps` is higher, since a turn makes at most 32 model calls",
       },
       {
         key: 'observed',
@@ -961,7 +1019,7 @@ export const ERROR_ENTRIES = {
   },
   'model-invocation-failed': {
     description:
-      "The model provider call failed, for example it refused the key or was rate limited. The message carries the provider's own words.",
+      "The model provider call failed, for example it refused the key or was rate limited, or the model's reply can't be used (for example, two of its tool calls share an id). When the call failed, the message carries the provider's own words.",
     details: [
       {
         key: 'runId',
@@ -979,7 +1037,7 @@ export const ERROR_ENTRIES = {
       },
       {
         key: 'tenantId',
-        meaning: 'the tenant whose policy applied, when one did (inside `cause`)',
+        meaning: 'the workspace whose policy applied, when one did (inside `cause`)',
       },
     ],
     seeAlso: ['#capability-routing-failed', 'guides/agents/choose-a-model'],
@@ -1006,6 +1064,25 @@ export const ERROR_ENTRIES = {
       },
     ],
     seeAlso: ['guides/agents/agent-and-tool-versions'],
+  },
+  'block-unresolvable': {
+    description:
+      "A data block the agent uses (its prompt, settings or model settings) can't be loaded: no published version matches its version range, the pinned version is gone, it's the other kind of block, or the runtime serves no blocks. Under `kindgi dev`, blocks come only from the pack's files: add the block under the pack's blocks folder, at a version the range takes.",
+    details: [
+      {
+        key: 'blockId',
+        meaning: 'the block',
+      },
+      {
+        key: 'requestedRange',
+        meaning: 'the version range or pin the agent asked for',
+      },
+      {
+        key: 'runId',
+        meaning: 'the run that failed',
+      },
+    ],
+    seeAlso: ['guides/improve/change-a-prompt-or-setting'],
   },
   'tool-invocation-failed': {
     description:
@@ -1036,7 +1113,7 @@ export const ERROR_ENTRIES = {
   },
   'capability-routing-failed': {
     description:
-      "No model provider could take the agent's call: the agent declares no capabilities, or no provider meets them under your policy, or the pinned route is no longer allowed, or a provider registered for the tenant can't be set up on this runtime (the message says why; `GET /v1/providers/{providerId}/check` gives the adapter's words).",
+      "No model provider could take the agent's call: the agent declares no capabilities, or no provider meets them under your policy, or the pinned route is no longer allowed, or a provider registered for the workspace can't be set up on this runtime (the message says why; `GET /v1/providers/{providerId}/check` gives the adapter's words).",
     details: [
       {
         key: 'runId',
@@ -1051,7 +1128,7 @@ export const ERROR_ENTRIES = {
   },
   'flow-unbound': {
     description:
-      "The flow can't start or resume because a node has nothing to run it: a step names a tool the tenant doesn't have, an agent step can't bind, or a node kind isn't runnable.",
+      "The flow can't start or resume because a node has nothing to run it: a step names a tool the workspace doesn't have, an agent step can't bind, or a node kind isn't runnable.",
     details: [
       {
         key: 'nodeIds',
@@ -1072,7 +1149,54 @@ export const ERROR_ENTRIES = {
   },
   'run-resume-not-supported': {
     description:
-      "Resuming a run at a waitpoint through `POST /v1/runs/{runId}/resume` isn't available. A run waiting for an approval continues when a reviewer decides it.",
+      "Resuming a run at this waitpoint through `POST /v1/runs/{runId}/resume` isn't available. Only a run paused until another system answers (a `pause:` waitpoint) resumes there, on a server that pauses runs. A run waiting for an approval continues when a reviewer decides it.",
+    details: [],
+  },
+  'wait-token-not-found': {
+    description:
+      "No open wait matches: the link's token is unknown (a wrong or mistyped link answers the same), or the run doesn't wait at the `waitpointId` you named. A run's open waits are in `waitingFor.tokens` on `GET /v1/runs/{runId}`.",
+    details: [],
+  },
+  'wait-token-closed': {
+    description:
+      'The wait is over, so it takes no other answer: it already took a different answer, its time passed, its run was cancelled, or its tool call answered without waiting or was retried and waits on a new link. Sending the answer it took again is accepted, not refused.',
+    details: [
+      {
+        key: 'state',
+        meaning:
+          'why the wait is over: `answered` or `completed` (it took a different answer), `timed-out`, `cancelled` or `unused`',
+      },
+    ],
+  },
+  'tool-file-token-not-found': {
+    description:
+      "No tool call's files match the bearer of a request to `/v1/tool-files`: there's no token, the token is unknown, its secret is wrong, or its call may not do what was asked (a tool that only stores reading a file, or one that only reads storing one). The pack service's runner sends the token a call carries; a handler never sees it. Also the answer of a runtime that stores no files.",
+    details: [],
+  },
+  'tool-file-token-closed': {
+    description:
+      "The tool call's files are closed, so the call stores and reads no more: the call has answered, its time has passed, or its run has ended.",
+    details: [],
+  },
+  'tool-files-busy': {
+    description:
+      "The runtime's memory for files had no room for the file's bytes in time, so nothing was stored or read. Send the request again after the `Retry-After` header. The pack service's runner fails the tool's call with it, as it fails any 5xx.",
+    details: [],
+    seeAlso: ['POST /v1/tool-files'],
+  },
+  'wait-token-output-invalid': {
+    description:
+      "The answer doesn't fit the output schema of the tool that waits for it. Nothing is taken and the wait stays open: fix the answer and send it again before the wait times out.",
+    details: [
+      {
+        key: 'issues',
+        meaning: 'list of problems, each with a path to the offending field and a message',
+      },
+    ],
+  },
+  'unsupported-media-type': {
+    description:
+      "The body isn't JSON where the route takes JSON alone: an answer to a wait (`POST /v1/wait-tokens/{token}/complete`) is sent with `Content-Type: application/json`, or with no body at all.",
     details: [],
   },
   'semantic-unavailable': {
@@ -1087,22 +1211,22 @@ export const ERROR_ENTRIES = {
   },
   'rate-limit-exceeded': {
     description:
-      "You sent too many requests, or a tenant reached one of its limits: a webhook trigger got more deliveries than its per-minute limit, a client sent too many refused webhook requests, too many sign-in lookups came from one source, or the tenant reached its limit on API requests or webhook deliveries a minute, or on runs waiting to start. A tenant's API requests to `/v1` and `/s3` count together; on `/s3`, its limit answers as S3 does, with `503 SlowDown` and `Retry-After`, not with this code. On a server with budgets kept per tenant (Kindgi Cloud), it's also the answer when the tenant's schemas took their budget compiling, or its instructions templates rendering, in the last 60 seconds; an agent's turn refused this way fails its run with this code. A deploy is refused with it too when the tenant's image reads unpacked as much as they may in an hour. Retry after the `Retry-After` header; a refusal by the limit on runs waiting to start has none: retry once some have started.",
+      "You sent too many requests, or a workspace reached one of its limits: a webhook trigger got more deliveries than its per-minute limit, a client sent too many refused webhook requests, too many sign-in lookups came from one source, a client sent wait tokens' links more than 600 requests in a minute, or the workspace reached its limit on API requests or webhook deliveries a minute, or on runs waiting to start. A workspace's API requests to `/v1` and `/s3` count together; on `/s3`, its limit answers as S3 does, with `503 SlowDown` and `Retry-After`, not with this code. On a server with budgets kept per workspace (Kindgi Cloud), it's also the answer when the workspace's schemas took their budget compiling, or its instructions templates rendering, in the last 60 seconds; an agent's turn refused this way fails its run with this code. A deploy is refused with it too when the workspace's image reads unpacked as much as they may in an hour. Retry after the `Retry-After` header; a refusal by the limit on runs waiting to start has none: retry once some have started.",
     details: [
       {
         key: 'limit',
         meaning:
-          "the tenant's limit that was reached: `api-requests`, `webhook-receives`, `runs-pending`, a budget, `schema-compile-time` or `template-render-time`, or `tenant-unpack-hour`, its image reads in the last hour. Absent when the limit isn't the tenant's",
+          "the workspace's limit that was reached: `api-requests`, `webhook-receives`, `runs-pending`, a budget, `schema-compile-time` or `template-render-time`, or `tenant-unpack-hour`, its image reads in the last hour. Absent when the limit isn't the workspace's",
       },
       {
         key: 'runsPending',
         meaning:
-          "the tenant's limit on runs waiting to start, on a `runs-pending` refusal; absent when the server doesn't name it",
+          "the workspace's limit on runs waiting to start, on a `runs-pending` refusal; absent when the server doesn't name it",
       },
       {
         key: 'budgetMs',
         meaning:
-          "for a budget, the milliseconds the tenant's work of that kind may take in 60 seconds",
+          "for a budget, the milliseconds the workspace's work of that kind may take in 60 seconds",
       },
       {
         key: 'runId',
@@ -1112,18 +1236,23 @@ export const ERROR_ENTRIES = {
   },
   'approvals-pending-limit': {
     description:
-      "A gate asked for an approval while the tenant's approvals waiting for a decision were at its limit (set by whoever runs the server). Nothing waits for an approval nobody can see: the step fails, naming the limit. `POST /v1/runs` answers `429` when the call waits for its run; with `options.wait: false` it answers `202`, and the run fails with this code. A promotion whose gate wants an approval is refused with it. Once some of the approvals waiting are decided, try again.",
+      "A gate asked for an approval while the workspace's approvals waiting for a decision were at its limit (set by whoever runs the server). Nothing waits for an approval nobody can see: the step fails, naming the limit. `POST /v1/runs` answers `429` when the call waits for its run; with `options.wait: false` it answers `202`, and the run fails with this code. A request to pin a version whose release gate wants an approval is refused with it. Once some of the approvals waiting are decided, try again.",
     details: [
       {
         key: 'approvalsPending',
         meaning:
-          "the tenant's limit on approvals waiting for a decision; absent when the server doesn't name it",
+          "the workspace's limit on approvals waiting for a decision; absent when the server doesn't name it",
+      },
+      {
+        key: 'pinned',
+        meaning:
+          "from a deployment promotion with `pin`, when some were: the carried agents pinned before this one, in the answer's `pinned` shape",
       },
     ],
   },
   'invite-capped': {
     description:
-      "Too many invitations sent: to this person, from the tenant, or from the whole deployment. The limits are the server's. Nothing changed and nothing was sent. Try again after the `Retry-After` header, or, if their invitation hasn't expired, tell them to sign in.",
+      "Too many invitations sent: to this person, from the workspace, or from the whole deployment. The limits are the server's. Nothing changed and nothing was sent. Try again after the `Retry-After` header, or, if their invitation hasn't expired, tell them to sign in.",
     details: [
       {
         key: 'userId',
@@ -1133,7 +1262,7 @@ export const ERROR_ENTRIES = {
   },
   'turn-memory-limit-reached': {
     description:
-      "The runtime's agent turns hold more memory than its limit leaves this turn: the tenant's share (`KINDGI_TURN_MEMORY_PER_TENANT_MIB`) or the runtime's whole (`KINDGI_TURN_MEMORY_MIB`). The turn's run fails, and every tool call it finished is in the conversation, so a new turn there doesn't call it again. Retry later, or use a smaller conversation.",
+      "The runtime's agent turns hold more memory than its limit leaves this turn: the workspace's share (`KINDGI_TURN_MEMORY_PER_TENANT_MIB`) or the runtime's whole (`KINDGI_TURN_MEMORY_MIB`). The turn's run fails, and every tool call it finished is in the conversation, so a new turn there doesn't call it again. Retry later, or use a smaller conversation.",
     details: [
       {
         key: 'limit',
@@ -1264,7 +1393,7 @@ export const ERROR_ENTRIES = {
   'invalid-transition': {
     description: "The API doesn't send this code.",
     details: [],
-    seeAlso: ['guides/evals/propose-a-change'],
+    seeAlso: ['guides/improve/suggest-a-change'],
   },
   'audit-bundle-not-found': {
     description:
@@ -1302,7 +1431,7 @@ export const ERROR_ENTRIES = {
   'observation-not-found': {
     description: "The API doesn't send this code.",
     details: [],
-    seeAlso: ['guides/evals/improve-an-agent'],
+    seeAlso: ['guides/improve/improve-an-agent'],
   },
   'provenance-not-found': {
     description:
@@ -1311,6 +1440,16 @@ export const ERROR_ENTRIES = {
       {
         key: 'runId',
         meaning: 'the run id that was looked up',
+      },
+      {
+        key: 'recordState',
+        meaning:
+          "why the run has no record yet: `being-written` while it's being written, after a flow run ends; `failed` when writing it failed. Absent when the run has no record at all. More states may come",
+      },
+      {
+        key: 'reason',
+        meaning:
+          "with `recordState: failed`, why: `read-failed` (its journal couldn't be read), `build-failed` (the record couldn't be built from it) or `write-failed` (it couldn't be saved). More codes may come",
       },
     ],
     seeAlso: ['GET /v1/provenance/{runId}'],
@@ -1323,7 +1462,7 @@ export const ERROR_ENTRIES = {
   },
   'signing-key-not-found': {
     description:
-      "The signing key id doesn't exist among the tenant's trusted keys, or a signed export asked for a signing key the runtime doesn't sign with. Omit the key id to use the active key.",
+      "The signing key id doesn't exist among the workspace's trusted keys, or a signed export asked for a signing key the runtime doesn't sign with. Omit the key id to use the active key.",
     details: [
       {
         key: 'signingKeyId',
@@ -1358,76 +1497,147 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['guides/observability/export-signed-evidence'],
   },
-  'proposal-not-found': {
+  'suggested-change-not-found': {
     description:
-      "The improvement proposal doesn't exist in the tenant, or your key can't see its agent.",
+      "The suggested change doesn't exist in the workspace, or your key can't see its agent.",
     details: [
       {
-        key: 'proposalId',
-        meaning: 'the proposal id that was looked up',
+        key: 'suggestedChangeId',
+        meaning: 'the suggested change id that was looked up',
       },
     ],
-    seeAlso: ['guides/evals/propose-a-change'],
+    seeAlso: ['guides/improve/suggest-a-change'],
   },
-  'proposal-invalid-state-transition': {
+  'suggested-change-invalid-state-transition': {
     description:
-      "The proposal's status doesn't allow this action, or it changed while the request ran. Read the proposal again and retry if it still applies.",
+      "The suggested change's status doesn't allow this action, or it changed while the request ran. Read the suggested change again and retry if it still applies.",
     details: [
       {
-        key: 'proposalId',
-        meaning: 'the proposal id',
+        key: 'suggestedChangeId',
+        meaning: 'the suggested change id',
       },
       {
         key: 'status',
-        meaning: 'the proposal status that refused the action; absent when it changed mid-request',
+        meaning:
+          'the suggested change status that refused the action; absent when it changed mid-request',
       },
     ],
   },
-  'proposal-needs-pin': {
+  'suggested-change-not-for-a-project': {
     description:
-      'The agent has no live version for the whole tenant, so a new version would serve every scope nothing is pinned for. Promote its current version tenant-wide, then retry.',
+      "The suggested change was made for a workspace, an org or a segment, before suggested changes were for one project, so it can't be checked, pinned or added as Latest. Withdraw it, and suggest the change for a project.",
+    details: [
+      {
+        key: 'suggestedChangeId',
+        meaning: 'the suggested change id',
+      },
+    ],
+  },
+  'suggested-change-check-unsupported': {
+    description:
+      "This runtime doesn't freeze a project's test set, so it can't make or check a suggested change.",
     details: [],
+  },
+  'suggested-change-nothing-to-check': {
+    description:
+      "The project's test set has no cases for the agent, so there's nothing to check a change on. Correct some of the agent's conversations in the project first.",
+    details: [
+      {
+        key: 'projectId',
+        meaning: 'the project',
+      },
+    ],
+  },
+  'suggested-change-project-pinned': {
+    description:
+      "The suggested change's project runs a pin of the agent, not its Latest, so its version isn't added as Latest there. Pin it instead.",
+    details: [
+      {
+        key: 'suggestedChangeId',
+        meaning: 'the suggested change id',
+      },
+    ],
+  },
+  'suggested-change-out-of-date': {
+    description:
+      "The suggested change's project now runs another version of the agent than the one it's built on, so it isn't pinned or added as Latest. When `rebuilding` is true, it's being rebuilt on that version and checked again: try again once its check is ready. Otherwise that version doesn't use its block, or already has the change: withdraw it.",
+    details: [
+      {
+        key: 'suggestedChangeId',
+        meaning: 'the suggested change id',
+      },
+      {
+        key: 'builtOn',
+        meaning: "the version it's built on",
+      },
+      {
+        key: 'runs',
+        meaning: 'the version its project runs now',
+      },
+      {
+        key: 'rebuilding',
+        meaning: "whether it's being rebuilt on `runs`",
+      },
+    ],
   },
   'improve-unsupported': {
-    description: "This runtime doesn't run improvement passes.",
+    description: "This runtime doesn't run Improve.",
     details: [],
   },
-  'improvement-pass-not-found': {
-    description: "The improvement pass doesn't exist, or your key can't read its agent.",
+  'improve-run-not-found': {
+    description: "The Improve run doesn't exist, or your key can't read its agent.",
     details: [
       {
-        key: 'passId',
-        meaning: 'the pass id that was looked up',
+        key: 'improveRunId',
+        meaning: 'the Improve run id that was looked up',
       },
     ],
-    seeAlso: ['POST /v1/improvement-passes/{passId}/cancel'],
+    seeAlso: ['POST /v1/improve-runs/{improveRunId}/cancel'],
   },
-  'improvement-pass-finished': {
-    description: 'The improvement pass has already ended, so there is nothing to cancel.',
+  'improve-run-finished': {
+    description: 'The Improve run has already ended, so there is nothing to cancel.',
     details: [
       {
-        key: 'passId',
-        meaning: 'the pass id',
+        key: 'improveRunId',
+        meaning: 'the Improve run id',
       },
       {
         key: 'status',
-        meaning: 'the status the pass ended with',
+        meaning: 'the status the Improve run ended with',
       },
     ],
+  },
+  'improve-not-ready': {
+    description:
+      "Something the Improve run needs is missing, so it didn't start. `details.items` lists every missing item at once, as `POST /v1/improve-runs/check` does, each with where it's fixed and how. Fix them, check again, then start it.",
+    details: [
+      {
+        key: 'items',
+        meaning:
+          "the missing readiness items, each with its `key` (`wording`, `settings`, `test-cases`, `permission`, `one-at-a-time` or `project`) and its `fix`: `where` (`repo`, in the agent's code, then a deploy; `kindgi`, in Kindgi) and `text`",
+      },
+    ],
+    seeAlso: ['guides/improve/improve-an-agent'],
+  },
+  'improve-run-running': {
+    description:
+      'The agent already has a running Improve run in this project: one runs at a time. Wait for it to end, or cancel it, then start again.',
+    details: [
+      {
+        key: 'improveRunId',
+        meaning: 'the running Improve run',
+      },
+    ],
+    seeAlso: ['POST /v1/improve-runs/{improveRunId}/cancel'],
   },
   'version-already-exists': {
     description: "The API doesn't send this code.",
     details: [],
-    seeAlso: ['guides/evals/propose-a-change'],
-  },
-  'supervisor-header-missing': {
-    description: "The API doesn't send this code.",
-    details: [],
-    seeAlso: ['concepts/architecture'],
+    seeAlso: ['guides/improve/suggest-a-change'],
   },
   'blob-not-found': {
     description:
-      "No artifact with that id exists in the tenant, or it's in a project your key can't read.",
+      "No artifact with that id exists in the workspace, or it's in a project your key can't read.",
     details: [
       {
         key: 'blobId',
@@ -1472,7 +1682,7 @@ export const ERROR_ENTRIES = {
     seeAlso: ['guides/runs/keep-files-with-a-run'],
   },
   'capability-not-found': {
-    description: 'No capability is registered with that id in the tenant.',
+    description: 'No capability is registered with that id in the workspace.',
     details: [
       {
         key: 'capabilityId',
@@ -1482,7 +1692,7 @@ export const ERROR_ENTRIES = {
     seeAlso: ['GET /v1/capabilities/{capabilityId}'],
   },
   'provider-not-found': {
-    description: 'No model provider is registered with that id in the tenant.',
+    description: 'No model provider is registered with that id in the workspace.',
     details: [
       {
         key: 'providerId',
@@ -1492,7 +1702,7 @@ export const ERROR_ENTRIES = {
     seeAlso: ['GET /v1/providers/{providerId}', 'GET /v1/providers/{providerId}/check'],
   },
   'provider-already-registered': {
-    description: 'A provider with that id is already registered in the tenant.',
+    description: 'A provider with that id is already registered in the workspace.',
     details: [
       {
         key: 'providerId',
@@ -1503,11 +1713,12 @@ export const ERROR_ENTRIES = {
   },
   'invalid-provider': {
     description:
-      "The provider's metadata is invalid, for example an empty id, an empty region or no models. The message says which.",
+      "The provider's metadata is invalid, for example an empty id, an empty region, no models, or a field the metadata or a model doesn't take (a misspelled one). The message says which.",
     details: [
       {
         key: 'reason',
-        meaning: 'short code for the problem, such as empty-id or empty-region',
+        meaning:
+          'short code for the problem, such as empty-id, empty-region or unknown-model-field',
       },
       {
         key: 'providerId',
@@ -1527,7 +1738,7 @@ export const ERROR_ENTRIES = {
     ],
   },
   'cost-record-not-found': {
-    description: 'No cost record exists with that id in the tenant.',
+    description: 'No cost record exists with that id in the workspace.',
     details: [
       {
         key: 'recordId',
@@ -1537,7 +1748,7 @@ export const ERROR_ENTRIES = {
     seeAlso: ['GET /v1/cost/records/{recordId}'],
   },
   'adapter-not-found': {
-    description: 'No adapter is registered with that id in the tenant.',
+    description: 'No adapter is registered with that id in the workspace.',
     details: [
       {
         key: 'adapterId',
@@ -1547,7 +1758,7 @@ export const ERROR_ENTRIES = {
     seeAlso: ['GET /v1/adapters/{adapterId}'],
   },
   'policy-not-found': {
-    description: 'No policy exists with that id (or that version) in the tenant.',
+    description: 'No policy exists with that id (or that version) in the workspace.',
     details: [
       {
         key: 'policyId',
@@ -1663,47 +1874,68 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'runs-in-unsupported': {
+    description:
+      "This runtime doesn't read the agents' pins and Latest, so it can't say where a block's versions run (`GET /v1/blocks/{blockId}/runs-in`).",
+    details: [],
+  },
   'block-already-registered': {
     description:
-      'That block version is already published; versions never change, so publish a new version.',
+      "That block version is already published; versions never change, so publish a new version. On a deployment, the runtime holds a version of the pack's block with other content, or unregistered: give the block a new version in the pack, or reinstate the unregistered one (`kindgi blocks reinstate`). The message names each one.",
     details: [
       {
         key: 'blockId',
-        meaning: 'the block id',
+        meaning: 'the block id (single publish)',
       },
       {
         key: 'version',
-        meaning: 'the version that exists',
+        meaning: 'the version that exists (single publish)',
+      },
+      {
+        key: 'primitive',
+        meaning: 'on a deployment: the kind of item refused (`block`)',
+      },
+      {
+        key: 'id',
+        meaning: 'on a deployment: the refused block, as `id@version`',
       },
     ],
   },
   'block-project-mismatch': {
     description:
-      'The block belongs to another project. Publish its versions in the project that owns it.',
+      'The block belongs to another project. Publish its versions, or deploy the pack that brings it, in the project that owns it.',
     details: [
       {
         key: 'blockId',
-        meaning: 'the block id',
+        meaning: 'the block id (single publish)',
+      },
+      {
+        key: 'primitive',
+        meaning: 'on a deployment: the kind of item refused (`block`)',
+      },
+      {
+        key: 'id',
+        meaning: 'on a deployment: the refused block, as `id@version`',
       },
     ],
   },
-  'eval-suite-not-found': {
-    description: 'No eval suite is registered with that id.',
+  'test-set-not-found': {
+    description: 'No test set is registered with that id.',
     details: [
       {
-        key: 'suiteId',
-        meaning: 'the suite id that was looked up',
+        key: 'testSetId',
+        meaning: 'the test set id that was looked up',
       },
     ],
-    seeAlso: ['GET /v1/eval-suites/{suiteId}'],
+    seeAlso: ['GET /v1/test-sets/{testSetId}'],
   },
-  'eval-suite-already-registered': {
+  'test-set-already-registered': {
     description:
-      'That eval suite id and version are already registered; versions never change, so publish a new version.',
+      'That test set id and version are already registered; versions never change, so publish a new version.',
     details: [
       {
-        key: 'suiteId',
-        meaning: 'the suite id',
+        key: 'testSetId',
+        meaning: 'the test set id',
       },
       {
         key: 'version',
@@ -1711,29 +1943,29 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
-  'eval-suite-project-mismatch': {
+  'test-set-project-mismatch': {
     description:
-      'The eval suite belongs to another project and suites never move. Publish or build its versions in the project that owns it.',
+      'The test set belongs to another project and test sets never move. Publish or build its versions in the project that owns it.',
     details: [
       {
-        key: 'suiteId',
-        meaning: 'the suite id',
+        key: 'testSetId',
+        meaning: 'the test set id',
       },
     ],
   },
-  'eval-run-not-found': {
-    description: 'No eval run exists with that id in the tenant.',
+  'test-run-not-found': {
+    description: 'No test run exists with that id in the workspace.',
     details: [
       {
         key: 'runId',
         meaning: 'the run id that was looked up',
       },
     ],
-    seeAlso: ['guides/evals/compare-an-agent-version'],
+    seeAlso: ['guides/improve/compare-an-agent-version'],
   },
-  'eval-run-not-rescorable': {
+  'test-run-not-rescorable': {
     description:
-      "Only a completed comparison of a test set can be rescored; this eval run is of another kind or hasn't completed.",
+      "Only a completed run on the test cases can be rescored; this test run is of another kind or hasn't completed.",
     details: [
       {
         key: 'runId',
@@ -1741,41 +1973,50 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
-  'judgment-not-found': {
+  'correction-not-found': {
     description:
-      "No judgment exists with that id, or it's in a project your key can't read. Unregistering also needs it to be live.",
+      "No correction exists with that id, or it's in a project your key can't read. Removing one also needs it to be live.",
     details: [],
-    seeAlso: ['guides/evals/judge-a-runs-output'],
+    seeAlso: ['guides/improve/correct-a-runs-output'],
   },
-  'judge-class-not-found': {
-    description: 'No live judge class exists with that id.',
+  'correction-status-change-not-allowed': {
+    description:
+      "The change isn't allowed from the correction's status: re-sorting only from `open`, `being-fixed` or `with-owner`; `being-fixed` only from `open` or `with-owner`; `open` only from `being-fixed` or `wont-fix`; `wont-fix` from anything but `removed`. `fixed` is set only by a pin or a deploy.",
+    details: [
+      { key: 'from', meaning: "the correction's status" },
+      { key: 'to', meaning: 'the status the change would have set' },
+    ],
+  },
+  'corrector-group-not-found': {
+    description: 'No live corrector group exists with that id.',
     details: [],
   },
-  'judging-rule-not-found': {
-    description: 'The project has no judging rule with that id.',
+  'queue-rule-not-found': {
+    description: 'The project has no queue rule with that id.',
     details: [],
   },
-  'judging-item-not-found': {
-    description: "The run isn't in the project's judging queue.",
+  'expert-queue-item-not-found': {
+    description: "The run isn't in the project's To review list.",
     details: [],
   },
-  'judging-item-not-open': {
+  'expert-queue-item-not-open': {
     description:
       "The queue item isn't in the state this action needs: dismiss needs it open, and reopen needs it dismissed.",
     details: [],
   },
-  'judge-class-name-taken': {
-    description: 'A judge class with that name already exists in this scope. Pick another name.',
+  'corrector-group-name-taken': {
+    description:
+      'A corrector group with that name already exists in this scope. Pick another name.',
     details: [],
   },
-  'judge-class-not-applicable': {
+  'corrector-group-not-applicable': {
     description:
-      "The judge class you named doesn't exist, or doesn't apply to this run's project or agent.",
+      "The corrector group you named doesn't exist, or doesn't apply to this run's project or agent.",
     details: [],
   },
-  'judge-class-not-allowed': {
+  'corrector-group-not-allowed': {
     description:
-      "The judge class limits who may assert it, and your key or role isn't one of them, so you can't record a judgment as that class.",
+      "The corrector group limits who may assert it, and your key or role isn't one of them, so you can't record a correction as that class.",
     details: [
       {
         key: 'action',
@@ -1796,51 +2037,103 @@ export const ERROR_ENTRIES = {
       "The agent has no active version with that number: it was never registered or has since been unregistered. Pick a version from the agent's version list.",
     details: [],
   },
-  'promotion-not-found': {
-    description: 'No promotion with that id exists for this agent.',
+  'pin-not-found': {
+    description: "No entry with that id exists in this agent's pin history.",
     details: [],
-    seeAlso: ['guides/evals/release-an-agent-version'],
-  },
-  'nothing-to-roll-back': {
-    description:
-      "The scope's live version has no earlier version to go back to. Unpin the scope to fall back to the scope above, or name a version to roll back to.",
-    details: [],
+    seeAlso: ['guides/improve/release-an-agent-version'],
   },
   'not-pinned': {
     description:
-      "The scope has no live version of its own, so there's nothing to roll back or unpin. Pin a version for the scope first.",
+      "The scope has no pin of its own (for an agent, no pinned version of its own), so there's nothing to unpin. Pin a version for the scope first.",
     details: [],
+  },
+  'nothing-runs-in-scope': {
+    description:
+      "No version of the agent runs in the scope yet: no pin covers it, and the agent has no Latest there (a tenant or org scope takes Latest over every project), so there's nothing to measure the version against. Nothing is promoted. Deploy or publish a version into the project first; into a later environment of an order, which takes builds only by promotion, promote a build that ships a version of the agent. From a deployment promotion with `pin`, the move has already committed: the carried agents pinned before this one stay pinned (`details.pinned`), and this agent, the carried agents after it and the carried flows aren't pinned. The message names the agent. When the scope's project is suspended, the refusal is `project-suspended` instead.",
+    details: [
+      {
+        key: 'pinned',
+        meaning:
+          "from a deployment promotion with `pin`, when some were: the carried agents pinned before this one, in the answer's `pinned` shape",
+      },
+    ],
+    seeAlso: [
+      'POST /v1/agents/{agentId}/pinned/pin',
+      'POST /v1/agents/{agentId}/pinned/check',
+      'POST /v1/deployments/{deploymentId}/promotions',
+      'guides/improve/pinned-versions-reference',
+    ],
+  },
+  'pin-stops-latest': {
+    description:
+      "The pin would take a project that follows the agent's Latest now off it: the project would run the pinned version from then on, and no longer take each new Latest. A project or segment pin there, or a workspace or org pin over it, counts, whether or not the version changes. Nothing is pinned. Ask again with `stopFollowingLatest: true` to pin anyway; for a suggested change, add it as the project's Latest instead. A deployment promotion with `pin` is the ask itself, so it's never refused this way.",
+    details: [
+      {
+        key: 'projects',
+        meaning:
+          'each project the pin would take off Latest, `{ projectId, version }`, with the version it runs now',
+      },
+      {
+        key: 'suggestedChangeId',
+        meaning: "for a suggested change's pin: the suggested change id",
+      },
+    ],
+    seeAlso: [
+      'POST /v1/agents/{agentId}/pinned/pin',
+      'POST /v1/suggested-changes/{suggestedChangeId}/pin',
+      'guides/improve/pinned-versions-reference',
+    ],
   },
   'gate-failed': {
     description:
-      'A gate policy refused the promotion because one or more of its checks failed. The refusal is recorded; read the failing checks and fix what they name.',
+      'A release gate refused pinning the version because one or more of its checks failed. The refusal is recorded; read the failing checks and fix what they name.',
     details: [
       {
-        key: 'promotionId',
-        meaning: 'the recorded refused promotion',
+        key: 'changeId',
+        meaning: 'the recorded refused pin request',
       },
       {
-        key: 'policy',
-        meaning: 'the gate policy that applied (id and version), or null',
+        key: 'releaseGate',
+        meaning: 'the release gate that applied (id and version), or null',
       },
       {
         key: 'checks',
-        meaning: 'every check the gate ran, with whether each passed',
+        meaning: 'every check the release gate ran, with whether each passed',
       },
       {
-        key: 'proposalId',
-        meaning: 'the proposal, when the request came through a proposal',
+        key: 'passing',
+        meaning:
+          "how many of the test run's cases pass, when the release gate has `cases.minPassing`",
+      },
+      {
+        key: 'needs',
+        meaning: 'how many cases the release gate needs to pass (`cases.minPassing`)',
+      },
+      {
+        key: 'newlyFailing',
+        meaning:
+          'the cases that passed before and fail now, by id, when the release gate has `cases.noNewFailures`',
+      },
+      {
+        key: 'suggestedChangeId',
+        meaning: 'the suggested change, when the request came through a suggested change',
       },
     ],
   },
-  'promotion-superseded': {
+  'pin-superseded': {
     description:
-      "The scope's live version changed while the gate was running, so the check no longer applies. Check the promotion again against the new live version.",
-    details: [],
+      "The scope's pinned version changed while the release gate was being checked, so the check no longer applies. Check the pin again against the new pinned version. Under `kindgi dev`, a pin is also refused with it when the pack's files changed since the check or since the suggested change was made, or when a file was edited by hand at a version `kindgi dev` already keeps. The message names the file, or the agent or block that isn't in the pack anymore.",
+    details: [
+      {
+        key: 'pinned',
+        meaning:
+          "from a deployment promotion with `pin`, when some were: the carried agents pinned before this one, in the answer's `pinned` shape",
+      },
+    ],
   },
-  'promotion-gate-unsupported': {
+  'pin-gate-unsupported': {
     description:
-      "A gate policy applies to this promotion, and the deployment can't record a gated promotion, so the promotion is refused.",
+      "A release gate applies to this pin, and the deployment can't record a gated pin, so the pin is refused. From a deployment promotion with `pin`, the build has already moved and nothing is pinned in the target.",
     details: [],
   },
   'separate-approver-required': {
@@ -1854,54 +2147,71 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['guides/approvals/decide-an-approval'],
   },
-  'gate-policy-not-found': {
-    description: 'No gate policy with that id exists, or it has no version with that number.',
+  'named-approver-required': {
+    description:
+      "The approval is addressed to one person: the call it gates acts with that person's own connection, so only they decide it. You can read it, but not decide it.",
     details: [
       {
-        key: 'policyId',
-        meaning: 'the policy id that was looked up',
+        key: 'approvalId',
+        meaning: 'the approval only its approver decides',
       },
     ],
-    seeAlso: ['POST /v1/gate-policies'],
+    seeAlso: ['guides/approvals/decide-an-approval'],
   },
-  'gate-policy-already-registered': {
+  'release-gate-not-found': {
+    description: 'No release gate with that id exists, or it has no version with that number.',
+    details: [
+      {
+        key: 'releaseGateId',
+        meaning: 'the release gate id that was looked up',
+      },
+    ],
+    seeAlso: ['POST /v1/release-gates'],
+  },
+  'release-gate-already-registered': {
     description:
-      'The gate policy already has a version with that number. Publish with a new version number.',
+      'The release gate already has a version with that number. Publish with a new version number.',
     details: [],
   },
-  'gate-policy-scope-taken': {
+  'release-gate-scope-taken': {
     description:
-      'Another gate policy already gates this agent for the same scope. Publish a new version of that policy instead, or unregister it first.',
+      'Another release gate already gates this agent for the same scope. Publish a new version of that gate instead, or unregister it first.',
     details: [
       {
         key: 'heldBy',
-        meaning: 'id of the policy that holds the scope',
+        meaning: 'id of the release gate that holds the scope',
       },
     ],
   },
-  'gate-policy-scope-changed': {
+  'release-gate-scope-changed': {
     description:
-      "A new version of a gate policy can't change the agent or the scope the policy gates. Create a new policy for the other agent or scope.",
+      "A new version of a release gate can't change the agent or the scope it gates. Create a new release gate for the other agent or scope.",
     details: [],
   },
-  'gate-policy-scope-unpinned': {
+  'release-gate-scope-unpinned': {
     description:
-      'The scope has no live version of its own, so the gate policy would not take effect. Pin a version for the scope first.',
+      'The scope has no pinned version of its own, so the release gate would not take effect. Pin a version for the scope first.',
     details: [],
   },
-  'gate-policy-needs-pin': {
+  'release-gate-needs-pin': {
     description:
-      "The scope has a gate policy, and a gated scope keeps its own live version, so it can't be unpinned. Unregister the gate policy first, or roll back instead.",
+      "The scope has a release gate, and a gated scope keeps its own pinned version, so it can't be unpinned. Unregister the release gate first, or pin an earlier version instead.",
     details: [],
   },
-  'gate-policy-descendant-unpinned': {
+  'release-gate-descendant-unpinned': {
     description:
-      'The change would also move a narrower scope that a gate policy applies to and that has no live version of its own, bypassing its gate. Pin that scope at its current version first.',
-    details: [],
+      'The change would also move a narrower scope that a release gate applies to and that has no pinned version of its own, bypassing that gate. Pin that scope at its current version first.',
+    details: [
+      {
+        key: 'pinned',
+        meaning:
+          "from a deployment promotion with `pin`, when some were: the carried agents pinned before this one, in the answer's `pinned` shape",
+      },
+    ],
   },
   'principal-not-found': {
     description:
-      "The person or service account the key is for doesn't exist in this tenant or has been unregistered, or the request names none. Name an existing one with `for`.",
+      "The person or service account the key is for doesn't exist in this workspace or has been unregistered, or the request names none. Name an existing one with `for`.",
     details: [],
   },
   'role-exceeds-principal': {
@@ -1959,11 +2269,11 @@ export const ERROR_ENTRIES = {
   },
   'capability-not-mintable': {
     description:
-      "A tenant's key can't carry a system capability (`system:*`, or `kindgi:system` on a runtime serving many tenants): those are system keys' alone. Mint the key without them, or mint a system key with `POST /v1/system/keys`.",
+      "A workspace's key can't carry a system capability (`system:*`, or `kindgi:system` on a runtime serving many tenants): those are system keys' alone. Mint the key without them, or mint a system key with `POST /v1/system/keys`.",
     details: [
       {
         key: 'capabilities',
-        meaning: "the capabilities asked for that a tenant's key can't carry",
+        meaning: "the capabilities asked for that a workspace's key can't carry",
       },
       {
         key: 'action',
@@ -2019,7 +2329,7 @@ export const ERROR_ENTRIES = {
   },
   'system-scope-missing': {
     description:
-      "The system key doesn't hold the scope this request takes, which `scope` names: the route's own, or more for what the request asks (creating a tenant without `firstAdmin`, for one). Every `/v1/system/keys` route takes the full system capability, which a scoped key doesn't hold. A deployment's secret values (`secrets=values` on its pack env) take a key holding `system:pack-env` itself: `kindgi:system` doesn't stand in for it. On a runtime serving one tenant, a system key reaches no `/v1/system/*` route, and `scope` is `kindgi:system`: the system keys take the deployment's own token there.",
+      "The system key doesn't hold the scope this request takes, which `scope` names: the route's own, or more for what the request asks (creating a tenant without `firstAdmin`, for one). Every `/v1/system/keys` route takes the full system capability, which a scoped key doesn't hold. A deployment's secret values (`secrets=values` on its pack env) take a key holding `system:pack-env` itself: `kindgi:system` doesn't stand in for it. On a runtime serving one tenant, a system key reaches no `/v1/system/*` route, and `scope` is `kindgi:system`: the system keys take the deployment's own token there. With a pack service per deployment (`KINDGI_PACK_ROUTING=per-deployment`), a key holding `system:deployments` or `system:pack-env` reaches the routes a pack service orchestrator calls there, and no other.",
     details: [
       {
         key: 'scope',
@@ -2041,7 +2351,7 @@ export const ERROR_ENTRIES = {
   },
   'system-key-scope-not-served': {
     description:
-      "The runtime serves one tenant, where a system key holds `system:license` alone, and this key holds anything else, which `scopes` names: it was minted while the runtime served many tenants, say. It's refused on every route. Mint one holding `system:license` with the deployment's own token, and revoke this one.",
+      "The runtime serves one tenant, where a system key holds `system:license`, or with a pack service per deployment also `system:deployments` and `system:pack-env`, and this key holds anything else, which `scopes` names (`served` lists what it may hold): it was minted while the runtime served many tenants, say. It's refused on every route. Mint one holding what it needs of `served` with the deployment's own token, and revoke this one.",
     details: [
       {
         key: 'scopes',
@@ -2082,7 +2392,7 @@ export const ERROR_ENTRIES = {
   },
   'tenant-closing': {
     description:
-      "The tenant is closing. Its own keys and sessions can read and export it until it's deleted, but not change it: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers that proves its sender is refused the same way, and nothing is recorded for it. A schedule's or webhook trigger's fire whose run starts as the tenant starts closing is recorded `skipped`, with `tenant-closing` in its `detail`, and doesn't count toward a schedule's auto-pause. An eval run or an improvement pass going as it starts closing stops at its next case: it ends `cancelled`, with `tenant-closing` in its `cancelReason`. The system routes that change its settings, limits, image prefix, a suspension or a deployment's endpoint refuse a closing tenant; clearing its deployments' endpoints, which retires its pack services, still works. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
+      "The workspace is closing. Its own keys and sessions can read and export it until it's deleted, but not change it: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers that proves its sender is refused the same way, and nothing is recorded for it. So is an answer to one of its runs' waits through the wait token's link, and nothing is taken. A schedule's or webhook trigger's fire whose run starts as the workspace starts closing is recorded `skipped`, with `tenant-closing` in its `detail`, and doesn't count toward a schedule's auto-pause. A test run or an Improve run going as it starts closing stops at its next case: it ends `cancelled`, with `tenant-closing` in its `cancelReason`. The system routes that change its settings, limits, image prefix, a suspension or a deployment's endpoint refuse a closing tenant; clearing its deployments' endpoints, which retires its pack services, still works. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
     details: [
       {
         key: 'state',
@@ -2090,13 +2400,13 @@ export const ERROR_ENTRIES = {
       },
       {
         key: 'tenantId',
-        meaning: 'the tenant; from a system route, or from renaming one',
+        meaning: 'the workspace; from a system route, or from renaming one',
       },
     ],
   },
   'tenant-suspended': {
     description:
-      "The tenant is suspended. Its own keys and sessions can read and export it, but not change it until it's restored: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: tenant-suspended`, and nothing is recorded or kept for it. A sender that can redeliver by hand can resend it once the tenant is restored, and a restore is seen within 5 seconds. Its schedules don't fire while it's suspended, and nothing is caught up: at the restore, a schedule's or webhook trigger's fire whose run or pass hadn't started is recorded `skipped`, with `tenant-suspended` in its `detail`, and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. An eval run or an improvement pass going as it's suspended stops at its next case: it ends `cancelled`, with `tenant-suspended` in its `cancelReason`. A fire whose run was starting as the tenant was suspended is recorded `skipped` right away, with `tenant-suspended` in its `detail`. None of it counts toward a schedule's auto-pause. Setting a deployment's endpoint (`PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`) refuses a suspended tenant too. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
+      "The workspace is suspended. Its own keys and sessions can read and export it, but not change it until it's restored: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: tenant-suspended`, and nothing is recorded or kept for it. A sender that can redeliver by hand can resend it once the workspace is restored, and a restore is seen within 5 seconds. An answer to one of its runs' waits through the wait token's link is refused with this code, and nothing is taken: a suspension cancels the workspace's runs, paused ones included. Its schedules don't fire while it's suspended, and nothing is caught up: at the restore, a schedule's or webhook trigger's fire whose run or Improve run hadn't started is recorded `skipped`, with `tenant-suspended` in its `detail`, and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A test run or an Improve run going as it's suspended stops at its next case: it ends `cancelled`, with `tenant-suspended` in its `cancelReason`. A fire whose run was starting as the workspace was suspended is recorded `skipped` right away, with `tenant-suspended` in its `detail`. None of it counts toward a schedule's auto-pause. Setting a deployment's endpoint (`PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`) refuses a suspended tenant too. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
     details: [
       {
         key: 'state',
@@ -2182,7 +2492,7 @@ export const ERROR_ENTRIES = {
   },
   'tenant-slug-taken': {
     description:
-      'Another tenant has that slug, creating a tenant or renaming one. A purged tenant keeps its slug. Choose another.',
+      'Another workspace has that slug, creating a workspace or renaming one. A purged workspace keeps its slug. Choose another.',
     details: [
       {
         key: 'slug',
@@ -2192,7 +2502,7 @@ export const ERROR_ENTRIES = {
   },
   'tenant-slug-in-config': {
     description:
-      "A tenant's slug can't change while the server's `KINDGI_AUTH_VERIFIED_DOMAINS` names a tenant by it. When it names this tenant by its current slug, the server would find no tenant by it when it next starts: the server's operator names the tenant there by its id instead and restarts the server, and then it can be renamed. When it names the new slug, the server's next start would give those domains to this tenant: choose another slug.",
+      "A workspace's slug can't change while the server's `KINDGI_AUTH_VERIFIED_DOMAINS` names a workspace by it. When it names this workspace by its current slug, the server would find no workspace by it when it next starts: the server's operator names the workspace there by its id instead and restarts the server, and then it can be renamed. When it names the new slug, the server's next start would give those domains to this workspace: choose another slug.",
     details: [
       {
         key: 'slug',
@@ -2201,34 +2511,34 @@ export const ERROR_ENTRIES = {
       {
         key: 'domains',
         meaning:
-          'the domains that name this tenant by its current slug; absent when the setting names the new one',
+          'the domains that name this workspace by its current slug; absent when the setting names the new one',
       },
     ],
     seeAlso: ['PATCH /v1/tenant'],
   },
   'tenant-setup-pending': {
     description:
-      "The tenant's setup hasn't finished, so it can't be renamed yet. Sending the request that created it again finishes it.",
+      "The workspace's setup hasn't finished, so it can't be renamed yet. Sending the request that created it again finishes it.",
     details: [
       {
         key: 'tenantId',
-        meaning: 'the tenant',
+        meaning: 'the workspace',
       },
     ],
   },
   'image-not-allowed': {
     description:
-      "The deployment's image is outside the tenant's image repository: a tenant deploys only images at or under its image prefix.",
+      "The deployment's image is outside the workspace's image repository: a workspace deploys only images at or under its image prefix.",
     details: [
       {
         key: 'imagePrefix',
-        meaning: "the tenant's image prefix; from `POST /v1/deployments` only",
+        meaning: "the workspace's image prefix; from `POST /v1/deployments` only",
       },
     ],
   },
   'image-prefix-unset': {
     description:
-      "The tenant has no image repository set, so it can't register a deployment yet. Its operator sets one with `PUT /v1/system/tenants/{tenantId}/image-prefix`.",
+      "The workspace has no image repository set, so it can't register a deployment yet. Its operator sets one with `PUT /v1/system/tenants/{tenantId}/image-prefix`.",
     details: [],
   },
   'image-prefix-taken': {
@@ -2238,25 +2548,35 @@ export const ERROR_ENTRIES = {
   },
   'tenant-state-unavailable': {
     description:
-      "The tenant's state couldn't be read, so the request changed nothing. Retry after the `Retry-After` header. On the S3-compatible surface, the same answer is S3's `503 ServiceUnavailable`.",
+      "The workspace's state couldn't be read, so the request changed nothing. Retry after the `Retry-After` header. On the S3-compatible surface, the same answer is S3's `503 ServiceUnavailable`.",
     details: [],
     seeAlso: ['GET /v1/tenant'],
   },
   'service-account-not-found': {
-    description: 'No service account with that id exists in this tenant.',
+    description: 'No service account with that id exists in this workspace.',
     details: [],
   },
   'service-account-name-taken': {
     description:
-      'An active service account in this tenant already has that name. Choose another name.',
+      "An active service account in this workspace already has that name. Choose another name. With `runAsProject`, an active account someone made already has the project account's name, `project-<projectId>`: a tenant admin can unregister it.",
     details: [],
   },
   'service-account-unregistered': {
     description: "The service account has been unregistered, so it can't be granted anything.",
     details: [],
   },
+  'trigger-owner-cannot-run-target': {
+    description:
+      "A trigger's owner can't run what the trigger starts: `execute` on the agent or flow, or `publish` on the agent for an improvement schedule. Checked only with an authorization store, at two points. When a schedule, webhook or mail trigger names a service account to run as (`runAsServiceAccountId`), on create or take-over: give the account the editor role on the target's project, or name another account. When it's to run as the project's own account (`runAsProject`), which runs only what the project's editors can: run it as a service account that can, or own it yourself. And when a schedule's or mail trigger's target changes, since its owner stays: the owner, a service account or a person, must be able to run the new one (not checked when you're the owner, or when the owner was unregistered or removed). A tenant admin can give an account the role (not the project's own account, whose role is fixed), or a project admin can take the trigger over first. The message names the owner and the target.",
+    details: [],
+  },
+  'service-account-project-owned': {
+    description:
+      "The service account is a project's own account, the account a trigger with `runAsProject` runs as. It has no keys, so none can be minted `for` it. Its grant is fixed, so it can't be granted or ungranted anything. A trigger can't name it in `runAsServiceAccountId`: name it with `runAsProject: true` instead. An app that needs keys needs a service account of its own.",
+    details: [],
+  },
   'identity-user-email-taken': {
-    description: 'Another person in this tenant already has that email address.',
+    description: 'Another person in this workspace already has that email address.',
     details: [
       {
         key: 'userId',
@@ -2297,7 +2617,7 @@ export const ERROR_ENTRIES = {
     ],
   },
   'identity-user-unregistered': {
-    description: "The person was removed from the tenant, so they can't be granted anything.",
+    description: "The person was removed from the workspace, so they can't be granted anything.",
     details: [],
   },
   'identity-user-not-invited': {
@@ -2315,14 +2635,19 @@ export const ERROR_ENTRIES = {
       "The runtime runs without an authorization store, so it can't read or change a person's grants.",
     details: [],
   },
+  'agent-owner-unsupported': {
+    description:
+      "The runtime's agent store doesn't keep an owner, so an agent's owner can't be set. Nothing changed.",
+    details: [],
+  },
   'permissions-unsupported': {
     description:
       "The runtime runs without an authorization store, so it can't say what the caller may do. Read whoami's `tenantAdmin` and `reviewerRole` instead.",
     details: [],
   },
-  'agent-version-live': {
+  'agent-version-pinned': {
     description:
-      "The version is live in one or more scopes, so it can't be unregistered. Roll back, unpin or promote another version there first.",
+      "The version is pinned in one or more scopes, so it can't be unregistered. Unpin it, or pin another version there first.",
     details: [
       {
         key: 'agentId',
@@ -2334,7 +2659,43 @@ export const ERROR_ENTRIES = {
       },
       {
         key: 'scopes',
-        meaning: 'the scopes where it is live',
+        meaning: 'the scopes where it is pinned',
+      },
+    ],
+  },
+  'flow-version-pinned': {
+    description:
+      "The flow version is pinned in one or more scopes, so it can't be unregistered, and the flow can't be deleted while any of its versions is. Move the pin to another version, or unpin it, first.",
+    details: [
+      {
+        key: 'flowId',
+        meaning: 'the flow',
+      },
+      {
+        key: 'version',
+        meaning: 'the version',
+      },
+      {
+        key: 'scopes',
+        meaning: 'the scopes where it is pinned',
+      },
+    ],
+  },
+  'tool-version-pinned': {
+    description:
+      "The tool version is pinned in one or more scopes, so it can't be unregistered, and the tool can't be deleted while any of its versions is. Move the pin to another version, or unpin it, first.",
+    details: [
+      {
+        key: 'toolId',
+        meaning: 'the tool',
+      },
+      {
+        key: 'version',
+        meaning: 'the version',
+      },
+      {
+        key: 'scopes',
+        meaning: 'the scopes where it is pinned',
       },
     ],
   },
@@ -2359,17 +2720,22 @@ export const ERROR_ENTRIES = {
   },
   'run-not-finished': {
     description:
-      "The run hasn't completed with an output, so there's nothing to judge. Wait until it completes.",
+      "The run hasn't completed with an output, so there's nothing to correct. Wait until it completes.",
     details: [],
   },
   'item-not-found': {
     description: "The pointer in `item` resolves to nothing in the run's output. Fix the pointer.",
     details: [],
   },
-  'test-sets-not-supported': {
+  'test-case-not-found': {
     description:
-      "This deployment can't list judged runs, so it can't build test sets from judgments.",
+      "The agent's test set has no case by that id. A correction's case has the correction's id, and a case added by hand an id that starts `case-`: list the cases to find it.",
     details: [],
+  },
+  'test-case-retired': {
+    description:
+      'The case is retired already. A retired case stays retired: there is no un-retire.',
+    details: [{ key: 'retired', meaning: 'the reason, who retired the case, and when' }],
   },
   'run-failures-not-supported': {
     description: "This deployment can't group failed runs by cause.",
@@ -2398,35 +2764,39 @@ export const ERROR_ENTRIES = {
     description: "This deployment doesn't record guardrail outcomes.",
     details: [],
   },
-  'eval-run-already-terminal': {
+  'pinned-versions-not-supported': {
+    description: "This deployment can't list a project's pinned versions.",
+    details: [],
+  },
+  'test-run-already-terminal': {
     description:
-      "The eval run has already finished, failed or been cancelled, so it can't be cancelled.",
+      "The test run has already finished, failed or been cancelled, so it can't be cancelled.",
     details: [
       {
         key: 'runId',
-        meaning: 'the eval run',
+        meaning: 'the test run',
       },
       {
         key: 'status',
         meaning: 'its final status',
       },
     ],
-    seeAlso: ['guides/evals/compare-an-agent-version'],
+    seeAlso: ['guides/improve/compare-an-agent-version'],
   },
   'dispatcher-not-registered': {
     description:
-      "The runtime has no eval-run dispatcher for the suite's kind, so it can't start a run of that suite.",
+      "The runtime has no test-run dispatcher for the test set's kind, so it can't start a run of that test set.",
     details: [
       {
         key: 'evalKind',
-        meaning: 'the suite kind with no dispatcher',
+        meaning: 'the test set kind with no dispatcher',
       },
     ],
-    seeAlso: ['guides/evals/compare-an-agent-version'],
+    seeAlso: ['guides/improve/compare-an-agent-version'],
   },
   'dispatcher-input-invalid': {
     description:
-      "The eval run's input doesn't fit the suite's kind: neither an agent nor a flow reference was given, or the kind's validation rejected the target or comparison.",
+      "The test run's input doesn't fit the test set's kind: neither an agent nor a flow reference was given, or the kind's validation rejected the target or comparison. Under `kindgi dev`, a test run of a suggested change's version is also refused with it when a file in the pack holds a block that version pins, at the pinned version but with other content than `kindgi dev` keeps there. The message names the file.",
     details: [],
   },
   'mcp-endpoint-not-found': {
@@ -2556,7 +2926,7 @@ export const ERROR_ENTRIES = {
     seeAlso: ['guides/sso/sessions'],
   },
   'identity-provider-not-found': {
-    description: 'No identity provider with that id is registered for the tenant.',
+    description: 'No identity provider with that id is registered for the workspace.',
     details: [
       {
         key: 'providerId',
@@ -2567,7 +2937,7 @@ export const ERROR_ENTRIES = {
   },
   'identity-provider-already-registered': {
     description:
-      'An identity provider with that id is already registered for the tenant. Use a different id, or change the existing provider with a patch.',
+      'An identity provider with that id is already registered for the workspace. Use a different id, or change the existing provider with a patch.',
     details: [
       {
         key: 'providerId',
@@ -2707,7 +3077,7 @@ export const ERROR_ENTRIES = {
   },
   'site-person-restore-refused': {
     description:
-      "The site's person wasn't let back in, and nothing changed. `not-removed`: they're in the tenant and their site still knows them, so there's nothing to undo. `left`: their site said they left it. A site forgets a person who leaves, so if they come back, it signs them in as a new person. `linked-elsewhere`: they also sign in another way (through another site, or the tenant's own sign-in), and letting them back in would let them in there too: add them again instead, as a new person.",
+      "The site's person wasn't let back in, and nothing changed. `not-removed`: they're in the workspace and their site still knows them, so there's nothing to undo. `left`: their site said they left it. A site forgets a person who leaves, so if they come back, it signs them in as a new person. `linked-elsewhere`: they also sign in another way (through another site, or the workspace's own sign-in), and letting them back in would let them in there too: add them again instead, as a new person.",
     details: [
       {
         key: 'reason',
@@ -2742,7 +3112,7 @@ export const ERROR_ENTRIES = {
   },
   'identity-user-not-found': {
     description:
-      "No user with that id exists under this tenant (or the person named isn't a member of it).",
+      "No user with that id exists under this workspace (or the person named isn't a member of it).",
     details: [
       {
         key: 'userId',
@@ -2763,12 +3133,12 @@ export const ERROR_ENTRIES = {
   },
   'signature-invalid': {
     description:
-      "The deployment's signature isn't valid: it isn't base64, can't be verified, or doesn't match the signed envelope of image digest, version, index hash, tenant and publish time. A promotion checks the signature again, over the fields the deployment keeps, and is refused the same way.",
+      "The deployment's signature isn't valid: it isn't base64, can't be verified, or doesn't match the signed envelope of image digest, version, index hash, workspace and publish time. A promotion checks the signature again, over the fields the deployment keeps, and is refused the same way.",
     details: [],
   },
   'signer-not-trusted': {
     description:
-      "The key that signed the deployment isn't on the tenant's trust list. Trust the key, then deploy again. A promotion is refused the same way when the key that signed the build is no longer trusted: the build isn't promoted.",
+      "The key that signed the deployment isn't on the workspace's trust list. Trust the key, then deploy again. A promotion is refused the same way when the key that signed the build is no longer trusted: the build isn't promoted.",
     details: [
       {
         key: 'signerKeyId',
@@ -2792,7 +3162,7 @@ export const ERROR_ENTRIES = {
       {
         key: 'limit',
         meaning:
-          "with `image-limit-exceeded`, the bound: `manifest`, `file`, `layer`, `read` or `unpack`, the image's own, so the same image is refused again. The tenant's hour of image reads is never this code: reaching it answers `rate-limit-exceeded` with `limit` `tenant-unpack-hour` and `Retry-After`",
+          "with `image-limit-exceeded`, the bound: `manifest`, `file`, `layer`, `read` or `unpack`, the image's own, so the same image is refused again. The workspace's hour of image reads is never this code: reaching it answers `rate-limit-exceeded` with `limit` `tenant-unpack-hour` and `Retry-After`",
       },
     ],
     seeAlso: ['POST /v1/deployments'],
@@ -2807,9 +3177,25 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'deploy-would-put-back-older-blocks': {
+    description:
+      "A newer version of one of the pack's data blocks than its files' runs now in a project of one of the pack's agents: a project's own version, added there from a suggested change or pinned, or a segment pin inside one. The deploy would put the older one back without anyone choosing to, so nothing was deployed. Bring the newer version into the files (`kindgi blocks pull <block>`, or merge the pull request opened for it) and deploy again, or deploy with `--replace=<block> --reason=<text>` to put the older one back on purpose: the deployment records it, and the audit log keeps one `deployment-replaced-block` event for each block. Every project counts, whoever deploys; one you can't read is named by the version only. `POST /v1/deployments/check` answers the same, writing nothing. A promotion with `pin` answers it too, against what runs in the target project only, with nothing moved: promote a build whose files have the newer versions, or name each block in its `replace` (`kindgi promote --pin --replace=<block> --reason=<text>`).",
+    details: [
+      {
+        key: 'blocks',
+        meaning:
+          "each block: its `blockId`, the files' version (`inFiles`), the newest that `runs` (its `version`, and in a project you read its `projectId`, `follows` `pin` or `latest`, the `segment` path, who made it run there `by` and when `at`), and the pull request opened for it (`pr.url`), when one was",
+      },
+    ],
+    seeAlso: [
+      'POST /v1/deployments',
+      'POST /v1/deployments/check',
+      'POST /v1/deployments/{deploymentId}/promotions',
+    ],
+  },
   'deployment-not-found': {
     description:
-      "No deployment with that id exists under the tenant. A promotion of a deployment in a project you can't read is answered the same way.",
+      "No deployment with that id exists under the workspace. A promotion of a deployment in a project you can't read is answered the same way.",
     details: [
       {
         key: 'deploymentId',
@@ -2825,7 +3211,7 @@ export const ERROR_ENTRIES = {
   },
   'project-suspended': {
     description:
-      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, an eval run started in it, an improvement pass for one of its agents, or the operator setting the pack service of one of its deployments. What's already deployed stays. An eval run or a pass already going stops at its next case: it ends `cancelled`, with `project-suspended` in its `cancelReason`. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or pass: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project. A promotion from it or into it is refused too: `details.environment` says which.",
+      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the default for a workspace-wide deploy), a run or a turn started in it, an answer to one of its runs' waits (through the wait token's link or `POST /v1/runs/{runId}/resume`; a suspension cancels its runs, paused ones included), a test run started in it, an Improve run for one of its agents, or the operator setting the pack service of one of its deployments. What's already deployed stays. A test run or an Improve run already going stops at its next case: it ends `cancelled`, with `project-suspended` in its `cancelReason`. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or Improve run: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project. A promotion from it or into it is refused too: `details.environment` says which. So is making an agent version live in one of its scopes where nothing runs (its deployments are retired), with no `details`.",
     details: [
       {
         key: 'environment',
@@ -2835,8 +3221,8 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: [
       'POST /v1/deployments',
-      'POST /v1/eval-suites/{suiteId}/runs',
-      'POST /v1/proposals/improve',
+      'POST /v1/test-sets/{testSetId}/runs',
+      'POST /v1/improve-runs',
       'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',
       'POST /v1/deployments/{deploymentId}/promotions',
     ],
@@ -2862,6 +3248,24 @@ export const ERROR_ENTRIES = {
       "The pack service URL the operator set for a deployment isn't `https://<host>`: it isn't https, or it has user info, a path, a query or a fragment. The message says which. Send the service's origin only. The refusal is recorded as the deployment's `endpoint.problem`.",
     details: [],
     seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint'],
+  },
+  'orchestrator-round-held': {
+    description:
+      "Another orchestrator pass holds the round: its claim hasn't ended or lapsed. Only one pass runs at a time, so this pass has nothing to do. Exit, and let the next one claim the round.",
+    details: [],
+    seeAlso: ['POST /v1/system/deployments/round'],
+  },
+  'orchestrator-round-not-held': {
+    description:
+      "This pass's claim on the round lapsed before it ended it, and another pass holds the round now. Nothing changes. Give a pass a hold longer than it runs (`holdSeconds`, up to an hour).",
+    details: [],
+    seeAlso: ['POST /v1/system/deployments/round/end'],
+  },
+  'orchestrator-round-unsupported': {
+    description:
+      "This server keeps no orchestrator round, so it can't hold one pass at a time. Run one orchestrator pass at a time by other means, or upgrade the server.",
+    details: [],
+    seeAlso: ['POST /v1/system/deployments/round', 'POST /v1/system/deployments/round/end'],
   },
   'endpoint-host-not-allowed': {
     description:
@@ -2974,7 +3378,8 @@ export const ERROR_ENTRIES = {
     seeAlso: ['GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env'],
   },
   'compliance-evidence-not-found': {
-    description: 'No exportable compliance evidence record with that id exists under the tenant.',
+    description:
+      'No exportable compliance evidence record with that id exists under the workspace.',
     details: [
       {
         key: 'evidenceId',
@@ -3001,7 +3406,7 @@ export const ERROR_ENTRIES = {
   },
   'org-not-found': {
     description:
-      "The org doesn't exist in the tenant: it never existed or was deleted. Also returned when creating or changing a project or team with an unknown `orgId`.",
+      "The org doesn't exist in the workspace: it never existed or was deleted. Also returned when creating or changing a project or team with an unknown `orgId`.",
     details: [
       {
         key: 'orgId',
@@ -3011,7 +3416,7 @@ export const ERROR_ENTRIES = {
     seeAlso: ['GET /v1/orgs/{orgId}'],
   },
   'team-not-found': {
-    description: 'No team with that id exists under the tenant.',
+    description: 'No team with that id exists under the workspace.',
     details: [
       {
         key: 'teamId',
@@ -3021,17 +3426,17 @@ export const ERROR_ENTRIES = {
   },
   'project-not-found': {
     description:
-      "The project doesn't exist in the tenant, or your key can't see it. For `GET /v1/projects/default`, the tenant has no Default project.",
+      "The project doesn't exist in the workspace, or your key can't see it. For `GET /v1/projects/default`, the workspace has no default project.",
     details: [
       {
         key: 'projectId',
-        meaning: "the project id that wasn't found; absent for the missing Default project",
+        meaning: "the project id that wasn't found; absent for the missing default project",
       },
     ],
   },
   'production-not-allowed': {
     description:
-      "You put a project in production while the tenant isn't allowed to: the server gates production (`KINDGI_PRODUCTION_GATE=on`), and the tenant's `productionAllowed` is `false`. Projects already in production stay so, and staging keeps working. Go where `details.next` says, when the server names a place, or ask whoever runs it; then put the project in production again.",
+      "You put a project in production while the workspace isn't allowed to: the server gates production (`KINDGI_PRODUCTION_GATE=on`), and the workspace's `productionAllowed` is `false`. Projects already in production stay so, and staging keeps working. Go where `details.next` says, when the server names a place, or ask whoever runs it; then put the project in production again.",
     details: [
       {
         key: 'projectId',
@@ -3046,7 +3451,7 @@ export const ERROR_ENTRIES = {
   },
   'production-limit-reached': {
     description:
-      "You put a project in production while the tenant already had as many projects in production as its limit allows, or more (`projectsInProduction`, set by whoever runs the server). Nothing changed. A project already in production isn't counted again, and taking one out is never refused. Take a project out of production, or go where `details.next` says when the server names a place, or ask whoever runs it to raise the limit; then put the project in production again.",
+      "You put a project in production while the workspace already had as many projects in production as its limit allows, or more (`projectsInProduction`, set by whoever runs the server). Nothing changed. A project already in production isn't counted again, and taking one out is never refused. Take a project out of production, or go where `details.next` says when the server names a place, or ask whoever runs it to raise the limit; then put the project in production again.",
     details: [
       {
         key: 'projectId',
@@ -3058,12 +3463,12 @@ export const ERROR_ENTRIES = {
       },
       {
         key: 'projectsInProduction',
-        meaning: "the tenant's limit on projects in production",
+        meaning: "the workspace's limit on projects in production",
       },
       {
         key: 'inProduction',
         meaning:
-          "how many of the tenant's projects are in production; over the limit when the limit was lowered below it",
+          "how many of the workspace's projects are in production; over the limit when the limit was lowered below it",
       },
       {
         key: 'next',
@@ -3076,6 +3481,22 @@ export const ERROR_ENTRIES = {
     description:
       "This server's projects can't be put in production: its project store has no production setting. Every run there is a staging run.",
     details: [],
+  },
+  'repo-connection-not-company-github': {
+    description:
+      "The connection named for the project's repo connection isn't a company-wide GitHub connection. Pull requests for a project's block changes are opened through the company's GitHub connection: connect GitHub for the company, then name that connection.",
+    details: [
+      { key: 'connectionId', meaning: 'the connection named' },
+      { key: 'app', meaning: 'the app entry it was made through' },
+      { key: 'owner', meaning: 'who owns it: `member` or `company`' },
+    ],
+    seeAlso: ['PUT /v1/projects/{projectId}/repo-connection', 'GET /v1/connections'],
+  },
+  'repo-connection-unsupported': {
+    description:
+      "This server can't connect a project to a repo: its project store keeps no repo connection, or, to set one, it has no connections. `kindgi blocks pull` still writes the versions that run into the pack's block files.",
+    details: [],
+    seeAlso: ['PUT /v1/projects/{projectId}/repo-connection'],
   },
   'team-membership-not-found': {
     description: "The user isn't a member of the team.",
@@ -3136,7 +3557,7 @@ export const ERROR_ENTRIES = {
   },
   'environments-unsupported': {
     description:
-      "The runtime's env store or secrets store can't list the env names it holds, so the tenant's environments can't be listed whole. The message names the store.",
+      "The runtime's env store or secrets store can't list the env names it holds, so the workspace's environments can't be listed whole. The message names the store.",
     details: [],
   },
   'project-in-another-order': {
@@ -3189,7 +3610,7 @@ export const ERROR_ENTRIES = {
   },
   'slug-conflict': {
     description:
-      'The slug is taken: another org, team or project in the tenant already has it, or a project in the same org. Choose another slug.',
+      'The slug is taken: another org, team or project in the workspace already has it, or a project in the same org. Choose another slug.',
     details: [
       {
         key: 'resource',
@@ -3203,16 +3624,16 @@ export const ERROR_ENTRIES = {
     seeAlso: ['POST /v1/orgs'],
   },
   'project-default-already-exists': {
-    description: "The tenant already has a Default project, so a second one can't be created.",
+    description: "The workspace already has a default project, so a second one can't be created.",
     details: [],
     seeAlso: ['POST /v1/projects'],
   },
   'tenant-not-found': {
-    description: "The tenant your key belongs to doesn't exist.",
+    description: "The workspace your key belongs to doesn't exist.",
     details: [
       {
         key: 'tenantId',
-        meaning: "the tenant id that wasn't found",
+        meaning: "the workspace id that wasn't found",
       },
     ],
     seeAlso: ['GET /v1/tenant'],
@@ -3224,7 +3645,7 @@ export const ERROR_ENTRIES = {
   },
   'tenant-config-revision-conflict': {
     description:
-      'The tenant config entry changed since the revision you sent in `ifRevision`, so the write is refused. Read the entry again and retry with its current revision.',
+      'The workspace config entry changed since the revision you sent in `ifRevision`, so the write is refused. Read the entry again and retry with its current revision.',
     details: [
       {
         key: 'currentRevision',
@@ -3245,7 +3666,7 @@ export const ERROR_ENTRIES = {
   },
   'tenant-policy-unavailable': {
     description:
-      "A tenant policy that an agent turn must apply couldn't be loaded or evaluated, so the turn fails instead of running without it.",
+      "A workspace policy that an agent turn must apply couldn't be loaded or evaluated, so the turn fails instead of running without it.",
     details: [
       {
         key: 'policyKind',
@@ -3306,7 +3727,7 @@ export const ERROR_ENTRIES = {
   },
   'scope-mismatch': {
     description:
-      "Two scopes in one request disagree: the body `scope` differs from the query `scopeKind`/`scopeId`, or the body `scope.tenantId` isn't your tenant.",
+      "Two scopes in one request disagree: the body `scope` differs from the query `scopeKind`/`scopeId`, or the body `scope.tenantId` isn't your workspace.",
     details: [],
     seeAlso: ['DELETE /v1/secrets/{name}', 'PUT /v1/env/{name}'],
   },
@@ -3344,8 +3765,8 @@ export const ERROR_ENTRIES = {
   },
   'reserved-name-prefix': {
     description:
-      "The name starts with the prefix reserved for the runtime's own secrets, so you can't write it.",
-    details: [],
+      "The name starts with `kindgi.`, the prefix reserved for the runtime's own secrets. You can't store, rotate or revoke such a secret, or name one in a registration: a tool, an MCP endpoint, a webhook endpoint, a webhook trigger or a connection app.",
+    details: [{ key: 'secret', meaning: 'on a registration, the reserved name it names' }],
     seeAlso: ['guides/secrets/store-a-secret'],
   },
   'secret-name-invalid': {
@@ -3385,6 +3806,27 @@ export const ERROR_ENTRIES = {
       },
     ],
     seeAlso: ['PUT /v1/env/{name}'],
+  },
+  'cloud-secrets-unsupported': {
+    description:
+      "This runtime keeps no cloud secrets, so no env name is set to one: `KINDGI_ENV_CLOUD_SECRETS` is off, its default, as on Kindgi Cloud. The operator turns it on, with `KINDGI_PACK_ROUTING=per-deployment`, where the pack services' account can read the secrets it names. Answered on the system routes that set, list and remove them, on a workspace's list of them, and on a workspace's `PUT /v1/env/{name}` with a `cloudSecret`: there it comes before `cloud-secret-system-only`.",
+    details: [],
+    seeAlso: [
+      'PUT /v1/system/tenants/{tenantId}/env/{name}',
+      'deploy/self-hosted/serve-many-tenants',
+    ],
+  },
+  'cloud-secret-invalid': {
+    description:
+      "`cloudSecret` isn't a numbered version of a Google Cloud Secret Manager secret, `projects/<project>/secrets/<secret>/versions/<number>`: a version is a number, never `latest` or an alias, and a secret whose id starts with `kp-` is refused, since those are the pack services' own copies. The message says which part, and never repeats what was sent.",
+    details: [],
+    seeAlso: ['PUT /v1/system/tenants/{tenantId}/env/{name}'],
+  },
+  'cloud-secret-system-only': {
+    description:
+      "A workspace's own key tried to set an env name to a cloud secret, on a runtime that keeps them: only the operator does, with a system key holding `system:env-refs`. Set a value or a secret instead, or ask the operator. A runtime that keeps none answers `cloud-secrets-unsupported` instead.",
+    details: [],
+    seeAlso: ['PUT /v1/env/{name}', 'PUT /v1/system/tenants/{tenantId}/env/{name}'],
   },
   'secret-encryption-failed': {
     description:
@@ -3439,7 +3881,7 @@ export const ERROR_ENTRIES = {
   },
   'trigger-not-found': {
     description:
-      'No trigger (schedule, webhook trigger or event trigger) with that id exists for your tenant, or the id belongs to a trigger of another kind.',
+      'No trigger (schedule, webhook trigger or event trigger) with that id exists for your workspace, or the id belongs to a trigger of another kind.',
     details: [
       {
         key: 'triggerId',
@@ -3447,6 +3889,25 @@ export const ERROR_ENTRIES = {
       },
     ],
     seeAlso: ['POST /v1/schedules/{triggerId}/owner'],
+  },
+  'trigger-version-not-found': {
+    description:
+      'The trigger exists, but has no version with the number you asked for. Versions count from 1, one more for each change to the trigger.',
+    details: [
+      {
+        key: 'triggerId',
+        meaning: 'the trigger',
+      },
+      {
+        key: 'version',
+        meaning: 'the version number that was not found',
+      },
+    ],
+    seeAlso: [
+      'GET /v1/schedules/{triggerId}/versions/{version}',
+      'GET /v1/webhooks/{triggerId}/versions/{version}',
+      'GET /v1/mail-triggers/{triggerId}/versions/{version}',
+    ],
   },
   'trigger-invalid-config': {
     description:
@@ -3461,7 +3922,7 @@ export const ERROR_ENTRIES = {
   },
   'trigger-webhook-id-conflict': {
     description:
-      'A webhook trigger with that `webhookId` is already registered for your tenant. Pick another id.',
+      'A webhook trigger with that `webhookId` is already registered for your workspace. Pick another id.',
     details: [],
     seeAlso: ['guides/webhooks/start-runs-from-webhooks'],
   },
@@ -3507,6 +3968,21 @@ export const ERROR_ENTRIES = {
       "This deployment doesn't support the operation on triggers, such as listing a schedule's fire history or running it now.",
     details: [],
   },
+  'schedule-exists': {
+    description:
+      'The agent and project have an Improve schedule already: an agent has one Improve schedule per project. Change that one instead.',
+    details: [
+      {
+        key: 'scheduleId',
+        meaning: 'the Improve schedule the agent and project have',
+      },
+      {
+        key: 'triggerId',
+        meaning: "the same schedule's trigger id",
+      },
+    ],
+    seeAlso: ['guides/runs/run-on-a-schedule'],
+  },
   'webhook-refused': {
     description:
       "The inbound webhook request doesn't prove who sent it: an unknown address, a missing, wrong or too old signature, or a secret that can't be read. The answer is the same for every reason; the reason is in the trigger's fires and the access audit.",
@@ -3527,7 +4003,7 @@ export const ERROR_ENTRIES = {
     details: [],
   },
   'webhook-endpoint-not-found': {
-    description: 'No outbound webhook endpoint with that id exists in your tenant.',
+    description: 'No outbound webhook endpoint with that id exists in your workspace.',
     details: [
       {
         key: 'endpointId',
@@ -3575,6 +4051,183 @@ export const ERROR_ENTRIES = {
         meaning: 'the secret reference that was too weak (name and environment)',
       },
     ],
+  },
+  'connection-app-not-found': {
+    description:
+      'No app registration with that id in the workspace, or it was removed. On a connect, no registration of the app is set up, or none serves the project: a tenant admin adds one. A connect request whose registration has been removed since answers it too: start a new connect once a tenant admin sets the app up again. `GET /v1/connection-apps` lists the registrations.',
+    details: [
+      {
+        key: 'appId',
+        meaning: 'the registration id that was not found, when the call named it in its path',
+      },
+      {
+        key: 'field',
+        meaning:
+          'on a connect, the field that names the app (`app`, or `appId` when it named a registration)',
+      },
+    ],
+  },
+  'connection-not-found': {
+    description:
+      "No connection with that id that the caller can reach. A person's connection is reachable by that person and a tenant admin; the company's, by a tenant admin. It may have been disconnected. A connect's `reconnects` must name a live connection of the connect's own owner on the same registration and environment, and any other id is answered the same way. So must a connection choice's `connectionId`: a working company connection, in this server's environment, on a registration that allows the project (`GET /v1/connection-choices/candidates` lists them).",
+    details: [
+      {
+        key: 'connectionId',
+        meaning: 'the connection id that was not found',
+      },
+      {
+        key: 'field',
+        meaning:
+          "`reconnects`, when a connect named a connection it can't connect again; `connectionId`, when a choice named a connection it can't choose",
+      },
+    ],
+  },
+  'connection-choice-not-found': {
+    description:
+      "No live connection choice with that id in this server's environment: it may have been removed, or changed (a change removes the old choice and makes a new one). `GET /v1/connection-choices` lists a project's live choices.",
+    details: [
+      {
+        key: 'choiceId',
+        meaning: 'the choice id that was not found',
+      },
+    ],
+    seeAlso: ['GET /v1/connection-choices'],
+  },
+  'connection-request-not-found': {
+    description:
+      "No connect request with that id that the caller can act on, or none for the sign-in that came back from the app. A person's connect request is that person's alone; the company's, a tenant admin's. Start a new connect.",
+    details: [
+      {
+        key: 'requestId',
+        meaning: 'the connect request id that was not found, when the call named one',
+      },
+      {
+        key: 'field',
+        meaning: '`state`, when the sign-in came back with no state',
+      },
+    ],
+  },
+  'connection-app-invalid': {
+    description:
+      "An app registration that doesn't fit its app's entry, or no registration that fits a connect. A project uses one registration of an app, so a registration that would serve a project another registration of the app serves answers it too (field `projects`). So does changing a registration's client (its client id, its directory, or its GitHub App) while it has live connections: disconnect them first, then change it and connect again. The message says what's wrong.",
+    details: [
+      {
+        key: 'field',
+        meaning: 'the input field at fault, when there is one',
+      },
+    ],
+  },
+  'connection-app-unknown-entry': {
+    description:
+      'A registration or a connect names an app this server has no entry for, or no longer has. `GET /v1/connection-entries` lists the apps it knows.',
+    details: [
+      {
+        key: 'field',
+        meaning: 'the input field that names the app (`app`)',
+      },
+    ],
+  },
+  'connection-app-in-use': {
+    description:
+      'Removing an app registration that still has live connections. Remove it with `withConnections=true` to remove those connections too, or disconnect them first.',
+    details: [],
+  },
+  'connection-not-yours': {
+    description:
+      'Finishing a connect that someone else started: only whoever started it can finish it, signed in as themselves.',
+    details: [],
+  },
+  'connection-installation-unreachable': {
+    description:
+      "A GitHub App's connect whose person's GitHub account doesn't reach the installation, or any installation of the app. Start that request again with `newInstallation` to install the app on an account they manage, or ask an owner of the account it's installed on.",
+    details: [
+      {
+        key: 'connectRequestId',
+        meaning: 'the connect request to start again',
+      },
+    ],
+  },
+  'connection-request-expired': {
+    description: 'The connect request expired before it was used. Start a new connect.',
+    details: [],
+  },
+  'connection-request-used': {
+    description:
+      'The connect request was finished already: each one is used once. Start a new connect to connect again.',
+    details: [],
+  },
+  'connection-state-expired': {
+    description:
+      'The sign-in at the app took longer than its state lives. Start the connect again.',
+    details: [],
+  },
+  'connection-account-mismatch': {
+    description:
+      "A reconnect signed in to an account other than the connection's. Sign in with the same account. To connect another account instead, a person disconnects, then connects again; the company connects again, not as a reconnect, since it keeps a connection of its own for each account.",
+    details: [],
+  },
+  'connection-label-taken': {
+    description:
+      "A connect that isn't a reconnect, or a rename, gives a `label` another live connection of the same app, owner and environment already has, ignoring case, an emoji's variation selector and how accented letters are encoded. Pick another name, or rename the other connection first.",
+    details: [
+      {
+        key: 'field',
+        meaning: 'the input field at fault (`label`)',
+      },
+    ],
+  },
+  'connection-not-chosen': {
+    description:
+      "A tool call needs a connection of an app, there's more than one it could use in this environment, and nothing picks one, so the turn's run fails rather than pick one. For a company connection, the project has more than one and the agent or flow has no choice of one: a project admin chooses it (`PUT /v1/connection-choices`), then the turn runs again. For a person's, they have more than one, none is their main, and they have no choice of one for the agent or flow: they make one their main (`PATCH /v1/connections/{connectionId}` with `main`), or choose one for it. The message counts a person's connections and names none. Or a mail trigger's create or update names no `config.mailbox.connectionId`: on the company's mailbox, the project has more than one company connection of the app, and you name one of `details.choices`; on a person's, its owner has more than one and none is their main, and the message counts them and names none. Nothing changes; send it again with one named.",
+    details: [
+      {
+        key: 'connection',
+        meaning: "the tool's name for the connection (a turn's run only)",
+      },
+      {
+        key: 'choices',
+        meaning:
+          "the connections to choose from, for the company's only: for a turn's run, their names, sorted; for a mail trigger, `{connectionId, name}` objects sorted by name",
+      },
+      {
+        key: 'runId',
+        meaning: "the run that failed (a turn's run only)",
+      },
+      {
+        key: 'field',
+        meaning: 'the input field to fill (`config.mailbox.connectionId`; a mail trigger only)',
+      },
+    ],
+    seeAlso: [
+      'PUT /v1/connection-choices',
+      'GET /v1/connection-choices/candidates',
+      'POST /v1/mail-triggers',
+      'PATCH /v1/mail-triggers/{triggerId}',
+    ],
+  },
+  'connection-removing': {
+    description:
+      "A connect, or its finish, for a connection that's still being disconnected: an earlier disconnect didn't get to the end. Disconnect it again to finish, then connect.",
+    details: [],
+  },
+  'connection-app-refused': {
+    description:
+      "The app refused or failed a call the connect needed, or didn't give what a connection needs (a refresh token, or which account signed in). Often the registration's client id, client secret or redirect URL doesn't match the app's settings. On GitHub, an install still waiting for an owner's approval is refused too, until an owner approves it. Start the connect again.",
+    details: [],
+  },
+  'connection-store-failed': {
+    description:
+      "The server couldn't read or write its connections (registrations, connect requests, connections or their tokens) just now. Try again; if it keeps failing, an operator checks the database and the secrets store.",
+    details: [],
+  },
+  'connection-notice-invalid': {
+    description:
+      "An app's notice to `POST /v1/connection-notices/{tenantId}/{appId}` wasn't accepted. It's one answer for every reason, such as a signature or token that doesn't check out, so the sender learns nothing from it.",
+    details: [],
+  },
+  'connection-notice-unavailable': {
+    description: "The server couldn't handle an app's notice just now. The app sends it again.",
+    details: [],
   },
   'token-mint-failed': {
     description:

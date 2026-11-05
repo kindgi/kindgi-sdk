@@ -24,6 +24,7 @@ import {
   enrollSigningInput,
   renewSigningInput,
 } from '../src/license/protocol.js';
+import { PRODUCTION_NO_COUNTS } from '../src/license/renew.js';
 import { runCli } from '../src/main.js';
 
 const NOW = 1_791_500_000_000;
@@ -143,7 +144,7 @@ describe('kindgi license enroll', () => {
       `Renewer ${key?.renewerId}: its private key is in the file ${join(dir, 'renewer.key')}.`,
     );
     expect(out.stdout).toContain(
-      'Add this deployment on https://access.kindgi.com, signed in as Octo',
+      'Add this deployment on https://access.kindgi.com, signed in as the person it\'s for (Octo), under "Renew the key from your deployment":',
     );
     expect(out.stdout).toContain(
       'kindgi license renew --key <where the license key is> --renewer file:renewer.key',
@@ -159,6 +160,32 @@ describe('kindgi license enroll', () => {
       verify(
         null,
         Buffer.from(enrollSigningInput(ORIGIN, key?.renewerId ?? '', 'octo')),
+        publicKey,
+        Buffer.from(signature ?? '', 'base64url'),
+      ),
+    ).toBe(true);
+  });
+
+  test('an email user: --for takes the em- id their key page shows, and the line is for it', async () => {
+    const dir = workdir();
+    const id = 'em-kqzt3xw7mfa2rb5ndl6hpye4cv';
+    const out = await cli(dir, ['license', 'enroll', '--for', id, '--renewer', 'file:r.key']);
+    expect(out.exitCode).toBe(0);
+    // The page names an email user by their address, so the output doesn't call the id a sign-in.
+    expect(out.stdout).toContain(`signed in as the person it's for (${id}), under`);
+    const key = decodeRenewerPrivateKey(readFileSync(join(dir, 'r.key'), 'utf8').trim());
+    const [pub, account, signature] = (out.stdout.match(/^ {2}(kgi_lrp_\S+)$/m)?.[1] ?? '').split(
+      '.',
+    );
+    expect(Buffer.from(account ?? '', 'base64url').toString()).toBe(id);
+    const publicKey = createPublicKey({
+      key: { kty: 'OKP', crv: 'Ed25519', x: (pub ?? '').slice(8) },
+      format: 'jwk',
+    });
+    expect(
+      verify(
+        null,
+        Buffer.from(enrollSigningInput(ORIGIN, key?.renewerId ?? '', id)),
         publicKey,
         Buffer.from(signature ?? '', 'base64url'),
       ),
@@ -184,6 +211,84 @@ describe('kindgi license enroll', () => {
     expect(lineOf(replaced.stdout)).not.toBe(lineOf(first.stdout));
   });
 
+  test('--json, --raw and --table: the result as JSON on stdout, the lines on stderr', async () => {
+    const dir = workdir();
+    const enroll = ['license', 'enroll', '--for', 'octo', '--renewer', 'file:r.key'];
+    const first = await cli(dir, [...enroll, '--json']);
+    expect(first.exitCode).toBe(0);
+    const key = decodeRenewerPrivateKey(readFileSync(join(dir, 'r.key'), 'utf8'));
+    const renewCommand =
+      'kindgi license renew --key <where the license key is> --renewer file:r.key';
+    const result = JSON.parse(first.stdout) as Record<string, unknown>;
+    expect(result).toEqual({
+      renewerId: key?.renewerId,
+      renewer: 'file:r.key',
+      changed: true,
+      overwritten: false,
+      login: 'octo',
+      accessUrl: ORIGIN,
+      enrollLine: expect.stringMatching(/^kgi_lrp_\S+$/),
+      nextSteps: [renewCommand],
+    });
+    expect(first.stdout).toBe(`${JSON.stringify(result, null, 2)}\n`);
+    expect(first.stderr).toBe(
+      [
+        `Renewer ${key?.renewerId}: its private key is in the file ${join(dir, 'r.key')}.`,
+        '',
+        'Add this deployment on https://access.kindgi.com, signed in as the person it\'s for (octo), under "Renew the key from your deployment":',
+        '',
+        `  ${String(result.enrollLine)}`,
+        '',
+        'Then renew the key whenever you like, by hand or on your own schedule:',
+        '',
+        `  ${renewCommand}`,
+        '',
+      ].join('\n'),
+    );
+    expect(`${first.stdout}${first.stderr}`).not.toContain('kgi_lrk_');
+
+    // With no flag, the same lines on stdout, as ever.
+    const plain = await cli(dir, enroll);
+    expect(plain).toEqual({
+      exitCode: 0,
+      stdout: first.stderr.replace('its private key is in', 'its private key is already in'),
+      stderr: '',
+    });
+    const again = await cli(dir, [...enroll, '--json']);
+    expect(again.stderr).toBe(plain.stdout);
+    const reused = { ...result, changed: false };
+    expect(again.stdout).toBe(`${JSON.stringify(reused, null, 2)}\n`);
+    expect(await cli(dir, [...enroll, '--table'])).toEqual(again);
+    expect(await cli(dir, [...enroll, '--raw'])).toEqual({
+      ...again,
+      stdout: `${JSON.stringify(reused)}\n`,
+    });
+
+    const replaced = JSON.parse((await cli(dir, [...enroll, '--replace', '--json'])).stdout);
+    expect(replaced).toMatchObject({ changed: true, overwritten: true });
+    expect(replaced.enrollLine).not.toBe(result.enrollLine);
+  });
+
+  test('--quiet, alone or with --json or --raw: the enroll line alone on stdout', async () => {
+    const dir = workdir();
+    const enroll = ['license', 'enroll', '--for', 'octo', '--renewer', 'file:r.key'];
+    const first = await cli(dir, [...enroll, '--quiet']);
+    expect(first.exitCode).toBe(0);
+    expect(first.stderr).toBe('');
+    expect(first.stdout).toMatch(/^kgi_lrp_\S+\n$/);
+    expect(readFileSync(join(dir, 'r.key'), 'utf8')).toMatch(/^kgi_lrk_/);
+    const { enrollLine } = JSON.parse((await cli(dir, [...enroll, '--json'])).stdout) as {
+      enrollLine: string;
+    };
+    expect(first.stdout).toBe(`${enrollLine}\n`);
+    for (const flags of [
+      ['--quiet', '--json'],
+      ['--quiet', '--raw'],
+    ]) {
+      expect(await cli(dir, [...enroll, ...flags]), flags.join(' ')).toEqual(first);
+    }
+  });
+
   test('refused: a place holding something else, a login that isn’t one, a missing flag, a plain-http service', async () => {
     const dir = workdir();
     writeFileSync(join(dir, 'license.key'), `${licenseKey()}\n`);
@@ -199,8 +304,14 @@ describe('kindgi license enroll', () => {
     expect(occupied.stderr).toContain("already holds something that isn't a renewer key");
     expect(readFileSync(join(dir, 'license.key'), 'utf8')).toBe(`${licenseKey()}\n`);
     for (const [argv, message] of [
-      [['--for', 'not a login', '--renewer', 'file:r'], '--for must be a GitHub login'],
-      [['--renewer', 'file:r'], '--for is required'],
+      [
+        ['--for', 'not a login', '--renewer', 'file:r'],
+        '--for must be your GitHub login, or the em- id your key page shows. Got "not a login".',
+      ],
+      [
+        ['--renewer', 'file:r'],
+        '--for is required: your GitHub login, or the em- id your key page shows.',
+      ],
       [['--for', 'octo'], '--renewer is required'],
       [
         ['--for', 'octo', '--renewer', 'renewer.key'],
@@ -801,6 +912,231 @@ describe('kindgi license renew', () => {
     ] as const) {
       const out = await cli(dir, ['license', 'renew', ...argv]);
       expect([out.exitCode, out.stderr.includes(message)], message).toEqual([2, true]);
+    }
+  });
+
+  const RENEW = ['license', 'renew', '--env-file', 'kindgi.env', '--renewer', 'file:renewer.key'];
+  const QUIET = [['--quiet'], ['--quiet', '--json'], ['--quiet', '--raw']];
+
+  test('--json, --raw and --table: the result as JSON on stdout, the lines on stderr', async () => {
+    const { dir, renewer } = await enrolled();
+    const run = (flags: string[]) =>
+      cli(dir, [...RENEW, ...flags], {
+        ...deps,
+        fetchImpl: service(renewer, () => Response.json({ licenseKey: NEXT_KEY })),
+      });
+    const until = new Date(NOW + 45 * DAY * 1000);
+    const renewed = await run(['--json']);
+    expect(renewed.exitCode).toBe(0);
+    const result = JSON.parse(renewed.stdout) as Record<string, unknown>;
+    expect(result).toEqual({
+      status: 'renewed',
+      renewerId: renewer.renewerId,
+      license: {
+        name: 'acme.example',
+        use: 'non-production',
+        expiresAt: until.toISOString(),
+        daysLeft: 45,
+      },
+      warnings: [],
+    });
+    expect(renewed.stdout).toBe(`${JSON.stringify(result, null, 2)}\n`);
+    expect(renewed.stderr).toBe(
+      [
+        `renewed: acme.example's non-production key, until ${until.toISOString().slice(0, 10)} (renewer ${renewer.renewerId})`,
+        'The runtime uses the new key from its next start; until then it runs on the one it started with.',
+        '',
+      ].join('\n'),
+    );
+
+    // The key is the new one now: unchanged, the same lines on stdout with no flag.
+    const plain = await run([]);
+    expect(plain.stdout).toMatch(/^unchanged: /);
+    expect(plain.stderr).toBe('');
+    const json = await run(['--json']);
+    expect(json.stderr).toBe(plain.stdout);
+    const unchanged = { ...result, status: 'unchanged' };
+    expect(json.stdout).toBe(`${JSON.stringify(unchanged, null, 2)}\n`);
+    expect(await run(['--table'])).toEqual(json);
+    expect(await run(['--raw'])).toEqual({ ...json, stdout: `${JSON.stringify(unchanged)}\n` });
+  });
+
+  test('--json: the days left, negative once the key has expired, and the ⚠ line as a warning; --quiet keeps that line alone', async () => {
+    for (const [seconds, daysLeft] of [
+      [10 * DAY, 10],
+      [-3 * DAY, -3],
+      // Expired less than a day ago.
+      [-3600, -1],
+    ] as const) {
+      const key = licenseKey({ exp: NOW / 1000 + seconds });
+      const { dir, renewer } = await enrolled(key);
+      const run = (flags: string[]) =>
+        cli(dir, [...RENEW, ...flags], {
+          ...deps,
+          fetchImpl: service(renewer, () => Response.json({ licenseKey: key })),
+        });
+      const warning = `It expires in ${daysLeft} days. If renew keeps answering unchanged, stop this deployment's renewer at https://access.kindgi.com, then sign in there for a new key.`;
+      const plain = await run([]);
+      expect(plain.stdout, `${daysLeft}`).toContain(`\n⚠ ${warning}\n`);
+      const json = await run(['--json']);
+      expect(json.stderr, `${daysLeft}`).toBe(plain.stdout);
+      expect(JSON.parse(json.stdout), `${daysLeft}`).toMatchObject({
+        status: 'unchanged',
+        license: { daysLeft },
+        warnings: [warning],
+      });
+      for (const flags of QUIET) {
+        expect(await run(flags), `${daysLeft} ${flags.join(' ')}`).toEqual({
+          exitCode: 0,
+          stdout: '',
+          stderr: `⚠ ${warning}\n`,
+        });
+      }
+    }
+
+    // Nothing off: nothing printed, the new key written.
+    const { dir, renewer } = await enrolled();
+    for (const flags of QUIET) {
+      writeFileSync(join(dir, 'kindgi.env'), `KINDGI_LICENSE_KEY=${licenseKey()}\n`);
+      const quiet = await cli(dir, [...RENEW, ...flags], {
+        ...deps,
+        fetchImpl: service(renewer, () => Response.json({ licenseKey: NEXT_KEY })),
+      });
+      expect(quiet, flags.join(' ')).toEqual({ exitCode: 0, stdout: '', stderr: '' });
+      expect(readFileSync(join(dir, 'kindgi.env'), 'utf8')).toBe(
+        `KINDGI_LICENSE_KEY=${NEXT_KEY}\n`,
+      );
+    }
+  });
+
+  test("--json with --runtime: the counts as sent, or why not; --quiet keeps a not-sent line, never a production key's", async () => {
+    const current = licenseKey({ exp: NOW / 1000 + 45 * DAY });
+    const { dir, renewer } = await enrolled(current);
+    writeFileSync(join(dir, 'runtime.token'), 'kgi_bt_test\n');
+    const run = (flags: string[], answer: () => Promise<Record<string, unknown>>, key = current) =>
+      cli(dir, [...RENEW_WITH_RUNTIME, ...flags], {
+        ...deps,
+        fetchImpl: service(renewer, () => Response.json({ licenseKey: key })),
+        clientFactory: runtime(answer).clientFactory,
+      });
+    const counts = async () => USAGE;
+    const notFound = async (): Promise<Record<string, unknown>> => {
+      throw new KindgiApiError({
+        code: 'not-found',
+        message: 'Not Found',
+        resource: { kind: 'route', id: '/v1/license/usage' },
+      });
+    };
+
+    const sent = JSON.parse((await run(['--json'], counts)).stdout);
+    expect(sent).toMatchObject({ counts: { sent: true, usage: USAGE }, warnings: [] });
+    for (const flags of QUIET) {
+      expect(await run(flags, counts), flags.join(' ')).toEqual({
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+      });
+    }
+
+    const reason =
+      "https://runtime.acme.example answered 404: it doesn't report its use (GET /v1/license/usage)";
+    const line = `counts: not sent (${reason}); this renewal goes without them.`;
+    const notSent = JSON.parse((await run(['--json'], notFound)).stdout);
+    expect(notSent).toMatchObject({ counts: { sent: false, reason }, warnings: [line] });
+    for (const flags of QUIET) {
+      expect(await run(flags, notFound), flags.join(' ')).toEqual({
+        exitCode: 0,
+        stdout: '',
+        stderr: `${line}\n`,
+      });
+    }
+
+    const production = licenseKey({ use: 'production', exp: NOW / 1000 + 45 * DAY });
+    writeFileSync(join(dir, 'kindgi.env'), `KINDGI_LICENSE_KEY=${production}\n`);
+    const plain = await run([], counts, production);
+    expect(plain.stdout).toContain(`counts: not sent (${PRODUCTION_NO_COUNTS});`);
+    const productions = JSON.parse((await run(['--json'], counts, production)).stdout);
+    expect(productions).toMatchObject({
+      counts: { sent: false, reason: PRODUCTION_NO_COUNTS },
+      warnings: [],
+    });
+    for (const flags of QUIET) {
+      expect(await run(flags, counts, production), flags.join(' ')).toEqual({
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+      });
+    }
+  });
+
+  test("the Azure module's alerts fire the same under --quiet and --json: the job's log has the warnings either way", async () => {
+    const expiring = azureAlert('license_key_expiring');
+    for (const [days, raised] of [
+      [6, true],
+      [-3, true],
+      [7, false],
+    ] as const) {
+      const key = licenseKey({ exp: NOW / 1000 + days * DAY });
+      const { dir, renewer } = await enrolled(key);
+      for (const flags of [['--quiet'], ['--json'], ['--quiet', '--json']]) {
+        const out = await cli(dir, [...RENEW, ...flags], {
+          ...deps,
+          fetchImpl: service(renewer, () => Response.json({ licenseKey: key })),
+        });
+        expect(fires(expiring, out), `${days} days ${flags.join(' ')}`).toBe(raised);
+      }
+    }
+
+    const notSent = azureAlert('license_counts_not_sent');
+    const notFound = runtime(async () => {
+      throw new KindgiApiError({
+        code: 'not-found',
+        message: 'Not Found',
+        resource: { kind: 'route', id: '/v1/license/usage' },
+      });
+    });
+    const current = licenseKey();
+    const production = licenseKey({ use: 'production' });
+    const { dir, renewer } = await enrolled(current);
+    writeFileSync(join(dir, 'runtime.token'), 'kgi_bt_test\n');
+    for (const [label, key, clientFactory, raised] of [
+      ['not sent', current, notFound.clientFactory, true],
+      ['sent', current, runtime(async () => USAGE).clientFactory, false],
+      ["a production key's", production, notFound.clientFactory, false],
+    ] as const) {
+      writeFileSync(join(dir, 'kindgi.env'), `KINDGI_LICENSE_KEY=${key}\n`);
+      for (const flags of [['--quiet'], ['--json'], ['--quiet', '--json']]) {
+        const out = await cli(dir, [...RENEW_WITH_RUNTIME, ...flags], {
+          ...deps,
+          fetchImpl: service(renewer, () => Response.json({ licenseKey: key })),
+          clientFactory,
+        });
+        expect(out.exitCode, `${label} ${flags.join(' ')}`).toBe(0);
+        expect(fires(notSent, out), `${label} ${flags.join(' ')}`).toBe(raised);
+      }
+    }
+  });
+
+  test('refused: the same on stderr and nothing on stdout, whatever the format', async () => {
+    const { dir, renewer } = await enrolled(licenseKey({ exp: NOW / 1000 + 45 * DAY }));
+    const run = (flags: string[]) =>
+      cli(dir, [...RENEW, ...flags], {
+        ...deps,
+        fetchImpl: service(renewer, () =>
+          Response.json(
+            { error: 'renewer-stopped', message: 'This renewer was stopped.' },
+            { status: 403 },
+          ),
+        ),
+      });
+    const plain = await run([]);
+    expect(plain).toEqual({
+      exitCode: 1,
+      stdout: '',
+      stderr: 'refused (renewer-stopped): This renewer was stopped.\n',
+    });
+    for (const flags of [['--json'], ['--raw'], ['--table'], ...QUIET]) {
+      expect(await run(flags), flags.join(' ')).toEqual(plain);
     }
   });
 });

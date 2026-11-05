@@ -106,13 +106,15 @@ export interface CreateExportInput {
   readonly now?: () => Date;
   /** One line per kind, as it ends. */
   readonly progress?: (line: string) => void;
+  /** `--quiet`: only a kind that failed says its line. */
+  readonly quiet?: boolean;
   readonly stopSignal?: AbortSignal;
 }
 
 /** Export the workspace; the manifest, as written last. */
 export async function createExport(input: CreateExportInput): Promise<Manifest> {
   const now = input.now ?? (() => new Date());
-  const progress = input.progress ?? (() => undefined);
+  const say = kindLine(input);
   const earlier = await prepareFolder(input);
   const started = now().toISOString();
   // The tenant's state as each read found it: at the start, and at the end.
@@ -171,7 +173,7 @@ export async function createExport(input: CreateExportInput): Promise<Manifest> 
     // Stopped part way: the kind is left for --resume, not marked failed.
     if (stopped() && outcome.status === 'failed') break;
     kinds[name] = outcome;
-    progress(progressLine(name, outcome));
+    say(name, outcome);
     await save();
   }
   const finished = stopped() ? undefined : now().toISOString();
@@ -235,7 +237,7 @@ async function prepareFolder(input: CreateExportInput): Promise<Manifest | undef
   }
   if (earlier.server !== input.server || earlier.tenant?.id !== input.tenantId) {
     throw new Error(
-      `${input.out} holds an export of tenant ${earlier.tenant?.id} from ${earlier.server}, not of tenant ${input.tenantId} from ${input.server}. Resume it against that server and tenant, or start a new export in a new or empty folder.`,
+      `${input.out} holds an export of tenant ${earlier.tenant?.id} from ${earlier.server}, not of tenant ${input.tenantId} from ${input.server}. Resume it against that server and workspace, or start a new export in a new or empty folder.`,
     );
   }
   await chmod(input.out, FOLDER_MODE);
@@ -275,9 +277,17 @@ function consistencyOf(
   const frozenBefore =
     earlier === undefined || (frozen(earlier.tenant?.state) && earlier.consistency !== CHANGING);
   if (states.every((s) => frozen(s)) && frozenBefore) {
-    return `The tenant is ${states.at(-1)}: nothing in it changes but deletes, revocations and erasures, so the files agree with each other, but for one of those made while the export ran.`;
+    return `The workspace is ${states.at(-1)}: nothing in it changes but deletes, revocations and erasures, so the files agree with each other, but for one of those made while the export ran.`;
   }
   return CHANGING;
+}
+
+/** Each kind's line, as it ends. A kind that failed is an error: said under `--quiet` too. */
+function kindLine(input: CreateExportInput): (name: string, outcome: KindOutcome) => void {
+  const progress = input.progress ?? (() => undefined);
+  return (name, outcome) => {
+    if (input.quiet !== true || outcome.status === 'failed') progress(progressLine(name, outcome));
+  };
 }
 
 function progressLine(name: string, outcome: KindOutcome): string {
@@ -393,7 +403,7 @@ function linesOf(
     : childLines(ctx, kind, kind.parent, tally);
 }
 
-/** A child kind's lines: for each parent record, its children, each with its parent. */
+/** A child kind's lines: for each parent record, its children, each with what the parent filled. */
 async function* childLines(
   ctx: KindContext,
   kind: ExportKind,
@@ -402,13 +412,15 @@ async function* childLines(
 ): AsyncGenerator<string> {
   for await (const record of recordsOf(ctx, parent.kind)) {
     const params = fieldsOf(record, parent.params, parent.kind);
+    const asked = parent.query === undefined ? {} : fieldsOf(record, parent.query, parent.kind);
     const query = {
       ...kind.query,
+      ...asked,
       ...(kind.envScoped === true ? envScopeOf(record, parent.kind) : {}),
     };
     try {
       for await (const item of read(ctx.reader, kind, fillRoute(kind.route, params), query)) {
-        yield `${JSON.stringify({ parent: params, item })}\n`;
+        yield `${JSON.stringify({ parent: { ...params, ...asked }, item })}\n`;
       }
     } catch (err) {
       throwIfNotServed(err, kind.route);
@@ -425,7 +437,11 @@ async function* topLines(
   tally: { gone: number },
 ): AsyncGenerator<string> {
   const query = kind.query ?? {};
-  const queries = kind.envScoped === true ? await envScopes(ctx, query) : [query];
+  const listed = kind.envScoped === true ? await envScopes(ctx, query) : [query];
+  const queries = listed.flatMap((q) => [
+    q,
+    ...(kind.alsoAsk ?? []).map((more) => ({ ...q, ...more })),
+  ]);
   for (const q of queries) {
     for await (const listed of read(ctx.reader, kind, kind.route, q)) {
       const record =
@@ -497,7 +513,13 @@ async function* recordsOf(ctx: KindContext, name: string): AsyncGenerator<Record
   for await (const line of lines) {
     if (line === '') continue;
     const value = JSON.parse(line) as Record<string, unknown>;
-    yield wrapped ? (value.item as Record<string, unknown>) : value;
+    // A child's record, with its parent's fields where its item has none.
+    yield wrapped
+      ? {
+          ...(value.parent as Record<string, unknown>),
+          ...(value.item as Record<string, unknown>),
+        }
+      : value;
   }
 }
 

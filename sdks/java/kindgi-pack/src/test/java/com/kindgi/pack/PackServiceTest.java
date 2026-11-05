@@ -74,7 +74,7 @@ class PackServiceTest {
     index.put("artifactVersion", "20261001.7");
     List<Object> tools = new ArrayList<>();
     for (String id : List.of("acme.stubborn", "acme.polite", "acme.nan", "acme.typed", "acme.later", "acme.laterFails",
-        "acme.laterNull", "acme.laterNever", "acme.logs")) {
+        "acme.laterNull", "acme.laterNever", "acme.logs", "acme.mail", "acme.mailLater")) {
       tools.add(tool(id));
     }
     index.put("tools", tools);
@@ -251,6 +251,26 @@ class PackServiceTest {
     assertThat(answer).containsEntry("code", "handler-throw");
     assertThat((String) answer.get("message")).isEqualTo(
         "Handler for tool \"acme.laterFails\" threw: java.lang.IllegalStateException: card declined");
+  }
+
+  @Test
+  void aToolReadsItsConnectionsAndARefusalNamesTheConnection() throws Exception {
+    String token = "ya29.acme-token";
+    Map<String, Object> ctx = Map.of("tenantId", "t1", "runId", "r1", "connections", Map.of("mail", Map.of(
+        "connectionId", "c-1", "app", "google", "appName", "Google", "accessToken", token,
+        "account", Map.of("id", "g-1", "label", "ana@acme.example"), "expiresAt", "2026-10-23T01:00:00.000Z")));
+    assertThat(invoke("acme.mail", Map.of("message", "hi"), null, ctx, ""))
+        .containsEntry("output", Map.of("label", "ana@acme.example", "length", token.length()));
+    for (String how : List.of("reject", "wrapped")) {
+      assertThat(invoke("acme.mail", Map.of("message", how), null, ctx, "")).isEqualTo(Map.of("v", 2, "kind", "error",
+          "code", "connection-rejected", "message", "Tool \"acme.mail\": the app answered 401", "toolId", "acme.mail",
+          "connection", "mail"));
+    }
+    assertThat(invoke("acme.mailLater", Map.of(), null, ctx, "")).containsEntry("code", "connection-rejected")
+        .containsEntry("message", "Tool \"acme.mailLater\": the app refused the connection \"mail\"")
+        .containsEntry("connection", "mail");
+    waitForRecord(l -> String.valueOf(l.get("message")).startsWith("sending as"));
+    assertThat(Json.compactString(Json.plain(logs))).contains("ana@acme.example").doesNotContain(token);
   }
 
   @Test

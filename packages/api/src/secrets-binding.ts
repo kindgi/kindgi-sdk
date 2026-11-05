@@ -391,6 +391,9 @@ export interface ResolveContext {
    * `pack-env`: the orchestrator's read of a deployment's pack env, which
    * writes its own row per value it gives out, so a store doesn't emit one
    * for it.
+   *
+   * `connections`: a connection's tokens, and its app registration's
+   * client secret, read to call the app.
    */
   readonly caller:
     | 'dispatch'
@@ -398,7 +401,8 @@ export interface ResolveContext {
     | 'admin-cli'
     | 'boot-bridge'
     | 'webhook-receiver'
-    | 'pack-env';
+    | 'pack-env'
+    | 'connections';
 }
 
 export interface SecretResolveOutcome {

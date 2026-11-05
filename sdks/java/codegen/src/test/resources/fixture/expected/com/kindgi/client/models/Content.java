@@ -5,11 +5,13 @@
 package com.kindgi.client.models;
 
 import com.fasterxml.jackson.annotation.JsonAnyGetter;
-import com.fasterxml.jackson.annotation.JsonAnySetter;
+import com.fasterxml.jackson.annotation.JsonAutoDetect;
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import java.util.Collections;
 import java.util.Map;
 
 /**
@@ -35,15 +37,35 @@ public sealed interface Content extends Model permits Content.WithText, Content.
      * @param properties its other properties
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    record Unrecognized(
-            @JsonAnySetter @JsonAnyGetter Map<String, Object> properties) implements Content {
+    @JsonAutoDetect(
+            fieldVisibility = JsonAutoDetect.Visibility.NONE,
+            getterVisibility = JsonAutoDetect.Visibility.NONE,
+            isGetterVisibility = JsonAutoDetect.Visibility.NONE
+    )
+    record Unrecognized(Map<String, Object> properties) implements Content {
         public Unrecognized {
             properties = Checks.extras(properties);
         }
 
+        /**
+         * How a reading Jackson builds it: the whole object is its properties.
+         */
+        @JsonCreator(
+                mode = JsonCreator.Mode.DELEGATING
+        )
+        private static Unrecognized read(Map<String, Object> properties) {
+            return new Unrecognized(properties);
+        }
+
+        @Override
+        @JsonAnyGetter
+        public Map<String, Object> properties() {
+            return Collections.unmodifiableMap(properties);
+        }
+
         @Override
         public void validate(Checks checks) {
-            // Nothing to check: the client doesn't know this variant's constraints.
+            checks.unrecognized();
         }
     }
 

@@ -5,12 +5,13 @@ import type { Result, TenantId } from '@kindgi/types';
 
 import type { CapabilityError, DuplicateProviderError, InvalidProviderError } from './errors.js';
 import { validateProviderLabels } from './provider-labels.js';
+import { modelThinkingProblem } from './thinking.js';
 import type { ModelProvider, ModelThinking, ProviderRegistry } from './types.js';
 
 /**
- * Create an in-memory registry of model providers. Tenant-scoped:
- * each tenant owns its own `providerId → ModelProvider` map. The
- * router receives a tenant's slice, so cross-tenant leakage is
+ * Create an in-memory registry of model providers. Workspace-scoped:
+ * each workspace owns its own `providerId → ModelProvider` map. The
+ * router receives a workspace's slice, so cross-tenant leakage is
  * impossible at the routing layer.
  *
  * Registration is validated for shape: provider `id` + `region`
@@ -18,7 +19,7 @@ import type { ModelProvider, ModelThinking, ProviderRegistry } from './types.js'
  * per-model `contextWindow` positive integer; per-model `cost`
  * non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens`
  * well-shaped; `labels` within their limits (`provider-labels.ts`);
- * `invoke` is a function. Duplicate ids within a tenant
+ * `invoke` is a function. Duplicate ids within a workspace
  * are refused — accidental clobber of a running provider would be
  * catastrophic under a live workload. The same `providerId` may be
  * registered under different tenants (that's the whole point).
@@ -131,10 +132,11 @@ export function createProviderRegistry(
           reason: 'invalid-sampling',
         };
       }
-      if (m.thinking !== undefined && !isModelThinking(m.thinking)) {
+      const thinking = m.thinking === undefined ? undefined : modelThinkingProblem(m.thinking);
+      if (thinking !== undefined) {
         return {
           code: 'invalid-provider',
-          message: `provider "${p.metadata.id}" model "${m.name}" thinking must be { mode: 'adaptive' | 'always', lowest: <the vendor's setting> }`,
+          message: `provider "${p.metadata.id}" model "${m.name}" thinking ${thinking}`,
           reason: 'invalid-thinking',
         };
       }
@@ -166,7 +168,7 @@ export function createProviderRegistry(
     if (m.has(provider.metadata.id)) {
       const dup: DuplicateProviderError = {
         code: 'duplicate-provider',
-        message: `Provider "${provider.metadata.id}" is already registered for tenant "${tenantId}"`,
+        message: `Provider "${provider.metadata.id}" is already registered for workspace "${tenantId}"`,
         providerId: provider.metadata.id,
       };
       return { kind: 'err', error: dup };
@@ -204,14 +206,10 @@ export function createProviderRegistry(
   return { registry, register };
 }
 
-/** `ModelInfo.thinking`'s shape: a known mode and a non-empty vendor setting. */
+/**
+ * `ModelInfo.thinking`'s shape: a known mode, a non-empty vendor setting,
+ * and `levels` and a `default` the model takes (`modelThinkingProblem`).
+ */
 export function isModelThinking(value: unknown): value is ModelThinking {
-  if (typeof value !== 'object' || value === null) return false;
-  const t = value as Record<string, unknown>;
-  return (
-    (t.mode === 'adaptive' || t.mode === 'always') &&
-    typeof t.lowest === 'string' &&
-    t.lowest.length > 0 &&
-    Object.keys(t).every((k) => k === 'mode' || k === 'lowest')
-  );
+  return modelThinkingProblem(value) === undefined;
 }

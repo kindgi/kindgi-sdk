@@ -56,13 +56,18 @@ export interface SessionStoreBinding {
    * The middleware passes the session's own tenant. A store without
    * `resolveToken` must also honor the sentinel `MULTI_TENANT_LOOKUP`,
    * as `get` does.
+   *
+   * If it rejects, the request doesn't wait on it: the middleware logs a
+   * warning, and the session's next request touches again.
    */
   readonly touch?: (input: SessionTouchInput) => Promise<SessionTouchOutcome>;
   /**
    * End every live session one provider opened, in one tenant: the console
    * sessions an API key opened (`api-token:<tokenId>`, from token sign-in)
    * when it's revoked; an identity provider's sign-ins when it's removed.
-   * Absent → those sessions run until they expire.
+   * Absent → those sessions stay live until they expire, except that a
+   * session token sign-in opened is refused once its key is revoked: each
+   * request on it reads the key.
    */
   readonly revokeByProvider?: (
     input: SessionRevokeByProviderInput,

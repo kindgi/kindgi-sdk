@@ -12,17 +12,18 @@ choose what happens when a check fails.
 A guardrail is a rule an agent's turn must satisfy. It's a **check** and an
 **action**. The check is a function over the turn: its answer, its tool calls
 and their results. The action is what happens when the check fails. Kindgi
-runs an agent's guardrails once per turn, on its final answer, before the
-answer is stored.
+runs an agent's guardrails on its final answer, before the answer is stored.
+With a `retry` guardrail, the agent's `halt` and `retry` guardrails judge
+each answer the model writes.
 
 ## What a guardrail can do in 0.1
 
-- **Only `halt` acts.** A failed `halt` guardrail stops the turn with
-  `guardrail-violation`. Any other action is recorded on the turn as a
-  violation, and the turn completes: `retry`, `escalate` and `compensate`
-  don't run the turn again, escalate or call a tool. So a guardrail can't
-  block an answer and have the agent try again. With `halt`, the person or
-  your app sends the message again.
+- **`halt` and `retry` act.** A failed `halt` guardrail stops the turn with
+  `guardrail-violation`. A failed `retry` guardrail sends the answer back to
+  the model with the check's reason, for a new one, and stops the turn the
+  same way once its answers run out. Any other action is recorded on the
+  turn as a violation, and the turn completes: `escalate` and `compensate`
+  don't escalate or call a tool.
 - **A check sees one turn:** the turn's user message, its tool calls and
   their results, and its answer. Earlier turns aren't in it, so a check
   can't compare an answer with what an earlier turn said or fetched.
@@ -38,12 +39,12 @@ and it doesn't cover figures the user typed in an earlier turn.
 
 ## The guides
 
-- [Write a guardrail](write-a-guardrail/): the check, the declaration, and
-  wiring it onto an agent.
+- [Write a guardrail](write-a-guardrail/): the check, the declaration,
+  wiring it onto an agent, and a guardrail a model judges.
 - [Configure a guardrail](configure-a-guardrail/): settings the check runs
   with, and their schema.
-- [Stop a turn or record a violation](halt-or-record/): `halt` versus
-  `log-only`, severity, which agents a guardrail covers, and how a
+- [Stop a turn or record a violation](halt-or-record/): `halt`, `retry`
+  and `log-only`, severity, which agents a guardrail covers, and how a
   guardrail is doing: how often it passed, was violated, blocked a turn or
   couldn't run.
 - [Use a built-in check](use-a-built-in-check/): name one of Kindgi's seven

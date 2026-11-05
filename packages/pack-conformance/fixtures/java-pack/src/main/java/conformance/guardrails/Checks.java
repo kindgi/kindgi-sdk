@@ -7,6 +7,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.kindgi.pack.CheckResult;
 import com.kindgi.pack.Guardrail;
 import jakarta.validation.constraints.Min;
+import java.util.List;
 import java.util.Map;
 
 public final class Checks {
@@ -29,4 +30,13 @@ public final class Checks {
       .check((config, trace) -> {
         throw new IllegalStateException("check boom");
       });
+
+  // The runtime judges an llm-judge guardrail with a model, by its config; it never calls this check.
+  public static final Guardrail<Map<String, Object>> JUDGED = Guardrail.define("conformance.judged")
+      .checkId("conformance.checks.judged")
+      .kind("llm-judge")
+      .set("config", Map.of("rubric", "The reply answers the message.", "responseFormat", "pass-fail"))
+      .judgeCapabilities(Map.of("needs", List.of(Map.of("feature", "structured-output"))))
+      .onViolation("log-only")
+      .check((config, trace) -> CheckResult.pass());
 }

@@ -196,6 +196,47 @@ describe('createProviderRegistry', () => {
     }
   });
 
+  test("thinking: levels and a default the model takes are kept; a default it doesn't take is refused, naming the ones it takes", () => {
+    const { registry, register } = createProviderRegistry();
+    const model = {
+      name: 'sonnet',
+      contextWindow: 200000,
+      features: ['tool-use' as const],
+      cost: { promptUsdPer1kTokens: 0.003, completionUsdPer1kTokens: 0.015 },
+    };
+    const thinking = {
+      mode: 'adaptive' as const,
+      lowest: 'low',
+      levels: ['low', 'medium', 'high', 'xhigh', 'max'] as const,
+      default: 'xhigh' as const,
+    };
+    expect(
+      register(TENANT_A, fakeProvider({ id: 'a', region: 'us', models: [{ ...model, thinking }] }))
+        .kind,
+    ).toBe('ok');
+    expect(registry.get(TENANT_A, 'a')?.metadata.models[0]?.thinking).toEqual(thinking);
+    for (const [i, [bad, takes]] of [
+      // Without levels: the ones every thinking model takes.
+      [{ mode: 'adaptive', lowest: 'low', default: 'xhigh' }, 'lowest, low, medium, high'],
+      [
+        { mode: 'always', lowest: 'low', levels: ['low', 'high'], default: 'medium' },
+        'lowest, low, high',
+      ],
+      // Outside the scale.
+      [{ mode: 'adaptive', lowest: 'low', default: 'extreme' }, 'lowest, low, medium, high'],
+    ].entries()) {
+      const r = register(
+        TENANT_A,
+        fakeProvider({ id: `b${i}`, region: 'us', models: [{ ...model, thinking: bad as never }] }),
+      );
+      expect(r.kind, JSON.stringify(bad)).toBe('err');
+      if (r.kind === 'err' && r.error.code === 'invalid-provider') {
+        expect(r.error.reason).toBe('invalid-thinking');
+        expect(r.error.message).toContain(`isn't a level this model takes: it takes ${takes}`);
+      }
+    }
+  });
+
   test('sampling: a boolean is kept; anything else is refused', () => {
     const { registry, register } = createProviderRegistry();
     const model = {

@@ -11,14 +11,17 @@ import type {
   ParentRunRef,
   RunBinding,
   RunIdempotencyKey,
+  RunMailbox,
   RunReplayRef,
   RunStartedBy,
   RunTriggerRef,
 } from '@kindgi/runtime';
-import type { ToolRegistry, ToolSecretRef } from '@kindgi/tools';
+import type { ConnectionResolver, ToolRegistry, ToolSecretRef } from '@kindgi/tools';
 import type {
+  AgentPinScope,
   AgentVersionVia,
-  LiveScope,
+  EnvName,
+  FileValue,
   OrgId,
   ProjectId,
   ProvenanceId,
@@ -37,6 +40,7 @@ import type { OnTurnEvent } from '../streaming.js';
 import type { TemplateRenderer } from '../template-renderer.js';
 import type { Agent, ConversationId } from '../types.js';
 
+import type { FileBindings } from './files.js';
 import type { ReplayBinding } from './replay.js';
 import type { TurnMemoryBinding } from './turn-memory.js';
 
@@ -50,8 +54,8 @@ export interface InvokeAgentInput {
   /**
    * Content-scope anchor. REQUIRED — every
    * agent turn is a run bound to exactly one project inside the
-   * tenant. Callers without a natural project id resolve to the tenant's
-   * Default via `projectBinding.getDefault(tenantId)` (`@kindgi/api`)
+   * workspace. Callers without a natural project id resolve to the workspace's
+   * default via `projectBinding.getDefault(tenantId)` (`@kindgi/api`)
    * at the caller layer.
    */
   readonly projectId: ProjectId;
@@ -65,11 +69,18 @@ export interface InvokeAgentInput {
   readonly conversationId: ConversationId;
   /** Why the caller chose this agent version; recorded on the run (`RunAgentRef.via`). */
   readonly versionVia?: AgentVersionVia;
-  /** The live pin that chose it, when `versionVia` is `live`. */
-  readonly liveScope?: LiveScope;
+  /** The pin that chose it, when `versionVia` is `pinned`. */
+  readonly pinnedScope?: AgentPinScope;
   /** The segment path the turn runs for; recorded on its run (`KernelRunRecord.segments`). */
   readonly segments?: readonly ScopeSegment[];
   readonly userMessage: string;
+  /**
+   * Stored files the turn's message carries: the run input's `files`, which
+   * the runtime admitted when the run started. The user message carries
+   * them, and the conversation keeps them with it. The model is shown them
+   * as the run's rule and the agent's `vision` need allow.
+   */
+  readonly files?: readonly FileValue[];
   readonly parameters?: Readonly<Record<string, string | number | boolean>>;
   /**
    * Structured input for this turn — what a flow step hands its agent.
@@ -84,7 +95,7 @@ export interface InvokeAgentInput {
    */
   readonly parent?: ParentRunRef;
   /**
-   * Marks the turn as a replay: an eval run re-running a past run (`of`)
+   * Marks the turn as a replay: a test run re-running a past run (`of`)
    * on this agent version. Recorded on the turn's run and in its snapshot.
    * Its tool calls are decided by `InvokeAgentBindings.replay` (every call
    * is refused when that isn't wired), and only a read-only tool can run.
@@ -98,19 +109,27 @@ export interface InvokeAgentInput {
    * How the turn's run started (`RunStartedBy`); its run records it. Only
    * `person` counts as attended: in any other turn, or one without it, a
    * tool that declares `needsApprovalWhenUnattended` waits for a person's
-   * yes whatever the agent's approval rules say, and a turn a webhook or
-   * an event started reads its message as data (`<event>`).
+   * yes whatever the agent's approval rules say, and a turn a webhook, an
+   * event or a mail started reads its message as data (`<event>`).
    */
   readonly startedBy?: RunStartedBy;
   /**
    * The tools, by id, whose `needsApprovalWhenUnattended` doesn't hold in
    * this turn though no person started its run: the
-   * `toolsAllowedUnattended` of the webhook or schedule that started it,
-   * recorded with the run (`RunFlowInput.toolsAllowedUnattended`). Only
-   * that wait is lifted: the tenant's floor and the agent's own rules
+   * `toolsAllowedUnattended` of the webhook, schedule or mail trigger that
+   * started it, recorded with the run (`RunFlowInput.toolsAllowedUnattended`).
+   * Only that wait is lifted: the workspace's floor and the agent's own rules
    * still apply. Set by the runtime from the run, never from a request.
    */
   readonly toolsAllowedUnattended?: readonly string[];
+  /**
+   * The mailbox the turn's mail came from, on a turn a mail trigger
+   * started (`RunFlowInput.mailbox`): a call with a connection of its app
+   * and kind waits for a person's yes, read-only or not, unless the
+   * trigger lists the tool. Set by the runtime from the run, never from a
+   * request.
+   */
+  readonly mailbox?: RunMailbox;
   /**
    * The turn's message is an event's, though no webhook or event starts
    * this run: a replay of a run one started sets it (its turn, or a flow's
@@ -127,7 +146,9 @@ export interface InvokeAgentInput {
    * When `true`, executes the turn as a plan preview: no side effects
    * to the conversation, memory, or provenance. Retrievals + guardrails
    * still run for real (pure reads); the model call is skipped and
-   * returns a fixed mock response with no tool calls, so no tools run;
+   * returns a fixed mock response with no tool calls, so no tools run
+   * and no guardrail runs at a loop point; a failed `halt` or `retry`
+   * guardrail at the final answer fails the turn, as in any run;
    * every `persist-*` node skips its write. The returned
    * `AgentTurnResult` carries `dryRun: true`, and the underlying run is
    * journaled as a dry run.
@@ -152,16 +173,16 @@ export interface InvokeAgentInput {
 
 export interface InvokeAgentBindings extends GuardrailsBindings {
   /**
-   * Model providers. Setup hydrates the tenant's providers (when the
+   * Model providers. Setup hydrates the workspace's providers (when the
    * registry supports it) and routes the agent's first capability over
-   * `list(tenantId)` under the merged tenant policy; llm-judge
+   * `list(tenantId)` under the merged workspace policy; llm-judge
    * guardrails route through it too.
    */
   readonly providerRegistry: ProviderRegistry;
   /**
    * Tools. Setup calls `forTenant(tenantId)` and resolves the agent's
-   * tool refs on the returned tenant-bound registry, so a turn never
-   * sees another tenant's tools.
+   * tool refs on the returned workspace-bound registry, so a turn never
+   * sees another workspace's tools.
    */
   readonly toolRegistry: ToolRegistry;
   /**
@@ -213,12 +234,12 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    */
   readonly runBinding?: RunBinding;
   /**
-   * Statically-injected tenant policy for model routing. When a
+   * Statically-injected workspace policy for model routing. When a
    * `policyRegistry` also yields a policy, the two are MERGED so the
    * result is at least as strict as each: allow lists intersect, deny
    * lists union, cost/token caps take the smaller value.
    *
-   * Absent-and-registry-absent = router runs without any tenant policy.
+   * Absent-and-registry-absent = router runs without any workspace policy.
    */
   readonly tenantPolicy?: TenantPolicy;
   /**
@@ -250,6 +271,13 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    */
   readonly turnMemory?: TurnMemoryBinding;
   /**
+   * The turn's stored files: for the turn's run, the run's rule for which
+   * files its model may be shown, and their bytes for each model call.
+   * Absent: no file is shown, and a tool result's file values stay plain
+   * JSON.
+   */
+  readonly files?: FileBindings;
+  /**
    * Where the turn records what each guardrail's check came to (passed,
    * violated, blocked or errored), before it acts on them: a blocked turn
    * is recorded before it fails. Replays and dry runs aren't recorded.
@@ -258,7 +286,7 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
   readonly guardrailOutcomes?: GuardrailOutcomeSink;
   /**
    * Declarative HTTP tools: optional secret resolver populated
-   * from the deployment's tenant-scoped `SecretBinding`. When present,
+   * from the deployment's workspace-scoped `SecretBinding`. When present,
    * `dispatch-tools` threads it into every `ToolContext` so
    * declarative HTTP tools (spec kind 'http') can resolve declared `secret_ref`s at
    * invoke time. Absent → HTTP tools that declare `authorization`
@@ -281,9 +309,13 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    *   without an answer.
    * - **A built-in tool** (`kindgi_<verb>`) is asked only when what it
    *   touches reaches beyond the turn's project: `kindgi_remember` for a
-   *   tenant-scope fact.
+   *   workspace-scope fact.
    * - **`principal` is absent** for a turn that has none. The authorizer
    *   decides what that gets.
+   * - **`toolVersion` is the version the call runs:** the one the turn
+   *   resolved for the agent's range, or a built-in's own. The turn sets it
+   *   on every check, so a rule can differ per version, as a flow's tool
+   *   step is checked on the exact version it runs.
    *
    * The Kindgi runtime checks `invoke` on the tool for the turn's
    * principal. Absent: every call is allowed.
@@ -293,7 +325,35 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
     readonly projectId: ProjectId;
     readonly principal?: Principal;
     readonly toolId: string;
+    /** The version the call runs. The turn sets it on every check. */
+    readonly toolVersion?: string;
   }) => Promise<ToolCallAuthorization>;
+  /**
+   * Where a tool call gets the connections its tool declares
+   * (`needsSpec.connections`), before it runs: the runtime's resolver, and
+   * the env it serves.
+   *
+   * - **Once per call, recorded:** a person's connection that's missing,
+   *   lacks a permission or needs reconnecting makes a connect request when
+   *   a person started the run, and the call waits for them to connect
+   *   (`waitingFor.connections`). Any other run can't wait: the call fails.
+   * - **Every time the tool runs,** the tokens are asked for fresh and never
+   *   recorded (`ToolContext.connections`). When the app refuses one
+   *   (`ConnectionRejectedError`), it's renewed and the call runs once more.
+   *   A need that comes to another connection than the first ask's fails
+   *   the call with `connection-changed`.
+   * - **A call it stops runs nothing:** its result tells the model why
+   *   (`{ status: 'failed', error: { code, message } }`, a `connection-*`
+   *   code), and the turn goes on. Several company connections of an app
+   *   and no choice of one fails the turn instead (`connection-not-chosen`).
+   * - **Approvals:** a call that acts with a person's connection and asks
+   *   for an approval asks that person alone (`HitlEnqueueInput.approver`).
+   *   The approval shows the connection, a company one's too.
+   *
+   * Absent: a call to a tool that declares a connection fails with
+   * `connection-app-missing`; no other call changes.
+   */
+  readonly connections?: TurnConnections;
   /**
    * How replay turns (`InvokeAgentInput.replay`) decide their tool calls,
    * retrievals and session approval. Consulted only for a replay turn.
@@ -308,13 +368,24 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
   readonly templateRenderer?: TemplateRenderer;
 }
 
+/** `InvokeAgentBindings.connections`. */
+export interface TurnConnections {
+  /** The env the runtime serves: a call uses the connections made in it. */
+  readonly envName: EnvName;
+  readonly resolver: ConnectionResolver;
+}
+
 export interface HitlBindings {
   /**
    * Open the approval a gate asks for. A binding refuses one past the
-   * tenant's limit on approvals waiting by throwing an error with
+   * workspace's limit on approvals waiting by throwing an error with
    * `code: 'approvals-pending-limit'` (and `approvalsPending`, the limit):
-   * the step then fails with that code, naming the limit. Any other throw
-   * is soft: the gate still waits.
+   * the step then fails with that code, naming the limit. It refuses one
+   * whose `approver` has no reviewer seat at its `requiredRole` or above
+   * by throwing an error with `code: 'approver-not-a-reviewer'` (and
+   * `approverUserId`, `requiredRole`): the call then fails with
+   * `connection-approver-not-a-reviewer`, and the turn goes on. Any other
+   * throw is soft: the gate still waits.
    */
   readonly enqueue: (input: HitlEnqueueInput) => Promise<HitlEnqueueResult>;
 }
@@ -338,6 +409,31 @@ export interface HitlEnqueueInput {
    * `false`.
    */
   readonly separateApprover?: boolean;
+  /**
+   * The one member who decides it: approves, rejects or withdraws it. It's
+   * listed to them alone among the reviewers, and needs them to hold a
+   * reviewer seat at `requiredRole` or above. The tool gate sets it when
+   * the call acts with a person's connection: to that connection's owner.
+   * Absent: the reviewers decide, as before.
+   */
+  readonly approver?: { readonly kind: 'member'; readonly userId: string };
+  /**
+   * The account the call acts as, shown to its reviewer: the app's id and
+   * name, whose it is, and, for the company's, the account as people know
+   * it (`owner@acme.example`) and the connection's name. A person's
+   * connection, or else the company's the gate decided on. A person's
+   * account isn't named: the reviewer sees "this person's <app> account".
+   */
+  readonly connection?: {
+    readonly app: string;
+    readonly appName: string;
+    /** Whose connection: the company's, or a person's. Absent from older approvals. */
+    readonly as?: 'company' | 'person';
+    /** The company's account at the app. A person's has none; older approvals have theirs. */
+    readonly account?: string;
+    /** The company connection's name: its label, else its account's label. A person's has none. */
+    readonly name?: string;
+  };
   readonly title?: string;
   readonly description?: string;
   readonly context?: Readonly<Record<string, unknown>>;

@@ -48,11 +48,13 @@ import {
   isPackageVersion,
   readPnpmVersion,
   scriptCommand,
+  scriptRunner,
   usablePackageManager,
 } from '../package-manager.js';
+import { note, renderLines, warning } from '../progress-lines.js';
 import { resolveSdkPackageRoot } from '../sdk-package.js';
 import { CLI_VERSION } from '../version-info.js';
-import { syncSkills } from './skills.js';
+import { skillCopyPaths, syncSkills } from './skills.js';
 import type { CommandResult, LeafCommand } from './types.js';
 
 /**
@@ -75,12 +77,12 @@ export const initCommand: LeafCommand = {
   description:
     'Scaffold a new Kindgi pack repo, or add Kindgi to an existing app: a Node.js, Python, Maven or sbt project, auto-detected from its `package.json`, `pyproject.toml`, `pom.xml` or `build.sbt` when no pack-name is given.',
   usage:
-    'kindgi init [<pack-name>] [--template=minimal|sample|woocommerce|drupal|python|java|scala] [--path=<dir>] [--force] [--link-local] [--new-repo]',
+    'kindgi init [<pack-name>] [--template=minimal|sample|woocommerce|drupal|follow-up|returns-helper|python|java|scala] [--path=<dir>] [--force] [--link-local] [--new-repo]',
   optionSpec: {
     template: {
       type: 'string',
       description:
-        'The starter: `minimal` (default; empty primitive folders), `sample` (tools, a guardrail, an agent and a flow), `woocommerce` (agents for a WooCommerce store, with approvals), `drupal` (agents for a Drupal site through its MCP Server, with approvals), `python` (a Python pack), `java` (a Java pack, built with Maven; preview) or `scala` (a Scala pack, built with sbt; preview).',
+        'The starter: `minimal` (default; empty primitive folders), `sample` (tools, a guardrail, an agent and a flow), `woocommerce` (agents for a WooCommerce store, with approvals), `drupal` (agents for a Drupal site through its MCP Server, with approvals), `follow-up` (an agent that writes a follow-up mail from your notes and sends it from your Gmail once you approve it), `python` (a Python pack), `java` (a Java pack, built with Maven; preview) or `scala` (a Scala pack, built with sbt; preview).',
     },
     path: {
       type: 'string',
@@ -127,6 +129,8 @@ export const AVAILABLE_TEMPLATES = [
   'sample',
   'woocommerce',
   'drupal',
+  'follow-up',
+  'returns-helper',
   'python',
   'java',
   'scala',
@@ -193,6 +197,7 @@ export async function runInit(
       ...(skillsRoot !== undefined && { skillsRoot }),
       ...(typeof packIdRaw === 'string' && packIdRaw !== '' && { packIdOverride: packIdRaw }),
       force: ctx.options.force === true,
+      format: ctx.globals.format,
     });
   }
 
@@ -213,6 +218,7 @@ export async function runInit(
       ...(skillsRoot !== undefined && { skillsRoot }),
       ...(typeof packIdRaw === 'string' && packIdRaw !== '' && { packIdOverride: packIdRaw }),
       force: ctx.options.force === true,
+      format: ctx.globals.format,
     });
   }
 
@@ -235,6 +241,7 @@ export async function runInit(
       ...(skillsRoot !== undefined && { skillsRoot }),
       ...(typeof packIdRaw === 'string' && packIdRaw !== '' && { packIdOverride: packIdRaw }),
       force: ctx.options.force === true,
+      format: ctx.globals.format,
       pypi: cliInstall(ctx.env) === 'pypi',
     });
   }
@@ -251,6 +258,7 @@ export async function runInit(
       ...(skillsRoot !== undefined && { skillsRoot }),
       ...(typeof packIdRaw === 'string' && packIdRaw !== '' && { packIdOverride: packIdRaw }),
       force: ctx.options.force === true,
+      format: ctx.globals.format,
       linkLocal: ctx.options['link-local'] === true,
     });
   }
@@ -282,6 +290,20 @@ function augmentTemplate(
       kind: 'err',
       stderr:
         'The drupal template makes a pack of its own (its agents share the site settings in lib/), so init does not add it to an existing app.\nFor a standalone Drupal pack here: kindgi init <pack-name> --template=drupal --new-repo\n',
+    };
+  }
+  if (name === 'follow-up') {
+    return {
+      kind: 'err',
+      stderr:
+        'The follow-up template makes a pack of its own (its send tool comes from @kindgi/connections, which this app does not depend on), so init does not add it to an existing app.\nFor a standalone follow-up pack here: kindgi init <pack-name> --template=follow-up --new-repo\n',
+    };
+  }
+  if (name === 'returns-helper') {
+    return {
+      kind: 'err',
+      stderr:
+        'The returns-helper template makes a pack of its own (its tools share sample orders in lib/, and its agent pins blocks/), so init does not add it to an existing app.\nFor a standalone returns-helper pack here: kindgi init <pack-name> --template=returns-helper --new-repo\n',
     };
   }
   if (name === 'python') {
@@ -347,7 +369,7 @@ async function runInitFresh(
     PACK_ID: args.packName,
     PACK_VERSION: DEFAULT_PACK_VERSION,
   };
-  const filesWritten = await scaffoldTemplate({
+  const { written: filesWritten, templated } = await scaffoldTemplate({
     templateDir,
     targetDir: args.targetDir,
     substitutions,
@@ -393,14 +415,16 @@ async function runInitFresh(
   const specs = resolvedSpecs.specs;
   if (specs.source !== 'workspace') await rewriteTemplateDependencySpecs(args.targetDir, specs);
 
-  // The README's commands are the Next steps' own: the same install and
-  // the same `kindgi` runner, for the manager that installs it here.
+  // The README's commands (and a starter script's) are the Next steps' own:
+  // the same install and the same `kindgi` runner, for the manager that
+  // installs it here.
   const runner = {
     INSTALL: installCommand(packageManager),
     TYPECHECK: scriptCommand(packageManager, 'typecheck'),
     KINDGI: binDisplay(packageManager, 'kindgi'),
+    RUN: scriptRunner(packageManager),
   };
-  await fillReadmeRunner(args.targetDir, runner);
+  await fillRunner(templated, runner);
   const displayPath = relative(ctx.cwd, args.targetDir) || '.';
   const nextSteps = [
     `cd ${displayPath}`,
@@ -408,26 +432,32 @@ async function runInitFresh(
     `${runner.KINDGI} dev  # runs the Kindgi runtime (Docker) + hot-reloads this pack`,
   ];
 
-  const stderr = [
-    `✓ Pack scaffolded at ${args.targetDir}/`,
-    ...access.lines,
-    ...(pnpmPin.kind === 'pinned'
-      ? [`✓ package.json pins pnpm@${pnpmPin.version} (packageManager)`]
-      : []),
-    '',
-    'Next steps:',
-    ...nextSteps.map((s) => `  ${s}`),
-    '',
-    ...(pnpmPin.kind === 'unread'
-      ? [
-          `package.json has no packageManager: pnpm's version couldn't be read here (${pnpmPin.reason}).`,
-          'Add "packageManager": "pnpm@<version>" (the pnpm you install with), so kindgi build, CI and teammates use the same pnpm.',
-          '',
-        ]
-      : []),
-    "Read the pack's README.md for details.",
-    '',
-  ].join('\n');
+  const stderr = renderLines(
+    [
+      note(`✓ Pack scaffolded at ${args.targetDir}/`),
+      ...access.lines,
+      ...(pnpmPin.kind === 'pinned'
+        ? [note(`✓ package.json pins pnpm@${pnpmPin.version} (packageManager)`)]
+        : []),
+      note(''),
+      note('Next steps:'),
+      ...nextSteps.map((s) => note(`  ${s}`)),
+      note(''),
+      ...(pnpmPin.kind === 'unread'
+        ? [
+            warning(
+              `package.json has no packageManager: pnpm's version couldn't be read here (${pnpmPin.reason}).`,
+            ),
+            warning(
+              'Add "packageManager": "pnpm@<version>" (the pnpm you install with), so kindgi build, CI and teammates use the same pnpm.',
+            ),
+            note(''),
+          ]
+        : []),
+      note("Read the pack's README.md for details."),
+    ],
+    ctx.globals.format === 'quiet',
+  );
 
   const payload = {
     template: args.template,
@@ -518,7 +548,7 @@ async function runInitPython(
   // How the pack runs its `kindgi`: `uv run kindgi` with the PyPI CLI in
   // its dev group, else the `kindgi` on PATH. The README says the same.
   const kindgi = binDisplay(pypi ? 'uv' : 'path', 'kindgi');
-  const filesWritten = await scaffoldTemplate({
+  const { written: filesWritten } = await scaffoldTemplate({
     templateDir,
     targetDir: args.targetDir,
     substitutions: {
@@ -554,16 +584,18 @@ async function runInitPython(
     'uv run pytest',
     `${kindgi} dev  # boots Kindgi locally + runs this pack with its .venv, reloading on save`,
   ];
-  const stderr = [
-    `✓ Python pack scaffolded at ${args.targetDir}/`,
-    ...access.lines,
-    '',
-    'Next steps:',
-    ...nextSteps.map((s) => `  ${s}`),
-    '',
-    "Read the pack's README.md for details.",
-    '',
-  ].join('\n');
+  const stderr = renderLines(
+    [
+      note(`✓ Python pack scaffolded at ${args.targetDir}/`),
+      ...access.lines,
+      note(''),
+      note('Next steps:'),
+      ...nextSteps.map((s) => note(`  ${s}`)),
+      note(''),
+      note("Read the pack's README.md for details."),
+    ],
+    ctx.globals.format === 'quiet',
+  );
   const rendered = renderJson(
     {
       template: args.template,
@@ -596,7 +628,7 @@ async function runInitJava(
   const source = await resolveKindgiJavaSource();
   if (source.kind === 'error') return { kind: 'error', stderr: `${source.message}\n`, exitCode: 1 };
   const javaPackage = javaPackageOf(args.packName);
-  const filesWritten = await scaffoldTemplate({
+  const { written: filesWritten } = await scaffoldTemplate({
     templateDir,
     targetDir: args.targetDir,
     substitutions: {
@@ -633,17 +665,19 @@ async function runInitJava(
     './mvnw test',
     `${binDisplay('kindgiw', 'kindgi', ['dev'])}  # the CLI the pack pins (kindgi.config.json "cli"): boots Kindgi locally + compiles and runs this pack, recompiling on save`,
   ];
-  const stderr = [
-    `✓ Java pack scaffolded at ${args.targetDir}/ (preview)`,
-    ...access.lines,
-    `  ${JVM_PREVIEW}`,
-    '',
-    'Next steps (a JDK 17 or later, JAVA_HOME set):',
-    ...nextSteps.map((s) => `  ${s}`),
-    '',
-    "Read the pack's README.md for details.",
-    '',
-  ].join('\n');
+  const stderr = renderLines(
+    [
+      note(`✓ Java pack scaffolded at ${args.targetDir}/ (preview)`),
+      ...access.lines,
+      note(`  ${JVM_PREVIEW}`),
+      note(''),
+      note('Next steps (a JDK 17 or later, JAVA_HOME set):'),
+      ...nextSteps.map((s) => note(`  ${s}`)),
+      note(''),
+      note("Read the pack's README.md for details."),
+    ],
+    ctx.globals.format === 'quiet',
+  );
   const rendered = renderJson(
     {
       template: args.template,
@@ -707,7 +741,7 @@ async function runInitScala(
   const source = await resolveKindgiJavaSource();
   if (source.kind === 'error') return { kind: 'error', stderr: `${source.message}\n`, exitCode: 1 };
   const scalaPackage = scalaPackageOf(args.packName);
-  const filesWritten = await scaffoldTemplate({
+  const { written: filesWritten } = await scaffoldTemplate({
     templateDir,
     targetDir: args.targetDir,
     substitutions: {
@@ -754,17 +788,19 @@ async function runInitScala(
     'sbt test',
     `${binDisplay('kindgiw', 'kindgi', ['dev'])}  # the CLI the pack pins (kindgi.config.json "cli"): boots Kindgi locally + compiles and runs this pack, recompiling on save`,
   ];
-  const stderr = [
-    `✓ Scala pack scaffolded at ${args.targetDir}/ (preview)`,
-    ...access.lines,
-    `  ${JVM_PREVIEW}`,
-    '',
-    'Next steps (a JDK 17 or later, JAVA_HOME set, and sbt):',
-    ...nextSteps.map((s) => `  ${s}`),
-    '',
-    "Read the pack's README.md for details.",
-    '',
-  ].join('\n');
+  const stderr = renderLines(
+    [
+      note(`✓ Scala pack scaffolded at ${args.targetDir}/ (preview)`),
+      ...access.lines,
+      note(`  ${JVM_PREVIEW}`),
+      note(''),
+      note('Next steps (a JDK 17 or later, JAVA_HOME set, and sbt):'),
+      ...nextSteps.map((s) => note(`  ${s}`)),
+      note(''),
+      note("Read the pack's README.md for details."),
+    ],
+    ctx.globals.format === 'quiet',
+  );
   const rendered = renderJson(
     {
       template: args.template,
@@ -819,20 +855,26 @@ function resolveFreshArgs(ctx: CommandContext, packName: string, targetDir: stri
   };
 }
 
-/** Fill the README's runner placeholders, once the package manager is known. */
-async function fillReadmeRunner(targetDir: string, runner: RunnerPlaceholders): Promise<void> {
-  const path = join(targetDir, 'README.md');
-  if (!existsSync(path)) return;
-  await writeFile(path, fillRunnerPlaceholders(await readFile(path, 'utf8'), runner), 'utf8');
+/**
+ * Fill the runner placeholders in the files rendered from `.tmpl` (the
+ * README, a starter's scripts), once the package manager is known.
+ */
+async function fillRunner(templated: readonly string[], runner: RunnerPlaceholders): Promise<void> {
+  for (const path of templated) {
+    const raw = await readFile(path, 'utf8');
+    const filled = fillRunnerPlaceholders(raw, runner);
+    if (filled !== raw) await writeFile(path, filled, 'utf8');
+  }
 }
 
 async function scaffoldTemplate(inputs: {
   readonly templateDir: string;
   readonly targetDir: string;
   readonly substitutions: Substitutions;
-}): Promise<string[]> {
+}): Promise<{ readonly written: string[]; readonly templated: readonly string[] }> {
   const files = await collectTemplateFiles(inputs.templateDir);
   const written: string[] = [];
+  const templated: string[] = [];
   for (const rel of files) {
     const src = join(inputs.templateDir, rel);
     const dest = join(
@@ -847,6 +889,7 @@ async function scaffoldTemplate(inputs: {
       const raw = await readFile(src, 'utf8');
       const rendered = substitute(raw, inputs.substitutions);
       await writeFile(dest, rendered, 'utf8');
+      templated.push(dest);
     } else {
       const bytes = await readFile(src);
       await writeFile(dest, bytes);
@@ -856,7 +899,7 @@ async function scaffoldTemplate(inputs: {
     written.push(dest);
   }
   written.sort();
-  return written;
+  return { written, templated };
 }
 
 async function isNonEmptyDir(path: string): Promise<boolean> {
@@ -881,7 +924,8 @@ async function pathExists(path: string): Promise<boolean> {
 
 /**
  * Stamp the resolved specs over the template's `workspace:*` entries
- * for `@kindgi/sdk` (dependencies) and `@kindgi/cli` (devDependencies).
+ * for `@kindgi/sdk` and `@kindgi/connections` (dependencies) and
+ * `@kindgi/cli` (devDependencies).
  */
 async function rewriteTemplateDependencySpecs(
   targetDir: string,
@@ -893,6 +937,9 @@ async function rewriteTemplateDependencySpecs(
     devDependencies?: Record<string, string>;
   };
   if (pkg.dependencies?.['@kindgi/sdk'] !== undefined) pkg.dependencies['@kindgi/sdk'] = specs.sdk;
+  if (pkg.dependencies?.['@kindgi/connections'] !== undefined) {
+    pkg.dependencies['@kindgi/connections'] = specs.connections;
+  }
   if (pkg.devDependencies?.['@kindgi/cli'] !== undefined) {
     pkg.devDependencies['@kindgi/cli'] = specs.cli;
   }
@@ -927,8 +974,9 @@ export function defaultSdkSkillsRoot(): string | undefined {
 }
 
 /**
- * Copy every `<skill-name>/SKILL.md` written for packs in `language`
- * from `skillsRoot` into `<targetDir>/<folder>/<skill-name>/SKILL.md`, for each of
+ * Copy every skill written for packs in `language` from `skillsRoot`
+ * into `<targetDir>/<folder>/<skill-name>/`, its `SKILL.md` and the files
+ * beside it, for each of
  * `.claude/skills/` (Claude Code) and `.agents/skills/` (Codex, Gemini CLI and
  * others). Coding agents load skills based on their frontmatter `description`
  * — no user action required after init.
@@ -953,5 +1001,5 @@ async function copySkills(inputs: {
   });
   return report.outcomes
     .filter((o) => o.status === 'added' || o.status === 'updated')
-    .map((o) => join(inputs.targetDir, o.folder, o.name, 'SKILL.md'));
+    .flatMap((o) => skillCopyPaths(inputs.targetDir, o, 'written'));
 }

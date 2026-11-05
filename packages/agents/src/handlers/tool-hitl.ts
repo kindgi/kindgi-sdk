@@ -90,21 +90,57 @@ function canonicalStringify(value: unknown): string {
 export const TOOL_GATE_RECORD_PREFIX = 'tool-hitl-gate:';
 
 /**
- * Deterministic waitpoint token for a tool-call gate. Includes both
- * the model-generated call id (unique per iteration) AND the args hash
- * so kernel flow replay lands on the same token, and a re-issued
- * tool-call in a later iteration gets its own gate.
+ * Deterministic waitpoint token for a tool-call gate: call `callId` of run
+ * `runId`, with arguments hashed to `argsHash`, in the step `stepScope` when
+ * the step has one. A model's call id is unique only within one answer, so
+ * two loop iterations may share one: with the step scope, a call a later
+ * iteration makes again, with the same arguments, waits for an answer of its
+ * own instead of finding the earlier one's. A replay of the call lands on the
+ * same token.
  */
 export function computeToolCallWaitToken(input: {
   readonly runId: string;
+  readonly stepScope?: string;
   readonly callId: string;
   readonly argsHash: string;
 }): string {
+  const step = input.stepScope === undefined ? '' : `${input.stepScope}:`;
   return createHash('sha256')
-    .update(`tool-call:${input.runId}:${input.callId}:${input.argsHash}`)
+    .update(`tool-call:${input.runId}:${step}${input.callId}:${input.argsHash}`)
     .digest('hex')
     .slice(0, 40);
 }
+
+/**
+ * Deterministic waitpoint token for a call's wait for a connect: the
+ * connection the tool names `name`, in call `callId` of run `runId`, in
+ * the step `stepScope` when the step has one (a model's call id is unique
+ * only within one answer, so two loop iterations may share one). A replay
+ * of the call lands on the same token, and a call asks for a connection
+ * at most once, so there's no attempt number. A runtime that makes the
+ * connect request computes the same token.
+ */
+export function computeConnectWaitToken(input: {
+  readonly runId: string;
+  readonly stepScope?: string;
+  readonly callId: string;
+  readonly name: string;
+}): string {
+  const step = input.stepScope === undefined ? '' : `${input.stepScope}:`;
+  return createHash('sha256')
+    .update(`connect:${input.runId}:${step}${input.callId}:${input.name}`)
+    .digest('hex')
+    .slice(0, 40);
+}
+
+/**
+ * What completes a call's wait for a connect: the person connected, or
+ * they declined. `missing` lists the permissions they didn't grant, when
+ * they granted less than the call needs.
+ */
+export type ConnectWaitResult =
+  | { readonly kind: 'connected'; readonly connectionId: string }
+  | { readonly kind: 'declined'; readonly missing?: readonly string[] };
 
 /**
  * In-conversation cache of decisions for `ask_on_first_use`. Persisted

@@ -17,8 +17,8 @@ import type { ProjectId, TenantId } from '@kindgi/types';
  * The class a counted run is in, fixed when the run is created:
  * - `production`: an ordinary run in a project that's in production;
  * - `staging`: an ordinary run in a project that isn't;
- * - `dry-run`, `replay`, `eval`: a dry run, a replay of a run, a run of an
- *   eval suite, wherever it runs;
+ * - `dry-run`, `replay`, `eval`: a dry run, a replay of a run, a run of a
+ *   test set's case in a test run, wherever it runs;
  * - `child`: a run started inside another run, which counts as part of it.
  */
 export const USAGE_CLASSES = [

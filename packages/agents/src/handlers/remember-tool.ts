@@ -13,13 +13,13 @@
 import { randomUUID } from 'node:crypto';
 
 import type { ModelToolDefinition } from '@kindgi/capabilities';
+import { MAX_REMEMBERED_TEXT, rememberedTextProblem } from '@kindgi/memory';
 import { type Tool, type ToolContext, defineTool } from '@kindgi/tools';
 import type { Timestamp, ToolId } from '@kindgi/types';
 
 import {
   DEFAULT_REMEMBER_DAYS,
   MAX_REMEMBER_KEY,
-  MAX_REMEMBER_TEXT,
   REMEMBER_TOOL_ID,
   REMEMBER_TOOL_VERSION,
   rememberTarget,
@@ -90,7 +90,7 @@ function rememberTool(ctx: TurnContext, policy: RememberPolicy): Tool {
         content: {
           type: 'string',
           minLength: 1,
-          maxLength: MAX_REMEMBER_TEXT,
+          maxLength: MAX_REMEMBERED_TEXT,
           description: 'The fact, in one or two plain sentences.',
         },
         key: {
@@ -151,6 +151,9 @@ async function remember(
   if (writer === undefined) {
     return notRemembered('Not remembered: this runtime cannot store agent memories.');
   }
+  // The schema bounds the text; this also refuses one of only spaces.
+  const problem = rememberedTextProblem(args.content);
+  if (problem !== undefined) return notRemembered(`Not remembered: the text ${problem}.`);
   const userId = runUserId(ctx.input.principal);
   const participantId = ctx.conversation?.participantId ?? ctx.input.participantId;
   const target = rememberTarget(policy.scope, {

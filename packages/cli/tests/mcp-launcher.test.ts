@@ -531,6 +531,8 @@ describe('runLauncher', () => {
         `--pack-dir=${packDir}`,
       ],
       {
+        // The command as built: the real lookup is in program-path-callers.test.ts.
+        programPath: async (command) => command,
         spawn: spawnSpy as never,
         onSignal: () => () => {},
       },
@@ -562,6 +564,7 @@ describe('runLauncher', () => {
         `--pack-dir=${packDir}`,
       ],
       {
+        programPath: async (command) => command,
         spawn: spawnSpy as never,
         onSignal: () => () => {},
       },
@@ -587,6 +590,7 @@ describe('runLauncher', () => {
         `--pack-dir=${packDir}`,
       ],
       {
+        programPath: async (command) => command,
         spawn: spawnSpy as never,
         onSignal: (handler) => {
           signalHandler = handler;

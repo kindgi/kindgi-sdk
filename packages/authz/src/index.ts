@@ -8,3 +8,4 @@ export * from './tuples.js';
 export * from './enqueue.js';
 export * from './check.js';
 export * from './reviewer.js';
+export * from './trigger-target.js';

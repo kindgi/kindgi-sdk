@@ -3,7 +3,9 @@
 
 /**
  * The version specs `kindgi init` writes for `@kindgi/sdk` (dependency)
- * and `@kindgi/cli` (devDependency) — one answer for both init modes.
+ * and `@kindgi/cli` (devDependency) — one answer for both init modes —
+ * and for `@kindgi/connections`, which a template that uses an app's
+ * tools depends on.
  * The CLI is project-local: a project runs the `kindgi` it pins, never a
  * global one.
  *
@@ -12,12 +14,14 @@
  *   - **published** — the CLI sits under `node_modules`. `@kindgi/cli`
  *     pins the running CLI's version; `@kindgi/sdk` uses the spec the
  *     published CLI itself depends on (pnpm rewrites `workspace:*` at
- *     publish time).
+ *     publish time). `@kindgi/connections` pins the CLI's version too:
+ *     every `@kindgi/*` package is released at one version.
  *   - **workspace** — a source checkout, and the target is inside the
  *     same pnpm workspace (`packs/foo`): `workspace:*` for both.
  *   - **local-checkout** — a source checkout, target elsewhere (an
- *     existing app, a pilot repo) or `--link-local`: symlink both
- *     packages from the checkout (`link:`, or `file:` for npm).
+ *     existing app, a pilot repo) or `--link-local`: symlink the
+ *     packages from the checkout (`link:`, or `file:` for npm);
+ *     `@kindgi/connections` is the SDK's sibling there.
  *
  * Never `latest` — an unpinned spec resolves to whatever the registry
  * serves that day, and before publishing it resolves to nothing.
@@ -36,6 +40,7 @@ export interface KindgiDependencySpecs {
   readonly source: DependencySource;
   readonly sdk: string;
   readonly cli: string;
+  readonly connections: string;
 }
 
 export interface ResolveDependencySpecsInput {
@@ -84,14 +89,27 @@ export async function resolveKindgiDependencySpecs(
     const workspace = await findPnpmWorkspaceRoot(cliRoot, exists);
     const target = await realpath(input.targetDir);
     if (workspace !== undefined && isInside(target, workspace)) {
-      return { kind: 'ok', specs: { source: 'workspace', sdk: 'workspace:*', cli: 'workspace:*' } };
+      return {
+        kind: 'ok',
+        specs: {
+          source: 'workspace',
+          sdk: 'workspace:*',
+          cli: 'workspace:*',
+          connections: 'workspace:*',
+        },
+      };
     }
   }
 
   const protocol = localLinkProtocol(input.packageManager);
   return {
     kind: 'ok',
-    specs: { source: 'local-checkout', sdk: `${protocol}${sdkRoot}`, cli: `${protocol}${cliRoot}` },
+    specs: {
+      source: 'local-checkout',
+      sdk: `${protocol}${sdkRoot}`,
+      cli: `${protocol}${cliRoot}`,
+      connections: `${protocol}${join(dirname(sdkRoot), 'connections')}`,
+    },
   };
 }
 
@@ -103,7 +121,10 @@ function publishedSpecs(cli: CliPackageInfo): ResolveDependencySpecsResult {
       message: `This @kindgi/cli (${cli.version}) lists @kindgi/sdk as "${sdk ?? '(missing)'}", not a published version — publisher misconfiguration.`,
     };
   }
-  return { kind: 'ok', specs: { source: 'published', sdk, cli: cli.version } };
+  return {
+    kind: 'ok',
+    specs: { source: 'published', sdk, cli: cli.version, connections: cli.version },
+  };
 }
 
 async function findPnpmWorkspaceRoot(

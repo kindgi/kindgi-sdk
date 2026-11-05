@@ -142,9 +142,9 @@ revoked id can't be trusted again.
    ```
 
    `acme-selfhost-2` is the new key's id. `--env selfhost` also prints the
-   lines to add to the `selfhost` block of `kindgi.config.ts`. It prints the
-   key as JSON, then where it put it and the lines to add, with the home
-   folder's path elided:
+   key lines the `selfhost` block of `kindgi.config.ts` has now, and the
+   lines to add. It prints the key as JSON, then where it put it and those
+   lines, with the home folder's path elided:
 
    ```text
    {
@@ -160,6 +160,11 @@ revoked id can't be trusted again.
        private key:  …/.kindgi/keys/acme-selfhost-2.pem  (mode 0600)
        public key:   …/.kindgi/keys/acme-selfhost-2.pub.pem  (mode 0644)
        fingerprint:  sha256:37c5be5aed8a2688470bdacb
+
+     environments.selfhost in kindgi.config.ts has these now:
+
+       signingKey: '~/.kindgi/keys/acme-selfhost.pem',
+       signerKeyId: 'acme-selfhost',
 
      Next step: add to environments.selfhost in kindgi.config.ts:
 
@@ -269,7 +274,7 @@ answer again, for 24 hours, and deploys nothing.
   Registering deployment
     ✗ POST /v1/deployments  →  HTTP 403
       code:    signer-not-trusted
-      message: Signer key "acme-selfhost" is not on this tenant's trust list
+      message: Signer key "acme-selfhost" is not on this workspace's trust list
 …
 ```
 
@@ -317,7 +322,7 @@ docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -v "$PWD/public-token-signing.pem:/etc/kindgi/public-token-signing.pem:ro" \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.10
+  registry.kindgi.com/kindgi/runtime:0.3.0
 ```
 
 `-v` mounts the key file, read-only, at the path `kindgi.env` names. The

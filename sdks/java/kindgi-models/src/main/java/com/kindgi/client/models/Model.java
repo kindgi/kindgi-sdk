@@ -11,6 +11,11 @@ package com.kindgi.client.models;
  * constraints (lengths, patterns, ranges); a builder's {@code build()} runs it, and so does the
  * client before it sends a request body. A response isn't held to them, so a newer runtime that
  * relaxes a constraint doesn't break an older client.
+ *
+ * <p>Before it sends a request body, the client also checks it against the values this client
+ * knows ({@link Checks#sending()}): an enum value or a union variant read from a newer runtime
+ * can't be sent back. {@code build()} doesn't check that, so an answer that carries one can be
+ * copied and changed.
  */
 public interface Model {
   /**
@@ -29,6 +34,6 @@ public interface Model {
   default void validate() {
     Checks checks = new Checks();
     validate(checks);
-    checks.throwIfAny(getClass().getSimpleName());
+    checks.throwIfAny(getClass());
   }
 }

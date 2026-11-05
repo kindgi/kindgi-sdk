@@ -8,6 +8,7 @@ import type { Cursor, ReviewerId, TenantId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { isReadMethod } from '../read-method.js';
 import type {
   ReviewerBinding,
   ReviewerRecord,
@@ -54,7 +55,7 @@ export function reviewersRouter(
   if (authorizer !== undefined) {
     r.use('*', async (c, next) => {
       const tenant = ref('tenant', c.get('tenantId') as unknown as string);
-      if (c.req.method !== 'GET') return authorizer.authorize('admin', () => tenant)(c, next);
+      if (!isReadMethod(c.req.method)) return authorizer.authorize('admin', () => tenant)(c, next);
       // The roster names people: only those who decide approvals read it.
       if (await authorizer.can(c, 'admin', tenant)) return next();
       if ((await callerReviewerRole(c, reviewerBinding)) !== undefined) return next();

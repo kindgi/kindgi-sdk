@@ -49,12 +49,15 @@ interface Turn {
   readonly ctx: TurnContext;
   readonly recorded: ModelUsageRecord[];
   readonly nodes: { readonly id: string; readonly attributes?: Record<string, unknown> }[];
+  readonly events: { readonly kind: string; readonly thinking?: unknown }[];
 }
 
 function turn(options: {
   readonly invoke: ModelProvider['invoke'];
   readonly sink?: UsageSink | 'none';
   readonly fallback?: boolean;
+  /** The pinned model-settings block's values. */
+  readonly modelSettings?: Readonly<Record<string, unknown>>;
 }): Turn {
   const agent = defineAgent({
     id: 'acme.helper',
@@ -69,6 +72,7 @@ function turn(options: {
   if (agent.kind === 'err') throw new Error(JSON.stringify(agent.error.issues));
   const recorded: ModelUsageRecord[] = [];
   const nodes: Turn['nodes'] = [];
+  const events: Turn['events'] = [];
   const sink: UsageSink | undefined =
     options.sink === 'none'
       ? undefined
@@ -85,7 +89,15 @@ function turn(options: {
       conversationId: '00000000-0000-0000-0000-0000000000cc' as ConversationId,
       userMessage: 'hi',
     },
-    bindings: { ...(sink !== undefined && { usage: sink }) } as InvokeAgentBindings,
+    bindings: {
+      ...(sink !== undefined && { usage: sink }),
+      onEvent: (event: Turn['events'][number]) => {
+        events.push(event);
+      },
+    } as unknown as InvokeAgentBindings,
+    ...(options.modelSettings !== undefined && {
+      blocks: { modelSettings: options.modelSettings },
+    }),
     turnAbort: new AbortController(),
     startedAt: Date.now(),
     appended: [],
@@ -98,7 +110,11 @@ function turn(options: {
       } as ProviderMetadata,
       invoke: options.invoke,
     },
-    model: { name: 'claude-haiku-4-5' } as ModelInfo,
+    model: {
+      name: 'claude-haiku-4-5',
+      features: [],
+      contextWindow: 200_000,
+    } as unknown as ModelInfo,
     tools: { definitions: [], byName: new Map() },
     userMessage: { sequence: 1 },
     provenance: {
@@ -106,7 +122,7 @@ function turn(options: {
       addEdge: () => undefined,
     },
   } as unknown as TurnContext;
-  return { ctx, recorded, nodes };
+  return { ctx, recorded, nodes, events };
 }
 
 const kctx = (dryRun = false) =>
@@ -297,5 +313,65 @@ describe('model-call records each call in the usage sink', () => {
     await expect(
       buildModelCallHandler(unsunk.ctx)({ nextMessages: [] }, kctx()),
     ).resolves.toBeDefined();
+  });
+});
+
+describe("a call's thinking: the level the agent asked for, and the one its adapter sent", () => {
+  const sentLow: ModelCallResult = {
+    ...ANSWER,
+    thinking: { level: 'low', sent: { 'output_config.effort': 'low' } },
+  };
+
+  test("the call asks for the model settings' level; the record, the node and the event keep what was asked and sent", async () => {
+    let asked: unknown;
+    const t = turn({
+      invoke: async (input) => {
+        asked = input.thinking;
+        return sentLow;
+      },
+      modelSettings: { thinking: 'minimal', temperature: 0.2 },
+    });
+    await buildModelCallHandler(t.ctx)({ nextMessages: [] }, kctx());
+    expect(asked).toBe('minimal');
+    expect(t.recorded[0]?.thinkingAsked).toBe('minimal');
+    expect(t.recorded[0]?.result?.thinking).toEqual(sentLow.thinking);
+    expect(t.nodes[0]?.attributes?.thinking).toEqual({ asked: 'minimal', level: 'low' });
+    expect(t.events.find((e) => e.kind === 'model.call.completed')?.thinking).toEqual({
+      asked: 'minimal',
+      level: 'low',
+    });
+  });
+
+  test("none asked: the model's default, when its adapter sent one, is the level alone", async () => {
+    const t = turn({ invoke: async () => sentLow });
+    await buildModelCallHandler(t.ctx)({ nextMessages: [] }, kctx());
+    expect(t.recorded[0]?.thinkingAsked).toBeUndefined();
+    expect(t.nodes[0]?.attributes?.thinking).toEqual({ level: 'low' });
+  });
+
+  test('none asked and none sent: nothing about thinking anywhere', async () => {
+    let asked: unknown = 'unset';
+    const t = turn({
+      invoke: async (input) => {
+        asked = input.thinking;
+        return ANSWER;
+      },
+    });
+    await buildModelCallHandler(t.ctx)({ nextMessages: [] }, kctx());
+    expect(asked).toBeUndefined();
+    expect(t.recorded[0]).not.toHaveProperty('thinkingAsked');
+    expect(t.nodes[0]?.attributes).not.toHaveProperty('thinking');
+    expect(t.events.find((e) => e.kind === 'model.call.completed')).not.toHaveProperty('thinking');
+  });
+
+  test('a call that failed keeps the level it asked for', async () => {
+    const t = turn({
+      invoke: async () => {
+        throw new Error('400 thinking level not supported');
+      },
+      modelSettings: { thinking: 'max' },
+    });
+    await failureOf(buildModelCallHandler(t.ctx)({ nextMessages: [] }, kctx()));
+    expect(t.recorded[0]).toMatchObject({ status: 'failed', thinkingAsked: 'max' });
   });
 });

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: none
 
 /**
  * `kindgi dev`'s bundler and indexer child against a real pack shaped

@@ -1,0 +1,116 @@
+// {{PACK_ID}}.refund — refunds a sample order, within the store's return
+// window and up to a limit.
+//
+// The return window is a setting: `returnWindowDays` in the
+// `{{PACK_ID}}.refund-rules` block (`blocks/refund-rules.json`), which the
+// agent pins and the tool reads from `ctx.settings`. The store can change it
+// with a new block version, no deploy. The limit is a rule, so it stays here
+// in code: a correction asking to refund more goes to the agent's owner.
+
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+import { daysSinceDelivery, findOrder, refunded } from '../../lib/orders.js';
+
+/** The most this tool refunds on an order without a person. */
+export const REFUND_LIMIT = 100;
+
+const RULES = '{{PACK_ID}}.refund-rules';
+
+const RefundInput = z.object({
+  orderId: z.string().min(1).max(40),
+  amount: z.number().positive(),
+  reason: z.string().min(1).max(500),
+});
+
+const REFUSALS = [
+  'no-such-order',
+  'not-delivered',
+  'outside-return-window',
+  'more-than-paid',
+  'over-the-limit',
+  'no-return-window',
+] as const;
+
+const RefundOutput = z.union([
+  z.object({
+    status: z.literal('refunded'),
+    orderId: z.string(),
+    amount: z.number(),
+    refundedSoFar: z.number(),
+  }),
+  z.object({
+    status: z.literal('refused'),
+    orderId: z.string(),
+    why: z.enum(REFUSALS),
+    detail: z.string(),
+  }),
+]);
+
+/** The return window from the pinned refund-rules block, if the agent pins one. */
+export function returnWindowDays(
+  settings: Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined,
+): number | undefined {
+  const days = settings?.[RULES]?.returnWindowDays;
+  return typeof days === 'number' && Number.isInteger(days) && days >= 0 ? days : undefined;
+}
+
+const defined = defineTool({
+  id: '{{PACK_ID}}.refund' as ToolId,
+  description: `Refund an order (by id) within the store's return window, up to ${REFUND_LIMIT} in all on one order. When it refuses, it says why: a person from the store follows up on anything it can't refund.`,
+  version: '{{PACK_VERSION}}',
+  input: RefundInput,
+  output: RefundOutput,
+  effects: [{ kind: 'writes', resource: 'memory:sample-orders', notes: 'Refunds a sample order.' }],
+  mutating: true,
+  handler: async ({ orderId, amount }, ctx) => {
+    const refuse = (why: (typeof REFUSALS)[number], detail: string) => ({
+      status: 'refused' as const,
+      orderId,
+      why,
+      detail,
+    });
+
+    const order = findOrder(orderId);
+    if (order === undefined) return refuse('no-such-order', `There is no order ${orderId}.`);
+    const days = daysSinceDelivery(order);
+    if (days === undefined) return refuse('not-delivered', 'It has not been delivered yet.');
+    const window = returnWindowDays(ctx.settings);
+    if (window === undefined) {
+      return refuse(
+        'no-return-window',
+        `The agent pins no ${RULES} block, so nothing is refunded.`,
+      );
+    }
+    if (days > window) {
+      return refuse(
+        'outside-return-window',
+        `Delivered ${days} days ago; the return window is ${window} days.`,
+      );
+    }
+    const before = refunded.get(order.id) ?? 0;
+    if (before + amount > order.total) {
+      return refuse('more-than-paid', `It cost ${order.total}, and ${before} is refunded already.`);
+    }
+    if (before + amount > REFUND_LIMIT) {
+      return refuse(
+        'over-the-limit',
+        `Refunds over ${REFUND_LIMIT} on one order need a person from the store.`,
+      );
+    }
+    refunded.set(order.id, before + amount);
+    return {
+      status: 'refunded' as const,
+      orderId: order.id,
+      amount,
+      refundedSoFar: before + amount,
+    };
+  },
+});
+
+if (defined.kind === 'err') {
+  throw new Error(`{{PACK_ID}}.refund failed to compile: ${defined.error.message}`);
+}
+
+export default defined.value;

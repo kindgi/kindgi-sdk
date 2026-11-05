@@ -53,6 +53,10 @@ name: Release
 # scripts/central-bundle.mjs uploads them as one deployment. A dry run has
 # the Portal validate that deployment, then drops it: nothing is published.
 # A version Central already has is skipped (Central's versions are permanent).
+# Central serves a version some time after the Portal publishes it, so a job
+# of its own waits until it does, for up to two hours, before the npm job:
+# npm's approval comes up only once Central serves. A slower Central fails
+# that job before npm's approval comes up, so a rerun asks for it only once.
 #
 # Last, the release's GitHub release (scripts/github-release.mjs), on the
 # `@kindgi/sdk@<version>` tag the npm job pushes, carries the WordPress
@@ -107,7 +111,8 @@ jobs:
       # `version-packages` gives the Python projects the packages' new version
       # (scripts/sync-python-version.mjs), and uv re-locks them. It moves the
       # JVM SDKs' poms too and stamps their changelog
-      # (scripts/sync-jvm-version.mjs --release; text edits, no Maven).
+      # (scripts/sync-jvm-version.mjs --release; text edits, no Maven), and
+      # moves the skills' docs links to the new line (scripts/sync-docs-line.mjs).
       - uses: astral-sh/setup-uv@v6
         with:
           version-file: sdks/python/pyproject.toml
@@ -219,12 +224,38 @@ jobs:
           gpgconf --kill gpg-agent || true
           rm -rf "$RUNNER_TEMP/gnupg"
 
+  maven-on-central:
+    name: The JVM SDKs are on Maven Central
+    # Between the Maven job and npm's approval, with no environment of its own: the
+    # wait for Central never holds an approved job, and a Central slower than the
+    # wait fails this job before npm's approval comes up, so a rerun asks for it only
+    # once. It runs in a dry run too, with its step skipped, so the jobs after it run
+    # as they would without it.
+    needs: publish-maven
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    # The wait's 120 minutes, and the checkout and one slow round of requests.
+    timeout-minutes: 135
+    permissions:
+      contents: read # the checkout; Central is read without credentials
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      # The CLI scaffolds Java and Scala packs on kindgi-pack at its own version: npm never
+      # gets a CLI whose JVM artifacts don't resolve from Central (publish-maven ran first;
+      # this waits out Central's sync, and stops a release that skipped it).
+      - name: The JVM SDKs at the CLI's version are on Maven Central
+        if: ${{ !inputs.dry-run }}
+        run: node scripts/central-bundle.mjs on-central --wait-minutes 120 --version "$(node -p "require('./packages/cli/package.json').version")"
+
   publish:
     name: Publish to npm
-    # After Maven Central: a release's npm packages wait for its JVM artifacts. A dry
-    # run goes on either way, so it reports npm's problems too.
-    needs: publish-maven
-    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && (inputs.dry-run || needs.publish-maven.result == 'success') }}
+    # After Central serves the JVM artifacts (the job before): a release's npm packages
+    # wait for them. A dry run goes on either way, so it reports npm's problems too.
+    needs: [publish-maven, maven-on-central]
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && (inputs.dry-run || needs.maven-on-central.result == 'success') }}
     runs-on: ubuntu-latest
     environment: npm-publish
     permissions:
@@ -258,12 +289,6 @@ jobs:
       - name: Publish (dry-run)
         if: ${{ inputs.dry-run }}
         run: pnpm -r publish --dry-run --no-git-checks --tag "${{ steps.dist-tag.outputs.tag }}"
-      # The CLI scaffolds Java and Scala packs on kindgi-pack at its own version: npm never
-      # gets a CLI whose JVM artifacts don't resolve from Central (publish-maven ran first;
-      # this waits out Central's sync, and stops a release that skipped it).
-      - name: The JVM SDKs at the CLI's version are on Maven Central
-        if: ${{ !inputs.dry-run }}
-        run: node scripts/central-bundle.mjs on-central --version "$(node -p "require('./packages/cli/package.json').version")"
       - name: Publish
         if: ${{ !inputs.dry-run }}
         run: pnpm -r publish --no-git-checks --tag "${{ steps.dist-tag.outputs.tag }}"

@@ -11,7 +11,9 @@ import { emitTurnEvent } from '../streaming.js';
 
 import type { TurnContext } from './context.js';
 import { approvalsPendingLimitOf, throwAgentTurnFailure } from './errors.js';
+import { bindRunFiles } from './files.js';
 import { SESSION_GATE_SUBJECT, readGateDecision, withdrawnGateFailure } from './gate-decision.js';
+import { offerAccounts } from './offer-accounts.js';
 import { followReplaySessionGate } from './replay.js';
 import { requestedBy } from './requested-by.js';
 import { writeRunSnapshot } from './run-snapshot.js';
@@ -100,6 +102,7 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
       });
       ctx.provenanceBindings = ctx.bindings.provenance;
     }
+    bindRunFiles(ctx, kctx.runId as unknown as string);
 
     const conversation = await loadTurnConversation(ctx);
 
@@ -243,7 +246,7 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
               decision.rationale !== undefined ? `: ${decision.rationale}` : ''
             }`,
             ...(decision.rationale !== undefined && { rationale: decision.rationale }),
-          } as never);
+          });
         }
         // Approved: the turn proceeds through the rest of setup.
       } catch (cause) {
@@ -270,11 +273,11 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
             });
           }
           throwAgentTurnFailure(
-            (withdrawnGateFailure(cause.reason, 'the session-HITL gate') ?? {
+            withdrawnGateFailure(cause.reason, 'the session-HITL gate') ?? {
               code: 'hitl-cancelled',
               message: `Session-HITL gate cancelled: ${cause.reason}`,
               reason: cause.reason,
-            }) as never,
+            },
           );
         }
         // SuspensionSignal or anything else — let it propagate. The
@@ -285,6 +288,8 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
     }
 
     const environment = await resolveTurnEnvironment(ctx);
+    // The sets the turn's calls may name a connection from.
+    await offerAccounts(ctx, kctx.runId as unknown as string);
 
     // Provenance builder was created earlier (before the session-HITL
     // gate) so wait/resume nodes could bracket the park boundary. Kept
@@ -311,6 +316,9 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
       ...(environment.blockVersions !== undefined && {
         blockVersions: environment.blockVersions,
       }),
+      // And the guardrails, each one's declaration: a resumed turn runs
+      // these, whatever the registry holds by then.
+      guardrails: environment.guardrails,
     };
   };
 }

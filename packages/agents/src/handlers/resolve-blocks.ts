@@ -136,12 +136,12 @@ async function resolveRange(ctx: TurnContext, ref: Ref): Promise<string> {
     })) ?? [];
   const pick = pickVersion(available, ref.range);
   if (pick.kind === 'ok') return pick.version;
-  return fail(
-    ref,
+  const missed =
     available.length === 0
       ? `${describe(ref)} has no published version`
-      : `${describe(ref)} has no published version in "${ref.range}" (published: ${available.join(', ')})`,
-  );
+      : `${describe(ref)} has no published version in "${ref.range}" (published: ${available.join(', ')})`;
+  const note = ctx.bindings.blockReader?.missNote;
+  return fail(ref, note === undefined ? missed : `${missed}. ${note}`);
 }
 
 function turnBlocks(

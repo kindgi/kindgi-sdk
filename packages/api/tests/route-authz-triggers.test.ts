@@ -6,13 +6,13 @@
  *
  * Event triggers (T243 A): the flow a trigger fires decides who may see or
  * change it (an event trigger has no parent tuple of its own). `read` on
- * the flow to list or get it; `write` to pause, resume or unregister it;
- * `write` and `execute` to register it or change it, since it starts runs
- * of the flow.
+ * the flow to list or get it, or its versions; `write` to pause, resume
+ * or unregister it; `write` and `execute` to register it or change it,
+ * since it starts runs of the flow.
  *
  * Webhook triggers, as schedules: their project decides. `read` on it to
- * list, get or read the deliveries; `write` to change, pause, resume or
- * unregister; `admin` to take ownership. Registering, changing the flow
+ * list, get or read the deliveries or the versions; `write` to change,
+ * pause, resume or unregister; `admin` to take ownership. Registering, changing the flow
  * version, or taking ownership also needs `execute` on the flow, as
  * starting its run does.
  *
@@ -83,6 +83,8 @@ function harness(kind: Kind, grants: readonly string[]) {
     pause: async ({ triggerId }: { triggerId: string }) => ok(byId(triggerId)),
     resume: async ({ triggerId }: { triggerId: string }) => ok(byId(triggerId)),
     unregister: async () => ({ unregistered: true }),
+    listVersions: async () => ({ data: [] }),
+    getVersion: async () => null,
   } as unknown as TriggerRegistryBinding;
   const app = createApp({
     ...createStubAppBindings(),
@@ -136,10 +138,15 @@ describe.each([['event']] as const)('%s triggers: the flow decides', (kind) => {
     expect(writeOnly.asked).toEqual([WRITE_MINE, EXECUTE_MINE]);
   });
 
-  test('reading one needs `read` on its flow', async () => {
+  test('reading one, or its versions, needs `read` on its flow', async () => {
     const { call } = harness(kind, [READ_MINE]);
     expect((await call('GET', '/t-mine')).status).toBe(200);
+    expect((await call('GET', '/t-mine/versions')).status).toBe(200);
+    // Past the check: the version isn't there.
+    expect((await call('GET', '/t-mine/versions/1')).status).toBe(404);
     expect((await call('GET', '/t-theirs')).status).toBe(403);
+    expect((await call('GET', '/t-theirs/versions')).status).toBe(403);
+    expect((await call('GET', '/t-theirs/versions/1')).status).toBe(403);
   });
 
   test('changing one needs `write` and `execute`; pausing, resuming and unregistering `write`', async () => {
@@ -220,6 +227,8 @@ function webhookHarness(grants: readonly string[]) {
     resume: async ({ triggerId }: { triggerId: string }) => ok(byId(triggerId)),
     unregister: async () => ({ unregistered: true }),
     listFires: async () => ({ data: [] }),
+    listVersions: async () => ({ data: [] }),
+    getVersion: async () => null,
     setOwner: async (input: { triggerId: string; owner?: unknown }) =>
       ok({ ...byId(input.triggerId), ...(input.owner !== undefined && { owner: input.owner }) }),
   } as unknown as TriggerRegistryBinding;
@@ -286,12 +295,17 @@ describe('webhook triggers: the project decides, as for schedules', () => {
     expect(writeOnly.asked).toEqual([WRITE_P, EXECUTE_MINE]);
   });
 
-  test('reading one, or its deliveries, needs `read` on its project', async () => {
+  test('reading one, its deliveries or its versions, needs `read` on its project', async () => {
     const { call } = webhookHarness([READ_P]);
     expect((await call('GET', `/${T_MINE}`)).status).toBe(200);
     expect((await call('GET', `/${T_MINE}/fires`)).status).toBe(200);
+    expect((await call('GET', `/${T_MINE}/versions`)).status).toBe(200);
+    // Past the check: the version isn't there.
+    expect((await call('GET', `/${T_MINE}/versions/1`)).status).toBe(404);
     expect((await call('GET', `/${T_THEIRS}`)).status).toBe(403);
     expect((await call('GET', `/${T_THEIRS}/fires`)).status).toBe(403);
+    expect((await call('GET', `/${T_THEIRS}/versions`)).status).toBe(403);
+    expect((await call('GET', `/${T_THEIRS}/versions/1`)).status).toBe(403);
   });
 
   test('changing, pausing, resuming and unregistering need `write`; a new flow version `execute` too', async () => {
@@ -308,12 +322,15 @@ describe('webhook triggers: the project decides, as for schedules', () => {
     expect((await both.call('PATCH', `/${T_THEIRS}`, { label: 'x' })).status).toBe(403);
   });
 
-  test('taking ownership needs `admin` on the project and `execute` on the flow', async () => {
-    const adminOnly = webhookHarness([ADMIN_P]);
-    expect((await adminOnly.call('POST', `/${T_MINE}/owner`)).status).toBe(403);
-    expect(adminOnly.asked).toEqual([ADMIN_P, EXECUTE_MINE]);
-    const both = webhookHarness([ADMIN_P, EXECUTE_MINE]);
-    expect((await both.call('POST', `/${T_MINE}/owner`)).status).toBe(200);
+  test('taking ownership needs `write` and `admin` on the project and `execute` on the flow', async () => {
+    const noWrite = webhookHarness([ADMIN_P, EXECUTE_MINE]);
+    expect((await noWrite.call('POST', `/${T_MINE}/owner`)).status).toBe(403);
+    expect(noWrite.asked).toEqual([WRITE_P]);
+    const noExecute = webhookHarness([WRITE_P, ADMIN_P]);
+    expect((await noExecute.call('POST', `/${T_MINE}/owner`)).status).toBe(403);
+    expect(noExecute.asked).toEqual([WRITE_P, ADMIN_P, EXECUTE_MINE]);
+    const all = webhookHarness([WRITE_P, ADMIN_P, EXECUTE_MINE]);
+    expect((await all.call('POST', `/${T_MINE}/owner`)).status).toBe(200);
     const writer = webhookHarness([WRITE_P, EXECUTE_MINE]);
     expect((await writer.call('POST', `/${T_MINE}/owner`)).status).toBe(403);
   });
@@ -352,19 +369,19 @@ describe('webhook triggers: naming a service account as owner needs `act_as` on 
   });
 
   test('take-over: `act_as` withheld is a 403; held, the account owns it', async () => {
-    const withheld = webhookHarness([ADMIN_P, EXECUTE_MINE]);
+    const withheld = webhookHarness([WRITE_P, ADMIN_P, EXECUTE_MINE]);
     const refused = await withheld.call('POST', `/${T_MINE}/owner`, { runAsServiceAccountId: BOT });
     expect(refused.status).toBe(403);
     expect(withheld.asked).toContain(ACT_AS_BOT);
 
-    const held = webhookHarness([ADMIN_P, EXECUTE_MINE, ACT_AS_BOT]);
+    const held = webhookHarness([WRITE_P, ADMIN_P, EXECUTE_MINE, ACT_AS_BOT]);
     const ok = await held.call('POST', `/${T_MINE}/owner`, { runAsServiceAccountId: BOT });
     expect(ok.status).toBe(200);
     expect(await ownerOf(ok)).toMatchObject({ kind: 'service', id: BOT });
   });
 
   test("a take-over body that isn't a JSON object with a service-account id is a 400", async () => {
-    const h = webhookHarness([ADMIN_P, EXECUTE_MINE]);
+    const h = webhookHarness([WRITE_P, ADMIN_P, EXECUTE_MINE]);
     const raw = (rawBody: string) =>
       h.app.request(`/v1/webhooks/${T_MINE}/owner`, {
         method: 'POST',

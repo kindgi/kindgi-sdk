@@ -74,22 +74,31 @@ export async function readTenantPatch(c: Context<AppEnv>): Promise<TenantPatch |
   return { ...(name !== undefined && { name }), ...(slug !== undefined && { slug }) };
 }
 
-/** `204` once renamed (or already so); otherwise why not. */
+/**
+ * What a rename's answer calls the tenant: `workspace` on `PATCH /v1/tenant`,
+ * where a tenant admin renames their own, and `tenant` on the operator's
+ * `PATCH /v1/system/tenants/{tenantId}`. The codes are the same on both.
+ */
+export type RenameNoun = 'workspace' | 'tenant';
+
+/** `204` once renamed (or already so); otherwise why not, naming the tenant as `noun`. */
 export function renameAnswer(
   c: Context<AppEnv>,
   outcome: RenameTenantOutcome,
   tenantId: TenantId,
   patch: TenantPatch,
+  noun: RenameNoun,
 ): Response {
   const id = tenantId as unknown as string;
+  const Noun = noun === 'workspace' ? 'Workspace' : 'Tenant';
   switch (outcome.kind) {
     case 'ok':
       c.status(204);
       return c.body(null);
     case 'tenant-not-found':
-      return answer(c, 'tenant-not-found', `No tenant with id "${id}".`, { tenantId: id });
+      return answer(c, 'tenant-not-found', `No ${noun} with id "${id}".`, { tenantId: id });
     case 'tenant-closing':
-      return answer(c, 'tenant-closing', `Tenant ${id} is closing, so it can't be renamed.`, {
+      return answer(c, 'tenant-closing', `${Noun} ${id} is closing, so it can't be renamed.`, {
         tenantId: id,
         state: 'closing',
       });
@@ -97,11 +106,11 @@ export function renameAnswer(
       return answer(
         c,
         'tenant-setup-pending',
-        `Tenant ${id}'s setup hasn't finished, so it can't be renamed yet. Sending the request that created it again finishes it.`,
+        `${Noun} ${id}'s setup hasn't finished, so it can't be renamed yet. Sending the request that created it again finishes it.`,
         { tenantId: id },
       );
     case 'slug-taken':
-      return answer(c, 'tenant-slug-taken', `Another tenant has the slug "${patch.slug}".`, {
+      return answer(c, 'tenant-slug-taken', `Another ${noun} has the slug "${patch.slug}".`, {
         slug: patch.slug,
       });
     case 'slug-in-config':
@@ -110,14 +119,14 @@ export function renameAnswer(
         return answer(
           c,
           'tenant-slug-in-config',
-          `The server's KINDGI_AUTH_VERIFIED_DOMAINS names this tenant by its slug (${entries}), so its slug can't change yet: the server would find no tenant by it when it next starts. The server's operator names it there by its id (${id}) instead and restarts the server; then rename it.`,
+          `The server's KINDGI_AUTH_VERIFIED_DOMAINS names this ${noun} by its slug (${entries}), so its slug can't change yet: the server would find no ${noun} by it when it next starts. The server's operator names it there by its id (${id}) instead and restarts the server; then rename it.`,
           { slug: outcome.slug, domains: outcome.domains },
         );
       }
       return answer(
         c,
         'tenant-slug-in-config',
-        `The server's KINDGI_AUTH_VERIFIED_DOMAINS names the slug "${patch.slug}", so no tenant can be renamed to it. Choose another.`,
+        `The server's KINDGI_AUTH_VERIFIED_DOMAINS names the slug "${patch.slug}", so no ${noun} can be renamed to it. Choose another.`,
         { slug: patch.slug },
       );
   }

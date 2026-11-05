@@ -20,6 +20,7 @@ import { createStubAppBindings } from '../src/testing/index.js';
 import { createApp } from '../src/index.js';
 import type {
   AgentRegistryBinding,
+  BlockRegistryBinding,
   FlowRegistryBinding,
   GuardrailRegistryBinding,
   RunHandlerBinding,
@@ -36,6 +37,7 @@ const REASON = {
   tools: "Under kindgi dev, the pack is the source of tools: edit the pack's file.",
   flows: "Under kindgi dev, the pack is the source of flows: edit the pack's file.",
   guardrails: "Under kindgi dev, the pack is the source of guardrails: edit the pack's file.",
+  blocks: "Under kindgi dev, the pack is the source of data blocks: edit the pack's file.",
 };
 
 /** A binding whose reads answer empty and whose every other method fails the test if called. */
@@ -65,6 +67,7 @@ function harness() {
     toolRegistry: readOnlyBinding<ToolRegistryBinding>(REASON.tools, calls),
     flowRegistry: readOnlyBinding<FlowRegistryBinding>(REASON.flows, calls),
     guardrailRegistry: readOnlyBinding<GuardrailRegistryBinding>(REASON.guardrails, calls),
+    blockRegistry: readOnlyBinding<BlockRegistryBinding>(REASON.blocks, calls),
   });
   const call = async (method: string, path: string, body: unknown = {}) => {
     const res = await app.request(path, {
@@ -90,6 +93,9 @@ const WRITES: readonly (readonly [keyof typeof REASON, string])[] = [
   ['flows', '/v1/flows/acme.triage/versions/1.0.0/reinstate'],
   ['guardrails', '/v1/guardrails'],
   ['guardrails', '/v1/guardrails/acme.must-cite/unregister'],
+  ['blocks', '/v1/blocks'],
+  ['blocks', '/v1/blocks/acme.reply/versions/1.0.0/unregister'],
+  ['blocks', '/v1/blocks/acme.reply/versions/1.0.0/reinstate'],
 ];
 
 describe('a write to a read-only registry', () => {
@@ -112,7 +118,7 @@ describe('a write to a read-only registry', () => {
 
   test('reads go on as before', async () => {
     const { call } = harness();
-    for (const path of ['/v1/agents', '/v1/tools', '/v1/flows', '/v1/guardrails']) {
+    for (const path of ['/v1/agents', '/v1/tools', '/v1/flows', '/v1/guardrails', '/v1/blocks']) {
       expect((await call('GET', path)).status, path).toBe(200);
     }
   });

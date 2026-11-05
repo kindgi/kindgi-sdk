@@ -1,5 +1,80 @@
 # @kindgi/memory
 
+## 0.4.0
+
+### Patch Changes
+
+- 9106401: A reviewer can approve a fact an agent wants to remember with their own text. `POST /v1/approvals/{approvalId}/complete` takes `factText`, only with `decision: approve` on an approval whose `subjectKind` is `fact`: the approved fact holds that text in place of the agent's, and the approval keeps the agent's as its `description`. Any other decision or approval refuses it (400 `bad-input`). It's checked as the agent's own text is: not empty or only spaces, and at most 2,000 characters (`MAX_REMEMBERED_TEXT`, `rememberedTextProblem` in `@kindgi/memory`). The decision it answers and the approval read back carry it as `decision.factText`. In the TypeScript client, `approvals.decide` takes `factText`. The `remember` tool no longer stores a text of only spaces: it answers "Not remembered". A remembered fact's approval is `fact` on the API, where it read `memory-fact`.
+- Updated dependencies [b25b82f]
+- Updated dependencies [d92355b]
+- Updated dependencies [d6c9279]
+- Updated dependencies [f2adcc2]
+- Updated dependencies [9b015f7]
+- Updated dependencies [9a8a294]
+- Updated dependencies [1bd877d]
+- Updated dependencies [dff9515]
+- Updated dependencies [d576ff4]
+  - @kindgi/types@0.4.0
+  - @kindgi/embedding@0.4.0
+
+## 0.3.1
+
+### Patch Changes
+
+- @kindgi/embedding@0.3.1
+  - @kindgi/types@0.3.1
+
+## 0.3.1-rc.1
+
+### Patch Changes
+
+- @kindgi/embedding@0.3.1-rc.1
+  - @kindgi/types@0.3.1-rc.1
+
+## 0.3.1-rc.0
+
+### Patch Changes
+
+- @kindgi/embedding@0.3.1-rc.0
+  - @kindgi/types@0.3.1-rc.0
+
+## 0.3.0
+
+### Patch Changes
+
+- Updated dependencies [8dd91b0]
+  - @kindgi/types@0.3.0
+  - @kindgi/embedding@0.3.0
+
+## 0.3.0-rc.0
+
+### Patch Changes
+
+- Updated dependencies [8dd91b0]
+  - @kindgi/types@0.3.0-rc.0
+  - @kindgi/embedding@0.3.0-rc.0
+
+## 0.2.0
+
+### Patch Changes
+
+- @kindgi/embedding@0.2.0
+  - @kindgi/types@0.2.0
+
+## 0.2.0-rc.1
+
+### Patch Changes
+
+- @kindgi/embedding@0.2.0-rc.1
+  - @kindgi/types@0.2.0-rc.1
+
+## 0.2.0-rc.0
+
+### Patch Changes
+
+- @kindgi/embedding@0.2.0-rc.0
+  - @kindgi/types@0.2.0-rc.0
+
 ## 0.1.10
 
 ### Patch Changes

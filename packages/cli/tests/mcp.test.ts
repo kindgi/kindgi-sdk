@@ -386,6 +386,31 @@ describe('kindgi mcp remove', () => {
   });
 });
 
+describe('kindgi mcp --quiet', () => {
+  test('add, remove, and a remove with nothing to remove print nothing; the file changes as before', async () => {
+    await writeFile(
+      join(packDir, '.env.local'),
+      'GRIEVANCE_DB_URL=postgres://u:p@localhost:5432/bb\n',
+      'utf8',
+    );
+    const servers = async () =>
+      Object.keys(
+        (JSON.parse(await readFile(join(packDir, '.mcp.json'), 'utf8')) as { mcpServers?: object })
+          .mcpServers ?? {},
+      );
+    const added = await runCli(
+      baseInputs(['mcp', 'add', 'postgres', '--secret=GRIEVANCE_DB_URL', '--quiet']),
+    );
+    expect(await servers()).toEqual(['grievance_db']);
+    const removed = await runCli(baseInputs(['mcp', 'remove', 'grievance_db', '--quiet']));
+    expect(await servers()).toEqual([]);
+    const absent = await runCli(baseInputs(['mcp', 'remove', 'grievance_db', '--quiet']));
+    for (const out of [added, removed, absent]) {
+      expect([out.exitCode, out.stdout, out.stderr]).toEqual([0, '', '']);
+    }
+  });
+});
+
 // ---------------------------------------------------------------------
 // `kindgi mcp presets`
 // ---------------------------------------------------------------------

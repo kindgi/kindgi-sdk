@@ -9,6 +9,10 @@
  * the image goes: the workspace's own repository.
  */
 
+import { docsUrl } from '@kindgi/client/sso-handoff';
+
+import { CLI_VERSION } from '../version-info.js';
+
 /** The env block's `build` value that means the hosted build service. */
 export const HOSTED_BUILD = 'hosted';
 
@@ -18,9 +22,11 @@ const HOSTED_BUILD_PATH = '/cloud';
 /** The largest pack the hosted build service takes, packed. */
 export const HOSTED_UPLOAD_MAX_BYTES = 30 * 1024 * 1024;
 
-/** What goes into a pack's image, and how to keep it small. */
-export const PACK_IMAGE_DOCS_URL =
-  'https://docs.kindgi.com/v0.1/start/existing-app-typescript/#what-the-packs-image-needs';
+/** What goes into a pack's image, and how to keep it small, on this CLI's release line. */
+export const PACK_IMAGE_DOCS_URL = docsUrl(
+  'start/existing-app-typescript/#what-the-packs-image-needs',
+  CLI_VERSION,
+);
 
 /** The hosted build service of the API at `apiUrl`. */
 export function hostedBuildEndpoint(apiUrl: string): string {

@@ -5,6 +5,7 @@ import { type Context, Hono } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
 import type {
+  JournalPage,
   KernelRunRecord,
   ListRunsInput,
   RunBinding,
@@ -24,7 +25,9 @@ import type {
 } from '@kindgi/types';
 
 import { type Principal, denyPayload, ref } from '@kindgi/authz';
+import { PAUSE_TOKEN_PREFIX } from '@kindgi/tools';
 
+import type { ConnectionBinding } from '../connection-binding.js';
 import { type WireErrorBody, retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 import type { EventBusBinding, EventPayload, Subscription } from '../event-bus-binding.js';
 import type {
@@ -38,19 +41,23 @@ import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import type { MintPublicRunTokenResult } from '../public-run-token.js';
+import { isReadMethod } from '../read-method.js';
 import {
   type ReferenceScopeBinding,
   outOfScopeResponse,
   referencesOutOfScope,
 } from '../reference-scope.js';
+import { logResumeAfterAnswer, resumeInline } from '../resume-inline.js';
 import { type RunFailure, runFailure } from '../run-failure.js';
 import { runWaitingFor } from '../run-waiting-for.js';
 import type { AppEnv } from '../types.js';
+import type { CompleteWaitTokenInput, WaitTokenBinding } from '../wait-token-binding.js';
+import { agentPinScopeToWire } from './agent-pin-scope-wire.js';
 import { deniedBy } from './denied.js';
-import { liveScopeToWire } from './live-scope-wire.js';
 import type { DecodedCursor } from './pagination.js';
 import { clampLimit, decodeCursor, isCursorTime } from './pagination.js';
 import { participantRefusal } from './participant-access.js';
+import { pinScopeToWire } from './pin-scope-wire.js';
 import { runFailuresHandler } from './run-failures.js';
 import { parseListScope } from './scope-params.js';
 import { parseSegmentsBody } from './segments.js';
@@ -65,6 +72,7 @@ import {
 } from './sse.js';
 import { type TurnConversation, closedRefusal, hiddenOr, turnRefusal } from './turn-access.js';
 import { UUID_RE, refuseMalformedUuidParam } from './uuid-param.js';
+import { refusal as waitTokenRefusal } from './wait-tokens.js';
 
 const KERNEL_RUN_CHANNEL_PREFIX = 'kernel:run:';
 
@@ -75,6 +83,19 @@ export interface RunsRouterOptions {
    * to its open waits). Absent: those waits are `unattributed`.
    */
   readonly hitl?: HitlBinding;
+  /**
+   * The connect requests, for a suspended run's `waitingFor.connections`
+   * (a tool waiting for a person to connect an app). Absent: those waits
+   * are `unattributed`.
+   */
+  readonly connections?: ConnectionBinding;
+  /**
+   * Runs paused until another system answers: `POST /:runId/resume` with a
+   * `pause:` waitpoint id answers one, and a suspended run's `waitingFor`
+   * lists them (`tokens`). Absent: the route answers `422
+   * run-resume-not-supported`, and `tokens` is left out.
+   */
+  readonly waitTokens?: WaitTokenBinding;
   /**
    * Optional push-based event bus. When present, `GET /:runId/stream`
    * subscribes on `kernel:run:<runId>` and delivers events
@@ -161,7 +182,8 @@ export function runsRouter(
   //                       existing one; a missing one is the handler's 404)
   // GET /:runId         — read on the run's project
   // POST /:runId/cancel — write on the run's project
-  // POST /:runId/resume — write on the run's project
+  // POST /:runId/resume — write on the run's project; answering a pause,
+  //                       also execute on what the run runs (the route's)
   // GET /:runId/journal — read on the run's project
   // GET /:runId/stream  — read on the run's project
   // GET /               — list; rows filtered to `read` on their project
@@ -189,7 +211,7 @@ export function runsRouter(
         return mw(c, next);
       };
     r.use('/:runId', async (c, next) => {
-      if (c.req.method !== 'GET') return next();
+      if (!isReadMethod(c.req.method)) return next();
       return onRunProject('read')(c, next);
     });
     r.use('/:runId/journal', onRunProject('read'));
@@ -378,16 +400,7 @@ export function runsRouter(
         toWireError({ code: 'run-not-found', message: `No run with id ${runId}` }, requestId),
       );
     }
-    // A suspended run says what it waits for (left out when that can't be read).
-    const waitingFor = await runWaitingFor(
-      { runBinding, ...(options.hitl !== undefined && { hitl: options.hitl }) },
-      tenantId,
-      { id: loaded.runId, status: loaded.status },
-    );
-    return c.json({
-      ...serializeRun(loaded, { output: true }),
-      ...(waitingFor !== undefined && { waitingFor }),
-    });
+    return c.json(await runWithWaits(runBinding, options, tenantId, loaded));
   });
 
   // ---------- GET /:runId/progress ----------
@@ -497,25 +510,52 @@ export function runsRouter(
   });
 
   // ---------- POST /:runId/resume ----------
-  // Not available in this release. Every waitpoint a run can wait at
-  // belongs to an approval or to the runtime itself (a flow's agent step
-  // waiting on its child turn). Completing one here would skip what owns
-  // it: an approval's reviewer check and recorded decision, or the
-  // runtime's own wake-up. A run waiting for an approval continues
-  // through `POST /v1/approvals/:id/complete`. So nothing is read or
-  // completed; the route stays mounted for a clear answer.
-  r.post('/:runId/resume', (c) => {
-    c.status(statusFor('run-resume-not-supported') as never);
-    return c.json(
-      toWireError(
-        {
-          code: 'run-resume-not-supported',
-          message:
-            'Resuming a run at a waitpoint is not available in this release: every waitpoint belongs to an approval or to the runtime. A run waiting for an approval continues when a reviewer decides it (POST /v1/approvals/{approvalId}/complete, or `kindgi approvals complete`).',
-        },
-        c.get('requestId'),
-      ),
-    );
+  // Answers a run paused until another system answers (a `pause:`
+  // waitpoint), as that system would through the token's link: the value
+  // is the tool's output, checked against its schema. The run resumes in
+  // the same request, and the route answers the run. Every other waitpoint
+  // belongs to an approval or to the runtime itself; completing one here
+  // would skip what owns it (an approval's reviewer check and recorded
+  // decision, or the runtime's own wake-up), so it's `422
+  // run-resume-not-supported`. A run waiting for an approval continues
+  // through `POST /v1/approvals/:id/complete`.
+  r.post('/:runId/resume', refuseMalformedRunId, async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const runId = c.req.param('runId') as RunId;
+    const parsed = await readResumeRunBody(c);
+    if (parsed.kind === 'err') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message: parsed.message }, requestId));
+    }
+    const waitTokens = options.waitTokens;
+    if (!parsed.value.waitpointId.startsWith(PAUSE_TOKEN_PREFIX) || waitTokens === undefined) {
+      c.status(statusFor('run-resume-not-supported') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'run-resume-not-supported',
+            message: resumeNotSupportedMessage(waitTokens !== undefined),
+          },
+          requestId,
+        ),
+      );
+    }
+    const loaded = await runBinding.getRun(tenantId, runId);
+    if (loaded === null) {
+      c.status(statusFor('run-not-found') as never);
+      return c.json(
+        toWireError({ code: 'run-not-found', message: `No run with id ${runId}` }, requestId),
+      );
+    }
+    const refused = await answerRefusal(c, authorizer, options, loaded);
+    if (refused !== undefined) return refused;
+
+    const taken = await waitTokens.complete(apiAnswer(c, tenantId, runId, parsed.value));
+    if (taken.kind === 'err') return waitTokenRefusal(c, taken.error);
+    if (taken.value.resolved) await resumeAfterAnswer(c, binding, tenantId, runId);
+    const answered = (await runBinding.getRun(tenantId, runId)) ?? loaded;
+    return c.json(await runWithWaits(runBinding, options, tenantId, answered));
   });
 
   // ---------- GET /:runId/stream and /:runId/progress/stream (SSE) ----------
@@ -556,6 +596,10 @@ export function runsRouter(
 
     const encoder = new TextEncoder();
     let lastEmittedSeq = since ?? -1;
+    // Each read asks only for what this stream hasn't sent: a poll every
+    // 200 ms no longer reads the whole journal. `emitEntry` still skips
+    // what was sent, for a binding that gives every entry.
+    const sinceEmitted = (): JournalPage => (lastEmittedSeq < 0 ? {} : { after: lastEmittedSeq });
     const POLL_MS = 200;
     const MAX_WAIT_MS = 5 * 60_000;
     // Aborted when the client goes away: the reader cancels the stream, or
@@ -635,7 +679,7 @@ export function runsRouter(
             // reconnect with `Last-Event-Id` doesn't miss events that
             // landed while the client was disconnected. Then subscribe
             // for the tail push-side.
-            const backfill = await runBinding.readJournal(tenantId, runId);
+            const backfill = await runBinding.readJournal(tenantId, runId, sinceEmitted());
             if (backfill.kind === 'err') {
               controller.enqueue(
                 encoder.encode(
@@ -734,7 +778,7 @@ export function runsRouter(
         // journal every 200 ms until a terminal entry or the max-wait
         // window elapses.
         const pollEmit = async (): Promise<{ terminal: boolean }> => {
-          const journal = await runBinding.readJournal(tenantId, runId);
+          const journal = await runBinding.readJournal(tenantId, runId, sinceEmitted());
           if (journal.kind === 'err') {
             const frame = formatSseFrame({
               id: `${runId}:error`,
@@ -804,7 +848,14 @@ export function runsRouter(
     }
     const { limit, after } = paging;
 
-    const journal = await runBinding.readJournal(tenantId, runId);
+    // Only the page is read (`journalPageToRead`). A binding that gives the
+    // whole journal anyway gets the same page: the filter and the slice below
+    // make it.
+    const journal = await runBinding.readJournal(
+      tenantId,
+      runId,
+      journalPageToRead(since, after, limit),
+    );
     if (journal.kind === 'err') {
       const err = journal.error;
       const busy = databaseBusyAnswer(err, c);
@@ -881,6 +932,146 @@ export function startedByCaller(
   if (serviceAccountKey || principal.actor.kind === 'service_account') return 'key';
   if (principal.actor.kind === 'user' && principal.onBehalfOf === undefined) return 'person';
   return undefined;
+}
+
+/**
+ * An answer to a run's wait stands in for the system that would send it,
+ * and the run acts on it: as starting the run, `execute` on the agent or
+ * flow it runs (in the run's project, for one more than one project
+ * serves: that project's right), beside the `write` on the run's project
+ * the route's middleware asks. A target that's gone is left to the resume.
+ */
+async function answerRefusal(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  options: RunsRouterOptions,
+  run: KernelRunRecord,
+): Promise<Response | undefined> {
+  if (authorizer === undefined) return undefined;
+  const target =
+    run.agent !== undefined
+      ? { kind: 'agent' as const, id: run.agent.id as unknown as string }
+      : { kind: 'flow' as const, id: run.flowId as unknown as string };
+  const projectId = run.projectId as unknown as string;
+  if (
+    options.itemRights !== undefined &&
+    (await servedThere(c, options.itemRights, target, projectId))
+  ) {
+    return runIn(c, options.itemRights, target, projectId);
+  }
+  if ((await options.targetExists?.(run.tenantId, target)) === false) return undefined;
+  return deniedBy(authorizer, c, 'execute', ref(target.kind, target.id));
+}
+
+/**
+ * A run in full, as `GET /:runId` answers it. A suspended run says what
+ * it waits for (left out when that can't be read).
+ */
+async function runWithWaits(
+  runBinding: RunBinding,
+  options: RunsRouterOptions,
+  tenantId: TenantId,
+  run: KernelRunRecord,
+): Promise<Record<string, unknown>> {
+  const waitingFor = await runWaitingFor(
+    {
+      runBinding,
+      ...(options.hitl !== undefined && { hitl: options.hitl }),
+      ...(options.connections !== undefined && { connections: options.connections }),
+      ...(options.waitTokens !== undefined && { waitTokens: options.waitTokens }),
+    },
+    tenantId,
+    { id: run.runId, status: run.status },
+  );
+  return {
+    ...serializeRun(run, { output: true }),
+    ...(waitingFor !== undefined && { waitingFor }),
+  };
+}
+
+/** The resume body as an answer to the wait, from the caller. */
+function apiAnswer(
+  c: Context<AppEnv>,
+  tenantId: TenantId,
+  runId: RunId,
+  body: { readonly waitpointId: string; readonly value?: unknown },
+): CompleteWaitTokenInput {
+  const principal = c.get('principal');
+  return {
+    via: 'api',
+    tenantId,
+    runId,
+    tokenId: body.waitpointId,
+    // No value is `{}`, as the link takes an empty body; a `null` is the answer, as on the link.
+    output: body.value === undefined ? {} : body.value,
+    ...(principal !== undefined && { principal }),
+  };
+}
+
+/** The resume body, read and parsed. */
+async function readResumeRunBody(
+  c: Context<AppEnv>,
+): Promise<ReturnType<typeof parseResumeRunBody>> {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return { kind: 'err', message: 'Request body must be valid JSON' };
+  }
+  return parseResumeRunBody(body);
+}
+
+/** Why this runtime can't resume at the named waitpoint. */
+function resumeNotSupportedMessage(pausesRuns: boolean): string {
+  return pausesRuns
+    ? 'Only a run paused until another system answers (a `pause:` waitpoint) resumes here: every other waitpoint belongs to an approval or to the runtime. A run waiting for an approval continues when a reviewer decides it (POST /v1/approvals/{approvalId}/complete, or `kindgi approvals complete`).'
+    : 'This runtime resumes no run at a waitpoint: it pauses no run until another system answers. A run waiting for an approval continues when a reviewer decides it (POST /v1/approvals/{approvalId}/complete, or `kindgi approvals complete`).';
+}
+
+/**
+ * Resume a run whose wait was just answered, in this request. The answer
+ * is the runtime's either way: a failed resume is logged, and the
+ * runtime ends a run that can't go on, or its sweep resumes the run later.
+ */
+async function resumeAfterAnswer(
+  c: Context<AppEnv>,
+  binding: RunHandlerBinding,
+  tenantId: TenantId,
+  runId: RunId,
+): Promise<void> {
+  const trace = c.get('trace');
+  const resumed = await resumeInline(binding, tenantId, runId, {
+    traceId: trace.traceId,
+    spanId: trace.spanId,
+  });
+  logResumeAfterAnswer(c.get('log'), runId, resumed);
+}
+
+/** `{ waitpointId, value? }`, and nothing else. */
+function parseResumeRunBody(body: unknown):
+  | {
+      readonly kind: 'ok';
+      readonly value: { readonly waitpointId: string; readonly value?: unknown };
+    }
+  | { readonly kind: 'err'; readonly message: string } {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return { kind: 'err', message: 'The body is an object: `{ waitpointId, value }`' };
+  }
+  const { waitpointId, value, ...rest } = body as Record<string, unknown>;
+  const unknown = Object.keys(rest);
+  if (unknown.length > 0) {
+    return {
+      kind: 'err',
+      message: `Unknown field \`${unknown[0]}\`: the body is \`{ waitpointId, value }\``,
+    };
+  }
+  if (typeof waitpointId !== 'string' || waitpointId.length === 0) {
+    return {
+      kind: 'err',
+      message: 'Field `waitpointId` is required: the id of the wait to answer',
+    };
+  }
+  return { kind: 'ok', value: { waitpointId, ...(value !== undefined && { value }) } };
 }
 
 /**
@@ -1045,7 +1236,7 @@ function invokeFromBody(
  * single-run responses carry it, lists only with `?include=output`
  * (outputs can be large). Child runs carry their parent's run + node;
  * an agent's turns, the agent, its version and the conversation; a
- * replay run, the run it replays and its eval run.
+ * replay run, the run it replays and its test run.
  */
 function serializeRun(
   row: KernelRunRecord,
@@ -1057,6 +1248,7 @@ function serializeRun(
     projectId: row.projectId as unknown as string,
     flowId: row.flowId,
     flowVersion: row.flowVersion,
+    ...withFlowVersionChoice(row),
     status: row.status,
     dryRun: row.dryRun,
     createdAt: row.createdAt as unknown as string,
@@ -1073,13 +1265,13 @@ function serializeRun(
         version: row.agent.version,
         conversationId: row.agent.conversationId as unknown as string,
         ...(row.agent.via !== undefined && { via: row.agent.via }),
-        ...(row.agent.liveScope !== undefined && {
-          liveScope: liveScopeToWire(row.agent.liveScope),
+        ...(row.agent.pinnedScope !== undefined && {
+          pinnedScope: agentPinScopeToWire(row.agent.pinnedScope),
         }),
       },
     }),
     ...(row.replayOf != null && { replayOf: row.replayOf as unknown as string }),
-    ...(row.evalRunId != null && { evalRunId: row.evalRunId }),
+    ...(row.testRunId != null && { testRunId: row.testRunId }),
     ...(row.trigger !== undefined && {
       trigger: {
         triggerId: row.trigger.triggerId as unknown as string,
@@ -1088,9 +1280,11 @@ function serializeRun(
         ...(row.trigger.scheduledFor !== undefined && {
           scheduledFor: row.trigger.scheduledFor as unknown as string,
         }),
+        ...(row.trigger.version !== undefined && { version: row.trigger.version }),
       },
     }),
     ...(row.startedBy !== undefined && { startedBy: row.startedBy }),
+    ...(row.actsFor !== undefined && { actsFor: row.actsFor }),
     ...(row.toolsAllowedUnattended !== undefined &&
       row.toolsAllowedUnattended.length > 0 && {
         toolsAllowedUnattended: [...row.toolsAllowedUnattended],
@@ -1104,6 +1298,16 @@ function serializeRun(
         segments: row.segments.map(({ key, value }) => ({ key, value })),
       }),
     ...(row.traceId != null && { traceId: row.traceId }),
+  };
+}
+
+/** How the run's flow version was chosen, when the run recorded it. */
+function withFlowVersionChoice(row: KernelRunRecord): Record<string, unknown> {
+  return {
+    ...(row.flowVersionVia !== undefined && { flowVersionVia: row.flowVersionVia }),
+    ...(row.flowPinnedScope !== undefined && {
+      flowPinnedScope: pinScopeToWire(row.flowPinnedScope),
+    }),
   };
 }
 
@@ -1171,7 +1375,7 @@ function listRunsInput(input: {
     ...(filter.topLevelOnly && { topLevelOnly: true }),
     ...(filter.agentId !== undefined && { agentId: filter.agentId }),
     replays: filter.replays,
-    ...(filter.evalRunId !== undefined && { evalRunId: filter.evalRunId }),
+    ...(filter.testRunId !== undefined && { testRunId: filter.testRunId }),
     ...(filter.triggerId !== undefined && { triggerId: filter.triggerId }),
     ...(filter.statuses !== undefined && { statuses: filter.statuses }),
     ...(filter.createdAfter !== undefined && { createdAfter: filter.createdAfter }),
@@ -1187,7 +1391,7 @@ interface RunListFilter {
   readonly topLevelOnly: boolean;
   readonly agentId?: string;
   readonly replays: 'exclude' | 'include' | 'only';
-  readonly evalRunId?: string;
+  readonly testRunId?: string;
   readonly triggerId?: TriggerId;
   readonly statuses?: readonly RunStatus[];
   readonly createdAfter?: Timestamp;
@@ -1298,7 +1502,7 @@ function parseRunNarrowing(
 /**
  * `?parentRunId=` (children of a run), `?topLevel=true`, `?agentId=` (an
  * agent's turns), `?replays=exclude|include|only` (default `exclude`),
- * `?evalRunId=` (one eval run's replays; implies they are included),
+ * `?testRunId=` (one test run's replays; implies they are included),
  * `?triggerId=` (the runs a trigger started), `?include=output`, and the
  * narrowing in `parseRunNarrowing`.
  */
@@ -1306,7 +1510,7 @@ function parseRunListFilter(
   query: Readonly<Record<string, string>>,
   status?: readonly string[],
 ): { kind: 'ok'; value: RunListFilter } | { kind: 'err'; message: string } {
-  const { parentRunId, topLevel, agentId, replays, evalRunId, triggerId, include } = query;
+  const { parentRunId, topLevel, agentId, replays, testRunId, triggerId, include } = query;
   if (triggerId !== undefined && !UUID_RE.test(triggerId)) {
     return { kind: 'err', message: '`triggerId` must be a trigger id (a UUID)' };
   }
@@ -1331,11 +1535,11 @@ function parseRunListFilter(
   ) {
     return { kind: 'err', message: '`replays` must be `exclude`, `include` or `only`' };
   }
-  if (evalRunId !== undefined && evalRunId.trim() === '') {
-    return { kind: 'err', message: '`evalRunId` must not be empty' };
+  if (testRunId !== undefined && testRunId.trim() === '') {
+    return { kind: 'err', message: '`testRunId` must not be empty' };
   }
-  if (evalRunId !== undefined && replays === 'exclude') {
-    return { kind: 'err', message: '`evalRunId` and `replays=exclude` cannot be combined' };
+  if (testRunId !== undefined && replays === 'exclude') {
+    return { kind: 'err', message: '`testRunId` and `replays=exclude` cannot be combined' };
   }
   const includes = include === undefined ? [] : include.split(',').map((i) => i.trim());
   const unknown = includes.filter((i) => i !== 'output');
@@ -1351,8 +1555,8 @@ function parseRunListFilter(
       ...(parentRunId !== undefined && { parentRunId: parentRunId as RunId }),
       topLevelOnly,
       ...(agentId !== undefined && { agentId }),
-      replays: replays ?? (evalRunId !== undefined ? 'include' : 'exclude'),
-      ...(evalRunId !== undefined && { evalRunId }),
+      replays: replays ?? (testRunId !== undefined ? 'include' : 'exclude'),
+      ...(testRunId !== undefined && { testRunId }),
       ...(triggerId !== undefined && { triggerId: triggerId as TriggerId }),
       includeOutput: includes.includes('output'),
     },
@@ -1530,6 +1734,25 @@ function parseJournalPaging(
     after = decoded;
   }
   return { kind: 'ok', limit, after };
+}
+
+/**
+ * What a journal answer reads: the entries after the later of `since` (when
+ * it's a number) and the cursor's sequence, and one more than `limit`, to
+ * tell whether more remain after the page.
+ */
+function journalPageToRead(
+  since: number | undefined,
+  after: number | undefined,
+  limit: number | undefined,
+): JournalPage {
+  const sinceSeq = since !== undefined && Number.isFinite(since) ? since : undefined;
+  const from =
+    sinceSeq === undefined ? after : after === undefined ? sinceSeq : Math.max(sinceSeq, after);
+  return {
+    ...(from !== undefined && { after: from }),
+    ...(limit !== undefined && { limit: limit + 1 }),
+  };
 }
 
 /**

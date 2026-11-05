@@ -43,7 +43,7 @@ const turn = record({
   agent: { id: 'acme.desk.echo-agent', version: '0.3.0', conversationId },
 });
 const flowRun = record({ flowId: 'acme.desk.triage', flowVersion: '0.1.0' });
-const liveTurn = record({
+const pinnedTurn = record({
   segments: [
     { key: 'company', value: 'acme' },
     { key: 'role', value: 'counsel' },
@@ -52,8 +52,8 @@ const liveTurn = record({
     id: 'acme.desk.echo-agent',
     version: '0.2.0',
     conversationId,
-    via: 'live',
-    liveScope: {
+    via: 'pinned',
+    pinnedScope: {
       kind: 'segment',
       projectId: randomUUID() as ProjectId,
       path: [{ key: 'company', value: 'acme' }],
@@ -67,7 +67,7 @@ function app() {
   const run = {
     ...stubs.kernelBinding.run,
     getRun: async (_t: TenantId, runId: string) =>
-      [turn, flowRun, liveTurn].find((r) => r.runId === runId) ?? null,
+      [turn, flowRun, pinnedTurn].find((r) => r.runId === runId) ?? null,
     listRuns: async (input: ListRunsInput) => {
       listed.push(input);
       return { data: [turn, flowRun], hasMore: false };
@@ -98,16 +98,16 @@ describe('a run names its agent', () => {
     });
   });
 
-  test('a turn records how its version was chosen, and the live scope', async () => {
-    const answer = await get(`/v1/runs/${liveTurn.runId}`);
+  test('a turn records how its version was chosen, and the pinned scope', async () => {
+    const answer = await get(`/v1/runs/${pinnedTurn.runId}`);
     expect(answer.status).toBe(200);
-    const scope = liveTurn.agent?.liveScope;
+    const scope = pinnedTurn.agent?.pinnedScope;
     expect(answer.json.agent).toEqual({
       id: 'acme.desk.echo-agent',
       version: '0.2.0',
       conversationId,
-      via: 'live',
-      liveScope: {
+      via: 'pinned',
+      pinnedScope: {
         kind: 'segment',
         projectId: scope?.kind === 'segment' ? scope.projectId : undefined,
         path: [{ key: 'company', value: 'acme' }],
@@ -118,12 +118,12 @@ describe('a run names its agent', () => {
   test('without a recorded choice, no via', async () => {
     const answer = await get(`/v1/runs/${turn.runId}`);
     expect(answer.json.agent).not.toHaveProperty('via');
-    expect(answer.json.agent).not.toHaveProperty('liveScope');
+    expect(answer.json.agent).not.toHaveProperty('pinnedScope');
     expect(answer.json).not.toHaveProperty('segments');
   });
 
   test('the segment path the run was started with, in order', async () => {
-    const answer = await get(`/v1/runs/${liveTurn.runId}`);
+    const answer = await get(`/v1/runs/${pinnedTurn.runId}`);
     expect(answer.json.segments).toEqual([
       { key: 'company', value: 'acme' },
       { key: 'role', value: 'counsel' },

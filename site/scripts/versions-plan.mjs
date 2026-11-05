@@ -12,7 +12,8 @@
  *     release path: readers of the public site install releases;
  *   - `next`: the newest pre-release newer than every release, if there is
  *     one, for `/next/`. Once its release ships, it's older than the release,
- *     and `/next/` goes away until the next pre-release.
+ *     and `/next/` goes away until the next pre-release. While its line has
+ *     no release, `/vX.Y/` goes to `/next/` (`redirects`).
  */
 
 /** `X.Y.Z[-pre]` → comparable parts; prereleases sort before their release. */
@@ -81,15 +82,24 @@ export function menu({ releases, next }) {
  * `/_redirects`: each release line's path (`/v0.1/`, the path before every
  * release had its own) goes to that line's newest release, page for page.
  *
+ * A line whose only builds are pre-releases (`/v0.2/` while `0.2.0-rc.0` is
+ * on `/next/`) goes to `/next/`, page for page: a pre-release's CLI and
+ * skills link their line's path. It's a 302, so browsers don't keep it: once
+ * the line's first release ships, that release takes the path over with a 301.
+ *
  * @param {ReturnType<typeof plan>} p
  */
-export function redirects({ lines }) {
-  return lines
-    .map(
-      ({ parsed: { line, version } }) =>
-        `/v${line} /v${version}/ 301\n/v${line}/* /v${version}/:splat 301\n`,
-    )
-    .join('');
+export function redirects({ lines, next }) {
+  const rule = (line, to, status) =>
+    `/v${line} ${to} ${status}\n/v${line}/* ${to}:splat ${status}\n`;
+  const upcoming =
+    next !== undefined && !lines.some(({ parsed }) => parsed.line === next.parsed.line)
+      ? [rule(next.parsed.line, '/next/', 302)]
+      : [];
+  return [
+    ...upcoming,
+    ...lines.map(({ parsed: { line, version } }) => rule(line, `/v${version}/`, 301)),
+  ].join('');
 }
 
 /**

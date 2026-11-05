@@ -44,7 +44,7 @@ your code when they need it, and records every step.
   flows step by step, the journal of every step in Postgres, the secrets
   your tools use, and the calls to model providers. It ships as a container
   image.
-- **Model providers** are registered per tenant. A provider is a vendor's
+- **Model providers** are registered per workspace. A provider is a vendor's
   API, or a model you serve inside your own network. An agent states what it
   needs, and Kindgi picks a model that fits.
 - **The console**, at `/console/` on any runtime, shows each run on one page:
@@ -66,9 +66,9 @@ The same runtime image runs everywhere:
 - **Kindgi Cloud:** Kindgi operates the runtime for you (private preview).
 
 :::note[Access to the runtime image]
-Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
-runtime image's pull credentials, and log in once with `kindgi auth registry`
-(see [Install](../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or your
+email address for a license key. The key is also the runtime image's
+password ([Pull the runtime image](../../deploy/self-hosted/pull-the-runtime-image/)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## What stays yours

@@ -63,6 +63,15 @@ final class ToolBuilder[I, O] private[scaladsl] (
   def needsApprovalWhenUnattended(needsApprovalWhenUnattended: Boolean): ToolBuilder[I, O] =
     step(_.needsApprovalWhenUnattended(needsApprovalWhenUnattended))
 
+  /**
+   * The tool's results are text from outside that nobody checked, such as a mail someone sent or a
+   * page a search found. An agent reads each result as data, not instructions, in that turn and in
+   * every later turn's history. It changes what the model is told, not what the tool may do: pair
+   * it with approvals for anything an agent could do with what it read.
+   */
+  def resultIsOutsideData(resultIsOutsideData: Boolean): ToolBuilder[I, O] =
+    step(_.resultIsOutsideData(resultIsOutsideData))
+
   /** A side effect the tool has, on a resource. */
   def effect(kind: String, resource: String): ToolBuilder[I, O] = step(_.effect(kind, resource))
 

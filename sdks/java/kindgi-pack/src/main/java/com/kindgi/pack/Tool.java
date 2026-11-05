@@ -59,6 +59,7 @@ public final class Tool<I, O> {
   private final @Nullable Map<String, Object> outputSchema;
   private final @Nullable Boolean mutating;
   private final @Nullable Boolean needsApprovalWhenUnattended;
+  private final @Nullable Boolean resultIsOutsideData;
   private final List<Map<String, Object>> effects;
   private final Map<String, Object> extra;
   private final ToolHandler<I, O> handler;
@@ -78,6 +79,7 @@ public final class Tool<I, O> {
     this.outputSchema = b.outputSchema;
     this.mutating = b.mutating;
     this.needsApprovalWhenUnattended = b.needsApprovalWhenUnattended;
+    this.resultIsOutsideData = b.resultIsOutsideData;
     this.effects = List.copyOf(b.effects);
     this.extra = Map.copyOf(extra);
     this.handler = Objects.requireNonNull(handler, "handler");
@@ -121,6 +123,14 @@ public final class Tool<I, O> {
    */
   public @Nullable Boolean needsApprovalWhenUnattended() {
     return needsApprovalWhenUnattended;
+  }
+
+  /**
+   * @return whether the tool's results are text from outside that nobody checked; {@code null}
+   *     when it doesn't say (they are not)
+   */
+  public @Nullable Boolean resultIsOutsideData() {
+    return resultIsOutsideData;
   }
 
   List<Map<String, Object>> effects() {
@@ -219,6 +229,7 @@ public final class Tool<I, O> {
     private @Nullable Map<String, Object> outputSchema = ANY_OBJECT;
     private @Nullable Boolean mutating;
     private @Nullable Boolean needsApprovalWhenUnattended;
+    private @Nullable Boolean resultIsOutsideData;
     private final List<Map<String, Object>> effects = new ArrayList<>();
     private final Map<String, Object> extra = new LinkedHashMap<>();
     private final Class<?> definedIn;
@@ -315,6 +326,19 @@ public final class Tool<I, O> {
      */
     public Builder<I, O> needsApprovalWhenUnattended(boolean needsApprovalWhenUnattended) {
       this.needsApprovalWhenUnattended = needsApprovalWhenUnattended;
+      return this;
+    }
+
+    /**
+     * @param resultIsOutsideData {@code true} when the tool's results are text from outside that
+     *     nobody checked, such as a mail someone sent or a page a search found. An agent reads each
+     *     result of the tool as data, not instructions, in that turn and in every later turn's
+     *     history. It changes what the model is told, not what the tool may do: pair it with
+     *     approvals for anything an agent could do with what it read. Absent means {@code false}
+     * @return this
+     */
+    public Builder<I, O> resultIsOutsideData(boolean resultIsOutsideData) {
+      this.resultIsOutsideData = resultIsOutsideData;
       return this;
     }
 

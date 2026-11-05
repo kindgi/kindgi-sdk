@@ -128,11 +128,16 @@ name for one. The preview is the check.
   Kindgi also keeps a count of the reports about the same issue, and what
   became of it, with none of a report's words. That lasts as long as the
   issue's newest report.
-- **Your IP address:** the intake doesn't store it. Cloudflare carries
-  every request to the intake, so it sees your address. Kindgi's request log
-  at Cloudflare keeps it for up to 7 days, and Kindgi counts requests per
-  address there for a minute, to limit them. Google Cloud, where the intake
-  runs, logs only Cloudflare's address.
+- **Your IP address:** the intake doesn't store it. `kindgi feedback`
+  sends to `access.kindgi.com`, which Cloudflare carries, so Cloudflare
+  sees your address. Kindgi's request log there keeps it as long as
+  Cloudflare keeps
+  [Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/),
+  7 days at most, and Kindgi counts requests per address there for a
+  minute, to limit them. Google Cloud, where the intake runs, logs only
+  Cloudflare's address for these. A request that reaches the intake
+  another way, straight at its Google Cloud address, is logged there with
+  its sender's address.
 - **Deleting a report:** withdraw it, as below. Its text is cleared at once.
 
 ## Hear back

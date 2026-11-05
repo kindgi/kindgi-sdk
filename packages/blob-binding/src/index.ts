@@ -19,7 +19,7 @@ import type {
  * binding implementation: typically a filesystem-backed one for
  * development and tests, and an object-store-backed one in production.
  *
- * Every method is tenant-scoped: callers pass `tenantId` explicitly so
+ * Every method is workspace-scoped: callers pass `tenantId` explicitly so
  * multi-tenant deployments can partition storage without exposing the
  * scoping inside the API package. Cursors are opaque — the binding
  * chooses its encoding.
@@ -73,7 +73,7 @@ export interface BlobStorageBinding {
   /**
    * Fetch bytes + metadata for download by `blobId`. Body is a
    * `ReadableStream` so large blobs stream without buffering. Returns
-   * `blob-not-found` when the id is unknown to this tenant.
+   * `blob-not-found` when the id is unknown to this workspace.
    */
   get(tenantId: TenantId, blobId: ArtifactId): Promise<Result<BlobRead, BlobError>>;
   /**
@@ -257,7 +257,7 @@ export interface BlobPutInput {
    * The project the blob belongs to, which decides who may read and
    * delete it. The API resolves it before calling `put`: the owner run's
    * project, else the upload's `projectId`, the caller key's project, or
-   * the tenant's default project. Bindings store it and return it on
+   * the workspace's default project. Bindings store it and return it on
    * `BlobMeta`.
    */
   readonly projectId?: ProjectId;
@@ -310,14 +310,14 @@ export interface BlobFilter {
   readonly tags?: Readonly<Record<string, string>>;
   /**
    * Narrow the list to a specific scope. Absent = no scope narrow
-   * (return every row in the tenant the caller can see — admin/audit
+   * (return every row in the workspace the caller can see — admin/audit
    * default).
    *
    * Content-scoped semantics (this binding):
    * - `{ kind: 'project', projectId }` — rows in that project.
    * - `{ kind: 'org', orgId }` — rows in every project belonging to
    *   that org.
-   * - `{ kind: 'tenant', tenantId }` — every row in the tenant.
+   * - `{ kind: 'tenant', tenantId }` — every row in the workspace.
    *
    * Blobs are content: every blob belongs to a project, so `inherit`
    * has no effect here.

@@ -25,6 +25,15 @@ export function renderJson(value: unknown, format: OutputFormat): Rendered {
   return { stdout: `${JSON.stringify(value, null, 2)}\n`, stderr: '' };
 }
 
+/**
+ * A success note for stderr (what was done, a next step): left out under
+ * `--quiet`, which keeps errors and warnings only. A warning is never
+ * passed through this; it's said either way.
+ */
+export function successNote(format: OutputFormat, text: string): string {
+  return format === 'quiet' ? '' : text;
+}
+
 export function renderTable<T>(rows: readonly T[], columns: readonly Column<T>[]): Rendered {
   if (rows.length === 0) return { stdout: '(no rows)\n', stderr: '' };
   const headers = columns.map((c) => c.header);

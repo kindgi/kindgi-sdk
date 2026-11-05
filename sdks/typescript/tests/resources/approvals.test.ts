@@ -12,8 +12,8 @@ const TENANT = '00000000-0000-4000-8000-000000000002';
 const WIRE_APPROVAL = {
   id: '33333333-3333-4333-8333-333333333333',
   tenantId: TENANT,
-  subjectKind: 'fix-proposal',
-  subjectRef: { proposalId: 'p-1' },
+  subjectKind: 'suggested-change',
+  subjectRef: { suggestedChangeId: 'p-1' },
   requiredRole: 'standard' as const,
   status: 'pending' as const,
   createdAt: '2026-09-20T00:00:00.000Z',
@@ -43,7 +43,7 @@ describe('approvals.list / get — /v1/approvals mapping', () => {
       requiredRole: 'standard',
       limit: 10,
     });
-    expect(page.items[0]?.id).toBe(WIRE_APPROVAL.id);
+    expect(page.data[0]?.id).toBe(WIRE_APPROVAL.id);
     const url = new URL(stub.calls[0]?.url);
     expect(url.searchParams.get('status')).toBe('pending');
     expect(url.searchParams.get('requiredRole')).toBe('standard');
@@ -73,7 +73,7 @@ describe('approvals.list / get — /v1/approvals mapping', () => {
 
     const a = await client.approvals.get(WIRE_APPROVAL.id as never);
     expect(a.id).toBe(WIRE_APPROVAL.id);
-    expect(a.subjectKind).toBe('fix-proposal');
+    expect(a.subjectKind).toBe('suggested-change');
     expect(stub.calls[0]?.url).toBe(`https://api.example.com/v1/approvals/${WIRE_APPROVAL.id}`);
   });
 
@@ -174,7 +174,7 @@ describe('approvals.reviewers — /v1/approvals/reviewers sub-resource', () => {
     });
 
     const page = await client.approvals.reviewers.list({ role: 'standard' });
-    expect(page.items[0]?.id).toBe(WIRE_REVIEWER.id);
+    expect(page.data[0]?.id).toBe(WIRE_REVIEWER.id);
     const url = new URL(stub.calls[0]?.url);
     expect(url.searchParams.get('role')).toBe('standard');
   });
@@ -290,7 +290,7 @@ describe('approvals.audit.export — POST /v1/approvals/{id}/audit-bundle', () =
 });
 
 describe('approvals not-yet-wired surface', () => {
-  it('batch / assign / completeToken / audit.get / audit.list / reviewers.updateRole throw not-yet-wired', async () => {
+  it('batch / assign / audit.get / audit.list / reviewers.updateRole throw not-yet-wired', async () => {
     const stub = recordingFetch([]);
     const client = createClient({
       apiUrl: 'https://api.example.com',
@@ -307,12 +307,6 @@ describe('approvals not-yet-wired surface', () => {
 
     await expect(client.approvals.assign('a-1' as never, 'r-1' as never)).rejects.toMatchObject({
       error: { code: 'not-yet-wired', method: 'approvals.assign' },
-    });
-
-    await expect(
-      client.approvals.completeToken('a-1' as never, { value: 42 }),
-    ).rejects.toMatchObject({
-      error: { code: 'not-yet-wired', method: 'approvals.completeToken' },
     });
 
     await expect(client.approvals.audit.get('bundle-1' as never)).rejects.toMatchObject({

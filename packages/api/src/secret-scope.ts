@@ -97,8 +97,8 @@ export interface NamedSecretScopeInput {
  *
  * A deployment stored in a named project syncs its secrets into that
  * project. One stored with no `projectId` syncs them tenant-wide, though
- * its tools are in the Default project: a deploy that named no project, or
- * a promotion into the Default project. A deploy and a promotion record
+ * its tools are in the default project: a deploy that named no project, or
+ * a promotion into the default project. A deploy and a promotion record
  * this scope for a secret their tools name that's set nowhere yet, so a
  * call reads what the sync stores.
  */
@@ -283,8 +283,11 @@ export function toolSecretRefs(
   envName: EnvName | undefined,
 ): NamedSecret[] {
   const refs: NamedSecret[] = [];
-  const ref = manifest.spec?.authorization?.secretRef;
-  if (ref !== undefined) refs.push({ envName: ref.envName as EnvName, name: ref.name });
+  const auth = manifest.spec?.authorization;
+  // A connection's authorization sends the connection's token, not a secret.
+  if (auth !== undefined && auth.kind !== 'connection') {
+    refs.push({ envName: auth.secretRef.envName as EnvName, name: auth.secretRef.name });
+  }
   for (const name of Object.keys(manifest.needsSpec?.secrets ?? {})) {
     if (!refs.some((r) => r.name === name)) refs.push({ envName, name });
   }

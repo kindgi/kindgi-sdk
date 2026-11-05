@@ -1,26 +1,29 @@
 # Kindgi for WordPress
 
-A WordPress plugin that brings a store's staff to your Kindgi agents. In wp-admin, each person signed in to WordPress can:
+A WordPress plugin that brings a store's staff to your Kindgi agents. In wp-admin, under the **Kindgi** menu, each person signed in to WordPress can:
 
-- **ask** the project's agents, in conversations of their own;
-- **approve or reject** what an agent is about to do, for example a refund, when the action needs a person.
+- **decide** in the **Inbox**: approve or reject what an agent is about to do, for example a refund, when the action needs a person, and see what waits for others;
+- **follow** in **Activity**: what the project's agents and flows did, and what they found;
+- **ask** the agents an administrator offered to staff, on **Ask**, in conversations of their own.
+
+Administrators also get **Settings**: the connection, the agents offered to staff, and the site's own details.
 
 Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme store", never "approved by the store".
 
 ## How it works
 
-- **The site vouches for its staff.** When Jane opens the Kindgi page:
+- **The site vouches for its staff.** When Jane opens a Kindgi page, or uses the Kindgi box on an order:
   1. The plugin signs a short statement: "the person signed in here is Jane, with these WordPress roles".
   2. It sends the statement to Kindgi, server to server.
   3. Kindgi exchanges it for a 15-minute session as Jane, limited to the site's project. What she can do there comes from her roles on this site, under the ceiling the site was registered with.
-- **Nothing reaches the browser but this site's own pages.** The page calls the plugin's routes (`/wp-json/kindgi/v1/…`), and the plugin calls Kindgi. No Kindgi token is ever in a browser.
+- **Nothing reaches the browser but this site's own pages.** The pages call the plugin's routes (`/wp-json/kindgi/v1/…`), and the plugin calls Kindgi. No Kindgi token is ever in a browser.
 - **People are matched by the site, never by email.** Each person is a random id the plugin keeps for them (`kindgi_subject`), never their WordPress user id, login name or email.
 
 ## Requirements
 
 - **WordPress** 6.4 or later.
 - **PHP** 7.4 or later, with sodium. WordPress ships a fallback for PHP builds without ext/sodium.
-- **A Kindgi runtime with site sign-in on:**
+- **Kindgi with site sign-in on:** Kindgi Cloud's is coming. A runtime you run needs:
   - `KINDGI_SITE_SIGN_IN=true`;
   - authorization enforced (`KINDGI_OPENFGA_API_URL`);
   - `KINDGI_PUBLIC_URL`.
@@ -30,7 +33,7 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
 
 1. **Install the plugin.** Download `kindgi-<version>.zip` from the Kindgi SDK's [latest release](https://github.com/kindgi/kindgi-sdk/releases/latest) and upload it under **Plugins → Add Plugin → Upload Plugin** (**Add New Plugin** before WordPress 6.8); the `.sha256` file next to it checks the download (`sha256sum -c`). Or copy this folder to `wp-content/plugins/kindgi`. Then activate it. From a checkout, `node scripts/wordpress-plugin-zip.mjs <out dir>` builds the same zip.
 2. **Read this site's two addresses** under **Kindgi → Settings**: its origin, and its approvals URL (`…/wp-admin/admin.php?page=kindgi&approval={approvalId}`).
-3. **Register the site in Kindgi**, on the project its staff will use. A tenant admin does this:
+3. **Register the site in Kindgi**, on the project its staff will use. A tenant admin does this (on Kindgi Cloud, with the CLI signed in there with an Admin key for every project it can reach):
 
    ```sh
    kindgi sites register --project=<project-id> --name='Acme store' \
@@ -44,7 +47,7 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
    - **Who may sign in:** by default, WordPress `administrator` and `shop_manager`. A WooCommerce `customer` never becomes a person in Kindgi.
    - **What they get:** each may ask the project's agents and review approvals as a `standard` reviewer.
    - **Changing it:** set `--allowed-role`, `--role-map` and `--reviewer-ceiling` when registering, or later with `kindgi sites update <site-id>`.
-4. **Connect.** Paste the one-time code under **Kindgi → Settings**, along with the Kindgi URL this server reaches. The plugin makes its signing key and sends Kindgi the public half. Your staff can use the **Kindgi** page from then on.
+4. **Connect.** Paste the one-time code under **Kindgi → Settings**, along with the Kindgi URL this server reaches (`https://platform.kindgi.com` on Kindgi Cloud). The plugin makes its signing key and sends Kindgi the public half. Your staff can use the **Kindgi** page from then on.
    - The URL must be `https://`. An `http://` URL works only to this computer (`localhost`) or from a local or development site (`WP_ENVIRONMENT_TYPE`).
    - It's kept only once Kindgi takes the code, so a typo never breaks a working connection.
 
@@ -61,11 +64,15 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
 - **Its id** shows under **Kindgi → Settings**: the key's RFC 7638 thumbprint. `kindgi sites get <site-id>` lists the site's keys by the same id, so you can tell which one to revoke.
 - **The site's address is part of the deal.** The plugin signs nothing when `home_url()` isn't the address the site connected as, so a staging copy of the site never vouches as production. If the site moves, connect it again with a new code.
 
-## Who sees the page
+## Who sees the pages
 
-- **The page needs `manage_woocommerce` when WooCommerce is active** (shop managers and administrators), and `edit_others_posts` otherwise (editors and administrators). Authors, contributors and customers never see it. Change it with the `kindgi_capability` filter.
+- **The pages need `manage_woocommerce` when WooCommerce is active** (shop managers and administrators), and `edit_others_posts` otherwise (editors and administrators). Authors, contributors and customers never see them. Change it with the `kindgi_capability` filter.
 - **Kindgi decides the rest from the person's roles on this site.** A role the site wasn't registered to allow is refused there.
-- **The Approvals tab** shows only for someone whose roles give a reviewer role.
+- **The Inbox** shows everyone what waits for them and what waits for others. Approve and Reject show only for someone who may decide: their roles give a reviewer role, and they have a row on Kindgi's reviewer roster.
+- **Each person reads their own.** A conversation opens for the person it's with, and for an approval's reviewer through that approval. In **Activity**, someone else's run is one line: who, which agent, when and its state. A run no person started (a webhook, a schedule) shows what it found; with WooCommerce, only to someone who can edit orders.
+- **On a store, what's about an order needs `edit_shop_orders` too.** The order's **Kindgi** box (what waits about it, to decide there, and what was decided), the **Kindgi** column on the Orders list (what waits), and a card's link to its order show only to someone who may also edit orders.
+- **A decision made on this site leaves a private note on its order:** what was decided, by whom, and why when they said. Whoever may edit the order reads it, as any private note; the customer never does. A decision made in Kindgi's console leaves none.
+- **The count** of what waits for a person shows on the Kindgi menu and in the admin bar. It's asked of Kindgi at most once a minute, on the person's own session while they have one. The count never signs anyone in, and neither does opening an order. Only two things do: opening a Kindgi page, and using an order's Kindgi box (its "Show what Kindgi has for this order" button, or a decision made there).
 - **Notification address:** each statement carries the person's email, for Kindgi's "an approval is waiting" mail only. Change it, or send none, with the `kindgi_statement_email` filter.
 - **A changed role counts at once.** The plugin tells Kindgi when a person's roles change, so what they get there follows. Losing every role the site allows ends their grants, reviewer role and sessions at Kindgi. The same roles back bring the same person back.
 - **When someone leaves, Kindgi is told, for good.** Deleting their user, removing them from the site (on a network), or erasing their data ends their grants, reviewer role and sessions at Kindgi, and Kindgi refuses them from then on.
@@ -87,7 +94,7 @@ A site's statements are exactly as strong as the site's own login, and as whoeve
 
 ## When WooCommerce turns off a webhook to Kindgi
 
-WooCommerce turns a webhook off after 7 refused deliveries in a row (its `woocommerce_max_webhook_delivery_failures` filter, 5, is checked before the count goes up), and never resends a delivery. Where Kindgi limits webhook receives (Kindgi hosted does), it answers a delivery past the limit with 429 and `Retry-After`, which WooCommerce counts as a refusal like any other. So a webhook to Kindgi's receive URL (`/v1/hooks/<tenant id>/<webhook id>`, at any address) can stop after a burst.
+WooCommerce turns a webhook off after 7 refused deliveries in a row (its `woocommerce_max_webhook_delivery_failures` filter, 5, is checked before the count goes up), and never resends a delivery. Where Kindgi limits webhook receives (Kindgi Cloud does), it answers a delivery past the limit with 429 and `Retry-After`, which WooCommerce counts as a refusal like any other. So a webhook to Kindgi's receive URL (`/v1/hooks/<tenant id>/<webhook id>`, at any address) can stop after a burst.
 
 **Kindgi → Settings** lists the ones WooCommerce turned off, with when (from WooCommerce's `woocommerce_webhook_disabled_due_delivery_failures`), a link to each, and **Turn it on again** for someone with `manage_woocommerce`. That sets it active with its refusals counted from 0. Turned on in WooCommerce's own webhook screen instead, it keeps its refusal count until a delivery gets through, so a refusal before then turns it off again. Orders from while it was off aren't resent.
 
@@ -127,4 +134,5 @@ Deleting the plugin removes all of them except each person's subject and Kindgi 
   ```sh
   php tests/run.php                   # the plugin's classes, against small stand-ins
   node --test tests/statement.test.mjs # a statement the plugin signs verifies as Kindgi checks it
+  node --test tests/cards.test.mjs     # cards and steps say what each decision and call did
   ```

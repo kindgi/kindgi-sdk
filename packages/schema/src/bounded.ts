@@ -13,7 +13,8 @@
  * - `pattern`, `patternProperties` and `propertyNames`' patterns run on
  *   RE2, through `compileTenantPattern` (Ajv's `code.regExp`); Kindgi's own
  *   schemas' patterns stay on V8 (`schemasFrom`);
- * - formats are ajv-formats' `fast` ones; `regex` is a pattern whose
+ * - formats are ajv-formats' `fast` ones, with its format bounds
+ *   (`formatMinimum` and the rest) as on V8; `regex` is a pattern whose
  *   syntax `compileTenantPattern` accepts (`tenantPatternSyntaxProblem`,
  *   which builds no RE2 program), and `url` is matched without the
  *   backtracking its regular expression has (see `linearUrl`);
@@ -53,7 +54,10 @@ type AnyAjv = Ajv | Ajv2019 | Ajv2020;
 
 // ajv-formats is CommonJS (`export = fn`): the namespace holds the
 // function directly or under `.default`, depending on the resolver.
-type AddFormatsFn = (ajv: AnyAjv, opts?: { readonly mode?: 'fast' | 'full' }) => unknown;
+type AddFormatsFn = (
+  ajv: AnyAjv,
+  opts?: { readonly mode?: 'fast' | 'full'; readonly keywords?: boolean },
+) => unknown;
 const addFormatsRaw = addFormatsModule as unknown;
 const addFormats: AddFormatsFn =
   typeof addFormatsRaw === 'function'
@@ -77,7 +81,7 @@ export interface BoundedAjvOptions {
 
 /**
  * An Ajv for `dialect` under the process's bounds, with ajv-formats'
- * formats and the keywords in `annotations`.
+ * formats and format bounds, and the keywords in `annotations`.
  */
 export function boundedAjv(
   dialect: JsonSchemaDialect,
@@ -107,7 +111,11 @@ export function boundedAjv(
     }
   }
   if (onRe2) {
-    addFormats(ajv, { mode: 'fast' });
+    // ajv-formats' default adds `formatMinimum`, `formatMaximum` and the
+    // exclusive two; options replace that default, so these say `keywords`
+    // too. The fast formats compare as the full ones do, in time linear in
+    // the data.
+    addFormats(ajv, { mode: 'fast', keywords: true });
     // A pattern `compileTenantPattern` would accept for its syntax, checked
     // without building RE2's program: data can carry thousands of values.
     ajv.addFormat('regex', (input: string) => tenantPatternSyntaxProblem(input) === undefined);

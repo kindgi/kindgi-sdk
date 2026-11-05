@@ -59,9 +59,13 @@ shows.
 ## Durable
 
 A run's state is the journal, not a process's memory. A run that waits for
-a person's approval is parked at a **waitpoint**. It continues when a
-reviewer decides the approval, as
-[Decide an approval](../../guides/approvals/decide-an-approval/) shows.
+a person's approval, or for another system's answer to a tool's call, is
+parked at a **waitpoint**. It continues when a reviewer decides the
+approval, as [Decide an approval](../../guides/approvals/decide-an-approval/)
+shows, or when the answer comes, as
+[Wait for another system's answer](../../guides/tools/wait-for-another-system/)
+shows. A tool call that's still running doesn't park its run: see
+[Work that takes longer than a call](../../guides/tools/write-a-tool/#work-that-takes-longer-than-a-call).
 
 A start repeated with the same **idempotency key** never starts a second
 run. Once the first call has answered, the repeat returns the run the first
@@ -87,8 +91,8 @@ out:
 Within about a lease plus a sweep:
 
 - **A run that was executing fails**, and `run.finished` tells your app.
-- **A run whose wait was resolved** (its approval decided) but that nothing
-  resumed **is resumed**. After three failed attempts it fails:
+- **A run whose wait was resolved** (its approval decided, or another
+  system's answer taken) but that nothing resumed **is resumed**. After three failed attempts it fails:
   `Interrupted: the run was ready to continue, but every attempt to resume it failed.`
 - **A flow waiting on a child run that already ended is woken**, and goes on.
 - **A run whose parent run ended is ended too:** cancelled when the parent
@@ -111,7 +115,9 @@ call. A dry run checks a flow's wiring before it touches real data:
 Because every step is recorded, every answer can be traced to where it came
 from: the agent's turn, the model call and the tool results it used.
 `GET /v1/provenance/{runId}` returns that graph, and
-[Trace an answer](../../guides/observability/trace-an-answer/) reads it.
+[Trace an answer](../../guides/observability/trace-an-answer/) reads it. A
+finished flow run has a record of its own: its steps, why each ran, the runs
+each started, and the steps its output came from.
 
 Each model call is recorded with its tokens and cost too. So you can read
 what a run, a flow's whole run or one customer's month cost, as

@@ -14,6 +14,7 @@ import {
   type AdapterConfig,
   type ProviderMetadata,
   adapterConfigError,
+  adapterConfigKeyProblems,
 } from '@kindgi/capabilities';
 
 import {
@@ -153,5 +154,35 @@ describe('openAICompatCheckConfig agrees with the factory', () => {
       capabilityKind: 'llm-inference',
       checkConfig: openAICompatCheckConfig,
     });
+  });
+});
+
+describe('the keys it takes', () => {
+  test("baseURL, api and each extraBody.<field>; any other is the registration's to refuse, naming them", () => {
+    expect(
+      adapterConfigKeyProblems(openAICompatAdapterEntry, {
+        baseURL: 'https://llm.acme.example/v1',
+        api: 'chat-completions',
+        'extraBody.top_k': '40',
+        'extraBody.chat_template_kwargs.enable_thinking': 'false',
+      }),
+    ).toEqual([]);
+    const takes = 'it takes baseURL, api, extraBody.<field>.';
+    expect(
+      adapterConfigKeyProblems(openAICompatAdapterEntry, {
+        baseURL: 'https://llm.acme.example/v1',
+        apiKey: 'x',
+        'extraBody.': 'x',
+      }),
+    ).toEqual([
+      {
+        path: '/adapter_config/apiKey',
+        message: `adapter_config.apiKey isn't a setting of this adapter: ${takes}`,
+      },
+      {
+        path: '/adapter_config/extraBody.',
+        message: `adapter_config.extraBody. isn't a setting of this adapter: ${takes}`,
+      },
+    ]);
   });
 });

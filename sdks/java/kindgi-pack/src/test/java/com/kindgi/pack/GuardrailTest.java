@@ -104,4 +104,17 @@ class GuardrailTest {
         .onViolation("halt").check((config, trace) -> CheckResult.pass());
     assertThat(own.checkId()).isEqualTo("acme.checks.must-cite");
   }
+
+  @Test
+  void anLlmJudgeGuardrailNeedsItsJudge() {
+    assertThatThrownBy(() -> Guardrail.define("acme.tone").kind("llm-judge").onViolation("halt")
+        .check((config, trace) -> CheckResult.pass()))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageStartingWith("guardrail acme.tone is kind llm-judge with no judgeCapabilities: name what its judge"
+            + " model is routed by");
+    Map<String, Object> needs = Map.of("needs", List.of(Map.of("feature", "structured-output")));
+    Guardrail<Map<String, Object>> judged = Guardrail.define("acme.tone").kind("llm-judge").judgeCapabilities(needs)
+        .onViolation("halt").check((config, trace) -> CheckResult.pass());
+    assertThat(judged.entry()).containsEntry("judgeCapabilities", needs);
+  }
 }

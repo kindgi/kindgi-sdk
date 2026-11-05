@@ -15,6 +15,7 @@ import com.palantir.javapoet.ParameterizedTypeName;
 import com.palantir.javapoet.TypeName;
 import com.palantir.javapoet.TypeSpec;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -34,6 +35,7 @@ final class ModelWriter {
   static final ClassName JSON_SUB_TYPES = ClassName.get(ANN, "JsonSubTypes");
   static final ClassName JSON_ANY_SETTER = ClassName.get(ANN, "JsonAnySetter");
   static final ClassName JSON_ANY_GETTER = ClassName.get(ANN, "JsonAnyGetter");
+  static final ClassName JSON_AUTO_DETECT = ClassName.get(ANN, "JsonAutoDetect");
   static final ClassName JSON_CREATOR = ClassName.get(ANN, "JsonCreator");
   static final ClassName JSON_VALUE = ClassName.get(ANN, "JsonValue");
   static final ClassName JSON_DESERIALIZE = ClassName.get("tools.jackson.databind.annotation", "JsonDeserialize");
@@ -45,6 +47,7 @@ final class ModelWriter {
   static final ClassName NULLABLE = ClassName.get("org.jspecify.annotations", "Nullable");
   static final ClassName MODEL = ClassName.get(MODELS, "Model");
   static final ClassName CHECKS = ClassName.get(MODELS, "Checks");
+  static final ClassName OPEN_ENUM = ClassName.get(MODELS, "OpenEnum");
   static final ClassName OPTIONAL_NULLABLE = ClassName.get(MODELS, "OptionalNullable");
   static final String HEADER =
       "SPDX-License-Identifier: Apache-2.0\nCopyright (C) 2026 Kindgi Inc.\n\n"
@@ -102,6 +105,7 @@ final class ModelWriter {
     MethodSpec.Builder ctor = MethodSpec.compactConstructorBuilder().addModifiers(Modifier.PUBLIC);
     CodeBlock.Builder checks = CodeBlock.builder();
     PatternNames patterns = new PatternNames();
+    List<ParameterSpec> known = new ArrayList<>();
     for (Ir.Field f : d.fields) {
       ParameterSpec.Builder p = ParameterSpec.builder(componentType(f), f.java);
       p.addAnnotation(AnnotationSpec.builder(JSON_PROPERTY).addMember("value", "$S", f.wire).build());
@@ -112,7 +116,9 @@ final class ModelWriter {
                 .addMember("valueFilter", "$T.AbsentFilter.class", OPTIONAL_NULLABLE)
                 .build());
       }
-      ctor.addParameter(p.build());
+      ParameterSpec param = p.build();
+      ctor.addParameter(param);
+      known.add(param);
       String path = owner + "." + f.wire;
       if (f.tagValues != null && f.tagValues.size() == 1) {
         ctor.addStatement("$N = $T.constant($N, $S, $S)", f.java, CHECKS, f.java, f.tagValues.get(0), path);
@@ -136,7 +142,7 @@ final class ModelWriter {
         checks.addStatement("checks.oneOf($S, $N, $L)", f.wire, f.java, stringList(f.tagValues));
       }
       constraintChecks(checks, rb, patterns, f.wire, value, f.type, f.constraints);
-      if (mentionsModel(f.type)) {
+      if (mentionsModelOrEnum(f.type)) {
         checks.addStatement("checks.nested($S, $L)", f.wire, value);
       }
       String fieldDoc = fieldDoc(f);
@@ -146,15 +152,14 @@ final class ModelWriter {
     }
     if (d.open) {
       TypeName mapType = ParameterizedTypeName.get(ModelPlanner.MAP, ModelPlanner.STRING, d.openValueType);
-      ctor.addParameter(
-          ParameterSpec.builder(mapType, "additionalProperties")
-              .addAnnotation(JSON_ANY_SETTER)
-              .addAnnotation(JSON_ANY_GETTER)
-              .build());
+      ctor.addParameter(mapType, "additionalProperties");
       ctor.addStatement("additionalProperties = $T.extras(additionalProperties)", CHECKS);
       params.add("@param additionalProperties properties this client doesn't know, kept as they came");
     }
     rb.recordConstructor(ctor.build());
+    if (d.open) {
+      keepUnknown(rb, cn, known, "additionalProperties", d.openValueType);
+    }
     String description = Docs.javadoc(d.description);
     String doc = description + (description.isEmpty() || params.isEmpty() ? "" : "\n\n") + String.join("\n", params);
     if (!doc.isEmpty()) {
@@ -338,11 +343,14 @@ final class ModelWriter {
     return null;
   }
 
-  /** Whether a value of this type can hold a generated model (and so needs a nested check). */
-  private boolean mentionsModel(TypeName t) {
+  /**
+   * Whether a value of this type can hold a generated model or enum value (and so needs a nested
+   * check: an enum value is checked against the values this client knows, on send).
+   */
+  private boolean mentionsModelOrEnum(TypeName t) {
     if (t instanceof ParameterizedTypeName) {
       for (TypeName a : ((ParameterizedTypeName) t).typeArguments()) {
-        if (mentionsModel(a)) {
+        if (mentionsModelOrEnum(a)) {
           return true;
         }
       }
@@ -350,7 +358,7 @@ final class ModelWriter {
     }
     if (t instanceof ClassName) {
       Ir.Decl d = planner.index.get(t);
-      return d instanceof Ir.RecordDecl || d instanceof Ir.UnionDecl;
+      return d instanceof Ir.RecordDecl || d instanceof Ir.UnionDecl || d instanceof Ir.EnumDecl;
     }
     return false;
   }
@@ -478,6 +486,7 @@ final class ModelWriter {
     TypeSpec.Builder tb =
         TypeSpec.classBuilder(cn)
             .addModifiers(Modifier.PUBLIC, Modifier.FINAL)
+            .addSuperinterface(OPEN_ENUM)
             .addJavadoc(
                 "$L$L\n",
                 Docs.javadoc(d.description()).isEmpty() ? "" : Docs.javadoc(d.description()) + "\n\n<p>",
@@ -507,6 +516,11 @@ final class ModelWriter {
     ve.addEnumConstant("UNRECOGNIZED");
     TypeName mapType = ParameterizedTypeName.get(ModelPlanner.MAP, ModelPlanner.STRING, cn);
     tb.addField(FieldSpec.builder(mapType, "byValue", Modifier.PRIVATE, Modifier.STATIC, Modifier.FINAL).initializer(known.build()).build());
+    TypeName listType = ParameterizedTypeName.get(ModelPlanner.LIST, ModelPlanner.STRING);
+    tb.addField(
+        FieldSpec.builder(listType, "knownValues", Modifier.PRIVATE, Modifier.STATIC, Modifier.FINAL)
+            .initializer(stringList(d.values()))
+            .build());
     tb.addField(ModelPlanner.STRING, "raw", Modifier.PRIVATE, Modifier.FINAL);
     tb.addField(valueEnum, "value", Modifier.PRIVATE, Modifier.FINAL);
     tb.addMethod(
@@ -530,6 +544,7 @@ final class ModelWriter {
     tb.addMethod(
         MethodSpec.methodBuilder("asString")
             .addJavadoc("The value as the API spells it.\n")
+            .addAnnotation(Override.class)
             .addAnnotation(JSON_VALUE)
             .addModifiers(Modifier.PUBLIC)
             .returns(ModelPlanner.STRING)
@@ -545,9 +560,18 @@ final class ModelWriter {
     tb.addMethod(
         MethodSpec.methodBuilder("isKnown")
             .addJavadoc("Whether this client knows the value.\n")
+            .addAnnotation(Override.class)
             .addModifiers(Modifier.PUBLIC)
             .returns(TypeName.BOOLEAN)
             .addStatement("return value != $T.UNRECOGNIZED", valueEnum)
+            .build());
+    tb.addMethod(
+        MethodSpec.methodBuilder("knownValues")
+            .addJavadoc("The values this client knows, as the API spells them.\n")
+            .addAnnotation(Override.class)
+            .addModifiers(Modifier.PUBLIC)
+            .returns(listType)
+            .addStatement("return knownValues")
             .build());
     tb.addMethod(
         MethodSpec.methodBuilder("equals")
@@ -684,16 +708,32 @@ final class ModelWriter {
     MethodSpec.Builder ctor = MethodSpec.compactConstructorBuilder().addModifiers(Modifier.PUBLIC);
     TypeName props = ParameterizedTypeName.get(ModelPlanner.MAP, ModelPlanner.STRING, ModelPlanner.OBJECT);
     String tag = u.tagWire != null && u.objectKind == Ir.UnionKind.TAGGED ? u.tagWire : null;
+    List<ParameterSpec> known = new ArrayList<>();
     if (tag != null) {
-      ctor.addParameter(
+      known.add(
           ParameterSpec.builder(nullable(ModelPlanner.STRING), u.tagJava)
               .addAnnotation(AnnotationSpec.builder(JSON_PROPERTY).addMember("value", "$S", tag).build())
               .build());
     }
-    ctor.addParameter(ParameterSpec.builder(props, "properties").addAnnotation(JSON_ANY_SETTER).addAnnotation(JSON_ANY_GETTER).build());
+    ctor.addParameters(known);
+    ctor.addParameter(props, "properties");
     ctor.addStatement("properties = $T.extras(properties)", CHECKS);
-    TypeSpec.Builder rb = TypeSpec.recordBuilder(u.unrecognized);
-    return rb
+    // Kept on a read, refused on send: the client can't check what it doesn't know.
+    MethodSpec.Builder validate =
+        MethodSpec.methodBuilder("validate").addAnnotation(Override.class).addModifiers(Modifier.PUBLIC).addParameter(CHECKS, "checks");
+    if (tag != null) {
+      List<String> tags = new ArrayList<>();
+      for (Ir.Variant v : u.variants) {
+        if (v.tags() != null) {
+          tags.addAll(v.tags());
+        }
+      }
+      validate.addStatement("checks.unrecognized($S, $L)", tag, stringList(tags));
+    } else {
+      validate.addStatement("checks.unrecognized()");
+    }
+    TypeSpec.Builder rb =
+        TypeSpec.recordBuilder(u.unrecognized)
         .addModifiers(modifiers(u.unrecognized))
         .addAnnotation(AnnotationSpec.builder(JSON_INCLUDE).addMember("value", "$T.Include.NON_NULL", JSON_INCLUDE).build())
         .addSuperinterface(u.name)
@@ -703,15 +743,86 @@ final class ModelWriter {
                 + "@param properties its other properties\n",
             tag != null ? u.tagJava : "",
             tag != null ? tag : "")
-        .recordConstructor(ctor.build())
-        .addMethod(
-            MethodSpec.methodBuilder("validate")
-                .addAnnotation(Override.class)
-                .addModifiers(Modifier.PUBLIC)
-                .addParameter(CHECKS, "checks")
-                .addComment("Nothing to check: the client doesn't know this variant's constraints.")
-                .build())
+        .recordConstructor(ctor.build());
+    keepUnknown(rb, u.unrecognized, known, "properties", ModelPlanner.OBJECT);
+    return rb.addMethod(validate.build()).build();
+  }
+
+  /**
+   * Keeps a record's unknown properties, the same way on every Jackson an app runs. Its Jackson
+   * builds the record through a private creator that names only the known properties, and hands
+   * every other one, whatever its name, to a private any-setter that puts it in the record's own
+   * copy. A record that knows no property reads the whole object as its map instead: Jackson
+   * 2.15 to 2.19 don't take a creator without parameters for a record. The accessor hands out an
+   * unmodifiable view. Fields and getters aren't detected, so a property named like the accessor
+   * doesn't reach the record through it.
+   */
+  private static void keepUnknown(TypeSpec.Builder rb, ClassName self, List<ParameterSpec> known, String map, TypeName value) {
+    TypeName mapType = ParameterizedTypeName.get(ModelPlanner.MAP, ModelPlanner.STRING, value);
+    rb.addAnnotation(noAutoDetect());
+    if (known.isEmpty()) {
+      rb.addMethod(
+          MethodSpec.methodBuilder("read")
+              .addJavadoc("How a reading Jackson builds it: the whole object is its properties.\n")
+              .addAnnotation(delegatingCreator())
+              .addModifiers(Modifier.PRIVATE, Modifier.STATIC)
+              .returns(self)
+              .addParameter(mapType, map)
+              .addStatement("return new $T($N)", self, map)
+              .build());
+    } else {
+      List<String> args = new ArrayList<>();
+      for (ParameterSpec p : known) {
+        args.add(p.name());
+      }
+      args.add("null");
+      rb.addMethod(
+          MethodSpec.constructorBuilder()
+              .addJavadoc("How a reading Jackson builds it: the known properties here, every other one through {@code put}.\n")
+              .addModifiers(Modifier.PRIVATE)
+              .addAnnotation(propertiesCreator())
+              .addParameters(known)
+              .addStatement("this($L)", String.join(", ", args))
+              .build());
+    }
+    rb.addMethod(
+        MethodSpec.methodBuilder(map)
+            .addAnnotation(Override.class)
+            .addAnnotation(JSON_ANY_GETTER)
+            .addModifiers(Modifier.PUBLIC)
+            .returns(mapType)
+            .addStatement("return $T.unmodifiableMap($N)", Collections.class, map)
+            .build());
+    if (!known.isEmpty()) {
+      rb.addMethod(
+          MethodSpec.methodBuilder("put")
+              .addJavadoc("Where a reading Jackson puts each property the record doesn't know.\n")
+              .addAnnotation(JSON_ANY_SETTER)
+              .addModifiers(Modifier.PRIVATE)
+              .addParameter(ModelPlanner.STRING, "key")
+              .addParameter(nullable(value), "value")
+              .addStatement("$N.put(key, value)", map)
+              .build());
+    }
+  }
+
+  /** Fields and getters aren't detected: every known property is named, and a map's accessor is no setter. */
+  static AnnotationSpec noAutoDetect() {
+    return AnnotationSpec.builder(JSON_AUTO_DETECT)
+        .addMember("fieldVisibility", "$T.Visibility.NONE", JSON_AUTO_DETECT)
+        .addMember("getterVisibility", "$T.Visibility.NONE", JSON_AUTO_DETECT)
+        .addMember("isGetterVisibility", "$T.Visibility.NONE", JSON_AUTO_DETECT)
         .build();
+  }
+
+  /** A creator that takes its parameters by name, also when it has only one. */
+  static AnnotationSpec propertiesCreator() {
+    return AnnotationSpec.builder(JSON_CREATOR).addMember("mode", "$T.Mode.PROPERTIES", JSON_CREATOR).build();
+  }
+
+  /** A creator that takes the whole object as its one value. */
+  static AnnotationSpec delegatingCreator() {
+    return AnnotationSpec.builder(JSON_CREATOR).addMember("mode", "$T.Mode.DELEGATING", JSON_CREATOR).build();
   }
 
   private TypeSpec textVariant(Ir.UnionDecl u, Ir.Variant text) {
@@ -727,7 +838,7 @@ final class ModelWriter {
             .addModifiers(Modifier.PUBLIC)
             .addParameter(CHECKS, "checks");
     if (text.allowed() != null) {
-      validate.addStatement("checks.oneOf($S, value, $L)", "", stringList(text.allowed()));
+      validate.addStatement("checks.known($S, value, $L)", "", stringList(text.allowed()));
     }
     return TypeSpec.recordBuilder(text.type())
         .addModifiers(modifiers(text.type()))

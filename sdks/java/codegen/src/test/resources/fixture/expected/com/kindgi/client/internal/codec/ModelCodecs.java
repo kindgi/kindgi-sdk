@@ -41,6 +41,7 @@ public final class ModelCodecs {
         RotateDoneJson.register(module);
         RotateQueuedJson.register(module);
         FlowJson.register(module);
+        MeterJson.register(module);
         NodeJson.register(module);
         ScopeSegmentJson.register(module);
         WidgetsRotateResponseJson.register(module);

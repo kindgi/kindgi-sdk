@@ -48,10 +48,73 @@ describe('provenance.get', () => {
       error: { code: 'not-found', resource: { kind: 'provenance', id: 'run-abc' } },
     });
   });
+
+  it("keeps the server's details as fields: why the run has no record yet", async () => {
+    const details = { runId: 'run-abc', recordState: 'failed', reason: 'build-failed' };
+    const stub = errorFetch(404, { code: 'provenance-not-found', message: 'nope', details });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+
+    await expect(client.provenance.get('run-abc' as never)).rejects.toMatchObject({
+      error: { code: 'not-found', fields: details },
+    });
+  });
+
+  it('has no fields when the server sent no details', async () => {
+    const stub = errorFetch(404, { code: 'provenance-not-found', message: 'nope' });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+
+    const thrown: unknown = await client.provenance
+      .get('run-abc' as never)
+      .catch((e: unknown) => e);
+    expect(thrown).toMatchObject({ error: { code: 'not-found', resource: { id: 'unknown' } } });
+    expect((thrown as { error: object }).error).not.toHaveProperty('fields');
+  });
 });
 
 describe('provenance.query', () => {
   it('GETs /v1/provenance and returns Page<metadata>', async () => {
+    const stub = jsonFetch({
+      data: [
+        {
+          id: 'prov-1',
+          runId: 'run-1',
+          tenantId: 't-1',
+          version: '1.0.0',
+          createdAt: '2026-09-19T00:00:00.000Z',
+          signed: false,
+        },
+      ],
+      hasMore: false,
+      flowId: 'acme.report',
+    });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+
+    const page = await client.provenance.query({
+      runId: 'run-1' as never,
+      flowId: 'acme.report' as never,
+      createdAfter: '2026-01-01T00:00:00Z' as never,
+    });
+    expect(page.data[0]?.signed).toBe(false);
+    expect(page.flowId).toBe('acme.report');
+    const url = new URL(stub.calls[0]?.url);
+    expect(url.searchParams.get('runId')).toBe('run-1');
+    expect(url.searchParams.get('flowId')).toBe('acme.report');
+    expect(url.searchParams.get('createdAfter')).toBe('2026-01-01T00:00:00Z');
+  });
+
+  it("a page with no flowId, as a runtime that doesn't list records by flow sends it", async () => {
     const stub = jsonFetch({
       data: [
         {
@@ -71,14 +134,9 @@ describe('provenance.query', () => {
       fetch: stub.fetch,
     });
 
-    const page = await client.provenance.query({
-      runId: 'run-1' as never,
-      createdAfter: '2026-01-01T00:00:00Z' as never,
-    });
-    expect(page.items[0]?.signed).toBe(false);
-    const url = new URL(stub.calls[0]?.url);
-    expect(url.searchParams.get('runId')).toBe('run-1');
-    expect(url.searchParams.get('createdAfter')).toBe('2026-01-01T00:00:00Z');
+    const page = await client.provenance.query({ flowId: 'acme.report' as never });
+    expect(page.data).toHaveLength(1);
+    expect(page).not.toHaveProperty('flowId');
   });
 });
 

@@ -32,7 +32,7 @@ import { pathToFileURL } from 'node:url';
 import { type Logger, childSpan, noopLogger, parseTraceparent } from '@kindgi/log';
 
 import type { HandlerContext, HandlerError } from '../handler-runner.js';
-import { runCheck, runHandler } from '../handler-runner.js';
+import { runCheck, runHandlerOrPause } from '../handler-runner.js';
 import type { Index, IndexedGuardrail, IndexedTool } from '../kindgi-index.js';
 import { type PackEnvCheck, missingPackEnv } from '../pack-env.js';
 import {
@@ -82,9 +82,9 @@ export interface PackServiceOptions {
   /** Test seam: how a module is loaded from its absolute path. */
   readonly importModule?: (absolutePath: string) => Promise<unknown>;
   /**
-   * The one tenant this service serves (`KINDGI_PACK_TENANT_ID`). Set: a call
+   * The one workspace this service serves (`KINDGI_PACK_TENANT_ID`). Set: a call
    * to `/v1/invoke` or `/v1/info` whose `kindgi-tenant-id` header is missing
-   * or names another tenant, or a tool call whose context names another, is
+   * or names another workspace, or a tool call whose context names another, is
    * refused with 421 before any pack code runs. A backstop for a misrouted
    * call: the server's routing is the boundary.
    */
@@ -99,7 +99,8 @@ export type PackServiceLogEvent =
       readonly target: 'tool' | 'check';
       readonly id: string;
       readonly durationMs: number;
-      readonly outcome: 'ok' | PackErrorCode;
+      /** `pause`: a tool's call waits for another system's answer (protocol 2.8.0). */
+      readonly outcome: 'ok' | 'pause' | PackErrorCode;
     }
   | {
       /** A handler ignored its abort signal and finished after its call ended. */
@@ -115,7 +116,7 @@ export type PackServiceLogEvent =
       readonly names: readonly string[];
     }
   | {
-      /** A call for another tenant, refused with 421 (`KINDGI_PACK_TENANT_ID`). */
+      /** A call for another workspace, refused with 421 (`KINDGI_PACK_TENANT_ID`). */
       readonly kind: 'tenant-mismatch';
       readonly via: 'header' | 'context';
     };
@@ -285,21 +286,24 @@ export function createPackService(options: PackServiceOptions): PackService {
     const found = toolFor(message.tool);
     if ('refused' in found) return Promise.resolve(found.refused);
     const { tool } = found;
-    return runHandler({
+    return runHandlerOrPause({
       tool: {
         id: tool.id,
         modulePath: options.resolveModule(tool.modulePath),
         inputSchema: tool.input,
         outputSchema: tool.output,
+        ...(tool.pauses === true && { pauses: true }),
+        ...(tool.storesFiles === true && { storesFiles: true }),
+        ...(tool.readsFiles === true && { readsFiles: true }),
       },
       input: message.input,
       ctx: handlerContext(message.ctx, signal, callLog),
       importHandler: (p) => importModule(p) as never,
-    }).then((r) =>
-      r.kind === 'ok'
-        ? { v: PACK_PROTOCOL_VERSION, kind: 'result', output: r.value }
-        : fromHandlerError(r.error, { toolId: tool.id }),
-    );
+    }).then((r): PackResponse => {
+      if (r.kind === 'ok') return { v: PACK_PROTOCOL_VERSION, kind: 'result', output: r.value };
+      if (r.kind === 'pause') return { v: PACK_PROTOCOL_VERSION, kind: 'pause', ...r.pause };
+      return fromHandlerError(r.error, { toolId: tool.id });
+    });
   }
 
   function callCheck(message: CheckInvokeMessage, signal: AbortSignal): Promise<PackResponse> {
@@ -432,9 +436,10 @@ export function createPackService(options: PackServiceOptions): PackService {
       });
     }
     const durationMs = Date.now() - started;
-    const result = outcome.kind === 'error' ? outcome.code : 'ok';
+    const result =
+      outcome.kind === 'error' ? outcome.code : outcome.kind === 'pause' ? 'pause' : 'ok';
     logger({ kind: 'call', target, id, durationMs, outcome: result });
-    call[result === 'ok' ? 'info' : 'warn'](
+    call[result === 'ok' || result === 'pause' ? 'info' : 'warn'](
       `${target} ${id} ${result} ${durationMs}ms`,
       { event: 'call', kind: 'call', id, outcome: result, durationMs },
       { inMessage: ['target', 'id', 'outcome', 'durationMs'] },
@@ -548,6 +553,7 @@ function fromHandlerError(
     ...ids,
     ...(error.cause !== undefined && { cause: error.cause }),
     ...(error.issues !== undefined && { issues: error.issues }),
+    ...(error.connection !== undefined && { connection: error.connection }),
   });
 }
 
@@ -612,15 +618,22 @@ function toolKey(id: string, version: string | undefined): string {
 }
 
 /**
- * The context a handler gets: the call's own (`PackCallContext`) and its
- * abort signal, with `log` and `secrets` there but not enumerable, so
- * printing, spreading or serializing a context never shows a secret.
+ * The context the runner gets: the call's own (`PackCallContext`) and its
+ * abort signal, with `log`, `secrets`, `connections` and `toolFiles` there
+ * but not enumerable, so printing, spreading or serializing a context never
+ * shows a secret or a token. The runner keeps `toolFiles` from the handler.
  */
 function handlerContext(wire: PackCallContext, signal: AbortSignal, log: Logger): HandlerContext {
-  const { secrets, ...rest } = wire;
+  const { secrets, connections, toolFiles, ...rest } = wire;
   const ctx = { ...rest, abortSignal: signal };
   if (secrets !== undefined) {
     Object.defineProperty(ctx, 'secrets', { value: secrets, enumerable: false });
+  }
+  if (connections !== undefined) {
+    Object.defineProperty(ctx, 'connections', { value: connections, enumerable: false });
+  }
+  if (toolFiles !== undefined) {
+    Object.defineProperty(ctx, 'toolFiles', { value: toolFiles, enumerable: false });
   }
   Object.defineProperty(ctx, 'log', { value: log, enumerable: false });
   return ctx as HandlerContext;

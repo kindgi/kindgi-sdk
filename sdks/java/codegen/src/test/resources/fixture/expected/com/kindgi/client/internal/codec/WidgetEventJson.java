@@ -6,6 +6,8 @@ package com.kindgi.client.internal.codec;
 
 import com.fasterxml.jackson.annotation.JsonAnyGetter;
 import com.fasterxml.jackson.annotation.JsonAnySetter;
+import com.fasterxml.jackson.annotation.JsonAutoDetect;
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
@@ -41,13 +43,23 @@ final class WidgetEventJson {
     interface WidgetEventMixIn {
     }
 
+    @JsonAutoDetect(
+            fieldVisibility = JsonAutoDetect.Visibility.NONE,
+            getterVisibility = JsonAutoDetect.Visibility.NONE,
+            isGetterVisibility = JsonAutoDetect.Visibility.NONE
+    )
     abstract static class WidgetEventUnrecognizedMixIn {
-        WidgetEventUnrecognizedMixIn(@JsonProperty("type") String type,
-                @JsonAnySetter Map<String, Object> properties) {
+        @JsonCreator(
+                mode = JsonCreator.Mode.PROPERTIES
+        )
+        WidgetEventUnrecognizedMixIn(@JsonProperty("type") String type) {
         }
 
         @JsonProperty("type")
         abstract String type();
+
+        @JsonAnySetter
+        abstract void put(String key, Object value);
 
         @JsonAnyGetter
         abstract Map<String, Object> properties();

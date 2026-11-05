@@ -32,6 +32,8 @@ act. Use a single agent when the model should decide the order.
   person decides.
 - [Dry-run a flow](dry-run-a-flow/): run the steps that only read, and stop
   before the first one that writes.
+- [Pin a flow's version](pin-a-flow-version/): keep runs on the version you
+  checked while you try a newer one.
 
 The examples build up one pack, `acme`, from the `sample` template:
 `kindgi init acme --template=sample`, or `--template=python`. Each page shows

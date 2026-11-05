@@ -219,6 +219,33 @@ run "existing_vnet_shape_creates_no_network" {
   }
 }
 
+# The seed ids are uuids, as the server's settings are: another is refused
+# at plan, not at the server's start. The check is the server's own (8-4-4-4-12
+# hex digits, in either case), so a plan never refuses an id the server takes.
+run "a_seed_tenant_id_that_isnt_a_uuid_is_refused" {
+  command = plan
+  variables {
+    seed_tenant_id = "acme"
+  }
+  expect_failures = [var.seed_tenant_id]
+}
+
+run "a_seed_user_id_that_isnt_a_uuid_is_refused" {
+  command = plan
+  variables {
+    seed_user_id = "acme-admin"
+  }
+  expect_failures = [var.seed_user_id]
+}
+
+run "a_seed_id_in_upper_case_is_taken" {
+  command = plan
+  variables {
+    seed_tenant_id = "0000000A-0000-4000-8000-0000000000AB"
+    seed_user_id   = "0000000A-0000-4000-8000-0000000000CD"
+  }
+}
+
 run "existing_vnet_shape_needs_all_three" {
   command = plan
   variables {
@@ -351,6 +378,40 @@ run "the_services_need_the_erasure_ledger_key_version" {
   expect_failures = [azurerm_container_app.server]
 }
 
+# database_url_version: unset, the server reads the database URL's latest
+# version; set (a way back, the README's "Upgrading"), exactly that version,
+# and the other pins stay as they are.
+run "the_database_url_is_versionless_by_default" {
+  command = plan
+  assert {
+    condition     = toset([for s in azurerm_container_app.server.secret : s.key_vault_secret_id if s.name == "database-url"]) == toset(["https://kindgi-ab12.vault.azure.net/secrets/database-url"])
+    error_message = "Without database_url_version the server's database-url secret is versionless."
+  }
+}
+
+run "database_url_version_pins_the_database_url" {
+  command = plan
+  variables {
+    database_url_version = "00112233445566778899aabbccddeeff"
+  }
+  assert {
+    condition     = toset([for s in azurerm_container_app.server.secret : s.key_vault_secret_id if s.name == "database-url"]) == toset(["https://kindgi-ab12.vault.azure.net/secrets/database-url/00112233445566778899aabbccddeeff"])
+    error_message = "database_url_version pins the server's database-url secret to that version."
+  }
+  assert {
+    condition     = local.secret_ids.secrets_aad_key == "https://kindgi-ab12.vault.azure.net/secrets/secrets-aad-key/0123456789abcdef0123456789abcdef" && local.secret_ids.erasure_ledger_key == "https://kindgi-ab12.vault.azure.net/secrets/erasure-ledger-key/fedcba9876543210fedcba9876543210" && local.secret_ids.api_token == "https://kindgi-ab12.vault.azure.net/secrets/api-token"
+    error_message = "The other pins stay as they are; the other secrets stay versionless."
+  }
+}
+
+run "refuses_a_database_url_version_that_isnt_one" {
+  command = plan
+  variables {
+    database_url_version = "latest"
+  }
+  expect_failures = [var.database_url_version]
+}
+
 # The server's own settings (sign-in, among others), as the Cloud Run module
 # takes them: plain values, then Key Vault references the server alone reads.
 run "server_settings_plain_and_by_reference" {
@@ -450,6 +511,77 @@ run "sign_in_with_providers_needs_public_url" {
   command = plan
   variables {
     server_secret_env = { KINDGI_AUTH_SECRET = { secret = "auth-secret", version = "latest" } }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+# One tenant: "single", or unset, plans; serving many is refused, in either map.
+run "one_tenant_plans" {
+  command = plan
+  variables {
+    server_env = { KINDGI_TENANCY = "single" }
+  }
+  assert {
+    condition     = [for e in azurerm_container_app.server.template[0].container[0].env : e.value if e.name == "KINDGI_TENANCY"] == ["single"]
+    error_message = "KINDGI_TENANCY = \"single\" reaches the server."
+  }
+}
+
+# The runtime reads an empty KINDGI_TENANCY as "single".
+run "an_empty_tenancy_plans" {
+  command = plan
+  variables {
+    server_env = { KINDGI_TENANCY = "" }
+  }
+}
+
+run "refuses_many_tenants" {
+  command = plan
+  variables {
+    server_env = { KINDGI_TENANCY = "multi" }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "refuses_tenancy_as_a_secret" {
+  command = plan
+  variables {
+    server_secret_env = { KINDGI_TENANCY = { secret = "tenancy", version = "latest" } }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "one_pack_service_plans" {
+  command = plan
+  variables {
+    server_env = { KINDGI_PACK_ROUTING = "single" }
+  }
+  assert {
+    condition     = [for e in azurerm_container_app.server.template[0].container[0].env : e.value if e.name == "KINDGI_PACK_ROUTING"] == ["single"]
+    error_message = "KINDGI_PACK_ROUTING = \"single\" reaches the server."
+  }
+}
+
+# The runtime trims KINDGI_PACK_ROUTING before it reads it.
+run "a_padded_single_routing_plans" {
+  command = plan
+  variables {
+    server_env = { KINDGI_PACK_ROUTING = " single " }
+  }
+}
+
+run "refuses_a_pack_service_per_deployment" {
+  command = plan
+  variables {
+    server_env = { KINDGI_PACK_ROUTING = "per-deployment" }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "refuses_pack_routing_as_a_secret" {
+  command = plan
+  variables {
+    server_secret_env = { KINDGI_PACK_ROUTING = { secret = "pack-routing", version = "latest" } }
   }
   expect_failures = [azurerm_container_app.server]
 }

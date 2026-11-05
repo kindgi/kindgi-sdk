@@ -23,7 +23,9 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { type IncomingHttpHeaders, createServer } from 'node:http';
 import { createRequire } from 'node:module';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -47,7 +49,13 @@ export interface PackServiceTarget {
   readonly packDir: string;
   /** Index the fixture pack into `outputPath` with the given pins. */
   buildIndex(outputPath: string, pins: IndexPins): Promise<void>;
-  /** The argv that starts the service; the suite appends `--index`, `--module-root`, `--host`. */
+  /**
+   * The argv that starts the service; the suite appends `--index`,
+   * `--module-root`, `--host`. Give `command[0]` as an absolute path
+   * (`process.execPath`, a venv's `bin/python`): the suite starts it as
+   * given, in the fixture pack's folder, where a bare name could find a
+   * program in that folder first (Windows looks there before `PATH`).
+   */
   readonly command: readonly string[];
   /** Extra environment for the service process. */
   readonly env?: Readonly<Record<string, string>>;
@@ -67,8 +75,16 @@ export interface PackServiceTarget {
  * - `env-filter`: only the names the pack declares (and Kindgi's and the
  *   platform's) reach its code, unless `KINDGI_PACK_ENV_FILTER=off`; the
  *   service names the ones it dropped (`env-dropped`).
+ * - `pause`: a tool that declares `pauses` gets the call's wait token and
+ *   may answer with a pause (pack protocol 2.8.0); the fixture pack has
+ *   `conformance.pause`.
+ * - `files`: a tool that declares `storesFiles` gets a store that posts to
+ *   the call's tool files link, one that declares `readsFiles` gets a read
+ *   that gets from it, and its handler never sees the link or the token
+ *   (pack protocol 2.10.0); the fixture pack has `conformance.store` and
+ *   `conformance.read`.
  */
-export type ConformanceFeature = 'pack-env' | 'log-records' | 'env-filter';
+export type ConformanceFeature = 'pack-env' | 'log-records' | 'env-filter' | 'pause' | 'files';
 
 /** Root of a fixture pack shipped with this package (`node-pack`, `python-pack`). */
 export function fixturePackDir(name: string): string {
@@ -85,10 +101,18 @@ export const FIXTURE_TOOL_IDS = [
   'conformance.http',
   'conformance.noisy',
   'conformance.process-env',
+  'conformance.rejects',
   'conformance.sleep',
   'conformance.throws',
 ] as const;
+/** The fixture pack's pausing tool, for a target that supports `pause`. */
+export const FIXTURE_PAUSE_TOOL_ID = 'conformance.pause';
+/** The fixture pack's tool that stores files, for a target that supports `files`. */
+export const FIXTURE_FILES_TOOL_ID = 'conformance.store';
+/** The fixture pack's tool that reads files, for a target that supports `files`. */
+export const FIXTURE_READ_TOOL_ID = 'conformance.read';
 export const FIXTURE_CHECK_IDS = [
+  'conformance.checks.judged',
   'conformance.checks.min-length',
   'conformance.checks.throws',
 ] as const;
@@ -107,6 +131,7 @@ const addFormats = ((addFormatsModule as { default?: unknown }).default ??
 
 function specValidators(): {
   readonly index: ValidateFunction;
+  readonly request: ValidateFunction;
   readonly response: ValidateFunction;
   readonly info: ValidateFunction;
   readonly compile: (schema: object) => ValidateFunction;
@@ -129,6 +154,7 @@ function specValidators(): {
   addFormats(loose);
   return {
     index,
+    request: get('request'),
     response: get('response'),
     info: get('info'),
     compile: (schema) => loose.compile(schema),
@@ -413,6 +439,68 @@ function untilHeld(service: RunningService, release: string): Promise<string> {
   );
 }
 
+/**
+ * What the files link answers: a body that's bytes goes as
+ * `application/octet-stream`, any other as JSON.
+ */
+interface LinkAnswer {
+  readonly status: number;
+  readonly body: unknown;
+}
+
+/**
+ * A call's tool files link for the `files` cases: answers a store (`POST`)
+ * with `answer` and a read (`GET`) with `readAnswer`, and keeps each
+ * request it receives.
+ */
+interface FilesLink {
+  /** Set once its server listens. */
+  url: string;
+  readonly received: {
+    readonly method: string | undefined;
+    readonly path: string | undefined;
+    readonly headers: IncomingHttpHeaders;
+    readonly body: string;
+  }[];
+  answer: LinkAnswer;
+  readAnswer: LinkAnswer;
+  close(): Promise<void>;
+}
+
+async function filesLink(): Promise<FilesLink> {
+  const received: FilesLink['received'] = [];
+  const link: FilesLink = {
+    url: '',
+    received,
+    answer: { status: 200, body: {} },
+    readAnswer: { status: 200, body: {} },
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
+  const server = createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    req.on('end', () => {
+      received.push({
+        method: req.method,
+        path: req.url,
+        headers: req.headers,
+        body: Buffer.concat(chunks).toString(),
+      });
+      const { status, body } = req.method === 'GET' ? link.readAnswer : link.answer;
+      if (body instanceof Uint8Array) {
+        res.writeHead(status, { 'content-type': 'application/octet-stream' });
+        res.end(body);
+        return;
+      }
+      res.writeHead(status, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(body));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  link.url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1/tool-files`;
+  return link;
+}
+
 function toolCall(
   id: string,
   input: unknown,
@@ -466,8 +554,11 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
       guardrails: Record<string, unknown>[];
       agents: Record<string, unknown>[];
       flows: Record<string, unknown>[];
+      blocks?: Record<string, unknown>[];
     };
     let service: RunningService;
+    /** The call's tool files link for the `files` cases. */
+    let link: FilesLink | undefined;
 
     const response = (answer: Answer): Record<string, unknown> => {
       expect(answer.status).toBe(200);
@@ -482,10 +573,12 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
       indexText = await readFile(indexPath, 'utf8');
       index = JSON.parse(indexText) as typeof index;
       service = await startService(target, indexPath);
+      if (target.unsupported?.includes('files') !== true) link = await filesLink();
     });
 
     afterAll(async () => {
       await service?.terminate();
+      await link?.close();
       if (workDir !== '') await rm(workDir, { recursive: true, force: true });
     });
 
@@ -499,19 +592,59 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         expect(index.packVersion).toBe('1.0.0');
         expect(index.artifactVersion).toBe(PINS.artifactVersion);
         expect(index.publishedAt).toBe(PINS.publishedAt);
-        expect(index.tools.map((t) => t.id)).toEqual([...FIXTURE_TOOL_IDS]);
+        const toolIds: string[] = [...FIXTURE_TOOL_IDS];
+        if (target.unsupported?.includes('pause') !== true) toolIds.push(FIXTURE_PAUSE_TOOL_ID);
+        if (target.unsupported?.includes('files') !== true) {
+          toolIds.push(FIXTURE_FILES_TOOL_ID, FIXTURE_READ_TOOL_ID);
+        }
+        expect(index.tools.map((t) => t.id)).toEqual(toolIds.sort());
         expect(index.tools.every((t) => t.version === '1.0.0')).toBe(true);
         expect(index.guardrails.map((g) => g.checkId ?? g.id).sort()).toEqual([
           ...FIXTURE_CHECK_IDS,
         ]);
         expect(index.guardrails.map((g) => g.id)).toEqual([
           'conformance.check-throws',
+          'conformance.judged',
           'conformance.min-length',
         ]);
         expect(index.agents.map((a) => a.id)).toEqual(['conformance.echo-agent']);
         expect(index.agents[0]?.tools).toEqual([{ id: 'conformance.echo', version: '1.0.0' }]);
         expect(index.flows.map((f) => f.id)).toEqual(['conformance.echo-flow']);
         expect(index.flows[0]?.kernelPayloadVersion).toBe(1);
+      });
+
+      test("lists the pack's data blocks, a prompt's template file read into it", () => {
+        expect(index.blocks).toEqual([
+          {
+            id: 'conformance.greeting',
+            version: '1.0.0',
+            kind: 'prompt',
+            description: 'Greets the person by name',
+            content: {
+              template: 'Say hello to {{ name }}.\n',
+              parameters: [{ name: 'name', type: 'string' }],
+            },
+            modulePath: 'blocks/greeting.json',
+          },
+          {
+            id: 'conformance.limits',
+            version: '1.0.0',
+            kind: 'settings',
+            content: {
+              values: { maxSentences: 3, temperature: 1, minScore: 1e-7 },
+              schema: {
+                type: 'object',
+                properties: {
+                  maxSentences: { type: 'integer', minimum: 1 },
+                  temperature: { type: 'number', minimum: 0 },
+                  minScore: { type: 'number', minimum: 0 },
+                },
+                required: ['maxSentences'],
+              },
+            },
+            modulePath: 'blocks/limits.json',
+          },
+        ]);
       });
 
       test('is canonical: keys sorted, two-space indent, trailing newline', () => {
@@ -537,6 +670,18 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         expect(config({ minLength: -1 })).toBe(false);
       });
 
+      test('an llm-judge guardrail indexes its judge (judgeCapabilities) the same in every SDK', () => {
+        // The runtime routes an llm-judge guardrail's judge model by its judgeCapabilities, and
+        // refuses one without them on every turn.
+        expect(index.guardrails.find((g) => g.id === 'conformance.judged')).toMatchObject({
+          kind: 'llm-judge',
+          checkId: 'conformance.checks.judged',
+          action: { 'on-violation': 'log-only' },
+          config: { rubric: 'The reply answers the message.', responseFormat: 'pass-fail' },
+          judgeCapabilities: { needs: [{ feature: 'structured-output' }] },
+        });
+      });
+
       test('a declarative http tool indexes the same spec in every SDK', () => {
         // pack-index types `spec` as an open object, so each SDK must emit the same bytes
         // here for a declarative HTTP tool to mean the same thing across the four.
@@ -551,6 +696,14 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
             secretRef: { envName: 'local', name: 'API_TOKEN' },
           },
           successStatus: { min: 200, max: 299 },
+        });
+      });
+
+      test("a tool's connections index the same in every SDK", () => {
+        // The runtime resolves a call's connections from the indexed `needsSpec.connections`.
+        const rejects = index.tools.find((t) => t.id === 'conformance.rejects');
+        expect(rejects?.needsSpec).toEqual({
+          connections: { mail: { app: 'google', permissions: ['gmail.send'], as: 'person' } },
         });
       });
     });
@@ -1058,6 +1211,44 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         expect(String((answer.cause as { message?: unknown }).message)).toContain('boom');
       });
 
+      test("an app's refusal of a connection, or an error caused by one: connection-rejected, naming it", async () => {
+        // Pack protocol 2.9.0: the runtime renews that connection's token and calls once more.
+        const accessToken = 'refused-mail-token';
+        const ctx = {
+          ...CTX,
+          connections: {
+            mail: {
+              connectionId: 'c-mail',
+              app: 'google',
+              appName: 'Google',
+              accessToken,
+              account: { id: 'g-ana', label: 'ana@acme.example' },
+            },
+          },
+        };
+        for (const input of [{}, { wrapped: true }]) {
+          const answer = response(
+            await invoke(service, toolCall('conformance.rejects', input, { ctx })),
+          );
+          expect(answer).toEqual({
+            v: 2,
+            kind: 'error',
+            code: 'connection-rejected',
+            message: 'Tool "conformance.rejects": refused',
+            toolId: 'conformance.rejects',
+            connection: 'mail',
+          });
+        }
+        await waitFor(
+          () =>
+            service.events.filter((e) => e.kind === 'call' && e.id === 'conformance.rejects')
+              .length >= 2 || undefined,
+          3_000,
+          'the call lines',
+        );
+        expect([...service.stdout, ...service.stderr].join('\n')).not.toContain(accessToken);
+      });
+
       test("the handler receives its input with the schema's defaults filled in", async () => {
         const filled = response(
           await invoke(service, toolCall('conformance.defaults', { name: 'Ada' })),
@@ -1084,10 +1275,31 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
           secrets: { API_KEY: 's3cret' },
           config: { mode: 'fast' },
           settings: { 'acme.weights': { recency: 0.7 } },
+          // Pack protocol 2.9.0: the connections the tool declares, each with a short-lived token.
+          // A connection's name is 2.11.0.
+          connections: {
+            mail: {
+              connectionId: 'c-mail',
+              app: 'google',
+              appName: 'Google',
+              accessToken: 'mail-token',
+              account: { id: 'g-ana', label: 'ana@acme.example' },
+              name: "Ana's mail",
+              expiresAt: '2026-10-23T01:00:00.000Z',
+            },
+            repo: {
+              connectionId: 'c-repo',
+              app: 'github',
+              appName: 'GitHub',
+              accessToken: 'repo-token',
+              account: { id: '1', label: 'acme' },
+            },
+          },
         };
-        const answer = response(
-          await invoke(service, toolCall('conformance.context', {}, { ctx })),
-        );
+        const call = toolCall('conformance.context', {}, { ctx });
+        // The call is one the runtime may send, as the spec has it.
+        expectValid(spec.request, call);
+        const answer = response(await invoke(service, call));
         expect(answer.output).toEqual(ctx);
       });
 
@@ -1198,6 +1410,235 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
       });
     });
 
+    describe.skipIf(target.unsupported?.includes('pause') === true)('pauses', () => {
+      // Pack protocol 2.8.0: the call's wait token, as the runtime sends it to a tool that pauses.
+      const waitToken = {
+        id: 'wt-conformance',
+        url: 'https://kindgi.example/v1/wait-tokens/wt-conformance/answer?sig=conformance',
+      };
+      const pauseCall = (input: Record<string, unknown>, ctx: object = { ...CTX, waitToken }) =>
+        toolCall(FIXTURE_PAUSE_TOOL_ID, input, { ctx });
+
+      test('the index says which tool pauses', () => {
+        const pausing = index.tools.filter((t) => t.pauses !== undefined).map((t) => t.id);
+        expect(pausing).toEqual([FIXTURE_PAUSE_TOOL_ID]);
+        expect(index.tools.find((t) => t.id === FIXTURE_PAUSE_TOOL_ID)?.pauses).toBe(true);
+      });
+
+      test('a tool that pauses answers with a pause', async () => {
+        const name = "the carrier's pickup confirmation";
+        const answer = await invoke(service, pauseCall({ timeoutMs: 7_200_000, name }));
+        expect(response(answer)).toEqual({ v: 2, kind: 'pause', timeoutMs: 7_200_000, name });
+        expect(response(await invoke(service, pauseCall({})))).toEqual({ v: 2, kind: 'pause' });
+      });
+
+      test('a pause is logged as one', async () => {
+        await invoke(service, pauseCall({}));
+        await waitFor(
+          () =>
+            service.events.find(
+              (e) => e.kind === 'call' && e.id === FIXTURE_PAUSE_TOOL_ID && e.outcome === 'pause',
+            ),
+          3_000,
+          'the pause line',
+        );
+      });
+
+      test('the handler receives the wait token, and may answer at once', async () => {
+        const answer = response(await invoke(service, pauseCall({ answer: true })));
+        expect(answer).toEqual({ v: 2, kind: 'result', output: { tokenId: waitToken.id } });
+      });
+
+      test('a call from a runtime that sends no wait token: pause-not-available', async () => {
+        const answer = response(await invoke(service, pauseCall({}, CTX)));
+        expect(answer).toMatchObject({
+          v: 2,
+          kind: 'error',
+          code: 'pause-not-available',
+          toolId: FIXTURE_PAUSE_TOOL_ID,
+        });
+      });
+
+      test.each([
+        ['no time', { timeoutMs: 0 }],
+        ['more than 24 days', { timeoutMs: 24 * 24 * 60 * 60 * 1000 + 1 }],
+        ['part of a millisecond', { timeoutMs: 1.5 }],
+        ['an empty name', { name: '' }],
+        ['a name over 200 characters', { name: 'x'.repeat(201) }],
+      ])('a pause for %s: handler-shape-invalid', async (_case, input) => {
+        const answer = response(await invoke(service, pauseCall(input)));
+        expect(answer).toMatchObject({
+          kind: 'error',
+          code: 'handler-shape-invalid',
+          toolId: FIXTURE_PAUSE_TOOL_ID,
+        });
+      });
+    });
+
+    describe.skipIf(target.unsupported?.includes('files') === true)(
+      'stores and reads files',
+      () => {
+        // Pack protocol 2.10.0: the call's tool files, as the runtime sends them to a tool that
+        // stores or reads files. The link is this suite's own server, which keeps what it receives.
+        const token = 'kgi_tf_conformance-token';
+        const key = '0d6f4c1a-9a43-5b1e-8f1d-2b7e6c3d9a10';
+        const stored = {
+          type: 'kindgi.file',
+          artifactId: 'art-conformance',
+          name: 'invoice.txt',
+          contentType: 'text/plain',
+          size: 4,
+          sha256: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+        };
+        const served = (): FilesLink => {
+          if (link === undefined) throw new Error('the tool files link is not running');
+          return link;
+        };
+        const withFiles = () => ({
+          ...CTX,
+          idempotencyKey: key,
+          toolFiles: { url: served().url, token },
+        });
+        const storeCall = (ctx: object = withFiles()) =>
+          toolCall(
+            FIXTURE_FILES_TOOL_ID,
+            { name: 'Rechnung März.txt', contentType: 'text/plain', text: 'test' },
+            { ctx },
+          );
+        const readCall = (ctx: object = withFiles()) =>
+          toolCall(FIXTURE_READ_TOOL_ID, { artifactId: 'art conformance/1' }, { ctx });
+
+        test('the index says which tool stores files and which reads them', () => {
+          const storing = index.tools.filter((t) => t.storesFiles !== undefined).map((t) => t.id);
+          expect(storing).toEqual([FIXTURE_FILES_TOOL_ID]);
+          const reading = index.tools.filter((t) => t.readsFiles !== undefined).map((t) => t.id);
+          expect(reading).toEqual([FIXTURE_READ_TOOL_ID]);
+        });
+
+        test('a store posts the bytes with the token, and the handler gets what the runtime answered', async () => {
+          served().answer = { status: 200, body: { file: stored } };
+          const from = served().received.length;
+          const answer = response(await invoke(service, storeCall()));
+          expect(answer).toEqual({
+            v: 2,
+            kind: 'result',
+            output: { stored: true, answer: { file: stored } },
+          });
+          const [received] = served().received.slice(from);
+          expect(received?.method).toBe('POST');
+          expect(received?.path).toBe('/v1/tool-files');
+          expect(received?.headers.authorization).toBe(`Bearer ${token}`);
+          expect(received?.headers['content-type']).toBe('text/plain');
+          expect(received?.headers['kindgi-file-name']).toBe('Rechnung%20M%C3%A4rz.txt');
+          expect(received?.body).toBe('test');
+        });
+
+        test('a store that keeps nothing answers why', async () => {
+          served().answer = { status: 200, body: { notStored: 'limit' } };
+          const answer = response(await invoke(service, storeCall()));
+          expect(answer).toEqual({
+            v: 2,
+            kind: 'result',
+            output: { stored: true, answer: { notStored: 'limit' } },
+          });
+        });
+
+        test("a refused store fails the call, and the token isn't in the error", async () => {
+          served().answer = {
+            status: 409,
+            body: { error: { code: 'tool-file-token-closed', message: 'closed' } },
+          };
+          const answer = response(await invoke(service, storeCall()));
+          expect(answer).toMatchObject({
+            v: 2,
+            kind: 'error',
+            code: 'handler-throw',
+            toolId: FIXTURE_FILES_TOOL_ID,
+          });
+          expect(JSON.stringify(answer)).toContain('tool-file-token-closed');
+          expect(JSON.stringify(answer)).not.toContain(token);
+        });
+
+        test('a call from a runtime that sends no tool files: no store', async () => {
+          const from = served().received.length;
+          const answer = response(
+            await invoke(service, storeCall({ ...CTX, idempotencyKey: key })),
+          );
+          expect(answer).toEqual({ v: 2, kind: 'result', output: { stored: false } });
+          expect(served().received.length).toBe(from);
+        });
+
+        test('a call with no idempotency key: no store', async () => {
+          const from = served().received.length;
+          const answer = response(
+            await invoke(service, storeCall({ ...CTX, toolFiles: { url: served().url, token } })),
+          );
+          expect(answer).toEqual({ v: 2, kind: 'result', output: { stored: false } });
+          expect(served().received.length).toBe(from);
+        });
+
+        test("a read gets the file's bytes with the token, by its id", async () => {
+          served().readAnswer = { status: 200, body: new TextEncoder().encode('Grüße') };
+          const from = served().received.length;
+          const answer = response(await invoke(service, readCall()));
+          expect(answer).toEqual({
+            v: 2,
+            kind: 'result',
+            output: { read: true, answer: { text: 'Grüße' } },
+          });
+          const [received] = served().received.slice(from);
+          expect(received?.method).toBe('GET');
+          expect(received?.path).toBe('/v1/tool-files/art%20conformance%2F1');
+          expect(received?.headers.authorization).toBe(`Bearer ${token}`);
+          expect(received?.body).toBe('');
+        });
+
+        test('a read with no bytes answers why', async () => {
+          served().readAnswer = { status: 200, body: { notRead: 'rule' } };
+          const answer = response(await invoke(service, readCall()));
+          expect(answer).toEqual({
+            v: 2,
+            kind: 'result',
+            output: { read: true, answer: { notRead: 'rule' } },
+          });
+        });
+
+        test("a refused read fails the call, and the token isn't in the error", async () => {
+          served().readAnswer = {
+            status: 404,
+            body: { error: { code: 'tool-file-token-not-found', message: 'not found' } },
+          };
+          const answer = response(await invoke(service, readCall()));
+          expect(answer).toMatchObject({
+            v: 2,
+            kind: 'error',
+            code: 'handler-throw',
+            toolId: FIXTURE_READ_TOOL_ID,
+          });
+          expect(JSON.stringify(answer)).toContain('tool-file-token-not-found');
+          expect(JSON.stringify(answer)).not.toContain(token);
+        });
+
+        test('a call from a runtime that sends no tool files: no read', async () => {
+          const from = served().received.length;
+          const answer = response(await invoke(service, readCall(CTX)));
+          expect(answer).toEqual({ v: 2, kind: 'result', output: { read: false } });
+          expect(served().received.length).toBe(from);
+        });
+
+        test('a tool that declares neither gets no files, even when the call carries them', async () => {
+          const answer = response(
+            await invoke(service, toolCall('conformance.context', {}, { ctx: withFiles() })),
+          );
+          expect(answer).toMatchObject({ v: 2, kind: 'result' });
+          expect((answer as { output: Record<string, unknown> }).output).not.toHaveProperty(
+            'files',
+          );
+          expect(JSON.stringify(answer)).not.toContain(token);
+        });
+      },
+    );
+
     describe('checks', () => {
       test('a passing and a failing verdict', async () => {
         const passed = response(
@@ -1305,10 +1746,24 @@ export function describeCallContextCompatibility(target: PackServiceTarget): voi
       if (workDir !== '') await rm(workDir, { recursive: true, force: true });
     });
 
-    test('a tool call whose context has the project, the org and an idempotency key: answered', async () => {
+    test('a tool call whose context has the project, the org, an idempotency key and connections: answered', async () => {
       if (service === undefined) throw new Error('the service did not start');
-      // The idempotency key is pack protocol 2.6.0: an older service ignores it.
-      const ctx = { ...newer, idempotencyKey: '0d6f4c1a-9a43-5b1e-8f1d-2b7e6c3d9a10' };
+      // The idempotency key is pack protocol 2.6.0, the connections 2.9.0 and a
+      // connection's name 2.11.0: an older service ignores them.
+      const ctx = {
+        ...newer,
+        idempotencyKey: '0d6f4c1a-9a43-5b1e-8f1d-2b7e6c3d9a10',
+        connections: {
+          mail: {
+            connectionId: 'c-mail',
+            app: 'google',
+            appName: 'Google',
+            accessToken: 'mail-token',
+            account: { id: 'g-ana', label: 'ana@acme.example' },
+            name: "Ana's mail",
+          },
+        },
+      };
       const answer = await invoke(
         service,
         toolCall('conformance.echo', { message: 'hi' }, { ctx }),

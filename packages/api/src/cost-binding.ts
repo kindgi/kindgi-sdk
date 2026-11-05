@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import type { ThinkingLevel } from '@kindgi/capabilities';
 import type { Scope } from '@kindgi/platform';
 import type { Cursor, TenantId, Timestamp } from '@kindgi/types';
 
@@ -329,6 +330,16 @@ export interface CostRecord {
     readonly cacheReadTokens?: number;
     readonly cacheWriteTokens?: number;
     readonly reasoningTokens?: number;
+  };
+  /**
+   * The level the call asked for, the one its adapter sent, and the
+   * vendor's fields as they went out. `asked` without `level`: nothing
+   * was sent. `level` without `asked`: the model's `thinking.default`.
+   */
+  readonly thinking?: {
+    readonly asked?: ThinkingLevel;
+    readonly level?: ThinkingLevel;
+    readonly sent?: Readonly<Record<string, string>>;
   };
   readonly durationMs?: number;
   readonly finishReason?: string;

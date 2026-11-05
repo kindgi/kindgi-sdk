@@ -426,7 +426,8 @@ answer was prose. The repair worked, and the turn took two steps
 instead of one. Each repair is a model call: it counts as a step against the
 agent's [budget](../budgets/), and it costs.
 
-When the repairs run out, the turn fails with `output-schema-violation`.
+When the repairs run out, or the turn has no step left for one, the turn
+fails with `output-schema-violation`.
 `maxRepairs` sets how many, 1 by default. With `maxRepairs: 0`, an answer
 whose `priority` is `"high"` fails at once:
 

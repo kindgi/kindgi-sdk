@@ -4,7 +4,7 @@
 import type { AgentId } from '@kindgi/agents';
 import type { Principal } from '@kindgi/authz';
 import type { FlowVersionOverrides } from '@kindgi/flow';
-import type { RunIdempotencyKey, RunStartedBy, RunTriggerRef } from '@kindgi/runtime';
+import type { RunIdempotencyKey, RunMailbox, RunStartedBy, RunTriggerRef } from '@kindgi/runtime';
 import type { FlowId, ProjectId, RunId, ScopeSegment, Semver, TenantId } from '@kindgi/types';
 
 /**
@@ -81,7 +81,7 @@ export interface InvokeAgentBindingInput {
   readonly tenantId: TenantId;
   /**
    * Content-scope anchor. Omit → the binding
-   * resolves the tenant's Default via `projectBinding.getDefault(...)`
+   * resolves the tenant's default via `projectBinding.getDefault(...)`
    * at its own caller layer. Route callers who supply a project id in
    * the body thread it through here.
    */
@@ -89,13 +89,13 @@ export interface InvokeAgentBindingInput {
   readonly agentId: AgentId;
   /**
    * Omit → the binding chooses: the conversation's own version for a
-   * follow-up turn, else the version live for the run's scope, else the
+   * follow-up turn, else the version pinned for the run's scope, else the
    * latest registered.
    */
   readonly agentVersion?: Semver;
   /**
    * The run's segment path below its project, coarse to fine (an
-   * app-defined finer scope, e.g. company then role): a live version
+   * app-defined finer scope, e.g. company then role): a pinned version
    * pinned on a prefix of it serves the run.
    */
   readonly segments?: readonly ScopeSegment[];
@@ -130,11 +130,17 @@ export interface InvokeAgentBindingInput {
   readonly startedBy?: RunStartedBy;
   /**
    * What the run may call without a person's yes though no person started
-   * it (`RunFlowInput.toolsAllowedUnattended`): set by a webhook's or a
-   * schedule's fire from its trigger, never by a route from a body. The
-   * run records it.
+   * it (`RunFlowInput.toolsAllowedUnattended`): set by a webhook's, a
+   * schedule's or a mail trigger's fire from its trigger, never by a route
+   * from a body. The run records it.
    */
   readonly toolsAllowedUnattended?: readonly string[];
+  /**
+   * The mailbox the run's mail came from (`RunFlowInput.mailbox`): set by
+   * a mail trigger's fire, never by a route from a body. The run records
+   * it.
+   */
+  readonly mailbox?: RunMailbox;
   /**
    * Who started the run (the authenticated caller), when known: whom the
    * turn acts for, e.g. whose own memory its retrievals may read. Set by
@@ -150,7 +156,7 @@ export interface InvokeFlowBindingInput {
   readonly projectId?: ProjectId;
   readonly flowId: FlowId;
   readonly flowVersion?: Semver;
-  /** The run's segment path, as for an agent run: its agent steps resolve live versions with it. */
+  /** The run's segment path, as for an agent run: its agent steps resolve pinned versions with it. */
   readonly segments?: readonly ScopeSegment[];
   readonly input: unknown;
   readonly dryRun?: boolean;
@@ -173,6 +179,8 @@ export interface InvokeFlowBindingInput {
   readonly startedBy?: RunStartedBy;
   /** What it may call without a person's yes, as for `InvokeAgentBindingInput.toolsAllowedUnattended`. */
   readonly toolsAllowedUnattended?: readonly string[];
+  /** The mailbox a mail trigger's run came from, as for `InvokeAgentBindingInput.mailbox`. */
+  readonly mailbox?: RunMailbox;
   /** Agents and tools to run at other exact versions than the flow version's pins (`RunFlowInput.versions`). */
   readonly versions?: FlowVersionOverrides;
   /** Who started the run, as for `InvokeAgentBindingInput.principal`: its agent steps act for them. */
@@ -203,7 +211,8 @@ export interface RunHandlerFailure {
    * The domain error's structured fields — sent as the wire error's
    * `details`, which clients hydrate into typed errors. A binding
    * forwards them as-is: for `guardrail-violation`, `violations` and
-   * `evaluationErrors` from `@kindgi/agents`' `GuardrailViolationError`.
+   * `evaluationErrors` from `@kindgi/agents`' `GuardrailViolationError`,
+   * and `attempts` when a `retry` guardrail's attempts ran out.
    * For `rate-limit-exceeded` (`RateLimitExceededError`), `retryAfterMs`
    * is answered as `Retry-After`, not in the body.
    */

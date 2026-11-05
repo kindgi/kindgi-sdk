@@ -32,9 +32,9 @@ Kindgi is self-host first: the runtime you run on your machine with
 in a pack service built from your app.
 
 :::note[Access to the runtime image]
-Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
-runtime image's pull credentials, and log in once with `kindgi auth registry`
-(see [Install](../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or your
+email address for a license key. The key is also the runtime image's
+password ([Pull the runtime image](../deploy/self-hosted/pull-the-runtime-image/)). Questions or trouble: contact@kindgi.com.
 :::
 
 - **[Self-host with Docker](self-hosted/self-host/):** the runtime and your pack
@@ -48,6 +48,9 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
 - **[Keep secrets in your own secret manager](self-hosted/secret-manager/):** Azure Key
   Vault, Google Secret Manager or HashiCorp Vault holds the secrets set
   through Kindgi's API, and Kindgi keeps their names and versions.
+- **[Choose where the runtime keeps files](self-hosted/store-files/):** a
+  directory, a Google Cloud Storage bucket, or an S3 bucket holds
+  artifacts, the erasure ledger's copies and purge records.
 - **[Keep and purge deleted data](retention/):** how long deleted records
   are kept, and the retention policies and sweeps that purge them.
 - **[Turn on sign-in](self-hosted/sign-in/):** people sign in to the console with their
@@ -70,5 +73,9 @@ These pages apply on Kindgi Cloud and on a runtime you run. Each says, in an
 - **[People, API keys and service accounts](people-and-keys/):** add people
   and give them roles and their own keys, give pipelines service accounts,
   and remove someone in one step.
+- **[Ship a pack from CI](ship-from-ci/):** test on every pull request,
+  deploy to staging from main, and promote the same signed build to prod
+  through its release gate, with keys that reach only what each step
+  needs.
 - **[Run with authorization](authorization/):** what it gives and what it
   doesn't. On a runtime you run, you run OpenFGA next to it.

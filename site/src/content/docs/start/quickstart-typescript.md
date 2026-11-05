@@ -11,8 +11,8 @@ on its answers and a flow, running on your machine.
 
 **Before you start**, set up what the [Install page](../install/) describes:
 Node 22.12, Docker, and access to the runtime image: sign in at
-[access.kindgi.com](https://access.kindgi.com) with GitHub for its pull
-credentials, then log in once with `kindgi auth registry`.
+[access.kindgi.com](https://access.kindgi.com) with GitHub or your email
+address for a license key, then log in once with `kindgi auth registry`.
 
 ## 1. Create the pack
 
@@ -76,9 +76,9 @@ pnpm exec kindgi dev
 
 `kindgi dev` starts the Kindgi runtime in Docker, indexes the pack,
 registers every tool, agent, guardrail and flow, and does it again on every
-save. It prints the API's URL and a token, and writes them to
-`.kindgirc.json` in the pack, so the next commands find the runtime by
-themselves. Leave it running.
+save. It prints the API's URL, and writes it and a token to the pack's
+`.kindgirc.json`, as `apiUrl` and `token`, so the next commands find the
+runtime by themselves. Leave it running.
 
 The first address its banner prints is the console's, where you can see each
 run: what it was asked, the steps it took and what it answered:
@@ -222,7 +222,7 @@ pnpm exec kindgi providers register --preset=<preset>
   writes it to Kindgi's own `.kindgi/secrets.env`.
 - `--env=local` is the environment the secret belongs to. Under
   `kindgi dev`, `local` is the pack's env files, that one among them.
-- `--scope=tenant` is where the secret lives: the tenant, rather than one
+- `--scope=tenant` is where the secret lives: the workspace, rather than one
   org (`org:<orgId>`) or project (`project:<projectId>`).
 - `--preset=<preset>` registers the provider's models from Kindgi's built-in
   preset, which reads the `<KEY_NAME>` secret. `kindgi providers presets`
