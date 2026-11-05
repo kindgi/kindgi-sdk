@@ -21,7 +21,8 @@ export interface AppCall {
   readonly method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   /** Sent as given, but for any `Authorization`: the connection's token goes there. */
   readonly headers?: Readonly<Record<string, string>>;
-  readonly body?: string;
+  /** Sent as given: text, or bytes, such as a file's for an upload. */
+  readonly body?: string | Uint8Array;
 }
 
 /**

@@ -837,11 +837,11 @@
     }
   },
   "linkedinPost": {
-    "version": "1.0.0",
+    "version": "1.1.0",
     "definition": {
       "id": "acme.linkedinpost",
-      "description": "Post text on LinkedIn as the person (the LinkedIn account they connected), to their own feed: seen by anyone, or with `visibility: 'connections'` by their connections only. The text is posted as written, up to 3,000 characters: a # that starts a word is a hashtag, and LinkedIn's markup is escaped, so the text mentions no one. A link in the text is clickable, with no preview card. In a run no person started, each post waits for that person's yes.",
-      "version": "1.0.0",
+      "description": "Post on LinkedIn as the person (the LinkedIn account they connected), to their own feed: seen by anyone, or with `visibility: 'connections'` by their connections only. The text is posted as written, up to 3,000 characters: a # that starts a word is a hashtag, and LinkedIn's markup is escaped, so the text mentions no one. `images` adds 1 to 20 of the run's files (JPEG, GIF or PNG), each with its `altText`. `link` adds a card, with the `title` it shows (LinkedIn makes none itself) and one image at most as its thumbnail. A link in the text alone is clickable, with no card. In a run no person started, each post waits for that person's yes.",
+      "version": "1.1.0",
       "input": {
         "type": "object",
         "additionalProperties": false,
@@ -861,6 +861,52 @@
               "public",
               "connections"
             ]
+          },
+          "images": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "file"
+              ],
+              "properties": {
+                "file": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "altText": {
+                  "type": "string",
+                  "maxLength": 4085
+                }
+              }
+            }
+          },
+          "link": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "url",
+              "title"
+            ],
+            "properties": {
+              "url": {
+                "type": "string",
+                "pattern": "^https://"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 399,
+                "pattern": "\\S"
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 4085
+              }
+            }
           }
         }
       },
@@ -893,10 +939,12 @@
       ],
       "mutating": true,
       "needsApprovalWhenUnattended": true,
+      "readsFiles": true,
       "network": {
         "kind": "allowlist",
         "hosts": [
-          "api.linkedin.com"
+          "api.linkedin.com",
+          "www.linkedin.com"
         ]
       },
       "needsSpec": {
@@ -5944,6 +5992,65 @@
               "calendars.read.shared"
             ],
             "as": "company"
+          }
+        }
+      }
+    }
+  },
+  "linkedinDeletePost": {
+    "version": "1.0.0",
+    "definition": {
+      "id": "acme.linkedindeletepost",
+      "description": "Delete a post the person (the LinkedIn account they connected) made on LinkedIn, by the `postId` that posting it gave. A post already deleted counts as deleted. In a run no person started, each delete waits for that person's yes.",
+      "version": "1.0.0",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "postId"
+        ],
+        "properties": {
+          "postId": {
+            "type": "string",
+            "pattern": "^urn:li:(share|ugcPost):[0-9]{1,32}$"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "deleted"
+        ],
+        "properties": {
+          "deleted": {
+            "const": true
+          }
+        }
+      },
+      "effects": [
+        {
+          "kind": "external-side-effect",
+          "resource": "external:linkedin",
+          "notes": "Deletes a post on LinkedIn as the person."
+        }
+      ],
+      "mutating": true,
+      "needsApprovalWhenUnattended": true,
+      "network": {
+        "kind": "allowlist",
+        "hosts": [
+          "api.linkedin.com"
+        ]
+      },
+      "needsSpec": {
+        "connections": {
+          "linkedin": {
+            "app": "linkedin",
+            "permissions": [
+              "posts.write"
+            ],
+            "as": "person"
           }
         }
       }
