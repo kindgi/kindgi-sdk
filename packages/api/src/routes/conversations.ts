@@ -388,7 +388,12 @@ export function conversationsRouter(
     // store holds and places it (`limitedStartRefusal`).
     const limited =
       authorizer === undefined && held !== undefined
-        ? await limitedStartRefusal(c, { kind: 'agent', id: agentId, held: held.agents })
+        ? await limitedStartRefusal(c, {
+            kind: 'agent',
+            id: agentId,
+            held: held.agents,
+            unnamed: supplied === undefined,
+          })
         : undefined;
     if (limited?.refused !== undefined) return limited.refused;
     // Also before the named project's existence: a caller refused there gets

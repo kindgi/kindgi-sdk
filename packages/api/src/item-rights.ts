@@ -1430,8 +1430,10 @@ export async function limitedMadeInRefusal(
  * what it runs. `placed`: the key's project, for an item more than one
  * project serves among them, where an unnamed start lands, as a store
  * places it. Else the start is refused on the first of the item's
- * projects: `call` for an agent more than one project serves, as `runIn`
- * asks it, else `execute`. The refusal says the item "is in" it.
+ * projects, with the right a store asks where the start lands: `call` for
+ * an `unnamed` start of an agent more than one project serves (it lands in
+ * the first, `runIn`), else `execute` on the item. The refusal says the
+ * item "is in" it.
  *
  * It never fails closed. A read passes, as does a caller with no limit,
  * an item that isn't there (the route answers it), and one that records
@@ -1443,6 +1445,7 @@ export async function limitedStartRefusal(
     readonly kind: 'agent' | 'flow' | 'test_set';
     readonly id: string;
     readonly held: HeldProjects;
+    readonly unnamed: boolean;
   },
 ): Promise<{ readonly refused?: Response | undefined; readonly placed?: ProjectId } | undefined> {
   const keyProject = c.get('tokenProjectId') as ProjectId | undefined;
@@ -1455,7 +1458,7 @@ export async function limitedStartRefusal(
   return {
     refused: limitedCallerRefusal(
       c,
-      several && how.kind === 'agent' ? 'call' : 'execute',
+      several && how.unnamed && how.kind === 'agent' ? 'call' : 'execute',
       ref('project', first as unknown as string),
       `the ${KIND_NAME[how.kind]}`,
     ),

@@ -11,10 +11,12 @@
  *
  * What it reaches is what a store asks. A run, a conversation or a
  * test-set run: an item the key's project serves (each of a test-set
- * run's test set and what it runs), and a run that continues a
- * conversation, the conversation's project first. Unnamed, a start on an
- * item the key's project serves lands there, as a store places it. A
- * change that makes new versions of an agent: where they are made.
+ * run's test set and what it runs), and for a run that continues a
+ * conversation, in a store's order, the item where the run lands, then the
+ * conversation's project. Unnamed, a start on an item the key's project
+ * serves lands there, as a store places it. A change that makes new
+ * versions of an agent: where they are made. Each refusal names the right
+ * a store asks, and a store asks it.
  *
  * A start on an item the key's project serves, on one that isn't there
  * or records no project, and by a key limited to no project, is not
@@ -99,12 +101,20 @@ const versionOf = (id: string) => ({
 });
 
 const id = () => randomUUID();
-/** Conversations a run continues, each with the key project's agent. */
+/** Conversations a run continues, by their agent and project. */
 const CONVERSATIONS = {
   away: { id: id(), agentId: HOME, projectId: P2 },
   home: { id: id(), agentId: HOME, projectId: P1 },
   /** From before projects: it records none. */
   unfiled: { id: id(), agentId: HOME },
+  /** In the key's project, its agent served in two others. */
+  wideHome: { id: id(), agentId: WIDE, projectId: P1 },
+  /** In another of the projects that serve its agent, the key's among them. */
+  sharedAway: { id: id(), agentId: SHARED, projectId: P2 },
+  /** In its agent's one project, another. */
+  awayThere: { id: id(), agentId: AWAY, projectId: P2 },
+  /** In a third project, its agent's one project another. */
+  awayElsewhere: { id: id(), agentId: AWAY, projectId: P0 },
 };
 /** Suggested changes at the key's project, by their agent. */
 const CARDS: Record<string, { readonly id: string; readonly agentId: string }> = {
@@ -274,6 +284,10 @@ type Row = {
   readonly op: string;
   /** What the refusal names. */
   readonly word: string;
+  /** The right a store asks, refused, on an item one other project serves. */
+  readonly action: Action;
+  /** On one two other projects serve, when that isn't `action` and the runtime knows both. */
+  readonly wide?: Action;
   /** The start, on the item with this id. */
   readonly to: (item: string) => { path: string; body: unknown };
 };
@@ -286,30 +300,37 @@ const STARTS: readonly Row[] = [
     label: 'run of an agent',
     op: 'POST /v1/runs',
     word: 'the agent',
+    action: 'execute',
+    wide: 'call',
     to: (item) => ({ path: '/v1/runs', body: { agent: item, input: {} } }),
   },
   {
     label: 'run of an agent, in the project named',
     op: 'POST /v1/runs',
     word: 'the agent',
+    action: 'execute',
     to: (item) => ({ path: '/v1/runs', body: { agent: item, projectId: P1, input: {} } }),
   },
   {
     label: 'run of a flow',
     op: 'POST /v1/runs',
     word: 'the flow',
+    action: 'execute',
     to: (item) => ({ path: '/v1/runs', body: { flow: item, input: {} } }),
   },
   {
     label: 'conversation',
     op: 'POST /v1/conversations',
     word: 'the agent',
+    action: 'execute',
+    wide: 'call',
     to: (item) => ({ path: '/v1/conversations', body: { agentId: item, agentVersion: '1.0.0' } }),
   },
   {
     label: 'conversation, in the project named',
     op: 'POST /v1/conversations',
     word: 'the agent',
+    action: 'execute',
     to: (item) => ({
       path: '/v1/conversations',
       body: { agentId: item, agentVersion: '1.0.0', projectId: P1 },
@@ -319,6 +340,7 @@ const STARTS: readonly Row[] = [
     label: 'test-set run, for its test set',
     op: 'POST /v1/test-sets/{testSetId}/runs',
     word: 'the test set',
+    action: 'execute',
     to: (item) => ({
       path: `/v1/test-sets/${item}/runs`,
       body: { projectId: P1, agentRef: { agentId: HOME } },
@@ -328,6 +350,7 @@ const STARTS: readonly Row[] = [
     label: 'test-set run, for the agent it runs',
     op: 'POST /v1/test-sets/{testSetId}/runs',
     word: 'the agent',
+    action: 'execute',
     to: (item) => ({
       path: `/v1/test-sets/${HOME}/runs`,
       body: { projectId: P1, agentRef: { agentId: item } },
@@ -337,6 +360,7 @@ const STARTS: readonly Row[] = [
     label: 'test-set run, for the flow it runs',
     op: 'POST /v1/test-sets/{testSetId}/runs',
     word: 'the flow',
+    action: 'execute',
     to: (item) => ({
       path: `/v1/test-sets/${HOME}/runs`,
       body: { projectId: P1, flowRef: { flowId: item } },
@@ -346,18 +370,21 @@ const STARTS: readonly Row[] = [
     label: 'Improve run',
     op: 'POST /v1/improve-runs',
     word: 'the agent',
+    action: 'publish',
     to: (item) => ({ path: '/v1/improve-runs', body: { agentId: item, projectId: P1 } }),
   },
   {
     label: 'Improve check',
     op: 'POST /v1/improve-runs/check',
     word: 'the agent',
+    action: 'publish',
     to: (item) => ({ path: '/v1/improve-runs/check', body: { agentId: item, projectId: P1 } }),
   },
   {
     label: 'suggested change',
     op: 'POST /v1/suggested-changes',
     word: 'the agent',
+    action: 'publish',
     to: (item) => ({
       path: '/v1/suggested-changes',
       body: { agentId: item, projectId: P1, ...SUGGESTED },
@@ -367,6 +394,7 @@ const STARTS: readonly Row[] = [
     label: 'suggested change check',
     op: 'POST /v1/suggested-changes/{suggestedChangeId}/check',
     word: 'the agent',
+    action: 'publish',
     to: (item) => ({ path: `/v1/suggested-changes/${CARDS[item]?.id ?? id()}/check`, body: {} }),
   },
 ];
@@ -374,17 +402,76 @@ const STARTS: readonly Row[] = [
 /** The starts that run the item (not those that make its new versions). */
 const RUNS = STARTS.filter((r) => !/^(Improve|suggested)/.test(r.label));
 
+/**
+ * Runs continuing a conversation whose item is refused too, as a store
+ * refuses them, in its order: the item where the run lands, then the
+ * conversation. An agent more than one project serves, continuing a
+ * conversation in one of them, lands there.
+ */
+const CONTINUED = [
+  {
+    where: "in the key's project, of an agent two other projects serve",
+    target: { agent: WIDE },
+    conversation: CONVERSATIONS.wideHome,
+    word: 'the agent',
+    projectId: P2,
+    action: 'execute',
+  },
+  {
+    where: "in another of the projects that serve its agent, the key's among them",
+    target: { agent: SHARED },
+    conversation: CONVERSATIONS.sharedAway,
+    word: 'the conversation',
+    projectId: P2,
+    action: 'call',
+    /** Its record names the key's project alone: the agent passes, then the conversation. */
+    unbound: { word: 'the conversation', action: 'write' },
+  },
+  {
+    where: "in another project, its agent's one",
+    target: { agent: AWAY },
+    conversation: CONVERSATIONS.awayThere,
+    word: 'the agent',
+    projectId: P2,
+    action: 'execute',
+  },
+  {
+    where: 'in a third project, of an agent in another one',
+    target: { agent: AWAY },
+    conversation: CONVERSATIONS.awayElsewhere,
+    word: 'the agent',
+    projectId: P2,
+    action: 'execute',
+  },
+  {
+    where: "in another project, by a flow that project's alone",
+    target: { flow: AWAY },
+    conversation: CONVERSATIONS.awayThere,
+    word: 'the flow',
+    projectId: P2,
+    action: 'execute',
+  },
+] as const satisfies readonly {
+  readonly where: string;
+  readonly target: { readonly agent: string } | { readonly flow: string };
+  readonly conversation: { readonly id: string };
+  readonly word: string;
+  readonly projectId: ProjectId;
+  readonly action: Action;
+  readonly unbound?: { readonly word: string; readonly action: Action };
+}[];
+
 const send = (h: Harness, token: string, r: Row, item: string) => {
   const { path, body } = r.to(item);
   return h.send(token, 'POST', path, body);
 };
 
-const refusedWith = (res: Sent, message: string, projectId: string) => {
+const refusedWith = (res: Sent, message: string, projectId: string, action: Action) => {
   expect(res.status, JSON.stringify(res.body)).toBe(403);
   expect(res.body.error).toMatchObject({
     code: 'key-project-mismatch',
     message,
-    details: { keyProjectId: P1, projectId },
+    details: { keyProjectId: P1, projectId, action },
   });
   expect(res.changed).toEqual([]);
 };
@@ -406,12 +493,12 @@ test('every operation whose 403 names this refusal has a row, and no other', () 
 });
 
 describe.each([
-  ['the host says which projects serve each item', served],
-  ['each item records its own project', recorded],
-] as const)("a start on another project's item, with no store, where %s", (_where, h) => {
+  ['the host says which projects serve each item', served, true],
+  ['each item records its own project', recorded, false],
+] as const)("a start on another project's item, with no store, where %s", (_where, h, several) => {
   test.each(STARTS)('$label: 403 key-project-mismatch, nothing started', async (r) => {
     const res = await send(h, LIMITED, r, AWAY);
-    refusedWith(res, keyWords(`${r.word} is in project ${P2}`), P2);
+    refusedWith(res, keyWords(`${r.word} is in project ${P2}`), P2, r.action);
   });
 
   test.each(STARTS)("$label, on the key project's own item: not refused", async (r) => {
@@ -424,16 +511,25 @@ describe.each([
 
   test.each(STARTS)('$label, by a session limited to a project: the same refusal', async (r) => {
     const res = await send(h, SESSION, r, AWAY);
-    refusedWith(res, `This session is limited to project ${P1}; ${r.word} is in project ${P2}`, P2);
+    refusedWith(
+      res,
+      `This session is limited to project ${P1}; ${r.word} is in project ${P2}`,
+      P2,
+      r.action,
+    );
   });
 
-  // `call` for an agent more than one project serves, as a store's `runIn`
-  // asks it; `execute` for the rest. Either way, the first of its projects.
+  // `call` for an unnamed start of an agent more than one project serves,
+  // which lands in the first of them, as a store's `runIn` asks it;
+  // `execute` on the item for the rest, as a store asks it outside the
+  // item's projects. Either way, the first of its projects.
   test.each(RUNS)(
     '$label, on an item two other projects serve: refused for the first',
     async (r) => {
       const res = await send(h, LIMITED, r, WIDE);
-      refusedWith(res, keyWords(`${r.word} is in project ${P2}`), P2);
+      // Its record names its own project alone: one project serves it, as far as the runtime knows.
+      const action = several ? (r.wide ?? r.action) : r.action;
+      refusedWith(res, keyWords(`${r.word} is in project ${P2}`), P2, action);
     },
   );
 
@@ -450,8 +546,25 @@ describe.each([
       agent: HOME,
       input: { conversationId: CONVERSATIONS.away.id },
     });
-    refusedWith(res, keyWords(`the conversation is in project ${P2}`), P2);
+    refusedWith(res, keyWords(`the conversation is in project ${P2}`), P2, 'write');
   });
+
+  test.each(CONTINUED)(
+    'a run continuing a conversation $where: refused as a store refuses it, the target first',
+    async (k) => {
+      const res = await h.send(LIMITED, 'POST', '/v1/runs', {
+        ...k.target,
+        input: { conversationId: k.conversation.id },
+      });
+      const want = !several && 'unbound' in k ? { ...k, ...k.unbound } : k;
+      refusedWith(
+        res,
+        keyWords(`${want.word} is in project ${k.projectId}`),
+        k.projectId,
+        want.action,
+      );
+    },
+  );
 
   test.each([
     ["in the key's project", CONVERSATIONS.home.id],
@@ -508,9 +621,45 @@ describe('an item more than one project serves, with no store: placed as a store
     '$label, of an agent made in another project: refused where its new versions are made',
     async (r) => {
       const res = await send(served, LIMITED, r, SHARED);
-      refusedWith(res, keyWords(`new versions of the agent are made in project ${P0}`), P0);
+      refusedWith(
+        res,
+        keyWords(`new versions of the agent are made in project ${P0}`),
+        P0,
+        'write',
+      );
     },
   );
+});
+
+// Where the host says which projects serve each item, as a store's runtime knows it.
+describe('the right a refusal names, with no store, is the one a store asks', () => {
+  const starts: readonly (readonly [string, (h: Harness) => Promise<Sent>])[] = [
+    ...RUNS.flatMap((r) =>
+      [AWAY, WIDE].map(
+        (item) => [`${r.label}, on ${item}`, (h: Harness) => send(h, LIMITED, r, item)] as const,
+      ),
+    ),
+    ...CONTINUED.map(
+      (k) =>
+        [
+          `a run continuing a conversation ${k.where}`,
+          (h: Harness) =>
+            h.send(LIMITED, 'POST', '/v1/runs', {
+              ...k.target,
+              input: { conversationId: k.conversation.id },
+            }),
+        ] as const,
+    ),
+  ];
+
+  test.each(starts)('%s', async (_label, start) => {
+    const store = await start(withStore);
+    expect(store.status, JSON.stringify(store.body)).toBe(403);
+    expect(store.body.error?.code).toBe('permission-denied');
+    const held = await start(served);
+    expect(held.body.error?.code, JSON.stringify(held.body)).toBe('key-project-mismatch');
+    expect(held.body.error?.details?.action).toBe(store.body.error?.details?.action);
+  });
 });
 
 describe("a start on another project's item, by a key limited to a project, with a store", () => {

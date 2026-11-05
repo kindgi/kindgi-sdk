@@ -1266,12 +1266,14 @@ async function servedRun(
 }
 
 /**
- * Without a store, a project-limited key's or session's run, as a store
- * holds it: a turn continuing a conversation in another project is
- * refused there first (`turnRefusal` asks `write` on it). Then the target
- * (`limitedStartRefusal`): an unnamed run of an agent, or of a flow, the
- * key's project serves among others lands there, as `servedRun` places it,
- * unless an agent's turn lands in its conversation's project.
+ * Without a store, a project-limited key's or session's run, held in a
+ * store's order (`servedRun`, then `refusedAsBefore`, then `turnRefusal`):
+ * the target first, where the run lands. An agent's turn continuing a
+ * conversation in one of the projects that serve it, more than one, lands
+ * there: `call` on it. Otherwise `limitedStartRefusal`: an unnamed run of
+ * an agent, or of a flow, the key's project serves among others lands
+ * there, as `servedRun` places it. Then, the target passing, a turn
+ * continuing a conversation in another project: `write` on it.
  */
 async function limitedStart(
   c: Context<AppEnv>,
@@ -1284,19 +1286,41 @@ async function limitedStart(
 > {
   if (held === undefined || c.get('tokenProjectId') === undefined) return undefined;
   const continued = (await conversation())?.projectId;
-  if (continued !== undefined) {
-    const refused = limitedCallerRefusal(c, 'write', ref('project', continued), 'the conversation');
-    if (refused !== undefined) return { refused };
+  const inConversation =
+    target.kind === 'agent' && continued !== undefined && start.projectId === undefined;
+  if (inConversation && (await landsThere(c, held.agents, target.id, continued))) {
+    const refused = limitedCallerRefusal(c, 'call', ref('project', continued), 'the conversation');
+    return refused === undefined ? undefined : { refused };
   }
   const item = await limitedStartRefusal(c, {
     ...target,
     held: target.kind === 'agent' ? held.agents : held.flows,
+    unnamed: start.projectId === undefined && !inConversation,
   });
   if (item?.refused !== undefined) return item;
-  const inConversation = target.kind === 'agent' && continued !== undefined;
+  const onConversation =
+    continued === undefined
+      ? undefined
+      : limitedCallerRefusal(c, 'write', ref('project', continued), 'the conversation');
+  if (onConversation !== undefined) return { refused: onConversation };
   return item?.placed === undefined || start.projectId !== undefined || inConversation
     ? undefined
     : { start: { ...start, projectId: item.placed } };
+}
+
+/**
+ * Whether an agent's turn continuing a conversation in `projectId` lands
+ * there: more than one project serves the agent, that one among them
+ * (`servedRun`).
+ */
+async function landsThere(
+  c: Context<AppEnv>,
+  held: HeldItems['agents'],
+  agentId: string,
+  projectId: string,
+): Promise<boolean> {
+  const projects = (await held.projects(c, agentId)) ?? [];
+  return projects.length > 1 && projects.includes(projectId as ProjectId);
 }
 
 /**

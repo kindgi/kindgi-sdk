@@ -291,7 +291,8 @@ function startRouter(
    * Without a store, a project-limited key's or session's test-set run,
    * held as a store holds it (`limitedStartRefusal`): the test set (an
    * agent's own is its project's) and what it runs, each served in the
-   * run's project, the key's.
+   * run's project, the key's. The run names it, so a refusal asks
+   * `execute`, as `runRefusal` does outside an item's projects.
    */
   async function limitedRunStart(
     c: Context<AppEnv>,
@@ -302,11 +303,17 @@ function startRouter(
     if (authorizer !== undefined || held === undefined) return undefined;
     const onSet = own
       ? undefined
-      : await limitedStartRefusal(c, { kind: 'test_set', id: testSetId, held: held.testSets });
+      : await limitedStartRefusal(c, {
+          kind: 'test_set',
+          id: testSetId,
+          held: held.testSets,
+          unnamed: false,
+        });
     if (onSet?.refused !== undefined) return onSet.refused;
     const onTarget = await limitedStartRefusal(c, {
       ...target,
       held: target.kind === 'agent' ? held.agents : held.flows,
+      unnamed: false,
     });
     return onTarget?.refused;
   }
