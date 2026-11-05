@@ -26482,7 +26482,7 @@
           },
           "detail": {
             "type": "string",
-            "description": "Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access. A skip for a suspension or a close names `project-suspended`, `tenant-suspended` or `tenant-closing` in it."
+            "description": "Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access. A skip for a suspension, a delete or a close names `project-suspended`, `project-deleted`, `tenant-suspended` or `tenant-closing` in it."
           },
           "countsTowardPause": {
             "type": "boolean",
