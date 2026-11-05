@@ -307,7 +307,8 @@ describe('GET /v1/system/kept-repos/erasures', () => {
 });
 
 describe('POST /v1/system/tenants/:tenantId/projects/:projectId/kept-repo/purged', () => {
-  const path = (tenantId: string, projectId = PROJECT) => `${repoPath(tenantId, projectId)}/purged`;
+  const path = (tenantId: string, projectId: string = PROJECT) =>
+    `${repoPath(tenantId, projectId)}/purged`;
 
   test("204 whatever the tenant's state, telling the binding which, and the reporting key", async () => {
     const t = makeApp();
@@ -395,7 +396,7 @@ describe('GET /v1/system/tenants/:tenantId/projects/:projectId/kept-repo', () =>
 });
 
 describe('POST /v1/system/tenants/:tenantId/projects/:projectId/kept-repo/erasure', () => {
-  const path = (tenantId: string, projectId = PROJECT) =>
+  const path = (tenantId: string, projectId: string = PROJECT) =>
     `${repoPath(tenantId, projectId)}/erasure`;
 
   test('202 for a new or unfinished request, with the requesting key', async () => {
