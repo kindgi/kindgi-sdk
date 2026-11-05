@@ -296,7 +296,7 @@ describe('kindgi auth login saves a stored key only for its own address', () => 
 
 describe("kindgi auth login keeps another address's login unless --force", () => {
   const kept = (other: string, whose: string) =>
-    `${homeFile()} holds ${whose}. kindgi auth login would replace it with ${other}'s, and its API key would be lost.\nTo keep both, save ${other}'s login as a profile: \`kindgi auth login --profile <name> --url ${other} --token-stdin\`, with its key on stdin.\nTo replace it, run again with --force.\n`;
+    `${homeFile()} holds ${whose}. kindgi auth login would replace it with ${other}'s, and its API key would be lost.\nTo keep both, save ${other}'s login as a profile: \`kindgi auth login --profile <name> --url ${other}\`, which asks for its key on a terminal (or give it with --token-stdin).\nTo replace it, run again with --force.\n`;
 
   test.each([
     ['--token', [`--token=${GIVEN_KEY}`], {}],

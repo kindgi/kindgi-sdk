@@ -652,7 +652,7 @@ describe('kindgi auth login --profile saves a profile beside the other logins', 
     const refused = await cli(flags, {}, GIVEN_KEY);
     expect(refused.exitCode).toBe(2);
     expect(refused.stderr).toBe(
-      `${homeFile()} holds the profile prod's login for ${PROD}. kindgi auth login would replace it with ${OTHER}'s, and its API key would be lost.\nTo keep both, save ${OTHER}'s login under another profile name: \`kindgi auth login --profile <name> --url ${OTHER} --token-stdin\`, with its key on stdin.\nTo replace it, run again with --force.\n`,
+      `${homeFile()} holds the profile prod's login for ${PROD}. kindgi auth login would replace it with ${OTHER}'s, and its API key would be lost.\nTo keep both, save ${OTHER}'s login under another profile name: \`kindgi auth login --profile <name> --url ${OTHER}\`, which asks for its key on a terminal (or give it with --token-stdin).\nTo replace it, run again with --force.\n`,
     );
 
     const forced = await cli([...flags, '--force'], {}, GIVEN_KEY);

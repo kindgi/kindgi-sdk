@@ -169,7 +169,9 @@ function loginAddress(
  * The key login asks for, hidden, naming `url`: when it was given none
  * (`--token`, `--token-stdin`, KINDGI_API_TOKEN) and stdin is a terminal.
  * Otherwise none, and login goes on as without a terminal: the stored
- * key, or the refusal for none.
+ * key, or the refusal for none. Without --force, the refusal to replace
+ * another address's login (`keptLogin`) comes before it asks, not after
+ * the key is typed.
  */
 async function askedKey(
   ctx: CommandContext,
@@ -178,6 +180,13 @@ async function askedKey(
   const seam = ctx.authLoginSeam ?? {};
   if (ctx.config.source.token === 'env' || !(seam.stdinIsTty ?? stdinIsTty)()) {
     return { kind: 'ok' };
+  }
+  const kept =
+    ctx.options.force === true
+      ? undefined
+      : await loginLost(ctx.home, ctx.config.profile?.name, url, undefined);
+  if (kept !== undefined) {
+    return { kind: 'error', stderr: keptLogin(kept, url, ctx.globals.hosted), exitCode: 2 };
   }
   return readToken(seam, false, { ...API_KEY, prompt: `API key for ${url}: ` });
 }
@@ -249,13 +258,14 @@ interface LostLogin {
  * can't be used. `undefined` when there's none, when it's for `url` (a
  * new key for the same address replaces it, as before), or when its key
  * is the one being saved (the same server under another name loses
- * nothing).
+ * nothing). `token` is `undefined` before login asks for it: then that
+ * last case can't apply.
  */
 async function loginLost(
   home: string | undefined,
   profile: string | undefined,
   url: string,
-  token: string,
+  token: string | undefined,
 ): Promise<LostLogin | undefined> {
   const stored = await readHomeLogin(home, profile);
   const which = { path: stored.path, ...(profile !== undefined && { profile }) };
@@ -281,7 +291,7 @@ function keptLogin(lost: LostLogin, url: string, hosted: boolean): string {
     return `${lost.path} holds ${whoseLogin(lost)}. kindgi auth login would replace it with ${url}'s.\n${replace}`;
   }
   const where = lost.profile === undefined ? 'as a profile' : 'under another profile name';
-  return `${lost.path} holds ${whoseLogin(lost)}. kindgi auth login would replace it with ${url}'s, and its API key would be lost.\nTo keep both, save ${url}'s login ${where}: \`kindgi auth login --profile <name> ${hosted ? '--hosted' : `--url ${url}`} --token-stdin\`, with its key on stdin.\n${replace}`;
+  return `${lost.path} holds ${whoseLogin(lost)}. kindgi auth login would replace it with ${url}'s, and its API key would be lost.\nTo keep both, save ${url}'s login ${where}: \`kindgi auth login --profile <name> ${hosted ? '--hosted' : `--url ${url}`}\`, which asks for its key on a terminal (or give it with --token-stdin).\n${replace}`;
 }
 
 /** What a login said it replaced (--force): a warning, under --quiet too. */
@@ -293,10 +303,11 @@ function replacedNote(lost: LostLogin, path: string): string {
 
 /**
  * A key login wasn't given (`--token-stdin`, `--token`, KINDGI_API_TOKEN)
- * is a stored one, and login saves it only for its own address: `--url B`
- * alone would make the key for A B's, and send it there from then on.
- * Which key, when it isn't for `url`; `undefined` when login may save it.
- * The caller skips this for a key read from stdin or `--token`.
+ * and didn't ask for is a stored one, and login saves it only for its own
+ * address: `--url B` alone would make the key for A B's, and send it there
+ * from then on. Which key, when it isn't for `url`; `undefined` when login
+ * may save it. The caller skips this for a key read from stdin, `--token`
+ * or the prompt.
  */
 function storedKeyElsewhere(config: ResolvedConfig, url: string): string | undefined {
   if (config.source.token !== 'file') return undefined;

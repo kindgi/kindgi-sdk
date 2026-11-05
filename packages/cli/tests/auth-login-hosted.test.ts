@@ -45,6 +45,10 @@ afterEach(async () => {
 
 const homeFile = () => join(home, '.kindgi', 'config.json');
 
+/** Login's refusal to replace the login for SIGNED_IN with Kindgi Cloud's. */
+const keptForCloud = () =>
+  `${homeFile()} holds the login for ${SIGNED_IN}. kindgi auth login would replace it with ${CLOUD}'s, and its API key would be lost.\nTo keep both, save ${CLOUD}'s login as a profile: \`kindgi auth login --profile <name> --hosted\`, which asks for its key on a terminal (or give it with --token-stdin).\nTo replace it, run again with --force.\n`;
+
 async function homeHolds(values: Record<string, unknown>) {
   await mkdir(join(home, '.kindgi'), { recursive: true });
   await writeFile(homeFile(), JSON.stringify(values));
@@ -272,10 +276,29 @@ describe("kindgi auth login --hosted saves Kindgi Cloud's address", () => {
     await homeHolds({ apiUrl: SIGNED_IN, token: HOME_KEY });
     const out = await cli(['auth', 'login', '--hosted', `--token=${GIVEN_KEY}`]);
     expect(out.exitCode).toBe(2);
-    expect(out.stderr).toBe(
-      `${homeFile()} holds the login for ${SIGNED_IN}. kindgi auth login would replace it with ${CLOUD}'s, and its API key would be lost.\nTo keep both, save ${CLOUD}'s login as a profile: \`kindgi auth login --profile <name> --hosted --token-stdin\`, with its key on stdin.\nTo replace it, run again with --force.\n`,
-    );
+    expect(out.stderr).toBe(keptForCloud());
     expect(await homeNow()).toEqual({ apiUrl: SIGNED_IN, token: HOME_KEY });
+  });
+
+  test('on a terminal, a login for another address is refused before it asks (exit 2)', async () => {
+    await homeHolds({ apiUrl: SIGNED_IN, token: HOME_KEY });
+    const term = terminal(TYPED_KEY);
+    const out = await cli(['auth', 'login', '--hosted'], { seam: onTerminal(term.tty) });
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toBe(keptForCloud());
+    expect(term.prompts).toEqual([]);
+    expect(await homeNow()).toEqual({ apiUrl: SIGNED_IN, token: HOME_KEY });
+  });
+
+  test('on a terminal with --force: it asks, saves the key typed and says what it replaced', async () => {
+    await homeHolds({ apiUrl: SIGNED_IN, token: HOME_KEY });
+    const term = terminal(TYPED_KEY);
+    const out = await cli(['auth', 'login', '--hosted', '--force'], { seam: onTerminal(term.tty) });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(term.prompts).toEqual([`API key for ${CLOUD}: `]);
+    expect(out.stderr).toContain(`Replaced the login for ${SIGNED_IN} in ${homeFile()}`);
+    expect(await homeNow()).toEqual({ apiUrl: CLOUD, token: TYPED_KEY });
+    printsNoKey(out);
   });
 });
 

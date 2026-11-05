@@ -1004,12 +1004,12 @@ dropped), so `--token-stdin < key.txt` reads it from a file. `printf` is
 built into bash and zsh, so the key is in no process's argv.
 `--token=<token>` works too, but a key in argv lands in shell history and
 `ps`. Without `--profile`, an exported `KINDGI_API_TOKEN` is the key login
-saves, and there's no prompt. Login keeps a login `~/.kindgi/config.json` holds for another
-address, or a key with no address beside it, and exits 2 naming it: to
-keep both, save the new one as a profile (below). `--force` replaces it,
-and warns that its key is no longer stored. Login writes
-`~/.kindgi/config.json` `0600`, in a `~/.kindgi` that's `0700`, and
-tightens ones an older CLI left looser (not on Windows).
+saves, and there's no prompt. Login keeps a login `~/.kindgi/config.json`
+holds for another address, or a key with no address beside it, and exits 2
+naming it, before it asks for a key: to keep both, save the new one as a
+profile (below). `--force` replaces it, and warns that its key is no longer
+stored. Login writes `~/.kindgi/config.json` `0600`, in a `~/.kindgi`
+that's `0700`, and tightens ones an older CLI left looser (not on Windows).
 
 ### Profiles: a login for each runtime
 
@@ -1049,9 +1049,9 @@ kindgi auth list
   or `token`), but only when it's named.
 - **Saving:** `kindgi auth login --profile <name>` takes the address from
   `--hosted` or `--url`, and the key from `--token-stdin`, `--token` or
-  the prompt, never from the env vars. For a profile it holds, the same line replaces its key at its own
-  address, so a key rotation is the same line. A held profile for another
-  address is kept unless `--force`.
+  the prompt, never from the env vars. For a profile it holds, the same
+  line replaces its key at its own address, so a key rotation is the same
+  line. A held profile for another address is kept unless `--force`.
 - **Checking:** `kindgi auth whoami --profile prod` adds `profile` beside
   the identity. `kindgi auth list` gives each login's name (`null` for the
   one without a name), address and file, and whether it can be used.
@@ -1096,9 +1096,10 @@ When no key is stored for that address (a `--url`, `KINDGI_API_URL` or
 folder `apiUrl` that names another one, or a key with no `apiUrl` beside
 it), a command that needs the key is refused before it sends anything,
 naming both addresses and the file. A command that sends no key isn't.
-`kindgi auth login --url=<url>` saves a stored key only for its own address:
-for another one, give that server's key at the prompt, or with
-`--token-stdin`, `--token` or `KINDGI_API_TOKEN`.
+Without a terminal, `kindgi auth login --url=<url>` saves a stored key only
+for its own address: for another one, give that server's key with
+`--token-stdin`, `--token` or `KINDGI_API_TOKEN`. On a terminal, it asks
+for the key.
 A key given with `--token` or `KINDGI_API_TOKEN` goes to whatever address
 the command goes to. `kindgi doctor` says which key the CLI would use, and
 whether it's for the API URL.
