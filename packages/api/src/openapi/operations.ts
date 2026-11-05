@@ -2062,7 +2062,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
     parameters: [IdempotencyKeyParam],
     requestBody: { required: true, schema: ref('StartRunBody') },
     responses: {
-      '201': { description: 'Run finished, failed or suspended.', schema: ref('Run') },
+      '201': {
+        description:
+          'Run finished, failed or suspended; or still running when a read failed part-way (it goes on at a later resume: poll `GET /v1/runs/{runId}`).',
+        schema: ref('Run'),
+      },
       '202': {
         description: 'Run started (`options.wait: false`); poll `GET /v1/runs/{runId}`.',
         schema: ref('Run'),
