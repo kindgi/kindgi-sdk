@@ -214,7 +214,7 @@ variable "pack_secret_readers" {
 }
 
 variable "pack_cloud_sql_instances" {
-  description = "Cloud SQL instances the packs' own code connects to (connection names), mounted at /cloudsql in every pack service. The pack account gets roles/cloudsql.client."
+  description = "Cloud SQL instances the packs' own code connects to (connection names), mounted at /cloudsql in every pack service. The pack account, and with pack_accounts = \"per-tenant\" each tenant's, gets roles/cloudsql.client."
   type        = list(string)
   default     = []
 
@@ -225,13 +225,13 @@ variable "pack_cloud_sql_instances" {
 }
 
 variable "pack_bucket_readers" {
-  description = "GCS buckets the packs' code reads (roles/storage.objectViewer for the pack account, which every pack service runs as)."
+  description = "GCS buckets the packs' code reads (roles/storage.objectViewer for the pack account, and with pack_accounts = \"per-tenant\" for each tenant's)."
   type        = list(string)
   default     = []
 }
 
 variable "pack_run_invokers" {
-  description = "Cloud Run services the packs' code calls, IAM-protected (an app's own service): { project, location, service } each, the service's name, not its URL. The pack account gets roles/run.invoker on each. The call leaves through the pack service's own egress, so the service's ingress must take it (see the README)."
+  description = "Cloud Run services the packs' code calls, IAM-protected (an app's own service): { project, location, service } each, the service's name, not its URL. The pack account, and with pack_accounts = \"per-tenant\" each tenant's, gets roles/run.invoker on each. The call leaves through the pack service's own egress, so the service's ingress must take it (see the README)."
   type = list(object({
     project  = string
     location = string
@@ -250,8 +250,8 @@ variable "pack_run_invokers" {
 
 # ---- the pack accounts ----------------------------------------------------------
 # Which account each pack service runs as. The checks that read another
-# variable are preconditions (terraform_data.pack_accounts): a variable's own
-# validation can't read another before Terraform 1.9.
+# variable are preconditions on google_service_account.orchestrator: a
+# variable's own validation can't read another before Terraform 1.9.
 
 variable "pack_accounts" {
   description = "Which account the pack services run as. \"shared\" (the default): every one runs as the one pack account, so each tenant's pack code may read what every other's may. \"per-tenant\" (tenancy = \"multi\", runtime 0.7.0 or later): each tenant in pack_tenants gets an account of its own, which reads only its own pack services' secrets and the pack_secret_readers secrets listed for it. Turning it on is one-way: going back to \"shared\" isn't supported. See the README."
@@ -459,7 +459,7 @@ variable "pack_call_timeout_ms" {
 }
 
 variable "pack_bucket_object_prefixes" {
-  description = "Per bucket in pack_bucket_readers, object-name prefixes the pack may read (an IAM condition on its objectViewer grant; the bucket needs uniform bucket-level access). A bucket missing here is readable in full."
+  description = "Per bucket in pack_bucket_readers, object-name prefixes the packs may read (an IAM condition on each objectViewer grant: the pack account's and, with pack_accounts = \"per-tenant\", each tenant's; the bucket needs uniform bucket-level access). A bucket missing here is readable in full."
   type        = map(list(string))
   default     = {}
 }

@@ -2291,6 +2291,62 @@ assert_reads_only
 assert_absent "$STUB_MARKER_APPLY" "apply"
 assert_varfile_unchanged
 
+# The plan $1 with tenant $2's grant on the secret s ($3 create or delete):
+# tenant_reads_cloud_secrets, keyed "<secret>|<tenant>".
+pt_with_secret() {
+  jq -c --arg i "projects/demo-proj/secrets/s|$2" --arg act "$3" '. + [{
+    address: ("google_secret_manager_secret_iam_member.tenant_reads_cloud_secrets[" + ($i | tojson) + "]"),
+    mode: "managed", type: "google_secret_manager_secret_iam_member", name: "tenant_reads_cloud_secrets", index: $i,
+    change: {actions: [$act], before: (if $act == "create" then null else {} end),
+             after: (if $act == "delete" then null else {} end), after_unknown: {}}}]' <<<"$1"
+}
+SA_C="kp-t41dd5d3856716de0@demo-proj.iam.gserviceaccount.com"
+PT_ABC="$(jq -cnS --arg a "$T_A" --arg sa "$SA_A" --arg b "$T_B" --arg sb "$SA_B" --arg c "$T_C" --arg sc "$SA_C" '{($a): $sa, ($b): $sb, ($c): $sc}')"
+SECRET_A="google_secret_manager_secret_iam_member.tenant_reads_cloud_secrets[\"projects/demo-proj/secrets/s|$T_A\"]"
+
+# 99. Per-tenant already, the plan's check takes no grant for a tenant that
+# stays: one more secret for tenant A is refused, as the same edit is with
+# the pack account.
+case_start "per-tenant: a grant for a tenant that stays is refused"
+reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$(pt_with_secret "$(pt_plan "$PT_AB" "$PT_AB")" "$T_A" create)"; V_OKV="1"; V_TENANCY="multi"
+V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\",\"$T_B\"]"; pt_outputs "$PT_AB"
+run "yes" --to 0.8.0
+assert_rc 1 "the plan check refuses"
+assert_file_has "$OUT" "$SECRET_A: created" "the grant named"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+
+# 100. A tenant added doesn't let another tenant's grant through: C's account
+# and grants and the Job's map are taken, A's new secret isn't.
+case_start "a tenant added: another tenant's grant is still refused"
+reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$(pt_with_secret "$(pt_plan "$PT_AB" "$PT_ABC" "create $T_C")" "$T_A" create)"; V_OKV="1"; V_TENANCY="multi"
+V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\",\"$T_B\",\"$T_C\"]"; pt_outputs "$PT_AB"
+run "yes" --to 0.8.0
+assert_rc 1 "the plan check refuses"
+assert_file_has "$OUT" "$SECRET_A: created" "A's grant named"
+if grep -q -e "\[\"$T_C\"\]: created" -e ": changes template.template.containers.env.KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS" "$OUT"; then fail "the added tenant's changes were refused too"; else pass; fi
+assert_absent "$STUB_MARKER_APPLY" "apply"
+
+# 101. The added tenant's own grants are taken, keyed "<secret>|<tenant>" too.
+case_start "a tenant added with a secret of its own"
+reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$(pt_with_secret "$(pt_plan "$PT_AB" "$PT_ABC" "create $T_C")" "$T_C" create)"; V_OKV="1"; V_TENANCY="multi"
+V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\",\"$T_B\",\"$T_C\"]"; pt_outputs "$PT_AB"
+run "yes" --to 0.8.0
+assert_rc 0 "it runs"
+assert_out "plan check: it changes the image(s)"
+assert_present "$STUB_MARKER_APPLY" "apply"
+
+# 102. A tenant taken out doesn't let a grant of a tenant that stays go with
+# it: B's account goes, A's secret stays.
+case_start "a tenant taken out: another tenant's grant deleted is refused"
+reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$(pt_with_secret "$PT_B_OUT" "$T_A" delete)"; V_OKV="1"; V_TENANCY="multi"
+V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\"]"; pt_outputs "$PT_AB"
+export STUB_SERVICES="kp-shop-4a1c $SA_A done"
+run "yes" --to 0.8.0
+assert_rc 1 "the plan check refuses"
+assert_file_has "$OUT" "$SECRET_A: deleted" "A's grant named"
+if grep -q "\[\"$T_B\"\]: deleted" "$OUT"; then fail "the removed tenant's deletes were refused too"; else pass; fi
+assert_absent "$STUB_MARKER_APPLY" "apply"
+
 SCRIPT="$REAL_SCRIPT"
 
 # --- summary ----------------------------------------------------------------

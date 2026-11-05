@@ -802,17 +802,16 @@ deployments wait with `tenant-not-provisioned`. Add it and apply. A tenant
 just added may wait a few minutes with the same code while its grants take
 effect. If it lasts, the orchestrator's alert says:
 
-> service `<name>` can't run as `<account>` yet: the orchestrator was refused
-> `iam.serviceAccounts.actAs` on it. That's expected for a few minutes after
-> an apply that adds the tenant. If it lasts, check that the install's module
-> still grants the orchestrator act-as on that account, and apply again.
+```text
+service <service> can't run as <account> yet: the orchestrator was refused iam.serviceAccounts.actAs on it. That's expected for a few minutes after an apply that adds the tenant. If it lasts, check that the install's module still grants the orchestrator act-as on that account, and apply again
+```
 
 **Taking a tenant out of `pack_tenants`** deletes its account, and a pack
 service that still runs as it fails at its next start. So retire the
 tenant's deployments first. `upgrade.sh` checks that no service runs as it.
 
 **Turning it on** on a running deployment. `upgrade.sh` prints these steps
-after an upgrade to 0.7.0 or later:
+after the upgrade that crosses 0.7.0:
 
 0. **It needs runtime 0.7.0 or later:** an older orchestrator ignores the
    tenants' accounts and goes on placing every pack service as `$N-pack`.

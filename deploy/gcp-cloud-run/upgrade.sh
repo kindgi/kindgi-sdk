@@ -1032,6 +1032,11 @@ line_count() { if [[ -z $1 ]]; then printf '0'; else wc -l <<<"$1" | tr -d ' '; 
 service_names() { awk '{print $1}' <<<"$1" | paste -sd, - | sed 's/,/, /g'; }
 
 PACK_ACCOUNT_SAID=()
+# The tenants whose accounts and grants the plan check takes: those added
+# (each one on a turn-on), made; those taken out with no service left on
+# their account, deleted. Ids in lower case, as the module keys them.
+TENANTS_ADDED=()
+TENANTS_REMOVED=()
 PER_TENANT_NOW=false
 if [[ $NOW_TENANT_SAS != "{}" ]]; then PER_TENANT_NOW=true; fi
 PER_TENANT_TURN_ON=false
@@ -1043,6 +1048,9 @@ if [[ $PACK_ACCOUNTS == "per-tenant" ]]; then
     info "Turning it on is one-way: going back to shared isn't supported."
     info "pack_accounts = \"per-tenant\" is new here: this run's plan gives each of the $(jq -r 'length' <<<"$PACK_TENANTS") tenants in pack_tenants a pack account of its own, and the steps after it move each pack service to its tenant's (README \"A pack account per tenant\")."
     PACK_ACCOUNT_SAID+=("make an account and its grants for each tenant in pack_tenants, and give the orchestrator's Job the map of them")
+    while IFS= read -r tenant; do
+      [[ -n $tenant ]] && TENANTS_ADDED+=("$tenant")
+    done < <(jq -r '.[]' <<<"$PACK_TENANTS")
   fi
 elif [[ $PER_TENANT_NOW == true ]]; then
   fail_check "pack_accounts is \"shared\", but the deployment has a pack account per tenant, and going back to shared isn't supported: it would delete each tenant's account, and every pack service that runs as one would fail at its next start. Set pack_accounts = \"per-tenant\" again, with its pack_tenants."
@@ -1054,6 +1062,7 @@ if [[ $PER_TENANT_NOW == true && $PACK_ACCOUNTS == "per-tenant" ]]; then
   while IFS= read -r tenant; do
     [[ -n $tenant ]] || continue
     PACK_ACCOUNT_SAID+=("make tenant ${tenant}'s account and its grants")
+    TENANTS_ADDED+=("$tenant")
   done < <(jq -r --argjson now "$NOW_TENANT_SAS" '.[] | select(. as $t | $now | has($t) | not)' <<<"$PACK_TENANTS")
   while IFS=$'\t' read -r tenant account; do
     [[ -n $tenant ]] || continue
@@ -1064,6 +1073,7 @@ if [[ $PER_TENANT_NOW == true && $PACK_ACCOUNTS == "per-tenant" ]]; then
     else
       info "tenant $tenant leaves pack_tenants: no pack service runs as $account (ok)"
       PACK_ACCOUNT_SAID+=("delete tenant ${tenant}'s account ${account} and its grants")
+      TENANTS_REMOVED+=("$tenant")
     fi
   done < <(jq -r --argjson keep "$PACK_TENANTS" 'to_entries[] | select(.key as $k | $keep | any(.[]; . == $k) | not) | "\(.key)\t\(.value)"' <<<"$NOW_TENANT_SAS")
 fi
@@ -1808,19 +1818,41 @@ plan_allowed_changes() {
         ;;
     esac
   done
-  # The pack accounts' changes step 2's checks let through: each tenant's
-  # account and grants, made or (none of its services left) deleted, with the
-  # Job's map of them; and the pack account's own, deleted once no service
-  # runs as it.
+  # The pack accounts' changes step 2's checks let through: the account and
+  # grants of each tenant added, made, and of each one taken out with none of
+  # its services left, deleted, with the Job's map of them; and the pack
+  # account's own, deleted once no service runs as it. A grant made or
+  # deleted for a tenant that stays isn't among them.
   if [[ $PACK_ACCOUNTS == "per-tenant" ]]; then
-    for r in "${TENANT_RESOURCES[@]}"; do
-      printf '%s\n' "$r (created)" "$r (deleted)"
-    done
-    printf '%s\n' "google_cloud_run_v2_job.orchestrator template.template.containers.env.KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS"
+    tenant_instances "$1" create ${TENANTS_ADDED[@]+"${TENANTS_ADDED[@]}"}
+    tenant_instances "$1" delete ${TENANTS_REMOVED[@]+"${TENANTS_REMOVED[@]}"}
+    if ((${#TENANTS_ADDED[@]} + ${#TENANTS_REMOVED[@]} > 0)); then
+      printf '%s\n' "google_cloud_run_v2_job.orchestrator template.template.containers.env.KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS"
+    fi
     if [[ $PACK_SHARED_ACCOUNT == false ]]; then
       for r in "${PACK_ACCOUNT_RESOURCES[@]}"; do printf '%s\n' "$r (deleted)"; done
     fi
   fi
+}
+
+# The instances of TENANT_RESOURCES that a plan (terraform show -json, $1)
+# makes ($2 create) or deletes ($2 delete) for the tenants $3 and on: each
+# keyed by the tenant's id, or by a key that ends with "|<id>". One line each,
+# "<type>.<name>[<index>] (created)" or "(deleted)".
+tenant_instances() {
+  local plan="$1" action="$2" types tenants
+  shift 2
+  (($# > 0)) || return 0
+  types="$(printf '%s\n' "${TENANT_RESOURCES[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')"
+  tenants="$(printf '%s\n' "$@" | jq -R -s -c 'split("\n") | map(select(length > 0))')"
+  jq -r --arg action "$action" --argjson types "$types" --argjson tenants "$tenants" '
+    .resource_changes[]?
+    | select(.mode == "managed" and .change.actions == [$action] and (.index | type) == "string")
+    | "\(.type).\(.name)" as $key
+    | select($types | any(.[]; . == $key))
+    | .index as $i
+    | select($tenants | any(.[]; . as $t | $i == $t or ($i | endswith("|" + $t))))
+    | "\($key)[\($i | tojson)] (\(if $action == "create" then "created" else "deleted" end))"' "$plan"
 }
 
 # Whether a plan (terraform show -json) turns on Google's deletion protection
