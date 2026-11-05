@@ -1424,6 +1424,45 @@ export async function limitedMadeInRefusal(
 }
 
 /**
+ * Without an authorization store, a key or session limited to a project
+ * starts work only on an item its project serves, as a store refuses the
+ * rest (`limitedCallerRefusal`): a run, a conversation, a test-set run and
+ * what it runs. `placed`: the key's project, for an item more than one
+ * project serves among them, where an unnamed start lands, as a store
+ * places it. Else the start is refused on the first of the item's
+ * projects: `call` for an agent more than one project serves, as `runIn`
+ * asks it, else `execute`. The refusal says the item "is in" it.
+ *
+ * It never fails closed. A read passes, as does a caller with no limit,
+ * an item that isn't there (the route answers it), and one that records
+ * no project. A lookup that fails throws, for the error mapper.
+ */
+export async function limitedStartRefusal(
+  c: Ctx,
+  how: {
+    readonly kind: 'agent' | 'flow' | 'test_set';
+    readonly id: string;
+    readonly held: HeldProjects;
+  },
+): Promise<{ readonly refused?: Response | undefined; readonly placed?: ProjectId } | undefined> {
+  const keyProject = c.get('tokenProjectId') as ProjectId | undefined;
+  if (keyProject === undefined || isReadMethod(c.req.method)) return undefined;
+  const projects = await how.held.projects(c, how.id);
+  const first = projects?.[0];
+  if (projects === undefined || first === undefined) return undefined;
+  const several = projects.length > 1;
+  if (projects.includes(keyProject)) return several ? { placed: keyProject } : undefined;
+  return {
+    refused: limitedCallerRefusal(
+      c,
+      several && how.kind === 'agent' ? 'call' : 'execute',
+      ref('project', first as unknown as string),
+      `the ${KIND_NAME[how.kind]}`,
+    ),
+  };
+}
+
+/**
  * Where the routes of a runtime without a store read the projects of the
  * items their records belong to and their starts run (`HeldProjects`,
  * each kind's), and the orders their new versions follow.

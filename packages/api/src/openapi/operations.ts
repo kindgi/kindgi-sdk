@@ -1687,6 +1687,13 @@ const LIMITED_RECORD_PIN_403 = ErrorResponse(
  */
 export const LIMITED_START_PROJECT =
   'Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to a project, and this starts work in another one, where the item is, where it runs, where its new versions are made, or where the conversation it continues is (with a store, that is `permission-denied`).';
+const withLimitedStart = (text: string): string => `${text} ${LIMITED_START_PROJECT}`;
+/** A change that makes new versions of an agent: held where they are made. */
+const LIMITED_START_MADE_IN_403 = ErrorResponse(
+  withLimitedStart(
+    'No `publish` on the agent, or, for an agent more than one project serves, no `write` on the project its new versions are made in (`permission-denied`).',
+  ),
+);
 
 const CommonAuthErrors: Readonly<Record<string, ResponseSpec>> = {
   '401': ErrorResponse('Missing / malformed / expired / revoked bearer token.'),
@@ -2140,7 +2147,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Agent or flow not found; or `projectId` names no project of this workspace (`project-not-found`); or `input.conversationId` names no conversation of this workspace (`conversation-not-found`), answered before any turn starts, with `options.wait: false` too. A caller who can't read the conversation gets the same answer, byte for byte, in place of the 409 for a turn naming another project, of the 403 for a turn into it they may not add (a conversation with no participant, or `participant-not-allowed` for its stored participant), or of the 409 for a closed conversation they may not add a turn to.",
       ),
       '403': ErrorResponse(
-        "No `execute` on the agent or flow; or, for one more than one project serves run in one of its projects (the one named, else the conversation's, else a project-scoped key's when it is one of them, else its first), no `call` there for an agent (`caller` or `editor`) or `execute` there for a flow (`executor` or `editor`), asked in place of its own `execute` and of `write` on a named project; otherwise, naming a `projectId` without `write` on it; or a turn run as a participant whose memory the caller may not read (`participant-not-allowed`; for a conversation's stored participant, only to a caller who can read the conversation). A turn runs with its participant's memory (the conversation's stored participant, else `input.participantId`), so running as one takes being them (a person, by their user id) or `write` on the turn's project, as reading their memory does. A turn into a conversation with no participant takes having opened it (the caller `?openedBy=me` names) or `write` on its project (on its agent, for a conversation from before projects): `permission-denied`, with `details.resource` the conversation, to a caller who can read it.",
+        withLimitedStart(
+          "No `execute` on the agent or flow; or, for one more than one project serves run in one of its projects (the one named, else the conversation's, else a project-scoped key's when it is one of them, else its first), no `call` there for an agent (`caller` or `editor`) or `execute` there for a flow (`executor` or `editor`), asked in place of its own `execute` and of `write` on a named project; otherwise, naming a `projectId` without `write` on it; or a turn run as a participant whose memory the caller may not read (`participant-not-allowed`; for a conversation's stored participant, only to a caller who can read the conversation). A turn runs with its participant's memory (the conversation's stored participant, else `input.participantId`), so running as one takes being them (a person, by their user id) or `write` on the turn's project, as reading their memory does. A turn into a conversation with no participant takes having opened it (the caller `?openedBy=me` names) or `write` on its project (on its agent, for a conversation from before projects): `permission-denied`, with `details.resource` the conversation, to a caller who can read it.",
+        ),
       ),
       '422': ErrorResponse('Guardrail violation or budget exceeded.'),
       '409': ErrorResponse(
@@ -5121,7 +5130,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed request body, or `projectId` names no project of this workspace. Or `reference-out-of-scope`: the agent isn't registered in the conversation's project, its org or the workspace, or `agentVersion` isn't a version that project runs, such as one made in an earlier environment and not yet promoted (`details.issues`, at `/agentId`, whose message names the version). Nothing is opened.",
       ),
       '403': ErrorResponse(
-        "No `execute` on the agent, or, for an agent more than one project serves opened in one of its projects, no `call` there (`caller` or `editor`); or, otherwise, naming a `projectId` without `write` on it (its turns land there, as a run naming one does); or a `participantId` whose memory the caller may not read (`participant-not-allowed`): its turns run with that participant's memory, so opening it for someone takes being them (a person, by their user id) or `write` on its project. The rights on the agent and on a named project are checked before `projectId` is looked up, so they answer the same whether or not it names a project.",
+        withLimitedStart(
+          "No `execute` on the agent, or, for an agent more than one project serves opened in one of its projects, no `call` there (`caller` or `editor`); or, otherwise, naming a `projectId` without `write` on it (its turns land there, as a run naming one does); or a `participantId` whose memory the caller may not read (`participant-not-allowed`): its turns run with that participant's memory, so opening it for someone takes being them (a person, by their user id) or `write` on its project. The rights on the agent and on a named project are checked before `projectId` is looked up, so they answer the same whether or not it names a project.",
+        ),
       ),
     },
   },
@@ -5566,6 +5577,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '202': { description: 'The Improve run, running.', schema: ref('ImproveRun') },
       ...CommonMutationErrors,
+      '403': LIMITED_START_MADE_IN_403,
       '400': ErrorResponse(
         "Malformed request body (`bad-input`): no `projectId`, or a field the body doesn't have (`scope`, `testSetId` and `fromVersion` among them), named in the message.",
       ),
@@ -5592,6 +5604,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Its readiness, and the estimate.', schema: ref('ImproveRunCheck') },
       ...CommonAuthErrors,
+      '403': LIMITED_START_MADE_IN_403,
       '400': ErrorResponse(
         "Malformed request body (`bad-input`): no `projectId`, or a field the body doesn't have (`scope`, `testSetId` and `fromVersion` among them), named in the message.",
       ),
@@ -5643,6 +5656,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SuggestedChange'),
       },
       ...CommonMutationErrors,
+      '403': LIMITED_START_MADE_IN_403,
       '400': ErrorResponse(
         "Malformed request body, or the change fails validation: a block the project's version doesn't pin, `values` for a prompt block or `template` for a settings block (`details.issues`). Or `reference-out-of-scope`: the project doesn't reach the agent, or the agent's project doesn't reach the block (`details.issues`). Or `validation-failed` when an id in `fixes` is no correction in the project: `details.fixes` lists those ids, and `details.issues` their places.",
       ),
@@ -5672,6 +5686,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '202': { description: 'The suggested change, `checking`.', schema: ref('SuggestedChange') },
       ...CommonMutationErrors,
+      '403': LIMITED_START_MADE_IN_403,
       '400': ErrorResponse('A body with fields: a check takes none.'),
       '404': ErrorResponse(
         'No such suggested change, or its version is unregistered (`agent-version-not-found`).',
@@ -7529,6 +7544,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '400': ErrorResponse(
         "Malformed body (both / neither of `agentRef` / `flowRef`, dispatcher-input-invalid); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: the test set, the agent or flow, or an agent or tool a flow candidate's `versions` names, isn't registered in `projectId`'s project, its org or the workspace; or a version named (by `agentRef`, `flowRef` or `versions.agents`) isn't one `projectId`'s project runs (`details.issues`, each at the path it was named, whose message names the version). Or `bad-input` for an agent's own test set run with another agent, in another project, or with `flowRef`: the message names the test set this run's agent and project have. Nothing runs.",
+      ),
+      '403': ErrorResponse(
+        withLimitedStart(
+          'No `execute` on the test set, or on the agent or flow it runs, or, for one more than one project serves, run in one of its projects, no `execute` there (`call` for an agent) in its place; or no `write` on `projectId` (`permission-denied`).',
+        ),
       ),
       '404': ErrorResponse(
         'No test set with that id under this workspace; or `projectId` names no project of this workspace (`project-not-found`).',

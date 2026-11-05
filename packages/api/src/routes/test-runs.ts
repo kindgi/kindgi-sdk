@@ -16,6 +16,7 @@ import {
   type ItemRights,
   filterOwned,
   limitedItemRefusal,
+  limitedStartRefusal,
   ownProject,
   runIn,
 } from '../item-rights.js';
@@ -124,8 +125,9 @@ export function testRunsRouters(
    */
   corrections?: Pick<CorrectionRegistryBinding, 'listCases'>,
   /**
-   * Without a store, where a project-limited key's change to a run of a
-   * test set beyond its project is held (`limitedItemRefusal`). Absent: no hold.
+   * Without a store, where a project-limited key's start of a test-set run,
+   * or change to a run, beyond its project is held (`limitedStartRefusal`,
+   * `limitedItemRefusal`). Absent: no hold.
    */
   held?: HeldItems,
 ): TestRunsRouters {
@@ -140,6 +142,7 @@ export function testRunsRouters(
       itemRights,
       testSetFreeze,
       corrections,
+      held,
     ),
     readback: readbackRouter(binding, authorizer, itemRights, held),
   };
@@ -280,8 +283,33 @@ function startRouter(
   itemRights?: ItemRights,
   testSetFreeze?: TestSetFreezeBinding,
   corrections?: Pick<CorrectionRegistryBinding, 'listCases'>,
+  held?: HeldItems,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+
+  /**
+   * Without a store, a project-limited key's or session's test-set run,
+   * held as a store holds it (`limitedStartRefusal`): the test set (an
+   * agent's own is its project's) and what it runs, each served in the
+   * run's project, the key's.
+   */
+  async function limitedRunStart(
+    c: Context<AppEnv>,
+    testSetId: string,
+    own: boolean,
+    target: { readonly kind: 'agent' | 'flow'; readonly id: string },
+  ): Promise<Response | undefined> {
+    if (authorizer !== undefined || held === undefined) return undefined;
+    const onSet = own
+      ? undefined
+      : await limitedStartRefusal(c, { kind: 'test_set', id: testSetId, held: held.testSets });
+    if (onSet?.refused !== undefined) return onSet.refused;
+    const onTarget = await limitedStartRefusal(c, {
+      ...target,
+      held: target.kind === 'agent' ? held.agents : held.flows,
+    });
+    return onTarget?.refused;
+  }
 
   /**
    * Running `item` for a run filed in `projectId`: for an item more than
@@ -342,6 +370,8 @@ function startRouter(
     // project serves, run in one of them: that project's right instead. An
     // agent's own test set is its project's, and has no object until its first
     // freeze: `write` there and running the agent cover it.
+    const limited = await limitedRunStart(c, testSetId, own, target);
+    if (limited !== undefined) return limited;
     const refused =
       (own
         ? undefined

@@ -18,7 +18,13 @@ import type { AgentId, ProjectId, Semver, TenantId } from '@kindgi/types';
 import type { AgentRegistryBinding } from '../agent-binding.js';
 import { callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
-import { type HeldItems, type ItemRights, limitedItemRefusal, runIn } from '../item-rights.js';
+import {
+  type HeldItems,
+  type ItemRights,
+  limitedItemRefusal,
+  limitedStartRefusal,
+  runIn,
+} from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import { limitedCallerRefusal } from '../middleware/key-project.js';
@@ -378,9 +384,24 @@ export function conversationsRouter(
           version: parsed.value.agentVersion,
         })
       )?.projectId ?? (await projectBinding?.getDefault(tenantId))?.id;
+    // Without a store, a limited caller's conversation, held and placed as a
+    // store holds and places it (`limitedStartRefusal`).
+    const limited =
+      authorizer === undefined && held !== undefined
+        ? await limitedStartRefusal(c, { kind: 'agent', id: agentId, held: held.agents })
+        : undefined;
+    if (limited?.refused !== undefined) return limited.refused;
     // Also before the named project's existence: a caller refused there gets
     // the same answer whether it exists or not.
-    const open = await openIn(c, authorizer, itemRights, served, agentId, supplied, own);
+    const open = await openIn(
+      c,
+      authorizer,
+      itemRights,
+      served,
+      agentId,
+      supplied ?? limited?.placed,
+      own,
+    );
     if (open.refused !== undefined) return open.refused;
     if (
       supplied !== undefined &&
