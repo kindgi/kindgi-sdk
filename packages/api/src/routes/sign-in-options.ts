@@ -52,6 +52,12 @@ export interface SignInOptionsRouteOptions {
   };
   /** The deployment's terms and privacy policy, for a sign-in page to link. */
   readonly legal?: SignInLegalLinks;
+  /**
+   * The deployment's own sign-up page, for a sign-in page to link ("No
+   * account yet? Sign up"): an absolute https URL with no username or
+   * password. Absent: the answer has no `signUpUrl`.
+   */
+  readonly signUpUrl?: string;
   /** The deployment's own links, for the console to show on every page, in this order. */
   readonly links?: readonly ConsoleLink[];
   readonly rateLimit?: SignInOptionsRateLimit;
@@ -75,17 +81,27 @@ export interface SignInLegalLinks {
 export function checkSignInLegal(legal: SignInLegalLinks | undefined): void {
   for (const field of ['termsUrl', 'privacyUrl'] as const) {
     const url = legal?.[field];
-    if (url === undefined) continue;
-    const parsed = URL.canParse(url) ? new URL(url) : undefined;
-    // A sign-in page shows the link to anyone, so the value isn't quoted back.
-    if (parsed !== undefined && (parsed.username !== '' || parsed.password !== '')) {
-      throw new Error(`createApp: signInLegal.${field} must not carry a username or password.`);
-    }
-    if (parsed?.protocol !== 'https:') {
-      throw new Error(
-        `createApp: signInLegal.${field} must be an absolute https URL (got ${url}).`,
-      );
-    }
+    if (url !== undefined) checkSignInPageUrl(`signInLegal.${field}`, url);
+  }
+}
+
+/**
+ * createApp's `signUpUrl`: throws unless, when set, it's an absolute https
+ * URL with no username or password.
+ */
+export function checkSignUpUrl(url: string | undefined): void {
+  if (url !== undefined) checkSignInPageUrl('signUpUrl', url);
+}
+
+/** Throws unless `url`, a link a sign-in page shows, is an absolute https URL with no username or password. */
+function checkSignInPageUrl(name: string, url: string): void {
+  const parsed = URL.canParse(url) ? new URL(url) : undefined;
+  // A sign-in page shows the link to anyone, so the value isn't quoted back.
+  if (parsed !== undefined && (parsed.username !== '' || parsed.password !== '')) {
+    throw new Error(`createApp: ${name} must not carry a username or password.`);
+  }
+  if (parsed?.protocol !== 'https:') {
+    throw new Error(`createApp: ${name} must be an absolute https URL (got ${url}).`);
   }
 }
 
@@ -203,6 +219,8 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
             ...(privacyUrl !== undefined && { privacyUrl }),
           },
         };
+  const signUpUrl = asBrowserReads(options.signUpUrl);
+  const signUpPart = signUpUrl === undefined ? {} : { signUpUrl };
   // The answer's `links`: in the deployment's order, trimmed and as a
   // browser reads them, and no key at all when there are none.
   const links = (options.links ?? []).map((l) => ({
@@ -301,6 +319,7 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
         }),
       },
       ...legalPart,
+      ...signUpPart,
       ...linksPart,
     });
   });

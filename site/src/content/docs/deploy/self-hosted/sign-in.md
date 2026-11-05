@@ -519,6 +519,23 @@ a narrow screen under the form, or under what the page says. The pages
 with the console's menus don't show these two; links for every page are
 [your own links](#your-own-links-in-the-console).
 
+## A sign-up link
+
+If you have a sign-up page of your own, the console's sign-in page can
+link to it as "No account yet? Sign up" (runtime 0.7.0 or later):
+
+```sh
+# kindgi.env
+KINDGI_AUTH_SIGN_UP_URL=https://www.acme-live.example/signup
+```
+
+It's an absolute `https` URL, with no username or password in it: with
+anything else, the runtime doesn't start. The link shows under the form
+on the first step, where the email is asked, and not once someone is
+signing in. Unset, the page links no sign-up. The runtime has no
+sign-up of its own: people come in by an invite from the People page, or
+through your identity provider.
+
 ## Your own links in the console
 
 The console can show links of your own, such as your help desk, status
