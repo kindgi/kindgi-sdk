@@ -61,8 +61,10 @@ With authorization on:
   (`signing-keys:write`) and to write secrets and environment values
   (`secrets:write`, `env:write` and the like). A workspace's first admin, the
   person it was created with on a runtime serving many tenants, holds every
-  one but `secrets:reveal`, and no other person holds any. A key carries
-  those it was made with ([API keys](#api-keys)).
+  one but `secrets:reveal`, and no other person holds any unless the
+  runtime's operator gives them the same
+  ([What only the runtime's token does](#what-only-the-runtimes-token-does)).
+  A key carries those it was made with ([API keys](#api-keys)).
 
 Lists hold only what the caller may read.
 
@@ -342,7 +344,9 @@ their own keys, once they're an admin again, or one made for another
 tenant admin or a service account that's one. Before you revoke the last
 key that carries a capability, or let it expire, make its replacement with
 it. If the first admin doesn't hold a capability and no key in the workspace
-carries it, contact support.
+carries it, contact support. On a runtime you run yourself,
+[`kindgi-runtime tenants give-capabilities`](#what-only-the-runtimes-token-does)
+gives a tenant admin the first admin's capabilities again.
 
 Make the key that carries these capabilities for a service account that's
 a tenant admin, not for the first admin. It keeps working if the first
@@ -362,6 +366,141 @@ still promote to prod, replace release gates, and make service
 accounts and keys, so main's own protection is what guards prod there
 ([The deploy key](../ship-from-ci/#the-deploy-key)).
 
+### Someone who signs in
+
+To make someone who signs in to the console a tenant admin, through your
+workspace's identity provider, Google, Microsoft, GitHub or an emailed
+link:
+
+1. **Run with an authorization store** ([Run with authorization](../authorization/)),
+   with `KINDGI_OPENFGA_API_URL` set. Without one, nobody who signs in is a
+   tenant admin: see below.
+2. **Add them, with the email they sign in with:**
+
+   ```sh
+   npx --yes @kindgi/cli@0.4 people add --name="Sam Rivera" --email=sam@acme.example
+   ```
+
+   Signing in never adds anyone. Someone who hasn't been added is refused
+   with `not-invited` ([Who gets in](../self-hosted/sign-in/#who-gets-in)).
+   Where the runtime invites, they sign in within 7 days
+   ([Their invitation](#their-invitation)).
+3. **Make them a tenant admin,** as the seed user, with the runtime's API
+   token, or as any tenant admin. `<user-id>` is the id `people add` printed:
+
+   ```sh
+   npx --yes @kindgi/cli@0.4 people grant <user-id> --tenant-admin
+   ```
+
+   In the console, that's **Tenant admin: they administer the whole
+   workspace** in **Add a person**, or **Make tenant admin** under **Tenant
+   admin** on their page.
+4. **They sign in.** From their next request on, they administer the
+   workspace: every project, its people, keys and service accounts, and its
+   settings.
+
+They hold no capability yet, so they can't trust signing keys, write
+secrets or change environment variables. To give them those, see
+[What only the runtime's token does](#what-only-the-runtimes-token-does).
+
+**Without an authorization store, it can't be done.** `people grant`
+answers `501 person-grants-unsupported`, and their page in the console says
+"This runtime runs without an authorization store, so it doesn't read
+anyone's roles: every caller with the runtime's token is an admin."
+[Without authorization](#without-authorization) says who the tenant admin is then.
+
+**Don't set `KINDGI_SEED_USER_ID` to their id.** Without a store, it gives
+their own sign-in nothing. With one, it makes them a tenant admin, but:
+- the runtime's token then acts as them, so the access audit records
+  everything done with the token as theirs;
+- whatever the earlier seed user was given, such as project roles and keys,
+  stays with that user;
+- taking tenant admin from them is refused with `409 seed-user-admin` for
+  as long as the setting names them.
+
+Use `people grant` instead.
+
+**On a runtime serving many tenants,** the runtime's token acts in no
+workspace, so it's no workspace's admin. A workspace's first admin is the
+`firstAdmin` it was created with, or one that `kindgi-runtime tenants
+make-admin` makes ([Create a tenant](../self-hosted/serve-many-tenants/#create-a-tenant)).
+They make the others, as above. Those others hold no capability:
+`kindgi-runtime tenants give-capabilities`, run with the workspace's id,
+gives one what a workspace's first admin holds
+([What only the runtime's token does](#what-only-the-runtimes-token-does)).
+
+### What only the runtime's token does
+
+On a runtime serving one tenant, the runtime's API token acts as the seed
+user. It's a tenant admin, and it holds more than any person you make one:
+
+- **Every capability,** `secrets:reveal` among them. A person you make a
+  tenant admin holds none. So their sign-in can't trust signing keys, store,
+  rotate or revoke secrets, or change environment variables, and the keys
+  they make carry none either. Such a request is refused with `403`, naming
+  the capability: "Bearer token is missing the `secrets:write` capability
+  required for this route."
+- **Reading secret values** (`secrets:reveal`). No person is ever given it,
+  so only a key that carries it does that.
+- **The system keys,** `/v1/system/keys`, such as the license renewal's
+  ([A key for the counts](../self-hosted/renew-the-license-key/#a-key-for-the-counts)). Every other key and
+  sign-in is refused there with `403 system-principal-required`.
+- **The whole license, with its renewal,** for the token, or a key made
+  with `kindgi:system`. A tenant admin reads only its countdown, and only
+  while the deployment serves just this tenant
+  ([What you may do](#what-you-may-do), `licenseOperatorOnly`).
+- **Identity providers, when you manage sign-in yourself**
+  (`KINDGI_AUTH_TENANT_PROVIDERS=off`). Only the token, or a key made
+  with `kindgi:system`, adds, changes or removes them
+  ([Who manages a workspace's identity providers](../self-hosted/sign-in/#who-manages-a-workspaces-identity-providers)).
+
+To give the capabilities to a person who's a tenant admin, choose one of two
+ways:
+
+- **`kindgi-runtime tenants give-capabilities`** (runtime 0.1.8 or later)
+  gives them what a workspace's first admin holds: every capability but
+  `secrets:reveal`. Their sign-in then carries those capabilities, and the
+  console offers them on the keys they make. It runs against the runtime's
+  database and authorization store, with your `kindgi.env`. The tenant id is
+  in the runtime's startup output, on its `Tenant:` line. Run it with
+  `--dry-run` first, which lists each capability they don't hold yet and
+  changes nothing:
+
+  ```sh
+  docker run --rm --network kindgi --env-file kindgi.env \
+    registry.kindgi.com/kindgi/runtime:<version> \
+    tenants give-capabilities <tenant id> --person <user-id> \
+    --reason "Sam deploys and sets secrets" --dry-run
+  ```
+
+  `<version>` is the version your runtime runs. Another version refuses
+  when the database's migrations aren't its own, and changes nothing. For
+  someone who holds none yet, the dry run prints:
+
+  ```text
+  tenants give-capabilities --dry-run: tenant <tenant id>, person <user-id>, a tenant admin. Nothing was changed.
+    would give: env:write
+    would give: secrets:revoke
+    would give: secrets:revoke:hard
+    would give: secrets:rotate
+    would give: secrets:write
+    would give: signing-keys:write
+  ```
+
+  - **Someone who isn't a tenant admin is refused,** and nothing changes.
+    So make them a tenant admin first.
+  - **What it gives is in the workspace's audit log,** as
+    `person-capabilities-granted` by `system`, with your `--reason`.
+  - **If they stop being a tenant admin,** what they hold is taken away,
+    as for the first admin (above).
+- **A key from the token.** `kindgi tokens create --for=user:<user-id>
+  --role=admin --capability=<cap>`, made with the runtime's token, carries
+  whichever of its capabilities you name, `secrets:reveal` too
+  ([API keys](#api-keys)). It's for the API, the CLI and the SDKs. Their
+  sign-in still carries none. Don't name `kindgi:system`. A key with it
+  reads the whole license and manages the identity providers as the token
+  does. On a runtime serving many tenants, every key loses it.
+
 ## What you may do
 
 `GET /v1/identity/me/permissions` answers what you, the caller, may do, with
@@ -380,7 +519,10 @@ a role.
 - **`tokenCapabilities`:** what your token itself carries for secret, env and
   signing-key writes. A sign-in session carries the ones you hold as a person.
   A workspace's first admin, the person it was created with, holds every one but
-  `secrets:reveal`; no one else holds any. An API key carries those it was
+  `secrets:reveal`; no one else holds any unless the runtime's operator
+  gives them the same
+  ([What only the runtime's token does](#what-only-the-runtimes-token-does)).
+  An API key carries those it was
   minted with, none by default, and only ones its minter holds.
 - **`projects`:** each project you may read, with your highest role in it and
   every way you hold one (`via`):
@@ -773,7 +915,7 @@ Someone [invited](#their-invitation) who hasn't signed in yet is marked
 **Add a person** adds someone with their access in one step: "Give them
 their access now, in the same step." It takes a name, an optional email
 ("One person per email in this workspace."), project roles, teams, a reviewer
-tier, and tenant admin.
+tier, and **Tenant admin: they administer the whole workspace**.
 
 ![The Add a person dialog: a name and an email ("One person per email in this workspace."), a viewer role on Billing, the team Support crew as a member, no reviewer role, and the checkbox "Tenant admin: they administer the whole workspace", with an Add button.](../../../assets/people/add-person.png)
 
@@ -805,8 +947,10 @@ where you may:
   what it gives, such as "Also changes it: registers and runs agents,
   corrects answers, publishes." for an editor.
 - **Reviewer:** their tier, or none; **Take off the roster**.
-- **Tenant admin:** making or unmaking one. "A workspace always keeps one
-  admin: removing the only one is refused."
+- **Tenant admin:** **Make tenant admin**, or **Remove tenant admin** for one
+  who is: "From their next request on, they can administer the workspace:
+  every project, its people, keys and service accounts, and its settings."
+  "A workspace always keeps one admin: removing the only one is refused."
 
 Taking something away asks first: "Take Ada Lovelace off Support? From
 their next request on, they can't work in Support. Their other access, and
