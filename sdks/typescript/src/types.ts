@@ -2147,8 +2147,9 @@ export interface UnregisterUserResult {
  * with one); session-token callers additionally see `sessionId`,
  * `providerId`, `scopes`, and `expiresAt`. When the token carries a
  * `userId`, the identity directory adds `user: UserRecord`. `principal`
- * says whom the caller acts as; an API key adds `tokenId`, its `role` and
- * the `projectId` it is limited to.
+ * says whom the caller acts as; an API key adds `tokenId`, its `role`,
+ * the `projectId` it is limited to, and `readOnly`: whether it only reads
+ * (absent from older servers).
  */
 export interface WhoamiResult {
   readonly tenantId: import('@kindgi/types').TenantId;
@@ -2162,6 +2163,7 @@ export interface WhoamiResult {
   readonly tokenId?: string;
   readonly role?: ApiTokenRole;
   readonly projectId?: string;
+  readonly readOnly?: boolean;
 }
 
 /**
