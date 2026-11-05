@@ -2147,8 +2147,9 @@ export interface UnregisterUserResult {
  * with one); session-token callers additionally see `sessionId`,
  * `providerId`, `scopes`, and `expiresAt`. When the token carries a
  * `userId`, the identity directory adds `user: UserRecord`. `principal`
- * says whom the caller acts as; an API key adds `tokenId`, its `role` and
- * the `projectId` it is limited to.
+ * says whom the caller acts as; an API key adds `tokenId`, its `role`,
+ * the `projectId` it is limited to, and `readOnly`: whether it only reads
+ * (absent from older servers).
  */
 export interface WhoamiResult {
   readonly tenantId: import('@kindgi/types').TenantId;
@@ -2162,6 +2163,7 @@ export interface WhoamiResult {
   readonly tokenId?: string;
   readonly role?: ApiTokenRole;
   readonly projectId?: string;
+  readonly readOnly?: boolean;
 }
 
 /**
@@ -2362,6 +2364,8 @@ export interface ApiToken {
   readonly capabilities: readonly string[];
   readonly label?: string;
   readonly projectId?: import('@kindgi/types').ProjectId;
+  /** `true`: the key only reads (`ApiTokenSpec.readOnly`). Absent on any other key. */
+  readonly readOnly?: true;
   /** Who minted it: `user:<id>` or `service_account:<id>`. */
   readonly createdBy?: string;
   readonly createdAt: import('@kindgi/types').Timestamp;
@@ -2391,6 +2395,14 @@ export interface ApiTokenSpec {
    * refused (`key-project-mismatch`).
    */
   readonly projectId?: import('@kindgi/types').ProjectId;
+  /**
+   * `true`: the key only reads. Its every request but a `GET` or a `HEAD`
+   * is refused (`read-only-key`), apart from an agent's pin check
+   * (`POST /v1/agents/{agentId}/pinned/check`), which writes nothing. It
+   * mints and revokes no keys. A server whose key store can't keep
+   * the limit makes no key (`read-only-unsupported`).
+   */
+  readonly readOnly?: boolean;
 }
 
 /**

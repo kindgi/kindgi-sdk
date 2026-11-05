@@ -426,6 +426,8 @@
           "principal-not-found": 404,
           "role-exceeds-principal": 403,
           "key-project-mismatch": 403,
+          "read-only-key": 403,
+          "read-only-unsupported": 501,
           "participant-not-allowed": 403,
           "token-expiry-exceeds-minter": 403,
           "capability-not-mintable": 403,
@@ -3170,6 +3172,10 @@
             "type": "string",
             "format": "uuid",
             "description": "Limit the key to this project: a request naming another project is refused (`key-project-mismatch`). A key limited to a project mints only keys limited to it."
+          },
+          "readOnly": {
+            "type": "boolean",
+            "description": "`true`: the key only reads. Every request it makes but a `GET` or a `HEAD` is refused (`read-only-key`), apart from an agent's pin check (`POST /v1/agents/{agentId}/pinned/check`), which writes nothing. It mints and revokes no keys. Default `false`. A runtime whose key store can't keep the field makes no key: `501 read-only-unsupported`."
           }
         }
       },
@@ -3216,6 +3222,10 @@
             "type": "string",
             "format": "uuid",
             "description": "The project the key is limited to."
+          },
+          "readOnly": {
+            "type": "boolean",
+            "description": "Present and `true` when the key only reads."
           },
           "createdBy": {
             "type": "string",
@@ -4585,6 +4595,10 @@
             "format": "uuid",
             "description": "The project the key is limited to."
           },
+          "readOnly": {
+            "type": "boolean",
+            "description": "Present and `true` when the key only reads."
+          },
           "createdBy": {
             "type": "string",
             "description": "Who minted it: `user:<id>` or `service_account:<id>`."
@@ -4661,6 +4675,10 @@
                   "type": "string",
                   "format": "uuid",
                   "description": "The project the key is limited to."
+                },
+                "readOnly": {
+                  "type": "boolean",
+                  "description": "Present and `true` when the key only reads."
                 },
                 "createdBy": {
                   "type": "string",
@@ -19173,9 +19191,13 @@
             "type": "string",
             "description": "The project the caller's API key or session is limited to, when it is."
           },
+          "readOnly": {
+            "type": "boolean",
+            "description": "With `tokenId`: whether the caller's API key only reads. A session has none. Absent from older servers."
+          },
           "tenantAdmin": {
             "type": "boolean",
-            "description": "Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the workspace when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`."
+            "description": "Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the workspace when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key, one limited to a project, or one that only reads). A console shows its admin pages by it. Absent from older servers: read `scopes`."
           },
           "servedEnv": {
             "type": "object",
@@ -20814,6 +20836,10 @@
           "projectId": {
             "type": "string",
             "description": "The project the key is limited to: `projects` holds it alone, and no org or team is administered through it."
+          },
+          "readOnly": {
+            "type": "boolean",
+            "description": "Whether the key only reads: then each project's `role` shows as `viewer`, and each org's and team's `admin` as `member`. Absent from older servers."
           }
         }
       },
@@ -31854,7 +31880,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`); a key that would outlive the key minting it, with an `expiresAt` later than that key's or none (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a session limited to a project or a role, which mints no keys (`limited-session-cannot-mint`); a key for a person a site signs in, whose access is only the sessions their site gives (`site-person-grants-managed`).",
+            "description": "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`); a key that would outlive the key minting it, with an `expiresAt` later than that key's or none (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a session limited to a project or a role, which mints no keys (`limited-session-cannot-mint`); a key for a person a site signs in, whose access is only the sessions their site gives (`site-person-grants-managed`); a key that only reads, which mints no keys (`read-only-key`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -31895,6 +31921,16 @@
           },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`readOnly` asked of a runtime whose key store can't keep it (`read-only-unsupported`): no key was made.",
             "content": {
               "application/json": {
                 "schema": {
@@ -32159,7 +32195,7 @@
             }
           },
           "403": {
-            "description": "A caller with no keys of its own that is not a tenant admin.",
+            "description": "A caller with no keys of its own that is not a tenant admin, or a key that only reads, which revokes no keys (`read-only-key`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -56800,7 +56836,7 @@
             }
           }
         },
-        "description": "The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, when the key expires if sooner, or when the key is revoked: each request on it reads the key, and one revoked or gone answers `401 auth-revoked`. `403 token-sign-in-off` when the deployment doesn't allow it, or can't read its API keys to check such a session (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session. `403 second-factor-required` in a workspace that requires a second factor at sign-in, which a token can't give.",
+        "description": "The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, one project, or reads only), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, when the key expires if sooner, or when the key is revoked: each request on it reads the key, and one revoked or gone answers `401 auth-revoked`. `403 token-sign-in-off` when the deployment doesn't allow it, or can't read its API keys to check such a session (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session. `403 second-factor-required` in a workspace that requires a second factor at sign-in, which a token can't give.",
         "security": [
           {
             "bearerAuth": []

@@ -1622,6 +1622,11 @@ export const MintTokenBodySchema: JsonSchema = {
       description:
         'Limit the key to this project: a request naming another project is refused (`key-project-mismatch`). A key limited to a project mints only keys limited to it.',
     },
+    readOnly: {
+      type: 'boolean',
+      description:
+        "`true`: the key only reads. Every request it makes but a `GET` or a `HEAD` is refused (`read-only-key`), apart from an agent's pin check (`POST /v1/agents/{agentId}/pinned/check`), which writes nothing. It mints and revokes no keys. Default `false`. A runtime whose key store can't keep the field makes no key: `501 read-only-unsupported`.",
+    },
   },
 };
 
@@ -1641,6 +1646,10 @@ export const ApiTokenSchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description: 'The project the key is limited to.',
+    },
+    readOnly: {
+      type: 'boolean',
+      description: 'Present and `true` when the key only reads.',
     },
     createdBy: {
       type: 'string',
@@ -11405,10 +11414,15 @@ export const WhoamiResultSchema: JsonSchema = {
       type: 'string',
       description: "The project the caller's API key or session is limited to, when it is.",
     },
+    readOnly: {
+      type: 'boolean',
+      description:
+        "With `tokenId`: whether the caller's API key only reads. A session has none. Absent from older servers.",
+    },
     tenantAdmin: {
       type: 'boolean',
       description:
-        'Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the workspace when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.',
+        'Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the workspace when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key, one limited to a project, or one that only reads). A console shows its admin pages by it. Absent from older servers: read `scopes`.',
     },
     servedEnv: {
       type: 'object',
@@ -11915,6 +11929,11 @@ export const MyKeyLimitsSchema: JsonSchema = {
       type: 'string',
       description:
         'The project the key is limited to: `projects` holds it alone, and no org or team is administered through it.',
+    },
+    readOnly: {
+      type: 'boolean',
+      description:
+        "Whether the key only reads: then each project's `role` shows as `viewer`, and each org's and team's `admin` as `member`. Absent from older servers.",
     },
   },
 };

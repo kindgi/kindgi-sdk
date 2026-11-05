@@ -322,6 +322,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'role-exceeds-principal': 403,
   /** A key limited to one project, on a request that names another. */
   'key-project-mismatch': 403,
+  /** A key that only reads, on a request that isn't a read (`key-read-only.ts`). */
+  'read-only-key': 403,
+  /** Mint: a key that only reads, from a key store that doesn't keep the field; no key is made. */
+  'read-only-unsupported': 501,
   /** A turn run as a participant whose memory the caller may not read (not themselves, and no `write` on the turn's project). */
   'participant-not-allowed': 403,
   /** Mint: a key that would outlive the key minting it (a later or absent `expiresAt`). */

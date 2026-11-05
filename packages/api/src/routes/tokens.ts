@@ -13,12 +13,14 @@ import { statusFor, toWireError } from '../errors.js';
 import { tokenSignInKey } from '../middleware/auth.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
+import { readOnlyKeyRefusal } from '../middleware/key-read-only.js';
 import { FULL_SYSTEM_CAPABILITY, isSystemCapability } from '../system.js';
 import {
   API_TOKEN_ROLES,
   type ApiTokenRecord,
   type ApiTokenRole,
   type TokenAdmin,
+  type TokenMintInput,
   type TokenPrincipal,
 } from '../token-admin.js';
 import type { AppEnv } from '../types.js';
@@ -43,6 +45,11 @@ import { parseTimeInput } from './time-input.js';
  *   refuses `role-exceeds-principal`). Every capability granted must be
  *   one the minter holds. A minter narrowed to a project mints only keys
  *   narrowed to the same project.
+ * - **Only reads:** `readOnly: true` makes a key whose every request but a
+ *   read is refused (`key-read-only.ts`). Such a key mints and revokes no
+ *   keys, its own included. A store that doesn't keep the field would hand
+ *   out a full key, so a record without it is revoked at once and the mint
+ *   refused, `501 read-only-unsupported`.
  * - **How long it lasts:** a key minted by a key that expires may not
  *   outlive it. Its `expiresAt` must be no later than the minter's, and
  *   present: a later or absent one is refused, 403
@@ -81,24 +88,18 @@ export function tokensRouter(
     const owner = keyOwner(c);
     const principal = parsed.value.for ?? owner;
     const refused =
+      readOnlyRefusal(c, authorizer) ??
       systemCapabilityRefusal(c, authorizer, parsed.value.capabilities, options.tenancy) ??
       (await mintRefusal(c, authorizer, owner, principal, parsed.value)) ??
       (await expiryRefusal(c, admin, authorizer, parsed.value.expiresAt));
     if (refused !== undefined) return fail(c, refused, requestId);
 
-    const createdBy = callerRef(c);
-    const minted = await admin.mint({
-      tenantId,
-      ...(principal !== undefined && { principal }),
-      role: parsed.value.role,
-      capabilities: parsed.value.capabilities,
-      ...(parsed.value.label !== undefined && { label: parsed.value.label }),
-      ...(parsed.value.expiresAt !== undefined && { expiresAt: parsed.value.expiresAt }),
-      ...(parsed.value.projectId !== undefined && { projectId: parsed.value.projectId }),
-      ...(createdBy !== undefined && { createdBy }),
-    });
+    const minted = await admin.mint(mintInput(tenantId, principal, parsed.value, callerRef(c)));
     if (!('token' in minted)) {
       return fail(c, { code: minted.kind, message: minted.message }, requestId);
+    }
+    if (parsed.value.readOnly && minted.record.readOnly !== true) {
+      return unkeptReadOnly(c, admin, tenantId, minted.record.tokenId, requestId);
     }
     // The key's secret is shown once: an Idempotency-Key repeat doesn't get it.
     withholdFromReplay(c);
@@ -160,6 +161,8 @@ export function tokensRouter(
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const tokenId = c.req.param('tokenId') as ApiTokenId;
+    const readOnly = readOnlyRefusal(c, authorizer);
+    if (readOnly !== undefined) return fail(c, readOnly, requestId);
     // Someone else's key reads as missing, as it does for `get`.
     if ((await visibleKey(c, admin, authorizer, tokenId)) === undefined) {
       return notFound(c, tokenId, requestId);
@@ -175,6 +178,78 @@ export function tokensRouter(
   });
 
   return r;
+}
+
+/** What the store is asked to mint: the body as parsed, for `principal`, by `createdBy`. */
+function mintInput(
+  tenantId: TenantId,
+  principal: TokenPrincipal | undefined,
+  value: ParsedMintBody,
+  createdBy: string | undefined,
+): TokenMintInput {
+  return {
+    tenantId,
+    ...(principal !== undefined && { principal }),
+    role: value.role,
+    capabilities: value.capabilities,
+    ...(value.label !== undefined && { label: value.label }),
+    ...(value.expiresAt !== undefined && { expiresAt: value.expiresAt }),
+    ...(value.projectId !== undefined && { projectId: value.projectId }),
+    ...(value.readOnly && { readOnly: true }),
+    ...(createdBy !== undefined && { createdBy }),
+  };
+}
+
+/** A key that only reads mints and revokes no keys: refused, and recorded. */
+function readOnlyRefusal(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+): WireError | undefined {
+  if (c.get('tokenReadOnly') !== true) return undefined;
+  const refusal = readOnlyKeyRefusal(c);
+  recordRefusal(c, authorizer, refusal);
+  return refusalError(refusal);
+}
+
+/**
+ * A key asked to only read, from a store that didn't keep that: it would
+ * act in full, so it's revoked at once and the mint is refused, `501
+ * read-only-unsupported`. The answer never carries the key's secret. A
+ * revoke that fails is logged by the key's id alone, and the answer stays
+ * the same.
+ */
+async function unkeptReadOnly(
+  c: Context<AppEnv>,
+  admin: TokenAdmin,
+  tenantId: TenantId,
+  tokenId: ApiTokenId,
+  requestId: string,
+): Promise<Response> {
+  const id = tokenId as unknown as string;
+  const revokedBy = callerRef(c);
+  try {
+    const outcome = await admin.revoke({
+      tenantId,
+      tokenId,
+      ...(revokedBy !== undefined && { revokedBy }),
+    });
+    c.get('log').warn(
+      `tokens: the key store didn't keep readOnly on key ${id}: ${outcome.kind === 'ok' ? 'revoked' : 'not found to revoke'}`,
+    );
+  } catch {
+    c.get('log').warn(
+      `tokens: the key store didn't keep readOnly on key ${id}, and its revoke failed`,
+    );
+  }
+  return fail(
+    c,
+    {
+      code: 'read-only-unsupported',
+      message:
+        "This server can't keep a key's read-only limit, so no key was made. Ask whoever runs Kindgi to update it.",
+    },
+    requestId,
+  );
 }
 
 /** A caller with keys of their own, or a tenant admin. */
@@ -377,6 +452,7 @@ function toWire(record: ApiTokenRecord): Record<string, unknown> {
     capabilities: record.capabilities,
     ...(record.label !== undefined && { label: record.label }),
     ...(record.projectId !== undefined && { projectId: record.projectId as unknown as string }),
+    ...(record.readOnly === true && { readOnly: true }),
     ...(record.createdBy !== undefined && { createdBy: record.createdBy }),
     createdAt: record.createdAt.toISOString(),
     ...(record.expiresAt !== undefined && { expiresAt: record.expiresAt.toISOString() }),
@@ -429,6 +505,7 @@ type ParsedMintBody = {
   readonly label?: string;
   readonly expiresAt?: Date;
   readonly projectId?: ProjectId;
+  readonly readOnly: boolean;
 };
 
 type Parsed<T> = { kind: 'ok'; value: T } | { kind: 'err'; error: WireError };
@@ -457,7 +534,6 @@ function parseMintBody(body: unknown): Parsed<ParsedMintBody> {
     capabilities: readonly string[];
     label?: string;
     expiresAt?: Date;
-    projectId?: ProjectId;
   } = {
     ...(principal.value !== undefined && { for: principal.value }),
     role: role.value,
@@ -473,13 +549,28 @@ function parseMintBody(body: unknown): Parsed<ParsedMintBody> {
     if (expiresAt.kind === 'err') return expiresAt;
     out.expiresAt = expiresAt.value;
   }
-  if (b.projectId !== undefined) {
-    if (typeof b.projectId !== 'string') {
-      return badInput('`projectId` must be a string when supplied');
-    }
-    out.projectId = b.projectId as ProjectId;
+  const limits = parseLimits(b);
+  if (limits.kind === 'err') return limits;
+  return { kind: 'ok', value: { ...out, ...limits.value } };
+}
+
+/** What a new key is limited to besides its role: one project, and only reads. */
+function parseLimits(
+  b: Record<string, unknown>,
+): Parsed<{ readonly projectId?: ProjectId; readonly readOnly: boolean }> {
+  if (b.projectId !== undefined && typeof b.projectId !== 'string') {
+    return badInput('`projectId` must be a string when supplied');
   }
-  return { kind: 'ok', value: out };
+  if (b.readOnly !== undefined && typeof b.readOnly !== 'boolean') {
+    return badInput('`readOnly` must be a boolean when supplied');
+  }
+  return {
+    kind: 'ok',
+    value: {
+      ...(b.projectId !== undefined && { projectId: b.projectId as ProjectId }),
+      readOnly: b.readOnly === true,
+    },
+  };
 }
 
 /** `expiresAt`: an ISO date string. */

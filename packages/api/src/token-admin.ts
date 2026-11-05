@@ -12,8 +12,8 @@ import type { ApiTokenId, ProjectId, TenantId } from '@kindgi/types';
  * An API key always acts for one principal (`TokenPrincipal`): a person
  * (`user:<id>`) or a service account (`service_account:<id>`), with that
  * principal's grants and nothing more. Its `role` is a ceiling under those
- * grants, and its `projectId` narrows it to one project; neither ever
- * widens it. `POST /v1/tokens` mints; `GET /v1/tokens` and
+ * grants, its `projectId` narrows it to one project, and `readOnly` keeps
+ * it to reads; none of them ever widens it. `POST /v1/tokens` mints; `GET /v1/tokens` and
  * `GET /v1/tokens/:tokenId` read (never the secret);
  * `POST /v1/tokens/:tokenId/revoke` revokes.
  */
@@ -62,6 +62,13 @@ export interface TokenMintInput {
   /** Optional project: the key is narrowed to it, refused on any other. */
   readonly projectId?: ProjectId;
   /**
+   * The key only reads: every request it makes but a `GET` or a `HEAD` is
+   * refused (`read-only-key`), apart from an agent's pin check, which
+   * writes nothing. Set only at mint. A store that can't keep it leaves it off the record, and
+   * the route then revokes the key and refuses the mint.
+   */
+  readonly readOnly?: boolean;
+  /**
    * Who minted it, as a principal reference: `user:<id>` or
    * `service_account:<tokenId>`.
    */
@@ -103,6 +110,8 @@ export interface ApiTokenRecord {
   readonly capabilities: readonly string[];
   readonly label?: string;
   readonly projectId?: ProjectId;
+  /** True when the key only reads (`TokenMintInput.readOnly`). */
+  readonly readOnly?: boolean;
   readonly createdBy?: string;
   readonly createdAt: Date;
   readonly expiresAt?: Date;
