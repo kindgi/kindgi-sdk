@@ -698,7 +698,7 @@ describe('kindgi build --hosted', () => {
     });
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain(
-      'kindgi build --hosted goes to the API your key is for, and no API address is set. Run `kindgi auth login --url <url> --token-stdin` with its key on stdin, pass --profile <name>, export KINDGI_API_URL, or pass --url <url>.',
+      'kindgi build --hosted goes to the API your key is for, and no API address is set. Sign in to Kindgi Cloud with `kindgi auth login --hosted`, or to another API with `kindgi auth login --url <url>`; or pass --profile <name>, export KINDGI_API_URL, or pass --url <url>.',
     );
     expect(fixtures.state.esbuildCalls).toBe(0);
     expect(fixtures.state.postCalls).toBe(0);

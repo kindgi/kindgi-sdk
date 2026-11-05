@@ -181,8 +181,9 @@ export interface CommandContext {
    */
   readonly registryAuthSeam: RegistryAuthSeam | undefined;
   /**
-   * The stdin reader for `kindgi auth login --token-stdin`. Tests pass a
-   * fixture; production leaves this undefined (the real stdin).
+   * `kindgi auth login`'s stdin reader (`--token-stdin`) and hidden
+   * prompt. Tests pass fixtures; production leaves this undefined (the
+   * real stdin and terminal).
    */
   readonly authLoginSeam: AuthLoginSeam | undefined;
   /**

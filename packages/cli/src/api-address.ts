@@ -39,6 +39,9 @@
 
 import type { ConfigFile, ResolvedConfig, StoredKey } from './config.js';
 
+/** Kindgi Cloud's API address: the one `kindgi auth login --hosted` saves. */
+export const KINDGI_CLOUD_URL = 'https://platform.kindgi.com';
+
 /**
  * The stored key for `url`: the one the files' order picks (this folder's
  * over the home one) when it's for `url`, else the one stored for `url`
@@ -124,7 +127,7 @@ export function hostedNoAddress(command: string, config: ResolvedConfig): string
     dev === undefined
       ? ''
       : ` ${dev.file} points this folder at a \`kindgi dev\` runtime${at}, which isn't a hosted target, so ${command} doesn't read it.`;
-  return `${command} goes to the API your key is for, and no API address is set.${unread} Run \`kindgi auth login --url <url> --token-stdin\` with its key on stdin, pass --profile <name>, export KINDGI_API_URL, or pass --url <url>.`;
+  return `${command} goes to the API your key is for, and no API address is set.${unread} Sign in to Kindgi Cloud with \`kindgi auth login --hosted\`, or to another API with \`kindgi auth login --url <url>\`; or pass --profile <name>, export KINDGI_API_URL, or pass --url <url>.`;
 }
 
 /** Whether a command is hosted, and the config it goes on with. */

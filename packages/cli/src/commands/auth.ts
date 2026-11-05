@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { sameAddress, storedIn } from '../api-address.js';
+import { KINDGI_CLOUD_URL, sameAddress, storedIn } from '../api-address.js';
 import {
   type ListedLogin,
   type ResolvedConfig,
@@ -56,9 +56,9 @@ const login: LeafCommand = {
   kind: 'leaf',
   name: 'login',
   description:
-    "Persist an API URL + key to ~/.kindgi/config.json: the login without a name, or with --profile a Kindgi login profile's. Another address's login there is kept unless --force.",
+    "Persist an API URL + key to ~/.kindgi/config.json: the login without a name, or with --profile a Kindgi login profile's. --hosted saves Kindgi Cloud's address. Given no key, it asks for one, hidden, when stdin is a terminal. Another address's login there is kept unless --force.",
   usage:
-    'kindgi auth login [--profile=<name>] [--url=<url>] [--token-stdin | --token=<token>] [--force]',
+    'kindgi auth login [--profile=<name>] [--hosted | --url=<url>] [--token-stdin | --token=<token>] [--force]',
   optionSpec: {
     'token-stdin': {
       type: 'boolean',
@@ -78,7 +78,7 @@ const login: LeafCommand = {
     const profile = ctx.config.profile?.name;
     const lost = await loginLost(ctx.home, profile, url, token);
     if (lost !== undefined && ctx.options.force !== true) {
-      return { kind: 'error', stderr: keptLogin(lost, url), exitCode: 2 };
+      return { kind: 'error', stderr: keptLogin(lost, url, ctx.globals.hosted), exitCode: 2 };
     }
     const path =
       profile === undefined
@@ -105,26 +105,30 @@ const login: LeafCommand = {
 };
 
 /**
- * The address and key login saves: the given ones (`--url`, `--token`,
- * `--token-stdin`), else the resolved config's (under a profile, the
- * profile's own). Refused when one is missing, or when a stored key would
- * be saved for another address.
+ * The address and key login saves: the given ones (`--hosted` or `--url`;
+ * `--token`, `--token-stdin` or the prompt), else the resolved config's
+ * (under a profile, the profile's own). Refused when one is missing, or
+ * when a stored key would be saved for another address.
  */
 async function loginTarget(
   ctx: CommandContext,
 ): Promise<{ readonly kind: 'ok'; readonly url: string; readonly token: string } | TokenReadError> {
   const given = await givenKey(ctx);
   if (given.kind === 'error') return given;
-  const url = ctx.globals.url ?? ctx.config.apiUrl;
-  const token = given.token ?? ctx.config.token;
-  if (typeof url !== 'string' || url === '') {
+  const address = loginAddress(ctx);
+  if (address.kind === 'error') return address;
+  const { url } = address;
+  if (url === undefined) {
     return { kind: 'error', stderr: missingAddress(ctx.config), exitCode: 2 };
   }
+  const asked = given.token === undefined ? await askedKey(ctx, url) : given;
+  if (asked.kind === 'error') return asked;
+  const token = asked.token ?? ctx.config.token;
   if (typeof token !== 'string' || token === '') {
     return { kind: 'error', stderr: missingKey(ctx.config), exitCode: 2 };
   }
-  // A key given for login (`--token`, `--token-stdin`) is saved for `url`.
-  const elsewhere = given.token === undefined ? storedKeyElsewhere(ctx.config, url) : undefined;
+  // A key given for login (`--token`, `--token-stdin`, the prompt) is saved for `url`.
+  const elsewhere = asked.token === undefined ? storedKeyElsewhere(ctx.config, url) : undefined;
   if (elsewhere === undefined) return { kind: 'ok', url, token };
   const ways =
     ctx.config.profile === undefined
@@ -135,6 +139,47 @@ async function loginTarget(
     stderr: `kindgi auth login would save ${elsewhere} as ${url}'s key. A stored key goes only to its own address: give ${url}'s key with ${ways}.\n`,
     exitCode: 2,
   };
+}
+
+/**
+ * The address login saves: Kindgi Cloud's with `--hosted`, else `--url`,
+ * else the resolved config's (under a profile, the profile's own);
+ * `undefined` when there's none. Beside `--hosted`, `--url` may only
+ * repeat Kindgi Cloud's.
+ */
+function loginAddress(
+  ctx: CommandContext,
+): { readonly kind: 'ok'; readonly url: string | undefined } | TokenReadError {
+  const named = ctx.globals.url;
+  if (!ctx.globals.hosted) {
+    const url = named ?? ctx.config.apiUrl;
+    return { kind: 'ok', url: typeof url === 'string' && url !== '' ? url : undefined };
+  }
+  if (named !== undefined && named !== '' && !sameAddress(named, KINDGI_CLOUD_URL)) {
+    return {
+      kind: 'error',
+      stderr: `--hosted signs in to Kindgi Cloud, at ${KINDGI_CLOUD_URL}, and --url names another address: ${named}. Leave out one of them.\n`,
+      exitCode: 2,
+    };
+  }
+  return { kind: 'ok', url: KINDGI_CLOUD_URL };
+}
+
+/**
+ * The key login asks for, hidden, naming `url`: when it was given none
+ * (`--token`, `--token-stdin`, KINDGI_API_TOKEN) and stdin is a terminal.
+ * Otherwise none, and login goes on as without a terminal: the stored
+ * key, or the refusal for none.
+ */
+async function askedKey(
+  ctx: CommandContext,
+  url: string,
+): Promise<{ readonly kind: 'ok'; readonly token?: string } | TokenReadError> {
+  const seam = ctx.authLoginSeam ?? {};
+  if (ctx.config.source.token === 'env' || !(seam.stdinIsTty ?? stdinIsTty)()) {
+    return { kind: 'ok' };
+  }
+  return readToken(seam, false, { ...API_KEY, prompt: `API key for ${url}: ` });
 }
 
 /** The key given for login: `--token`, or all of stdin with `--token-stdin`; none when neither is. */
@@ -157,17 +202,18 @@ async function givenKey(
 
 /**
  * Login's refusal for a missing address. A profile's comes from the
- * profile or `--url`, never KINDGI_API_URL (`--profile` beats it).
+ * profile, `--url` or `--hosted`, never KINDGI_API_URL (`--profile` beats
+ * it).
  */
 function missingAddress(config: ResolvedConfig): string {
   const profile = config.profile?.name;
   if (profile === undefined) {
-    return 'Missing --url=<api-url> (or KINDGI_API_URL / existing config).\n';
+    return 'Missing --url=<api-url> (or KINDGI_API_URL / existing config), or --hosted for Kindgi Cloud.\n';
   }
   if (config.profileBeat?.includes('KINDGI_API_URL') === true) {
     return `kindgi auth login --profile ${profile} doesn't read KINDGI_API_URL: give ${profile}'s address with --url.\n`;
   }
-  return `Missing --url=<api-url>: the profile ${profile} has no address stored, and login takes one only from --url.\n`;
+  return `Missing --url=<api-url>: the profile ${profile} has no address stored, and login takes one only from --url, or --hosted for Kindgi Cloud.\n`;
 }
 
 /**
@@ -228,14 +274,14 @@ function whoseLogin(lost: LostLogin): string {
   return name === undefined ? `the login for ${lost.apiUrl}` : `${name}'s login for ${lost.apiUrl}`;
 }
 
-/** Login's refusal to replace `lost` without --force. */
-function keptLogin(lost: LostLogin, url: string): string {
+/** Login's refusal to replace `lost` without --force; `hosted` when `--hosted` named `url`. */
+function keptLogin(lost: LostLogin, url: string, hosted: boolean): string {
   const replace = 'To replace it, run again with --force.\n';
   if (lost.problem !== undefined) {
     return `${lost.path} holds ${whoseLogin(lost)}. kindgi auth login would replace it with ${url}'s.\n${replace}`;
   }
   const where = lost.profile === undefined ? 'as a profile' : 'under another profile name';
-  return `${lost.path} holds ${whoseLogin(lost)}. kindgi auth login would replace it with ${url}'s, and its API key would be lost.\nTo keep both, save ${url}'s login ${where}: \`kindgi auth login --profile <name> --url ${url} --token-stdin\`, with its key on stdin.\n${replace}`;
+  return `${lost.path} holds ${whoseLogin(lost)}. kindgi auth login would replace it with ${url}'s, and its API key would be lost.\nTo keep both, save ${url}'s login ${where}: \`kindgi auth login --profile <name> ${hosted ? '--hosted' : `--url ${url}`} --token-stdin\`, with its key on stdin.\n${replace}`;
 }
 
 /** What a login said it replaced (--force): a warning, under --quiet too. */
@@ -336,10 +382,17 @@ export interface RegistryAuthSeam {
   readonly image?: string;
 }
 
-/** The seam for `kindgi auth login --token-stdin`, so tests give the key without stdin. */
+/**
+ * The seams for `kindgi auth login`'s key, so tests give it without stdin
+ * or a terminal. Each defaults to the real one.
+ */
 export interface AuthLoginSeam {
   /** Reads all of stdin (`--token-stdin`). */
   readonly readStdin?: () => Promise<string>;
+  /** Whether stdin is a terminal, which the hidden prompt needs. */
+  readonly stdinIsTty?: () => boolean;
+  /** The hidden prompt for the key. */
+  readonly tty?: TtySeam;
 }
 
 /** A registry host, with an optional port: `quay.io`, `127.0.0.1:5000`, `[::1]:5000`. */
@@ -616,13 +669,13 @@ type TokenReadError = CommandResult & { kind: 'error' };
 
 type TokenRead = { readonly kind: 'ok'; readonly token: string } | TokenReadError;
 
-/** What a login reads: its name in messages, and the prompt for it (registry's only). */
+/** What a login reads: its name in messages, and the hidden prompt for it. */
 interface Secret {
   readonly noun: 'token' | 'license key' | 'API key';
   readonly prompt: string;
 }
 
-/** The API key, as `kindgi auth login --token-stdin` reads it: login never prompts. */
+/** The API key, as `kindgi auth login` reads it; its prompt names the address (`askedKey`). */
 const API_KEY: Secret = { noun: 'API key', prompt: 'API key: ' };
 
 /**
@@ -676,14 +729,14 @@ async function readStoredKey(store: SecretStore): Promise<TokenRead> {
   return { kind: 'ok', token: value };
 }
 
-/** What reading a secret takes: stdin, and for registry's hidden prompt a terminal. */
+/** What reading a secret takes: stdin, and for the hidden prompt a terminal. */
 type SecretInput = Pick<RegistryAuthSeam, 'readStdin' | 'stdinIsTty' | 'tty'>;
 
 /**
  * A secret a login reads: all of stdin with `--password-stdin` (registry)
- * or `--token-stdin` (`kindgi auth login`), otherwise registry's hidden
- * prompt. It goes only where its login puts it: `docker login`'s stdin,
- * or ~/.kindgi/config.json.
+ * or `--token-stdin` (`kindgi auth login`), otherwise the hidden prompt.
+ * It goes only where its login puts it: `docker login`'s stdin, or
+ * ~/.kindgi/config.json.
  */
 async function readToken(
   seam: SecretInput,

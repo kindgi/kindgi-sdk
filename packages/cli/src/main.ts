@@ -140,7 +140,7 @@ export interface RunCliInputs {
    * substitute fixtures so no real `docker login` runs.
    */
   readonly registryAuthSeam?: RegistryAuthSeam;
-  /** The stdin reader for `kindgi auth login --token-stdin`: tests only. */
+  /** `kindgi auth login`'s stdin reader (`--token-stdin`) and hidden prompt: tests only. */
   readonly authLoginSeam?: AuthLoginSeam;
   readonly initSeam?: InitSeam;
   /** `kindgi doctor`'s seams (tools, docker, Node version, image, presets). */

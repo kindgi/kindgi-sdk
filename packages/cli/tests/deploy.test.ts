@@ -2615,7 +2615,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     });
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain(
-      'kindgi deploy --hosted goes to the API your key is for, and no API address is set. Run `kindgi auth login --url <url> --token-stdin` with its key on stdin, pass --profile <name>, export KINDGI_API_URL, or pass --url <url>.',
+      'kindgi deploy --hosted goes to the API your key is for, and no API address is set. Sign in to Kindgi Cloud with `kindgi auth login --hosted`, or to another API with `kindgi auth login --url <url>`; or pass --profile <name>, export KINDGI_API_URL, or pass --url <url>.',
     );
     expect(run.fixtures.state.buildCalls).toBe(0);
     expect(run.fixtures.state.postCalls).toBe(0);
@@ -2702,7 +2702,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
       const out = await hostedDeploy(run.fixtures, {});
       expect(out.exitCode).toBe(1);
       expect(out.stderr).toContain(
-        `kindgi deploy --hosted goes to the API your key is for, and no API address is set. ${folderFile()} points this folder at a \`kindgi dev\` runtime (http://127.0.0.1:4000), which isn't a hosted target, so kindgi deploy --hosted doesn't read it. Run \`kindgi auth login --url <url> --token-stdin\` with its key on stdin, pass --profile <name>, export KINDGI_API_URL, or pass --url <url>.`,
+        `kindgi deploy --hosted goes to the API your key is for, and no API address is set. ${folderFile()} points this folder at a \`kindgi dev\` runtime (http://127.0.0.1:4000), which isn't a hosted target, so kindgi deploy --hosted doesn't read it. Sign in to Kindgi Cloud with \`kindgi auth login --hosted\`, or to another API with \`kindgi auth login --url <url>\`; or pass --profile <name>, export KINDGI_API_URL, or pass --url <url>.`,
       );
       expect(run.fixtures.state.buildCalls).toBe(0);
       expect(run.fixtures.state.postCalls).toBe(0);
@@ -2714,7 +2714,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
       const out = await hostedDeploy(run.fixtures, {});
       expect(out.exitCode).toBe(1);
       expect(out.stderr).toContain(
-        `kindgi deploy --hosted goes to the API your key is for, and no API address is set. ${folderFile()} points this folder at a \`kindgi dev\` runtime, which isn't a hosted target, so kindgi deploy --hosted doesn't read it. Run \`kindgi auth login --url <url> --token-stdin\` with its key on stdin, pass --profile <name>, export KINDGI_API_URL, or pass --url <url>.`,
+        `kindgi deploy --hosted goes to the API your key is for, and no API address is set. ${folderFile()} points this folder at a \`kindgi dev\` runtime, which isn't a hosted target, so kindgi deploy --hosted doesn't read it. Sign in to Kindgi Cloud with \`kindgi auth login --hosted\`, or to another API with \`kindgi auth login --url <url>\`; or pass --profile <name>, export KINDGI_API_URL, or pass --url <url>.`,
       );
       expect(run.fixtures.state.buildCalls).toBe(0);
       expect(run.fixtures.state.postCalls).toBe(0);

@@ -585,7 +585,7 @@ describe('kindgi auth login --profile saves a profile beside the other logins', 
     const out = await cli(['auth', 'login', '--profile', 'qa', '--token-stdin'], {}, GIVEN_KEY);
     expect(out.exitCode).toBe(2);
     expect(out.stderr).toBe(
-      'Missing --url=<api-url>: the profile qa has no address stored, and login takes one only from --url.\n',
+      'Missing --url=<api-url>: the profile qa has no address stored, and login takes one only from --url, or --hosted for Kindgi Cloud.\n',
     );
   });
 
