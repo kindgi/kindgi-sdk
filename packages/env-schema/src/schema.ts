@@ -979,6 +979,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_TICK_CALLER',
+    description:
+      "Used from runtime 0.7.0; for a server whose CPU is allocated only during requests (Cloud Run's request-based billing), which may scale to zero: the email of the service account whose Google-signed ID token the server's tick takes. The tick, `POST /internal/tick`, runs the background work that's due (schedules, mail polls, webhook deliveries, the sweeps) inside its request; Cloud Scheduler calls it each minute with that account's token, for the audience `<KINDGI_SERVICE_URL>/internal/tick`. The server verifies the token, and checks that its email is this one and verified. Set with `KINDGI_SERVICE_URL`, both or neither; not on a passive server (`KINDGI_PASSIVE`). Unset: no tick, and the background work runs on the server's own timers.",
+    example: 'kindgi-tick@my-proj.iam.gserviceaccount.com',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_SERVICE_URL',
+    description:
+      "Used from runtime 0.7.0; with `KINDGI_TICK_CALLER`: the server's own URL, its origin alone (https, no path, not this machine's address), on Cloud Run its `run.app` one. The tick's token is for `<this URL>/internal/tick`. While the server has work in flight (a run, a delivery, an erasure, a tick), it keeps a request to itself open at this URL, so its CPU stays allocated between requests. That request reaches the same instance only while the service runs one at most: another instance refuses it, and the server warns. Both or neither.",
+    example: 'https://kindgi-server-123456789012.us-central1.run.app',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_PAGINATION_KEY_PATH',
     description:
       "Absolute path to the 32-byte key (mode 0600) every list's page cursors are sealed with, so a cursor never shows the row it points after; the same on every instance. Unset (and no `KINDGI_PAGINATION_KEY`): a key made at boot and kept nowhere, so a cursor handed out before a restart answers 400 after it, and more than one instance behind one address needs the key set. Rotate it yearly (each cursor is sealed with a random nonce): the new key here, the old one in `KINDGI_PAGINATION_PREVIOUS_KEY_PATH` for at least a day. Its own key: never the erasure ledger's or the secrets AAD key. This or `KINDGI_PAGINATION_KEY`, not both.",

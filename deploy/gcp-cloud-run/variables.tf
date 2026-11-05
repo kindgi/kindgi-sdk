@@ -51,13 +51,28 @@ variable "server_public" {
 }
 
 variable "server_min_instances" {
-  description = "Minimum server instances. At least 1: runs started with wait:false, Improve runs and test runs keep running after the response, and need an instance (and CPU) to finish on."
+  description = "Minimum server instances. 1 by default: runs started with wait:false, Improve runs and test runs keep running after the response, and need an instance (and CPU) to finish on. 0 only with server_billing = \"request\", where the server keeps its own instance up while it has work."
   type        = number
   default     = 1
 
   validation {
-    condition     = var.server_min_instances >= 1
-    error_message = "Background runs need at least one instance."
+    condition     = var.server_min_instances >= 0 && floor(var.server_min_instances) == var.server_min_instances
+    error_message = "server_min_instances is a whole number, 0 or more."
+  }
+}
+
+variable "server_billing" {
+  description = <<-EOT
+    How Cloud Run bills the server, and so when it has CPU.
+    "instance" (the default): CPU always allocated. The server's own timers run its background work (schedules, mail polls, webhook deliveries, the sweeps).
+    "request": CPU only while a request is in flight, billed for that time (and for any minimum instances while idle). server_min_instances may then be 0. Cloud Scheduler calls the server's tick each minute, which runs the background work that's due, and the server keeps a request to itself open while it has work in flight. Needs server_ingress = "INGRESS_TRAFFIC_ALL", server_max_instances = 1, and server_public or server_invoker_iam_disabled. README, "Scale the server to zero".
+  EOT
+  type        = string
+  default     = "instance"
+
+  validation {
+    condition     = contains(["instance", "request"], var.server_billing)
+    error_message = "server_billing is \"instance\" or \"request\"."
   }
 }
 

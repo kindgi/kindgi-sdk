@@ -40,7 +40,8 @@ locals {
     "KINDGI_PACK_ROUTING", "KINDGI_PUBLIC_TOKEN_SIGNING_KEY", "KINDGI_PUBLIC_URL",
     "KINDGI_SECRETS_AAD_KEY", "KINDGI_SECRETS_BACKEND", "KINDGI_SECRETS_BACKEND_KMS",
     "KINDGI_SECRETS_GCP_KEY_ID", "KINDGI_SECRETS_GCP_KEY_RING_ID", "KINDGI_SECRETS_GCP_LOCATION_ID",
-    "KINDGI_SECRETS_GCP_PROJECT_ID", "KINDGI_SEED_USER_ID", "KINDGI_TENANCY", "KINDGI_TENANT_ID",
+    "KINDGI_SECRETS_GCP_PROJECT_ID", "KINDGI_SEED_USER_ID", "KINDGI_SERVICE_URL", "KINDGI_TENANCY",
+    "KINDGI_TENANT_ID", "KINDGI_TICK_CALLER",
     "KINDGI_TRUSTED_PROXIES",
   ])
   server_extra_env = setunion(keys(var.server_env), keys(var.server_secret_env))
@@ -129,9 +130,11 @@ resource "google_cloud_run_v2_service" "server" {
           cpu    = var.server_cpu
           memory = var.server_memory
         }
-        # CPU stays allocated between requests: a run started with
-        # wait:false keeps executing after its 202.
-        cpu_idle          = false
+        # "instance": CPU stays allocated between requests, so a run started
+        # with wait:false keeps executing after its 202. "request": CPU only
+        # during requests; the server holds a request to itself open while
+        # it has work, and the tick (scheduler.tf) runs its timers' work.
+        cpu_idle          = var.server_billing == "request"
         startup_cpu_boost = true
       }
 
@@ -146,6 +149,19 @@ resource "google_cloud_run_v2_service" "server" {
       env {
         name  = "KINDGI_ENV"
         value = var.kindgi_env
+      }
+      # server_billing = "request": the tick's caller (scheduler.tf), and the
+      # server's own run.app URL, which the tick's token names and the
+      # server's request to itself goes to.
+      dynamic "env" {
+        for_each = local.server_tick ? {
+          KINDGI_TICK_CALLER = google_service_account.tick[0].email
+          KINDGI_SERVICE_URL = local.server_service_url
+        } : {}
+        content {
+          name  = env.key
+          value = env.value
+        }
       }
       # The client's address, for rate limits and audit records: Cloud Run's
       # front end appends the client to X-Forwarded-For (measured live), so
@@ -403,6 +419,22 @@ resource "google_cloud_run_v2_service" "server" {
     precondition {
       condition     = var.server_ingress == "INGRESS_TRAFFIC_ALL" || var.public_url != ""
       error_message = "server_ingress = \"INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER\" needs public_url, the load balancer's address (such as https://kindgi.example.com): the run.app URL then refuses you, so server_url and the orchestrator's key steps name public_url instead. Set it, or leave server_ingress at INGRESS_TRAFFIC_ALL."
+    }
+    precondition {
+      condition     = var.server_min_instances >= 1 || local.server_tick
+      error_message = "server_min_instances = 0 needs server_billing = \"request\": with CPU always allocated, Cloud Run may stop an instance that has no request in flight, and a run it's executing stops with it. Under \"request\", the server holds a request to itself open while it has work."
+    }
+    precondition {
+      condition     = !local.server_tick || var.server_ingress == "INGRESS_TRAFFIC_ALL"
+      error_message = "server_billing = \"request\" needs server_ingress = \"INGRESS_TRAFFIC_ALL\": the server keeps its CPU with a request to its own run.app URL."
+    }
+    precondition {
+      condition     = !local.server_tick || var.server_max_instances == 1
+      error_message = "server_billing = \"request\" needs server_max_instances = 1: the server's request to its own URL must reach the instance that sent it, which only one instance makes sure of."
+    }
+    precondition {
+      condition     = !local.server_tick || !local.server_iam_guarded
+      error_message = "server_billing = \"request\" needs server_public or server_invoker_iam_disabled: the server's request to itself carries no Google ID token, so Cloud Run IAM would refuse it. The server checks the tick's caller itself."
     }
     precondition {
       condition     = length(setintersection(local.single_pack_env, local.server_extra_env)) == 0
