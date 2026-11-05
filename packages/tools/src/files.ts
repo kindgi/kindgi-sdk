@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { FileNotReadReason, FileNotShownReason, FileValue } from '@kindgi/types';
+import type {
+  FileNotReadReason,
+  FileNotShownReason,
+  FileNotUpdatedReason,
+  FileValue,
+} from '@kindgi/types';
 
 /**
- * Files a tool stores and reads.
+ * Files a tool stores, reads and updates.
  *
  * A tool that declares `storesFiles: true` gets `ctx.files.store` with each
  * call with an `idempotencyKey`: it fetches a file (a mail's attachment,
@@ -15,6 +20,12 @@ import type { FileNotReadReason, FileNotShownReason, FileValue } from '@kindgi/t
  * A tool that declares `readsFiles: true` gets `ctx.files.read`: it reads
  * the bytes of a file its run may be shown, by the file value's
  * `artifactId`, to parse a PDF, say, or send a photo on.
+ *
+ * A tool that declares `updatesFiles: true` gets `ctx.files.update` with
+ * each call with an `idempotencyKey`: it adds a version to a file its run
+ * has (a sheet it fills in, say), given the version it read. It returns
+ * the new version in its result's top-level `files`, so an agent is shown
+ * it.
  *
  * In-process, the runtime binds `files` itself. In a pack service the
  * runner sends and fetches the bytes at the call's tool-files link (pack
@@ -61,6 +72,46 @@ export type FileStoreAnswer =
   | { readonly notStored: FileNotStoredReason };
 
 /**
+ * A new version of a file the call's run has (`files.update`): which file,
+ * the version the tool read, and the new bytes.
+ */
+export interface FileToUpdate {
+  /** The file's id: its file value's `fileId`. */
+  readonly fileId: string;
+  /**
+   * The version the tool read: its file value's `version`. When the
+   * file's Latest is another version, nothing is added, and the answer is
+   * Latest (`conflict`).
+   */
+  readonly expectedVersion: number;
+  /** The new version's name. Absent keeps Latest's. */
+  readonly name?: string;
+  /** The type the bytes have. The runtime checks the bytes, and only they decide. */
+  readonly contentType: string;
+  readonly bytes: Uint8Array;
+}
+
+/**
+ * What `files.update` answers:
+ * - `file`: the new version, to return in the result's top-level `files`;
+ * - `same`: the bytes are Latest's, so no version was added; this is Latest;
+ * - `conflict`: Latest isn't the version the tool read, so nothing was
+ *   added; this is Latest, to read again;
+ * - `notUpdated`: why no version was added (`FILE_NOT_UPDATED_REASONS`).
+ *
+ * They're decided in this order: `rule`, `denied`, `gone`, `size` for more
+ * bytes than a call may send, then a re-run's first version, `conflict`,
+ * `same`, and last `type`, `size` for the type's own limit, and `storage`.
+ * So a re-run, or a tool that read an older version, gets the answer it
+ * can use first, even when the workspace's storage is full.
+ */
+export type FileUpdateAnswer =
+  | { readonly file: FileValue }
+  | { readonly same: FileValue }
+  | { readonly conflict: FileValue }
+  | { readonly notUpdated: FileNotUpdatedReason };
+
+/**
  * What `files.read` answers: the file's bytes, as they were stored, or why
  * there are none (`FILE_NOT_READ_REASONS`).
  */
@@ -70,8 +121,8 @@ export type FileReadAnswer =
 
 /**
  * A call's files (`ToolContext.files`): `store` for a tool that declares
- * `storesFiles`, `read` for one that declares `readsFiles`, both for one
- * that declares both.
+ * `storesFiles`, `read` for one that declares `readsFiles`, and `update`
+ * for one that declares `updatesFiles`; each one it declares.
  */
 export interface FileStore {
   /**
@@ -92,4 +143,15 @@ export interface FileStore {
    * as any throw fails it.
    */
   read?(artifactId: string): Promise<FileReadAnswer>;
+  /**
+   * Add a version to a file the call's run has, given the version the
+   * tool read. The new version keeps Latest's tags, and Latest's name
+   * when `name` is absent. A re-run of the call with the same file and
+   * bytes answers the version its first run made, even when Latest has
+   * moved since, and adds nothing; if that version has been deleted, it
+   * answers as a new call would. A call may update any number of files.
+   * Rejects when the store can't be reached; the call then fails as any
+   * throw fails it.
+   */
+  update?(file: FileToUpdate): Promise<FileUpdateAnswer>;
 }

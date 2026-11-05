@@ -13,7 +13,13 @@ import * as z from 'zod';
 import type { ToolId } from '@kindgi/types';
 
 import { MAX_STORED_FILES_PER_CALL, changedToolFields, defineTool } from '../src/index.js';
-import type { FileStore, FileStoreAnswer, ToolContext, ToolManifest } from '../src/index.js';
+import type {
+  FileStore,
+  FileStoreAnswer,
+  FileUpdateAnswer,
+  ToolContext,
+  ToolManifest,
+} from '../src/index.js';
 
 const Fetch = z.object({ attachmentId: z.string() });
 const Fetched = z.object({ files: z.array(z.unknown()).optional() });
@@ -95,7 +101,7 @@ describe('defineTool with storesFiles', () => {
 });
 
 describe('defineTool with updatesFiles', () => {
-  test('a tool with a handler may declare it; the manifest says the tool updates files', () => {
+  test('the handler may get files.update; the manifest says the tool updates files', () => {
     const r = defineTool({
       id: 'acme.sheets.fill' as ToolId,
       description: 'Fills in a sheet the run has.',
@@ -103,7 +109,19 @@ describe('defineTool with updatesFiles', () => {
       input: Fetch,
       output: Fetched,
       updatesFiles: true,
-      handler: async () => ({}),
+      handler: async (input, c) => {
+        if (c.files?.update === undefined) return {};
+        const answer = await c.files.update({
+          fileId: input.attachmentId,
+          expectedVersion: 2,
+          contentType: 'text/csv',
+          bytes: new TextEncoder().encode('a,b\n'),
+        });
+        expectTypeOf(answer).toEqualTypeOf<FileUpdateAnswer>();
+        if ('file' in answer) return { files: [answer.file] };
+        if ('conflict' in answer) return { files: [answer.conflict] };
+        return {};
+      },
     });
     expect(r.kind).toBe('ok');
     if (r.kind === 'ok') expect(r.value.updatesFiles).toBe(true);

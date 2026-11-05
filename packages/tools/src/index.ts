@@ -29,6 +29,8 @@ export type {
   FileStore,
   FileStoreAnswer,
   FileToStore,
+  FileToUpdate,
+  FileUpdateAnswer,
 } from './files.js';
 export { invokeTool, invokeToolOrPause, toolOutputIssues } from './invoke.js';
 export {
