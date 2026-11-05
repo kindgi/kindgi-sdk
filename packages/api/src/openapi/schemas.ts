@@ -11676,7 +11676,7 @@ export const AuthSettingsPatchSchema: JsonSchema = {
 
 export const UnregisterUserResultSchema: JsonSchema = {
   description:
-    'A removed person, and what removing them took away (each 0 when they were already removed).',
+    'A removed person, and what removing them took away (each 0 when nothing of theirs was left to take).',
   type: 'object',
   additionalProperties: false,
   required: ['user', 'keysRevoked', 'sessionsRevoked', 'grantsRemoved'],
@@ -17135,7 +17135,16 @@ export const ConnectionSchema: JsonSchema = {
     removedBy: { type: 'string' },
     removedReason: {
       type: 'string',
-      enum: ['disconnected', 'revoked-at-app', 'uninstalled', 'registration-removed', 'replaced'],
+      enum: [
+        'disconnected',
+        'revoked-at-app',
+        'uninstalled',
+        'registration-removed',
+        'replaced',
+        'owner-removed',
+      ],
+      description:
+        "Why it was removed: `disconnected` (someone disconnected it), `revoked-at-app` (the app said its access was withdrawn there), `uninstalled` (the app was uninstalled there), `registration-removed` (its app's registration was removed), `replaced` (a new connection replaced it), `owner-removed` (the person who owned it was removed from the workspace).",
     },
     withdrawn: {
       type: 'string',

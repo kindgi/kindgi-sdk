@@ -146,10 +146,13 @@ export interface UsersClient {
 
   /**
    * Remove a person from the workspace, where the directory can: every API
-   * key and session of theirs is revoked and every grant and membership
-   * taken away before it returns (their keys get 401 at once). Their
-   * record stays, with `unregisteredAt`; their email is free again.
-   * Removing someone already removed changes nothing. Refused for
+   * key and session of theirs is revoked, every grant and membership taken
+   * away, and every connection they own removed (`owner-removed`, withdrawn
+   * at its app where the app allows), before it returns (their keys get 401
+   * at once). Their record stays, with `unregisteredAt`; their email is
+   * free again. Removing someone already removed takes what their removal
+   * left (one that stopped part-way, or one on an earlier version that kept
+   * their connections), and otherwise changes nothing. Refused for
    * yourself, the deployment's seed user (`identity-user-unregister-refused`)
    * and the only tenant admin (`last-tenant-admin`). Tenant admins only.
    */

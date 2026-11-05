@@ -291,7 +291,7 @@ const remove: LeafCommand = {
   kind: 'leaf',
   name: 'remove',
   description:
-    'Remove a person from the workspace: every API key and session of theirs is revoked, and every role and membership taken away, before it answers (their keys get 401 at once). Their record stays, so their history still says who they were; their email is free again (adding it makes a new person). Refused for yourself, the seed user and the only tenant admin. Tenant admins only.',
+    'Remove a person from the workspace: every API key and session of theirs is revoked, every role and membership taken away, and every connection they own removed, before it answers (their keys get 401 at once). Their record stays, so their history still says who they were; their email is free again (adding it makes a new person). Refused for yourself, the seed user and the only tenant admin. Tenant admins only.',
   usage: 'kindgi people remove <user-id>',
   run: (ctx) =>
     runSdkRendered(ctx, 'people remove', async () => {

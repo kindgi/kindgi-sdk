@@ -686,9 +686,11 @@ In one step, before it answers, their API keys are revoked, their sessions
 end, and every grant, membership and capability is taken away, with what
 their creates gave them: `owner` on each agent, flow, tool, guardrail and
 test set they made, and `admin` on an org they made (runtime 0.1.9 or
-later). What they made stays. The workspace's admins still manage all of it,
-and an org's admins what's in their org; no one becomes its owner. The next
-request with Sam's key:
+later). Every connection they own to another app is removed too, with the
+reason `owner-removed`, and withdrawn at the app where the app allows
+(runtime 0.7.0 or later). What else they made stays. The workspace's admins
+still manage all of it, and an org's admins what's in their org; no one
+becomes its owner. The next request with Sam's key:
 
 ```text
 {"error":{"code":"auth-missing","message":"Bearer token is not recognized","requestId":"req-ea8f3a9a-f1df-4365-9f7c-7bab23beea86"}}
@@ -720,8 +722,9 @@ check of what they may do.
 
 For a person removed on an earlier runtime, their creates' `owner` and
 `admin` entries stayed, and their schedules and webhook triggers could go on
-running as them. To finish it: take over their schedules and webhook
-triggers, upgrade the runtime, then remove them again.
+running as them. Before runtime 0.7.0, the connections they owned stayed
+too. To finish it: take over their schedules and webhook triggers, upgrade
+the runtime, then remove them again.
 `kindgi people list --include-removed` lists them, and `kindgi people remove`
 on someone already removed takes what's left.
 
@@ -813,6 +816,12 @@ their next request on, they can't work in Support. Their other access, and
 what they did there, stay." The page also lists their keys, with **Make a
 key for** them, where they're signed in, their sign-ins, and **Remove from
 the workspace**.
+
+A removed person's page says what their removal took away, and keeps what
+they had, for the record. When their removal left roles or connections to
+other apps behind, because it stopped part-way or ran before runtime 0.7.0,
+a tenant admin's page shows **Finish removing**: it removes them again,
+which takes what's left and changes nothing else.
 
 Until they first sign in, their page has an **Invitation** section: when
 it's open until and when it was emailed, or when it expired ("they can't

@@ -2130,8 +2130,8 @@ export interface InviteRenewed {
 }
 
 /**
- * A removed person and what removing them took away (each 0 when they
- * were already removed). Matches `@kindgi/api/openapi.json#UnregisterUserResult`.
+ * A removed person and what removing them took away (each 0 when nothing
+ * of theirs was left to take). Matches `@kindgi/api/openapi.json#UnregisterUserResult`.
  */
 export interface UnregisterUserResult {
   readonly user: User;
