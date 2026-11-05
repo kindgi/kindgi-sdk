@@ -16,7 +16,7 @@ description: >
   kindgi-authoring-providers.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.9"
+version: "0.1.10"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
