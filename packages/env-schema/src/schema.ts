@@ -1026,7 +1026,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ARTIFACTS',
     description:
-      "Where artifacts' files go, which turns on `/v1/artifacts`: `local:<absolute dir>` (a directory on this machine), `gcs:<bucket>[/<prefix>]` (a Google Cloud Storage bucket, through Application Default Credentials: workload identity on GCP, no keys to store) or, from runtime 0.4.0, `s3:<bucket>[/<prefix>]` (an earlier runtime refuses it at start; an AWS S3 bucket, or an S3-compatible store's: see `KINDGI_S3_REGION`). Before it serves, the server refuses an `s3:` bucket a tenant purge couldn't empty: MFA Delete on, an Object Lock default retention, or no right to list its unfinished uploads (and, in a bucket that keeps versions, its versions). Metadata is in Postgres; a deleted artifact is purged under the `artifact` retention policy. Unset (the default): no `/v1/artifacts`. `kindgi dev` sets it to the pack's `.kindgi/dev/artifacts`.",
+      "Where files are kept, which turns on `/v1/files` and `/v1/artifacts`: `local:<absolute dir>` (a directory on this machine), `gcs:<bucket>[/<prefix>]` (a Google Cloud Storage bucket, through Application Default Credentials: workload identity on GCP, no keys to store) or, from runtime 0.4.0, `s3:<bucket>[/<prefix>]` (an earlier runtime refuses it at start; an AWS S3 bucket, or an S3-compatible store's: see `KINDGI_S3_REGION`). Before it serves, the server refuses an `s3:` bucket a tenant purge couldn't empty: MFA Delete on, an Object Lock default retention, or no right to list its unfinished uploads (and, in a bucket that keeps versions, its versions). Metadata is in Postgres; a deleted artifact is purged under the `artifact` retention policy, and a deleted file version under `file_version`'s, when one is set. Unset (the default): no `/v1/files` or `/v1/artifacts`. `kindgi dev` sets it to the pack's `.kindgi/dev/artifacts`. 0.8.0 renames it `KINDGI_FILES`, and doesn't start with this name set.",
     example: 'gcs:acme-artifacts/prod',
     required: false,
     appliesTo: appliesToServer,
@@ -1035,7 +1035,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ARTIFACT_MAX_BYTES',
     description:
-      'The most bytes one artifact upload may carry, the whole request body; more is `413 artifact-too-large`. Default 104857600 (100 MiB).',
+      "The most bytes one upload may carry, the whole request body; more is `413 file-too-large` on `/v1/files` and `413 artifact-too-large` on `/v1/artifacts`. Default 104857600 (100 MiB). 0.8.0 renames it `KINDGI_FILE_MAX_BYTES`, and doesn't start with this name set.",
     example: '104857600',
     required: false,
     appliesTo: appliesToServer,

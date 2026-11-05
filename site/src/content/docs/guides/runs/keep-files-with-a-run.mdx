@@ -57,7 +57,8 @@ It prints version 1, with the file's `fileId` and `created: true`.
   run's, is another is refused with `403 key-project-mismatch`.
 - **Its name** is the file's, unless `--name` gives another.
 - **Its size:** the runtime refuses a bigger upload than its cap, 100 MiB by
-  default. It answers `413 file-too-large`.
+  default. It answers `413 file-too-large`, with the cap in
+  `details.maxBytes`.
 
 From your app, in TypeScript, `files.create` sends the file and answers its
 version 1. Over the cap, it answers `413 file-too-large`.
@@ -157,7 +158,8 @@ asks first, which names the file and how many versions go. With no terminal
 and no `--yes`, it deletes nothing and exits with code 1.
 
 The file and every version are gone from lists and downloads at once. A
-file with a pinned version answers `409` instead, and stays.
+file with a pinned version stays: it answers `409 file-version-pinned`,
+naming its lowest pinned version.
 `delete <file-id> <version>` deletes one version: a pinned one answers
 `409 file-version-pinned`, and the file's only live version answers
 `409 file-last-version`, so you delete the file instead.
