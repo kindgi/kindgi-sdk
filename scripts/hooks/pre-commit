@@ -2,22 +2,26 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Pre-commit checks:
-#   1. Every staged .ts / .js source carries an SPDX-License-Identifier header
-#   2. When staged files touch the API layer, run the OpenAPI drift test
+#   1. Biome checks the staged files with this repository's biome.json,
+#      the same `biome check` CI runs (`pnpm run lint`).
+#   2. Every staged .ts / .js source carries an SPDX-License-Identifier header
+#   3. When staged files touch the API layer, run the OpenAPI drift test
 #      — every mounted route MUST have an OPERATIONS entry, and vice
 #      versa. Catches "landed a route without registering it in
 #      packages/api/src/openapi/operations.ts." Also runs the artifact
 #      freshness test — packages/api/openapi.json MUST match the
 #      generator. Catches "changed the API, forgot `gen:openapi`."
-#   3. When staged files touch the API layer OR the SDK, regenerate the
+#   4. When staged files touch the API layer OR the SDK, regenerate the
 #      SDK's wire types from the artifact, then run the SDK coverage
 #      drift test — every generated wire endpoint MUST have a
 #      hand-written resource-client method (or be listed in the
 #      documented skip set with a rationale). Catches "regen'd types
 #      but forgot the ergonomic wrapper."
-#   4. When staged files touch the API layer OR the Python client, check
+#   5. When staged files touch the API layer OR the Python client, check
 #      the generated Python client (sdks/python) is in step with
 #      openapi.json. Needs `uv`; without it the hook says so and CI checks.
+#   6. When staged files touch openapi.json or the webhook event shapes,
+#      check parseEvent's generated shapes are in step with openapi.json.
 #
 # See CONTRIBUTING.md and docs/ADDING-A-ROUTE.md for the full
 # authoring workflow.
@@ -36,10 +40,46 @@ make_log_dir() {
   [ -n "$log_dir" ] || log_dir=$(mktemp -d "${TMPDIR:-/tmp}/kindgi-pre-commit.XXXXXX")
 }
 
+# ------------------------------------------------------------------- #
+# 1. Biome on the staged files                                        #
+# ------------------------------------------------------------------- #
+# It uses this tree's own install, else the main checkout's when this is
+# a worktree without one, but only when that binary is the version
+# pnpm-lock.yaml resolves (another version can format differently). With
+# neither, the hook says so and CI checks.
+top=$(git rev-parse --show-toplevel)
+lock_version=$(sed -n "/^ *'@biomejs\/biome':\$/,/version:/s/^ *version: *\([0-9][0-9.]*\).*/\1/p" \
+  "$top/pnpm-lock.yaml" 2>/dev/null | head -n 1)
+biome=""
+if [ -x "$top/node_modules/.bin/biome" ]; then
+  biome="$top/node_modules/.bin/biome"
+else
+  main_checkout=$(dirname "$(cd "$(git rev-parse --git-common-dir)" && pwd -P)")
+  candidate="$main_checkout/node_modules/.bin/biome"
+  if [ -n "$lock_version" ] && [ -x "$candidate" ] \
+    && [ "$("$candidate" --version 2>/dev/null | sed -n 's/^Version: *//p')" = "$lock_version" ]; then
+    biome="$candidate"
+  fi
+fi
+
+if [ -n "$biome" ]; then
+  # --no-errors-on-unmatched: a commit whose staged files biome.json
+  # ignores (or deletes) has nothing to check, and that is a pass.
+  if ! "$biome" check --staged --no-errors-on-unmatched; then
+    printf "\n\033[31mpre-commit: biome found problems in the staged files (above).\033[0m\n"
+    printf "\033[31m-> Run: cd \"%s\" && \"%s\" check --write --staged\033[0m\n" "$top" "$biome"
+    printf "   then stage the fixed files again.\n\n"
+    exit 1
+  fi
+else
+  printf "\033[33mpre-commit: no biome %s here or in the main checkout - skipping the lint (CI runs it).\033[0m\n" \
+    "${lock_version:-(pnpm-lock.yaml names no version)}"
+fi
+
 staged_all=$(git diff --cached --name-only --diff-filter=AM || true)
 
 # ------------------------------------------------------------------- #
-# 1. SPDX headers on staged .ts sources                                #
+# 2. SPDX headers on staged .ts sources                                #
 # ------------------------------------------------------------------- #
 staged_ts=$(printf '%s\n' "$staged_all" \
   | grep -E '\.(ts|tsx|mts|cts|js|mjs|cjs|py|java)$' \
@@ -70,7 +110,7 @@ if [ -n "$staged_ts" ]; then
 fi
 
 # ------------------------------------------------------------------- #
-# 2. API drift — routes ↔ OPERATIONS entries + artifact freshness     #
+# 3. API drift — routes ↔ OPERATIONS entries + artifact freshness     #
 #    Runs only when staged files touch the API layer.                  #
 # ------------------------------------------------------------------- #
 api_touched=$(printf '%s\n' "$staged_all" \
@@ -93,7 +133,7 @@ if [ -n "$api_touched" ]; then
 fi
 
 # ------------------------------------------------------------------- #
-# 3. SDK coverage drift — generated endpoints ↔ resource-client methods #
+# 4. SDK coverage drift — generated endpoints ↔ resource-client methods #
 #    Runs when API or SDK is touched. Regenerates the SDK's wire types #
 #    from packages/api/openapi.json first so the check runs against    #
 #    the committed artifact, not a stale src/generated/ (a stale       #
@@ -124,7 +164,7 @@ if [ -n "$api_touched" ] || [ -n "$sdk_touched" ]; then
 fi
 
 # ------------------------------------------------------------------- #
-# 4. Python client drift — sdks/python's generated client ↔ openapi.json #
+# 5. Python client drift — sdks/python's generated client ↔ openapi.json #
 # ------------------------------------------------------------------- #
 py_client_touched=$(printf '%s\n' "$staged_all" \
   | grep -E '^sdks/python/(src/kindgi/client/|scripts/gen_client\.py$)' \
@@ -147,7 +187,7 @@ if [ -n "$api_touched" ] || [ -n "$py_client_touched" ]; then
 fi
 
 # ------------------------------------------------------------------- #
-# 5. Webhook event shapes — parseEvent's ↔ openapi.json's WebhookEvent #
+# 6. Webhook event shapes — parseEvent's ↔ openapi.json's WebhookEvent #
 # ------------------------------------------------------------------- #
 shapes_touched=$(printf '%s\n' "$staged_all" \
   | grep -E '^(packages/api/openapi\.json|scripts/gen-webhook-event-shapes\.mjs|packages/sdk/src/webhook-event-shapes\.generated\.ts)$' \
