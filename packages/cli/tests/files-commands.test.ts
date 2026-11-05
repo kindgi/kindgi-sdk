@@ -228,14 +228,16 @@ describe('kindgi files list, get, versions, pin-history', () => {
 
     const table = await run(['files', 'versions', 'f-1', '--table']);
     expect(table.calls.map(([name]) => name)).toEqual(['files.versions.list', 'files.get']);
-    const rows = table.out.stdout.trim().split('\n');
-    expect(rows[0]).toMatch(/^VERSION\s+STATE\s+CREATED\s+BY\s+HOW\s+SIZE\s+PINNED$/);
-    expect(rows.slice(1).map((r) => r.split(/\s+/).slice(0, 2))).toEqual([
+    // The header, the rule under it, then a row per version.
+    const [header, rule, ...rows] = table.out.stdout.trim().split('\n');
+    expect(header).toMatch(/^VERSION\s+STATE\s+CREATED\s+BY\s+HOW\s+SIZE\s+PINNED$/);
+    expect(rule).toMatch(/^[─ ]+$/);
+    expect(rows.map((r) => r.split(/\s+/).slice(0, 2))).toEqual([
       ['3', 'deleted'],
       ['2', 'latest'],
       ['1', 'live'],
     ]);
-    expect(rows[3]).toMatch(/yes$/);
+    expect(rows[2]).toMatch(/yes$/);
   });
 
   test('pin-history is one list, with its table', async () => {
