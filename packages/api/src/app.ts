@@ -105,6 +105,7 @@ import type { PersonCapabilitiesBinding } from './person-capabilities-binding.js
 import type { PersonGrantsBinding } from './person-grants-binding.js';
 import { candidatesPinProjects } from './pin-test-runs.js';
 import type { PinnedVersionBinding } from './pinned-version-binding.js';
+import type { PlanLimitsBinding } from './plan-limits-binding.js';
 import type { ProjectAccessBinding } from './project-access-binding.js';
 import type { ProvenanceBinding } from './provenance-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
@@ -1310,6 +1311,14 @@ export interface CreateAppInput {
    */
   readonly production?: ProductionGateOptions;
   /**
+   * Optional. The plan limits on agents and flows in production
+   * (`plan-limits-binding.ts`). Deploy, promote, publish, reinstate, a
+   * suggested change's new version and putting a project in production ask
+   * it, and a write past the most the plan allows is refused, with nothing
+   * written. Absent: nothing is counted.
+   */
+  readonly planLimits?: PlanLimitsBinding;
+  /**
    * Optional. The addresses this deployment's calls to other sites come
    * from (`KINDGI_EGRESS_SERVER_ADDRESSES`,
    * `KINDGI_EGRESS_DEPLOYMENT_ADDRESSES`), for a site that admits only
@@ -1875,6 +1884,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         itemServing,
         input.pinnedVersions,
         input.identityDirectory,
+        input.planLimits,
       ),
     );
   }
@@ -1913,6 +1923,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         itemRights,
         itemServing,
         input.pinnedVersions,
+        input.planLimits,
       ),
     );
   }
