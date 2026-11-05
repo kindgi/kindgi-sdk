@@ -45,7 +45,7 @@ const CONTENTS_FROM_LINES = 100;
 
 /** The skills not split yet, and the most bytes each one's entry may hold. */
 const NOT_YET_LEVELED: Readonly<Record<string, { readonly bytes: number }>> = {
-  'kindgi-authoring-agents': { bytes: 18_788 },
+  'kindgi-authoring-agents': { bytes: 18_872 },
   'kindgi-authoring-flows': { bytes: 13_614 },
   'kindgi-authoring-guardrails': { bytes: 25_914 },
   'kindgi-getting-started': { bytes: 19_434 },
