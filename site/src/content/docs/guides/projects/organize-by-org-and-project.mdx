@@ -560,13 +560,16 @@ Deleting a project:
 - **Nobody can reach what's in it:** its agents, flows, tools,
   conversations, artifacts and values. Its unfinished runs are cancelled, and
   new runs, deploys, test runs, Improve runs and pins in it are refused with
-  `404 project-not-found`. Without
+  `404 project-not-found`. A test run or an Improve run already going stops
+  at its next case and ends `cancelled`, with `project-deleted` in its
+  `cancelReason`. Without
   [authorization](../../../deploy/people-and-keys/#without-authorization),
   roles aren't checked, so the workspace's keys can still read what's in it
   by id until it's restored. Its runs, deploys, test runs, Improve runs and
   pins are refused there too.
-- **Its triggers and schedules skip their fires.** A skipped fire isn't a
-  failure and doesn't pause the trigger. A webhook delivery to it is answered
+- **Its triggers and schedules skip their fires,** with `project-deleted` in
+  the fire's `detail`. A skipped fire isn't a failure and doesn't pause the
+  trigger. A webhook delivery to it is answered
   `202` with `skipped: 'project-deleted'`, and nothing is kept.
 - **Its deployments are retired,** with `reason: 'project-deleted'`.
 - **The rest stays:** what's in it, its runs' records, its members and team

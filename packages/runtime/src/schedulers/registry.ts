@@ -303,11 +303,12 @@ export interface TriggerFire {
    * toward the auto-pause; refused and failed ones do.
    * `skipped`, as `detail` says: a webhook trigger was paused; what the
    * target waits for wasn't there (an `improve` schedule's open corrections,
-   * or room under its month's cap); its project is suspended (`project-suspended`); its run or
-   * Improve run hadn't started when its workspace was suspended, and the restore
-   * concluded it (`tenant-suspended`); or its workspace was suspended or closing
-   * as its run started (`tenant-suspended`, `tenant-closing`). A skip for a
-   * suspension or a close doesn't reset the count of refusals and failures
+   * or room under its month's cap); its project is suspended or deleted
+   * (`project-suspended`, `project-deleted`); its run or Improve run hadn't
+   * started when its workspace was suspended, and the restore concluded it
+   * (`tenant-suspended`); or its workspace was suspended or closing as its
+   * run started (`tenant-suspended`, `tenant-closing`). A skip for a
+   * suspension, a delete or a close doesn't reset the count of refusals and failures
    * in a row either. A mail trigger's mail is `skipped` when it's from the
    * mailbox's own address (`own-address`), an automatic reply
    * (`auto-submitted`), received before the trigger began watching

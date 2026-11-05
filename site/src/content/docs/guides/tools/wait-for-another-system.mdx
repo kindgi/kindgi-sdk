@@ -347,7 +347,7 @@ answers:
 | --- | --- | --- |
 | `400 wait-token-output-invalid` | The answer doesn't fit the tool's output schema. `details.issues` says where. | Send a fixed one: the wait stays open. |
 | `400 bad-input` | The body isn't JSON, or nests too deep. | Send JSON. |
-| `404 wait-token-not-found` | No wait has this link. A wrong link and an unknown one answer the same. | Check the link. |
+| `404 wait-token-not-found` | No wait has this link, or its run's project is deleted. A wrong link and an unknown one answer the same. | Check the link. A deleted project's runs are cancelled: after a restore, the link answers `409 wait-token-closed`, `cancelled`. |
 | `409 wait-token-closed` | The wait is over, or holds another answer. `details.state` says which: `completed`, `timed-out`, `cancelled`, `unused` for a wait the run never reached, or `answered` for a different answer held before the run reached it. | Nothing: it takes no other answer. |
 | `409 tenant-closing`, `409 tenant-suspended`, `409 project-suspended` | Nothing runs where the run is: its workspace is closing or suspended, or its project is suspended. That cancels its runs, paused ones included. | Nothing: after a restore, the link answers `409 wait-token-closed`, `cancelled`. |
 | `413 request-too-large` | The body is over 1 MiB. | Send less. |
@@ -428,7 +428,7 @@ Its refusals:
   the tool's output schema, and the wait stays open. `400 bad-input`: no
   `waitpointId`, or a field the body doesn't take.
 - `404 run-not-found`, or `404 wait-token-not-found` when the run has no
-  such wait.
+  such wait or its project is deleted.
 - `409 wait-token-closed` (`details.state`), as at the link, and
   `409 project-suspended`. A closing or suspended workspace's refusals
   (`409 tenant-closing`, `409 tenant-suspended`,
