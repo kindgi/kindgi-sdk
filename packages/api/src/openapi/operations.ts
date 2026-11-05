@@ -1676,6 +1676,18 @@ const LIMITED_RECORD_PIN_403 = ErrorResponse(
   withLimitedRecord(withLimitedAbove('`permission-denied`: the caller may not make this change.')),
 );
 
+/**
+ * Without an authorization store, a key or session limited to a project
+ * is refused a start of work that a store refuses it beyond its project:
+ * on an item its project doesn't serve (a run, a conversation, a test-set
+ * run and what it runs), in a conversation of another project's, or where
+ * an agent's new versions are made in another one (an Improve run or its
+ * check, a suggested change or its check). Each operation it holds says
+ * so in its 403.
+ */
+export const LIMITED_START_PROJECT =
+  'Without an authorization store, `key-project-mismatch` (`details.keyProjectId`, `details.projectId`): the API key or session is limited to a project, and this starts work in another one, where the item is, where it runs, where its new versions are made, or where the conversation it continues is (with a store, that is `permission-denied`).';
+
 const CommonAuthErrors: Readonly<Record<string, ResponseSpec>> = {
   '401': ErrorResponse('Missing / malformed / expired / revoked bearer token.'),
 };
