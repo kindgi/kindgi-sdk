@@ -6057,7 +6057,7 @@ class FileVersion(BaseModel):
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     superseded_at: Annotated[AwareDatetime | None, Field(alias="supersededAt")] = None
     """
-    When the next version was made. Absent on the highest.
+    When a newer version replaced it as Latest. Absent on Latest: when Latest is deleted, the version that's Latest again has none.
     """
     pin: FilePin | None = None
     deleted_at: Annotated[AwareDatetime | None, Field(alias="deletedAt")] = None

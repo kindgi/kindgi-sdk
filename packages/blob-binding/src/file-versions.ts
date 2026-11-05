@@ -225,7 +225,10 @@ export interface FileVersion {
   readonly callKey?: string;
   readonly toolId?: string;
   readonly createdAt: Timestamp;
-  /** When the next version was made. Absent on the highest. */
+  /**
+   * When a newer version replaced it as Latest. Absent on Latest: when
+   * Latest is deleted, the version that's Latest again has none.
+   */
   readonly supersededAt?: Timestamp;
   readonly pin?: FilePin;
   readonly deletedAt?: Timestamp;

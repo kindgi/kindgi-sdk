@@ -163,8 +163,7 @@ function memoryFiles(): FileVersionsBinding & {
     }
     const highest = Math.max(...f.versions.keys());
     const at = now();
-    const previous = f.versions.get(highest);
-    if (previous !== undefined) f.versions.set(highest, { ...previous, supersededAt: at });
+    f.versions.set(latest.version, { ...latest, supersededAt: at });
     const version: FileVersion = {
       ...fields,
       fileId: f.fileId,
@@ -346,7 +345,13 @@ function memoryFiles(): FileVersionsBinding & {
       if (live(f).length === 1) {
         return err({ code: 'file-last-version', message: 'last', fileId, version });
       }
+      const wasLatest = latestOf(f).version === version;
       f.versions.set(version, { ...v, deletedAt: now() });
+      if (wasLatest) {
+        // The version that's Latest again stops being superseded.
+        const { supersededAt: _, ...again } = latestOf(f);
+        f.versions.set(again.version, again);
+      }
       return { kind: 'ok', value: { deleted: true } };
     },
     async pinVersion(_t, fileId, version, input) {
