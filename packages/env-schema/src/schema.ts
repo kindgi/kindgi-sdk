@@ -1042,7 +1042,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
-    name: 'KINDGI_ARTIFACT_RUNNER_DAILY_BYTES',
+    name: 'KINDGI_RUN_UPLOAD_DAILY_BYTES',
     description:
       "Used from runtime 0.7.0; earlier runtimes ignore it. The most bytes one person may upload to `POST /v1/artifacts` in a workspace in 24 hours as files for their own runs, in projects where they have `run` and no `write`. Past it, such an upload is `429 upload-limit-reached`, saying when it fits. What the person uploads to projects where they have `write` is never refused, but it counts toward this limit too: the count is every file they uploaded in the workspace in the last 24 hours that names no run and is still stored, in whichever project. Default 1073741824 (1 GiB), or `KINDGI_ARTIFACT_MAX_BYTES` when that is larger. Set, it's a whole number no smaller than `KINDGI_ARTIFACT_MAX_BYTES`, or `off`; set lower, the runtime refuses to start.",
     example: '1073741824',
@@ -1051,9 +1051,9 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
-    name: 'KINDGI_ARTIFACT_RUNNER_DAILY_FILES',
+    name: 'KINDGI_RUN_UPLOAD_DAILY_FILES',
     description:
-      "Used from runtime 0.7.0; earlier runtimes ignore it. The most files one person may upload that way in 24 hours, counted as `KINDGI_ARTIFACT_RUNNER_DAILY_BYTES` counts bytes. Default 1000: a whole number from 1, or `off`. With both `off`, only each upload's size is limited.",
+      "Used from runtime 0.7.0; earlier runtimes ignore it. The most files one person may upload that way in 24 hours, counted as `KINDGI_RUN_UPLOAD_DAILY_BYTES` counts bytes. Default 1000: a whole number from 1, or `off`. With both `off`, only each upload's size is limited.",
     example: '1000',
     required: false,
     appliesTo: appliesToServer,

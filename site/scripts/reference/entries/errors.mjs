@@ -1262,7 +1262,7 @@ export const ERROR_ENTRIES = {
   },
   'upload-limit-reached': {
     description:
-      "An upload for a run of your own, made with `run` on the project and no `write`, is past what one person may upload that way in the workspace in 24 hours: by default 1 GiB and 1,000 files (`KINDGI_ARTIFACT_RUNNER_DAILY_BYTES`, `KINDGI_ARTIFACT_RUNNER_DAILY_FILES`). Your uploads to projects where you have `write` count toward it too, though they're never refused. Nothing is stored. Files you uploaded earlier still start runs. Try again after the `Retry-After` header, when the oldest uploads have left the window, or ask someone with `write` on the project to upload it.",
+      "An upload for a run of your own, made with `run` on the project and no `write`, is past what one person may upload that way in the workspace in 24 hours: by default 1 GiB and 1,000 files (`KINDGI_RUN_UPLOAD_DAILY_BYTES`, `KINDGI_RUN_UPLOAD_DAILY_FILES`). Your uploads to projects where you have `write` count toward it too, though they're never refused. Nothing is stored. Files you uploaded earlier still start runs. Try again after the `Retry-After` header, when the oldest uploads have left the window, or ask someone with `write` on the project to upload it.",
     details: [
       {
         key: 'maxBytes',

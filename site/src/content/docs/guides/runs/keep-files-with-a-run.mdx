@@ -101,7 +101,7 @@ there, and lists leave it out. Someone with `run` there and no `write` may
 upload a file of their own that names no run, an input for a run they start,
 and download it again. The runtime limits what one person uploads that way
 in a workspace, by default to 1 GiB and 1,000 files in 24 hours
-(`KINDGI_ARTIFACT_RUNNER_DAILY_BYTES`, `KINDGI_ARTIFACT_RUNNER_DAILY_FILES`).
+(`KINDGI_RUN_UPLOAD_DAILY_BYTES`, `KINDGI_RUN_UPLOAD_DAILY_FILES`).
 Their uploads to projects where they have `write` are never refused, but
 they count toward it too. Past it, the upload answers
 `429 upload-limit-reached`, and `Retry-After` says when it fits.
