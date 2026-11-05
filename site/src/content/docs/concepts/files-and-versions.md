@@ -53,10 +53,24 @@ Wherever you name a file, such as in a run's input files, the files API or
 the console, you can name its Latest, `{ fileId }`, or one version,
 `{ fileId, version: 3 }`.
 
+A run's input files also take `{ artifactId }`, which names bytes, not a
+version: the run holds the newest version with those bytes that isn't
+deleted or purged. A file value passed back in, with its `artifactId`,
+`fileId` and `version`, is taken only when that version's bytes are the
+artifact's. `artifactId` is one of the names
+[0.8.0 removes](#what-080-removes).
+
 A run takes Latest once, when it first takes the file, and holds that exact
 version from then on. A version added later reaches the run only if someone
 passes it in, or if the run makes it. A version the run holds that's later
 deleted or purged reads as gone: the run never falls back to Latest.
+
+Starting a run is refused with `400 bad-input`, naming the input file, when
+the file isn't there or you can't read it, when it has no such version, or
+when the version is deleted or purged: the start never falls back to Latest.
+An `artifactId` given with only one of `fileId` and `version`, or with a
+pair that names other bytes, is refused the same way, as is an `artifactId`
+whose versions are all deleted or purged.
 
 A flow passes exact versions from step to step, and a flow's run input can
 name a fixed version. Each file a run read or wrote is a node in the run's
@@ -179,4 +193,6 @@ id: `files.get` and `kindgi files get` answer `404 file-not-found` for one.
 `fileId` and `version`, and a file value that names a blob carries them
 beside `artifactId`. Those are what to move to; `kindgi artifacts get` is a `HEAD`,
 which carries neither. A file value with only `artifactId`, kept from an
-earlier runtime, names version 1 of the file with that id.
+earlier runtime, names the file with that id. A run that takes one as an
+input file holds the newest version with those bytes that isn't deleted or
+purged: version 1, unless a restore gave those bytes a later version.
