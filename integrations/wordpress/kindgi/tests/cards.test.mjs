@@ -79,12 +79,12 @@ function sprintf(format, ...values) {
 }
 
 /**
- * The card script, loaded on a page with no Kindgi config. Each decision
- * it sends is kept, and answered with `answer`.
+ * The card script, loaded on a page with the Kindgi config given (none by
+ * default). Each decision it sends is kept, and answered with `answer`.
  */
-function loadCards(answer) {
+function loadCards(answer, kindgiConfig) {
   const sent = [];
-  const window = {};
+  const window = kindgiConfig === undefined ? {} : { kindgiConfig };
   runInNewContext(readFileSync(join(here, '../assets/kindgi-cards.js'), 'utf8'), {
     window,
     document: {
@@ -240,6 +240,62 @@ test('a decision on a run that had already ended says so', async () => {
   assert.match(node.textContent, /The run had already moved on \(cancelled\)\./);
 });
 
+test('a decided card drops its deadline with the buttons: no one decides it any more', async () => {
+  const card = toolCall({ expiresAt: '2099-11-02T05:40:00Z' });
+  const { cards } = loadCards(
+    answered(card, 'approve', { waitpointResolved: true, runStatus: null }),
+  );
+  const node = cards.approvalCard(card);
+  const deadline = () => within(node).filter((n) => n.className?.startsWith?.('kindgi-deadline'));
+  assert.equal(deadline().length, 1);
+  assert.match(node.textContent, /Expires 3 hours ago if no one decides, and it doesn't happen/);
+  button(node, 'Approve').listeners.click();
+  await settled();
+  assert.match(node.textContent, /Approved by you, 3 hours ago/);
+  assert.equal(deadline().length, 0);
+  assert.doesNotMatch(node.textContent, /if no one decides/);
+});
+
+test('a card links the run that asked on Activity; a new version of an agent has none', () => {
+  const { cards } = loadCards(null, { urls: { activity: 'admin.php?page=kindgi-activity' } });
+  const links = (card, options) =>
+    within(cards.approvalCard(card, options)).filter(
+      (n) => n.tagName === 'a' && n.textContent === 'See the run',
+    );
+  const [link] = links(toolCall({ runId: 'run 1' }));
+  assert.equal(link.attributes.href, 'admin.php?page=kindgi-activity&run=run%201');
+  assert.equal(links(toolCall({ runId: null })).length, 0);
+  assert.equal(links({ ...pin, runId: null }).length, 0);
+  assert.equal(
+    links(toolCall({ runId: 'run 1' }), { inConversation: true, linked: 'run 1' }).length,
+    0,
+    "in a turn that links its own run, the card doesn't again",
+  );
+  assert.equal(
+    links(toolCall({ runId: 'run 2' }), { inConversation: true, linked: 'run 1' }).length,
+    1,
+    'another run it still links',
+  );
+});
+
+test("a conversation's words find the run that wrote them by its time; none past the runs read", () => {
+  const { cards } = loadCards(null);
+  const runs = [
+    { id: 'run-3', createdAt: '2026-11-04T09:10:00Z', completedAt: null },
+    { id: 'run-2', createdAt: '2026-11-04T09:00:03Z', completedAt: '2026-11-04T09:00:09Z' },
+    { id: 'run-1', createdAt: '2026-11-04T09:00:00Z', completedAt: '2026-11-04T09:00:07Z' },
+  ];
+  const at = (iso) => cards.runAt(iso, runs)?.id ?? null;
+  assert.equal(at('2026-11-04T09:00:01Z'), 'run-1');
+  assert.equal(at('2026-11-04T09:00:00Z'), 'run-1', 'from its start');
+  assert.equal(at('2026-11-04T09:00:05Z'), 'run-2', 'the latest to start, when two ran then');
+  assert.equal(at('2026-11-04T09:00:09Z'), 'run-2', 'to its end');
+  assert.equal(at('2026-11-04T09:05:00Z'), null, 'between runs: none');
+  assert.equal(at('2026-11-04T09:12:00Z'), 'run-3', 'a run still running holds until now');
+  assert.equal(at('2026-11-04T08:00:00Z'), null, 'older than the runs read: none is guessed');
+  assert.equal(cards.runAt('2026-11-04T09:00:01Z', []), null);
+});
+
 /** A step's words, as plain fields: made in the script's own realm. */
 const stepOf = (cards, ...args) => ({ ...cards.stepWords(...args) });
 
@@ -379,4 +435,30 @@ test("a tool's own answer reads as used, whatever its fields", () => {
       why: null,
     });
   }
+});
+
+test('a waiting run with approvals of its own needs a person; one waiting on something else is waiting', () => {
+  const { cards } = loadCards(null);
+  const wait = { id: 'ap-hand-off', heading: 'Hand off' };
+  const pill = (run) => cards.runState({ id: 'r-1', waiting: [], ...run });
+  const needs = pill({ status: 'suspended', waiting: [wait] });
+  assert.equal(needs.textContent, 'Needs a person');
+  assert.equal(needs.className, 'kindgi-state kindgi-state-warn');
+  assert.equal(pill({ status: 'suspended' }).textContent, 'Waiting');
+  assert.equal(pill({ status: 'completed', waiting: [wait] }).textContent, 'Done');
+});
+
+test('what a run waits for links to the Inbox for a reviewer, and reads in words for anyone else', () => {
+  const { cards } = loadCards(null);
+  const run = {
+    id: 'r-1',
+    status: 'suspended',
+    waiting: [{ id: 'ap-hand-off', heading: 'Hand off' }],
+  };
+  const [linked] = cards.waitsFor(run);
+  assert.equal(linked.textContent, 'Waits for approval: Hand off');
+  assert.equal(linked.querySelectorAll('a').length, 1);
+  const [words] = cards.waitsFor(run, false);
+  assert.equal(words.textContent, 'Waits for approval: Hand off');
+  assert.equal(words.querySelectorAll('a').length, 0);
 });

@@ -199,21 +199,35 @@
     pending: ['run', __('Running', 'kindgi')],
   };
 
-  /** A run's state as a pill (Activity, the dashboard). */
+  /** A waiting run with approvals of its own to decide (`run.waiting`). */
+  const NEEDS_A_PERSON = ['warn', __('Needs a person', 'kindgi')];
+
+  /**
+   * A run's state as a pill (Activity, the dashboard). A waiting run that
+   * waits for approvals of its own needs a person; one that waits for
+   * something else, such as a step it started, is waiting.
+   */
   function runState(run) {
-    const [tone, words] = RUN_STATES[run.status] ?? ['none', run.status];
+    const [tone, words] =
+      run.status === 'suspended' && run.waiting?.length > 0
+        ? NEEDS_A_PERSON
+        : (RUN_STATES[run.status] ?? ['none', run.status]);
     return el('span', { className: `kindgi-state kindgi-state-${tone}` }, words);
   }
 
-  /** What a waiting run waits for: each approval it asked for, linked to its card in the Inbox. */
-  const waitsFor = (run) =>
+  /**
+   * What a waiting run waits for: each approval it asked for, linked to its
+   * card in the Inbox. Unless `linked`, in words only: the Inbox's approvals
+   * are for reviewers, so anyone else reads what the run waits for.
+   */
+  const waitsFor = (run, linked = true) =>
     run.waiting.map((wait) =>
       el(
         'p',
         { className: 'kindgi-run-waits' },
         __('Waits for approval:', 'kindgi'),
         ' ',
-        el('a', { href: approvalUrl(wait.id) }, wait.heading),
+        linked ? el('a', { href: approvalUrl(wait.id) }, wait.heading) : wait.heading,
       ),
     );
 
@@ -431,8 +445,13 @@
    * someone else's, or Approve and Reject. Ids only Kindgi reads stay off
    * it: the card's address names the approval.
    */
-  function approvalCard(card, { after, inConversation = false, inOrder = false } = {}) {
+  function approvalCard(
+    card,
+    { after, inConversation = false, inOrder = false, linked = null } = {},
+  ) {
     const kind = card.waitsFor ?? card.status;
+    // What happens if no one decides: gone with the buttons once someone does.
+    const due = deadline(card);
     return el(
       'div',
       { className: `kindgi-card kindgi-${kind}`, 'data-approval': card.id },
@@ -452,8 +471,8 @@
         : null,
       card.words.map(agentWords),
       wholeCall(card),
-      cardMeta(card),
-      deadline(card),
+      cardMeta(card, linked),
+      due,
       inConversation || !card.opens
         ? null
         : el(
@@ -467,7 +486,7 @@
                 : __('See what the agent did', 'kindgi'),
             ),
           ),
-      cardEnding(card, after),
+      cardEnding(card, after, due),
     );
   }
 
@@ -506,9 +525,41 @@
   /** Under an approval waiting less than this long to be decided, its time left shows as short. */
   const SOON_MS = 2 * 60 * 60 * 1000;
 
-  /** Who asked, and when. */
-  const cardMeta = (card) =>
-    el('p', { className: 'kindgi-meta' }, askedWords(card), ' · ', timeEl(card.createdAt));
+  /**
+   * Who asked, and when; and the run that asked, on Activity (a new version
+   * of an agent has none), unless the place already links it (`linked`).
+   */
+  const cardMeta = (card, linked = null) =>
+    el(
+      'p',
+      { className: 'kindgi-meta' },
+      askedWords(card),
+      ' · ',
+      timeEl(card.createdAt),
+      card.runId && card.runId !== linked ? [' · ', runLink(card.runId)] : null,
+    );
+
+  /** A link to a run's row on Activity. */
+  const runLink = (runId) => el('a', { href: runUrl(runId) }, __('See the run', 'kindgi'));
+
+  /**
+   * The run that wrote something at `at` (an ISO time): among `runs`
+   * (`{ id, createdAt, completedAt }`), the one whose time, from its start
+   * to its end or now, holds it; the latest to start, if two do. Null when
+   * none does: a run the page didn't read isn't guessed.
+   */
+  function runAt(at, runs) {
+    const when = Date.parse(at);
+    let found = null;
+    for (const run of runs) {
+      const from = Date.parse(run.createdAt);
+      const to = run.completedAt ? Date.parse(run.completedAt) : Date.now();
+      if (from <= when && when <= to && (found === null || from > Date.parse(found.createdAt))) {
+        found = run;
+      }
+    }
+    return found;
+  }
 
   /**
    * What happens if no one decides a waiting approval in time: Kindgi
@@ -585,8 +636,12 @@
   const LONG_WORDS = 3000;
   const LONG_LINES = 40;
 
-  /** What a card ends with: the decision made, why it's someone else's, or the controls to make one. */
-  function cardEnding(card, after) {
+  /**
+   * What a card ends with: the decision made, why it's someone else's, or
+   * the controls to make one, which take the deadline line (`due`) away
+   * with them.
+   */
+  function cardEnding(card, after, due) {
     if (card.decision !== null) return decisionLine(card.decision);
     if (card.waitsFor === null) {
       const closed = CLOSED[card.status];
@@ -601,7 +656,7 @@
         NOT_YOURS[card.notYours] ?? __('Waits for another reviewer.', 'kindgi'),
       );
     }
-    return decisionControls(card, after);
+    return decisionControls(card, after, due);
   }
 
   /**
@@ -695,9 +750,11 @@
 
   /**
    * Approve, or Reject: the reason box opens only then, since a rejection
-   * needs one and an approval doesn't. Both say what they do.
+   * needs one and an approval doesn't. Both say what they do. Once Kindgi
+   * records the decision, the buttons, the reason box and the deadline
+   * line (`due`) go: no one decides it any more.
    */
-  function decisionControls(card, after) {
+  function decisionControls(card, after, due = null) {
     const words = decisionWords(card);
     const id = `kindgi-why-${card.id}`;
     const reason = el('textarea', {
@@ -737,6 +794,7 @@
         result.replaceChildren(...decided(done, words));
         buttons.remove();
         why.remove();
+        due?.remove();
         // The count on the menu and in the admin bar, now rather than in a minute.
         window.wp?.heartbeat?.connectNow?.();
         if (after !== undefined) setTimeout(after, 1500);
@@ -817,6 +875,8 @@
     askUrl,
     approvalUrl,
     runUrl,
+    runLink,
+    runAt,
     approvalCard,
     runState,
     waitsFor,

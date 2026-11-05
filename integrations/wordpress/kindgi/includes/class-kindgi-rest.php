@@ -29,8 +29,19 @@ final class Kindgi_Rest {
 	/** At most this many pages of messages are read to reach the newest. */
 	const MESSAGES_PAGES_MAX = 50;
 
+	/** A conversation's runs are looked for among its agent's newest this many (one page). */
+	const CONVERSATION_RUNS = 100;
+
 	/** Activity shows this many runs a page. */
 	const ACTIVITY_PAGE = 25;
+
+	/**
+	 * While Kindgi refuses the runs list's `include=waitingFor` (a Kindgi
+	 * from before it), Activity asks without it, for this long, then once
+	 * more.
+	 */
+	const NO_WAITS     = 'kindgi_runs_no_waits';
+	const NO_WAITS_FOR = 3600;
 
 	/** The option holding the agents offered to staff (their ids); none set offers them all. */
 	const OFFERED = 'kindgi_offered_agents';
@@ -279,7 +290,8 @@ final class Kindgi_Rest {
 	/**
 	 * A conversation's newest messages, oldest first. Kindgi pages them
 	 * oldest first, so the pages are read through to the newest; `earlier`
-	 * says some older ones aren't shown.
+	 * says some older ones aren't shown. With them, the conversation's runs
+	 * (`conversation_runs`), for each reply to link the run that wrote it.
 	 */
 	public static function messages( WP_REST_Request $request ) {
 		$readable = self::readable( wp_get_current_user(), (string) $request['id'], self::through( $request ) );
@@ -333,7 +345,53 @@ final class Kindgi_Rest {
 		return array(
 			'messages' => $messages,
 			'earlier'  => $pages['earlier'],
+			'runs'     => self::conversation_runs( wp_get_current_user(), $readable['conversation'] ),
 		);
+	}
+
+	/**
+	 * A conversation's runs, each with when it started and ended (null while
+	 * it runs). Kindgi's messages don't name their run, and its runs list
+	 * doesn't filter by conversation, but each of an agent's runs names its
+	 * conversation: so one page of the agent's newest top-level runs in the
+	 * site's project (`CONVERSATION_RUNS`) is read, and this conversation's
+	 * are kept. Activity opens only the site's project's runs, so a
+	 * conversation in another project links none. A run older than that
+	 * page isn't found, and a list Kindgi doesn't answer is none: its
+	 * replies then link no run.
+	 *
+	 * @param array $conversation Kindgi's conversation.
+	 * @return array<int, array{id: string, createdAt: string, completedAt: string|null}>
+	 */
+	private static function conversation_runs( WP_User $user, array $conversation ): array {
+		$id      = is_string( $conversation['id'] ?? null ) ? $conversation['id'] : '';
+		$agent   = is_string( $conversation['agentId'] ?? null ) ? $conversation['agentId'] : '';
+		$project = self::project( $user );
+		if ( '' === $id || '' === $agent || is_wp_error( $project ) ) {
+			return array();
+		}
+		if ( is_string( $conversation['projectId'] ?? null ) && $conversation['projectId'] !== $project ) {
+			return array();
+		}
+		$query  = array(
+			'agentId'   => $agent,
+			'topLevel'  => 'true',
+			'limit'     => self::CONVERSATION_RUNS,
+			'scopeKind' => 'project',
+			'scopeId'   => $project,
+		);
+		$answer = Kindgi_Api::body( $user, 'GET', '/v1/runs', $query );
+		$runs   = array();
+		foreach ( is_wp_error( $answer ) ? array() : self::list_of( $answer['body']['data'] ?? null ) as $run ) {
+			if ( $id === ( $run['agent']['conversationId'] ?? null ) && is_string( $run['id'] ?? null ) && is_string( $run['createdAt'] ?? null ) ) {
+				$runs[] = array(
+					'id'          => $run['id'],
+					'createdAt'   => $run['createdAt'],
+					'completedAt' => is_string( $run['completedAt'] ?? null ) ? $run['completedAt'] : null,
+				);
+			}
+		}
+		return $runs;
 	}
 
 	/**
@@ -557,12 +615,19 @@ final class Kindgi_Rest {
 			'topLevel'  => 'true',
 			'limit'     => self::ACTIVITY_PAGE,
 			// A list leaves each run's output out unless asked: a row's summary is its first line.
-			'include'   => 'output',
+			// What each waiting run waits for comes with it (`Kindgi_Activity::waits`).
+			'include'   => false === get_transient( self::NO_WAITS ) ? 'output,waitingFor' : 'output',
 		);
 		if ( null !== $request['cursor'] && '' !== $request['cursor'] ) {
 			$query['cursor'] = $request['cursor'];
 		}
 		$answer = Kindgi_Api::body( $user, 'GET', '/v1/runs', $query );
+		if ( 'output' !== $query['include'] && self::refuses_waits( $answer ) ) {
+			// A Kindgi from before it: ask again without it, and remember (`NO_WAITS`).
+			set_transient( self::NO_WAITS, 1, self::NO_WAITS_FOR );
+			$query['include'] = 'output';
+			$answer           = Kindgi_Api::body( $user, 'GET', '/v1/runs', $query );
+		}
 		if ( is_wp_error( $answer ) ) {
 			return $answer;
 		}
@@ -578,14 +643,25 @@ final class Kindgi_Rest {
 		);
 	}
 
+	/** Whether Kindgi refused the runs list's `include=waitingFor` as a value it doesn't know. */
+	private static function refuses_waits( $answer ): bool {
+		return is_wp_error( $answer ) && 'bad-input' === $answer->get_error_code() && 0 === strpos( $answer->get_error_message(), 'Unknown `include` value(s)' );
+	}
+
 	/**
-	 * Activity's rows with what each waiting run waits for, from the
-	 * approvals that wait: read only when a row waits, one page of them,
-	 * newest first, as Activity lists its runs. Without them, a waiting
-	 * run says only that it waits.
+	 * Activity's rows with what each waiting run waits for, headed from the
+	 * approvals that wait (`Kindgi_Activity::with_waits`): read only when a
+	 * row names approvals or waits without saying for what, one page of
+	 * them, newest first, as Activity lists its runs. Without them, a
+	 * waiting run keeps what its run named, or says only that it waits.
 	 */
 	private static function with_waits( WP_User $user, string $project, array $rows ): array {
-		if ( ! in_array( 'suspended', array_column( $rows, 'status' ), true ) ) {
+		$waits = false;
+		foreach ( $rows as $row ) {
+			// A run that named its approvals, or one that waits and didn't say (null).
+			$waits = $waits || array() !== $row['waiting'];
+		}
+		if ( ! $waits ) {
 			return $rows;
 		}
 		$page = Kindgi_Api::body(
