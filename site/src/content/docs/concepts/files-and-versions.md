@@ -66,11 +66,14 @@ passes it in, or if the run makes it. A version the run holds that's later
 deleted or purged reads as gone: the run never falls back to Latest.
 
 Starting a run is refused with `400 bad-input`, naming the input file, when
-the file isn't there or you can't read it, when it has no such version, or
-when the version is deleted or purged: the start never falls back to Latest.
-An `artifactId` given with only one of `fileId` and `version`, or with a
-pair that names other bytes, is refused the same way, as is an `artifactId`
-whose versions are all deleted or purged.
+the file isn't there or you can't read it, when it has no such version, when
+the version is deleted or purged, when the file is in a project other than
+the run's, or when it's a type or size a model can't be shown: the start
+never falls back to Latest. An `artifactId` given with only one of `fileId`
+and `version`, or with a pair that names other bytes, is refused the same
+way, as is an `artifactId` whose versions are all deleted or purged. On a
+runtime without a file store, a start with any input file is refused with
+`400 bad-input`.
 
 A flow passes exact versions from step to step, and a flow's run input can
 name a fixed version. Each file a run read or wrote is a node in the run's
