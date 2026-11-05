@@ -1054,7 +1054,8 @@ export function deploymentsRouter(
     if (keyIssues.length > 0) return validationFailed(c, keyIssues);
     // Nor is a texts registration's account key a name its pack declares in
     // `env`: its pack service would get it. Required names first, then
-    // optional, each in the declaration's order.
+    // optional, each list sorted as `resolvePackEnv` gives it (code-unit
+    // order).
     if (declaredEnv.value !== undefined) {
       const refusal = await refuseConnectionKeyNames(
         bindings.connectionKeys,
