@@ -41,6 +41,16 @@ final class Docs {
     return cut < 0 ? t : t.substring(0, cut);
   }
 
+  /** {@code text} after its first paragraph: empty when it has only one. */
+  static String afterFirstParagraph(String text) {
+    if (text == null) {
+      return "";
+    }
+    String t = text.strip();
+    int cut = t.indexOf("\n\n");
+    return cut < 0 ? "" : t.substring(cut + 2).strip();
+  }
+
   private static String escape(String s) {
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("@", "&#64;").replace("\\", "&#92;");
   }
