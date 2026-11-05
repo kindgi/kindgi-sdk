@@ -328,7 +328,7 @@ export function providersRouter(
     const keyOwner =
       keyName === undefined || options.connectionKeys === undefined
         ? undefined
-        : (await options.connectionKeys.of(tenantId)).get(keyName)?.[0];
+        : (await options.connectionKeys.holders(tenantId, keyName))[0];
     if (keyName !== undefined && keyOwner !== undefined) {
       const refusal = connectionKeyRefusal(keyName, keyOwner, 'a model provider');
       c.status(statusFor(refusal.code) as never);

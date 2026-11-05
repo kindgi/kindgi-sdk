@@ -104,7 +104,12 @@ import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { packEnvCheck } from '../pack-env.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
-import { type ConnectionKeys, type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
+import {
+  type ConnectionKeys,
+  type ProviderKeys,
+  refuseConnectionKeyNames,
+  refuseSecretNames,
+} from '../provider-keys.js';
 import { PROJECT_MISMATCH, PublishRefused, projectMismatchFix } from '../publish-refused.js';
 import {
   type ItemReference,
@@ -262,8 +267,9 @@ export interface DeploymentsRouterBindings {
   /** The tenant's model providers' keys: no tool a deployment brings may name one. */
   readonly providerKeys?: ProviderKeys;
   /**
-   * A texts registration's account key is never named here
-   * (`connection-key-refused`); absent, not checked.
+   * A texts registration's account key is never named here, by a tool or
+   * by a name its pack declares in `env` (`400 connection-key-refused`,
+   * `details.secret` and `details.appId`); absent, not checked.
    */
   readonly connectionKeys?: ConnectionKeys;
   /**
@@ -1046,6 +1052,21 @@ export function deploymentsRouter(
       }
     }
     if (keyIssues.length > 0) return validationFailed(c, keyIssues);
+    // Nor is a texts registration's account key a name its pack declares in
+    // `env`: its pack service would get it. Required names first, then
+    // optional, each in the declaration's order.
+    if (declaredEnv.value !== undefined) {
+      const refusal = await refuseConnectionKeyNames(
+        bindings.connectionKeys,
+        c.get('tenantId') as TenantId,
+        [...declaredEnv.value.required, ...declaredEnv.value.optional],
+        "a pack's env",
+      );
+      if (refusal !== undefined) {
+        c.status(statusFor(refusal.code) as never);
+        return c.json(toWireError(refusal, requestId));
+      }
+    }
 
     // The pack's data blocks are published into the runtime's block
     // registry: a runtime without one takes none.

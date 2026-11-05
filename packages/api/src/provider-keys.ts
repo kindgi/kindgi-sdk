@@ -7,7 +7,11 @@ import type { Cursor, TenantId } from '@kindgi/types';
 import type { ConnectionBinding } from './connection-binding.js';
 import { type MCPEndpointRegistryBinding, mcpEndpointSecretNames } from './mcp-endpoint-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
-import { RESERVED_SECRET_NAME_PREFIX, type SecretBinding } from './secrets-binding.js';
+import {
+  RESERVED_SECRET_NAME_PREFIX,
+  type ResolveContext,
+  type SecretBinding,
+} from './secrets-binding.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
 import type { TriggerRegistryBinding } from './trigger-binding.js';
 import type { WebhookEndpointBinding } from './webhook-endpoint-binding.js';
@@ -40,38 +44,40 @@ export function providerKeysOf(registry: ProviderRegistryBinding | undefined): P
 /**
  * A texts registration's key (`token.apiKey`) reaches the whole provider
  * account, so it's used by its registration only: no tool, MCP endpoint,
- * webhook endpoint, webhook trigger, model provider or other connection app
- * registration may name a secret that a live token registration of the
- * tenant references. These checks refuse it where the name is written.
+ * webhook endpoint, webhook trigger, model provider, pack's env or other
+ * connection app registration may name a secret that a live token
+ * registration of the tenant references. These checks refuse it where the
+ * name is written, and `guardSecretKeys` where it's read.
  */
 export interface ConnectionKeys {
   /**
-   * Each secret a live token registration of the tenant references
-   * (`token.apiKey.name`), with the `appId` of every live registration that
-   * names it, in listing order: two creates that raced can both hold one key.
+   * The `appId` of every live registration of the tenant whose texts key
+   * (`token.apiKey.name`) is `name`, in listing order: two creates that
+   * raced can both hold one key. Read afresh on every call.
    */
-  of(tenantId: TenantId): Promise<ReadonlyMap<string, readonly string[]>>;
+  holders(tenantId: TenantId, name: string): Promise<readonly string[]>;
 }
 
 /**
- * Reads every page of `binding.listApps`, which lists live registrations
- * only: a removed one frees its key. A binding's `listApps` must carry
- * `token` on a token registration's record, or its key isn't seen.
+ * From `binding.keyHolders`, a point read. A binding without it is listed
+ * on every call: each page of `listApps`, with no cap, which lists live
+ * registrations only, so a removed one frees its key. A binding's
+ * `listApps` must carry `token` on a token registration's record, or its
+ * key isn't seen.
  */
 export function connectionKeysOf(binding: ConnectionBinding | undefined): ConnectionKeys {
   return {
-    async of(tenantId) {
-      const out = new Map<string, string[]>();
+    async holders(tenantId, name) {
       // Without a connection binding there's no registration whose key could clash.
-      if (binding === undefined) return out;
-      for await (const app of pages((cursor) =>
-        binding.listApps({ tenantId, limit: PAGE, ...(cursor !== undefined && { cursor }) }),
+      if (binding === undefined) return [];
+      if (binding.keyHolders !== undefined) return binding.keyHolders({ tenantId, name });
+      const out: string[] = [];
+      for await (const app of pages(
+        (cursor) =>
+          binding.listApps({ tenantId, limit: PAGE, ...(cursor !== undefined && { cursor }) }),
+        Number.POSITIVE_INFINITY,
       )) {
-        if (app.token === undefined) continue;
-        const name = app.token.apiKey.name;
-        const appIds = out.get(name);
-        if (appIds === undefined) out.set(name, [app.appId]);
-        else appIds.push(app.appId);
+        if (app.token?.apiKey.name === name) out.push(app.appId);
       }
       return out;
     },
@@ -85,7 +91,8 @@ export type SecretUser =
   | 'a webhook endpoint'
   | 'a webhook trigger'
   | 'a connection app'
-  | 'a model provider';
+  | 'a model provider'
+  | "a pack's env";
 
 /** Why `name` can't be used by `user`: it's model provider `providerId`'s key. */
 export function providerKeyRefusal(
@@ -149,7 +156,10 @@ export interface SecretUsersDeps {
   readonly triggers?: TriggerRegistryBinding;
 }
 
-/** A page's worth, and how many pages at most: past that, the call-time refusal still holds. */
+/**
+ * A page's worth, and how many pages `usersOfSecret` reads at most. A key's
+ * holders are read with no cap (`connectionKeysOf`).
+ */
 export const PAGE = 100;
 const MAX_PAGES = 100;
 
@@ -158,9 +168,10 @@ export async function* pages<T>(
     readonly data: readonly T[];
     readonly nextCursor?: Cursor;
   }>,
+  maxPages = MAX_PAGES,
 ): AsyncGenerator<T> {
   let cursor: Cursor | undefined;
-  for (let i = 0; i < MAX_PAGES; i++) {
+  for (let i = 0; i < maxPages; i++) {
     const page = await read(cursor);
     yield* page.data;
     if (page.nextCursor === undefined) return;
@@ -272,13 +283,27 @@ async function refuseConnectionKeys(
   names: readonly string[],
   user: SecretUser,
 ): Promise<ReturnType<typeof connectionKeyRefusal> | undefined> {
-  if (keys === undefined || names.length === 0) return undefined;
-  const owned = await keys.of(tenantId);
+  if (keys === undefined) return undefined;
   for (const name of names) {
-    const other = owned.get(name)?.find((appId) => appId !== ownAppId);
+    const other = (await keys.holders(tenantId, name)).find((appId) => appId !== ownAppId);
     if (other !== undefined) return connectionKeyRefusal(name, other, user);
   }
   return undefined;
+}
+
+/**
+ * The first secret in `names` that's a texts registration's account key,
+ * refused for `user`: connection keys only, for what checks neither
+ * reserved names nor providers' keys (a pack's env). No registration's own
+ * key is passed over: that's the connections' guard's only.
+ */
+export function refuseConnectionKeyNames(
+  keys: ConnectionKeys | undefined,
+  tenantId: TenantId,
+  names: readonly string[],
+  user: SecretUser,
+): Promise<ReturnType<typeof connectionKeyRefusal> | undefined> {
+  return refuseConnectionKeys(keys, undefined, tenantId, names, user);
 }
 
 /**
@@ -313,20 +338,58 @@ export async function refuseSecretNames(
 }
 
 /**
- * `binding` for `user`, which never gets a model provider's key: `resolve`
- * answers `provider-key-refused` for one, and `getVersion` throws it. What
- * reads names only (`list`, `get`, `listVersions`) and the writes pass
- * through. Hand it to whatever gives secrets to tools and endpoints; a
- * provider's adapter keeps `binding` itself.
+ * `binding` for `user`, which never gets a model provider's key: as
+ * `guardSecretKeys` with `providerKeys` only.
  */
 export function guardProviderKeys(
   binding: SecretBinding,
   keys: ProviderKeys,
   user: SecretUser,
 ): SecretBinding {
-  const refusal = async (tenantId: TenantId, name: string) => {
-    const providerId = (await keys.of(tenantId)).get(name);
-    return providerId === undefined ? undefined : providerKeyRefusal(name, providerId, user);
+  return guardSecretKeys(binding, { providerKeys: keys }, user);
+}
+
+/** The keys a guarded binding refuses: model providers', texts registrations', or both. */
+export interface SecretKeys {
+  readonly providerKeys?: ProviderKeys;
+  readonly connectionKeys?: ConnectionKeys;
+}
+
+/**
+ * `binding` for `user`, which never gets a key of `keys`: `resolve` answers
+ * `provider-key-refused` for a model provider's key, then
+ * `connection-key-refused` for a texts registration's (`refuseSecretNames`'
+ * order), and `getVersion` throws it. What reads names only (`list`, `get`,
+ * `listVersions`) and the writes pass through.
+ *
+ * A texts key's holders are read on every call, with no cache, so a
+ * registration that lands after a name was written is refused at once. A
+ * texts registration reads its own key only with `user` `'a connection
+ * app'`, a read that says `caller: 'connections'` with its `appId`, and no
+ * other live registration holding the key. `getVersion` names no reader,
+ * so a texts key is refused there to every user.
+ *
+ * Hand it to whatever gives secrets out: tools, endpoints and webhook
+ * triggers get both kinds, the connections both with their reads' `appId`,
+ * and a model provider's adapter or a pack's env `connectionKeys` only.
+ */
+export function guardSecretKeys(
+  binding: SecretBinding,
+  keys: SecretKeys,
+  user: SecretUser,
+): SecretBinding {
+  const refusal = async (tenantId: TenantId, name: string, context?: ResolveContext) => {
+    if (keys.providerKeys !== undefined) {
+      const providerId = (await keys.providerKeys.of(tenantId)).get(name);
+      if (providerId !== undefined) return providerKeyRefusal(name, providerId, user);
+    }
+    if (keys.connectionKeys === undefined) return undefined;
+    // The reader's own say: only the connections' reads count it.
+    const reader =
+      user === 'a connection app' && context?.caller === 'connections' ? context.appId : undefined;
+    const holders = await keys.connectionKeys.holders(tenantId, name);
+    const other = holders.find((appId) => appId !== reader);
+    return other === undefined ? undefined : connectionKeyRefusal(name, other, user);
   };
   const guarded: SecretBinding = {
     list: (input) => binding.list(input),
@@ -352,16 +415,24 @@ export function guardProviderKeys(
       listEnvNames: binding.listEnvNames.bind(binding),
     }),
     async resolve(input) {
-      const refused = await refusal(input.scope.tenantId, input.name);
+      const refused = await refusal(input.scope.tenantId, input.name, input.resolveContext);
       if (refused === undefined) return binding.resolve(input);
       return {
         kind: 'err',
-        error: {
-          code: refused.code,
-          message: refused.message,
-          name: refused.secret,
-          providerId: refused.providerId,
-        },
+        error:
+          refused.code === 'provider-key-refused'
+            ? {
+                code: refused.code,
+                message: refused.message,
+                name: refused.secret,
+                providerId: refused.providerId,
+              }
+            : {
+                code: refused.code,
+                message: refused.message,
+                name: refused.secret,
+                appId: refused.appId,
+              },
       };
     },
     async getVersion(input) {
@@ -374,7 +445,7 @@ export function guardProviderKeys(
 }
 
 /**
- * Every `SecretBinding` member `guardProviderKeys` handles. A member added
+ * Every `SecretBinding` member `guardSecretKeys` handles. A member added
  * to `SecretBinding`, an optional one too, doesn't compile below until it's
  * listed here: someone decides whether the guard covers it.
  */

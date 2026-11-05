@@ -2282,6 +2282,19 @@ export function createInMemoryConnections(
       return page(data, input.limit, input.cursor);
     },
 
+    async keyHolders(input) {
+      // Live ones only, as `listApps` lists them: a removal that stopped is still live.
+      return [...apps.values()]
+        .filter(
+          (a) =>
+            a.tenantId === input.tenantId &&
+            a.removedAt === undefined &&
+            a.token?.apiKey.name === input.name,
+        )
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.appId.localeCompare(b.appId))
+        .map((a) => a.appId);
+    },
+
     async getApp(input) {
       const app = apps.get(input.appId);
       return app !== undefined && app.tenantId === input.tenantId ? app : null;

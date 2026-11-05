@@ -25,7 +25,7 @@ import {
   frozenTenantRefusal,
   tenantStateReader,
 } from '../middleware/tenant-state.js';
-import { type ProviderKeys, guardProviderKeys } from '../provider-keys.js';
+import { type ConnectionKeys, type ProviderKeys, guardSecretKeys } from '../provider-keys.js';
 import {
   type RateLimitStore,
   createInMemoryRateLimitStore,
@@ -59,6 +59,8 @@ export interface HooksRouterOptions {
   readonly envName: EnvName;
   /** A model provider's key is never a webhook trigger's secret. */
   readonly providerKeys?: ProviderKeys;
+  /** Nor is a texts registration's account key. */
+  readonly connectionKeys?: ConnectionKeys;
   /**
    * Who the client is: the key of the per-client refusal limit, and the
    * address in the audit record; `undefined` when there's no address at
@@ -119,12 +121,15 @@ const SCHEME_KINDS = ['hmac-sha256', 'standard-webhooks'] as const;
 /**
  * A secret that won't verify anything until someone writes it: kept as
  * unavailable for the TTL too, so a flood at its trigger costs one read.
- * A store or provider failure isn't kept: it may pass in a second.
+ * A key refused to a trigger (a model provider's or a texts
+ * registration's) is kept the same way. A store or provider failure isn't
+ * kept: it may pass in a second.
  */
 const SECRET_UNAVAILABLE_UNTIL_WRITTEN = new Set([
   'secret-not-found',
   'secret-revoked',
   'provider-key-refused',
+  'connection-key-refused',
 ]);
 /** WooCommerce's save-time ping: `webhook_id=<n>`, unsigned. */
 const WOO_PING_RE = /^webhook_id=\d{1,20}$/;
@@ -163,9 +168,18 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
     );
   }
   const secrets =
-    options.providerKeys === undefined
+    options.providerKeys === undefined && options.connectionKeys === undefined
       ? options.secrets
-      : guardProviderKeys(options.secrets, options.providerKeys, 'a webhook trigger');
+      : guardSecretKeys(
+          options.secrets,
+          {
+            ...(options.providerKeys !== undefined && { providerKeys: options.providerKeys }),
+            ...(options.connectionKeys !== undefined && {
+              connectionKeys: options.connectionKeys,
+            }),
+          },
+          'a webhook trigger',
+        );
   const clientAddress = options.clientAddress ?? nearestForwardedClient;
   const store = options.rateLimitStore ?? createInMemoryRateLimitStore();
   const now = options.now ?? Date.now;
