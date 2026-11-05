@@ -58,6 +58,8 @@ import type {
   PinRequestInput,
   PinVersionInput,
   PinnedVersionBinding,
+  PlanLimitsBinding,
+  PlanRefused,
   PromotedToolSecretScopes,
   ReleaseGate,
   RunHandlerBinding,
@@ -71,6 +73,7 @@ import { inMemoryBlocks } from './support/in-memory-blocks.js';
 import { inMemorySuggestedChanges } from './support/in-memory-suggested-changes.js';
 import { noLatest } from './support/latest.js';
 import { type ItemRow, itemProjects } from './support/order-items.js';
+import { planLimits } from './support/plan-limits.js';
 
 const tenantId = randomUUID() as TenantId;
 const TOKEN = 'promotions-token';
@@ -483,6 +486,10 @@ function harness(
     readonly cards?: { readonly pinned: string };
     /** What runs, for a promotion's check against it (`pinsAndRuns`). */
     readonly runs?: Runs;
+    /** The plan limits (`support/plan-limits.ts`). */
+    readonly plan?: PlanLimitsBinding;
+    /** Gets `promoted` as the ledger promotes, beside the plan binding's own steps. */
+    readonly order?: string[];
   } = {},
 ) {
   const deployments = ledger(opts.rows ?? [built({ id: 'dep-s1', projectId: S1 })], {
@@ -559,7 +566,17 @@ function harness(
     resolveToken,
     runHandler: {} as RunHandlerBinding,
     ...(opts.envName !== null && { envName: (opts.envName ?? 'prod') as never }),
-    deploymentRegistry: deployments,
+    deploymentRegistry:
+      opts.order === undefined || deployments.promote === undefined
+        ? deployments
+        : {
+            ...deployments,
+            promote: async (input: Parameters<NonNullable<DeploymentBinding['promote']>>[0]) => {
+              opts.order?.push('promoted');
+              return (deployments.promote as NonNullable<DeploymentBinding['promote']>)(input);
+            },
+          },
+    ...(opts.plan !== undefined && { planLimits: opts.plan }),
     signingKeyRegistry: {
       isTrusted: async ({ keyId, publicKey }: { keyId: SigningKeyId; publicKey: string }) => ({
         kind: 'ok',
@@ -1749,5 +1766,92 @@ describe('a promotion that pins, against what runs in the target', () => {
     expect(check.status).toBe(400);
     expect(check.body.error.message).toBe('Unknown field `replace`.');
     expect(h.deployments.rows.map((d) => d.deploymentId)).toEqual(['dep-s1']);
+  });
+});
+
+describe('a promotion through the plan limits', () => {
+  const MATCHER_OVER: PlanRefused = {
+    kind: 'refused',
+    over: [{ limit: 'agents', adding: 1, numbers: { plan: 3, most: 4, inUse: 4 } }],
+    newIds: { flows: [], agents: ['acme.matcher'] },
+  };
+
+  test("asks admit with the build's agents and flows, in the target, and promotes inside", async () => {
+    const order: string[] = [];
+    const plan = planLimits({ kind: 'done' }, order);
+    const h = harness({ plan: plan.binding, order });
+    const res = await h.promote('dep-s1', S2);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(plan.admitted).toEqual([
+      { tenantId, projectId: S2, adding: { agents: ['acme.matcher'], flows: [] } },
+    ]);
+    expect(order).toEqual(['plan: admit', 'promoted', 'plan: admitted']);
+    expect(res.body.planWarning).toBeUndefined();
+  });
+
+  test('refused: 403 plan-limit-reached, and nothing promoted', async () => {
+    const plan = planLimits(MATCHER_OVER);
+    const h = harness({ plan: plan.binding });
+    const res = await h.promote('dep-s1', S2);
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatchObject({
+      code: 'plan-limit-reached',
+      details: {
+        projectId: S2,
+        limit: 'agents',
+        adding: 1,
+        plan: 3,
+        most: 4,
+        inUse: 4,
+        over: [{ limit: 'agents', adding: 1, plan: 3, most: 4, inUse: 4 }],
+        newIds: { flows: [], agents: ['acme.matcher'] },
+      },
+    });
+    expect(h.deployments.rows).toHaveLength(1);
+  });
+
+  test('busy: 503 plan-count-busy, and nothing promoted', async () => {
+    const plan = planLimits({ kind: 'busy' });
+    const h = harness({ plan: plan.binding });
+    const res = await h.promote('dep-s1', S2);
+    expect(res.status).toBe(503);
+    expect(res.body.error.code).toBe('plan-count-busy');
+    expect(h.deployments.rows).toHaveLength(1);
+  });
+
+  test('at its plan: the answer carries planWarning', async () => {
+    const warning = { agents: { plan: 3, most: 4, inUse: 3 } };
+    const h = harness({ plan: planLimits({ kind: 'done', warning }).binding });
+    const res = await h.promote('dep-s1', S2);
+    expect(res.status).toBe(201);
+    expect(res.body.planWarning).toEqual(warning);
+  });
+
+  test("a deployment that isn't there is answered before admit is asked", async () => {
+    const plan = planLimits({ kind: 'done' });
+    const h = harness({ plan: plan.binding });
+    expect((await h.promote('dep-missing', S2)).status).toBe(404);
+    expect(plan.admitted).toEqual([]);
+  });
+
+  test("the check asks the plan's check with the same, writing nothing, and carries planWarning", async () => {
+    const warning = { agents: { plan: 3, most: 4, inUse: 3 } };
+    const plan = planLimits({ kind: 'done', warning });
+    const h = harness({ plan: plan.binding });
+    const res = await h.check('dep-s1', S2);
+    expect(res.status).toBe(200);
+    expect(res.body.planWarning).toEqual(warning);
+    expect(plan.checked).toEqual([
+      { tenantId, projectId: S2, adding: { agents: ['acme.matcher'], flows: [] } },
+    ]);
+    expect(plan.admitted).toEqual([]);
+    expect(h.deployments.rows).toHaveLength(1);
+  });
+
+  test('the check: a promotion the plan refuses answers 403 plan-limit-reached', async () => {
+    const h = harness({ plan: planLimits(MATCHER_OVER).binding });
+    const res = await h.check('dep-s1', S2);
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('plan-limit-reached');
   });
 });
