@@ -1059,6 +1059,7 @@ async function targetSuspended(
  * source, or the copy the target has. Superseded: `409
  * deployment-superseded`, naming the newer deployment there that serves
  * its tool versions. Retired for a suspension: the suspension's own code.
+ * Retired with its deleted project: `404 deployment-not-found`.
  * One with no endpoint status (one pack service for every deployment)
  * serves.
  */
@@ -1073,6 +1074,15 @@ async function unserved(
   if (endpoint?.status !== 'cleared' || endpoint.waiting === true) return undefined;
   const retired = endpoint.retired;
   if (retired === undefined) return undefined;
+  // A deleted project's deployments are gone to every caller, as one in a
+  // project they don't read. It can't be in an order (its delete is refused
+  // there), so this is the source, read before its project was deleted.
+  if (retired === 'project-deleted') {
+    return refusal(c, 'deployment-not-found', {
+      message: "This deployment's project is deleted. Nothing was promoted.",
+      deploymentId: deployment.deploymentId,
+    });
+  }
   if (retired !== 'superseded') return suspendedRefusal(c, retired, environment);
   const newer = await newerServing(bindings, deployment, projectId);
   return refusal(c, 'deployment-superseded', {
@@ -1088,7 +1098,7 @@ async function unserved(
 /** The suspension's own code, for a promotion from or into what it suspends. */
 function suspendedRefusal(
   c: Context<AppEnv>,
-  reason: Exclude<SystemDeploymentRetireReason, 'superseded'>,
+  reason: Exclude<SystemDeploymentRetireReason, 'superseded' | 'project-deleted'>,
   environment: 'source' | 'target',
 ): Response {
   const side = environment === 'source' ? "the deployment's environment" : 'the target environment';

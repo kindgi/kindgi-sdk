@@ -224,6 +224,8 @@ export type {
   ListProjectAccessFilter,
   ListProjectPinnedVersionsFilter,
   ListTeamGrantsFilter,
+  DeletedProjectPage,
+  DeletedProjectShape,
   ProjectAccessClient,
   ProjectAccessPage,
   ProjectAccessShape,

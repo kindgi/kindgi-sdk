@@ -3431,7 +3431,7 @@ export const ERROR_ENTRIES = {
   },
   'project-not-found': {
     description:
-      "The project doesn't exist in the workspace, or your key can't see it. For `GET /v1/projects/default`, the workspace has no default project.",
+      "The project doesn't exist in the workspace, it was deleted, or your key can't see it. For `GET /v1/projects/default`, the workspace has no default project. A workspace admin finds a deleted project at `GET /v1/projects/deleted` and restores it.",
     details: [
       {
         key: 'projectId',
@@ -3486,6 +3486,12 @@ export const ERROR_ENTRIES = {
     description:
       "This server's projects can't be put in production: its project store has no production setting. Every run there is a staging run.",
     details: [],
+  },
+  'project-restore-unsupported': {
+    description:
+      "This server can't restore a deleted project or list the deleted ones: its project store keeps no deleted projects for that.",
+    details: [],
+    seeAlso: ['POST /v1/projects/{projectId}/restore', 'GET /v1/projects/deleted'],
   },
   'repo-connection-not-company-github': {
     description:
@@ -3585,6 +3591,16 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'project-is-default': {
+    description: "The workspace's default project can't be deleted.",
+    details: [
+      {
+        key: 'projectId',
+        meaning: 'the default project',
+      },
+    ],
+    seeAlso: ['DELETE /v1/projects/{projectId}'],
+  },
   'provider-key-refused': {
     description:
       "The request names a model provider's key as a secret for something that isn't that provider, such as a tool, an MCP endpoint or a webhook endpoint. Store the key under its own name and use that name.",
@@ -3615,7 +3631,7 @@ export const ERROR_ENTRIES = {
   },
   'slug-conflict': {
     description:
-      "The slug is taken: another org, team or project in the workspace already has it, or a project in the same org. Choose another slug. A project's slug is also taken when another project of the workspace had it before it was renamed: it stays that project's, in any org, until that project is deleted.",
+      "The slug is taken: another org, team or project in the workspace already has it, or a project in the same org. Choose another slug. A project's slug is also taken when another project of the workspace had it before it was renamed: it stays that project's, in any org. A deleted project's slugs stay its own too.",
     details: [
       {
         key: 'resource',
@@ -3629,6 +3645,11 @@ export const ERROR_ENTRIES = {
         key: 'heldAs',
         meaning:
           '`slug` when another has it now; `old-slug` when another project had it before it was renamed. Absent from a runtime that keeps no old slugs',
+      },
+      {
+        key: 'deletedProject',
+        meaning:
+          '`true` when the project holding the slug is deleted; absent otherwise. A workspace admin can restore it (`POST /v1/projects/{projectId}/restore`)',
       },
     ],
     seeAlso: ['POST /v1/orgs', 'POST /v1/projects', 'PATCH /v1/projects/{projectId}'],

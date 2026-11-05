@@ -16,11 +16,25 @@
  * tenant resolves to `project-default-already-exists`. A project's
  * slug is unique within its org, and a project without an org's among
  * the tenant's projects without one (`slug-conflict`). A slug a project
- * had before a rename stays that project's, across the tenant, until the
- * project is deleted (`slug-conflict` with `heldAs: 'old-slug'`).
+ * had before a rename stays that project's, across the tenant
+ * (`slug-conflict` with `heldAs: 'old-slug'`).
+ *
+ * A deleted project stays in the map, marked with the time it was deleted,
+ * and every read but `restore` and `listDeleted` passes over it. Its
+ * memberships, team grants and slugs stay too, so a restore brings it back
+ * as it was.
  */
 
-import type { Filter, OrgId, Page, ProjectId, TeamId, TenantId, UserId } from '@kindgi/types';
+import type {
+  Filter,
+  OrgId,
+  Page,
+  ProjectId,
+  TeamId,
+  TenantId,
+  Timestamp,
+  UserId,
+} from '@kindgi/types';
 
 import type {
   ProjectBinding,
@@ -33,6 +47,7 @@ import type {
   ProjectMembershipUpdateRoleOutcome,
   ProjectProductionOutcome,
   ProjectRepoConnectionOutcome,
+  ProjectRestoreOutcome,
   ProjectUpdateOutcome,
 } from '../project-binding.js';
 import type {
@@ -41,6 +56,7 @@ import type {
   TeamProjectGrantBinding,
 } from '../team-project-grant-binding.js';
 import type {
+  DeletedProject,
   Project,
   ProjectMembership,
   ProjectPatch,
@@ -98,8 +114,10 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
   readonly grants: TeamProjectGrantBinding;
 } {
   const projectRows = new Map<ProjectId, Project>();
+  // When each deleted project was deleted. A restore removes its entry.
+  const deletedAt = new Map<ProjectId, Timestamp>();
   // One entry per rename that changed a slug, oldest first, as the durable
-  // binding's rename record keeps them. A project's delete drops its own.
+  // binding's rename record keeps them.
   const slugRenames: {
     readonly tenantId: TenantId;
     readonly projectId: ProjectId;
@@ -110,10 +128,22 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
   // Track grant insertion order for deterministic `list` ordering.
   const grantOrder: string[] = [];
 
-  function findProjectInTenant(tenantId: TenantId, projectId: ProjectId): Project | undefined {
+  /** The tenant's project, live or deleted. */
+  function findAnyInTenant(tenantId: TenantId, projectId: ProjectId): Project | undefined {
     const p = projectRows.get(projectId);
     if (p === undefined || p.tenantId !== tenantId) return undefined;
     return p;
+  }
+
+  /** The tenant's live project: a deleted one is as unknown. */
+  function findProjectInTenant(tenantId: TenantId, projectId: ProjectId): Project | undefined {
+    const p = findAnyInTenant(tenantId, projectId);
+    return p === undefined || deletedAt.has(p.id) ? undefined : p;
+  }
+
+  /** Is the project with this id the tenant's, and live? */
+  function liveInTenant(tenantId: TenantId, projectId: ProjectId): boolean {
+    return findProjectInTenant(tenantId, projectId) !== undefined;
   }
 
   /** The slugs `row` had before it was renamed, newest first, without its current one. */
@@ -135,35 +165,31 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
   }
 
   /**
-   * Is `slug` one that another project of the tenant (not `exceptId`) had
-   * before it was renamed, and isn't its slug again?
+   * The project of the tenant (not `exceptId`) that had `slug` before it
+   * was renamed, and hasn't it again, live or deleted; `undefined` for none.
    */
-  function slugHeld(tenantId: TenantId, slug: string, exceptId?: ProjectId): boolean {
+  function slugHeldBy(tenantId: TenantId, slug: string, exceptId?: ProjectId): Project | undefined {
     for (const rename of slugRenames) {
       if (rename.tenantId !== tenantId || rename.fromSlug !== slug) continue;
       if (rename.projectId === exceptId) continue;
       const holder = projectRows.get(rename.projectId);
-      if (holder !== undefined && holder.slug !== slug) return true;
+      if (holder !== undefined && holder.slug !== slug) return holder;
     }
-    return false;
+    return undefined;
   }
 
-  // Cascade — a deleted project's direct memberships + team grants drop with it,
-  // and so do its renames, which frees the slugs it had.
-  function cascadeProjectDelete(projectId: ProjectId): void {
-    for (let i = slugRenames.length - 1; i >= 0; i -= 1) {
-      if (slugRenames[i]?.projectId === projectId) slugRenames.splice(i, 1);
-    }
-    for (const key of membershipRows.keys()) {
-      if (key.startsWith(`${projectId}::`)) membershipRows.delete(key);
-    }
-    for (let i = grantOrder.length - 1; i >= 0; i -= 1) {
-      const key = grantOrder[i];
-      if (key?.endsWith(`::${projectId}`)) {
-        grantRows.delete(key);
-        grantOrder.splice(i, 1);
-      }
-    }
+  /** A slug conflict, saying when the project holding the slug is deleted. */
+  function slugConflict(
+    slug: string,
+    holder: Project,
+    heldAs?: 'old-slug',
+  ): Extract<ProjectUpdateOutcome, { kind: 'slug-conflict' }> {
+    return {
+      kind: 'slug-conflict',
+      slug,
+      ...(heldAs !== undefined && { heldAs }),
+      ...(deletedAt.has(holder.id) && { deletedProject: true as const }),
+    };
   }
 
   /** `limit-reached` when the tenant's projects in production are at its limit or past it. */
@@ -172,7 +198,8 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
     if (limit === undefined) return undefined;
     let inProduction = 0;
     for (const row of projectRows.values()) {
-      if (row.tenantId === tenantId && row.productionSince !== undefined) inProduction += 1;
+      if (row.tenantId !== tenantId || deletedAt.has(row.id)) continue;
+      if (row.productionSince !== undefined) inProduction += 1;
     }
     return inProduction >= limit
       ? { kind: 'limit-reached', projectsInProduction: limit, inProduction }
@@ -187,16 +214,16 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
   }
 
   /**
-   * Is `slug` held by another project (not `exceptId`) where a project of
-   * `orgId` lives: in that org, or, without an org, among the tenant's
-   * projects without one?
+   * The other project (not `exceptId`), live or deleted, that has `slug`
+   * where a project of `orgId` lives: in that org, or, without an org,
+   * among the tenant's projects without one; `undefined` for none.
    */
-  function slugTaken(
+  function slugTakenBy(
     tenantId: TenantId,
     orgId: Project['orgId'],
     slug: string,
     exceptId?: ProjectId,
-  ): boolean {
+  ): Project | undefined {
     for (const row of projectRows.values()) {
       if (
         row.tenantId === tenantId &&
@@ -204,10 +231,10 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         row.slug === slug &&
         row.id !== exceptId
       ) {
-        return true;
+        return row;
       }
     }
-    return false;
+    return undefined;
   }
 
   const projects: ProjectBinding = {
@@ -223,12 +250,10 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
       }
       // The hold first, as the durable binding checks it before its insert
       // meets the slug's unique index.
-      if (slugHeld(tenantId, spec.slug)) {
-        return { kind: 'slug-conflict', slug: spec.slug, heldAs: 'old-slug' };
-      }
-      if (slugTaken(tenantId, spec.orgId, spec.slug)) {
-        return { kind: 'slug-conflict', slug: spec.slug };
-      }
+      const holder = slugHeldBy(tenantId, spec.slug);
+      if (holder !== undefined) return slugConflict(spec.slug, holder, 'old-slug');
+      const taker = slugTakenBy(tenantId, spec.orgId, spec.slug);
+      if (taker !== undefined) return slugConflict(spec.slug, taker);
       const id = nextProjectId();
       const now = nowTimestamp();
       const row: Project = {
@@ -255,7 +280,7 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
     async list(tenantId, filter: ProjectListFilter): Promise<Page<Project>> {
       const all: Project[] = [];
       for (const row of projectRows.values()) {
-        if (row.tenantId !== tenantId) continue;
+        if (row.tenantId !== tenantId || deletedAt.has(row.id)) continue;
         if (filter.orgId !== undefined && row.orgId !== filter.orgId) continue;
         if (filter.nameContains !== undefined && !row.name.includes(filter.nameContains)) {
           continue;
@@ -271,7 +296,8 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
 
     async getDefault(tenantId): Promise<Project | undefined> {
       for (const row of projectRows.values()) {
-        if (row.tenantId === tenantId && row.isDefault) return withFormerSlugs(row);
+        if (row.tenantId !== tenantId || deletedAt.has(row.id)) continue;
+        if (row.isDefault) return withFormerSlugs(row);
       }
       return undefined;
     },
@@ -310,18 +336,16 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         return { kind: 'project-not-found' };
       }
       const renamed = patch.slug !== undefined && patch.slug !== row.slug;
-      if (renamed && slugHeld(tenantId, patch.slug, projectId)) {
-        return { kind: 'slug-conflict', slug: patch.slug, heldAs: 'old-slug' };
-      }
+      const holder = renamed ? slugHeldBy(tenantId, patch.slug, projectId) : undefined;
+      if (renamed && holder !== undefined) return slugConflict(patch.slug, holder, 'old-slug');
       // The slug it ends up with, where it ends up: a move to another org
       // (or out of one) can meet a project with the same slug there.
       const nextSlug = patch.slug ?? row.slug;
-      if (
-        (patch.slug !== undefined || patch.orgId !== undefined) &&
-        slugTaken(tenantId, nextOrgId, nextSlug, projectId)
-      ) {
-        return { kind: 'slug-conflict', slug: nextSlug };
-      }
+      const taker =
+        patch.slug !== undefined || patch.orgId !== undefined
+          ? slugTakenBy(tenantId, nextOrgId, nextSlug, projectId)
+          : undefined;
+      if (taker !== undefined) return slugConflict(nextSlug, taker);
       const nextDescription = patch.description ?? row.description;
       const sortsEndUsers = patch.sortEndUserCorrections ?? row.sortEndUserCorrections === true;
       const everyoneRuns = patch.everyoneCanRun ?? row.everyoneCanRun === true;
@@ -385,17 +409,48 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
 
     async delete(tenantId, projectId): Promise<ProjectDeleteOutcome> {
       const row = findProjectInTenant(tenantId, projectId);
-      // An id that names no project is `ok` — deleting is idempotent.
+      // An id that names no project, or a deleted one, is `ok` — deleting is
+      // idempotent, and a deleted project keeps its first time.
       if (row === undefined) return { kind: 'ok' };
       const orderId = await options.environmentOrderOf?.(tenantId, projectId);
       if (orderId !== undefined) {
         return { kind: 'project-in-environment-order', orderId };
       }
+      if (row.isDefault) return { kind: 'project-is-default' };
       // No await between the order answer and the delete — one step, as the
       // durable binding's per-tenant lock makes it.
-      projectRows.delete(projectId);
-      cascadeProjectDelete(projectId);
+      deletedAt.set(projectId, nowTimestamp());
       return { kind: 'ok' };
+    },
+
+    async restore(tenantId, projectId): Promise<ProjectRestoreOutcome> {
+      const row = findAnyInTenant(tenantId, projectId);
+      if (row === undefined) return { kind: 'project-not-found' };
+      const changed = deletedAt.delete(projectId);
+      return { kind: 'ok', project: withFormerSlugs(row), changed };
+    },
+
+    async listDeleted(tenantId, filter: Filter): Promise<Page<DeletedProject>> {
+      const all: DeletedProject[] = [];
+      for (const [id, at] of deletedAt) {
+        const row = findAnyInTenant(tenantId, id);
+        if (row === undefined) continue;
+        all.push({
+          id: row.id,
+          tenantId: row.tenantId,
+          ...(row.orgId !== undefined && { orgId: row.orgId }),
+          name: row.name,
+          slug: row.slug,
+          formerSlugs: formerSlugsOf(row),
+          deletedAt: at,
+        });
+      }
+      // The most recently deleted first.
+      all.sort((a, b) => {
+        if (a.deletedAt !== b.deletedAt) return a.deletedAt > b.deletedAt ? -1 : 1;
+        return a.id > b.id ? -1 : a.id < b.id ? 1 : 0;
+      });
+      return paginate(all, filter.limit, filter.cursor);
     },
   };
 
@@ -445,8 +500,7 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
       const all: ProjectMembership[] = [];
       for (const row of membershipRows.values()) {
         if (row.userId !== userId) continue;
-        const p = projectRows.get(row.projectId);
-        if (p === undefined || p.tenantId !== tenantId) continue;
+        if (!liveInTenant(tenantId, row.projectId)) continue;
         all.push(row);
       }
       all.sort((a, b) => (a.joinedAt < b.joinedAt ? -1 : a.joinedAt > b.joinedAt ? 1 : 0));
@@ -514,8 +568,7 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
       for (const key of grantOrder) {
         const row = grantRows.get(key);
         if (row === undefined) continue;
-        const p = projectRows.get(row.projectId);
-        if (p === undefined || p.tenantId !== tenantId) continue;
+        if (!liveInTenant(tenantId, row.projectId)) continue;
         all.push(row);
       }
       return paginate(all, filter.limit, filter.cursor);
@@ -527,8 +580,7 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         const row = grantRows.get(key);
         if (row === undefined) continue;
         if (row.teamId !== teamId) continue;
-        const p = projectRows.get(row.projectId);
-        if (p === undefined || p.tenantId !== tenantId) continue;
+        if (!liveInTenant(tenantId, row.projectId)) continue;
         all.push(row);
       }
       return paginate(all, filter.limit, filter.cursor);

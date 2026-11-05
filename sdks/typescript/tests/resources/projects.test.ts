@@ -59,6 +59,32 @@ describe('projects — wire round-trips', () => {
     ]);
   });
 
+  it('listDeleted reads /v1/projects/deleted a page at a time, and restore POSTs to the project', async () => {
+    const deleted = {
+      id: 'p2',
+      tenantId: 'tenant-1',
+      name: 'Shop',
+      slug: 'shop',
+      formerSlugs: [],
+      deletedAt: '2026-11-05T00:00:00Z',
+    };
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify({ data: [deleted], hasMore: true, nextCursor: 'c2' }) },
+      {
+        status: 200,
+        body: JSON.stringify({ ...SAMPLE_PROJECT, projectId: 'p2', isDefault: false }),
+      },
+    ]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    const page = await client.projects.listDeleted({ limit: 1, cursor: 'c1' });
+    expect(page.data[0]?.deletedAt).toBe('2026-11-05T00:00:00Z');
+    await client.projects.restore('p2', { idempotencyKey: 'k1' });
+    expect(
+      stub.calls.map((c) => `${c.method} ${new URL(c.url).pathname}${new URL(c.url).search}`),
+    ).toEqual(['GET /v1/projects/deleted?limit=1&cursor=c1', 'POST /v1/projects/p2/restore']);
+    expect(stub.calls[1]?.headers['idempotency-key']).toBe('k1');
+  });
+
   it('teamGrants map to /v1/projects/:id/team-grants, and teams.projectGrants to /v1/teams/:id/project-grants', async () => {
     const grant = {
       teamId: 't1',

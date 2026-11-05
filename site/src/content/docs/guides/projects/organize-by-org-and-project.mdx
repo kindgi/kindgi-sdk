@@ -1,6 +1,6 @@
 ---
 title: Organize work by org and project
-description: Give each customer an org with its projects, run and read their work by project or org, and know what deleting an org does.
+description: Give each customer an org with its projects, run and read their work by project or org, and know what deleting a project or an org does.
 sidebar:
   order: 1
 ---
@@ -8,7 +8,8 @@ sidebar:
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 This guide gives each customer an org with its projects, runs and reads
-their work by project or org, and deletes an org.
+their work by project or org, deletes and restores a project, and deletes an
+org.
 
 A **project** holds runs, conversations, approvals and what they cost. An
 **org** groups projects: one org per customer, for example, with a project
@@ -246,9 +247,10 @@ where to change it (an earlier CLI says no project has the slug). A project in
 another org that has the slug too keeps it: a command that names the slug is
 then refused as naming two projects, and an earlier CLI acts on that other
 project. A project can take its old slug back, unless another project also had
-it before a rename. Deleting a project frees its slugs, old and current. So
-name projects by their id in scripts and pack configs that may outlive a
-rename or a delete.
+it before a rename. A deleted project keeps its slugs, old and current, so a
+config that names one never lands in another project (see
+[Delete and restore a project](#delete-and-restore-a-project)). Still, name
+projects by their id in scripts and pack configs that may outlive a rename.
 
 An earlier runtime keeps no old slugs, and a later one doesn't keep those
 changed before its upgrade. There, the old slug is free for another project
@@ -501,6 +503,100 @@ isn't turned on for this workspace yet."
   ```
 - **A runtime whose projects can't be put in production** answers
   `501 production-unsupported`.
+
+## Delete and restore a project
+
+Delete a project when its work is over. A deleted project is kept, so a
+workspace admin can restore it as it was. Ask your coding agent: "When a
+customer's project ends, delete it." For reference, the code looks like this,
+with `kindgi` and `project` from the script:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts excerpt
+await kindgi.projects.delete(project.id);
+// And back, as it was:
+const restored = await kindgi.projects.restore(project.id);
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python excerpt
+kindgi.projects.delete(str(project.id))
+# And back, as it was:
+restored = kindgi.projects.restore(str(project.id))
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/com/acme/app/CustomerOrg.java, when the project's work is over
+kindgi.projects().delete(project.id());
+// And back, as it was:
+Project restored = kindgi.projects().restore(project.id());
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/app/CustomerOrg.scala, when the project's work is over
+kindgi.projects().delete(project.id)
+// And back, as it was:
+val restored = kindgi.projects().restore(project.id)
+```
+
+</TabItem>
+</Tabs>
+
+Deleting a project:
+
+- **The project is gone:** lists leave it out, and fetching or changing it
+  answers `404 project-not-found`, as for a project that never existed.
+  Deleting it again changes nothing, and keeps the time of the first delete.
+- **Nobody can reach what's in it:** its agents, flows, tools,
+  conversations, artifacts and values. Its unfinished runs are cancelled, and
+  new runs in it are refused.
+- **Its triggers and schedules skip their fires.** A skipped fire isn't a
+  failure and doesn't pause the trigger. A webhook delivery to it is answered
+  `202` with `skipped: 'project-deleted'`, and nothing is kept.
+- **Its deployments are retired,** with `reason: 'project-deleted'`.
+- **The rest stays:** what's in it, its runs' records, its members and team
+  grants, the keys limited to it, and its own account. They reach nothing
+  while it's deleted.
+- **Its slugs stay its own,** old and current. Creating a project, or
+  changing one's slug, onto one of them answers `409 slug-conflict` with
+  `details.deletedProject: true`. Restore that project, or choose another
+  slug.
+
+Two projects can't be deleted: the workspace's default project
+(`409 project-is-default`), and a project in an environment order
+(`409 project-in-environment-order`) until it's taken out of the order.
+
+**Restoring it** (`POST /v1/projects/{projectId}/restore`) brings it back as
+it was, with its slugs, members, grants, keys and own account, and answers
+the project. Its cancelled runs stay cancelled, and fires that came due while
+it was deleted aren't made up: the next ones run. Restoring a project that
+isn't deleted changes nothing.
+
+**The deleted projects:** `GET /v1/projects/deleted` lists the workspace's
+deleted projects, newest first, a page at a time. Each one has its `id`,
+`name`, `slug`, `formerSlugs`, `deletedAt`, and its `orgId` when it has one.
+It's where to find the id to restore. The clients call it `listDeleted`
+(`list_deleted` in Python).
+
+- **Workspace admins only,** to restore and to list: anyone else gets `403`,
+  the project's own admins too.
+- **A runtime that can't restore projects** answers both
+  `501 project-restore-unsupported`. Deleting still works.
+
+Kindgi keeps a deleted project's record: no
+[retention policy](../../../deploy/retention/) purges one. An earlier runtime
+erases a deleted project instead, and its slugs are free again. It can't
+restore one or list them.
 
 ## Delete an org
 

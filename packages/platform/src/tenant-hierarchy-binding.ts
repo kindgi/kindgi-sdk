@@ -86,11 +86,13 @@ export type CreateProjectError =
       /**
        * Another project in its org has `spec.slug`, or, with
        * `heldAs: 'old-slug'`, another project of the workspace had it before it
-       * was renamed (`ProjectBinding.create`'s outcome, the same way).
+       * was renamed; `deletedProject: true` when that project is deleted
+       * (`ProjectBinding.create`'s outcome, the same way).
        */
       readonly code: 'slug-conflict';
       readonly message: string;
       readonly heldAs?: 'old-slug';
+      readonly deletedProject?: true;
       readonly cause?: unknown;
     }
   /** `spec.orgId` isn't the workspace's: it never existed, or it was deleted. */

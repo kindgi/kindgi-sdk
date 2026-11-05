@@ -2085,7 +2085,7 @@ export const SystemDeploymentEntrySchema: JsonSchema = {
       type: 'string',
       enum: [...SYSTEM_DEPLOYMENT_RETIRE_REASONS],
       description:
-        "In the `retire` list only. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.",
+        "In the `retire` list only. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one. `project-deleted`: every deployment of the project, which is deleted.",
     },
   },
 };
@@ -2580,7 +2580,7 @@ export const ServiceAccountSchema: JsonSchema = {
     projectId: {
       type: 'string',
       description:
-        "Set on a project's own account: made by the first trigger that runs as the project (`runAsProject`), with the `editor` role on it. It runs only the triggers with `runAsProject`, not the project's other shared triggers. It has no keys, and its grant is fixed. Unregistering it stops those triggers until an admin takes each over; deleting the project unregisters it.",
+        "Set on a project's own account: made by the first trigger that runs as the project (`runAsProject`), with the `editor` role on it. It runs only the triggers with `runAsProject`, not the project's other shared triggers. It has no keys, and its grant is fixed. Unregistering it stops those triggers until an admin takes each over. A deleted project keeps it, reaching nothing, and a restore brings it back with the project.",
     },
   },
 };
@@ -13919,7 +13919,7 @@ export const ProjectSchema: JsonSchema = {
       type: 'array',
       items: { type: 'string' },
       description:
-        "The slugs this project had before it was renamed, newest first, and empty when it never was. No other project of the workspace can take them, in any org, while this project exists. Absent from a runtime that doesn't keep them.",
+        "The slugs this project had before it was renamed, newest first, and empty when it never was. No other project of the workspace can take them, in any org, while this project exists, deleted or not. Absent from a runtime that doesn't keep them.",
     },
     sortEndUserCorrections: {
       type: 'boolean',
@@ -14042,6 +14042,46 @@ export const ProjectCollectionPageSchema: JsonSchema = {
   required: ['data', 'hasMore'],
   properties: {
     data: { type: 'array', items: { $ref: '#/components/schemas/Project' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const DeletedProjectSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'A deleted project, kept with what is in it until a workspace admin restores it (`POST /v1/projects/{projectId}/restore`).',
+  required: ['id', 'tenantId', 'name', 'slug', 'formerSlugs', 'deletedAt'],
+  properties: {
+    id: { type: 'string', description: 'ProjectId — opaque branded string.' },
+    tenantId: { type: 'string' },
+    orgId: { type: 'string', description: 'Its org; absent when it has none.' },
+    name: { type: 'string' },
+    slug: {
+      type: 'string',
+      description: 'Its slug, still its own: no other project can take it where this one is.',
+    },
+    formerSlugs: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        'The slugs it had before it was renamed, newest first; still its own, in any org of the workspace.',
+    },
+    deletedAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When it was deleted. Deleting it again keeps this time.',
+    },
+  },
+};
+
+export const DeletedProjectCollectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/DeletedProject' } },
     hasMore: { type: 'boolean' },
     nextCursor: { type: 'string' },
   },
@@ -16015,9 +16055,9 @@ export const WebhookReceiptSchema: JsonSchema = {
     },
     skipped: {
       type: 'string',
-      enum: ['paused', 'tenant-suspended', 'project-suspended'],
+      enum: ['paused', 'tenant-suspended', 'project-suspended', 'project-deleted'],
       description:
-        "No run started, and the event was dropped. `paused`: the trigger is paused, and a `skipped` fire was recorded. `tenant-suspended`, `project-suspended`: the trigger's workspace or project is suspended, and nothing was recorded.",
+        "No run started, and the event was dropped. `paused`: the trigger is paused, and a `skipped` fire was recorded. `tenant-suspended`, `project-suspended`: the trigger's workspace or project is suspended, and nothing was recorded. `project-deleted`: the trigger's project is deleted, and nothing was recorded.",
     },
     received: {
       type: 'string',
@@ -18702,6 +18742,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ProjectSpec', ProjectSpecSchema],
   ['ProjectPatch', ProjectPatchSchema],
   ['ProjectCollectionPage', ProjectCollectionPageSchema],
+  ['DeletedProject', DeletedProjectSchema],
+  ['DeletedProjectCollectionPage', DeletedProjectCollectionPageSchema],
   ['ProjectMembership', ProjectMembershipSchema],
   ['ProjectMembershipCollectionPage', ProjectMembershipCollectionPageSchema],
   ['AddProjectMembershipBody', AddProjectMembershipBodySchema],

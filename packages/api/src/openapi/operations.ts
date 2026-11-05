@@ -9433,12 +9433,36 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
+    honoPath: '/v1/projects/deleted',
+    openapiPath: '/v1/projects/deleted',
+    operationId: 'projects.listDeleted',
+    summary: "List the workspace's deleted projects",
+    description:
+      'Cursor-paginated, the most recently deleted first, each with `deletedAt`. A deleted project is restored with `POST /v1/projects/{projectId}/restore`. Needs `admin` on the workspace.',
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': {
+        description: 'Page of deleted projects.',
+        schema: ref('DeletedProjectCollectionPage'),
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Malformed query parameter.'),
+      '403': ErrorResponse(withLimitedAbove('No `admin` on the workspace (`permission-denied`).')),
+      '501': ErrorResponse(
+        "`project-restore-unsupported`: this runtime's project binding keeps no deleted projects to list.",
+      ),
+    },
+  },
+  {
+    method: 'get',
     honoPath: '/v1/projects',
     openapiPath: '/v1/projects',
     operationId: 'projects.list',
     summary: "List projects in the caller's workspace",
     description:
-      'Cursor-paginated. Optional `?orgId=` narrows to a specific org (projects may have no org; absent = all); `?nameContains=` substring-matches on `Project.name`.',
+      'Cursor-paginated, without the deleted projects (`GET /v1/projects/deleted` lists those). Optional `?orgId=` narrows to a specific org (projects may have no org; absent = all); `?nameContains=` substring-matches on `Project.name`.',
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -9472,7 +9496,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.create',
     summary: 'Create a project',
     description:
-      "A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the workspace had before it was renamed, in any org (`details.heldAs: 'old-slug'`); a second default project, `409 project-default-already-exists`.",
+      "A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the workspace had before it was renamed, in any org (`details.heldAs: 'old-slug'`). A deleted project's slugs stay its own, so they answer it too, with `details.deletedProject: true`. A second default project answers `409 project-default-already-exists`.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -9506,7 +9530,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Project.', schema: ref('Project') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No project with that id under this workspace.'),
+      '404': ErrorResponse('No project with that id under this workspace, or it was deleted.'),
     },
   },
   {
@@ -9516,7 +9540,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.update',
     summary: 'Partially update a project',
     description:
-      "A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the workspace had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.",
+      "A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the workspace had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). Either has `details.deletedProject: true` when the project holding the slug is deleted: its slugs stay its own. The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -9539,7 +9563,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         ),
       ),
       '409': ErrorResponse(
-        "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up, or another project of the workspace had it before it was renamed (`details.heldAs: 'old-slug'`); or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
+        "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up, or another project of the workspace had it before it was renamed (`details.heldAs: 'old-slug'`), with `details.deletedProject: true` when that project is deleted; or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
       ),
       '404': ErrorResponse(
         'project-not-found: no project with that id under this workspace; or org-not-found: `orgId` names no org of the workspace (it never existed, or it was deleted).',
@@ -9556,7 +9580,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.delete',
     summary: 'Delete a project (idempotent)',
     description:
-      "Once the project is deleted, its own service account (`runAsProject`), if it has one, is unregistered. That's best effort: a failure is logged, and the delete still answers 204.",
+      "The project is kept, not erased: from then on it's gone from its get, the list and its memberships, nobody can reach what's in it, its unfinished runs are cancelled, and its triggers skip their fires and deliveries. Its slugs stay its own, and so do its keys and its own service account (`runAsProject`), which reach nothing while it's deleted. A workspace admin finds it at `GET /v1/projects/deleted` and brings it back as it was with `POST /v1/projects/{projectId}/restore`. Idempotent: an unknown or already-deleted project answers 204, and deleting it again keeps the time it was first deleted. The workspace's default project can't be deleted.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -9570,10 +9594,42 @@ export const OPERATIONS: readonly OperationSpec[] = [
       IdempotencyKeyParam,
     ],
     responses: {
-      '204': { description: 'Deleted (or already absent). No body.' },
+      '204': { description: 'Deleted (or already deleted, or absent). No body.' },
       ...CommonAuthErrors,
       '409': ErrorResponse(
-        "`project-in-environment-order`: the project is a member of an environment order, so it can't be deleted — clear it from the order first.",
+        "`project-in-environment-order`: the project is a member of an environment order, so it can't be deleted — clear it from the order first. `project-is-default`: it's the workspace's default project, which can't be deleted (`details.projectId`).",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/projects/:projectId/restore',
+    openapiPath: '/v1/projects/{projectId}/restore',
+    operationId: 'projects.restore',
+    summary: 'Restore a deleted project',
+    description:
+      "Brings a deleted project back as it was: its members, team grants, keys, own service account and slugs, and its triggers' next fires run. Fires and deliveries that came due while it was deleted were skipped, and runs cancelled at the delete stay cancelled. A live project answers 200, unchanged. Needs `admin` on the workspace: a deleted project's own grants went with it.",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'projectId',
+        in: 'path',
+        required: true,
+        description: 'ProjectId — opaque branded string.',
+        schema: { type: 'string' },
+      },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': { description: 'The project, live again.', schema: ref('Project') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse(withLimitedAbove('No `admin` on the workspace (`permission-denied`).')),
+      '404': ErrorResponse(
+        '`project-not-found`: no project, live or deleted, with that id under this workspace.',
+      ),
+      '501': ErrorResponse(
+        "`project-restore-unsupported`: this runtime's project binding can't restore a deleted project.",
       ),
     },
   },

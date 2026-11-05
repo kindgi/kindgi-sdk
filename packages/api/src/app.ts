@@ -721,6 +721,16 @@ export interface CreateAppInput {
     projectId: import('@kindgi/types').ProjectId,
   ) => Promise<boolean>;
   /**
+   * Whether a project is deleted (`DELETE /v1/projects/{projectId}`), and
+   * not restored since: a webhook delivery to one of its triggers is
+   * skipped (`skipped: 'project-deleted'`), and nothing is recorded, as for
+   * a suspended project. Absent: no check.
+   */
+  readonly projectDeleted?: (
+    tenantId: import('@kindgi/types').TenantId,
+    projectId: import('@kindgi/types').ProjectId,
+  ) => Promise<boolean>;
+  /**
    * Under `kindgi dev`, where a pin writes the version into the pack's
    * files: which of them the pin would write over that git hasn't
    * committed, or that the pack isn't in git. `POST
@@ -2521,7 +2531,6 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         tenantHierarchyBinding,
         authorizer,
         input.identityDirectory,
-        input.serviceAccountBinding,
       ),
     );
   }
@@ -2871,6 +2880,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(input.projectSuspended !== undefined && {
           projectSuspended: input.projectSuspended,
         }),
+        ...(input.projectDeleted !== undefined && { projectDeleted: input.projectDeleted }),
       }),
     );
   }
