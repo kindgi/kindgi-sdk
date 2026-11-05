@@ -162,19 +162,21 @@ The clients mark their methods deprecated, Python's warn, and the CLI's
 | `DELETE /v1/artifacts/{blobId}` (`artifacts.delete`) | `DELETE /v1/files/{fileId}/versions/{version}` (`files.versions.delete`), or `DELETE /v1/files/{fileId}` (`files.delete`) for the whole file |
 | `413 artifact-too-large` | `413 file-too-large`, which the files routes answer |
 | TypeScript and Python `client.artifacts`, Java `client.artifacts()` | `client.files`, `client.files()`, with the method each deprecation names |
-| `kindgi artifacts list`, `get` and `download` | `kindgi files list`, `get` and `download`, with the same ids and flags |
+| `kindgi artifacts list` | `kindgi files list`, with the same flags |
+| `kindgi artifacts get <id>` | `kindgi files get <file-id> <version>` |
+| `kindgi artifacts download <id>` | `kindgi files download <file-id> <version>`, with the same flags |
 | `kindgi artifacts upload` | `kindgi files upload`, which takes the type from the file's extension. `--content-type=application/octet-stream` keeps the type `kindgi artifacts upload` gave every file. |
-| `kindgi artifacts delete <id>` | `kindgi files delete <id> --yes`: `kindgi files delete` asks first, and with no terminal and no `--yes` it deletes nothing |
+| `kindgi artifacts delete <id>` | `kindgi files delete <file-id> <version>`, which deletes that version only. `kindgi files delete <file-id>` deletes the file and every version. Both ask first, and with no terminal and no `--yes` delete nothing. |
 | `KINDGI_ARTIFACTS` and `KINDGI_ARTIFACT_MAX_BYTES` | `KINDGI_FILES` and `KINDGI_FILE_MAX_BYTES`. A runtime that finds an old name set refuses to start, and says the name to use. |
 | A file value's `artifactId` | Its `fileId` and `version`. A caller that sends `artifactId` is refused with `400 bad-input`. |
 | The `artifacts` section of `kindgi exports`, and its `artifacts/` folder | Its `files` section, with the bytes under `files/` |
 | A provenance node's kind `artifact` | The kind `file`, for the same node |
 
 An id that `artifacts.upload` or `kindgi artifacts upload` answered moves to
-`fileId` as it is. A later version's blob id isn't a file id: `files.get`
-and `kindgi files get` answer `404 file-not-found` for one. A file value
-that names one carries the file's `fileId` and `version` beside
-`artifactId`, and `artifacts.list` and `kindgi artifacts list` answer them
-too. Those are what to move to. A file value with only
-`artifactId`, kept from an earlier runtime, names version 1 of the file with
-that id.
+`fileId` as it is, with `version` 1. A later version's blob id isn't a file
+id: `files.get` and `kindgi files get` answer `404 file-not-found` for one.
+`artifacts.list` and `kindgi artifacts list` answer each item's `fileId` and
+`version`, and a file value that names a blob carries them beside
+`artifactId`. Those are what to move to; `kindgi artifacts get` is a `HEAD`,
+which carries neither. A file value with only `artifactId`, kept from an
+earlier runtime, names version 1 of the file with that id.
