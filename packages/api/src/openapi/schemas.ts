@@ -10900,7 +10900,7 @@ const IDENTITY_PROVIDER_BASE_PROPERTIES = {
     type: 'string',
     enum: ['invite', 'domain'],
     description:
-      "Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` is saved, but sign-in doesn't use it: each person is still added first, as with `invite`, and no one from `domains` gets in without that.",
+      "Who may sign in the first time: `invite` (default) lets in only people a tenant admin added. `domain` is saved, but sign-in doesn't use it, so it lets in the same people as `invite`.",
   },
   signIn: { $ref: '#/components/schemas/IdentityProviderSignIn' },
   metadata: { type: 'object', additionalProperties: true },
