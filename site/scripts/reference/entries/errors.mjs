@@ -1170,19 +1170,19 @@ export const ERROR_ENTRIES = {
   },
   'tool-file-token-not-found': {
     description:
-      "No tool call's files match the bearer of a request to `/v1/tool-files`: there's no token, the token is unknown, its secret is wrong, or its call may not do what was asked (a tool that only stores reading a file, or one that only reads storing one). The pack service's runner sends the token a call carries; a handler never sees it. Also the answer of a runtime that stores no files.",
+      "No tool call's files match the bearer of a request to `/v1/tool-files`: there's no token, the token is unknown, its secret is wrong, or its call may not do what was asked (a tool that only stores reading a file, one that only reads storing one, or one that doesn't update files adding a version). The pack service's runner sends the token a call carries; a handler never sees it. Also the answer of a runtime that stores no files.",
     details: [],
   },
   'tool-file-token-closed': {
     description:
-      "The tool call's files are closed, so the call stores and reads no more: the call has answered, its time has passed, or its run has ended.",
+      "The tool call's files are closed, so the call stores, reads and updates no more: the call has answered, its time has passed, or its run has ended.",
     details: [],
   },
   'tool-files-busy': {
     description:
-      "The runtime's memory for files had no room for the file's bytes in time, so nothing was stored or read. Send the request again after the `Retry-After` header. The pack service's runner fails the tool's call with it, as it fails any 5xx.",
+      "The runtime's memory for files had no room for the file's bytes in time, so nothing was stored, read or updated. Send the request again after the `Retry-After` header. The pack service's runner fails the tool's call with it, as it fails any 5xx.",
     details: [],
-    seeAlso: ['POST /v1/tool-files'],
+    seeAlso: ['POST /v1/tool-files', 'POST /v1/tool-files/{fileId}/versions'],
   },
   'wait-token-output-invalid': {
     description:
