@@ -8262,7 +8262,8 @@ export const FileVersionSchema: JsonSchema = {
     supersededAt: {
       type: 'string',
       format: 'date-time',
-      description: 'When the next version was made. Absent on the highest.',
+      description:
+        "When a newer version replaced it as Latest. Absent on Latest: when Latest is deleted, the version that's Latest again has none.",
     },
     pin: { $ref: '#/components/schemas/FilePin' },
     deletedAt: { type: 'string', format: 'date-time' },

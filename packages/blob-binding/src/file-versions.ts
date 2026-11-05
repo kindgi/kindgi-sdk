@@ -86,8 +86,8 @@ export interface FileVersionsBinding {
   /**
    * Deletes the file and every version. `{ deleted: false }` when it's
    * already deleted, and then it changes nothing: no version, blob or pin.
-   * `file-not-found` when no file ever had this id (a blob with no file
-   * record is one; see "Identity").
+   * `file-not-found` when no file ever had this id. A blob stored before
+   * files kept versions is a file too (see "Identity").
    */
   delete(tenantId: TenantId, fileId: FileId): Promise<Result<FileDeleteOutcome, FileError>>;
 
@@ -225,7 +225,10 @@ export interface FileVersion {
   readonly callKey?: string;
   readonly toolId?: string;
   readonly createdAt: Timestamp;
-  /** When the next version was made. Absent on the highest. */
+  /**
+   * When a newer version replaced it as Latest. Absent on Latest: when
+   * Latest is deleted, the version that's Latest again has none.
+   */
   readonly supersededAt?: Timestamp;
   readonly pin?: FilePin;
   readonly deletedAt?: Timestamp;
