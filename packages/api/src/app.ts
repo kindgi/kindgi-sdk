@@ -129,6 +129,7 @@ import { approvalsRouter } from './routes/approvals.js';
 import {
   DEFAULT_ARTIFACT_MAX_BYTES,
   artifactUploadLimit,
+  artifactsDeprecationLink,
   artifactsRouter,
 } from './routes/artifacts.js';
 import { auditRouter } from './routes/audit.js';
@@ -1597,6 +1598,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   app.use('*', requestBodyLimit(ownBodyLimits));
   // No `/v1` answer is kept by a browser or a proxy (data and errors alike).
   app.use('/v1/*', noStoreMiddleware());
+  // The artifacts routes go in 0.8.0: each of their answers, a 401 too,
+  // links to what replaces them (`/v1/artifacts/*` matches `/v1/artifacts`).
+  if (input.blobStorage !== undefined) app.use('/v1/artifacts/*', artifactsDeprecationLink());
   // A thrown exception: a 500 wire error with its message and request id, logged.
   app.onError(mapThrownError);
 

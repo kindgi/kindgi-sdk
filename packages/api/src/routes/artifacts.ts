@@ -24,6 +24,30 @@ import { type ValidationResult, uploadProject, validateUploadForm } from './uplo
 /** The default upload cap: 100 MiB. */
 export const DEFAULT_ARTIFACT_MAX_BYTES = 100 * 1024 * 1024;
 
+/**
+ * The page that says what replaces the artifacts routes, and that 0.8.0
+ * removes them, as a `deprecation` link (RFC 9745).
+ */
+export const ARTIFACTS_DEPRECATION_LINK =
+  '<https://docs.kindgi.com/v0.7/concepts/files-and-versions/#what-080-removes>; rel="deprecation"';
+
+/**
+ * {@link ARTIFACTS_DEPRECATION_LINK} on every `/v1/artifacts` answer, an
+ * error's too: set after the route answers, beside any `Link` it sets.
+ */
+export function artifactsDeprecationLink(): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    await next();
+    try {
+      c.res.headers.append('Link', ARTIFACTS_DEPRECATION_LINK);
+    } catch {
+      // A response whose headers can't change (one passed through as fetched): a copy can.
+      c.res = new Response(c.res.body, c.res);
+      c.res.headers.append('Link', ARTIFACTS_DEPRECATION_LINK);
+    }
+  };
+}
+
 export interface ArtifactsRouterDeps {
   /**
    * Resolves an upload's owner run, whose project the artifact belongs to,
