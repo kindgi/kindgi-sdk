@@ -11250,6 +11250,51 @@ class SecretRevokeResult(BaseModel):
     """
 
 
+class ScheduleResultTarget(BaseModel):
+    """
+    One place a schedule's results go, and which of them.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    to: str
+    """
+    A destination's id, or `me`: the schedule's owner's own email, when the owner is a person.
+    """
+    on: Annotated[
+        list[Annotated[Literal["completed", "failed", "cancelled", "waiting"] | str, _open.OPEN]],
+        Field(min_length=1),
+    ]
+    """
+    The events it gets.
+    """
+
+
+class ScheduleResultTargetInput(BaseModel):
+    """
+    One place a schedule's results go, as registering or changing one names it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    to: str
+    """
+    A destination's id, or `me`: the schedule's owner's own email, when the owner is a person and the deployment sends email.
+    """
+    on: Annotated[
+        list[Annotated[Literal["completed", "failed", "cancelled", "waiting"] | str, _open.OPEN]]
+        | None,
+        Field(min_length=1),
+    ] = None
+    """
+    The events it gets, each kept once. Absent: every event.
+    """
+
+
 class ToolsAllowedUnattendedItem(RootModel[str]):
     root: Annotated[str, Field(max_length=200, min_length=1)]
 
@@ -12730,6 +12775,10 @@ class RequestedApproval(BaseModel):
     """
     Its page in the console, when the runtime knows its public address.
     """
+    run_id: Annotated[UUID | None, Field(alias="runId")] = None
+    """
+    The top-level run that waits on it, when a run asked for it. Absent on an approval no run asked for, and from a runtime that doesn't send it yet.
+    """
 
 
 class ApprovalRequestedEventData(BaseModel):
@@ -12807,6 +12856,216 @@ class WebhookTestEvent(BaseModel):
     type: Literal["webhook.test"]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     data: Data2
+
+
+class DestinationSecretRef(BaseModel):
+    """
+    A secret by name in the deployment's secrets store, resolved at tenant scope (the same shape as a webhook endpoint's `secretRef`). The store keeps the value; the destination keeps only this reference.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    env_name: Annotated[str, Field(alias="envName", pattern="^[a-z][a-z0-9-]{0,62}$")]
+    name: Annotated[str, Field(max_length=256, min_length=1)]
+
+
+class Destination(BaseModel):
+    """
+    Where a schedule sends its results. Its URL is never returned: `host` and `urlRef` say where it goes. `GET /v1/destinations?projectId=` answers a caller who is not a workspace admin without `people`, `host`, `urlRef`, `secretRef` and `projects`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    destination_id: Annotated[str, Field(alias="destinationId")]
+    name: str
+    kind: Annotated[
+        Literal["email", "slack", "teams", "google-chat", "discord", "webhook"] | str, _open.OPEN
+    ]
+    """
+    Where a destination sends. `email` goes to workspace members, each checked when a message is sent; the others post to a URL.
+    """
+    people: list[UUID] | None = None
+    """
+    `email`: the workspace members it goes to. Absent on the other kinds.
+    """
+    host: str | None = None
+    """
+    The URL's host, on every kind but `email`. The URL itself is never returned.
+    """
+    url_ref: Annotated[DestinationSecretRef | None, Field(alias="urlRef")] = None
+    """
+    Where its URL is kept, on every kind but `email`.
+    """
+    secret_ref: Annotated[DestinationSecretRef | None, Field(alias="secretRef")] = None
+    """
+    `webhook`: its signing secret, by reference, as a webhook endpoint's.
+    """
+    projects: list[UUID] | None = None
+    """
+    The projects whose schedules may use it. Absent: every project's may.
+    """
+    content: Annotated[Literal["link", "answer"] | str, _open.OPEN]
+    """
+    What a message carries. `link`: the run's status and its console link. `answer`: also the run's answer, up to its first 1,000 characters; only on a destination that names `projects`, and never on the `webhook` kind, whose receiver reads the run with its own key.
+    """
+    status: Annotated[Literal["active", "failing"] | str, _open.OPEN]
+    """
+    `active`: it takes messages. `failing`: its last delivery got an answer that won't change on a retry (such as a removed webhook's 404 or 410); later messages for it are kept but held until a `sendTest` reaches it.
+    """
+    last_error: Annotated[str | None, Field(alias="lastError")]
+    """
+    Why it is `failing`, as a fixed reason that never holds the URL; `null` when it is `active`.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+
+
+class DestinationCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Destination]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class CreateDestinationBody(BaseModel):
+    """
+    `url` or `urlRef` on every kind but `email`, which takes `people`; `secretRef` on `webhook` only.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: Annotated[str, Field(max_length=100, min_length=1)]
+    kind: Annotated[
+        Literal["email", "slack", "teams", "google-chat", "discord", "webhook"] | str, _open.OPEN
+    ]
+    """
+    Where a destination sends. `email` goes to workspace members, each checked when a message is sent; the others post to a URL.
+    """
+    people: Annotated[list[UUID] | None, Field(max_length=50, min_length=1)] = None
+    """
+    `email`: the workspace members it goes to, each checked when a message is sent.
+    """
+    url: AnyUrl | None = None
+    """
+    Absolute https URL to post to. No credentials in the URL. Write-only: the deployment keeps it in its secrets store and it is never returned (`host` and `urlRef` say where it goes). Give `url` or `urlRef`, not both. The deployment may refuse private network addresses (`400 destination-url-refused`).
+    """
+    url_ref: Annotated[DestinationSecretRef | None, Field(alias="urlRef")] = None
+    """
+    A URL already in the secrets store, by reference, in place of `url`.
+    """
+    secret_ref: Annotated[DestinationSecretRef | None, Field(alias="secretRef")] = None
+    """
+    `webhook` (and needed there): its signing secret, by reference, `whsec_` + base64 of at least 24 random bytes, as a webhook endpoint's.
+    """
+    projects: Annotated[list[UUID] | None, Field(max_length=100, min_length=1)] = None
+    """
+    The projects whose schedules may use it. Absent: every project's may.
+    """
+    content: Annotated[Literal["link", "answer"] | str, _open.OPEN] | None = None
+    """
+    `link` when absent.
+    """
+
+
+class UpdateDestinationBody(BaseModel):
+    """
+    Fields to change; absent fields are kept and `kind` never changes. A new `url` rotates the stored one; `urlRef` replaces it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: Annotated[str | None, Field(max_length=100, min_length=1)] = None
+    people: Annotated[list[UUID] | None, Field(max_length=50, min_length=1)] = None
+    url: AnyUrl | None = None
+    """
+    Absolute https URL to post to. No credentials in the URL. Write-only: the deployment keeps it in its secrets store and it is never returned (`host` and `urlRef` say where it goes). Give `url` or `urlRef`, not both. The deployment may refuse private network addresses (`400 destination-url-refused`).
+    """
+    url_ref: Annotated[DestinationSecretRef | None, Field(alias="urlRef")] = None
+    secret_ref: Annotated[DestinationSecretRef | None, Field(alias="secretRef")] = None
+    projects: Annotated[list[UUID] | None, Field(max_length=100, min_length=1)] = None
+    """
+    `null` lets every project's schedules use it again.
+    """
+    content: Annotated[Literal["link", "answer"] | str, _open.OPEN] | None = None
+    """
+    What a message carries. `link`: the run's status and its console link. `answer`: also the run's answer, up to its first 1,000 characters; only on a destination that names `projects`, and never on the `webhook` kind, whose receiver reads the run with its own key.
+    """
+
+
+class DestinationDelivery(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    delivery_id: Annotated[str, Field(alias="deliveryId")]
+    to: str
+    """
+    The destination's id, or `me`: the schedule owner's own email.
+    """
+    event: Annotated[
+        Literal["run.finished", "approval.requested", "destination.test", "rate-cap.summary"] | str,
+        _open.OPEN,
+    ]
+    """
+    What a delivery tells: a run that ended, an approval that waits on a person, a test, or, at the end of an hour whose cap (`rate-cap`) left messages out, how many.
+    """
+    schedule_id: Annotated[str | None, Field(alias="scheduleId")]
+    """
+    The schedule that sent it; `null` for a test.
+    """
+    run_id: Annotated[str | None, Field(alias="runId")]
+    """
+    The run it is about; `null` for a test or a `rate-cap.summary`.
+    """
+    approval_id: Annotated[str | None, Field(alias="approvalId")]
+    """
+    `approval.requested`: the approval that waits; `null` otherwise.
+    """
+    status: Annotated[Literal["pending", "delivered", "failed", "skipped"] | str, _open.OPEN]
+    """
+    `pending`: waiting for its next attempt, or held while its destination is `failing`. `delivered`: the destination took it. `failed`: it can't be sent (see `reason`). `skipped`: it was never sent (see `reason`).
+    """
+    reason: str | None
+    """
+    Why it was `skipped` (`rate-cap`, `no-access`, `destination-removed`, `not-for-this-project`) or `failed` (`destination-failing`, `window-ended`, `refused`, or a send error such as `timeout`); `null` otherwise.
+    """
+    attempts: Annotated[int, Field(ge=0)]
+    next_attempt_at: Annotated[AwareDatetime | None, Field(alias="nextAttemptAt")]
+    """
+    When the next attempt is due; `null` unless `pending` and not held.
+    """
+    last_attempt_at: Annotated[AwareDatetime | None, Field(alias="lastAttemptAt")]
+    last_response_status: Annotated[int | None, Field(alias="lastResponseStatus")]
+    """
+    The HTTP status (or SMTP reply code) of the last attempt; `null` when it got none.
+    """
+    last_error: Annotated[str | None, Field(alias="lastError")]
+    """
+    Why the last attempt failed, as a fixed reason that never holds the URL.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    delivered_at: Annotated[AwareDatetime | None, Field(alias="deliveredAt")]
+
+
+class DestinationDeliveryCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[DestinationDelivery]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class LicensePreview(BaseModel):
@@ -18009,6 +18268,12 @@ class ScheduleRecord(BaseModel):
     """
     The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
+    send_results_to: Annotated[list[ScheduleResultTarget] | None, Field(alias="sendResultsTo")] = (
+        None
+    )
+    """
+    Where its results go: destinations (`/v1/destinations`) and `me`, its owner's own email, each with the events it gets. What was sent: `GET /v1/schedules/{triggerId}/deliveries`. Absent: nowhere.
+    """
     next_fire_at: Annotated[AwareDatetime | None, Field(alias="nextFireAt")]
     """
     Wall-clock time of the next scheduled fire. `null` on paused rows if the cron scheduler never re-armed.
@@ -18092,6 +18357,12 @@ class RegisterScheduleBody(BaseModel):
     """
     The tools whose calls in this schedule's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the schedule's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
+    send_results_to: Annotated[
+        list[ScheduleResultTargetInput] | None, Field(alias="sendResultsTo", max_length=5)
+    ] = None
+    """
+    Where its results go, at most five places, each named once: a destination the schedule's project may use, or `me` when its owner is a person and the deployment sends email. Absent or `[]`: nowhere.
+    """
 
 
 class PatchScheduleBody(BaseModel):
@@ -18142,6 +18413,12 @@ class PatchScheduleBody(BaseModel):
     ] = None
     """
     Replaces the schedule's list; `[]` clears it, and absent keeps it. Naming it takes `admin` on the schedule's project. A change of what it runs (another flow or agent) while the list isn't empty must name it again, as it is or `[]`; a new version alone keeps it. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+    send_results_to: Annotated[
+        list[ScheduleResultTargetInput] | None, Field(alias="sendResultsTo", max_length=5)
+    ] = None
+    """
+    Replaces where its results go, checked as at registration against the schedule's project and owner as they are now; `[]` clears it, and absent keeps it. The same places and events in another order change nothing.
     """
 
 
@@ -18437,6 +18714,12 @@ class ScheduleDefinition(BaseModel):
     ] = None
     """
     The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+    send_results_to: Annotated[list[ScheduleResultTarget] | None, Field(alias="sendResultsTo")] = (
+        None
+    )
+    """
+    Where its results go: destinations (`/v1/destinations`) and `me`, its owner's own email, each with the events it gets. What was sent: `GET /v1/schedules/{triggerId}/deliveries`. Absent: nowhere.
     """
 
 
@@ -19856,6 +20139,20 @@ class FinishedRun(BaseModel):
     agent: RunAgent | None = None
     """
     On an agent's run: the agent, the version that ran and the conversation, as `GET /v1/runs/{runId}` shows them (an agent run's `flowId` is `agent.turn`). Absent on a flow's run, and from a runtime before Kindgi 0.1.6.
+    """
+    trigger: RunTrigger | None = None
+    """
+    The trigger that started the run, as `GET /v1/runs/{runId}` shows it (a schedule's `triggerId` is its `scheduleId`). Absent on a run no trigger started, and from a runtime that doesn't send it yet.
+    """
+    started_by: Annotated[
+        Annotated[
+            Literal["person", "key", "schedule", "webhook", "event", "mail"] | str, _open.OPEN
+        ]
+        | None,
+        Field(alias="startedBy"),
+    ] = None
+    """
+    How the run started, as `GET /v1/runs/{runId}`'s `startedBy`. Absent on a run that records none, and from a runtime that doesn't send it yet.
     """
 
 

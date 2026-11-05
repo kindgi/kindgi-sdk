@@ -191,6 +191,12 @@ export type WebhookEventId = Brand<string, 'WebhookEventId'>;
 /** One event's delivery to one outbound endpoint, across all its attempts. */
 export type WebhookDeliveryId = Brand<string, 'WebhookDeliveryId'>;
 
+/** A destination: a named place outside Kindgi that a schedule's results go to (a schedule's `sendResultsTo`). */
+export type DestinationId = Brand<string, 'DestinationId'>;
+
+/** One message to one destination, or to a schedule owner's own email, across all its attempts. */
+export type DestinationDeliveryId = Brand<string, 'DestinationDeliveryId'>;
+
 /** An installed pack instance for a workspace. Reserved: no package in this repository issues one. */
 export type InstallationId = Brand<string, 'InstallationId'>;
 

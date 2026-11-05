@@ -609,6 +609,20 @@ describe('without an authorizer: a project admin is a tenant-admin key', () => {
     expect(h.told).toHaveLength(1);
   });
 
+  test('a tenant-admin key that changes where the results go: the owner is told, naming `sendResultsTo`', async () => {
+    const h = noAuthz();
+    const id = await adas(h, 'schedule');
+    const res = await h.call(
+      'PATCH',
+      `/v1/schedules/${id}`,
+      { sendResultsTo: [{ to: 'me', on: ['failed'] }] },
+      'root',
+    );
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(h.told).toHaveLength(1);
+    expect(h.told[0]?.fields).toEqual(['sendResultsTo']);
+  });
+
   test('the owner may change it', async () => {
     const h = noAuthz();
     const id = await adas(h, 'schedule');

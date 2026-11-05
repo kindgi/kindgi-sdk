@@ -4062,6 +4062,56 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'destination-not-found': {
+    description: 'No destination with that id exists in your workspace, or it was removed.',
+    details: [
+      {
+        key: 'destinationId',
+        meaning: 'the destination id that was not found',
+      },
+    ],
+    seeAlso: ['GET /v1/destinations'],
+  },
+  'destination-delivery-not-found': {
+    description: 'The destination has no delivery with that id.',
+    details: [
+      {
+        key: 'deliveryId',
+        meaning: 'the delivery id that was not found',
+      },
+    ],
+    seeAlso: ['GET /v1/destinations/{destinationId}/deliveries'],
+  },
+  'destination-url-refused': {
+    description:
+      "The destination's URL is refused: it isn't on the kind's own host (a `slack` URL is on `hooks.slack.com`), or the deployment refuses where it points. The message says why.",
+    details: [
+      {
+        key: 'reason',
+        meaning: 'why the URL was refused',
+      },
+    ],
+  },
+  'destination-secret-not-found': {
+    description:
+      "A secret the destination names in `urlRef` or `secretRef` doesn't exist. Store the secret first, then save the destination.",
+    details: [
+      {
+        key: 'secretRef',
+        meaning: 'the secret reference that was not found (name and environment)',
+      },
+    ],
+  },
+  'destination-secret-too-weak': {
+    description:
+      "A `webhook` destination's signing secret is too weak: it must be `whsec_` followed by base64 of at least 24 random bytes. `POST /v1/webhook-endpoints/generate-secret` makes a valid one.",
+    details: [
+      {
+        key: 'secretRef',
+        meaning: 'the secret reference that was too weak (name and environment)',
+      },
+    ],
+  },
   'connection-app-not-found': {
     description:
       'No app registration with that id in the workspace, or it was removed. On a connect, no registration of the app is set up, or none serves the project: a tenant admin adds one. A connect request whose registration has been removed since answers it too: start a new connect once a tenant admin sets the app up again. `GET /v1/connection-apps` lists the registrations.',

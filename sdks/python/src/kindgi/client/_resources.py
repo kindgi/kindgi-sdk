@@ -1168,6 +1168,9 @@ OPERATIONS: dict[str, Operation] = {
     "schedules.fires": Operation(
         "schedules.fires", "GET", "/v1/schedules/{triggerId}/fires", "json", False
     ),
+    "schedules.listDeliveries": Operation(
+        "schedules.listDeliveries", "GET", "/v1/schedules/{triggerId}/deliveries", "json", False
+    ),
     "schedules.listVersions": Operation(
         "schedules.listVersions", "GET", "/v1/schedules/{triggerId}/versions", "json", False
     ),
@@ -1284,6 +1287,36 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "webhookEndpoints.sendTest": Operation(
         "webhookEndpoints.sendTest", "POST", "/v1/webhook-endpoints/{endpointId}/test", "json", True
+    ),
+    "destinations.list": Operation("destinations.list", "GET", "/v1/destinations", "json", False),
+    "destinations.create": Operation(
+        "destinations.create", "POST", "/v1/destinations", "json", True
+    ),
+    "destinations.get": Operation(
+        "destinations.get", "GET", "/v1/destinations/{destinationId}", "json", False
+    ),
+    "destinations.update": Operation(
+        "destinations.update", "PATCH", "/v1/destinations/{destinationId}", "json", True
+    ),
+    "destinations.remove": Operation(
+        "destinations.remove", "DELETE", "/v1/destinations/{destinationId}", "empty", True
+    ),
+    "destinations.listDeliveries": Operation(
+        "destinations.listDeliveries",
+        "GET",
+        "/v1/destinations/{destinationId}/deliveries",
+        "json",
+        False,
+    ),
+    "destinations.redeliver": Operation(
+        "destinations.redeliver",
+        "POST",
+        "/v1/destinations/{destinationId}/deliveries/{deliveryId}/redeliver",
+        "json",
+        True,
+    ),
+    "destinations.sendTest": Operation(
+        "destinations.sendTest", "POST", "/v1/destinations/{destinationId}/test", "json", True
     ),
     "connectionEntries.list": Operation(
         "connectionEntries.list", "GET", "/v1/connection-entries", "json", False
@@ -1481,6 +1514,10 @@ class RunsResource:
         | None = None,
         created_after: str | None = None,
         created_before: str | None = None,
+        completed_after: str | None = None,
+        after_run_id: str | UUID | None = None,
+        completed_before: str | None = None,
+        started_by: Literal["person", "key", "schedule", "webhook", "event", "mail"] | None = None,
         agent_version: str | None = None,
         flow_id: str | UUID | None = None,
         flow_version: str | None = None,
@@ -1489,7 +1526,7 @@ class RunsResource:
     ) -> _models.RunCollectionPage:
         """List runs. `GET /v1/runs`
 
-        Cursor-paginated. Fixed sort order: `createdAt desc, id desc`. With authorization on, it lists every run in the projects the caller may `read`, and in the projects where they may only `run`, the runs that act for them (`actsFor`); the runtime applies this in its query, so a page is full when there are more. Across projects (no scope, the workspace or an org), those projects come from the authorization store's list, which answers at most 1000 by default: a caller who reads or runs more may miss the runs of some. A workspace admin's list doesn't go through it.
+        Cursor-paginated. Fixed sort order: `createdAt desc, id desc`; with `completedAfter` or `completedBefore`, `completedAt asc, id asc`, paged by `completedAfter` and `afterRunId` instead of a cursor. With authorization on, it lists every run in the projects the caller may `read`, and in the projects where they may only `run`, the runs that act for them (`actsFor`); the runtime applies this in its query, so a page is full when there are more. Across projects (no scope, the workspace or an org), those projects come from the authorization store's list, which answers at most 1000 by default: a caller who reads or runs more may miss the runs of some. A workspace admin's list doesn't go through it.
         """
         return self._client._request(
             _OPERATIONS["runs.list"],
@@ -1509,6 +1546,10 @@ class RunsResource:
                 "status": status,
                 "createdAfter": created_after,
                 "createdBefore": created_before,
+                "completedAfter": completed_after,
+                "afterRunId": after_run_id,
+                "completedBefore": completed_before,
+                "startedBy": started_by,
                 "agentVersion": agent_version,
                 "flowId": flow_id,
                 "flowVersion": flow_version,
@@ -10523,6 +10564,29 @@ class SchedulesResource:
             timeout=timeout,
         )
 
+    def list_deliveries(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        status: Literal["pending", "delivered", "failed", "skipped"] | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.DestinationDeliveryCollectionPage:
+        """List where a schedule's results went. `GET /v1/schedules/{triggerId}/deliveries`
+
+        Newest first: each message its `sendResultsTo` sent, to a destination or to `me`, and how it went: pending, delivered, failed or skipped, with the reason. Whoever can read the schedule can read them.
+        """
+        return self._client._request(
+            _OPERATIONS["schedules.listDeliveries"],
+            path={"triggerId": trigger_id},
+            query={"status": status, "limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.DestinationDeliveryCollectionPage,
+            timeout=timeout,
+        )
+
     def list_versions(
         self,
         trigger_id: str | UUID,
@@ -11258,6 +11322,181 @@ class WebhookEndpointsResource:
         )
 
 
+class DestinationsResource:
+    """`client.destinations` — the `destinations` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.DestinationCollectionPage:
+        """List destinations. `GET /v1/destinations`
+
+        A tenant admin's. With `projectId`: the destinations that project's schedules may use, for anyone who may make a schedule there (`run` on the project), without `people`, `host`, `urlRef`, `secretRef` and `projects`.
+        """
+        return self._client._request(
+            _OPERATIONS["destinations.list"],
+            path={},
+            query={"projectId": project_id, "limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.DestinationCollectionPage,
+            timeout=timeout,
+        )
+
+    def create(
+        self,
+        body: _models.CreateDestinationBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Destination:
+        """Make a destination. `POST /v1/destinations`
+
+        Makes a named place outside Kindgi that schedules send their results to: a Slack, Teams, Google Chat or Discord channel's incoming webhook, a signed webhook, or workspace members' email. A chat webhook URL lets anyone who has it post to that channel, so `url` is write-only: the runtime keeps it in its secrets store, and the API shows only its `host`. Or name a secret you stored with `urlRef`. A `webhook` destination signs its requests as webhook endpoints do, with the secret `secretRef` names. `content: "answer"` sends the run's answer too, up to its first 1,000 characters: it needs `projects`, and the `webhook` kind never takes it.
+        """
+        return self._client._request(
+            _OPERATIONS["destinations.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateDestinationBody, body, fields),
+            response=_models.Destination,
+            timeout=timeout,
+        )
+
+    def get(
+        self, destination_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.Destination:
+        """Fetch a destination. `GET /v1/destinations/{destinationId}`"""
+        return self._client._request(
+            _OPERATIONS["destinations.get"],
+            path={"destinationId": destination_id},
+            query={},
+            headers={},
+            response=_models.Destination,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        destination_id: str | UUID,
+        body: _models.UpdateDestinationBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Destination:
+        """Update a destination. `PATCH /v1/destinations/{destinationId}`
+
+        Absent fields are kept, and `kind` never changes. A new `url` replaces the stored one; `urlRef` replaces where it's kept. `projects: null` lets every project's schedules use it again. The kind's rules hold for the result: `content: "answer"` still needs `projects`.
+        """
+        return self._client._request(
+            _OPERATIONS["destinations.update"],
+            path={"destinationId": destination_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateDestinationBody, body, fields),
+            response=_models.Destination,
+            timeout=timeout,
+        )
+
+    def remove(
+        self,
+        destination_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> None:
+        """Remove a destination (soft delete). `DELETE /v1/destinations/{destinationId}`
+
+        Its stored URL is revoked. Schedules that still name it send it nothing: each of their messages is recorded `skipped`, with the reason `destination-removed`.
+        """
+        return self._client._request(
+            _OPERATIONS["destinations.remove"],
+            path={"destinationId": destination_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            timeout=timeout,
+        )
+
+    def list_deliveries(
+        self,
+        destination_id: str | UUID,
+        /,
+        *,
+        status: Literal["pending", "delivered", "failed", "skipped"] | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.DestinationDeliveryCollectionPage:
+        """List a destination's deliveries. `GET /v1/destinations/{destinationId}/deliveries`
+
+        Newest first.
+        """
+        return self._client._request(
+            _OPERATIONS["destinations.listDeliveries"],
+            path={"destinationId": destination_id},
+            query={"status": status, "limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.DestinationDeliveryCollectionPage,
+            timeout=timeout,
+        )
+
+    def redeliver(
+        self,
+        destination_id: str | UUID,
+        delivery_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.DestinationDelivery:
+        """Redeliver a message. `POST /v1/destinations/{destinationId}/deliveries/{deliveryId}/redeliver`
+
+        Queues the delivery again now, whatever its status: its attempts start over, and so does its retry window. It's checked again as when it was queued (`destination-removed`, `not-for-this-project`) and as when it's sent (`no-access`), so a delivery skipped for one of those is skipped again with that reason. One skipped for `rate-cap` goes.
+        """
+        return self._client._request(
+            _OPERATIONS["destinations.redeliver"],
+            path={"destinationId": destination_id, "deliveryId": delivery_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.DestinationDelivery,
+            timeout=timeout,
+        )
+
+    def send_test(
+        self,
+        destination_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.DestinationDelivery:
+        """Send a test message to a destination. `POST /v1/destinations/{destinationId}/test`
+
+        Queues a `destination.test` message, to check the destination end to end; follow it in the delivery log. A `failing` destination the test reaches goes back to `active`, and its held deliveries still inside their retry window go out, oldest first.
+        """
+        return self._client._request(
+            _OPERATIONS["destinations.sendTest"],
+            path={"destinationId": destination_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.DestinationDelivery,
+            timeout=timeout,
+        )
+
+
 class ConnectionEntriesResource:
     """`client.connection_entries` — the `connectionEntries` operations."""
 
@@ -11811,6 +12050,10 @@ class AsyncRunsResource:
         | None = None,
         created_after: str | None = None,
         created_before: str | None = None,
+        completed_after: str | None = None,
+        after_run_id: str | UUID | None = None,
+        completed_before: str | None = None,
+        started_by: Literal["person", "key", "schedule", "webhook", "event", "mail"] | None = None,
         agent_version: str | None = None,
         flow_id: str | UUID | None = None,
         flow_version: str | None = None,
@@ -11819,7 +12062,7 @@ class AsyncRunsResource:
     ) -> _models.RunCollectionPage:
         """List runs. `GET /v1/runs`
 
-        Cursor-paginated. Fixed sort order: `createdAt desc, id desc`. With authorization on, it lists every run in the projects the caller may `read`, and in the projects where they may only `run`, the runs that act for them (`actsFor`); the runtime applies this in its query, so a page is full when there are more. Across projects (no scope, the workspace or an org), those projects come from the authorization store's list, which answers at most 1000 by default: a caller who reads or runs more may miss the runs of some. A workspace admin's list doesn't go through it.
+        Cursor-paginated. Fixed sort order: `createdAt desc, id desc`; with `completedAfter` or `completedBefore`, `completedAt asc, id asc`, paged by `completedAfter` and `afterRunId` instead of a cursor. With authorization on, it lists every run in the projects the caller may `read`, and in the projects where they may only `run`, the runs that act for them (`actsFor`); the runtime applies this in its query, so a page is full when there are more. Across projects (no scope, the workspace or an org), those projects come from the authorization store's list, which answers at most 1000 by default: a caller who reads or runs more may miss the runs of some. A workspace admin's list doesn't go through it.
         """
         return await self._client._request(
             _OPERATIONS["runs.list"],
@@ -11839,6 +12082,10 @@ class AsyncRunsResource:
                 "status": status,
                 "createdAfter": created_after,
                 "createdBefore": created_before,
+                "completedAfter": completed_after,
+                "afterRunId": after_run_id,
+                "completedBefore": completed_before,
+                "startedBy": started_by,
                 "agentVersion": agent_version,
                 "flowId": flow_id,
                 "flowVersion": flow_version,
@@ -20873,6 +21120,29 @@ class AsyncSchedulesResource:
             timeout=timeout,
         )
 
+    async def list_deliveries(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        status: Literal["pending", "delivered", "failed", "skipped"] | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.DestinationDeliveryCollectionPage:
+        """List where a schedule's results went. `GET /v1/schedules/{triggerId}/deliveries`
+
+        Newest first: each message its `sendResultsTo` sent, to a destination or to `me`, and how it went: pending, delivered, failed or skipped, with the reason. Whoever can read the schedule can read them.
+        """
+        return await self._client._request(
+            _OPERATIONS["schedules.listDeliveries"],
+            path={"triggerId": trigger_id},
+            query={"status": status, "limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.DestinationDeliveryCollectionPage,
+            timeout=timeout,
+        )
+
     async def list_versions(
         self,
         trigger_id: str | UUID,
@@ -21610,6 +21880,181 @@ class AsyncWebhookEndpointsResource:
         )
 
 
+class AsyncDestinationsResource:
+    """`client.destinations` — the `destinations` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.DestinationCollectionPage:
+        """List destinations. `GET /v1/destinations`
+
+        A tenant admin's. With `projectId`: the destinations that project's schedules may use, for anyone who may make a schedule there (`run` on the project), without `people`, `host`, `urlRef`, `secretRef` and `projects`.
+        """
+        return await self._client._request(
+            _OPERATIONS["destinations.list"],
+            path={},
+            query={"projectId": project_id, "limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.DestinationCollectionPage,
+            timeout=timeout,
+        )
+
+    async def create(
+        self,
+        body: _models.CreateDestinationBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Destination:
+        """Make a destination. `POST /v1/destinations`
+
+        Makes a named place outside Kindgi that schedules send their results to: a Slack, Teams, Google Chat or Discord channel's incoming webhook, a signed webhook, or workspace members' email. A chat webhook URL lets anyone who has it post to that channel, so `url` is write-only: the runtime keeps it in its secrets store, and the API shows only its `host`. Or name a secret you stored with `urlRef`. A `webhook` destination signs its requests as webhook endpoints do, with the secret `secretRef` names. `content: "answer"` sends the run's answer too, up to its first 1,000 characters: it needs `projects`, and the `webhook` kind never takes it.
+        """
+        return await self._client._request(
+            _OPERATIONS["destinations.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateDestinationBody, body, fields),
+            response=_models.Destination,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, destination_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.Destination:
+        """Fetch a destination. `GET /v1/destinations/{destinationId}`"""
+        return await self._client._request(
+            _OPERATIONS["destinations.get"],
+            path={"destinationId": destination_id},
+            query={},
+            headers={},
+            response=_models.Destination,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        destination_id: str | UUID,
+        body: _models.UpdateDestinationBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Destination:
+        """Update a destination. `PATCH /v1/destinations/{destinationId}`
+
+        Absent fields are kept, and `kind` never changes. A new `url` replaces the stored one; `urlRef` replaces where it's kept. `projects: null` lets every project's schedules use it again. The kind's rules hold for the result: `content: "answer"` still needs `projects`.
+        """
+        return await self._client._request(
+            _OPERATIONS["destinations.update"],
+            path={"destinationId": destination_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateDestinationBody, body, fields),
+            response=_models.Destination,
+            timeout=timeout,
+        )
+
+    async def remove(
+        self,
+        destination_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> None:
+        """Remove a destination (soft delete). `DELETE /v1/destinations/{destinationId}`
+
+        Its stored URL is revoked. Schedules that still name it send it nothing: each of their messages is recorded `skipped`, with the reason `destination-removed`.
+        """
+        return await self._client._request(
+            _OPERATIONS["destinations.remove"],
+            path={"destinationId": destination_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            timeout=timeout,
+        )
+
+    async def list_deliveries(
+        self,
+        destination_id: str | UUID,
+        /,
+        *,
+        status: Literal["pending", "delivered", "failed", "skipped"] | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.DestinationDeliveryCollectionPage:
+        """List a destination's deliveries. `GET /v1/destinations/{destinationId}/deliveries`
+
+        Newest first.
+        """
+        return await self._client._request(
+            _OPERATIONS["destinations.listDeliveries"],
+            path={"destinationId": destination_id},
+            query={"status": status, "limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.DestinationDeliveryCollectionPage,
+            timeout=timeout,
+        )
+
+    async def redeliver(
+        self,
+        destination_id: str | UUID,
+        delivery_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.DestinationDelivery:
+        """Redeliver a message. `POST /v1/destinations/{destinationId}/deliveries/{deliveryId}/redeliver`
+
+        Queues the delivery again now, whatever its status: its attempts start over, and so does its retry window. It's checked again as when it was queued (`destination-removed`, `not-for-this-project`) and as when it's sent (`no-access`), so a delivery skipped for one of those is skipped again with that reason. One skipped for `rate-cap` goes.
+        """
+        return await self._client._request(
+            _OPERATIONS["destinations.redeliver"],
+            path={"destinationId": destination_id, "deliveryId": delivery_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.DestinationDelivery,
+            timeout=timeout,
+        )
+
+    async def send_test(
+        self,
+        destination_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.DestinationDelivery:
+        """Send a test message to a destination. `POST /v1/destinations/{destinationId}/test`
+
+        Queues a `destination.test` message, to check the destination end to end; follow it in the delivery log. A `failing` destination the test reaches goes back to `active`, and its held deliveries still inside their retry window go out, oldest first.
+        """
+        return await self._client._request(
+            _OPERATIONS["destinations.sendTest"],
+            path={"destinationId": destination_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.DestinationDelivery,
+            timeout=timeout,
+        )
+
+
 class AsyncConnectionEntriesResource:
     """`client.connection_entries` — the `connectionEntries` operations."""
 
@@ -22163,6 +22608,7 @@ class Resources:
     webhooks: WebhooksResource
     mail_triggers: MailTriggersResource
     webhook_endpoints: WebhookEndpointsResource
+    destinations: DestinationsResource
     connection_entries: ConnectionEntriesResource
     connection_apps: ConnectionAppsResource
     connections: ConnectionsResource
@@ -22226,6 +22672,7 @@ class Resources:
         self.webhooks = WebhooksResource(client)
         self.mail_triggers = MailTriggersResource(client)
         self.webhook_endpoints = WebhookEndpointsResource(client)
+        self.destinations = DestinationsResource(client)
         self.connection_entries = ConnectionEntriesResource(client)
         self.connection_apps = ConnectionAppsResource(client)
         self.connections = ConnectionsResource(client)
@@ -22291,6 +22738,7 @@ class AsyncResources:
     webhooks: AsyncWebhooksResource
     mail_triggers: AsyncMailTriggersResource
     webhook_endpoints: AsyncWebhookEndpointsResource
+    destinations: AsyncDestinationsResource
     connection_entries: AsyncConnectionEntriesResource
     connection_apps: AsyncConnectionAppsResource
     connections: AsyncConnectionsResource
@@ -22354,6 +22802,7 @@ class AsyncResources:
         self.webhooks = AsyncWebhooksResource(client)
         self.mail_triggers = AsyncMailTriggersResource(client)
         self.webhook_endpoints = AsyncWebhookEndpointsResource(client)
+        self.destinations = AsyncDestinationsResource(client)
         self.connection_entries = AsyncConnectionEntriesResource(client)
         self.connection_apps = AsyncConnectionAppsResource(client)
         self.connections = AsyncConnectionsResource(client)

@@ -28,6 +28,7 @@ import {
 } from './resources/corrector-groups.js';
 import { type CostClient, makeCostClient } from './resources/cost.js';
 import { type DeploymentsClient, makeDeploymentsClient } from './resources/deployments.js';
+import { type DestinationsClient, makeDestinationsClient } from './resources/destinations.js';
 import { type EnvClient, makeEnvClient } from './resources/env.js';
 import {
   type EnvironmentOrdersClient,
@@ -189,6 +190,8 @@ export interface KindgiClient {
   readonly events: EventsClient;
   readonly artifacts: ArtifactsClient;
   readonly webhookEndpoints: WebhookEndpointsClient;
+  /** Where schedules send their results (`sendResultsTo`). */
+  readonly destinations: DestinationsClient;
   readonly connectionEntries: ConnectionEntriesClient;
   readonly connectionApps: ConnectionAppsClient;
   readonly connections: ConnectionsClient;
@@ -274,6 +277,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     events: makeEventsClient(transport),
     artifacts: makeArtifactsClient(transport),
     webhookEndpoints: makeWebhookEndpointsClient(transport),
+    destinations: makeDestinationsClient(transport),
     connectionEntries: makeConnectionEntriesClient(transport),
     connectionApps: makeConnectionAppsClient(transport),
     connections: makeConnectionsClient(transport),

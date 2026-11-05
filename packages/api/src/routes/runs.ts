@@ -28,6 +28,7 @@ import type {
 } from '@kindgi/types';
 
 import { type Principal, denyPayload, ref } from '@kindgi/authz';
+import { RUN_STARTED_BY } from '@kindgi/runtime';
 import { PAUSE_TOKEN_PREFIX } from '@kindgi/tools';
 
 import { actsForOf } from '../caller.js';
@@ -76,6 +77,7 @@ import {
   readingOf,
   toRunProgressEvent,
 } from './sse.js';
+import { parseTimeInput } from './time-input.js';
 import { type TurnConversation, closedRefusal, hiddenOr, turnRefusal } from './turn-access.js';
 import { UUID_RE, refuseMalformedUuidParam } from './uuid-param.js';
 import { refusal as waitTokenRefusal } from './wait-tokens.js';
@@ -496,6 +498,23 @@ export function runsRouter(
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: listFilter.message }, requestId));
     }
+    // Ordered by when runs ended, a page goes on from its last run's
+    // `completedAt` and id (`completedAfter` + `afterRunId`), never from a
+    // cursor, which is keyed on `createdAt`.
+    const byCompletion = listFilter.value.byCompletion;
+    if (byCompletion && cursorFilter !== null) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'bad-input',
+            message:
+              "`cursor` cannot be combined with `completedAfter` or `completedBefore`: ask for the next page with `completedAfter` and `afterRunId` set to the last run's `completedAt` and `id`",
+          },
+          requestId,
+        ),
+      );
+    }
     const includeOutput = listFilter.value.includeOutput;
     // `?actsFor=me`: the runs that act for the caller. A caller who acts
     // for no one has none.
@@ -541,7 +560,8 @@ export function runsRouter(
     return c.json({
       data: visible.map((row) => serializeRun(row, { output: includeOutput })),
       hasMore: page.nextCursor !== undefined,
-      ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
+      ...(page.nextCursor !== undefined &&
+        !byCompletion && { nextCursor: page.nextCursor as unknown as string }),
     });
   });
 
@@ -1450,9 +1470,22 @@ function listRunsInput(input: {
     ...(filter.statuses !== undefined && { statuses: filter.statuses }),
     ...(filter.createdAfter !== undefined && { createdAfter: filter.createdAfter }),
     ...(filter.createdBefore !== undefined && { createdBefore: filter.createdBefore }),
+    ...completionInput(filter),
     ...(filter.agentVersion !== undefined && { agentVersion: filter.agentVersion }),
     ...(filter.flowId !== undefined && { flowId: filter.flowId }),
     ...(filter.flowVersion !== undefined && { flowVersion: filter.flowVersion }),
+  };
+}
+
+/** `listRunsInput`'s bounds on when runs ended, and `startedBy`, each when given. */
+function completionInput(
+  filter: RunListFilter,
+): Pick<ListRunsInput, 'completedAfter' | 'afterRunId' | 'completedBefore' | 'startedBy'> {
+  return {
+    ...(filter.completedAfter !== undefined && { completedAfter: filter.completedAfter }),
+    ...(filter.afterRunId !== undefined && { afterRunId: filter.afterRunId }),
+    ...(filter.completedBefore !== undefined && { completedBefore: filter.completedBefore }),
+    ...(filter.startedBy !== undefined && { startedBy: filter.startedBy }),
   };
 }
 
@@ -1509,6 +1542,12 @@ interface RunListFilter {
   readonly statuses?: readonly RunStatus[];
   readonly createdAfter?: Timestamp;
   readonly createdBefore?: Timestamp;
+  readonly completedAfter?: Timestamp;
+  readonly afterRunId?: RunId;
+  readonly completedBefore?: Timestamp;
+  /** `completedAfter` or `completedBefore` is given: the page is ordered by when runs ended. */
+  readonly byCompletion: boolean;
+  readonly startedBy?: RunStartedBy;
   readonly agentVersion?: string;
   readonly flowId?: string;
   readonly flowVersion?: string;
@@ -1573,14 +1612,72 @@ function parseCreatedBounds(
   };
 }
 
-/** The narrowing filters: `status`, the creation bounds, the agent's version, and the flow with its version. */
+/**
+ * `?completedAfter=` (strict, with `?afterRunId=` as its tie-break) and
+ * `?completedBefore=` (inclusive): when runs ended. Each is kept as the
+ * caller gave it, since a run's `completedAt` can carry microseconds that a
+ * JS `Date` would drop, and a page then goes on from the wrong run.
+ */
+function parseCompletedBounds(
+  query: Readonly<Record<string, string>>,
+): Parsed<
+  Pick<RunListFilter, 'completedAfter' | 'afterRunId' | 'completedBefore' | 'byCompletion'>
+> {
+  const { completedAfter, afterRunId, completedBefore } = query;
+  const after = completedAfter === undefined ? undefined : parseTimeInput(completedAfter);
+  const before = completedBefore === undefined ? undefined : parseTimeInput(completedBefore);
+  if (after === null) return { kind: 'err', message: '`completedAfter` must be a date-time' };
+  if (before === null) return { kind: 'err', message: '`completedBefore` must be a date-time' };
+  if (after !== undefined && before !== undefined && after.getTime() > before.getTime()) {
+    return { kind: 'err', message: '`completedAfter` must not be later than `completedBefore`' };
+  }
+  if (afterRunId !== undefined && completedAfter === undefined) {
+    return { kind: 'err', message: '`afterRunId` needs `completedAfter`' };
+  }
+  if (afterRunId !== undefined && !UUID_RE.test(afterRunId)) {
+    return { kind: 'err', message: '`afterRunId` must be a run id (a UUID)' };
+  }
+  return {
+    kind: 'ok',
+    value: {
+      ...(completedAfter !== undefined && { completedAfter: completedAfter as Timestamp }),
+      ...(afterRunId !== undefined && { afterRunId: afterRunId as RunId }),
+      ...(completedBefore !== undefined && { completedBefore: completedBefore as Timestamp }),
+      byCompletion: completedAfter !== undefined || completedBefore !== undefined,
+    },
+  };
+}
+
+/** `?startedBy=`: one of `Run.startedBy`'s values. */
+function parseStartedBy(raw: string | undefined): Parsed<RunStartedBy | undefined> {
+  if (raw === undefined) return { kind: 'ok', value: undefined };
+  if (!(RUN_STARTED_BY as readonly string[]).includes(raw)) {
+    return {
+      kind: 'err',
+      message: `\`startedBy\` must be one of: ${RUN_STARTED_BY.join(', ')}`,
+    };
+  }
+  return { kind: 'ok', value: raw as RunStartedBy };
+}
+
+/** The narrowing filters: `status`, the creation and completion bounds, `startedBy`, the agent's version, and the flow with its version. */
 function parseRunNarrowing(
   query: Readonly<Record<string, string>>,
   status: readonly string[] | undefined,
 ): Parsed<
   Pick<
     RunListFilter,
-    'statuses' | 'createdAfter' | 'createdBefore' | 'agentVersion' | 'flowId' | 'flowVersion'
+    | 'statuses'
+    | 'createdAfter'
+    | 'createdBefore'
+    | 'completedAfter'
+    | 'afterRunId'
+    | 'completedBefore'
+    | 'byCompletion'
+    | 'startedBy'
+    | 'agentVersion'
+    | 'flowId'
+    | 'flowVersion'
   >
 > {
   const { agentId, agentVersion, flowId, flowVersion } = query;
@@ -1588,6 +1685,10 @@ function parseRunNarrowing(
   if (statuses.kind === 'err') return statuses;
   const bounds = parseCreatedBounds(query.createdAfter, query.createdBefore);
   if (bounds.kind === 'err') return bounds;
+  const completed = parseCompletedBounds(query);
+  if (completed.kind === 'err') return completed;
+  const startedBy = parseStartedBy(query.startedBy);
+  if (startedBy.kind === 'err') return startedBy;
   const empty = (
     [
       ['agentVersion', agentVersion],
@@ -1607,6 +1708,8 @@ function parseRunNarrowing(
     value: {
       ...(statuses.value !== undefined && { statuses: statuses.value }),
       ...bounds.value,
+      ...completed.value,
+      ...(startedBy.value !== undefined && { startedBy: startedBy.value }),
       ...(agentVersion !== undefined && { agentVersion }),
       ...(flowId !== undefined && { flowId }),
       ...(flowVersion !== undefined && { flowVersion }),
