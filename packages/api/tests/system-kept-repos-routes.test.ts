@@ -201,7 +201,12 @@ describe('POST /v1/system/kept-repos/rulings', () => {
     const r = await t.call('kgi_sy_reconcile', 'POST', path, { ids: [id] });
     expect(r.body).toEqual({ rulings: [{ ...id, ruling: 'keep', mark: 'held', since: SINCE }] });
     t.fake.rulings = () => [
-      { ruling: 'purge', reason: 'retention', recorded: false, path: '/x' } as unknown as KeptRepoRuling,
+      {
+        ruling: 'purge',
+        reason: 'retention',
+        recorded: false,
+        path: '/x',
+      } as unknown as KeptRepoRuling,
     ];
     const p = await t.call('kgi_sy_reconcile', 'POST', path, { ids: [id] });
     expect(p.body).toEqual({ rulings: [{ ...id, ruling: 'purge', reason: 'retention' }] });
