@@ -998,13 +998,13 @@ server_min_instances = 0
 Then apply. From then on:
 
 - **Cloud Scheduler calls the runtime's tick each minute**
-  (`POST /internal/tick`), with a Google-signed ID token of the tick's own
-  service account, `<prefix>-tick`. The tick runs the background work that's
-  due inside its request: schedules and mail polls, webhook deliveries,
-  sending permission changes to OpenFGA, erasures and the sweeps. The runtime
-  checks the token itself: it must be for the tick's URL, from the tick's
-  account. The module sets both, as `KINDGI_SERVICE_URL` and
-  `KINDGI_TICK_CALLER`.
+  (`POST /internal/tick`) from the job `kindgi-server-tick`, with a
+  Google-signed ID token of the tick's own service account, `kindgi-tick`.
+  The tick runs the background work that's due inside its request:
+  schedules and mail polls, webhook deliveries, sending permission changes
+  to OpenFGA, erasures and the sweeps. The runtime checks the token itself:
+  it must be for the tick's URL, from the tick's account. The module sets
+  both, as `KINDGI_SERVICE_URL` and `KINDGI_TICK_CALLER`.
 - **While it has work in flight,** such as a run started without waiting, a
   webhook delivery or an erasure, the runtime keeps a request to its own
   `run.app` URL open, so its CPU stays allocated until the work is done.

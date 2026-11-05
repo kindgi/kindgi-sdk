@@ -6,7 +6,8 @@
 # requests. Cloud Scheduler calls POST /internal/tick once a minute instead,
 # with a Google-signed ID token of an account of its own. Each call runs the
 # server's background work that's due (schedules, mail polls, webhook
-# deliveries, the sweeps) inside the request. The server checks the token
+# deliveries and more; the docs' Cloud Run page, "Scale the server to zero",
+# lists it all) inside the request. The server checks the token
 # itself: its audience is the tick's URL and its email is this account's
 # (KINDGI_TICK_CALLER), since Cloud Run IAM guards a whole service, not one
 # route.

@@ -64,7 +64,7 @@ variable "server_min_instances" {
 variable "server_billing" {
   description = <<-EOT
     How Cloud Run bills the server, and so when it has CPU.
-    "instance" (the default): CPU always allocated. The server's own timers run its background work (schedules, mail polls, webhook deliveries, the sweeps).
+    "instance" (the default): CPU always allocated. The server's own timers run its background work (schedules, mail polls, webhook deliveries and more; the docs' Cloud Run page, "Scale the server to zero", lists it all).
     "request": CPU only while a request is in flight, billed for that time (and for any minimum instances while idle). server_min_instances may then be 0. Cloud Scheduler calls the server's tick each minute, which runs the background work that's due, and the server keeps a request to itself open while it has work in flight. Needs server_ingress = "INGRESS_TRAFFIC_ALL", server_max_instances = 1, and server_public or server_invoker_iam_disabled. README, "Scale the server to zero".
   EOT
   type        = string
