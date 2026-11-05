@@ -1129,10 +1129,10 @@ export interface CreateAppInput {
    * Optional. The secrets the tenant's identity providers reference, as
    * every guard and every name check here reads them: such a secret is
    * sign-in's only. Without it, they're listed from `identityProvider` on
-   * each read, so an app without `identityProvider` holds none. A
+   * each read, so an app without `identityProvider` guards none of them. A
    * deployment that keeps its identity providers while it mounts no
-   * sign-in passes its own, so their secrets stay held whatever sign-in's
-   * setting.
+   * sign-in passes its own, so their secrets stay sign-in's only whether or
+   * not it mounts sign-in.
    */
   readonly identityProviderKeys?: IdentityProviderKeys;
   /**
