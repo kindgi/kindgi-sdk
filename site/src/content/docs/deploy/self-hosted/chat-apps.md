@@ -128,7 +128,7 @@ addresses, so take the current ones from that page.
 **With nginx** in front, one `location` per path, each admitting only
 Claude's range:
 
-```nginx
+```nginx excerpt
 location = /mcp {
     allow 160.79.104.0/21;
     deny all;
@@ -153,7 +153,7 @@ location = /auth/jwks {
 
 Admit everything else only from your own network, for example:
 
-```nginx
+```nginx excerpt
 location / {
     allow 10.0.0.0/8;
     deny all;
@@ -188,7 +188,7 @@ or these paths stay open to everyone there. With the
 [Cloud Run](../cloud-run/) module, set it in the module, not by hand: its
 next apply puts back a change made outside it.
 
-```hcl
+```hcl excerpt
 server_ingress = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
 ```
 
