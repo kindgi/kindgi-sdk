@@ -121,8 +121,9 @@ export interface ProjectBinding {
    * Resolves to `project-in-environment-order` when the project is a member
    * of an environment order, and to `project-is-default` for the
    * workspace's default project; the delete does not happen. Deleting an id
-   * that names no project, or a deleted one, is `ok` (idempotent), and a
-   * deleted one keeps the time it was first deleted. What a runtime does
+   * that names no project, or a deleted one, is `ok` with `changed: false`
+   * (idempotent), and a deleted one keeps the time it was first deleted.
+   * The API records a delete that changed something. What a runtime does
    * with what's in the project (its runs, its triggers, who may reach it)
    * is the runtime's concern: Kindgi's cancels the project's unfinished
    * runs once the delete commits, and `createApp`'s `projectDeleted`
@@ -132,7 +133,8 @@ export interface ProjectBinding {
   /**
    * Bring a deleted project back as it was: its memberships, team grants
    * and slugs with it. Its `updatedAt` moves to the restore, as a change's
-   * does. A live project is `ok` with `changed: false`, unchanged.
+   * does. A live project is `ok` with `changed: false`, unchanged. The API
+   * records a restore that changed something.
    * Resolves to `project-not-found` when no project, live or deleted, has
    * `projectId` in the workspace. Optional, with `listDeleted`: without
    * them, the restore and deleted-list routes answer 501
@@ -336,7 +338,11 @@ export type ProjectUpdateOutcome =
 
 /** What `ProjectBinding.delete` did. */
 export type ProjectDeleteOutcome =
-  | { readonly kind: 'ok' }
+  | {
+      readonly kind: 'ok';
+      /** `false` when no live project had the id, and nothing was written. */
+      readonly changed: boolean;
+    }
   | {
       /**
        * The project is a member of an environment order, so it can't be

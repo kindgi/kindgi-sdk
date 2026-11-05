@@ -9,13 +9,15 @@
  * workspace's default project is refused (`409 project-is-default`).
  * `GET /v1/projects/deleted` lists the deleted ones, newest first, and
  * `POST /v1/projects/{projectId}/restore` brings one back as it was. Both
- * are a workspace admin's.
+ * are a workspace admin's. A delete and a restore that changed something
+ * are recorded (`project-deleted`, `project-restored`), by the project's id.
  */
 
 import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
 import type { AuthzCheckBinding, Decision } from '@kindgi/authz';
 import { type ProjectBinding, makeInMemoryProjectBinding } from '@kindgi/platform';
 import type { ProjectId, TenantId, UserId } from '@kindgi/types';
@@ -58,6 +60,10 @@ function grantedOnly(granted: Set<string>): AuthzCheckBinding {
   } as unknown as AuthzCheckBinding;
 }
 
+const notUsed = (): never => {
+  throw new Error('not used here');
+};
+
 function makeApp(
   options: {
     authz?: AuthzCheckBinding;
@@ -68,6 +74,16 @@ function makeApp(
   const trio = makeInMemoryProjectBinding(
     options.productionLimit !== undefined ? { productionLimit: options.productionLimit } : {},
   );
+  const appended: AuditEvent[] = [];
+  const auditEvents: AuditEventBinding = {
+    async append(events) {
+      appended.push(...events);
+      return { kind: 'ok', value: undefined };
+    },
+    query: notUsed,
+    purge: notUsed,
+    describe: () => ({ name: 'spy', version: '0' }),
+  };
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
@@ -75,11 +91,12 @@ function makeApp(
     projectBinding: options.projects ?? trio.projects,
     projectMembershipBinding: trio.memberships,
     teamProjectGrantBinding: trio.grants,
+    auditEvents,
     ...(options.authz !== undefined && {
       authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding: options.authz },
     }),
   });
-  return { app, trio };
+  return { app, trio, appended };
 }
 
 async function seed(
@@ -302,6 +319,54 @@ describe('a restore at the limit on projects in production', () => {
     expect((await deletedList(app)).data.map((p) => p.id)).toContain(gone);
 
     expect((await call(app, 'POST', `/v1/projects/${plain}/restore`)).status).toBe(200);
+  });
+});
+
+describe('the records', () => {
+  test('a delete and a restore are recorded once each, by the project id, with the caller', async () => {
+    const { app, trio, appended } = makeApp();
+    const id = await seed(trio.projects, { name: 'Shop', slug: 'shop' });
+    expect((await call(app, 'DELETE', `/v1/projects/${id}`)).status).toBe(204);
+    expect(appended).toHaveLength(1);
+    expect(appended[0]).toMatchObject({
+      tenantId,
+      projectId: id,
+      kind: 'project-deleted',
+      outcome: 'succeeded',
+      actor: expect.stringMatching(/^token:/),
+      correlationId: expect.any(String),
+      payload: { v: 1, doc: { projectId: id } },
+    });
+
+    expect((await call(app, 'POST', `/v1/projects/${id}/restore`)).status).toBe(200);
+    expect(appended.map((e) => e.kind)).toEqual(['project-deleted', 'project-restored']);
+    expect(appended[1]).toMatchObject({
+      tenantId,
+      projectId: id,
+      outcome: 'succeeded',
+      payload: { v: 1, doc: { projectId: id } },
+    });
+  });
+
+  test('what changed nothing records nothing: a second delete, an unknown id, the default refused, a live restore, one at the limit', async () => {
+    const { app, trio, appended } = makeApp({ productionLimit: () => 1 });
+    const setProduction = trio.projects.setProduction?.bind(trio.projects);
+    if (setProduction === undefined) throw new Error('no setProduction');
+    const gone = await seed(trio.projects, { name: 'Store', slug: 'store' });
+    const live = await seed(trio.projects, { name: 'Shop', slug: 'shop' });
+    const home = await seed(trio.projects, { name: 'Default', slug: 'default', isDefault: true });
+    expect((await setProduction(tenantId, gone as ProjectId, true)).kind).toBe('ok');
+    await call(app, 'DELETE', `/v1/projects/${gone}`);
+    expect((await setProduction(tenantId, live as ProjectId, true)).kind).toBe('ok');
+    const before = appended.length;
+
+    expect((await call(app, 'DELETE', `/v1/projects/${gone}`)).status).toBe(204);
+    expect((await call(app, 'DELETE', `/v1/projects/${randomUUID()}`)).status).toBe(204);
+    expect((await call(app, 'DELETE', `/v1/projects/${home}`)).status).toBe(409);
+    expect((await call(app, 'POST', `/v1/projects/${live}/restore`)).status).toBe(200);
+    expect((await call(app, 'POST', `/v1/projects/${gone}/restore`)).status).toBe(403);
+    expect((await call(app, 'POST', `/v1/projects/${randomUUID()}/restore`)).status).toBe(404);
+    expect(appended.slice(before)).toEqual([]);
   });
 });
 

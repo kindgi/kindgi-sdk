@@ -4,7 +4,9 @@
 import type { Context } from 'hono';
 import { Hono } from 'hono';
 
+import type { AuditEventBinding } from '@kindgi/audit-events';
 import { type Principal, ref } from '@kindgi/authz';
+import { emitAuditEvent } from '@kindgi/compliance';
 import type { TenantHierarchyBinding } from '@kindgi/platform';
 import type {
   DeletedProject,
@@ -19,7 +21,7 @@ import type {
 } from '@kindgi/platform';
 import type { Cursor, OrgId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
-import { isTenantAdmin } from '../caller.js';
+import { callerIdentity, isTenantAdmin } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -78,13 +80,17 @@ import { actionOrRunRefusal, readableOrRun } from './runner-reach.js';
  *                                          kept, gone from every read until
  *                                          it's restored; 409
  *                                          `project-is-default` for the
- *                                          tenant's default project.
+ *                                          tenant's default project. A
+ *                                          delete that changed something
+ *                                          is recorded, `project-deleted`.
  *   - `POST   /:projectId/restore`       — 200 with the project, back as it
  *                                          was (a live one unchanged), 404
  *                                          `project-not-found`, or 403
  *                                          `production-limit-reached` for one
  *                                          in production at the limit. Admin
- *                                          on the tenant.
+ *                                          on the tenant. A restore of a
+ *                                          deleted one is recorded,
+ *                                          `project-restored`.
  *   - `GET    /:projectId/memberships`   — list; cursor-paginated.
  *   - `POST   /:projectId/memberships`   — add member; body `{ userId, role }`
  *                                          or `{ email, role }`; 201, or 404
@@ -119,8 +125,35 @@ export function projectsRouter(
    * email) by email. Without it, an id is taken as given.
    */
   directory?: IdentityDirectoryBinding,
+  /**
+   * Optional. Where a delete and a restore that changed something are
+   * recorded (`project-deleted`, `project-restored`): once the binding has
+   * answered, best effort, as every route's record is. Without it, nothing
+   * is recorded.
+   */
+  auditEvents?: AuditEventBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+
+  /** A delete's or a restore's record, naming the project by id only. */
+  async function recordLifecycle(
+    c: Context<AppEnv>,
+    kind: 'project-deleted' | 'project-restored',
+    tenantId: TenantId,
+    projectId: ProjectId,
+  ): Promise<void> {
+    await emitAuditEvent({
+      auditEvents,
+      tenantId,
+      projectId,
+      kind,
+      actor: callerIdentity(c),
+      outcome: 'succeeded',
+      correlationId: c.get('requestId'),
+      doc: { projectId: projectId as unknown as string },
+      log: c.get('log').child({ subsystem: 'audit' }),
+    });
+  }
 
   /**
    * Change a member's role. With an authorizer, the row and its FGA tuple
@@ -961,6 +994,8 @@ export function projectsRouter(
       c.status(statusFor(error.code) as never);
       return c.json(toWireError(error, requestId));
     }
+    // An unknown id, or one deleted already, changed nothing: no record.
+    if (outcome.changed) await recordLifecycle(c, 'project-deleted', tenantId, projectId);
     c.status(204);
     return c.body(null);
   });
@@ -994,6 +1029,8 @@ export function projectsRouter(
         ),
       );
     }
+    // A live project's restore changed nothing: no record.
+    if (outcome.changed) await recordLifecycle(c, 'project-restored', tenantId, projectId);
     return c.json(serializeProject(outcome.project));
   });
 

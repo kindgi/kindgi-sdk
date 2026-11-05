@@ -411,7 +411,7 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
       const row = findProjectInTenant(tenantId, projectId);
       // An id that names no project, or a deleted one, is `ok` — deleting is
       // idempotent, and a deleted project keeps its first time.
-      if (row === undefined) return { kind: 'ok' };
+      if (row === undefined) return { kind: 'ok', changed: false };
       const orderId = await options.environmentOrderOf?.(tenantId, projectId);
       if (orderId !== undefined) {
         return { kind: 'project-in-environment-order', orderId };
@@ -420,7 +420,7 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
       // No await between the order answer and the delete — one step, as the
       // durable binding's per-tenant lock makes it.
       deletedAt.set(projectId, nowTimestamp());
-      return { kind: 'ok' };
+      return { kind: 'ok', changed: true };
     },
 
     async restore(tenantId, projectId): Promise<ProjectRestoreOutcome> {

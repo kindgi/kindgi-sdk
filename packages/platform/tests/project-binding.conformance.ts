@@ -187,7 +187,7 @@ export function runProjectBindingConformance(
       const id = await createProject(projects, T1, { name: 'A', slug: 'a' });
       await memberships.add(T1, { projectId: id, userId: U1, role: 'editor' });
       await grants.add(T1, { teamId: TEAM_A, projectId: id, role: 'editor' });
-      expect(await projects.delete(T1, id)).toEqual({ kind: 'ok' });
+      expect(await projects.delete(T1, id)).toEqual({ kind: 'ok', changed: true });
       const mPage = await memberships.listForUser(T1, U1, {});
       expect(mPage.items).toHaveLength(0);
       const gPage = await grants.listForTeam(T1, TEAM_A, {});
@@ -196,16 +196,19 @@ export function runProjectBindingConformance(
   });
 
   describe(`${label} — a deleted project`, () => {
-    it('is gone from get, list and update; deleting it again, or an unknown id, is ok', async () => {
+    it('is gone from get, list and update; deleting it again, or an unknown id, is ok and changes nothing', async () => {
       const { projects } = makeBinding();
       const id = await createProject(projects, T1, { name: 'A', slug: 'a' });
       const kept = await createProject(projects, T1, { name: 'B', slug: 'b' });
-      expect(await projects.delete(T1, id)).toEqual({ kind: 'ok' });
+      expect(await projects.delete(T1, id)).toEqual({ kind: 'ok', changed: true });
       expect(await projects.get(T1, id)).toBeUndefined();
       expect((await projects.list(T1, {})).items.map((p) => p.id)).toEqual([kept]);
       expect(await projects.update(T1, id, { name: 'A2' })).toEqual({ kind: 'project-not-found' });
-      expect(await projects.delete(T1, id)).toEqual({ kind: 'ok' });
-      expect(await projects.delete(T1, 'never-a-project' as ProjectId)).toEqual({ kind: 'ok' });
+      expect(await projects.delete(T1, id)).toEqual({ kind: 'ok', changed: false });
+      expect(await projects.delete(T1, 'never-a-project' as ProjectId)).toEqual({
+        kind: 'ok',
+        changed: false,
+      });
     });
 
     it('the default project is refused: project-is-default, and it stays', async () => {
@@ -266,7 +269,7 @@ export function runProjectBindingConformance(
     it("another tenant's delete of it changes nothing", async () => {
       const { projects } = makeBinding();
       const id = await createProject(projects, T1, { name: 'A', slug: 'a' });
-      expect(await projects.delete(T2, id)).toEqual({ kind: 'ok' });
+      expect(await projects.delete(T2, id)).toEqual({ kind: 'ok', changed: false });
       expect((await projects.get(T1, id))?.id).toBe(id);
     });
   });
@@ -501,7 +504,7 @@ export function runProjectBindingConformance(
         const id = await createProject(projects, T1, { name: 'Staging', slug: 'staging' });
         await put(T1, id);
         await clear(T1, id);
-        expect(await projects.delete(T1, id)).toEqual({ kind: 'ok' });
+        expect(await projects.delete(T1, id)).toEqual({ kind: 'ok', changed: true });
         expect(await projects.get(T1, id)).toBeUndefined();
       });
     });
@@ -765,7 +768,7 @@ export function runProjectBindingConformance(
           const [a, b] = await threeProjects(projects, T1);
           await limit(T1, 1);
           expect((await set(T1, a, true)).kind).toBe('ok');
-          expect(await projects.delete(T1, a)).toEqual({ kind: 'ok' });
+          expect(await projects.delete(T1, a)).toEqual({ kind: 'ok', changed: true });
           expect((await set(T1, b, true)).kind).toBe('ok');
           expect(await restore(T1, a)).toEqual({
             kind: 'limit-reached',
@@ -786,7 +789,7 @@ export function runProjectBindingConformance(
           const [a, b] = await threeProjects(projects, T1);
           await limit(T1, 1);
           expect((await set(T1, b, true)).kind).toBe('ok');
-          expect(await projects.delete(T1, a)).toEqual({ kind: 'ok' });
+          expect(await projects.delete(T1, a)).toEqual({ kind: 'ok', changed: true });
           expect(await restore(T1, a)).toMatchObject({ kind: 'ok', changed: true });
         });
 
@@ -795,7 +798,7 @@ export function runProjectBindingConformance(
           const restore = restoreOf(projects);
           const [a, b] = await threeProjects(projects, T1);
           expect((await set(T1, a, true)).kind).toBe('ok');
-          expect(await projects.delete(T1, a)).toEqual({ kind: 'ok' });
+          expect(await projects.delete(T1, a)).toEqual({ kind: 'ok', changed: true });
           await limit(T1, 1);
           const outcomes = await Promise.all([restore(T1, a), set(T1, b, true)]);
           expect(outcomes.map((o) => o.kind).sort()).toEqual(['limit-reached', 'ok']);
@@ -1211,7 +1214,7 @@ export function runProjectBindingConformance(
       const { projects } = makeBinding();
       const id = await createProject(projects, T1, { name: 'A', slug: 'a' });
       await projects.update(T1, id, { slug: 'b' });
-      expect(await projects.delete(T1, id)).toEqual({ kind: 'ok' });
+      expect(await projects.delete(T1, id)).toEqual({ kind: 'ok', changed: true });
       expect(await projects.create(T1, { name: 'B', slug: 'a' })).toEqual({
         ...held('a'),
         deletedProject: true,
