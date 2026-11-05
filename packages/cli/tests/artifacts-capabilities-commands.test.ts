@@ -55,6 +55,10 @@ const META = {
 
 const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
 
+/** The line every `kindgi artifacts download` run says first, on stderr. */
+const DEPRECATED =
+  'kindgi artifacts download is deprecated: use kindgi files download <file-id> <version>. Removed in 0.8.0.\n';
+
 /** What the download answers: its body, made fresh for each call, and the name, size and hash its headers give. */
 interface Download {
   readonly name?: string;
@@ -258,7 +262,7 @@ describe('kindgi artifacts', () => {
   });
 
   test('one Ctrl+C stops a download part way: exit 130, no file and no partial; with --force the old one as it was', async () => {
-    const stopped = 'kindgi artifacts download stopped: no file was written.\n';
+    const stopped = `${DEPRECATED}kindgi artifacts download stopped: no file was written.\n`;
     for (const force of [false, true]) {
       if (force) await writeFile(join(cwd, 'report.pdf'), OLD);
       const body = held();
@@ -308,7 +312,9 @@ describe('kindgi artifacts', () => {
     stop.abort();
     const { out, calls } = await download;
     expect(out.exitCode, out.stderr).toBe(130);
-    expect(out.stderr).toBe('kindgi artifacts download stopped: no file was written.\n');
+    expect(out.stderr).toBe(
+      `${DEPRECATED}kindgi artifacts download stopped: no file was written.\n`,
+    );
     expect(calls.map(([name]) => name)).toEqual(['artifacts.download']);
     answer();
     await body.cancelled;

@@ -22,7 +22,7 @@ import type {
 } from '@kindgi/platform';
 import type { KernelBinding } from '@kindgi/runtime';
 
-import type { BlobStorageBinding } from '@kindgi/blob-binding';
+import type { BlobStorageBinding, FileVersionsBinding } from '@kindgi/blob-binding';
 import type { MemoryQueryBinding } from '@kindgi/memory';
 import { type PolicyRegistryBinding, RETENTION_DOMAINS } from '@kindgi/policy-contract';
 import type { AdapterRegistryBinding } from './adapter-binding.js';
@@ -154,6 +154,7 @@ import { environmentsRouter } from './routes/environments.js';
 import { eventTriggersRouter } from './routes/event-triggers.js';
 import { expertQueueRouter } from './routes/expert-queue.js';
 import { exportSigningKeysRouter } from './routes/export-signing-keys.js';
+import { fileUploadLimit, filesRouter } from './routes/files.js';
 import { flowsRouter } from './routes/flows.js';
 import { guardrailsRouter } from './routes/guardrails.js';
 import { hooksRouter } from './routes/hooks.js';
@@ -776,10 +777,19 @@ export interface CreateAppInput {
    */
   readonly blobStorage?: BlobStorageBinding;
   /**
+   * Optional. When present, mounts the files surface (`/v1/files`): files
+   * with every edit kept as a version, read by a number or Latest,
+   * compared, restored, pinned and deleted. Caller-plugged, as
+   * `blobStorage` is; a version's bytes are a blob.
+   */
+  readonly fileVersions?: FileVersionsBinding;
+  /**
    * The most bytes one artifact upload may carry (`POST /v1/artifacts`);
-   * more is `413 artifact-too-large`. Also the most one request to the
-   * S3-compatible routes may carry (`/s3/*`: an object, or a part of a
-   * multipart upload); more is S3's `400 EntityTooLarge`. Default 100 MiB.
+   * more is `413 artifact-too-large`. Also the most one file version may
+   * carry (`POST /v1/files`, `POST /v1/files/{fileId}/versions`); more is
+   * `413 file-too-large`. Also the most one request to the S3-compatible
+   * routes may carry (`/s3/*`: an object, or a part of a multipart
+   * upload); more is S3's `400 EntityTooLarge`. Default 100 MiB.
    */
   readonly artifactMaxBytes?: number;
   /**
@@ -1574,12 +1584,15 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   app.use('*', requestLogMiddleware(input.logger ?? noopLogger));
   // An upload is read under its own limit, once the caller is known
   // (`readBodyOnce`); every other body under the API's, before anything.
+  const fileLimit = fileUploadLimit(input.artifactMaxBytes ?? DEFAULT_ARTIFACT_MAX_BYTES);
   const ownBodyLimits: readonly OwnBodyLimit[] = [
     {
       method: 'POST',
       path: '/v1/artifacts',
       limit: artifactUploadLimit(input.artifactMaxBytes ?? DEFAULT_ARTIFACT_MAX_BYTES),
     },
+    { method: 'POST', path: '/v1/files', limit: fileLimit },
+    { method: 'POST', path: /^\/v1\/files\/[^/]+\/versions$/, limit: fileLimit },
   ];
   app.use('*', requestBodyLimit(ownBodyLimits));
   // No `/v1` answer is kept by a browser or a proxy (data and errors alike).
@@ -2192,6 +2205,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     v1.route(
       '/artifacts',
       artifactsRouter(input.blobStorage, {
+        runBinding,
+        ...(input.projectBinding !== undefined && { projectBinding: input.projectBinding }),
+        ...(authorizer !== undefined && { authorizer }),
+      }),
+    );
+  }
+  if (input.fileVersions !== undefined) {
+    v1.route(
+      '/files',
+      filesRouter(input.fileVersions, {
         runBinding,
         ...(input.projectBinding !== undefined && { projectBinding: input.projectBinding }),
         ...(authorizer !== undefined && { authorizer }),

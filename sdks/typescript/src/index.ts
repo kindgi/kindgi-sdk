@@ -325,6 +325,12 @@ export type {
   PinTestRun,
   RunProgress,
   ScopeSegment,
+  DeleteFileResult,
+  FilePin,
+  FilePinChange,
+  FileVersion,
+  FileVersionWrite,
+  StoredFile,
 } from './generated/api.js';
 export type { FollowRunOptions, RunProgressEvent, SubscribeToRunOptions } from './run-follow.js';
 export type { CorrectorGroupFilter, CorrectorGroupsClient } from './resources/corrector-groups.js';
@@ -348,6 +354,18 @@ export type {
   SubscriptionsClient,
 } from './resources/events.js';
 export type { ArtifactFilter, ArtifactsClient } from './resources/artifacts.js';
+export type {
+  AddFileVersionInput,
+  CreateFileInput,
+  DownloadedFileVersion,
+  FilesClient,
+  FilesPageFilter,
+  FileVersionSelector,
+  FileVersionsClient,
+  ListFilesFilter,
+  PinFileVersionInput,
+  RestoreFileVersionInput,
+} from './resources/files.js';
 export type {
   ListScheduleFiresFilter,
   ListScheduleVersionsFilter,
