@@ -13,6 +13,13 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a tenant's own limits on the flows and agents in production,
+  and its plan id.** `TenantLimits` gains `flows_in_production` and
+  `agents_in_production`, and `TenantLimitsInUse` their counts.
+  `TenantLimitsResult` gains `plan`: the tenant's plan id, `None` while none
+  is set, absent from a runtime that doesn't keep it.
+  `client.system_tenants.set_plan(tenant_id, plan="starter")` sets it, and
+  `plan=None` clears it (`TenantPlanBody`, answering `TenantPlan`).
 - `kindgi`: **the client's models carry a runtime's plan warning.** Once a
   count of the flows or agents in production reaches the runtime's license
   key's plan, `plan_warning` (`PlanWarning`: `flows` and `agents`, each a

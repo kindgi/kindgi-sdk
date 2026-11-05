@@ -2490,6 +2490,12 @@ export const ERROR_ENTRIES = {
     description: "This runtime doesn't purge tenants through the API.",
     details: [],
   },
+  'tenant-plan-unsupported': {
+    description:
+      "This runtime doesn't keep a tenant's plan id, so `PUT /v1/system/tenants/{tenantId}/plan` sets nothing. Its `GET …/limits` leaves `plan` out. The tenant's limits are still set and enforced through `PUT …/limits`.",
+    details: [],
+    seeAlso: ['deploy/self-hosted/serve-many-tenants'],
+  },
   'tenant-slug-taken': {
     description:
       'Another workspace has that slug, creating a workspace or renaming one. A purged workspace keeps its slug. Choose another.',
@@ -3484,7 +3490,7 @@ export const ERROR_ENTRIES = {
   },
   'plan-limit-reached': {
     description:
-      "A write would add flows or agents to production past the most this runtime's license key runs: publishing or reinstating an agent or a flow, deploying or promoting a build, putting a project in production, or the agent version a suggested change's check makes. Each flow and each agent counts once in the installation, however many projects in production or versions run it; projects not in production don't count. The most is the plan's number and a margin, a fifth more and at least one more. None of the flows and agents the write adds is added, and what runs keeps running: changes to the flows and agents that run go through. A suggested change keeps its edit's block version, as a failed check does, and one just made is kept too: check it again with `POST /v1/suggested-changes/{suggestedChangeId}/check` once there's room. To make room, unregister one that runs in production or take a project out of production, or renew the key on a larger plan, where `details.next` says when the server names a place. The deploy check and a promotion's check answer it as the deploy and the promotion would.",
+      "A write would add flows or agents to production past the most this runtime's license key runs, or past the most the workspace's own limits allow (`flowsInProduction` and `agentsInProduction` in its limits): publishing or reinstating an agent or a flow, deploying or promoting a build, putting a project in production, or the agent version a suggested change's check makes. Each flow and each agent counts once in the installation, however many projects in production or versions run it; projects not in production don't count. Against the workspace's own limits, only its own flows and agents count. The most is the plan's number and a margin, a fifth more and at least one more. None of the flows and agents the write adds is added, and what runs keeps running: changes to the flows and agents that run go through. A suggested change keeps its edit's block version, as a failed check does, and one just made is kept too: check it again with `POST /v1/suggested-changes/{suggestedChangeId}/check` once there's room. To make room, unregister one that runs in production or take a project out of production, or renew the key on a larger plan (for the workspace's own limits, ask whoever runs the server for a larger limit), where `details.next` says when the server names a place. The deploy check and a promotion's check answer it as the deploy and the promotion would.",
     details: [
       {
         key: 'projectId',
@@ -3498,16 +3504,21 @@ export const ERROR_ENTRIES = {
       },
       { key: 'adding', meaning: 'how many of that count the write adds to production' },
       {
+        key: 'scope',
+        meaning:
+          "whose numbers that count passed: `installation` for the license key's plan, `tenant` for the workspace's own limits; absent from a runtime that doesn't say, and then it's the key's",
+      },
+      {
         key: 'plan',
         meaning:
-          "the license key's plan for that count; absent, with `most` and `inUse`, when the runtime serves other tenants too, whose flows and agents the key's numbers count",
+          "the license key's plan for that count, or the workspace's own limit; the key's is absent, with `most` and `inUse`, when the runtime serves other tenants too, whose flows and agents the key's numbers count. The workspace's own are always given",
       },
       { key: 'most', meaning: 'the most that run: the plan and its margin' },
       { key: 'inUse', meaning: 'how many run in production before this write' },
       {
         key: 'over',
         meaning:
-          'each count over, flows first: its `limit` and `adding`, and its `plan`, `most` and `inUse` when they are given',
+          'each count over, flows first: its `limit` and `adding`, its `scope` when the runtime says, and its `plan`, `most` and `inUse` when they are given',
       },
       { key: 'newIds', meaning: 'the ids the write adds to production: `flows` and `agents`' },
       {
