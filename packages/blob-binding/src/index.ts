@@ -12,6 +12,12 @@ import type {
   Timestamp,
 } from '@kindgi/types';
 
+/** What a tenant's files take (`BlobStorageBinding.storageUsed`). */
+export interface BlobStorageUsed {
+  /** Bytes, with the uploads under way. It may be past the limit. */
+  readonly usedBytes: number;
+}
+
 /**
  * Caller-plugged surface for artifact (blob) storage. Same pattern as
  * `AgentRegistryBinding` / `MemoryBinding` / `ReviewerRegistryBinding`
@@ -59,12 +65,6 @@ import type {
  * retention; a development implementation may remove the data
  * outright.
  */
-/** What a tenant's files take (`BlobStorageBinding.storageUsed`). */
-export interface BlobStorageUsed {
-  /** Bytes, with the uploads under way. It may be past the limit. */
-  readonly usedBytes: number;
-}
-
 export interface BlobStorageBinding {
   // -------------- bespoke (blobId-addressed) surface --------------
 
