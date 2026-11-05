@@ -15,7 +15,7 @@ description: >
   kindgi-java-authoring-tools, Java agents by kindgi-java-authoring-agents.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.4"
+version: "0.1.5"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -392,7 +392,7 @@ input or the output), not on every save.
    real, and an approval gate (when it falls back on `mutating`) won't ask
    before it.
 10. **A read-only tool without `mutating(false)`.** A dry run stops at it,
-    and an approval gate asks before it on first use.
+    and an approval gate asks before each call to it.
 
 ## When the framework itself is the problem
 

@@ -462,7 +462,7 @@ export interface ToolManifest {
    * Consumed by `@kindgi/agents` as the per-tool HITL default when an
    * agent's `conversationPolicy.hitl.tools` sets neither an override
    * nor a `default` for the tool — a read-only tool passes straight
-   * through, a mutating tool asks on first use.
+   * through, and a mutating tool asks before each call.
    *
    * It also decides what runs together: calls to read-only tools that a
    * model step asks for one after another run at the same time, up to 8 at
