@@ -18,7 +18,7 @@ const TodayOutput = z.object({
 const defined = defineTool({
   id: '{{PACK_ID}}.today' as ToolId,
   description:
-    "Today's date, weekday and time in the store's time zone. Call it before answering anything that depends on today's date.",
+    "Today's date, weekday and time in the workspace's time zone. Call it before answering anything that depends on today's date.",
   version: '{{PACK_VERSION}}',
   input: z.object({}),
   output: TodayOutput,
