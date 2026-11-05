@@ -28,13 +28,16 @@ import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
 const TOKEN = 'delete-restore-token';
 const USER = 'delete-restore-user';
 const OTHER_TENANT = 'delete-restore-other-tenant';
+const MEMBER = 'delete-restore-member';
 const tenantId = randomUUID() as TenantId;
 const otherTenantId = randomUUID() as TenantId;
 
+// Without an authorizer, a workspace admin is a key with the `tenant-admin` scope.
 const resolveToken: TokenResolver = async (token) => {
-  if (token === TOKEN) return { tenantId };
+  if (token === TOKEN) return { tenantId, scopes: ['tenant-admin'] };
   if (token === USER) return { tenantId, userId: 'user-1' as UserId };
-  if (token === OTHER_TENANT) return { tenantId: otherTenantId };
+  if (token === OTHER_TENANT) return { tenantId: otherTenantId, scopes: ['tenant-admin'] };
+  if (token === MEMBER) return { tenantId, scopes: ['tenant-admin'], tokenRole: 'member' };
   return null;
 };
 
@@ -55,8 +58,16 @@ function grantedOnly(granted: Set<string>): AuthzCheckBinding {
   } as unknown as AuthzCheckBinding;
 }
 
-function makeApp(options: { authz?: AuthzCheckBinding; projects?: ProjectBinding } = {}) {
-  const trio = makeInMemoryProjectBinding();
+function makeApp(
+  options: {
+    authz?: AuthzCheckBinding;
+    projects?: ProjectBinding;
+    productionLimit?: (tenantId: TenantId) => number | undefined;
+  } = {},
+) {
+  const trio = makeInMemoryProjectBinding(
+    options.productionLimit !== undefined ? { productionLimit: options.productionLimit } : {},
+  );
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
@@ -258,6 +269,59 @@ describe('POST /v1/projects/{projectId}/restore', () => {
     await call(app, 'DELETE', `/v1/projects/${id}`);
     expect((await call(app, 'POST', `/v1/projects/${id}/restore`, OTHER_TENANT)).status).toBe(404);
     expect((await call(app, 'GET', `/v1/projects/${id}`)).status).toBe(404);
+  });
+});
+
+describe('a restore at the limit on projects in production', () => {
+  test('one in production is refused 403 production-limit-reached, and stays deleted; out of production, it restores', async () => {
+    const { app, trio } = makeApp({ productionLimit: () => 1 });
+    const setProduction = trio.projects.setProduction?.bind(trio.projects);
+    if (setProduction === undefined) throw new Error('no setProduction');
+    const live = await seed(trio.projects, { name: 'Shop', slug: 'shop' });
+    const gone = await seed(trio.projects, { name: 'Store', slug: 'store' });
+    const plain = await seed(trio.projects, { name: 'Notes', slug: 'notes' });
+    expect((await setProduction(tenantId, gone as ProjectId, true)).kind).toBe('ok');
+    expect((await call(app, 'DELETE', `/v1/projects/${gone}`)).status).toBe(204);
+    expect((await call(app, 'DELETE', `/v1/projects/${plain}`)).status).toBe(204);
+    expect((await setProduction(tenantId, live as ProjectId, true)).kind).toBe('ok');
+
+    const refused = await call(app, 'POST', `/v1/projects/${gone}/restore`);
+    expect(refused.status).toBe(403);
+    const body = (await refused.json()) as {
+      error: { code: string; message: string; details?: Record<string, unknown> };
+    };
+    expect(body.error.code).toBe('production-limit-reached');
+    expect(body.error.message).toContain('Nothing was restored');
+    expect(body.error.details).toMatchObject({
+      projectId: gone,
+      limit: 'projects-in-production',
+      projectsInProduction: 1,
+      inProduction: 1,
+    });
+    expect((await call(app, 'GET', `/v1/projects/${gone}`)).status).toBe(404);
+    expect((await deletedList(app)).data.map((p) => p.id)).toContain(gone);
+
+    expect((await call(app, 'POST', `/v1/projects/${plain}/restore`)).status).toBe(200);
+  });
+});
+
+describe('without an authorizer', () => {
+  test("a key that isn't a workspace admin: 403 permission-denied on both, before any change", async () => {
+    const { app, trio } = makeApp();
+    const id = await seed(trio.projects, { name: 'Shop', slug: 'shop' });
+    expect((await call(app, 'DELETE', `/v1/projects/${id}`)).status).toBe(204);
+    for (const token of [MEMBER, USER]) {
+      for (const res of [
+        await call(app, 'POST', `/v1/projects/${id}/restore`, token),
+        await call(app, 'GET', '/v1/projects/deleted', token),
+      ]) {
+        expect(res.status).toBe(403);
+        expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+          'permission-denied',
+        );
+      }
+    }
+    expect(await trio.projects.get(tenantId, id as ProjectId)).toBeUndefined();
   });
 });
 

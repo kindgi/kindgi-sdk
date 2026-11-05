@@ -19,6 +19,7 @@ import type {
 } from '@kindgi/platform';
 import type { Cursor, OrgId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
+import { isTenantAdmin } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -79,9 +80,11 @@ import { actionOrRunRefusal, readableOrRun } from './runner-reach.js';
  *                                          `project-is-default` for the
  *                                          tenant's default project.
  *   - `POST   /:projectId/restore`       — 200 with the project, back as it
- *                                          was (a live one unchanged), or
- *                                          404 `project-not-found`. Admin on
- *                                          the tenant.
+ *                                          was (a live one unchanged), 404
+ *                                          `project-not-found`, or 403
+ *                                          `production-limit-reached` for one
+ *                                          in production at the limit. Admin
+ *                                          on the tenant.
  *   - `GET    /:projectId/memberships`   — list; cursor-paginated.
  *   - `POST   /:projectId/memberships`   — add member; body `{ userId, role }`
  *                                          or `{ email, role }`; 201, or 404
@@ -300,13 +303,26 @@ export function projectsRouter(
 
   /**
    * Admin on the workspace, for the deleted list and the restore. With an
-   * authorizer, its check; without one, a key or session limited to a
-   * project is refused, reads too: it reaches nothing above its project.
+   * authorizer, its check; without one, the `tenant-admin` scope
+   * (`isTenantAdmin`), and a key or session limited to a project is refused
+   * as such, reads too: it reaches nothing above its project.
    */
   async function tenantAdminOnly(c: Context<AppEnv>, next: () => Promise<void>) {
     const tenant = ref('tenant', c.get('tenantId') as unknown as string);
-    if (authorizer === undefined) return limitedCallerRefusal(c, 'admin', tenant) ?? next();
-    return authorizer.authorize('admin', () => tenant)(c, next);
+    if (authorizer !== undefined) return authorizer.authorize('admin', () => tenant)(c, next);
+    const limited = limitedCallerRefusal(c, 'admin', tenant);
+    if (limited !== undefined) return limited;
+    if (await isTenantAdmin(c, undefined)) return next();
+    c.status(statusFor('permission-denied') as never);
+    return c.json(
+      toWireError(
+        {
+          code: 'permission-denied',
+          message: 'Only a workspace admin lists deleted projects or restores one',
+        },
+        c.get('requestId'),
+      ),
+    );
   }
 
   // ---------- Authorization middleware ----------
@@ -961,6 +977,10 @@ export function projectsRouter(
       return c.json(toWireError(error, requestId));
     }
     const outcome = await binding.restore(tenantId, projectId);
+    if (outcome.kind === 'limit-reached') {
+      c.status(statusFor('production-limit-reached') as never);
+      return c.json(toWireError(restoreLimitRefusal(outcome, projectId), requestId));
+    }
     if (outcome.kind === 'project-not-found') {
       c.status(statusFor('project-not-found') as never);
       return c.json(
@@ -978,6 +998,29 @@ export function projectsRouter(
   });
 
   return r;
+}
+
+/**
+ * A restore refused at the workspace's limit on projects in production: the
+ * production route's own refusal, for a project that's in production and
+ * would count again.
+ */
+function restoreLimitRefusal(
+  outcome: { readonly projectsInProduction: number; readonly inProduction: number },
+  projectId: ProjectId,
+) {
+  const { projectsInProduction, inProduction } = outcome;
+  // Over a limit lowered below the count, more than one has to come out.
+  const over = inProduction - projectsInProduction + 1;
+  const takeOut = over === 1 ? 'one' : String(over);
+  return {
+    code: 'production-limit-reached',
+    message: `This workspace's limit is ${projectsInProduction} ${projectsInProduction === 1 ? 'project' : 'projects'} in production, and it has ${inProduction}. The deleted project is in production, so it's restored once there's room: take ${takeOut} out of production first. Nothing was restored.`,
+    projectId: projectId as unknown as string,
+    limit: 'projects-in-production',
+    projectsInProduction,
+    inProduction,
+  };
 }
 
 /** Who a new member is: exactly one of `userId` and `email`. */

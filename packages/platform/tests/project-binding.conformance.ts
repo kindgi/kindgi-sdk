@@ -25,7 +25,9 @@
  * - A deleted project is kept: it's gone from every read and list, its
  *   slugs stay its own (`deletedProject: true` on the conflict), and the
  *   default project is refused (`project-is-default`). With `restore`, it
- *   comes back as it was, and the deleted list names it.
+ *   comes back as it was, and the deleted list names it; with
+ *   `productionLimit` too, one in production counts again, so at the limit
+ *   its restore is `limit-reached`.
  * - `project-not-found` / `project-membership-not-found` outcomes from
  *   writes on a missing row.
  * - `listForUser` aggregates memberships across projects.
@@ -748,6 +750,61 @@ export function runProjectBindingConformance(
         );
         expect(live).toHaveLength(1);
       });
+
+      if (options.restore === true) {
+        /** The binding's `restore`, which `restore: true` says it has. */
+        function restoreOf(projects: ProjectBinding) {
+          const restore = projects.restore?.bind(projects);
+          if (restore === undefined) throw new Error('restore: the binding needs restore');
+          return restore;
+        }
+
+        it("a deleted project isn't counted; restored in production at the limit, limit-reached, and it stays deleted", async () => {
+          const { projects, set, limit } = limited();
+          const restore = restoreOf(projects);
+          const [a, b] = await threeProjects(projects, T1);
+          await limit(T1, 1);
+          expect((await set(T1, a, true)).kind).toBe('ok');
+          expect(await projects.delete(T1, a)).toEqual({ kind: 'ok' });
+          expect((await set(T1, b, true)).kind).toBe('ok');
+          expect(await restore(T1, a)).toEqual({
+            kind: 'limit-reached',
+            projectsInProduction: 1,
+            inProduction: 1,
+          });
+          expect(await projects.get(T1, a)).toBeUndefined();
+          expect((await projects.listDeleted?.(T1, {}))?.items.map((d) => d.id)).toEqual([a]);
+          // Once there's room, it comes back in production, as it was.
+          expect(await set(T1, b, false)).toMatchObject({ kind: 'ok', changed: true });
+          expect(await restore(T1, a)).toMatchObject({ kind: 'ok', changed: true });
+          expect((await projects.get(T1, a))?.productionSince).toBeDefined();
+        });
+
+        it('a deleted project out of production restores at the limit', async () => {
+          const { projects, set, limit } = limited();
+          const restore = restoreOf(projects);
+          const [a, b] = await threeProjects(projects, T1);
+          await limit(T1, 1);
+          expect((await set(T1, b, true)).kind).toBe('ok');
+          expect(await projects.delete(T1, a)).toEqual({ kind: 'ok' });
+          expect(await restore(T1, a)).toMatchObject({ kind: 'ok', changed: true });
+        });
+
+        it('a restore and a project put in production at once, with one place left: one goes in', async () => {
+          const { projects, set, limit } = limited();
+          const restore = restoreOf(projects);
+          const [a, b] = await threeProjects(projects, T1);
+          expect((await set(T1, a, true)).kind).toBe('ok');
+          expect(await projects.delete(T1, a)).toEqual({ kind: 'ok' });
+          await limit(T1, 1);
+          const outcomes = await Promise.all([restore(T1, a), set(T1, b, true)]);
+          expect(outcomes.map((o) => o.kind).sort()).toEqual(['limit-reached', 'ok']);
+          const inProduction = [await projects.get(T1, a), await projects.get(T1, b)].filter(
+            (p) => p?.productionSince !== undefined,
+          );
+          expect(inProduction).toHaveLength(1);
+        });
+      }
     });
   }
 

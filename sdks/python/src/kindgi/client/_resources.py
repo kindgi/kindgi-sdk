@@ -9754,7 +9754,7 @@ class ProjectsResource:
     ) -> _models.Project:
         """Restore a deleted project. `POST /v1/projects/{projectId}/restore`
 
-        Brings a deleted project back as it was: its members, team grants, keys, own service account and slugs, and its triggers' next fires run. Fires and deliveries that came due while it was deleted were skipped, and runs cancelled at the delete stay cancelled. Its `updatedAt` moves to the restore. A live project answers 200, unchanged. Needs `admin` on the workspace: roles on a deleted project reach nothing, its own admins' included.
+        Brings a deleted project back as it was: its members, team grants, keys, own service account and slugs, and its triggers' next fires run. Fires and deliveries that came due while it was deleted were skipped, and runs cancelled at the delete stay cancelled. Its `updatedAt` moves to the restore. A live project answers 200, unchanged. A deleted project doesn't count against the workspace's limit on projects in production, so restoring one that's in production counts it again: at the limit, the restore is refused (`403 production-limit-reached`) and the project stays deleted. Needs `admin` on the workspace: roles on a deleted project reach nothing, its own admins' included.
         """
         return self._client._request(
             _OPERATIONS["projects.restore"],
@@ -20146,7 +20146,7 @@ class AsyncProjectsResource:
     ) -> _models.Project:
         """Restore a deleted project. `POST /v1/projects/{projectId}/restore`
 
-        Brings a deleted project back as it was: its members, team grants, keys, own service account and slugs, and its triggers' next fires run. Fires and deliveries that came due while it was deleted were skipped, and runs cancelled at the delete stay cancelled. Its `updatedAt` moves to the restore. A live project answers 200, unchanged. Needs `admin` on the workspace: roles on a deleted project reach nothing, its own admins' included.
+        Brings a deleted project back as it was: its members, team grants, keys, own service account and slugs, and its triggers' next fires run. Fires and deliveries that came due while it was deleted were skipped, and runs cancelled at the delete stay cancelled. Its `updatedAt` moves to the restore. A live project answers 200, unchanged. A deleted project doesn't count against the workspace's limit on projects in production, so restoring one that's in production counts it again: at the limit, the restore is refused (`403 production-limit-reached`) and the project stays deleted. Needs `admin` on the workspace: roles on a deleted project reach nothing, its own admins' included.
         """
         return await self._client._request(
             _OPERATIONS["projects.restore"],

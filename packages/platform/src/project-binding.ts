@@ -124,7 +124,9 @@ export interface ProjectBinding {
    * that names no project, or a deleted one, is `ok` (idempotent), and a
    * deleted one keeps the time it was first deleted. What a runtime does
    * with what's in the project (its runs, its triggers, who may reach it)
-   * is the runtime's concern.
+   * is the runtime's concern: Kindgi's cancels the project's unfinished
+   * runs once the delete commits, and `createApp`'s `projectDeleted`
+   * refuses what would start in it.
    */
   delete(tenantId: TenantId, projectId: ProjectId): Promise<ProjectDeleteOutcome>;
   /**
@@ -135,6 +137,13 @@ export interface ProjectBinding {
    * `projectId` in the workspace. Optional, with `listDeleted`: without
    * them, the restore and deleted-list routes answer 501
    * `project-restore-unsupported`.
+   *
+   * A deleted project isn't counted against the workspace's limit on
+   * projects in production (`setProduction`). Restoring one that's in
+   * production counts it again: with the workspace's projects in production
+   * at its limit, or past it, the restore answers `limit-reached` and the
+   * project stays deleted. The read, the count and the restore are one
+   * step, as `setProduction`'s are.
    */
   restore?(tenantId: TenantId, projectId: ProjectId): Promise<ProjectRestoreOutcome>;
   /**
@@ -353,6 +362,17 @@ export type ProjectRestoreOutcome =
   | {
       /** No project, live or deleted, with this id in the workspace. */
       readonly kind: 'project-not-found';
+    }
+  | {
+      /**
+       * Not restored: the project is in production, and the workspace's
+       * projects in production are at its limit, or past it.
+       */
+      readonly kind: 'limit-reached';
+      /** The limit. */
+      readonly projectsInProduction: number;
+      /** The workspace's projects in production now. */
+      readonly inProduction: number;
     };
 
 /** What `ProjectMembershipBinding.add` did (`ok` when already a member, too). */

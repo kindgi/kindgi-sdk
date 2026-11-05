@@ -219,6 +219,7 @@ export type {
   AssignableProjectRoleValue,
   CreateProjectInput,
   ListProjectMembershipsFilter,
+  ListDeletedProjectsFilter,
   ListProjectsFilter,
   ProjectMembershipPage,
   ListProjectAccessFilter,

@@ -124,6 +124,8 @@ export interface SuggestedChangeServiceDeps {
   readonly referenceScope?: ReferenceScopeBinding;
   /** Whether a project is suspended, for a pin's gate (`AgentPinGateDeps`). Absent: no check. */
   readonly projectSuspended?: AgentPinGateDeps['projectSuspended'];
+  /** Whether a project is deleted, for a pin's gate (`AgentPinGateDeps`). Absent: no check. */
+  readonly projectDeleted?: AgentPinGateDeps['projectDeleted'];
   /**
    * The tenant's environment orders: a candidate (its block version and
    * agent version) is made in the first environment of the agent's
@@ -1526,6 +1528,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
           ...(deps.projects !== undefined && { projects: deps.projects }),
           ...(deps.referenceScope !== undefined && { referenceScope: deps.referenceScope }),
           ...(deps.projectSuspended !== undefined && { projectSuspended: deps.projectSuspended }),
+          ...(deps.projectDeleted !== undefined && { projectDeleted: deps.projectDeleted }),
           ...(deps.testSets !== undefined && { testSets: deps.testSets }),
           ...(deps.corrections !== undefined && { corrections: deps.corrections }),
           ...(deps.itemProjects !== undefined && { itemProjects: deps.itemProjects }),

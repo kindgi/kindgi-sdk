@@ -3456,11 +3456,11 @@ export const ERROR_ENTRIES = {
   },
   'production-limit-reached': {
     description:
-      "You put a project in production while the workspace already had as many projects in production as its limit allows, or more (`projectsInProduction`, set by whoever runs the server). Nothing changed. A project already in production isn't counted again, and taking one out is never refused. Take a project out of production, or go where `details.next` says when the server names a place, or ask whoever runs it to raise the limit; then put the project in production again.",
+      "You put a project in production while the workspace already had as many projects in production as its limit allows, or more (`projectsInProduction`, set by whoever runs the server). Nothing changed. A project already in production isn't counted again, and taking one out is never refused. Take a project out of production, or go where `details.next` says when the server names a place, or ask whoever runs it to raise the limit; then put the project in production again. Restoring a deleted project that's in production counts it again, so at the limit the restore is refused the same way, and the project stays deleted until there's room.",
     details: [
       {
         key: 'projectId',
-        meaning: "the project that wasn't put in production",
+        meaning: "the project that wasn't put in production, or wasn't restored",
       },
       {
         key: 'limit',

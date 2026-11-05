@@ -4272,7 +4272,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed request body, or the test run isn't a completed comparison: a cancelled or failed one is refused, even with the summary of the cases it got through. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
       ),
       '404': ErrorResponse(
-        'The version is not registered, or was unregistered; or the test run is not found.',
+        "The version is not registered, or was unregistered; or the test run is not found. Or `project-not-found`: the scope's project is deleted.",
       ),
       '409': ErrorResponse(
         "`pin-stops-latest`: the pin would take a project that follows Latest now off it, and the body doesn't have `stopFollowingLatest: true`; `details.projects` lists each one, `{ projectId, version }`, with the version it runs now. Nothing is recorded. `nothing-runs-in-scope`: no version of the agent runs in the scope yet (no pin covers it, and it has no Latest), so there's nothing to measure the version against; deploy or publish a version into the project first (into a later environment, promote a build that ships one). `project-suspended`: nothing runs there because the scope's project is suspended. `pin-superseded`: the scope's pinned version changed while the gate ran; check again. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `pin-scope-spans-environments`: the agent has a project in an environment order, and a workspace- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead. Under `kindgi dev`, `pin-superseded` also when a pack file the version's data blocks go into changed since the version was made, or the block left the pack; the message names the file. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole workspace, since the pack's files serve every scope.",
@@ -4306,7 +4306,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         "Malformed body, or the test run isn't a completed comparison: a cancelled or failed one is refused, even with the summary of the cases it got through. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
       ),
-      '404': ErrorResponse('The version, the agent or the test run is not found.'),
+      '404': ErrorResponse(
+        "The version, the agent or the test run is not found. Or `project-not-found`: the scope's project is deleted.",
+      ),
       '409': ErrorResponse(
         '`nothing-runs-in-scope` or `project-suspended`, as `POST …/promotions` answers: no version of the agent runs in the scope yet.',
       ),
@@ -5482,7 +5484,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed request body (`bad-input`): no `projectId`, or a field the body doesn't have (`scope`, `testSetId` and `fromVersion` among them), named in the message.",
       ),
       '404': ErrorResponse(
-        "The body's `projectId` names no project of this workspace (`project-not-found`).",
+        "The body's `projectId` names no project of this workspace, or a deleted one (`project-not-found`).",
       ),
       '409': ErrorResponse(
         '`improve-not-ready`: something the Improve run needs is missing (`details.items`, as `POST /v1/improve-runs/check` lists them). `improve-run-running`: the agent has a running Improve run in the project (`details.improveRunId`); one runs at a time. Or `registry-read-only`: the agent registry is read-only and takes no versions an Improve run makes; the message says why. Or Idempotency-Key was reused with a different body.',
@@ -5508,7 +5510,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed request body (`bad-input`): no `projectId`, or a field the body doesn't have (`scope`, `testSetId` and `fromVersion` among them), named in the message.",
       ),
       '404': ErrorResponse(
-        "The body's `projectId` names no project of this workspace (`project-not-found`).",
+        "The body's `projectId` names no project of this workspace, or a deleted one (`project-not-found`).",
       ),
       '409': ErrorResponse(
         '`registry-read-only`: the agent registry is read-only and takes no versions an Improve run makes; the message says why.',
@@ -5624,7 +5626,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         "Malformed request body. Or `reference-out-of-scope`: the suggested change's project no longer reaches the agent (`details.issues`).",
       ),
-      '404': ErrorResponse('No such suggested change.'),
+      '404': ErrorResponse(
+        'No such suggested change; or `project-not-found`: its project is deleted.',
+      ),
       '409': ErrorResponse(
         "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `pin-stops-latest`: its project follows Latest, and the body doesn't have `stopFollowingLatest: true`; `details.projects` has `{ projectId, version }` with the version it runs now, and `details.suggestedChangeId`. `suggested-change-out-of-date`: its project now runs another version than the one it's built on, so it's being rebuilt there and checked again (`details.rebuilding`), or it can't be.",
       ),
@@ -7428,7 +7432,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed body (both / neither of `agentRef` / `flowRef`, dispatcher-input-invalid); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: the test set, the agent or flow, or an agent or tool a flow candidate's `versions` names, isn't registered in `projectId`'s project, its org or the workspace; or a version named (by `agentRef`, `flowRef` or `versions.agents`) isn't one `projectId`'s project runs (`details.issues`, each at the path it was named, whose message names the version). Or `bad-input` for an agent's own test set run with another agent, in another project, or with `flowRef`: the message names the test set this run's agent and project have. Nothing runs.",
       ),
       '404': ErrorResponse(
-        'No test set with that id under this workspace; or `projectId` names no project of this workspace (`project-not-found`).',
+        'No test set with that id under this workspace; or `projectId` names no project of this workspace, or a deleted one (`project-not-found`).',
       ),
       '409': ErrorResponse(
         "`project-suspended`: the project is suspended, so no test run starts in it. Or `suggested-change-nothing-to-check`: an agent's own test set has no cases in the project (`details.projectId`), as a suggested change's check answers. Or Idempotency-Key was reused with a different body.",
@@ -8356,7 +8360,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         ),
       ),
       '404': ErrorResponse(
-        "The body's `projectId` names no project of this workspace (`project-not-found`).",
+        "The body's `projectId` names no project of this workspace, or a deleted one (`project-not-found`).",
       ),
       '429': ErrorResponse(
         `${SCHEMA_COMPILE_BUDGET_TEXT} Or \`details.limit: "tenant-unpack-hour"\`, on a server that bounds each workspace's image reads (Kindgi Cloud): this workspace's image reads unpacked as much as they may in an hour. Nothing was deployed; \`Retry-After\` says when there's room again.`,
@@ -9608,7 +9612,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.restore',
     summary: 'Restore a deleted project',
     description:
-      "Brings a deleted project back as it was: its members, team grants, keys, own service account and slugs, and its triggers' next fires run. Fires and deliveries that came due while it was deleted were skipped, and runs cancelled at the delete stay cancelled. Its `updatedAt` moves to the restore. A live project answers 200, unchanged. Needs `admin` on the workspace: roles on a deleted project reach nothing, its own admins' included.",
+      "Brings a deleted project back as it was: its members, team grants, keys, own service account and slugs, and its triggers' next fires run. Fires and deliveries that came due while it was deleted were skipped, and runs cancelled at the delete stay cancelled. Its `updatedAt` moves to the restore. A live project answers 200, unchanged. A deleted project doesn't count against the workspace's limit on projects in production, so restoring one that's in production counts it again: at the limit, the restore is refused (`403 production-limit-reached`) and the project stays deleted. Needs `admin` on the workspace: roles on a deleted project reach nothing, its own admins' included.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -9624,7 +9628,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The project, live again.', schema: ref('Project') },
       ...CommonAuthErrors,
-      '403': ErrorResponse(withLimitedAbove('No `admin` on the workspace (`permission-denied`).')),
+      '403': ErrorResponse(
+        withLimitedAbove(
+          "No `admin` on the workspace (`permission-denied`); or the project is in production and the workspace's projects in production are at its limit (`production-limit-reached`, `details.limit` `projects-in-production`, `details.projectsInProduction` the limit, `details.inProduction` the count, `details.projectId`): it stays deleted until one is taken out of production.",
+        ),
+      ),
       '404': ErrorResponse(
         '`project-not-found`: no project, live or deleted, with that id under this workspace.',
       ),

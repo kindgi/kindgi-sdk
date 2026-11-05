@@ -39919,7 +39919,7 @@
             }
           },
           "404": {
-            "description": "The version is not registered, or was unregistered; or the test run is not found.",
+            "description": "The version is not registered, or was unregistered; or the test run is not found. Or `project-not-found`: the scope's project is deleted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -40077,7 +40077,7 @@
             }
           },
           "404": {
-            "description": "The version, the agent or the test run is not found.",
+            "description": "The version, the agent or the test run is not found. Or `project-not-found`: the scope's project is deleted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -46952,7 +46952,7 @@
             }
           },
           "404": {
-            "description": "The body's `projectId` names no project of this workspace (`project-not-found`).",
+            "description": "The body's `projectId` names no project of this workspace, or a deleted one (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -47202,7 +47202,7 @@
             }
           },
           "404": {
-            "description": "The body's `projectId` names no project of this workspace (`project-not-found`).",
+            "description": "The body's `projectId` names no project of this workspace, or a deleted one (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -47507,7 +47507,7 @@
             }
           },
           "404": {
-            "description": "No such suggested change.",
+            "description": "No such suggested change; or `project-not-found`: its project is deleted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -56251,7 +56251,7 @@
             }
           },
           "404": {
-            "description": "No test set with that id under this workspace; or `projectId` names no project of this workspace (`project-not-found`).",
+            "description": "No test set with that id under this workspace; or `projectId` names no project of this workspace, or a deleted one (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -59999,7 +59999,7 @@
             }
           },
           "404": {
-            "description": "The body's `projectId` names no project of this workspace (`project-not-found`).",
+            "description": "The body's `projectId` names no project of this workspace, or a deleted one (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -63878,7 +63878,7 @@
             }
           },
           "403": {
-            "description": "No `admin` on the workspace (`permission-denied`). Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
+            "description": "No `admin` on the workspace (`permission-denied`); or the project is in production and the workspace's projects in production are at its limit (`production-limit-reached`, `details.limit` `projects-in-production`, `details.projectsInProduction` the limit, `details.inProduction` the count, `details.projectId`): it stays deleted until one is taken out of production. Without an authorization store, `key-project-mismatch` (`details.keyProjectId`): the API key or session is limited to a project, and this writes above it, to the workspace, an org or a team (with a store, that is `permission-denied`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -63918,7 +63918,7 @@
             }
           }
         },
-        "description": "Brings a deleted project back as it was: its members, team grants, keys, own service account and slugs, and its triggers' next fires run. Fires and deliveries that came due while it was deleted were skipped, and runs cancelled at the delete stay cancelled. Its `updatedAt` moves to the restore. A live project answers 200, unchanged. Needs `admin` on the workspace: roles on a deleted project reach nothing, its own admins' included.",
+        "description": "Brings a deleted project back as it was: its members, team grants, keys, own service account and slugs, and its triggers' next fires run. Fires and deliveries that came due while it was deleted were skipped, and runs cancelled at the delete stay cancelled. Its `updatedAt` moves to the restore. A live project answers 200, unchanged. A deleted project doesn't count against the workspace's limit on projects in production, so restoring one that's in production counts it again: at the limit, the restore is refused (`403 production-limit-reached`) and the project stays deleted. Needs `admin` on the workspace: roles on a deleted project reach nothing, its own admins' included.",
         "parameters": [
           {
             "name": "projectId",

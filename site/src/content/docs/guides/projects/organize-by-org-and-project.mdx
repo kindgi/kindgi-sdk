@@ -559,7 +559,12 @@ Deleting a project:
   Deleting it again changes nothing, and keeps the time of the first delete.
 - **Nobody can reach what's in it:** its agents, flows, tools,
   conversations, artifacts and values. Its unfinished runs are cancelled, and
-  new runs in it are refused.
+  new runs, deploys, test runs, Improve runs and pins in it are refused with
+  `404 project-not-found`. Without
+  [authorization](../../../deploy/people-and-keys/#without-authorization),
+  roles aren't checked, so the workspace's keys can still read what's in it
+  by id until it's restored. Its runs, deploys, test runs, Improve runs and
+  pins are refused there too.
 - **Its triggers and schedules skip their fires.** A skipped fire isn't a
   failure and doesn't pause the trigger. A webhook delivery to it is answered
   `202` with `skipped: 'project-deleted'`, and nothing is kept.
@@ -580,7 +585,10 @@ Two projects can't be deleted: the workspace's default project
 it was, with its slugs, members, grants, keys and own account, and answers
 the project. Its cancelled runs stay cancelled, and fires that came due while
 it was deleted aren't made up: the next ones run. Restoring a project that
-isn't deleted changes nothing.
+isn't deleted changes nothing. A deleted project doesn't count against the
+workspace's limit on projects in production, so restoring one that's in
+production counts it again: at the limit, the restore is refused
+(`403 production-limit-reached`) until one is taken out of production.
 
 **The deleted projects:** `GET /v1/projects/deleted` lists the workspace's
 deleted projects, newest first, a page at a time. Each one has its `id`,
@@ -591,12 +599,11 @@ It's where to find the id to restore. The clients call it `listDeleted`
 - **Workspace admins only,** to restore and to list: anyone else gets `403`,
   the project's own admins too.
 - **A runtime that can't restore projects** answers both
-  `501 project-restore-unsupported`. Deleting still works.
+  `501 project-restore-unsupported`. Deleting still works there, and erases
+  the project instead: its slugs are free again.
 
 Kindgi keeps a deleted project's record: no
-[retention policy](../../../deploy/retention/) purges one. An earlier runtime
-erases a deleted project instead, and its slugs are free again. It can't
-restore one or list them.
+[retention policy](../../../deploy/retention/) purges one.
 
 ## Delete an org
 

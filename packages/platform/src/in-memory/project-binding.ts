@@ -426,9 +426,13 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
     async restore(tenantId, projectId): Promise<ProjectRestoreOutcome> {
       const row = findAnyInTenant(tenantId, projectId);
       if (row === undefined) return { kind: 'project-not-found' };
-      if (!deletedAt.delete(projectId)) {
+      if (!deletedAt.has(projectId)) {
         return { kind: 'ok', project: withFormerSlugs(row), changed: false };
       }
+      // Back in production, it counts again: at the limit, it stays deleted.
+      const refused = row.productionSince !== undefined ? limitReached(tenantId) : undefined;
+      if (refused?.kind === 'limit-reached') return refused;
+      deletedAt.delete(projectId);
       // A restore changes the project, as a suspend or a resume does.
       const next: Project = { ...row, updatedAt: nowTimestamp() };
       projectRows.set(projectId, next);

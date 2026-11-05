@@ -64,6 +64,12 @@ export interface ListProjectsFilter {
   readonly cursor?: string;
 }
 
+/** Paging for the deleted projects: there's no other filter on them. */
+export interface ListDeletedProjectsFilter {
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
 export interface ListProjectMembershipsFilter {
   readonly limit?: number;
   readonly cursor?: string;
@@ -192,11 +198,13 @@ export interface ProjectsClient {
    *
    * @wire GET /v1/projects/deleted
    */
-  listDeleted(filter?: ListProjectsFilter): Promise<DeletedProjectPage>;
+  listDeleted(filter?: ListDeletedProjectsFilter): Promise<DeletedProjectPage>;
   /**
    * Bring a deleted project back as it was: its members, team grants, keys,
    * own account and slugs. A live project comes back unchanged. For
-   * workspace admins; an id with no project is `404 project-not-found`.
+   * workspace admins; an id with no project is `404 project-not-found`. One
+   * in production, with the workspace's projects in production at its
+   * limit, is refused `403 production-limit-reached` and stays deleted.
    *
    * @wire POST /v1/projects/:projectId/restore
    */
