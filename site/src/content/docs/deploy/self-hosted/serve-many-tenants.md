@@ -535,7 +535,7 @@ GitHub, which repos are due a purge, and each purge done. A runtime you run
 has no repo store, so `KINDGI_KEPT_REPOS` stays off on it. This section says
 what the runtime's side does, and what its routes answer.
 
-- **Turn it on** with `KINDGI_KEPT_REPOS=on`, on the runtime and on the
+- **It's turned on** with `KINDGI_KEPT_REPOS=on`, on the runtime and on the
   store's gateway alike. Off is the default. A runtime serving one tenant
   refuses to start with it on.
 - **Turning it off erases nothing.** Repos the store holds stay there until
