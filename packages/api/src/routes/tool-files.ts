@@ -4,13 +4,14 @@
 /**
  * `/v1/tool-files`: a pack service stores and reads files for one call of
  * a tool that declares `storesFiles` or `readsFiles` (pack protocol
- * 2.10.0).
+ * 2.10.0), and adds versions to files for one that declares
+ * `updatesFiles` (2.13.0).
  *
  * Outside the bearer chain (mounted ahead of `/v1`), as a wait token's
  * link is: the token in `Authorization: Bearer kgi_tf_…` is the call's
  * tool files, not an API key, and `/v1`'s chain would answer it `401`. It
  * names one call of one run and what it may do: store files for that call,
- * read files its run may be shown, or both.
+ * read files its run may be shown, add versions to them, or more than one.
  *
  * `POST /v1/tool-files` stores one. The body is the file's bytes;
  * `Content-Type` is the type its source declares, and `Kindgi-File-Name`
@@ -39,18 +40,38 @@
  *     missing), `changed` (not the bytes that were checked), `size` (over
  *     its type's limit).
  *
- * Both answer:
+ * `POST /v1/tool-files/{fileId}/versions` adds a version to one, by its
+ * file value's `fileId`. The body is the new bytes; `Content-Type` is the
+ * type, `Kindgi-Expected-Version` the version the tool read (required, a
+ * whole number from 1), and `Kindgi-File-Name` a new name (optional,
+ * percent-encoded UTF-8; absent or empty keeps Latest's). It answers:
+ *   - `200 { file }`: the new version, a file value the tool returns in
+ *     its result's top-level `files`. The same bytes again in the same
+ *     call answer the first version;
+ *   - `200 { same }` or `200 { conflict }`: Latest, when it already has
+ *     these bytes, or when it isn't the expected version any more;
+ *   - `200 { notUpdated }`: no version added, and why: `rule` (no file of
+ *     that id the run may be shown), `denied` (the run may not write
+ *     where the file is), `gone` (deleted), `type`, `size` (a body past
+ *     {@link TOOL_FILE_MAX_BYTES} is not read to its end) or `storage`,
+ *     as a store says them;
+ *   - `400 bad-input`: `Kindgi-Expected-Version` is missing or not a whole
+ *     number from 1, or `Kindgi-File-Name` isn't percent-encoded UTF-8;
+ *   - the store's `409` and `503 tenant-state-unavailable` answers.
+ *
+ * All three answer:
  *   - `404 tool-file-token-not-found`: no token, no such token, a wrong
  *     secret, or a call that may not do this, never told apart; also on a
- *     runtime that stores no files;
+ *     runtime that stores no files, or doesn't add versions;
  *   - `409 tool-file-token-closed`: the call has answered, its time has
  *     passed, or its run has ended;
  *   - `503 tool-files-busy` (`Retry-After`): the runtime's memory for
  *     files has no room for the bytes now. Nothing was stored or read;
  *   - `429 rate-limit-exceeded` (`Retry-After`): past
  *     {@link TOOL_FILES_REQUESTS_PER_CLIENT_PER_MINUTE} requests from this
- *     client in a minute, both kinds counted together, before the body is
- *     read or the token looked up. Nothing was stored or read.
+ *     client in a minute, all three kinds counted together, before the
+ *     body is read or the token looked up. Nothing was stored, read or
+ *     added.
  *
  * The access line writes the route's path, and never a header.
  */
@@ -173,6 +194,39 @@ export function toolFilesRouter(options: ToolFilesRouterOptions): Hono<AppEnv> {
     return c.json(stored.value, 200);
   });
 
+  r.post('/:fileId/versions', async (c) => {
+    const tooMany = await limited(c);
+    if (tooMany !== undefined) return tooMany;
+    const expectedVersion = versionOf(c.req.header('kindgi-expected-version'));
+    if (expectedVersion === undefined) {
+      return wireError(
+        c,
+        'bad-input',
+        '`Kindgi-Expected-Version` must be the version the tool read, a whole number from 1',
+      );
+    }
+    const name = fileNameOf(c.req.header('kindgi-file-name'));
+    if (name === undefined) {
+      return wireError(c, 'bad-input', '`Kindgi-File-Name` is not percent-encoded UTF-8');
+    }
+    const token = bearerTokenOf(c.req.header('authorization'));
+    if (options.binding?.update === undefined || token === undefined) {
+      return refusal(c, { code: 'tool-file-token-not-found' });
+    }
+    const declaredBytes = lengthOf(c.req.header('content-length'));
+    const updated = await options.binding.update({
+      token,
+      fileId: c.req.param('fileId'),
+      expectedVersion,
+      ...(name !== '' && { name }),
+      contentType: c.req.header('content-type') ?? '',
+      ...(declaredBytes !== undefined && { declaredBytes }),
+      body: (maxBytes) => readCapped(c.req.raw, Math.min(maxBytes, TOOL_FILE_MAX_BYTES)),
+    });
+    if (updated.kind === 'err') return refusal(c, updated.error);
+    return c.json(updated.value, 200);
+  });
+
   r.get('/:artifactId', async (c) => {
     const tooMany = await limited(c);
     if (tooMany !== undefined) return tooMany;
@@ -236,6 +290,13 @@ function lengthOf(header: string | undefined): number | undefined {
   return Number.isSafeInteger(bytes) ? bytes : undefined;
 }
 
+/** `Kindgi-Expected-Version` as a whole number from 1; `undefined` when it's absent or isn't one. */
+function versionOf(header: string | undefined): number | undefined {
+  if (header === undefined || !/^[1-9][0-9]*$/.test(header)) return undefined;
+  const version = Number(header);
+  return Number.isSafeInteger(version) ? version : undefined;
+}
+
 /** The token after `Bearer ` (the scheme in any case); `undefined` when there's none. */
 function bearerTokenOf(header: string | undefined): string | undefined {
   const match = /^bearer +(\S+) *$/i.exec(header ?? '');
@@ -281,7 +342,7 @@ function refusal(c: Context<AppEnv>, refused: ToolFilesRefusal): Response {
       return wireError(
         c,
         refused.code,
-        "The run's project is suspended, so nothing runs in it and its runs are cancelled; the file wasn't stored",
+        "The run's project is suspended, so nothing runs in it and its runs are cancelled; the file wasn't stored or changed",
       );
   }
 }

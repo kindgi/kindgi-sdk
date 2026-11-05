@@ -1,0 +1,20 @@
+{
+  "v": 2,
+  "kind": "invoke",
+  "tool": { "id": "acme.sheets.fill-row", "version": "1.0.0" },
+  "input": {
+    "fileId": "0b9e7a4c-2f1d-4e6b-8a3c-5d7f9e1b2c4a",
+    "version": 2,
+    "row": { "day": "Monday", "hours": 7.5 }
+  },
+  "ctx": {
+    "tenantId": "t-1",
+    "runId": "run-1",
+    "requestId": "toolu_02",
+    "idempotencyKey": "7a2d4f6b-1c3e-5a7b-9d0f-2e4a6c8e0b1d",
+    "toolFiles": {
+      "url": "https://kindgi.example.com/v1/tool-files",
+      "token": "kgi_tf_example"
+    }
+  }
+}

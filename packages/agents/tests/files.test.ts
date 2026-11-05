@@ -25,7 +25,13 @@ import type {
 import type { NodeContext } from '@kindgi/handler';
 import { type ProvenanceBuilder, newBuilder } from '@kindgi/provenance';
 import { defineTool } from '@kindgi/tools';
-import type { AnyTool, FileStoreAnswer, FileToStore, ToolContext } from '@kindgi/tools';
+import type {
+  AnyTool,
+  FileStoreAnswer,
+  FileToStore,
+  FileToUpdate,
+  ToolContext,
+} from '@kindgi/tools';
 import type {
   ConversationId,
   FileValue,
@@ -746,12 +752,43 @@ describe('a tool that stores or reads files', () => {
     expect(binding.signals).toEqual([signal]);
   });
 
+  test('a tool that updates files gets update, keyed by its call, only with a key and a binding that updates', async () => {
+    const base = filesBinding(['art-1']).files;
+    const updates: { readonly call: unknown; readonly file: FileToUpdate }[] = [];
+    const binding: FileBinding = {
+      ...base,
+      update: async (call, file) => {
+        updates.push({ call, file });
+        return { notUpdated: 'rule' };
+      },
+      create: async () => ({ notCreated: 'denied' }),
+    };
+    const tool = { id: 'acme.docs.edit' as ToolId, updatesFiles: true } as const;
+    const file: FileToUpdate = {
+      fileId: 'file-1',
+      expectedVersion: 2,
+      contentType: 'text/markdown',
+      bytes: BYTES,
+    };
+    const files = callFileStore(binding, tool, 'key');
+    expect(Object.keys(files ?? {})).toEqual(['update']);
+    expect(await files?.update?.(file)).toEqual({ notUpdated: 'rule' });
+    expect(updates).toEqual([{ call: { callKey: 'key', toolId: 'acme.docs.edit' }, file }]);
+    // No key to keep a retry to its first version, or a binding that adds no versions: none.
+    expect(callFileStore(binding, tool, undefined)).toBeUndefined();
+    expect(callFileStore(base, tool, 'key')).toBeUndefined();
+    // With store and read too; the model's create is never a tool's.
+    const all = callFileStore(binding, { ...tool, storesFiles: true, readsFiles: true }, 'key');
+    expect(Object.keys(all ?? {}).sort()).toEqual(['read', 'store', 'update']);
+  });
+
   test("a pack's own code and an MCP tool run elsewhere: no files here, whatever they declare", () => {
     const binding = filesBinding(['art-1']).files;
     const tool = {
       id: 'acme.docs.parse' as ToolId,
       storesFiles: true,
       readsFiles: true,
+      updatesFiles: true,
     } as const;
     expect(callFileStore(binding, tool, 'key')).toBeDefined();
     const code = {

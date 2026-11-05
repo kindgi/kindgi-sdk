@@ -27028,6 +27028,68 @@
           }
         ]
       },
+      "ToolFileUpdateAnswer": {
+        "description": "What a pack tool's file update answers: the new version (`file`), for the tool to return in its result's top-level `files`; Latest, when it already has these bytes (`same`) or isn't the expected version any more (`conflict`); or why no version was added (`notUpdated`).",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "file"
+            ],
+            "properties": {
+              "file": {
+                "$ref": "#/components/schemas/FileValue"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "same"
+            ],
+            "properties": {
+              "same": {
+                "$ref": "#/components/schemas/FileValue"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "conflict"
+            ],
+            "properties": {
+              "conflict": {
+                "$ref": "#/components/schemas/FileValue"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "notUpdated"
+            ],
+            "properties": {
+              "notUpdated": {
+                "type": "string",
+                "enum": [
+                  "rule",
+                  "denied",
+                  "gone",
+                  "type",
+                  "size",
+                  "storage"
+                ],
+                "description": "Why no version was added: `rule` (the call's run may not be shown a file of that id, whether or not the id names a file elsewhere), `denied` (the run may not write where the file is), `gone` (the file is deleted), `type` (not a type a model is shown, or the bytes aren't the type they claim), `size` (over its type's limit, or a body past 10 MB), `storage` (the workspace's storage is full)."
+              }
+            }
+          }
+        ]
+      },
       "ToolFileNotRead": {
         "type": "object",
         "additionalProperties": false,
@@ -75512,6 +75574,132 @@
             "description": "The file value's `artifactId`."
           }
         ],
+        "security": []
+      }
+    },
+    "/v1/tool-files/{fileId}/versions": {
+      "post": {
+        "operationId": "toolFiles.update",
+        "summary": "Add a version to a file for a pack tool's call",
+        "tags": [
+          "runs"
+        ],
+        "responses": {
+          "200": {
+            "description": "The new version (`file`), for the tool to return in its result's top-level `files`; Latest, when it already has these bytes (`same`) or isn't the expected version any more (`conflict`); or no version added, and why (`notUpdated`): `rule`, `denied`, `gone`, `type`, `size` (over its type's limit, or a body past 10 MB, not read to its end) or `storage`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolFileUpdateAnswer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`bad-input`: `Kindgi-Expected-Version` is missing or not a whole number from 1, or `Kindgi-File-Name` is not percent-encoded UTF-8.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`tool-file-token-not-found`: no tool call's files match the bearer (none sent, an unknown token, a wrong secret, and a call that doesn't update files alike), or this runtime adds no versions for tools.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`tool-file-token-closed`: the call has answered, its time has passed, or its run has ended. `tenant-closing`, `tenant-suspended` (`details.state`) or `project-suspended`: nothing runs where the run is, so nothing was added. Told only for a token that matches.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was added. `Retry-After` says when to send the version again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`tenant-state-unavailable`: the run's workspace's state couldn't be read, so nothing was added. `tool-files-busy`: the runtime's memory for files had no room for the bytes in time, so nothing was added. `Retry-After` says when to send the version again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A pack tool that declares `updatesFiles` gets the call's tool files with each call, and its pack service posts each new version the tool adds here, by its file value's `fileId`. No API key: `Authorization: Bearer` carries the call's token (`kgi_tf_…`). The call updates a file its run may be shown, where the run may write: the file's project, or the workspace for a file with no project. The body is the new bytes, at most 10 MB read; `Content-Type` is the type, and only the bytes decide it. `Kindgi-Expected-Version` is the version the tool read: when Latest has moved past it, nothing is added and the answer is Latest (`conflict`). The new version keeps Latest's tags, and is listed among the run's files. The same bytes again in the same call, a re-run of it included, answer the first version. The token closes when the call answers, when its time passes, or when its run ends.",
+        "x-kindgi-sender-only": true,
+        "parameters": [
+          {
+            "name": "fileId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The file value's `fileId`."
+          },
+          {
+            "name": "Kindgi-Expected-Version",
+            "in": "header",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "required": true,
+            "description": "The version the tool read, which must still be Latest: a whole number from 1."
+          },
+          {
+            "name": "Kindgi-File-Name",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "A new name for the version, percent-encoded UTF-8. Absent or empty: Latest's name."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "The new bytes, with their type as `Content-Type`.",
+          "content": {
+            "*/*": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
         "security": []
       }
     },

@@ -1733,8 +1733,8 @@ function toolContextFor(
     ...(ctx.input.orgId !== undefined && { orgId: ctx.input.orgId }),
     requestId: call.id,
     ...(idempotencyKey !== undefined && { idempotencyKey }),
-    // Files the call stores, as files its run owns, and reads
-    // (`Tool.storesFiles`, `Tool.readsFiles`).
+    // Files the call stores, as files its run owns, reads and adds
+    // versions to (`Tool.storesFiles`, `Tool.readsFiles`, `Tool.updatesFiles`).
     ...(files !== undefined && { files }),
     ...(kctx.attempt !== undefined && { attempt: kctx.attempt }),
     // The turn's, and its batch's: a call running alongside one that fails

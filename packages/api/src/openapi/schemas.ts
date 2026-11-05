@@ -16338,6 +16338,44 @@ export const ToolFileStoreAnswerSchema: JsonSchema = {
   ],
 };
 
+export const ToolFileUpdateAnswerSchema: JsonSchema = {
+  description:
+    "What a pack tool's file update answers: the new version (`file`), for the tool to return in its result's top-level `files`; Latest, when it already has these bytes (`same`) or isn't the expected version any more (`conflict`); or why no version was added (`notUpdated`).",
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['file'],
+      properties: { file: { $ref: '#/components/schemas/FileValue' } },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['same'],
+      properties: { same: { $ref: '#/components/schemas/FileValue' } },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['conflict'],
+      properties: { conflict: { $ref: '#/components/schemas/FileValue' } },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['notUpdated'],
+      properties: {
+        notUpdated: {
+          type: 'string',
+          enum: ['rule', 'denied', 'gone', 'type', 'size', 'storage'],
+          description:
+            "Why no version was added: `rule` (the call's run may not be shown a file of that id, whether or not the id names a file elsewhere), `denied` (the run may not write where the file is), `gone` (the file is deleted), `type` (not a type a model is shown, or the bytes aren't the type they claim), `size` (over its type's limit, or a body past 10 MB), `storage` (the workspace's storage is full).",
+        },
+      },
+    },
+  ],
+};
+
 export const ToolFileNotReadSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -19150,6 +19188,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WebhookFirePage', WebhookFirePageSchema],
   ['WaitTokenAccepted', WaitTokenAcceptedSchema],
   ['ToolFileStoreAnswer', ToolFileStoreAnswerSchema],
+  ['ToolFileUpdateAnswer', ToolFileUpdateAnswerSchema],
   ['ToolFileNotRead', ToolFileNotReadSchema],
   ['WebhookReceipt', WebhookReceiptSchema],
   ['WebhookTriggerCollectionPage', WebhookTriggerCollectionPageSchema],

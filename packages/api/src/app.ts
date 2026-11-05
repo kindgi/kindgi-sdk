@@ -494,9 +494,11 @@ export interface CreateAppInput {
   readonly waitTokens?: WaitTokenBinding;
   /**
    * Files a pack tool that declares `storesFiles` stores for its call
-   * (`POST /v1/tool-files`), and one that declares `readsFiles` reads
-   * (`GET /v1/tool-files/{artifactId}`), with the call's token as the
-   * bearer (no API key). Absent: both answer `404 tool-file-token-not-found`.
+   * (`POST /v1/tool-files`), one that declares `readsFiles` reads
+   * (`GET /v1/tool-files/{artifactId}`), and one that declares
+   * `updatesFiles` adds versions to (`POST /v1/tool-files/{fileId}/versions`,
+   * when the binding has `update`), with the call's token as the bearer
+   * (no API key). Absent: each answers `404 tool-file-token-not-found`.
    * The Kindgi runtime supplies one. The route limits requests per client,
    * telling clients apart and counting where `webhookReceiver` says (its
    * defaults when it's absent).

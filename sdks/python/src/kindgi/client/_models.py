@@ -11839,6 +11839,78 @@ class ToolFileStoreAnswer(RootModel[ToolFileStoreAnswer1 | ToolFileStoreAnswer2]
     """
 
 
+class ToolFileUpdateAnswer1(BaseModel):
+    """
+    What a pack tool's file update answers: the new version (`file`), for the tool to return in its result's top-level `files`; Latest, when it already has these bytes (`same`) or isn't the expected version any more (`conflict`); or why no version was added (`notUpdated`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    file: FileValue
+
+
+class ToolFileUpdateAnswer2(BaseModel):
+    """
+    What a pack tool's file update answers: the new version (`file`), for the tool to return in its result's top-level `files`; Latest, when it already has these bytes (`same`) or isn't the expected version any more (`conflict`); or why no version was added (`notUpdated`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    same: FileValue
+
+
+class ToolFileUpdateAnswer3(BaseModel):
+    """
+    What a pack tool's file update answers: the new version (`file`), for the tool to return in its result's top-level `files`; Latest, when it already has these bytes (`same`) or isn't the expected version any more (`conflict`); or why no version was added (`notUpdated`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    conflict: FileValue
+
+
+class ToolFileUpdateAnswer4(BaseModel):
+    """
+    What a pack tool's file update answers: the new version (`file`), for the tool to return in its result's top-level `files`; Latest, when it already has these bytes (`same`) or isn't the expected version any more (`conflict`); or why no version was added (`notUpdated`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    not_updated: Annotated[
+        Literal["rule", "denied", "gone", "type", "size", "storage"], Field(alias="notUpdated")
+    ]
+    """
+    Why no version was added: `rule` (the call's run may not be shown a file of that id, whether or not the id names a file elsewhere), `denied` (the run may not write where the file is), `gone` (the file is deleted), `type` (not a type a model is shown, or the bytes aren't the type they claim), `size` (over its type's limit, or a body past 10 MB), `storage` (the workspace's storage is full).
+    """
+
+
+class ToolFileUpdateAnswer(
+    RootModel[
+        ToolFileUpdateAnswer1
+        | ToolFileUpdateAnswer2
+        | ToolFileUpdateAnswer3
+        | ToolFileUpdateAnswer4
+    ]
+):
+    root: (
+        ToolFileUpdateAnswer1
+        | ToolFileUpdateAnswer2
+        | ToolFileUpdateAnswer3
+        | ToolFileUpdateAnswer4
+    )
+    """
+    What a pack tool's file update answers: the new version (`file`), for the tool to return in its result's top-level `files`; Latest, when it already has these bytes (`same`) or isn't the expected version any more (`conflict`); or why no version was added (`notUpdated`).
+    """
+
+
 class ToolFileNotRead(BaseModel):
     """
     Why a pack tool's read of a stored file answered no bytes. The read's bytes come as `application/octet-stream` instead.

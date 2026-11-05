@@ -110,11 +110,14 @@ describe('SDK ↔ generated wire coverage — every endpoint has a resource wrap
         '/v1/wait-tokens/{token}/complete':
           "waitTokens.complete — the answering system's path (a pausing tool's link), not this client's",
 
-        // The link a tool that stores or reads files has its bytes posted to
-        // and got from: a pack service posts each store there and gets each
-        // read from under it, with the call's tool files token.
+        // The link a tool that stores, reads or updates files has its bytes
+        // posted to and got from: a pack service posts each store there, gets
+        // each read from under it and posts each new version under it, with
+        // the call's tool files token.
         '/v1/tool-files':
           "toolFiles.store — a pack service's path (a call's toolFiles link), not this client's",
+        '/v1/tool-files/{fileId}/versions':
+          "toolFiles.update — a pack service's path (under a call's toolFiles link), not this client's",
         '/v1/tool-files/{artifactId}':
           "toolFiles.read — a pack service's path (under a call's toolFiles link), not this client's",
 

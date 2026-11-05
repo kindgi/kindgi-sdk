@@ -22,6 +22,14 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `tool.schema.json` (1.5.0) and `pack-index.schema.json` (1.10.0) take them.
   The client's models gain `AgentFilesPolicy`, a `files` field on `Agent` and
   its publish body, and `updates_files` on a tool.
+- `kindgi`: **a tool that updates files gets `ctx.files.update`.** On a call
+  with an idempotency key, a tool that declares `updates_files=True` gets
+  `ctx.files.update(file_id=..., expected_version=..., content_type=...,
+  data=..., name=None)`, and `update_async`. It answers a `FileUpdateAnswer`:
+  `file`, the new version; `same` or `conflict`, Latest; or `not_updated`,
+  why no version was added. An update over 10 MB answers `size`, and nothing
+  is sent. The vendored `pack-protocol.schema.json` is 2.13.0, and the
+  client's models gain `ToolFileUpdateAnswer`.
 - `kindgi`: **an approval gives the id of the connection its call acts with, so a person can see which of their accounts it uses.** `ApprovalConnection` (on an approval, and in a run's `waiting_for`) gains `connection_id`. A person's own connection's account still isn't on the approval: whoever may read the connection, its person or a tenant admin, reads it with `client.connections.get(connection_id)`. Approvals from before this change have none.
 - `kindgi`: **an agent or a flow can be a tool in a person's chat app.**
   `Agent(mcp={"expose": True})` and `Flow(mcp={"expose": True})` offer it,
