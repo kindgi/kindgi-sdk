@@ -114,8 +114,8 @@ ask whoever runs the runtime, and its answers carry no warning.
 ## A busy count
 
 Writes that count take turns. When a write waits too long for its turn, it
-is refused with `503 plan-count-busy`, and adds none of them: send it again
-after `Retry-After`
+is refused with `503 plan-count-busy`, and adds none of the flows and agents
+it would: send it again after `Retry-After`
 ([plan-count-busy](../../../reference/errors/#plan-count-busy)).
 
 ## Next

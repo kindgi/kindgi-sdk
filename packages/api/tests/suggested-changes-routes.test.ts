@@ -4792,6 +4792,8 @@ describe('a suggested change through the plan limits', () => {
     });
     expect(h.suggestedChanges.rows.size).toBe(1);
     expect(kept?.candidate).toBeUndefined();
+    // Its edit's block version stays stored, as after a failed check.
+    expect(h.blocks.rows.get(`${WEIGHTS}@1.0.1`)?.content).toMatchObject({ values: CARD.values });
   });
 
   test('busy: 503 plan-count-busy with Retry-After 5; the suggested change is kept, with no new version', async () => {
@@ -4803,5 +4805,7 @@ describe('a suggested change through the plan limits', () => {
     expect(res.body.error.code).toBe('plan-count-busy');
     const [kept] = [...h.suggestedChanges.rows.values()];
     expect(kept?.candidate).toBeUndefined();
+    // Its edit's block version stays stored, as after a failed check.
+    expect(h.blocks.rows.get(`${WEIGHTS}@1.0.1`)?.content).toMatchObject({ values: CARD.values });
   });
 });

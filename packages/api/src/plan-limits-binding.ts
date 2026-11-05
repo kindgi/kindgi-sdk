@@ -35,9 +35,10 @@ export interface PlanLimitsBinding {
 export interface PlanLimitsInput {
   readonly tenantId: TenantId;
   /**
-   * The project the write lands in. A reinstate names the project its
-   * version was made in, and none when the store records none: a
-   * reinstated version counts wherever it runs either way.
+   * The project the write lands in. Every form but reinstate always
+   * names one. A reinstate names the project its version was made in,
+   * and none when the store records none: a reinstated version counts
+   * wherever it runs either way.
    */
   readonly projectId?: ProjectId;
   /**
