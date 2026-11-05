@@ -615,7 +615,8 @@ endpoint back shows the references only:
   optional (`Token `, `ApiKey `, …). It's not a secret: it's stored and read
   back as given.
 - **Not a header the transport sets:** `Host`, `Content-Type`, `Accept`,
-  `Mcp-Session-Id`, `traceparent` and the like are refused (`invalid-auth`):
+  `Mcp-Session-Id`, `Mcp-Method`, any `Mcp-Param-…`, `traceparent` and the
+  like are refused (`invalid-auth`):
 
   ```json
   {"error":{"code":"invalid-mcp-endpoint","message":"endpoint \"inventory-reserved\" auth.headers[0].name \"Mcp-Session-Id\" is a header the MCP transport sets itself","details":{"reason":"invalid-auth"},…}}
@@ -699,6 +700,12 @@ secret too.
 
 For `Authorization: Bearer <token>`, use `secretRef`. For any other header,
 use `auth` with `scheme: "header"`.
+
+MCP's own headers aren't plain headers either: `Mcp-Session-Id`,
+`Mcp-Protocol-Version`, `Mcp-Method`, `Mcp-Name` and any `Mcp-Param-…`,
+whatever their case, are refused in `config.headers` (reason
+`transport-header-in-config`), because the MCP client sets them itself on
+every request, the `Mcp-Param-` ones from a tool's arguments.
 
 #### An endpoint registered with one by an earlier runtime
 
