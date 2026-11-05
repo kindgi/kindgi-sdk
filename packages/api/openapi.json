@@ -48,6 +48,10 @@
       "description": "Your workspace's usage, aggregated: runs, approvals, model calls and projects put in production, counted and summed by project, agent, kind, class, state or day, over the projects you may read. Model-call cost is on `cost`."
     },
     {
+      "name": "system-kept-repos",
+      "description": "The repos a store keeps for the runtime's projects without a GitHub repo, on a runtime serving many tenants: the store's reconcile asks the runtime what to keep and what to purge, and reports each purge done (`system:kept-repos`); the operator requests a repo's erasure and reads its state (`system:kept-repos:erase`). System keys only."
+    },
+    {
       "name": "system-deployments",
       "description": "Per-deployment routing, on a runtime serving many tenants: whatever runs each deployment's own pack service (an orchestrator) lists the deployments that need one or should lose theirs, and records where each runs, under `system:deployments`. Support suspends a pack under `system:suspend`. No tenant input ever names a pack's URL."
     },
@@ -446,6 +450,7 @@
           "purge-setting-missing": 409,
           "authz-store-delete-failed": 502,
           "tenant-purge-unsupported": 501,
+          "kept-repos-off": 501,
           "project-suspended": 409,
           "pack-suspended": 409,
           "endpoint-url-invalid": 400,
@@ -3283,6 +3288,8 @@
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:kept-repos",
+                "system:kept-repos:erase",
                 "kindgi:system"
               ],
               "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3333,6 +3340,8 @@
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:kept-repos",
+                "system:kept-repos:erase",
                 "kindgi:system"
               ],
               "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3389,6 +3398,8 @@
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:kept-repos",
+                "system:kept-repos:erase",
                 "kindgi:system"
               ],
               "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3462,6 +3473,8 @@
                       "system:env-refs",
                       "system:usage:read",
                       "system:license",
+                      "system:kept-repos",
+                      "system:kept-repos:erase",
                       "kindgi:system"
                     ],
                     "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -3526,6 +3539,8 @@
                 "system:env-refs",
                 "system:usage:read",
                 "system:license",
+                "system:kept-repos",
+                "system:kept-repos:erase",
                 "kindgi:system"
               ],
               "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
@@ -24311,6 +24326,210 @@
           }
         }
       },
+      "KeptRepoId": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A project's kept repo, by its tenant and project ids.",
+        "required": [
+          "tenantId",
+          "projectId"
+        ],
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "KeptRepoRulingsBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ids"
+        ],
+        "properties": {
+          "ids": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/KeptRepoId"
+            },
+            "description": "The kept repos to rule on, up to 500. They may span tenants, and repeat."
+          }
+        }
+      },
+      "KeptRepoRuling": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "What the store does with a kept repo it holds: `keep` it, with its `mark`, or `purge` it, for `reason`.",
+        "required": [
+          "tenantId",
+          "projectId",
+          "ruling"
+        ],
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ruling": {
+            "type": "string",
+            "enum": [
+              "keep",
+              "purge"
+            ]
+          },
+          "mark": {
+            "type": "string",
+            "enum": [
+              "none",
+              "deleted",
+              "moved",
+              "held"
+            ],
+            "description": "With `keep`: `none` (its project is live), `deleted` or `moved` (its project was deleted, or its repo moved to GitHub, at `since`, within the kept window), or `held` (it's due a purge, and something holds it)."
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "With a `keep` marked `deleted`, `moved` or `held`: when its window began, its project's delete or its repo's move to GitHub (for a `held` repo with no project, the ruling's own time)."
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "erasure",
+              "retention",
+              "tenant-purged",
+              "no-record"
+            ],
+            "description": "Why a kept repo is purged: `erasure` (its erasure was requested), `retention` (its project was deleted, or its repo moved to GitHub, the kept window ago or more), `tenant-purged` (its tenant was purged), or `no-record` (the runtime has no project for it)."
+          },
+          "recorded": {
+            "type": "boolean",
+            "enum": [
+              true
+            ],
+            "description": "With `purge`: `true` when the runtime holds this ruling's own report already (for `erasure`, the repo's erasure done; for `retention`, its purge when its kept window ended), so a store that finds the repo purged has nothing to sweep or report. Never with `tenant-purged` or `no-record`."
+          }
+        }
+      },
+      "KeptRepoRulings": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rulings"
+        ],
+        "properties": {
+          "rulings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KeptRepoRuling"
+            },
+            "description": "One ruling for each id, in the order given."
+          }
+        }
+      },
+      "KeptRepoOpenErasure": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "An unfinished erasure of a project's kept repo.",
+        "required": [
+          "tenantId",
+          "projectId",
+          "since"
+        ],
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it was requested."
+          }
+        }
+      },
+      "KeptRepoErasurePage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/KeptRepoOpenErasure"
+            },
+            "description": "By tenant id, then project id."
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "Present when there are more: pass it as `cursor` for the next page."
+          }
+        }
+      },
+      "KeptRepoPurgedBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "enum": [
+              "erasure",
+              "retention",
+              "tenant-purged",
+              "no-record"
+            ],
+            "description": "Why a kept repo is purged: `erasure` (its erasure was requested), `retention` (its project was deleted, or its repo moved to GitHub, the kept window ago or more), `tenant-purged` (its tenant was purged), or `no-record` (the runtime has no project for it)."
+          }
+        }
+      },
+      "KeptRepoState": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A kept repo's state, as the runtime records it.",
+        "required": [
+          "state",
+          "since"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "live",
+              "deleted",
+              "moved",
+              "held",
+              "erasure-requested",
+              "purged"
+            ],
+            "description": "`live`, `deleted` or `moved` (its project's, or its repo's, own state), `held` (due a purge, and something holds it), `erasure-requested` (an erasure is unfinished), or `purged` (its purge is recorded)."
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it came to be in that state."
+          }
+        }
+      },
       "TenantConfigKind": {
         "type": "string",
         "enum": [
@@ -35055,6 +35274,584 @@
             },
             "required": false,
             "description": "Only this project. One you can't read gives an empty answer."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/kept-repos/rulings": {
+      "post": {
+        "operationId": "systemKeptRepos.rulings",
+        "summary": "Rule on the kept repos a store holds",
+        "tags": [
+          "system-kept-repos"
+        ],
+        "responses": {
+          "200": {
+            "description": "One ruling for each id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeptRepoRulings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body names no ids in form, or more than 500 (`bad-input`). Nothing was ruled.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:kept-repos` (`system-scope-missing`). On a runtime serving one tenant, any system key (`system-key-scope-not-served`, or `system-scope-missing` for one holding only the scopes it serves).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "For a store keeping repos for the runtime's projects without a GitHub repo: one ruling for each id it names, in order. `keep`, with the mark the store sets on the repo, or `purge`, for `reason`. An unfinished erasure rules `purge` first, then a purge already recorded (with `recorded: true`), then a purged tenant; a project deleted, or a repo moved to GitHub, 90 days ago or more (its kept window) is `retention`, and a repo the runtime has no project for is `no-record`, unless something holds it (`keep`, marked `held`). Ids may span tenants. An id not in form, or more than 500, refuses the whole request. Takes `system:kept-repos`, on a runtime serving many tenants.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeptRepoRulingsBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/kept-repos/erasures": {
+      "get": {
+        "operationId": "systemKeptRepos.erasures",
+        "summary": "List the unfinished erasures of kept repos",
+        "tags": [
+          "system-kept-repos"
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeptRepoErasurePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A `limit` that isn't a whole number from 1 to 500, or a `cursor` this runtime didn't give (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:kept-repos` (`system-scope-missing`). On a runtime serving one tenant, any system key (`system-key-scope-not-served`, or `system-scope-missing` for one holding only the scopes it serves).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Every unfinished erasure of a project's kept repo, across tenants, by tenant id then project id: what the store purges, whether or not it holds the repo, and reports. Ids and the time of the request only. Takes `system:kept-repos`, on a runtime serving many tenants.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "required": false,
+            "description": "How many, from 1 to 500. 500 when not given."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "The last page's `nextCursor`."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo/purged": {
+      "post": {
+        "operationId": "systemKeptRepos.reportPurged",
+        "summary": "Report a kept repo's purge done",
+        "tags": [
+          "system-kept-repos"
+        ],
+        "responses": {
+          "204": {
+            "description": "Recorded."
+          },
+          "400": {
+            "description": "An id that isn't a UUID, or a body other than `{ \"reason\": ... }` (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:kept-repos` (`system-scope-missing`). On a runtime serving one tenant, any system key (`system-key-scope-not-served`, or `system-scope-missing` for one holding only the scopes it serves).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The store's purge of a kept repo is done, for the ruling's `reason`. For `erasure` or `retention` the runtime records it, which completes an unfinished erasure of the repo; a second report changes nothing. It answers `204` whatever the tenant's state: a purged tenant's report, or one for a tenant the runtime doesn't know (a restore older than the tenant), is kept in the operator's access record alone. Takes `system:kept-repos`, on a runtime serving many tenants.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id."
+          },
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The project's id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeptRepoPurgedBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo": {
+      "get": {
+        "operationId": "systemKeptRepos.state",
+        "summary": "Read a kept repo's state",
+        "tags": [
+          "system-kept-repos"
+        ],
+        "responses": {
+          "200": {
+            "description": "Its state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeptRepoState"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:kept-repos:erase` (`system-scope-missing`). On a runtime serving one tenant, any system key (`system-key-scope-not-served`, or `system-scope-missing` for one holding only the scopes it serves).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No tenant with that id, or a purged one (`tenant-not-found`); or a project the runtime has no record of (`project-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A project's kept repo, as the runtime records it: `live`, `deleted`, `moved`, `held`, `erasure-requested` or `purged`, and since when. Takes `system:kept-repos:erase`, on a runtime serving many tenants.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id."
+          },
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The project's id."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo/erasure": {
+      "post": {
+        "operationId": "systemKeptRepos.requestErasure",
+        "summary": "Request a kept repo's erasure",
+        "tags": [
+          "system-kept-repos"
+        ],
+        "responses": {
+          "200": {
+            "description": "The repo's erasure is done already: nothing more was requested.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeptRepoState"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "The erasure is requested, now or by an unfinished earlier request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeptRepoState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:kept-repos:erase` (`system-scope-missing`). On a runtime serving one tenant, any system key (`system-key-scope-not-served`, or `system-scope-missing` for one holding only the scopes it serves).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No tenant with that id, or a purged one (`tenant-not-found`); or a project the runtime has no record of (`project-not-found`). Nothing was requested.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Something holds the repo (`legal-hold`, with `details.projectId`); or an Idempotency-Key reused with another body. Nothing was requested.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The runtime isn't keeping repos for projects without a GitHub repo now (`kept-repos-off`): `KINDGI_KEPT_REPOS` is off. Nothing was requested.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Requests the erasure of a project's kept repo: the store purges it at its next pass, and reports it, which completes the erasure. A second request while one is unfinished answers that one, and one for a repo whose erasure is done already answers `200` with no new request. A repo purged when its kept window ended is requested still, so its erasure is recorded too. Turning `KINDGI_KEPT_REPOS` off erases nothing and holds an unfinished erasure, which completes once it's on again. Takes `system:kept-repos:erase`, which no other scope includes, or `kindgi:system`, on a runtime serving many tenants.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id."
+          },
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The project's id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the workspace is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
           }
         ],
         "security": [

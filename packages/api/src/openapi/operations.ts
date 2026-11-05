@@ -3270,6 +3270,203 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
     },
   },
+  // ---------- system: kept repos ----------
+  {
+    method: 'post',
+    honoPath: '/v1/system/kept-repos/rulings',
+    openapiPath: '/v1/system/kept-repos/rulings',
+    operationId: 'systemKeptRepos.rulings',
+    summary: 'Rule on the kept repos a store holds',
+    description:
+      "For a store keeping repos for the runtime's projects without a GitHub repo: one ruling for each id it names, in order. `keep`, with the mark the store sets on the repo, or `purge`, for `reason`. An unfinished erasure rules `purge` first, then a purge already recorded (with `recorded: true`), then a purged tenant; a project deleted, or a repo moved to GitHub, 90 days ago or more (its kept window) is `retention`, and a repo the runtime has no project for is `no-record`, unless something holds it (`keep`, marked `held`). Ids may span tenants. An id not in form, or more than 500, refuses the whole request. Takes `system:kept-repos`, on a runtime serving many tenants.",
+    tags: ['system-kept-repos'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('KeptRepoRulingsBody') },
+    responses: {
+      '200': { description: 'One ruling for each id.', schema: ref('KeptRepoRulings') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'The body names no ids in form, or more than 500 (`bad-input`). Nothing was ruled.',
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:kept-repos` (`system-scope-missing`). On a runtime serving one tenant, any system key (`system-key-scope-not-served`, or `system-scope-missing` for one holding only the scopes it serves).",
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/system/kept-repos/erasures',
+    openapiPath: '/v1/system/kept-repos/erasures',
+    operationId: 'systemKeptRepos.erasures',
+    summary: 'List the unfinished erasures of kept repos',
+    description:
+      "Every unfinished erasure of a project's kept repo, across tenants, by tenant id then project id: what the store purges, whether or not it holds the repo, and reports. Ids and the time of the request only. Takes `system:kept-repos`, on a runtime serving many tenants.",
+    tags: ['system-kept-repos'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'limit',
+        in: 'query',
+        required: false,
+        description: 'How many, from 1 to 500. 500 when not given.',
+        schema: { type: 'integer', minimum: 1, maximum: 500 },
+      },
+      {
+        name: 'cursor',
+        in: 'query',
+        required: false,
+        description: "The last page's `nextCursor`.",
+        schema: { type: 'string' },
+      },
+    ],
+    responses: {
+      '200': { description: 'A page of them.', schema: ref('KeptRepoErasurePage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        "A `limit` that isn't a whole number from 1 to 500, or a `cursor` this runtime didn't give (`bad-input`).",
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:kept-repos` (`system-scope-missing`). On a runtime serving one tenant, any system key (`system-key-scope-not-served`, or `system-scope-missing` for one holding only the scopes it serves).",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/system/tenants/:tenantId/projects/:projectId/kept-repo/purged',
+    openapiPath: '/v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo/purged',
+    operationId: 'systemKeptRepos.reportPurged',
+    summary: "Report a kept repo's purge done",
+    description:
+      "The store's purge of a kept repo is done, for the ruling's `reason`. For `erasure` or `retention` the runtime records it, which completes an unfinished erasure of the repo; a second report changes nothing. It answers `204` whatever the tenant's state: a purged tenant's report, or one for a tenant the runtime doesn't know (a restore older than the tenant), is kept in the operator's access record alone. Takes `system:kept-repos`, on a runtime serving many tenants.",
+    tags: ['system-kept-repos'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      {
+        name: 'projectId',
+        in: 'path',
+        required: true,
+        description: "The project's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('KeptRepoPurgedBody') },
+    responses: {
+      '204': { description: 'Recorded.' },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'An id that isn\'t a UUID, or a body other than `{ "reason": ... }` (`bad-input`).',
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:kept-repos` (`system-scope-missing`). On a runtime serving one tenant, any system key (`system-key-scope-not-served`, or `system-scope-missing` for one holding only the scopes it serves).",
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/system/tenants/:tenantId/projects/:projectId/kept-repo',
+    openapiPath: '/v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo',
+    operationId: 'systemKeptRepos.state',
+    summary: "Read a kept repo's state",
+    description:
+      "A project's kept repo, as the runtime records it: `live`, `deleted`, `moved`, `held`, `erasure-requested` or `purged`, and since when. Takes `system:kept-repos:erase`, on a runtime serving many tenants.",
+    tags: ['system-kept-repos'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      {
+        name: 'projectId',
+        in: 'path',
+        required: true,
+        description: "The project's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+    ],
+    responses: {
+      '200': { description: 'Its state.', schema: ref('KeptRepoState') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:kept-repos:erase` (`system-scope-missing`). On a runtime serving one tenant, any system key (`system-key-scope-not-served`, or `system-scope-missing` for one holding only the scopes it serves).",
+      ),
+      '404': ErrorResponse(
+        'No tenant with that id, or a purged one (`tenant-not-found`); or a project the runtime has no record of (`project-not-found`).',
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/system/tenants/:tenantId/projects/:projectId/kept-repo/erasure',
+    openapiPath: '/v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo/erasure',
+    operationId: 'systemKeptRepos.requestErasure',
+    summary: "Request a kept repo's erasure",
+    description:
+      "Requests the erasure of a project's kept repo: the store purges it at its next pass, and reports it, which completes the erasure. A second request while one is unfinished answers that one, and one for a repo whose erasure is done already answers `200` with no new request. A repo purged when its kept window ended is requested still, so its erasure is recorded too. Turning `KINDGI_KEPT_REPOS` off erases nothing and holds an unfinished erasure, which completes once it's on again. Takes `system:kept-repos:erase`, which no other scope includes, or `kindgi:system`, on a runtime serving many tenants.",
+    tags: ['system-kept-repos'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      {
+        name: 'projectId',
+        in: 'path',
+        required: true,
+        description: "The project's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '202': {
+        description: 'The erasure is requested, now or by an unfinished earlier request.',
+        schema: ref('KeptRepoState'),
+      },
+      '200': {
+        description: "The repo's erasure is done already: nothing more was requested.",
+        schema: ref('KeptRepoState'),
+      },
+      ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:kept-repos:erase` (`system-scope-missing`). On a runtime serving one tenant, any system key (`system-key-scope-not-served`, or `system-scope-missing` for one holding only the scopes it serves).",
+      ),
+      '404': ErrorResponse(
+        'No tenant with that id, or a purged one (`tenant-not-found`); or a project the runtime has no record of (`project-not-found`). Nothing was requested.',
+      ),
+      '409': ErrorResponse(
+        'Something holds the repo (`legal-hold`, with `details.projectId`); or an Idempotency-Key reused with another body. Nothing was requested.',
+      ),
+      '501': ErrorResponse(
+        "The runtime isn't keeping repos for projects without a GitHub repo now (`kept-repos-off`): `KINDGI_KEPT_REPOS` is off. Nothing was requested.",
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+      ),
+    },
+  },
   // ---------- system deployments (per-deployment routing) ----------
   {
     method: 'get',

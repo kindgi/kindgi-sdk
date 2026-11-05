@@ -118,6 +118,33 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "systemUsage.read": Operation("systemUsage.read", "GET", "/v1/system/usage", "json", False),
     "usage.read": Operation("usage.read", "GET", "/v1/usage", "json", False),
+    "systemKeptRepos.rulings": Operation(
+        "systemKeptRepos.rulings", "POST", "/v1/system/kept-repos/rulings", "json", True
+    ),
+    "systemKeptRepos.erasures": Operation(
+        "systemKeptRepos.erasures", "GET", "/v1/system/kept-repos/erasures", "json", False
+    ),
+    "systemKeptRepos.reportPurged": Operation(
+        "systemKeptRepos.reportPurged",
+        "POST",
+        "/v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo/purged",
+        "empty",
+        True,
+    ),
+    "systemKeptRepos.state": Operation(
+        "systemKeptRepos.state",
+        "GET",
+        "/v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo",
+        "json",
+        False,
+    ),
+    "systemKeptRepos.requestErasure": Operation(
+        "systemKeptRepos.requestErasure",
+        "POST",
+        "/v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo/erasure",
+        "json",
+        True,
+    ),
     "systemDeployments.list": Operation(
         "systemDeployments.list", "GET", "/v1/system/deployments", "json", False
     ),
@@ -2507,6 +2534,119 @@ class UsageResource:
             },
             headers={},
             response=_models.UsagePage,
+            timeout=timeout,
+        )
+
+
+class SystemKeptReposResource:
+    """`client.system_kept_repos` — the `systemKeptRepos` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def rulings(
+        self,
+        body: _models.KeptRepoRulingsBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.KeptRepoRulings:
+        """Rule on the kept repos a store holds. `POST /v1/system/kept-repos/rulings`
+
+        For a store keeping repos for the runtime's projects without a GitHub repo: one ruling for each id it names, in order. `keep`, with the mark the store sets on the repo, or `purge`, for `reason`. An unfinished erasure rules `purge` first, then a purge already recorded (with `recorded: true`), then a purged tenant; a project deleted, or a repo moved to GitHub, 90 days ago or more (its kept window) is `retention`, and a repo the runtime has no project for is `no-record`, unless something holds it (`keep`, marked `held`). Ids may span tenants. An id not in form, or more than 500, refuses the whole request. Takes `system:kept-repos`, on a runtime serving many tenants.
+        """
+        return self._client._request(
+            _OPERATIONS["systemKeptRepos.rulings"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.KeptRepoRulingsBody, body, fields),
+            response=_models.KeptRepoRulings,
+            timeout=timeout,
+        )
+
+    def erasures(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.KeptRepoErasurePage:
+        """List the unfinished erasures of kept repos. `GET /v1/system/kept-repos/erasures`
+
+        Every unfinished erasure of a project's kept repo, across tenants, by tenant id then project id: what the store purges, whether or not it holds the repo, and reports. Ids and the time of the request only. Takes `system:kept-repos`, on a runtime serving many tenants.
+        """
+        return self._client._request(
+            _OPERATIONS["systemKeptRepos.erasures"],
+            path={},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.KeptRepoErasurePage,
+            timeout=timeout,
+        )
+
+    def report_purged(
+        self,
+        tenant_id: str | UUID,
+        project_id: str | UUID,
+        body: _models.KeptRepoPurgedBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> None:
+        """Report a kept repo's purge done. `POST /v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo/purged`
+
+        The store's purge of a kept repo is done, for the ruling's `reason`. For `erasure` or `retention` the runtime records it, which completes an unfinished erasure of the repo; a second report changes nothing. It answers `204` whatever the tenant's state: a purged tenant's report, or one for a tenant the runtime doesn't know (a restore older than the tenant), is kept in the operator's access record alone. Takes `system:kept-repos`, on a runtime serving many tenants.
+        """
+        return self._client._request(
+            _OPERATIONS["systemKeptRepos.reportPurged"],
+            path={"tenantId": tenant_id, "projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.KeptRepoPurgedBody, body, fields),
+            timeout=timeout,
+        )
+
+    def state(
+        self, tenant_id: str | UUID, project_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.KeptRepoState:
+        """Read a kept repo's state. `GET /v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo`
+
+        A project's kept repo, as the runtime records it: `live`, `deleted`, `moved`, `held`, `erasure-requested` or `purged`, and since when. Takes `system:kept-repos:erase`, on a runtime serving many tenants.
+        """
+        return self._client._request(
+            _OPERATIONS["systemKeptRepos.state"],
+            path={"tenantId": tenant_id, "projectId": project_id},
+            query={},
+            headers={},
+            response=_models.KeptRepoState,
+            timeout=timeout,
+        )
+
+    def request_erasure(
+        self,
+        tenant_id: str | UUID,
+        project_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.KeptRepoState:
+        """Request a kept repo's erasure. `POST /v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo/erasure`
+
+        Requests the erasure of a project's kept repo: the store purges it at its next pass, and reports it, which completes the erasure. A second request while one is unfinished answers that one, and one for a repo whose erasure is done already answers `200` with no new request. A repo purged when its kept window ended is requested still, so its erasure is recorded too. Turning `KINDGI_KEPT_REPOS` off erases nothing and holds an unfinished erasure, which completes once it's on again. Takes `system:kept-repos:erase`, which no other scope includes, or `kindgi:system`, on a runtime serving many tenants.
+        """
+        return self._client._request(
+            _OPERATIONS["systemKeptRepos.requestErasure"],
+            path={"tenantId": tenant_id, "projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.KeptRepoState,
             timeout=timeout,
         )
 
@@ -12843,6 +12983,119 @@ class AsyncUsageResource:
         )
 
 
+class AsyncSystemKeptReposResource:
+    """`client.system_kept_repos` — the `systemKeptRepos` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def rulings(
+        self,
+        body: _models.KeptRepoRulingsBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.KeptRepoRulings:
+        """Rule on the kept repos a store holds. `POST /v1/system/kept-repos/rulings`
+
+        For a store keeping repos for the runtime's projects without a GitHub repo: one ruling for each id it names, in order. `keep`, with the mark the store sets on the repo, or `purge`, for `reason`. An unfinished erasure rules `purge` first, then a purge already recorded (with `recorded: true`), then a purged tenant; a project deleted, or a repo moved to GitHub, 90 days ago or more (its kept window) is `retention`, and a repo the runtime has no project for is `no-record`, unless something holds it (`keep`, marked `held`). Ids may span tenants. An id not in form, or more than 500, refuses the whole request. Takes `system:kept-repos`, on a runtime serving many tenants.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemKeptRepos.rulings"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.KeptRepoRulingsBody, body, fields),
+            response=_models.KeptRepoRulings,
+            timeout=timeout,
+        )
+
+    async def erasures(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.KeptRepoErasurePage:
+        """List the unfinished erasures of kept repos. `GET /v1/system/kept-repos/erasures`
+
+        Every unfinished erasure of a project's kept repo, across tenants, by tenant id then project id: what the store purges, whether or not it holds the repo, and reports. Ids and the time of the request only. Takes `system:kept-repos`, on a runtime serving many tenants.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemKeptRepos.erasures"],
+            path={},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.KeptRepoErasurePage,
+            timeout=timeout,
+        )
+
+    async def report_purged(
+        self,
+        tenant_id: str | UUID,
+        project_id: str | UUID,
+        body: _models.KeptRepoPurgedBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> None:
+        """Report a kept repo's purge done. `POST /v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo/purged`
+
+        The store's purge of a kept repo is done, for the ruling's `reason`. For `erasure` or `retention` the runtime records it, which completes an unfinished erasure of the repo; a second report changes nothing. It answers `204` whatever the tenant's state: a purged tenant's report, or one for a tenant the runtime doesn't know (a restore older than the tenant), is kept in the operator's access record alone. Takes `system:kept-repos`, on a runtime serving many tenants.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemKeptRepos.reportPurged"],
+            path={"tenantId": tenant_id, "projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.KeptRepoPurgedBody, body, fields),
+            timeout=timeout,
+        )
+
+    async def state(
+        self, tenant_id: str | UUID, project_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.KeptRepoState:
+        """Read a kept repo's state. `GET /v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo`
+
+        A project's kept repo, as the runtime records it: `live`, `deleted`, `moved`, `held`, `erasure-requested` or `purged`, and since when. Takes `system:kept-repos:erase`, on a runtime serving many tenants.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemKeptRepos.state"],
+            path={"tenantId": tenant_id, "projectId": project_id},
+            query={},
+            headers={},
+            response=_models.KeptRepoState,
+            timeout=timeout,
+        )
+
+    async def request_erasure(
+        self,
+        tenant_id: str | UUID,
+        project_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.KeptRepoState:
+        """Request a kept repo's erasure. `POST /v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo/erasure`
+
+        Requests the erasure of a project's kept repo: the store purges it at its next pass, and reports it, which completes the erasure. A second request while one is unfinished answers that one, and one for a repo whose erasure is done already answers `200` with no new request. A repo purged when its kept window ended is requested still, so its erasure is recorded too. Turning `KINDGI_KEPT_REPOS` off erases nothing and holds an unfinished erasure, which completes once it's on again. Takes `system:kept-repos:erase`, which no other scope includes, or `kindgi:system`, on a runtime serving many tenants.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemKeptRepos.requestErasure"],
+            path={"tenantId": tenant_id, "projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.KeptRepoState,
+            timeout=timeout,
+        )
+
+
 class AsyncSystemDeploymentsResource:
     """`client.system_deployments` — the `systemDeployments` operations."""
 
@@ -22116,6 +22369,7 @@ class Resources:
     system_env: SystemEnvResource
     system_usage: SystemUsageResource
     usage: UsageResource
+    system_kept_repos: SystemKeptReposResource
     system_deployments: SystemDeploymentsResource
     service_accounts: ServiceAccountsResource
     approvals: ApprovalsResource
@@ -22179,6 +22433,7 @@ class Resources:
         self.system_env = SystemEnvResource(client)
         self.system_usage = SystemUsageResource(client)
         self.usage = UsageResource(client)
+        self.system_kept_repos = SystemKeptReposResource(client)
         self.system_deployments = SystemDeploymentsResource(client)
         self.service_accounts = ServiceAccountsResource(client)
         self.approvals = ApprovalsResource(client)
@@ -22244,6 +22499,7 @@ class AsyncResources:
     system_env: AsyncSystemEnvResource
     system_usage: AsyncSystemUsageResource
     usage: AsyncUsageResource
+    system_kept_repos: AsyncSystemKeptReposResource
     system_deployments: AsyncSystemDeploymentsResource
     service_accounts: AsyncServiceAccountsResource
     approvals: AsyncApprovalsResource
@@ -22307,6 +22563,7 @@ class AsyncResources:
         self.system_env = AsyncSystemEnvResource(client)
         self.system_usage = AsyncSystemUsageResource(client)
         self.usage = AsyncUsageResource(client)
+        self.system_kept_repos = AsyncSystemKeptReposResource(client)
         self.system_deployments = AsyncSystemDeploymentsResource(client)
         self.service_accounts = AsyncServiceAccountsResource(client)
         self.approvals = AsyncApprovalsResource(client)

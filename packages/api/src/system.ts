@@ -83,6 +83,15 @@ export const SYSTEM_SCOPES = [
   'system:usage:read',
   /** The deployment's license: reading it, for its renewal. */
   'system:license',
+  /**
+   * Kept repos (the repos a store keeps for projects without a GitHub
+   * repo), for the store's reconcile: the rulings on the repos it holds,
+   * the unfinished erasures, and reporting a purge done. It can't request
+   * an erasure.
+   */
+  'system:kept-repos',
+  /** Requesting the erasure of a project's kept repo, and reading a kept repo's state. */
+  'system:kept-repos:erase',
 ] as const;
 
 export type SystemScope = (typeof SYSTEM_SCOPES)[number];
