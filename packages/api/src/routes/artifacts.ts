@@ -26,10 +26,12 @@ export const DEFAULT_ARTIFACT_MAX_BYTES = 100 * 1024 * 1024;
 
 /**
  * The page that says what replaces the artifacts routes, and that 0.8.0
- * removes them, as a `deprecation` link (RFC 9745).
+ * removes them, as a `deprecation` link (RFC 9745). It's on this release
+ * line's docs, as every link a package ships: a version change moves it to
+ * its new line (`scripts/sync-docs-line.mjs`).
  */
 export const ARTIFACTS_DEPRECATION_LINK =
-  '<https://docs.kindgi.com/v0.7/concepts/files-and-versions/#what-080-removes>; rel="deprecation"';
+  '<https://docs.kindgi.com/v0.4/concepts/files-and-versions/#what-080-removes>; rel="deprecation"';
 
 /**
  * {@link ARTIFACTS_DEPRECATION_LINK} on every `/v1/artifacts` answer, an
