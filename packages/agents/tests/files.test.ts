@@ -55,6 +55,7 @@ import {
   admitHistoryFiles,
   agentSeesFiles,
   asFileValue,
+  asMessageFile,
   callFileStore,
   filesLeftOut,
   messagesForCall,
@@ -823,6 +824,16 @@ describe("a file's forms", () => {
       type: 'kindgi.file',
       ...recordOf('art-1'),
     });
+  });
+
+  test("a file keeps its fileId and version, so the model's line names them; one alone is dropped", () => {
+    const versioned = { ...recordOf('art-1'), fileId: 'f_1', version: 3 };
+    expect(asFileValue({ ...versioned, rendition: SMALL })).toEqual({
+      type: 'kindgi.file',
+      ...versioned,
+    });
+    expect(asMessageFile(versioned)).toEqual(versioned);
+    expect(asMessageFile({ ...recordOf('art-1'), fileId: 'f_1' })).toEqual(recordOf('art-1'));
   });
 });
 

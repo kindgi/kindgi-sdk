@@ -170,7 +170,11 @@ export {
   looksLikeInstruction,
 } from './remember.js';
 export type { RememberToolOutput } from './handlers/remember-tool.js';
-export { CREATE_FILE_TOOL_ID, UPDATE_FILE_TOOL_ID } from './file-tools.js';
+export { CREATE_FILE_TOOL_ID, FILE_TOOLS_VERSION, UPDATE_FILE_TOOL_ID } from './file-tools.js';
+export type {
+  CreateFileToolOutput,
+  UpdateFileToolOutput,
+} from './handlers/model-file-tools.js';
 export type { RetrievalBindings } from './retrieval.js';
 export type {
   MissingParameterError,

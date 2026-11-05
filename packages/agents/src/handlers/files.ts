@@ -463,11 +463,16 @@ function hasFilesField(
   );
 }
 
-/** A kept file value as the file a model message carries: a file's fields only. */
+/**
+ * A kept file value as the file a model message carries: a file's fields
+ * only, its `fileId` and `version` with them, so the model's line names the
+ * version it's shown.
+ */
 export function asMessageFile(value: Omit<FileValue, 'type'>): MessageFile {
-  const { artifactId, name, contentType, size, sha256, pages, notShown } = value;
+  const { artifactId, fileId, version, name, contentType, size, sha256, pages, notShown } = value;
   return {
     artifactId,
+    ...(fileId !== undefined && version !== undefined && { fileId, version }),
     ...(name !== undefined && { name }),
     contentType,
     size,

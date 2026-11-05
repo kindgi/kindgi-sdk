@@ -1888,6 +1888,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.memory?.conversationRecall !== undefined && {
             conversationRecall: input.memory.conversationRecall,
           }),
+          // An agent's file tools write to the store `/v1/files` serves.
+          files: input.fileVersions !== undefined,
         },
         input.referenceScope,
         input.environmentOrders,

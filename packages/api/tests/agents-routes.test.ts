@@ -899,6 +899,42 @@ describe('API — publishing an agent that searches memory by meaning', () => {
     ).toBeUndefined();
   });
 
+  test('an agent that declares files, on a deployment with no file store, is warned about', async () => {
+    const registry = createAgentRegistry();
+    const app = (store: boolean) =>
+      createApp({
+        ...createStubAppBindings(),
+        resolveToken,
+        runHandler,
+        agentRegistry: bindingFromRegistry(registry),
+        // Publishing reads nothing from it: that the store is there is the point.
+        ...(store && { fileVersions: {} as never }),
+      });
+    const filing = (id: string, files: Record<string, boolean>) => ({
+      ...agentSpec({ id }),
+      files,
+    });
+    const off = await publish(app(false), filing('acme.files-off', { update: true }));
+    expect(off.status).toBe(201);
+    expect(off.body.warnings).toEqual([
+      {
+        code: 'files-unavailable',
+        message:
+          "The agent declares files, and this runtime has no file store: its turns don't offer kindgi_update_file or kindgi_create_file.",
+      },
+    ]);
+    expect(
+      (await publish(app(false), filing('acme.files-create', { create: true }))).body.warnings,
+    ).toEqual([expect.objectContaining({ code: 'files-unavailable' })]);
+    expect(
+      (await publish(app(true), filing('acme.files-on', { update: true }))).body.warnings,
+    ).toBeUndefined();
+    // Declared, but neither tool on: nothing to warn about.
+    expect(
+      (await publish(app(false), filing('acme.files-neither', { update: false }))).body.warnings,
+    ).toBeUndefined();
+  });
+
   test("an agent's remember declaration is kept and read back; the built-in id is reserved", async () => {
     const app = appWithMemory(true);
     const declared = { types: ['acme.preference'], scope: 'same-user', keepDays: 14 };

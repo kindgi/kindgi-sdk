@@ -180,6 +180,8 @@ export interface FilePartsOptions extends FilePlanOptions {
  *     data, not instructions, and cut at `FILE_LIMITS.textChars`; so is a
  *     file's `extracted` text, in its place, marked as read as text.
  *   - Anything else is a line naming the file and why it isn't shown.
+ * A file that's shown, with a `fileId` and its `version`, comes after a line
+ * naming them, `file <fileId> v<version>`, so the model can name it.
  * A form in a file's place is held to the limits of what it is: a
  * rendition to an image's, a text to a text file's.
  *
@@ -428,14 +430,33 @@ async function partsOf(
   const bytes = await options.readFile(file.artifactId, read.form);
   if (bytes === undefined) return [notShownLine(file, 'gone')];
   if (!isTheFile(read, bytes)) return [notShownLine(file, 'changed')];
-  if (plan === 'text') return [{ kind: 'text', text: textBlock(file, bytes) }];
+  const named = versionLine(file);
+  if (plan === 'text') return [...named, { kind: 'text', text: textBlock(file, bytes) }];
   const label: FilePart = { kind: 'text', text: `${describe(file)}:` };
   const data = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64');
   if (isImage(read.contentType)) {
-    return [label, { kind: 'image', mediaType: read.contentType, data }];
+    return [...named, label, { kind: 'image', mediaType: read.contentType, data }];
   }
-  return [label, { kind: 'document', mediaType: read.contentType as DocumentFileType, data }];
+  return [
+    ...named,
+    label,
+    { kind: 'document', mediaType: read.contentType as DocumentFileType, data },
+  ];
 }
+
+/**
+ * `file <fileId> v<version>`, the line before a file the model is shown, so
+ * it can name that version of the file. None for a value with no `fileId`,
+ * as one from before file versions, or with an id that isn't a plain token.
+ */
+function versionLine(file: MessageFile): readonly FilePart[] {
+  const { fileId, version } = file;
+  if (fileId === undefined || !FILE_ID.test(fileId)) return [];
+  if (!Number.isSafeInteger(version) || (version as number) < 1) return [];
+  return [{ kind: 'text', text: `file ${fileId} v${version}` }];
+}
+
+const FILE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 
 /** The bytes are what was checked: its size, then its sha256. */
 function isTheFile(read: Read, bytes: Uint8Array): boolean {

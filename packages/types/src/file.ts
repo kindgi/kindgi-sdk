@@ -144,3 +144,24 @@ export interface FileRef {
   /** A version from 1, or `latest` (the default). */
   readonly version?: number | 'latest';
 }
+
+/**
+ * Whether a file's type is text, read and written as lines: any `text/*`,
+ * JSON, XML or YAML (`application/json`, `application/xml`,
+ * `application/yaml`), and any `+json`, `+xml` or `+yaml` type, in any
+ * case, its parameters (`; charset=utf-8`) aside. The model's
+ * `kindgi_update_file` and `kindgi_create_file` change only text files.
+ */
+export function isTextFileType(contentType: string): boolean {
+  const type = (contentType.split(';')[0] ?? '').trim().toLowerCase();
+  if (!MEDIA_TYPE.test(type)) return false;
+  return type.startsWith('text/') || TEXT_APPLICATION_TYPES.has(type) || TEXT_SUFFIX.test(type);
+}
+
+const MEDIA_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,63}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,63}$/;
+const TEXT_APPLICATION_TYPES: ReadonlySet<string> = new Set([
+  'application/json',
+  'application/xml',
+  'application/yaml',
+]);
+const TEXT_SUFFIX = /\+(?:json|xml|yaml)$/;

@@ -178,7 +178,8 @@ export interface ToolInvocationSpec {
   readonly readsFiles?: boolean;
   /**
    * The tool declares `updatesFiles`: its handler gets `ctx.files.update`
-   * when the call carried tool files and an `idempotencyKey`.
+   * when the call carried tool files and an `idempotencyKey`, and the tool
+   * files say `updates` (pack protocol 2.13.0).
    */
   readonly updatesFiles?: boolean;
 }
