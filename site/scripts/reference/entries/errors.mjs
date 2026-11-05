@@ -1683,7 +1683,7 @@ export const ERROR_ENTRIES = {
   },
   'storage-limit-reached': {
     description:
-      "You stored a file that the workspace's storage limit has no room for (`storageMiB`, set by whoever runs the server). Nothing was stored. Uploads still under way count until they finish. Delete files the workspace no longer needs, or ask whoever runs the server to raise the limit; then send the file again.",
+      "You sent a file that the workspace's storage limit has no room for (`storageMiB`, set by whoever runs the server). Nothing was stored. Uploads still under way count until they finish. Delete files the workspace no longer needs, or ask whoever runs the server to raise the limit; then send the file again.",
     details: [
       {
         key: 'limit',

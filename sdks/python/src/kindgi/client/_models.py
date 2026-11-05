@@ -5833,6 +5833,10 @@ class BlobMeta(BaseModel):
     Who uploaded it: `user:<id>` or `service_account:<id>`.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    """
+    When this upload for a run is deleted if no run that names it in its input has started by then. Present only on a `forRun` upload whose run hasn't started; once one starts, it's gone, and the file stays until it's deleted.
+    """
     bucket: str | None = None
     """
     The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key.
@@ -5886,6 +5890,10 @@ class Datum5(BaseModel):
     Who uploaded it: `user:<id>` or `service_account:<id>`.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    """
+    When this upload for a run is deleted if no run that names it in its input has started by then. Present only on a `forRun` upload whose run hasn't started; once one starts, it's gone, and the file stays until it's deleted.
+    """
     bucket: str | None = None
     """
     The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key.
@@ -5908,7 +5916,7 @@ class ArtifactCollectionPage(BaseModel):
 
 class UploadArtifactBody(BaseModel):
     """
-    Multipart form. `file` is the byte stream (required). Other fields are optional metadata: `name` (defaults to file part filename), `contentType` (defaults to file part MIME), `tags` (JSON-encoded object), `ownerRunId` (RunId string), `expectedHash` (sha256 hex, framework rejects on mismatch).
+    Multipart form. `file` is the byte stream (required). Other fields are optional metadata: `name` (defaults to file part filename), `contentType` (defaults to file part MIME), `tags` (JSON-encoded object), `ownerRunId` (RunId string), `expectedHash` (sha256 hex, framework rejects on mismatch), `forRun` (`true` for an input to a run that hasn't started).
     """
 
     model_config = ConfigDict(
@@ -5932,6 +5940,10 @@ class UploadArtifactBody(BaseModel):
     )
     """
     Caller-computed sha256, hex-encoded, lowercase. Framework verifies + rejects on mismatch with `blob-hash-mismatch` (400).
+    """
+    for_run: Annotated[Literal["true", "false"] | None, Field(alias="forRun")] = None
+    """
+    `true` for an input to a run that hasn't started. It's deleted once the server's unused-upload time has passed (24 hours by default) unless a run that names it in its input has started by then; the answer's `expiresAt` says when. Not with `ownerRunId`. An upload by someone who may run here but not write is always `forRun`. Default: `false`, and the file stays until it's deleted.
     """
 
 

@@ -5928,7 +5928,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.upload',
     summary: 'Upload an artifact',
     description:
-      "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. A person with `run` there and no `write` may upload a file that names no `ownerRunId`: an input for a run they start, which they may download again. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.",
+      "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`, `forRun`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. A person with `run` there and no `write` may upload a file that names no `ownerRunId`: an input for a run they start, which they may download again. Such an upload is always `forRun`. A `forRun` upload is deleted once the server's unused-upload time has passed (24 hours by default) unless a run that names it in its input has started by then; until one does, `BlobMeta.expiresAt` says when. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`. One that the workspace's storage limit has no room for is `403 storage-limit-reached`, and nothing is stored.",
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -5945,10 +5945,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Upload accepted; metadata returned.', schema: ref('BlobMeta') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed multipart body, bad tag JSON, hash mismatch, declared size mismatch, or a `projectId` that isn't the owner run's.",
+        "Malformed multipart body, bad tag JSON, a `forRun` that isn't `true` or `false` or comes with `ownerRunId`, hash mismatch, declared size mismatch, or a `projectId` that isn't the owner run's.",
       ),
       '403': ErrorResponse(
-        "No `write` on the project, and no `run` there for an upload of the caller's own that names no run (`permission-denied`); or the caller's API key is limited to another project (`key-project-mismatch`).",
+        "No `write` on the project, and no `run` there for an upload of the caller's own that names no run (`permission-denied`); the caller's API key is limited to another project (`key-project-mismatch`); or the workspace's storage limit has no room for the file (`storage-limit-reached`; `details.storageMiB`, `usedBytes` and `neededBytes` say how much).",
       ),
       '404': ErrorResponse('No such owner run (`run-not-found`).'),
       '413': ErrorResponse(

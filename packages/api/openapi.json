@@ -13721,6 +13721,11 @@
             "type": "string",
             "format": "date-time"
           },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When this upload for a run is deleted if no run that names it in its input has started by then. Present only on a `forRun` upload whose run hasn't started; once one starts, it's gone, and the file stays until it's deleted."
+          },
           "bucket": {
             "type": "string",
             "description": "The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key."
@@ -13805,6 +13810,11 @@
                   "type": "string",
                   "format": "date-time"
                 },
+                "expiresAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "When this upload for a run is deleted if no run that names it in its input has started by then. Present only on a `forRun` upload whose run hasn't started; once one starts, it's gone, and the file stays until it's deleted."
+                },
                 "bucket": {
                   "type": "string",
                   "description": "The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key."
@@ -13826,7 +13836,7 @@
       },
       "UploadArtifactBody": {
         "type": "object",
-        "description": "Multipart form. `file` is the byte stream (required). Other fields are optional metadata: `name` (defaults to file part filename), `contentType` (defaults to file part MIME), `tags` (JSON-encoded object), `ownerRunId` (RunId string), `expectedHash` (sha256 hex, framework rejects on mismatch).",
+        "description": "Multipart form. `file` is the byte stream (required). Other fields are optional metadata: `name` (defaults to file part filename), `contentType` (defaults to file part MIME), `tags` (JSON-encoded object), `ownerRunId` (RunId string), `expectedHash` (sha256 hex, framework rejects on mismatch), `forRun` (`true` for an input to a run that hasn't started).",
         "required": [
           "file"
         ],
@@ -13857,6 +13867,14 @@
             "type": "string",
             "pattern": "^[0-9a-f]{64}$",
             "description": "Caller-computed sha256, hex-encoded, lowercase. Framework verifies + rejects on mismatch with `blob-hash-mismatch` (400)."
+          },
+          "forRun": {
+            "type": "string",
+            "enum": [
+              "true",
+              "false"
+            ],
+            "description": "`true` for an input to a run that hasn't started. It's deleted once the server's unused-upload time has passed (24 hours by default) unless a run that names it in its input has started by then; the answer's `expiresAt` says when. Not with `ownerRunId`. An upload by someone who may run here but not write is always `forRun`. Default: `false`, and the file stays until it's deleted."
           }
         }
       },
@@ -48684,7 +48702,7 @@
             }
           },
           "400": {
-            "description": "Malformed multipart body, bad tag JSON, hash mismatch, declared size mismatch, or a `projectId` that isn't the owner run's.",
+            "description": "Malformed multipart body, bad tag JSON, a `forRun` that isn't `true` or `false` or comes with `ownerRunId`, hash mismatch, declared size mismatch, or a `projectId` that isn't the owner run's.",
             "content": {
               "application/json": {
                 "schema": {
@@ -48704,7 +48722,7 @@
             }
           },
           "403": {
-            "description": "No `write` on the project, and no `run` there for an upload of the caller's own that names no run (`permission-denied`); or the caller's API key is limited to another project (`key-project-mismatch`).",
+            "description": "No `write` on the project, and no `run` there for an upload of the caller's own that names no run (`permission-denied`); the caller's API key is limited to another project (`key-project-mismatch`); or the workspace's storage limit has no room for the file (`storage-limit-reached`; `details.storageMiB`, `usedBytes` and `neededBytes` say how much).",
             "content": {
               "application/json": {
                 "schema": {
@@ -48764,7 +48782,7 @@
             }
           }
         },
-        "description": "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. A person with `run` there and no `write` may upload a file that names no `ownerRunId`: an input for a run they start, which they may download again. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.",
+        "description": "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`, `forRun`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. A person with `run` there and no `write` may upload a file that names no `ownerRunId`: an input for a run they start, which they may download again. Such an upload is always `forRun`. A `forRun` upload is deleted once the server's unused-upload time has passed (24 hours by default) unless a run that names it in its input has started by then; until one does, `BlobMeta.expiresAt` says when. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`. One that the workspace's storage limit has no room for is `403 storage-limit-reached`, and nothing is stored.",
         "parameters": [
           {
             "name": "Idempotency-Key",

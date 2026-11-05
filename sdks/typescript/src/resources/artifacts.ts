@@ -36,7 +36,9 @@ import type {
 export interface ArtifactsClient {
   /**
    * Upload bytes as an artifact. Over the runtime's cap (default 100 MiB)
-   * is `413 artifact-too-large`; no `write` on its project is `403`.
+   * is `413 artifact-too-large`; no `write` on its project is `403`, and
+   * so is a file the workspace's storage limit has no room for
+   * (`storage-limit-reached`).
    *
    * @wire `POST /v1/artifacts` (multipart) — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1artifacts/post`.
@@ -194,6 +196,7 @@ function uploadForm(input: UploadArtifactInput): FormData {
   if (input.ownerRunId !== undefined) form.set('ownerRunId', input.ownerRunId as string);
   if (input.projectId !== undefined) form.set('projectId', input.projectId);
   if (input.expectedHash !== undefined) form.set('expectedHash', input.expectedHash);
+  if (input.forRun === true) form.set('forRun', 'true');
   return form;
 }
 

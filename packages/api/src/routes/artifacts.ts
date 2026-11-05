@@ -250,21 +250,25 @@ export function artifactsRouter(
     const userId = c.get('userId') as unknown as string | undefined;
     const createdBy = userId !== undefined ? `user:${userId}` : undefined;
     // `write`, or `run` for a file of the caller's own that names no run:
-    // an input for a run they start. One that names a run stays `write`.
-    if (
-      authorizer !== undefined &&
-      !(await authorizer.can(
+    // an input for a run they start, so it's `forRun` whatever the form
+    // says. One that names a run stays `write`.
+    const writes =
+      authorizer === undefined ||
+      (await authorizer.can(
         c,
         'write',
         project.projectId !== undefined
           ? ref('project', project.projectId as unknown as string)
           : ref('tenant', tenantId as unknown as string),
-      )) &&
+      ));
+    if (
+      !writes &&
       !(
         project.projectId !== undefined &&
         validated.value.ownerRunId === undefined &&
         createdBy !== undefined &&
         createdBy === actsForOf(c) &&
+        authorizer !== undefined &&
         (await authorizer.can(c, 'run', ref('project', project.projectId as unknown as string)))
       )
     ) {
@@ -280,6 +284,7 @@ export function artifactsRouter(
       ...validated.value,
       ...(project.projectId !== undefined && { projectId: project.projectId }),
       ...(createdBy !== undefined && { createdBy }),
+      ...(!writes && { forRun: true }),
     };
 
     const outcome = await binding.put(tenantId, input);
@@ -418,6 +423,7 @@ function serializeMeta(m: BlobMeta): Record<string, unknown> {
     ...(m.projectId !== undefined && { projectId: m.projectId as unknown as string }),
     ...(m.createdBy !== undefined && { createdBy: m.createdBy }),
     createdAt: m.createdAt as unknown as string,
+    ...(m.expiresAt !== undefined && { expiresAt: m.expiresAt as unknown as string }),
     ...(m.bucket !== undefined && { bucket: m.bucket }),
     ...(m.key !== undefined && { key: m.key }),
   };
@@ -443,7 +449,8 @@ type ValidationResult<T> =
  * Parse the multipart form into a `BlobPutInput`. `file` is required —
  * every other field is optional metadata. `tags` is a JSON-encoded
  * object; `ownerRunId` is a plain string; `expectedHash` is
- * `sha256`-hex; `contentType` overrides the file part's own MIME.
+ * `sha256`-hex; `contentType` overrides the file part's own MIME;
+ * `forRun` is `true` or `false`, and `true` with `ownerRunId` is refused.
  * `name` defaults to the file part's filename.
  */
 function validateMultipart(form: FormData): ValidationResult<BlobPutInput> {
@@ -516,6 +523,9 @@ function validateMultipart(form: FormData): ValidationResult<BlobPutInput> {
     expectedHash = hashField;
   }
 
+  const forRun = forRunOf(form.get('forRun'), ownerRunId);
+  if (forRun.kind === 'err') return forRun;
+
   return {
     kind: 'ok',
     value: {
@@ -527,8 +537,28 @@ function validateMultipart(form: FormData): ValidationResult<BlobPutInput> {
       ...(ownerRunId !== undefined && { ownerRunId }),
       ...(projectId !== undefined && { projectId }),
       ...(expectedHash !== undefined && { expectedHash }),
+      ...(forRun.value && { forRun: true }),
     },
   };
+}
+
+/** The form's `forRun`: absent or empty is `false`; `true` names no run. */
+function forRunOf(
+  field: ReturnType<FormData['get']>,
+  ownerRunId: RunId | undefined,
+): ValidationResult<boolean> {
+  if (field === null || field === '' || field === 'false') return { kind: 'ok', value: false };
+  if (field !== 'true') {
+    return { kind: 'err', message: 'Field `forRun` must be `true` or `false`' };
+  }
+  if (ownerRunId !== undefined) {
+    return {
+      kind: 'err',
+      message:
+        "Field `forRun` is for a run that hasn't started; an upload with `ownerRunId` belongs to that run",
+    };
+  }
+  return { kind: 'ok', value: true };
 }
 
 function decodeListFilter(

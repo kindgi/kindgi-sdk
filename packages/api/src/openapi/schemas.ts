@@ -8080,6 +8080,12 @@ export const BlobMetaSchema: JsonSchema = {
       description: 'Who uploaded it: `user:<id>` or `service_account:<id>`.',
     },
     createdAt: { type: 'string', format: 'date-time' },
+    expiresAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "When this upload for a run is deleted if no run that names it in its input has started by then. Present only on a `forRun` upload whose run hasn't started; once one starts, it's gone, and the file stays until it's deleted.",
+    },
     bucket: {
       type: 'string',
       description:
@@ -8107,7 +8113,7 @@ export const ArtifactCollectionPageSchema: JsonSchema = {
 export const UploadArtifactBodySchema: JsonSchema = {
   type: 'object',
   description:
-    'Multipart form. `file` is the byte stream (required). Other fields are optional metadata: `name` (defaults to file part filename), `contentType` (defaults to file part MIME), `tags` (JSON-encoded object), `ownerRunId` (RunId string), `expectedHash` (sha256 hex, framework rejects on mismatch).',
+    "Multipart form. `file` is the byte stream (required). Other fields are optional metadata: `name` (defaults to file part filename), `contentType` (defaults to file part MIME), `tags` (JSON-encoded object), `ownerRunId` (RunId string), `expectedHash` (sha256 hex, framework rejects on mismatch), `forRun` (`true` for an input to a run that hasn't started).",
   required: ['file'],
   properties: {
     file: { type: 'string', format: 'binary' },
@@ -8128,6 +8134,12 @@ export const UploadArtifactBodySchema: JsonSchema = {
       pattern: '^[0-9a-f]{64}$',
       description:
         'Caller-computed sha256, hex-encoded, lowercase. Framework verifies + rejects on mismatch with `blob-hash-mismatch` (400).',
+    },
+    forRun: {
+      type: 'string',
+      enum: ['true', 'false'],
+      description:
+        "`true` for an input to a run that hasn't started. It's deleted once the server's unused-upload time has passed (24 hours by default) unless a run that names it in its input has started by then; the answer's `expiresAt` says when. Not with `ownerRunId`. An upload by someone who may run here but not write is always `forRun`. Default: `false`, and the file stays until it's deleted.",
     },
   },
 };
