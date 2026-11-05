@@ -7,8 +7,9 @@
  * file the turn was given, and `kindgi_create_file` (`files.create`) makes
  * a new text file the run owns. They dispatch like any tool (the agent's
  * `hitl.tools` policy, `authorizeToolCall`, guardrails by tool id, replay
- * and the tool error policy apply), and they're `mutating`, so a gated
- * agent's default asks before the first. They aren't in the tool registry:
+ * and the tool error policy apply), and they're `mutating`, so an agent that
+ * opts in with `hitl.tools` asks on first use, as for any mutating tool.
+ * They aren't in the tool registry:
  * each writes through the turn's file binding, under the call's key, so a
  * re-run of the call answers what its first run made.
  */
@@ -21,6 +22,7 @@ import {
   CREATE_FILE_TOOL_ID,
   FILE_TOOLS_VERSION,
   MAX_MODEL_FILE_TEXT_BYTES,
+  MAX_MODEL_UPDATED_FILE_BYTES,
   UPDATE_FILE_TOOL_ID,
 } from '../file-tools.js';
 
@@ -35,9 +37,11 @@ export interface UpdateFileToolOutput {
    * so nothing was added; Latest is in `files`. `conflict`: the file has a
    * version after the one given; Latest is in `files`, to read and update
    * instead. Otherwise nothing was added, and `reason` says why:
-   * `not-text`, `too-large`, `gone` (deleted), `not-in-run` (not that
-   * version of a file the turn was given), `not-allowed` (the run may not
-   * change it) or `not-stored` (no room left in storage).
+   * `not-text`, `too-large` (the new text is over a text file's limit, or
+   * the version is longer than a model reads whole), `gone` (deleted),
+   * `not-in-run` (not that version of a file the turn was given),
+   * `not-allowed` (the run may not change it) or `not-stored` (no room
+   * left in storage).
    */
   readonly status:
     | 'updated'
@@ -123,7 +127,7 @@ function updateFileTool(ctx: TurnContext, update: Update): Tool {
     defineTool<UpdateFileArgs, UpdateFileToolOutput>({
       id: UPDATE_FILE_TOOL_ID as ToolId,
       version: FILE_TOOLS_VERSION,
-      description: `Use ${UPDATE_FILE_TOOL_ID} to change a text file you were given: send its id and the version you read, from the line "file <fileId> v<version>" before it, and its whole new text. It adds a version; the ones before are kept.`,
+      description: `Use ${UPDATE_FILE_TOOL_ID} to change a text file you were given: send its id and the version you read, from the line "file <fileId> v<version>" before it, and its whole new text. It adds a version; the ones before are kept. It changes only a file of at most ${MAX_MODEL_UPDATED_FILE_BYTES} bytes, one you were shown whole.`,
       input: {
         type: 'object',
         additionalProperties: false,
@@ -229,18 +233,34 @@ function built(defined: ReturnType<typeof defineTool>): Tool {
   return defined.value as Tool;
 }
 
-const REASONS = {
-  same: 'The text is the latest version already, so nothing changed.',
-  conflict:
-    'The file has a later version than the one you read: it is in files. Read it, and update that version if the change still applies.',
-  'not-text': 'Only a text file can be changed or made this way.',
-  'too-large': `The text is over ${MAX_MODEL_FILE_TEXT_BYTES} bytes.`,
+type UpdateRefusal = Exclude<UpdateFileToolOutput['status'], 'updated' | 'same' | 'conflict'>;
+type CreateRefusal = Exclude<CreateFileToolOutput['status'], 'created'>;
+
+const TEXT_TOO_LARGE = `The text is over ${MAX_MODEL_FILE_TEXT_BYTES} bytes.`;
+const NO_ROOM = 'There is no room left in storage.';
+
+const SAME = 'The text is the latest version already, so nothing changed.';
+const CONFLICT =
+  "The file has a later version than the one you read; it's shown with this result. Read it, and update that version if the change still applies.";
+// A version over the cut a model reads at: writing back what it read would drop the rest.
+const FILE_TOO_LONG = `The file is over ${MAX_MODEL_UPDATED_FILE_BYTES} bytes, more than you may have read whole, so it can't be changed this way.`;
+
+const UPDATE_REASONS: Readonly<Record<UpdateRefusal, string>> = {
+  'not-text': 'Only a text file can be changed this way.',
+  'too-large': TEXT_TOO_LARGE,
   gone: 'The file is deleted.',
   'not-in-run':
     'That is not a version of a file you were given in this conversation. Use the id and version from its line.',
-  'not-allowed': 'This run may not change files there.',
-  'not-stored': 'There is no room left in storage.',
-} as const;
+  'not-allowed': 'This run may not change this file.',
+  'not-stored': NO_ROOM,
+};
+
+const CREATE_REASONS: Readonly<Record<CreateRefusal, string>> = {
+  'not-text': 'Only a text file can be made this way.',
+  'too-large': TEXT_TOO_LARGE,
+  'not-allowed': 'This run may not make files.',
+  'not-stored': NO_ROOM,
+};
 
 const UPDATE_REFUSED = {
   rule: 'not-in-run',
@@ -265,11 +285,12 @@ async function updateFile(
   toolCtx: ToolContext,
 ): Promise<UpdateFileToolOutput> {
   const bytes = new TextEncoder().encode(args.content);
-  if (bytes.byteLength > MAX_MODEL_FILE_TEXT_BYTES) return refused('too-large');
+  if (bytes.byteLength > MAX_MODEL_FILE_TEXT_BYTES) return notUpdated('too-large');
   // The version the model was given, which says the type the new one keeps.
   const given = await givenFile(ctx, args.fileId, args.expectedVersion);
-  if (given === undefined) return refused('not-in-run');
-  if (!isTextFileType(given.contentType)) return refused('not-text');
+  if (given === undefined) return notUpdated('not-in-run');
+  if (!isTextFileType(given.contentType)) return notUpdated('not-text');
+  if (given.size > MAX_MODEL_UPDATED_FILE_BYTES) return notUpdated('too-large', FILE_TOO_LONG);
   const answer = await update(callOf(toolCtx, UPDATE_FILE_TOOL_ID), {
     fileId: args.fileId,
     expectedVersion: args.expectedVersion,
@@ -277,11 +298,11 @@ async function updateFile(
     bytes,
   });
   if ('file' in answer) return { status: 'updated', files: [answer.file] };
-  if ('same' in answer) return { status: 'same', files: [answer.same], reason: REASONS.same };
+  if ('same' in answer) return { status: 'same', files: [answer.same], reason: SAME };
   if ('conflict' in answer) {
-    return { status: 'conflict', files: [answer.conflict], reason: REASONS.conflict };
+    return { status: 'conflict', files: [answer.conflict], reason: CONFLICT };
   }
-  return refused(UPDATE_REFUSED[answer.notUpdated]);
+  return notUpdated(UPDATE_REFUSED[answer.notUpdated]);
 }
 
 async function createFile(
@@ -290,20 +311,27 @@ async function createFile(
   toolCtx: ToolContext,
 ): Promise<CreateFileToolOutput> {
   const contentType = args.contentType ?? 'text/plain';
-  if (!isTextFileType(contentType)) return refused('not-text');
+  if (!isTextFileType(contentType)) return notCreated('not-text');
   const bytes = new TextEncoder().encode(args.content);
-  if (bytes.byteLength > MAX_MODEL_FILE_TEXT_BYTES) return refused('too-large');
+  if (bytes.byteLength > MAX_MODEL_FILE_TEXT_BYTES) return notCreated('too-large');
   const answer = await create(callOf(toolCtx, CREATE_FILE_TOOL_ID), {
     name: args.name,
     contentType,
     bytes,
   });
   if ('file' in answer) return { status: 'created', files: [answer.file] };
-  return refused(CREATE_REFUSED[answer.notCreated]);
+  return notCreated(CREATE_REFUSED[answer.notCreated]);
 }
 
-function refused<S extends keyof typeof REASONS>(status: S): { status: S; reason: string } {
-  return { status, reason: REASONS[status] };
+function notUpdated(
+  status: UpdateRefusal,
+  reason: string = UPDATE_REASONS[status],
+): UpdateFileToolOutput {
+  return { status, reason };
+}
+
+function notCreated(status: CreateRefusal): CreateFileToolOutput {
+  return { status, reason: CREATE_REASONS[status] };
 }
 
 /**

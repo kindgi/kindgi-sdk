@@ -3,7 +3,7 @@
 
 import { createHash } from 'node:crypto';
 
-import type { FileNotShownReason, FileValue } from '@kindgi/types';
+import { type FileNotShownReason, type FileValue, isTextFileType } from '@kindgi/types';
 
 import type { ModelCallInput, ModelMessage } from './types.js';
 
@@ -62,7 +62,11 @@ export type ImageFileType = (typeof IMAGE_FILE_TYPES)[number];
 export const DOCUMENT_FILE_TYPES = ['application/pdf'] as const;
 export type DocumentFileType = (typeof DOCUMENT_FILE_TYPES)[number];
 
-/** Text files, read in as text (UTF-8) for any agent. */
+/**
+ * The text types mail and the store name. A model reads as text (UTF-8),
+ * for any agent, every type `isTextFileType` (`@kindgi/types`) takes: these,
+ * any other `text/*`, JSON, XML, YAML and their suffixes, parameters aside.
+ */
 export const TEXT_FILE_TYPES = ['text/plain', 'text/markdown', 'text/csv'] as const;
 
 /**
@@ -400,7 +404,7 @@ function readOf(file: MessageFile): Read {
 function kindOf(type: string): FileKind | undefined {
   if (isImage(type)) return 'image';
   if (isDocument(type)) return 'document';
-  return isText(type) ? 'text' : undefined;
+  return isTextFileType(type) ? 'text' : undefined;
 }
 
 /** What's read, `size` bytes of `kind`, is over its kind's limit: its bytes, or a PDF's pages. */
@@ -492,6 +496,15 @@ function describe(file: MessageFile): string {
   return `File${name} (${type}, ${sizeText(file.size)})`;
 }
 
+/**
+ * A text block's type: `type/subtype`, parameters aside (a text type may
+ * have them), or `unknown type`, so nothing in it reads as ours.
+ */
+function blockType(contentType: string): string {
+  const type = (contentType.split(';')[0] ?? '').trim();
+  return MEDIA_TYPE.test(type) ? type : 'unknown type';
+}
+
 const MEDIA_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,63}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,63}$/i;
 
 function sizeText(size: number): string {
@@ -517,7 +530,7 @@ function textBlock(file: MessageFile, bytes: Uint8Array): string {
     ...(file.extracted === undefined ? [] : ['read as text']),
     ...(cut || file.extracted?.cut === true ? [`cut at ${FILE_LIMITS.textChars} characters`] : []),
   ].join('; ');
-  return `<file name=${JSON.stringify(file.name ?? '').replace(/</g, '\\u003c')} type="${file.contentType}" note="${note}">\n${shown}\n</file>`;
+  return `<file name=${JSON.stringify(file.name ?? '').replace(/</g, '\\u003c')} type="${blockType(file.contentType)}" note="${note}">\n${shown}\n</file>`;
 }
 
 /** Adjacent text parts as one, a line apart. */
@@ -540,8 +553,4 @@ function isImage(type: string): type is ImageFileType {
 
 function isDocument(type: string): type is DocumentFileType {
   return (DOCUMENT_FILE_TYPES as readonly string[]).includes(type);
-}
-
-function isText(type: string): boolean {
-  return (TEXT_FILE_TYPES as readonly string[]).includes(type);
 }

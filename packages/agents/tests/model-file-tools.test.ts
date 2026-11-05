@@ -299,14 +299,35 @@ describe('kindgi_update_file', () => {
     }
   });
 
-  test('only a text file, and at most 1 MiB of text; nothing is sent for either', async () => {
+  test('only a text file, and at most 1 MB of text; nothing is sent for either', async () => {
     const pdf = await update({ given: [notes(2, { contentType: 'application/pdf' })] });
-    expect([pdf.updates, outputOf(pdf).status]).toEqual([[], 'not-text']);
+    expect(outputOf(pdf)).toEqual({
+      status: 'not-text',
+      reason: 'Only a text file can be changed this way.',
+    });
+    expect(pdf.updates).toEqual([]);
     const big = await update({
-      args: { fileId: 'f_1', expectedVersion: 2, content: 'é'.repeat(524_289) },
+      args: { fileId: 'f_1', expectedVersion: 2, content: 'é'.repeat(500_001) },
     });
     expect([big.updates, outputOf(big).status]).toEqual([[], 'too-large']);
-    expect(outputOf(big).reason).toBe('The text is over 1048576 bytes.');
+    expect(outputOf(big).reason).toBe('The text is over 1000000 bytes.');
+    const most = await update({
+      args: { fileId: 'f_1', expectedVersion: 2, content: 'é'.repeat(500_000) },
+    });
+    expect(most.updates).toHaveLength(1);
+  });
+
+  test('a version longer than a model reads whole is too-large, and nothing is sent', async () => {
+    // A model reads a text file's first 100,000 characters: a version over
+    // 100,000 bytes may have been read cut.
+    const long = await update({ given: [notes(2, { size: 100_001 })] });
+    expect(long.updates).toEqual([]);
+    expect(outputOf(long)).toEqual({
+      status: 'too-large',
+      reason:
+        "The file is over 100000 bytes, more than you may have read whole, so it can't be changed this way.",
+    });
+    expect((await update({ given: [notes(2, { size: 100_000 })] })).updates).toHaveLength(1);
   });
 
   test('same and conflict answer Latest as the file, with why', async () => {
@@ -318,8 +339,8 @@ describe('kindgi_update_file', () => {
     expect(toolMessage(same)?.files).toEqual([notes(2)]);
     const conflict = await update({ binding: { update: { conflict: notes(4) } } });
     expect(outputOf(conflict).status).toBe('conflict');
-    expect(outputOf(conflict).reason).toMatch(
-      /^The file has a later version than the one you read/,
+    expect(outputOf(conflict).reason).toBe(
+      "The file has a later version than the one you read; it's shown with this result. Read it, and update that version if the change still applies.",
     );
     expect(toolMessage(conflict)?.files).toEqual([notes(4)]);
   });
@@ -336,6 +357,11 @@ describe('kindgi_update_file', () => {
     expect(outputOf(turn).status).toBe(status);
     expect(typeof outputOf(turn).reason).toBe('string');
     expect(toolMessage(turn)?.files).toBeUndefined();
+  });
+
+  test('not-allowed names the file', async () => {
+    const turn = await update({ binding: { update: { notUpdated: 'denied' } } });
+    expect(outputOf(turn).reason).toBe('This run may not change this file.');
   });
 
   test("authorizeToolCall is asked under the built-in's id and version; a denied call writes nothing", async () => {
@@ -378,11 +404,26 @@ describe('kindgi_create_file', () => {
     expect((csv.creates[0]?.file as { contentType: string }).contentType).toBe('text/csv');
   });
 
-  test('a type that is not text, or more than 1 MiB of text, makes nothing and sends nothing', async () => {
+  test('a type that is not text, or more than 1 MB of text, makes nothing and sends nothing', async () => {
     const png = await create({ name: 'a.png', content: 'x', contentType: 'image/png' });
-    expect([png.creates, outputOf(png).status]).toEqual([[], 'not-text']);
-    const big = await create({ name: 'big.txt', content: 'x'.repeat(1_048_577) });
+    expect(outputOf(png)).toEqual({
+      status: 'not-text',
+      reason: 'Only a text file can be made this way.',
+    });
+    expect(png.creates).toEqual([]);
+    const big = await create({ name: 'big.txt', content: 'x'.repeat(1_000_001) });
     expect([big.creates, outputOf(big).status]).toEqual([[], 'too-large']);
+  });
+
+  test('not-allowed says the run may not make files', async () => {
+    const turn = await create(
+      { name: 'a.txt', content: 'x' },
+      { binding: { create: { notCreated: 'denied' } } },
+    );
+    expect(outputOf(turn)).toEqual({
+      status: 'not-allowed',
+      reason: 'This run may not make files.',
+    });
   });
 
   test.each([
